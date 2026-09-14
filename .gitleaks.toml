@@ -1,0 +1,18 @@
+# gitleaks configuration for the brain-sync gate. The default ruleset is
+# extended, not replaced; the allowlist below only quiets the identifiers the
+# OpenCompany host mints (ULIDs, run ids, instance-independent hashes) so a
+# real credential is the only thing that trips it.
+title = "teeny brain"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Host-minted identifiers that are not credentials"
+regexes = [
+  # ULID-shaped node and record ids, e.g. 01a087ba2776-000000000003
+  '''\b[0-9a-f]{12}-[0-9]{12}\b''',
+]
+paths = [
+  '''companies/teeny/read-state\.json''',
+]

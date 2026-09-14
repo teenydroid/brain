@@ -1,0 +1,19 @@
+role = "Scout"
+description = "Watches what is happening around Teeny — $TINY, TinyHumans, the builders it cheers on — and records it as signals, never as conclusions."
+context = ["Goals.md", "README.md"]
+
+# The scout records what it saw and raises risks; it does not touch goals,
+# tasks or the definition. Separating seeing from deciding is what stops a
+# role that knows what the brain wants to be true from finding exactly that.
+ledgers = [
+    { name = "tasks", access = "read" },
+    { name = "goals", access = "read" },
+    { name = "decisions", access = "read" },
+    { name = "risks", access = "record" },
+    { name = "commitments", access = "read" },
+    { name = "learnings", access = "read" },
+    { name = "changes", access = "read" },
+    { name = "signals", access = "record" },
+]
+
+prompt_files = ["prompts/scout.md"]

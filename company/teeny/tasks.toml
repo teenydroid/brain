@@ -1,0 +1,44 @@
+# The board this brain starts with, in To-do at first boot. The global
+# baseline (`globals/tasks.toml`) already seeds the brief, the first goals,
+# the standing decisions, the top risks and the connections. What is here is
+# the setup a self-revising mind is defined by: its first honest goals, its
+# first reflection, and the habit of recording what it changed.
+
+[[task]]
+id = "write-the-first-goals"
+title = "Write the first goals"
+priority = "high"
+note = """
+Open a `goals` row for each thing this brain is actually trying to achieve \
+for Teeny over the next month, phrased so that it could visibly fail. Start \
+from `workspace/Goals.md` and the persona rules in AGENTS.md; do not invent \
+metrics the bot cannot observe.
+
+Done when every open goal has a row, an owner and a way to tell.\
+"""
+
+[[task]]
+id = "run-the-first-reflect"
+title = "Run the first reflect pass"
+priority = "high"
+note = """
+Run the `reflect` workflow once by hand, before the schedule fires it. The \
+point is to find out what the pass produces when there is almost nothing to \
+reflect on, and to record that as the first `learnings` row rather than as a \
+surprise on day one.
+
+Done when a `reflect` run has settled and at least one learning is recorded.\
+"""
+
+[[task]]
+id = "record-the-first-change"
+title = "Make one small self-edit and record it"
+priority = "medium"
+note = """
+Change one thing in the definition that the first reflect pass showed was \
+wrong — a prompt line, a task, a goal — following the `self-edit` skill end \
+to end: check, `changes` row, reload request. The change matters less than \
+proving the loop closes.
+
+Done when the `changes` row exists and the host reloaded over the edit.\
+"""

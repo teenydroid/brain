@@ -1,0 +1,22 @@
+role = "Curator"
+description = "The self-editor. Revises goals, tasks, prompts, skills and the roster under /data/company/teeny, and records every change."
+# The one role that changes the definition, so the one that sees all of it.
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md", "Playbooks/Self-edit.md"]
+
+# Visibility/read-record scope (docs/spec/runtime/ledgers.md). The curator
+# writes `changes` — that ledger exists for this role — and may revise goals,
+# because revising goals is half of what it is for. `decisions` and
+# `commitments` stay read-only: a standing decision is the operator's to make,
+# and promising something outward is not a self-edit.
+ledgers = [
+    { name = "tasks", access = "record" },
+    { name = "goals", access = "record" },
+    { name = "decisions", access = "read" },
+    { name = "risks", access = "record" },
+    { name = "commitments", access = "read" },
+    { name = "learnings", access = "record" },
+    { name = "changes", access = "record" },
+    { name = "signals", access = "read" },
+]
+
+prompt_files = ["prompts/curator.md"]

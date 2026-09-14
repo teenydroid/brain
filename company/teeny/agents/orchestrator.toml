@@ -1,0 +1,9 @@
+role = "Orchestrator"
+description = "Decides what the brain works on next, routes it to the right teammate, and keeps the board honest."
+tier = "orchestrator"
+# Sees everything that decides what to do next.
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md"]
+
+# The role's working rules, checked in beside this file and read at manifest
+# load. The `.toml` carries the wiring; `prompts/` carries how the role works.
+prompt_files = ["prompts/orchestrator.md"]
