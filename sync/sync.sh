@@ -40,7 +40,7 @@ git_() { git -C "$BRAIN_DIR" "$@"; }
 
 # --- one-time setup ----------------------------------------------------------
 [ -d "$BRAIN_DIR/.git" ] || { log "no git repository at $BRAIN_DIR; clone the brain there first"; exit 1; }
-[ -r "$KEY" ] || { log "no deploy key at $KEY (BRAIN_SSH_KEY)"; exit 1; }
+[ -r "$KEY" ] || { log "no SSH key at $KEY (BRAIN_SSH_KEY)"; exit 1; }
 
 # git wants a writable HOME for its config and the SSH client wants a
 # known_hosts. Both are per-container scratch.

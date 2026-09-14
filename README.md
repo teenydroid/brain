@@ -62,9 +62,9 @@ cannot be edited out from inside the running brain.
 (a definition edit pulled from GitHub asks the host to reload), `git add -A`
 (the allowlist filters), then two gates — gitleaks over the staged tree and a
 grep of the staged diff for every value in the host's `.env` files — then
-commit and push with a write deploy key mounted at `/run/secrets/brain_key`.
+commit and push with the teenydroid account's SSH key mounted at `/run/secrets/brain_key`.
 `sync-now` runs a tick immediately. The key is generated on the box and
-uploaded to this repository as a deploy key by teeny's `deploy.sh`; it never
+added to the teenydroid GitHub account by a person; it never
 lives in this tree.
 
 ## How it changes itself
