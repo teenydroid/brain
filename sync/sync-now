@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run one sync tick immediately: docker exec teeny-brain-sync-1 sync-now
+kill -USR1 1

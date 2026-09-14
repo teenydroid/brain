@@ -15,6 +15,8 @@ company/teeny/     the definition — agents, prompts, skills, workflows, ledger
 skills/            the shared skill library the host resolves beside it
 companies/teeny/   runtime state the host writes: events, journal, runs, the
                    board, ledgers, facts, notes, memory (allowlisted files only)
+sync/              the brain-sync sidecar: the image that commits and pushes
+                   this checkout after every run, and the gates in front of it
 ```
 
 This checkout **is** the host's data root (`OPENCOMPANY_DATA_DIR`). The host
@@ -48,8 +50,22 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 ```
 
 `opencompany check /data/company/teeny` validates the definition without
-starting anything. The production wiring — the compose services, the sync
-loop, the reload mechanism — lives in the teeny repository under `deploy/`.
+starting anything. The production wiring — the compose services and the
+reload mechanism — lives in the teeny repository under `deploy/`; the sync
+sidecar's image is `sync/` here, built by that deploy from the copy of this
+repository pinned there rather than from the live checkout, so the gates
+cannot be edited out from inside the running brain.
+
+## The sync sidecar (`sync/`)
+
+`sync/sync.sh` runs every `BRAIN_SYNC_INTERVAL` seconds: pull `--rebase`
+(a definition edit pulled from GitHub asks the host to reload), `git add -A`
+(the allowlist filters), then two gates — gitleaks over the staged tree and a
+grep of the staged diff for every value in the host's `.env` files — then
+commit and push with a write deploy key mounted at `/run/secrets/brain_key`.
+`sync-now` runs a tick immediately. The key is generated on the box and
+uploaded to this repository as a deploy key by teeny's `deploy.sh`; it never
+lives in this tree.
 
 ## How it changes itself
 
