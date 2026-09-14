@@ -12,6 +12,10 @@
 # The definition: what the agents may rewrite.
 !/company/
 
+# The sync sidecar that commits this checkout: its image is built from here
+# (from the copy pinned in the teeny repository, not from the live checkout).
+!/sync/
+
 # The shared skill library. The host resolves it as <company dir>/../../skills,
 # which is why the definition sits at company/teeny and not at the top.
 !/skills/

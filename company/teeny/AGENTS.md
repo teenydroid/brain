@@ -45,6 +45,10 @@ The running state the host writes lives beside this directory under
    shrink; those two are how it does.
 6. **Prompts describe how a role works, not what it currently knows.** What it
    knows goes in ledgers and notes, where it can be revised without a reload.
+7. **`/data/sync/` is not yours.** It is the sidecar that publishes this
+   directory and the gates that keep secrets out of it. Edits there do not
+   reach the running sidecar (it is built from a reviewed copy), and a
+   change to it is a person's decision, made in a pull request.
 
 ## The no-secrets rule
 
