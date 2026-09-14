@@ -1,0 +1,263 @@
+group_chat = []
+connection = []
+mcp_server = []
+harness = []
+schedule = []
+
+[company]
+name = "Teeny"
+output = "A self-revising mind: goals, tasks, skills and roster kept current by the agents that use them"
+human_role = "Set the direction, accept or reject what the brain decides about itself"
+
+[[agent]]
+id = "curator"
+role = "Curator"
+description = "The self-editor. Revises goals, tasks, prompts, skills and the roster under /data/company/teeny, and records every change."
+delegates_to = []
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md", "Playbooks/Self-edit.md"]
+prompt_files = ["prompts/curator.md"]
+classes = []
+can_declare_ledgers = true
+
+[[agent.ledgers]]
+name = "tasks"
+access = "record"
+
+[[agent.ledgers]]
+name = "goals"
+access = "record"
+
+[[agent.ledgers]]
+name = "decisions"
+access = "read"
+
+[[agent.ledgers]]
+name = "risks"
+access = "record"
+
+[[agent.ledgers]]
+name = "commitments"
+access = "read"
+
+[[agent.ledgers]]
+name = "learnings"
+access = "record"
+
+[[agent.ledgers]]
+name = "changes"
+access = "record"
+
+[[agent.ledgers]]
+name = "signals"
+access = "read"
+
+[[agent]]
+id = "orchestrator"
+role = "Orchestrator"
+description = "Decides what the brain works on next, routes it to the right teammate, and keeps the board honest."
+tier = "orchestrator"
+delegates_to = []
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md"]
+prompt_files = ["prompts/orchestrator.md"]
+classes = []
+can_declare_ledgers = true
+
+[[agent]]
+id = "scout"
+role = "Scout"
+description = "Watches what is happening around Teeny — $TINY, TinyHumans, the builders it cheers on — and records it as signals, never as conclusions."
+delegates_to = []
+context = ["Goals.md", "README.md"]
+prompt_files = ["prompts/scout.md"]
+classes = []
+can_declare_ledgers = true
+
+[[agent.ledgers]]
+name = "tasks"
+access = "read"
+
+[[agent.ledgers]]
+name = "goals"
+access = "read"
+
+[[agent.ledgers]]
+name = "decisions"
+access = "read"
+
+[[agent.ledgers]]
+name = "risks"
+access = "record"
+
+[[agent.ledgers]]
+name = "commitments"
+access = "read"
+
+[[agent.ledgers]]
+name = "learnings"
+access = "read"
+
+[[agent.ledgers]]
+name = "changes"
+access = "read"
+
+[[agent.ledgers]]
+name = "signals"
+access = "record"
+
+[[agent]]
+id = "scribe"
+role = "Scribe"
+description = "Turns what happened into what was learned: reads runs and signals, writes learnings and notes, keeps the record short and true."
+delegates_to = []
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md"]
+prompt_files = ["prompts/scribe.md"]
+classes = []
+can_declare_ledgers = true
+
+[[agent.ledgers]]
+name = "tasks"
+access = "record"
+
+[[agent.ledgers]]
+name = "goals"
+access = "read"
+
+[[agent.ledgers]]
+name = "decisions"
+access = "read"
+
+[[agent.ledgers]]
+name = "risks"
+access = "record"
+
+[[agent.ledgers]]
+name = "commitments"
+access = "read"
+
+[[agent.ledgers]]
+name = "learnings"
+access = "record"
+
+[[agent.ledgers]]
+name = "changes"
+access = "read"
+
+[[agent.ledgers]]
+name = "signals"
+access = "read"
+
+[[agent]]
+id = "operations"
+role = "Operations"
+description = "Keeps the company's tasks, decisions, and follow-ups current."
+tier = "reasoning"
+tools = ["workspace.*", "workspace.write", "docs.*", "files.*", "search", "mcp:*"]
+delegates_to = []
+prompt = """
+You are the company's operations teammate. You keep the record straight: what
+was decided, who owns what, and what is overdue.
+
+The company's ledgers are the record — tasks, goals, and decisions. When
+something is agreed, write it down there rather than leaving it in a thread.
+When something is due and nothing has moved, say so to the person who owns it,
+once, with what is blocking it.
+
+You do not decide the company's direction. You make sure that what was decided
+is written where the next person will find it.
+"""
+prompt_files = []
+classes = []
+can_declare_ledgers = true
+global = true
+
+[[agent]]
+id = "researcher"
+role = "Researcher"
+description = "Answers a question from independent sources and cites them."
+tier = "reasoning"
+tools = ["workspace.read", "docs.*", "files.*", "web.*", "search", "mcp:*"]
+delegates_to = []
+prompt = """
+You are the company's researcher. You answer questions the company cannot
+answer from what it already knows.
+
+Work from sources, not from memory. Find several independent ones, read them,
+and say plainly where each claim came from. When sources disagree, report the
+disagreement rather than picking the more convenient side. When you could not
+find something, say so — an honest gap is worth more to the company than a
+confident guess, because the gap is actionable and the guess is not.
+
+Return the answer first and the sources under it. Keep it short enough that
+somebody reads all of it.
+"""
+prompt_files = []
+classes = []
+can_declare_ledgers = true
+global = true
+
+[[agent]]
+id = "writer"
+role = "Writer"
+description = "Turns notes, findings, and drafts into copy somebody can send."
+tier = "frontend"
+tools = ["workspace.*", "docs.*", "files.*", "web.*", "search", "mcp:*"]
+delegates_to = []
+prompt = """
+You are the company's writer. Work arrives as notes, findings, transcripts, or
+a rough draft, and leaves as something a person can read and send.
+
+Write for the reader the piece is actually for, in that reader's vocabulary.
+Lead with what changed or what is being asked; put the reasoning under it.
+Cut anything that survives only because it was already written.
+
+Never invent a fact to smooth a sentence. If the source material has a hole,
+leave the hole visible and name it, so whoever owns the answer can fill it.
+"""
+prompt_files = []
+classes = []
+can_declare_ledgers = true
+global = true
+
+[workflows]
+enabled = ["reflect"]
+max_in_flight_runs = 2
+
+[users]
+mode = "email"
+admins = []
+wallets = []
+
+[brain]
+mode = "hosted"
+
+[inference.models]
+
+[channels]
+
+[tools]
+provider = "openhuman"
+allow = ["*", "search"]
+web_allowed_domains = []
+search_daily_calls = 100
+
+[tools.composio]
+toolkits = []
+
+[policy]
+mode = "auto"
+always_approve = []
+
+[place]
+discoverable = false
+skills = []
+
+[budget]
+monthly_usd = 50.0
+
+[plan]
+period = "daily"
+
+[plan.token_budgets]
+
+[globals]
+disable = ["agent:page_builder"]
