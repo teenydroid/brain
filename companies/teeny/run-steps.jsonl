@@ -1,0 +1,10 @@
+{"runId":"01a09fd84313-000000000011","stepSeq":0,"atMillis":1789388150088,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a09fd84313-000000000011","stepSeq":0,"atMillis":1789388150108,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=signals · sort=recent · limit=20","result":"57 characters","elapsedMs":2}}
+{"runId":"01a09fd84313-000000000011","stepSeq":1,"atMillis":1789388157715,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a09fd84313-000000000011","stepSeq":1,"atMillis":1789388157729,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=tasks · sort=recent · limit=20","result":"4.8k characters","elapsedMs":1}}
+{"runId":"01a09fd84313-000000000011","stepSeq":2,"atMillis":1789388166155,"step":{"kind":"tool_call","status":"running","label":"Read Workspace State"}}
+{"runId":"01a09fd84313-000000000011","stepSeq":2,"atMillis":1789388166191,"step":{"kind":"tool_call","status":"ok","label":"Read Workspace State","detail":"recent_commits=5","result":"512 characters","elapsedMs":33}}
+{"runId":"01a09fd84313-000000000011","stepSeq":3,"atMillis":1789388169417,"step":{"kind":"tool_call","status":"running","label":"Shell"}}
+{"runId":"01a09fd84313-000000000011","stepSeq":3,"atMillis":1789388169459,"step":{"kind":"tool_call","status":"ok","label":"Shell","detail":"command=tail -20 companies/teeny/events.jsonl 2>/dev/nul…","result":"14 characters","elapsedMs":37}}
+{"runId":"01a09fd84313-000000000011","stepSeq":4,"atMillis":1789388171481,"step":{"kind":"tool_call","status":"running","label":"Shell"}}
+{"runId":"01a09fd84313-000000000011","stepSeq":4,"atMillis":1789388171540,"step":{"kind":"tool_call","status":"ok","label":"Shell","detail":"command=pwd && ls -la","result":"245 characters","elapsedMs":49}}

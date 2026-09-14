@@ -16,3 +16,7 @@
 {"seq":15,"company":"teeny","event":{"kind":"TaskCardChanged","task_id":"write-the-first-goals","change":"opened","column":"todo"},"at_millis":1789385353982}
 {"seq":16,"company":"teeny","event":{"kind":"TaskCardChanged","task_id":"run-the-first-reflect","change":"opened","column":"todo"},"at_millis":1789385353984}
 {"seq":17,"company":"teeny","event":{"kind":"TaskCardChanged","task_id":"record-the-first-change","change":"opened","column":"todo"},"at_millis":1789385353992}
+{"seq":18,"company":"teeny","event":{"kind":"WorkflowRunStarted","workflow_id":"reflect","run_id":"01a09fd842a0-000000000010","scheduled":false,"started_by":"operator"},"at_millis":1789388145403}
+{"seq":19,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a09fd842a0-000000000010","node_id":"look"},"at_millis":1789388145427}
+{"seq":20,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"to":"pending"},"at_millis":1789388145443}
+{"seq":21,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"from":"pending","to":"running"},"at_millis":1789388145453}
