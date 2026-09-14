@@ -20,3 +20,5 @@
 {"seq":19,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a09fd842a0-000000000010","node_id":"look"},"at_millis":1789388145427}
 {"seq":20,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"to":"pending"},"at_millis":1789388145443}
 {"seq":21,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"from":"pending","to":"running"},"at_millis":1789388145453}
+{"seq":22,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a23d-000000000014","change":"opened"},"at_millis":1789388235339}
+{"seq":23,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"opened"},"at_millis":1789388235353}
