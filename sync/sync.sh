@@ -93,44 +93,48 @@ tick() {
     log "fetch failed; working offline this tick"
   fi
 
-  # 2. stage what the allowlist permits.
+  # 2. stage what the allowlist permits, and commit if anything is.
   git_ add -A
-  if git_ diff --cached --quiet; then
-    return 0
-  fi
-  n="$(git_ diff --cached --name-only | wc -l | tr -d ' ')"
+  if ! git_ diff --cached --quiet; then
+    n="$(git_ diff --cached --name-only | wc -l | tr -d ' ')"
 
-  # 3. the gates. Either one aborts the commit and leaves the tree as it was.
-  # --verbose is what prints the findings; only the rule, file and line are
-  # echoed here -- never the `Secret:` line, which is the value itself.
-  if ! gitleaks git --staged --no-banner --verbose --exit-code 1 \
-        --config "$BRAIN_DIR/.gitleaks.toml" "$BRAIN_DIR" >/tmp/gitleaks.out 2>&1; then
-    log "REFUSED: gitleaks found something in the staged tree; nothing committed"
-    grep -E "^(RuleID|File|Line):" /tmp/gitleaks.out | sed 's/^/  /' | head -30
-    grep -q "^RuleID:" /tmp/gitleaks.out || { log "  (gitleaks did not report a finding; its output follows)"; sed 's/^/  /' /tmp/gitleaks.out; }
-    git_ reset -q
-    return 0
-  fi
-  secret_values > /tmp/secret-values
-  if [ -s /tmp/secret-values ]; then
-    hit="$(git_ diff --cached | grep -F -f /tmp/secret-values | head -1 || true)"
-    if [ -n "$hit" ]; then
-      log "REFUSED: a configured secret value appears in the staged diff; nothing committed"
-      git_ diff --cached --name-only | sed 's/^/  staged: /'
+    # 3. the gates. Either one aborts the commit and leaves the tree as it was.
+    # --verbose is what prints the findings; only the rule, file and line are
+    # echoed here -- never the `Secret:` line, which is the value itself.
+    if ! gitleaks git --staged --no-banner --verbose --exit-code 1 \
+          --config "$BRAIN_DIR/.gitleaks.toml" "$BRAIN_DIR" >/tmp/gitleaks.out 2>&1; then
+      log "REFUSED: gitleaks found something in the staged tree; nothing committed"
+      grep -E "^(RuleID|File|Line):" /tmp/gitleaks.out | sed 's/^/  /' | head -30
+      grep -q "^RuleID:" /tmp/gitleaks.out || { log "  (gitleaks did not report a finding; its output follows)"; sed 's/^/  /' /tmp/gitleaks.out; }
       git_ reset -q
-      rm -f /tmp/secret-values
       return 0
     fi
-  fi
-  rm -f /tmp/secret-values
+    secret_values > /tmp/secret-values
+    if [ -s /tmp/secret-values ]; then
+      hit="$(git_ diff --cached | grep -F -f /tmp/secret-values | head -1 || true)"
+      if [ -n "$hit" ]; then
+        log "REFUSED: a configured secret value appears in the staged diff; nothing committed"
+        git_ diff --cached --name-only | sed 's/^/  staged: /'
+        git_ reset -q
+        rm -f /tmp/secret-values
+        return 0
+      fi
+    fi
+    rm -f /tmp/secret-values
 
-  # 4. commit and push.
-  git_ commit -q -m "brain: $(date -u +%Y-%m-%dT%H:%M:%SZ), $n file(s)"
-  log "committed $(git_ rev-parse --short HEAD): $n file(s)"
-  if git_ push -q origin "HEAD:$BRANCH" 2>/tmp/push.err; then
-    log "pushed to origin/$BRANCH"
-  else
-    log "push failed; keeping the commit and retrying next tick: $(tr '\n' ' ' </tmp/push.err)"
+    git_ commit -q -m "brain: $(date -u +%Y-%m-%dT%H:%M:%SZ), $n file(s)"
+    log "committed $(git_ rev-parse --short HEAD): $n file(s)"
+  fi
+
+  # 4. push whatever is not on origin yet -- the commit just made, or one a
+  #    previous tick made and could not push.
+  ahead="$(git_ rev-list --count "origin/$BRANCH..HEAD" 2>/dev/null || echo 0)"
+  if [ "$ahead" -gt 0 ]; then
+    if git_ push -q origin "HEAD:$BRANCH" 2>/tmp/push.err; then
+      log "pushed $ahead commit(s) to origin/$BRANCH"
+    else
+      log "push failed; keeping $ahead commit(s) and retrying next tick: $(tr '\n' ' ' </tmp/push.err)"
+    fi
   fi
 }
 
