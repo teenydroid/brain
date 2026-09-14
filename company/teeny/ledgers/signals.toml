@@ -1,0 +1,97 @@
+# What the scout saw. Observations, not conclusions.
+#
+# The record the rest of the brain reasons from. A signal is one thing that
+# happened, where, when, with a link — so that a learning drawn from it can be
+# checked against it later, and so that the scout never has to be trusted on
+# what things mean, only on what it saw.
+
+title = "Signals"
+purpose = """
+One row per observation about Teeny's world: what people are saying, what \
+builders are shipping, what the bot did, what changed in the TinyHumans \
+repositories. Written by the scout; read by the scribe and the curator, who \
+decide what, if anything, it means.\
+"""
+written_by = "`record_entry` when something is seen, `close_entry` when it has been folded into a learning or judged noise"
+checks = ["required-field", "known-status", "closed-needs-reason"]
+
+[[field]]
+name = "id"
+role = "id"
+required = true
+
+[[field]]
+name = "signal"
+role = "title"
+required = true
+description = "What was seen, flatly. No adjectives that do the concluding for the reader."
+
+[[field]]
+name = "status"
+role = "status"
+required = true
+
+[[field]]
+name = "where"
+role = "prose"
+required = true
+description = "A link, a handle, a repository, or a path under /data/companies/teeny. Something a reader can go and look at."
+
+[[field]]
+name = "seen_at"
+role = "prose"
+required = true
+description = "When, in UTC."
+
+[[field]]
+name = "bears_on"
+role = "prose"
+description = "Which goal or task it seems relevant to, if any. 'None yet' is a fine answer."
+
+[[field]]
+name = "owner"
+role = "owner"
+
+[[field]]
+name = "reason"
+role = "prose"
+description = "Why it closed — folded into which learning, or why it was noise. Required when it closes."
+
+[[field]]
+name = "refs"
+role = "refs"
+description = "Goal, task or learning ids."
+
+[[status]]
+name = "new"
+
+[[status]]
+name = "reviewed"
+
+[[status]]
+name = "folded"
+closed = true
+needs_reason = true
+
+[[status]]
+name = "noise"
+closed = true
+needs_reason = true
+
+[[section]]
+heading = "Unreviewed"
+blurb = "Seen and not yet read by the scribe. The reflect pass empties this."
+statuses = ["new"]
+order = "recent"
+
+[[section]]
+heading = "Reviewed"
+blurb = "Read, not yet folded into a learning or dismissed."
+statuses = ["reviewed"]
+order = "recent"
+
+[[section]]
+heading = "Settled"
+blurb = "Folded into a learning, or judged noise, with the reason."
+statuses = ["folded", "noise"]
+cap = 40

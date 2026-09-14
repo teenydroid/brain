@@ -1,0 +1,98 @@
+# Every edit the brain makes to its own definition.
+#
+# The definition is public and versioned in git, so the diff is always
+# available; what git does not carry is the reason, and the reason is the
+# whole point. A row here is what makes a self-edit reviewable by a person a
+# week later — and by the curator, before it makes the same change again.
+
+title = "Changes"
+purpose = """
+One row per self-edit of /data/company/teeny or /data/skills: what changed, \
+why, and what would show it was a mistake. Written by the curator before the \
+reload is requested, so the record is never behind the definition.\
+"""
+written_by = "`record_entry` when a change is made, `close_entry` when it is kept, reverted or superseded"
+checks = ["required-field", "known-status", "closed-needs-reason"]
+
+[[field]]
+name = "id"
+role = "id"
+required = true
+
+[[field]]
+name = "change"
+role = "title"
+required = true
+description = "What changed, as a person would say it: 'scout prompt: stop searching for confirmation', not a file path."
+
+[[field]]
+name = "status"
+role = "status"
+required = true
+
+[[field]]
+name = "files"
+role = "prose"
+required = true
+description = "The paths touched, relative to /data. Small is good; one is best."
+
+[[field]]
+name = "why"
+role = "prose"
+required = true
+description = "The learning, signal, run or decision that justifies it. Cite the row."
+
+[[field]]
+name = "would_falsify"
+role = "prose"
+description = "What would show this change was a mistake. A change nothing could falsify is decoration."
+
+[[field]]
+name = "owner"
+role = "owner"
+
+[[field]]
+name = "reason"
+role = "prose"
+description = "Why it closed — kept after review, reverted, or superseded by a later change. Required when it closes."
+
+[[field]]
+name = "refs"
+role = "refs"
+description = "Ids of the learnings, signals or decisions it rests on, and the change that superseded it."
+
+[[status]]
+name = "applied"
+
+[[status]]
+name = "reloaded"
+
+[[status]]
+name = "kept"
+closed = true
+needs_reason = true
+
+[[status]]
+name = "reverted"
+closed = true
+needs_reason = true
+
+[[status]]
+name = "superseded"
+closed = true
+needs_reason = true
+
+[[section]]
+heading = "Live"
+blurb = "Applied and loaded, not yet reviewed. The next reflect pass looks at these first."
+statuses = ["applied", "reloaded"]
+order = "recent"
+
+[[section]]
+heading = "Settled"
+blurb = """
+Kept, reverted or superseded, each with the reason. A reverted change is worth \
+more than a missing one: it names something that looked right and was not.\
+"""
+statuses = ["kept", "reverted", "superseded"]
+cap = 30

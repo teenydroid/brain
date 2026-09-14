@@ -1,0 +1,16 @@
+role = "Scribe"
+description = "Turns what happened into what was learned: reads runs and signals, writes learnings and notes, keeps the record short and true."
+context = ["Goals.md", "README.md", "Playbooks/Reflect.md"]
+
+ledgers = [
+    { name = "tasks", access = "record" },
+    { name = "goals", access = "read" },
+    { name = "decisions", access = "read" },
+    { name = "risks", access = "record" },
+    { name = "commitments", access = "read" },
+    { name = "learnings", access = "record" },
+    { name = "changes", access = "read" },
+    { name = "signals", access = "read" },
+]
+
+prompt_files = ["prompts/scribe.md"]

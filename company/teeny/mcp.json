@@ -1,0 +1,4 @@
+{
+  "$comment": "No MCP servers yet. The curator may add public, no-auth servers here; anything needing a credential goes through the host's secret store, never this file.",
+  "mcpServers": {}
+}

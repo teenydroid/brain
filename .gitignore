@@ -1,0 +1,42 @@
+# Deny by default. This checkout is a live OpenCompany data root
+# (OPENCOMPANY_DATA_DIR), and most of what the host writes under it must
+# never reach a public repository: plaintext secrets, signing keys, session
+# hashes, the config file carrying the API key, the MCP registry with its
+# stored environment values, the agent journal and the agent sandboxes.
+# Everything below is re-included by name; anything not named stays out.
+/*
+!/.gitignore
+!/.gitleaks.toml
+!/README.md
+
+# The definition: what the agents may rewrite.
+!/company/
+
+# The shared skill library. The host resolves it as <company dir>/../../skills,
+# which is why the definition sits at company/teeny and not at the top.
+!/skills/
+
+# Runtime state the host materializes at companies/<slug>/. Only the record
+# is public: the event log, the journal, runs, the board, the ledgers, facts,
+# notes and memory. Never secrets/, keys/, users.json, user-sessions.json,
+# login-codes.json, user-invites.json, usage.jsonl or deep-trace.jsonl.
+!/companies/
+/companies/*
+!/companies/teeny/
+/companies/teeny/*
+!/companies/teeny/company.toml
+!/companies/teeny/meta.json
+!/companies/teeny/events.jsonl
+!/companies/teeny/journal.jsonl
+!/companies/teeny/runs.jsonl
+!/companies/teeny/run-steps.jsonl
+!/companies/teeny/tasks.json
+!/companies/teeny/ledgers.json
+!/companies/teeny/ledger.jsonl
+!/companies/teeny/facts.jsonl
+!/companies/teeny/read-state.json
+!/companies/teeny/workspace/
+/companies/teeny/workspace/secrets/
+!/companies/teeny/memory/
+!/companies/teeny/context/
+!/companies/teeny/audit/

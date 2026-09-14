@@ -1,0 +1,89 @@
+# Workflow graph: reflect
+#
+# Referenced by `[workflows].enabled = ["reflect"]` in ../company.toml.
+#
+# One pass of the brain looking at itself: what happened, what it means, what
+# to change. The three stages are three agents on purpose. The scout sees and
+# never decides; the scribe decides what was learned and never edits the
+# definition; the curator edits the definition and runs last, so every change
+# it makes rests on a record that was written before it started.
+#
+# The trigger carries the schedule. Runs daily at 06:00 UTC, two hours before
+# the bot's morning post, so a change lands before the day starts rather than
+# in the middle of it.
+
+id = "reflect"
+name = "Reflect"
+description = "Look at what happened, write down what it taught, and revise the definition where the record says to."
+
+[[node]]
+id = "daily"
+kind = "trigger"
+name = "Every morning"
+summary = "Fires daily at 06:00 UTC, and whenever the orchestrator runs it by hand."
+schedule = "0 6 * * *"
+
+[[node]]
+id = "look"
+kind = "agent"
+name = "Look outward and at the record"
+summary = "Record what happened since the last pass as signals. Observations only."
+agent = "scout"
+
+[[node]]
+id = "learn"
+kind = "agent"
+name = "Write what it taught"
+summary = "Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger."
+agent = "scribe"
+
+[[node]]
+id = "gate"
+kind = "condition"
+name = "Does the record call for a change?"
+summary = "Branch on whether a learning names something in the definition that is now wrong."
+[node.config]
+field = "=item.change_needed"
+
+[[node]]
+id = "revise"
+kind = "agent"
+name = "Revise the definition"
+summary = "Make the smallest change the record justifies, check it, record it, request a reload."
+agent = "curator"
+
+[[node]]
+id = "report"
+kind = "output"
+name = "Report to the operator"
+summary = "What was seen, what was learned, what changed — three short lists."
+[node.destination]
+kind = "owner"
+
+[[edge]]
+from = "daily"
+to = "look"
+
+[[edge]]
+from = "look"
+to = "learn"
+
+[[edge]]
+from = "learn"
+to = "gate"
+
+[[edge]]
+from = "gate"
+to = "revise"
+label = "yes"
+
+# A pass that changes nothing still reports. "Nothing needed changing" is a
+# finding, and a silent day is indistinguishable from a broken one.
+[[edge]]
+from = "gate"
+to = "report"
+label = "no"
+
+[[edge]]
+from = "revise"
+to = "report"

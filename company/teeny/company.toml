@@ -1,0 +1,57 @@
+# Teeny's brain, as an OpenCompany company.
+#
+# The host instantiates one runtime agent per `agents/<id>.toml`. This company
+# does not model a business; it models a mind that keeps itself. Its output is
+# a better version of this directory: sharper goals, a truer task board, a
+# roster that fits what it has learned. The X and Telegram surfaces stay with
+# the teeny bot; this is the part that decides what Teeny is trying to do.
+#
+# Every file here is public, and the agents may rewrite most of them. What
+# they may never do is put a credential in one — see AGENTS.md.
+
+[company]
+name = "Teeny"
+output = "A self-revising mind: goals, tasks, skills and roster kept current by the agents that use them"
+human_role = "Set the direction, accept or reject what the brain decides about itself"
+
+[users]
+# Sign-in has to exist: the host serves the console to whoever reaches its
+# bind address, and `none` is refused on anything but loopback. Email mode
+# with no mail transport is fine — the first password is minted offline with
+# `opencompany issue-password` (docs/spec/runtime/users.md). The admin address
+# is supplied by the host as OPENCOMPANY_ADMIN_EMAIL rather than written here,
+# so the public definition names nobody.
+mode = "email"
+
+# No [inference] table on purpose. The default provider in keyless mode rides
+# the endpoint the host injects from the environment
+# (OPENCOMPANY_INFERENCE_URL / OPENCOMPANY_INFERENCE_KEY), which is how the
+# credential stays out of this file. Naming `openai_compatible` here would
+# require a base_url and a secret-store key, and gain nothing.
+
+[tools]
+# `allow` REPLACES the global default. `*` covers files/docs/shell/code/web/
+# subagent; `search` is opt-in and named literally so the scout can find
+# things rather than only read what it was handed. `shell` is load-bearing:
+# the curator edits this directory with it and asks for a reload by touching
+# a file.
+allow = ["*", "search"]
+search_daily_calls = 100
+
+[workflows]
+enabled = ["reflect"]
+max_in_flight_runs = 2
+
+[policy]
+# The brain's own edits are its own business; a person reviews them in git,
+# after the fact, which is the point of committing every run. Anything that
+# reaches outward still goes through `request_approval`.
+mode = "auto"
+
+[budget]
+monthly_usd = 50.0
+
+[globals]
+# The baseline's researcher, writer and operations fit a mind; a landing-page
+# builder does not. Dropped rather than left idle on the roster.
+disable = ["agent:page_builder"]
