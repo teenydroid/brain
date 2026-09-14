@@ -19,8 +19,15 @@ COPY sync.sh /usr/local/bin/sync.sh
 COPY sync-now /usr/local/bin/sync-now
 RUN chmod +x /usr/local/bin/sync.sh /usr/local/bin/sync-now
 
-# The checkout is bind-mounted here. git refuses to touch a repository owned
-# by another uid, and the container runs as the box user, so the ownership
-# already matches; this is belt and braces for a `docker compose run` as root.
+# The container runs as the box user's uid so what it writes into the
+# bind-mounted checkout is the checkout owner's. OpenSSH refuses to run as a
+# uid with no passwd entry ("No user exists for uid 1000"), so that uid gets
+# a name here; compose passes the real value as a build arg.
+ARG SYNC_UID=1000
+ARG SYNC_GID=1000
+RUN grp="$(getent group "${SYNC_GID}" | cut -d: -f1)"; \
+    if [ -z "$grp" ]; then addgroup -g "${SYNC_GID}" brain && grp=brain; fi; \
+    adduser -D -u "${SYNC_UID}" -G "$grp" -h /tmp brain
+
 ENV BRAIN_DIR=/data
 ENTRYPOINT ["/usr/local/bin/sync.sh"]
