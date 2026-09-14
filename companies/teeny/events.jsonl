@@ -22,3 +22,11 @@
 {"seq":21,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"from":"pending","to":"running"},"at_millis":1789388145453}
 {"seq":22,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a23d-000000000014","change":"opened"},"at_millis":1789388235339}
 {"seq":23,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"opened"},"at_millis":1789388235353}
+{"seq":24,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789388242039}
+{"seq":25,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789388248022}
+{"seq":26,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789388251345}
+{"seq":27,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fd84313-000000000011","attempt":1,"from":"running","to":"failed","error":"agent stopped at the max_tool_iterations cap before finishing"},"at_millis":1789388265843}
+{"seq":28,"company":"teeny","event":{"kind":"WorkflowNodeFinished","workflow_id":"reflect","run_id":"01a09fd842a0-000000000010","node_id":"look","status":"error","elapsed_ms":120417,"agent_run_id":"01a09fd84313-000000000011"},"at_millis":1789388265851}
+{"seq":29,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a09fd842a0-000000000010","node_id":"learn"},"at_millis":1789388265859}
+{"seq":30,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fda197f-000000000022","attempt":1,"to":"pending"},"at_millis":1789388265864}
+{"seq":31,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a09fda197f-000000000022","attempt":1,"from":"pending","to":"running"},"at_millis":1789388265878}

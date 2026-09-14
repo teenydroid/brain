@@ -1,0 +1,14 @@
+Task: Record what happened since the last pass as signals. Observations only.
+Outcome: recorded 4 signals from what i found looking around:
+
+1. **all-ledgers-empty** — goals, decisions, commitments, learnings, risks, changes, signals all at zero rows. the company has no recorded goals, decisions, or risks yet.
+
+2. **tasks-all-pending** — 8 task cards on the board, all in "pending". highest priority: write the company brief, set first goals, write first goals, run first reflect.
+
+3. **goals-md-empty** — Goals.md in the workspace says "Nothing yet. The first task on the board is to write these." matches the empty goals ledger.
+
+4. **workspace-sparse** — 8 workspace entries, no brief.md, agents folder empty. git shows a brain sync commit at 11:29 UTC today.
+
+the reflect playbook says the pass runs daily at 06:00 UTC: scout looks → scribe learns → curator revises. this is the scout looking. the scribe and curator haven't run yet.
+
+**still to do:** the scribe needs to read these signals and decide what they mean, then the curator revises if a change is needed. also none of the pending task cards have been started yet — the board is sitting untouched.

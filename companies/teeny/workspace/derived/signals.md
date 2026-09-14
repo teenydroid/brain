@@ -9,6 +9,21 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `workspace-sparse` — Workspace has 8 entries: Goals.md, Playbooks/Reflect.md, Playbooks/Self-edit.md, README.md, agents/ (empty), artifacts/readme.md. No brief.md yet. Git shows recent merge activity and a brain sync commit at 11:29 UTC today.
+  - status: new
+  - where: workspace: workspace_list
+  - seen_at: 2026-09-14T12:15:45Z
+  - bears_on: infrastructure
+- `goals-md-empty` — Goals.md in the workspace says 'Nothing yet. The first task on the board is to write these.' The goals ledger is empty.
+  - status: new
+  - where: workspace: Goals.md
+  - seen_at: 2026-09-14T12:15:45Z
+  - bears_on: readiness
+- `tasks-all-pending` — Eight task cards on the board, all in 'pending' — none started. Highest priority cards: write the company brief, set first goals, write first goals, run first reflect.
+  - status: new
+  - where: ledgers: tasks
+  - seen_at: 2026-09-14T12:15:45Z
+  - bears_on: readiness
 - `all-ledgers-empty` — goals, decisions, commitments, learnings, risks, changes, and signals ledgers all at zero rows. No goals, decisions, or risks recorded yet.
   - status: new
   - where: ledgers: list_ledgers
