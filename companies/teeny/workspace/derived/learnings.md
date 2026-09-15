@@ -9,6 +9,10 @@ _Derived from the `learnings` ledger and rewritten on every write. **Do not edit
 
 Seen once. Worth knowing, not yet worth building on.
 
+- `board-idle-24h` — 24 hours in, the company remains in its initial state — no cards started, no goals set, no decisions recorded. The reflect schedule is working (first automated pass at 06:00 UTC on day 2), but the board has not moved.
+  - status: noted
+  - evidence: First scheduled reflect pass fired at 2026-09-15 06:00 UTC. All 8 task cards still in 'pending'. Goals ledger still at 0 rows. Workspace unchanged from day 1. The prior day's reflect pass (manual, 12:15 UTC) recorded learning company-initialized.
+  - so_what: The reflect loop is functioning — scout sees, scribe learns. But the company is stuck at step zero: nobody has started the highest-priority card (write the company brief). The board needs human action or a card dispatch to break inertia.
 - `company-initialized` — The company has been initialized today with an empty workspace and zero rows across all ledgers. No goals, decisions, risks, or commitments have been recorded yet.
   - status: noted
   - evidence: Scout's reflect pass at 2026-09-14 12:15 UTC found: all 7 ledgers at zero rows, 8 task cards all in 'pending', workspace with only default notes (Goals.md, Playbooks, README.md), git showing a brain sync commit at 11:29 UTC today.

@@ -1,0 +1,17 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+I've reviewed the ledgers. Nothing new has come in since the last pass: the signals ledger is empty, and there are no commitments, changes, or risks recorded yet. The only activity on record is the initial company initialization and the first scheduled reflect noting that no goals, decisions, or risks had been recorded.
+
+There's nothing to observe or record right now. The workspace is quiet, freshly initialized, with no new signals to capture.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Goals.md says "Nothing yet" and the goals ledger is at 0 rows — still in sync. No update needed.
+
+**Reflect pass for 2026-09-15 06:00 UTC complete:**
+
+- **New signal:** `first-scheduled-reflect` — first automated cron pass firing, board still idle
+- **New learning:** `board-idle-24h` (status: noted) — 24 hours in, company hasn't moved past initialization. The reflect loop works (scout → scribe on schedule), but no cards have been started.
+- **Goals.md:** Still matches the empty goals ledger — no update needed.
+- **Change needed:** No — the definition is fine, the reflect loop is running correctly. The inertia is on the task board, not in the brain's configuration.
