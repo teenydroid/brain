@@ -44,3 +44,4 @@
 {"seq":43,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a0a3a69b38-00000000002a","node_id":"look"},"at_millis":1789452000501}
 {"seq":44,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0a3a69ce2-00000000002b","attempt":1,"to":"pending"},"at_millis":1789452000546}
 {"seq":45,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0a3a69ce2-00000000002b","attempt":1,"from":"pending","to":"running"},"at_millis":1789452000576}
+{"seq":46,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789452153673}

@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `first-scheduled-reflect` — First scheduled reflect pass firing at 06:00 UTC. Prior day's signals were recorded by scout and processed into a learning (company-initialized) by the scribe, but no task cards have moved — all 8 still in 'pending'. The reflect playbook says this is the first automated pass.
+  - status: new
+  - where: ledgers: tasks
+  - seen_at: 2026-09-15T06:00:00Z
+  - bears_on: readiness
 - `workspace-sparse` — Workspace has 8 entries: Goals.md, Playbooks/Reflect.md, Playbooks/Self-edit.md, README.md, agents/ (empty), artifacts/readme.md. No brief.md yet. Git shows recent merge activity and a brain sync commit at 11:29 UTC today.
   - status: new
   - where: workspace: workspace_list
