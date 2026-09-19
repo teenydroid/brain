@@ -9,6 +9,16 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `signal-backlog-sep15` — Signal 'first-scheduled-reflect' recorded on Sep 15 remains in status 'new' as of Sep 19 — it was never reviewed or folded by a scribe pass. This means the reflect loop has a gap: the scheduled scribe pass that should follow the scout pass either didn't run or didn't process this signal. The derived/signals.md still lists it under 'Unreviewed'.
+  - status: new
+  - where: ledgers: signals
+  - seen_at: 2026-09-19T06:00:00Z
+  - bears_on: process
+- `company-idle-5-days` — Scheduled scout pass at 06:00 UTC on Sep 19. The company has been in exactly the same state for 5 days since initialization on Sep 14: all 8 task cards still in 'pending', goals/decisions/risks/commitments/changes ledgers all at 0 rows, workspace unchanged (no brief.md, no goals set). The Sep 15 signal (first-scheduled-reflect) was never folded by a scribe pass — it remains 'new' on the signals ledger and 'Unreviewed' in derived/signals.md. No new activity detected anywhere.
+  - status: new
+  - where: ledgers: tasks
+  - seen_at: 2026-09-19T06:00:00Z
+  - bears_on: readiness
 - `first-scheduled-reflect` — First scheduled reflect pass firing at 06:00 UTC. Prior day's signals were recorded by scout and processed into a learning (company-initialized) by the scribe, but no task cards have moved — all 8 still in 'pending'. The reflect playbook says this is the first automated pass.
   - status: new
   - where: ledgers: tasks

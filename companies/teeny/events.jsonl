@@ -85,3 +85,10 @@
 {"seq":84,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a0b8400b07-000000000002","node_id":"look"},"at_millis":1789797600218}
 {"seq":85,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b8400bd8-000000000003","attempt":1,"to":"pending"},"at_millis":1789797600226}
 {"seq":86,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b8400bd8-000000000003","attempt":1,"from":"pending","to":"running"},"at_millis":1789797600231}
+{"seq":87,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789797629833}
+{"seq":88,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fd9a24c-000000000016","change":"updated"},"at_millis":1789797636784}
+{"seq":89,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b8400bd8-000000000003","attempt":1,"from":"running","to":"succeeded"},"at_millis":1789797644166}
+{"seq":90,"company":"teeny","event":{"kind":"WorkflowNodeFinished","workflow_id":"reflect","run_id":"01a0b8400b07-000000000002","node_id":"look","status":"ok","elapsed_ms":43951,"agent_run_id":"01a0b8400bd8-000000000003"},"at_millis":1789797644168}
+{"seq":91,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a0b8400b07-000000000002","node_id":"learn"},"at_millis":1789797644181}
+{"seq":92,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b840b793-00000000000c","attempt":1,"to":"pending"},"at_millis":1789797644189}
+{"seq":93,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b840b793-00000000000c","attempt":1,"from":"pending","to":"running"},"at_millis":1789797644196}

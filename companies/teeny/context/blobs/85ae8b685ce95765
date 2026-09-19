@@ -1,0 +1,19 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1789797600001
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Two signals recorded for this pass:
+
+1. **company-idle-5-days** — The company hasn't moved since initialization on Sep 14. All 8 cards pending, all ledgers empty, no brief.md, no goals. Five days of nothing.
+
+2. **signal-backlog-sep15** — The Sep 15 signal is still sitting in "new" status, meaning the scribe pass that should follow the scout either didn't run or didn't pick it up. That's a gap in the loop worth the scribe knowing about.
+
+That's all I see. The workspace is quiet — no new files, no changed notes, no activity in any ledger except the signals I just wrote.

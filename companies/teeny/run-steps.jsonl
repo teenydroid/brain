@@ -192,3 +192,37 @@
 {"runId":"01a0a3a941a0-000000000032","stepSeq":11,"atMillis":1789452212550,"step":{"kind":"tool_call","status":"ok","label":"Workspace Read","detail":"path=Goals.md","result":"Workspace note `Goals.md` (id=01a09fadaa98-000000000000, rev=1789385353880, 403 bytes).\nTo revise it, call `workspace_write` with expected_updated_at=1789385353880 and the complete new body.\nThe lines…","elapsedMs":1}}
 {"runId":"01a0a3a941a0-000000000032","stepSeq":12,"atMillis":1789452218565,"step":{"kind":"tool_call","status":"running","label":"List Ledgers"}}
 {"runId":"01a0a3a941a0-000000000032","stepSeq":12,"atMillis":1789452218574,"step":{"kind":"tool_call","status":"ok","label":"List Ledgers","result":"2.7k characters","elapsedMs":3}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":0,"atMillis":1789797613205,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":0,"atMillis":1789797613234,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=signals · sort=recent","result":"2.0k characters","elapsedMs":9}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":1,"atMillis":1789797613243,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":1,"atMillis":1789797613247,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=tasks · sort=recent","result":"4.8k characters","elapsedMs":2}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":2,"atMillis":1789797613252,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":2,"atMillis":1789797613257,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings · sort=recent","result":"1.7k characters","elapsedMs":3}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":3,"atMillis":1789797613266,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":3,"atMillis":1789797613267,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals · sort=recent","result":"55 characters","elapsedMs":2}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":4,"atMillis":1789797613270,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":4,"atMillis":1789797613272,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=decisions · sort=recent","result":"59 characters","elapsedMs":2}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":5,"atMillis":1789797613275,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":5,"atMillis":1789797613277,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=risks · sort=recent","result":"55 characters","elapsedMs":2}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":6,"atMillis":1789797613280,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":6,"atMillis":1789797613281,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=commitments · sort=recent","result":"61 characters","elapsedMs":1}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":7,"atMillis":1789797613285,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":7,"atMillis":1789797613286,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=changes · sort=recent","result":"57 characters","elapsedMs":2}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":8,"atMillis":1789797614388,"step":{"kind":"tool_call","status":"running","label":"Workspace List"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":8,"atMillis":1789797614397,"step":{"kind":"tool_call","status":"ok","label":"Workspace List","result":"Company workspace — 11 of 11 entries. Read one with `workspace_read` using its path or id.\nfile\tGoals.md\tid=01a09fadaa98-000000000000\trev=1789385353880\nfolder\tPlaybooks\tid=01a09fadaaa2-000000000003\tre…","elapsedMs":6}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":9,"atMillis":1789797618378,"step":{"kind":"tool_call","status":"running","label":"Workspace Read"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":9,"atMillis":1789797618382,"step":{"kind":"tool_call","status":"ok","label":"Workspace Read","detail":"path=derived/learnings.md","result":"Workspace note `derived/learnings.md` (id=01a09fdaae76-000000000025, rev=1789452209682, 2073 bytes).\nTo revise it, call `workspace_write` with expected_updated_at=1789452209682 and the complete new bo…","elapsedMs":1}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":10,"atMillis":1789797618392,"step":{"kind":"tool_call","status":"running","label":"Workspace Read"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":10,"atMillis":1789797618394,"step":{"kind":"tool_call","status":"ok","label":"Workspace Read","detail":"path=derived/signals.md","result":"Workspace note `derived/signals.md` (id=01a09fd9a24c-000000000016, rev=1789452153664, 2196 bytes).\nTo revise it, call `workspace_write` with expected_updated_at=1789452153664 and the complete new body…","elapsedMs":7}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":11,"atMillis":1789797629814,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":11,"atMillis":1789797629840,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=6 fields · id=company-idle-5-days · ledger=signals","result":"691 characters","elapsedMs":20}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":12,"atMillis":1789797636771,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a0b8400bd8-000000000003","stepSeq":12,"atMillis":1789797636791,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=6 fields · id=signal-backlog-sep15 · ledger=signals","result":"563 characters","elapsedMs":13}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":0,"atMillis":1789797653546,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":0,"atMillis":1789797653557,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=signals","result":"3.2k characters","elapsedMs":2}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":1,"atMillis":1789797653565,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":1,"atMillis":1789797653566,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings","result":"1.7k characters","elapsedMs":2}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":2,"atMillis":1789797653571,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":2,"atMillis":1789797653572,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals","result":"55 characters","elapsedMs":1}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":3,"atMillis":1789797653594,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a0b840b793-00000000000c","stepSeq":3,"atMillis":1789797653595,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=tasks","result":"4.8k characters","elapsedMs":9}}
