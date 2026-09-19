@@ -1,0 +1,24 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+Two signals recorded for this pass:
+
+1. **company-idle-5-days** — The company hasn't moved since initialization on Sep 14. All 8 cards pending, all ledgers empty, no brief.md, no goals. Five days of nothing.
+
+2. **signal-backlog-sep15** — The Sep 15 signal is still sitting in "new" status, meaning the scribe pass that should follow the scout either didn't run or didn't pick it up. That's a gap in the loop worth the scribe knowing about.
+
+That's all I see. The workspace is quiet — no new files, no changed notes, no activity in any ledger except the signals I just wrote.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Goals.md says "Nothing yet" — goals ledger has 0 rows. Still in sync, no update needed.
+
+The scout also flagged a process gap: the Sep 15 signal `first-scheduled-reflect` was never folded by a scribe pass. Looking back, I *did* run a scribe pass on Sep 15 at 06:00 UTC — I recorded `board-idle-24h` which covered that signal's content. But I didn't have write access to the signals ledger to close it. That signal is still sitting in "new" because I can't close rows on signals. Not a gap in the loop — a permissions gap. Worth noting.
+
+**Reflect pass for 2026-09-19 06:00 UTC:**
+
+- **New signals folded:** `company-idle-5-days` and `signal-backlog-sep15`
+- **New learning:** `company-idle-5-days` (status: noted) — five days, no movement. The board hasn't started a single card since creation.
+- **Goals.md:** Still matches the empty goals ledger — no update needed.
+- **Signal backlog note:** The Sep 15 signal `first-scheduled-reflect` is still in "new" on the signals ledger. Not because the scribe missed it — I recorded `board-idle-24h` covering it — but because I can't close signal rows (read-only on that ledger). That's a permissions detail, not a loop failure.
+- **Change needed:** No. The definition is fine. The bottleneck is human: the brief needs writing before anything else can start.
