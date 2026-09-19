@@ -92,3 +92,4 @@
 {"seq":91,"company":"teeny","event":{"kind":"WorkflowNodeStarted","workflow_id":"reflect","run_id":"01a0b8400b07-000000000002","node_id":"learn"},"at_millis":1789797644181}
 {"seq":92,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b840b793-00000000000c","attempt":1,"to":"pending"},"at_millis":1789797644189}
 {"seq":93,"company":"teeny","event":{"kind":"RunStatusChanged","run_id":"01a0b840b793-00000000000c","attempt":1,"from":"pending","to":"running"},"at_millis":1789797644196}
+{"seq":94,"company":"teeny","event":{"kind":"WorkspaceChanged","node_id":"01a09fdaae76-000000000025","change":"updated"},"at_millis":1789797667268}
