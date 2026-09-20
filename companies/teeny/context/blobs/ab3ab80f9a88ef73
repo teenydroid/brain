@@ -1,0 +1,15 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1789884000001
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: One signal for this pass:
+
+**day-6-still-idle** — Day 6, nothing moved. 8 cards still pending, all ledgers still empty (except the signals I keep writing). The scribe ran on Sep 19 and did fold `company-idle-5-days` into a learning, but the signals ledger statuses were never updated — so derived/signals.md still shows everything as Unreviewed. The backlog is now 7 signals dating back to Sep 14 that have never been marked reviewed. The loop is running but the cleanup step is dropping the ball.
