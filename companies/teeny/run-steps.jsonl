@@ -260,3 +260,5 @@
 {"runId":"01a0bd66cdbc-00000000001b","stepSeq":1,"atMillis":1789884028287,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings","result":"2.6k characters","elapsedMs":2}}
 {"runId":"01a0bd66cdbc-00000000001b","stepSeq":2,"atMillis":1789884028289,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
 {"runId":"01a0bd66cdbc-00000000001b","stepSeq":2,"atMillis":1789884028297,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals","result":"55 characters","elapsedMs":2}}
+{"runId":"01a0bd66cdbc-00000000001b","stepSeq":3,"atMillis":1789884041076,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a0bd66cdbc-00000000001b","stepSeq":3,"atMillis":1789884041119,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=5 fields · id=company-idle-5-days · ledger=learnings","result":"1.0k characters","elapsedMs":35}}

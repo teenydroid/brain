@@ -1,0 +1,17 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+One signal for this pass:
+
+**day-6-still-idle** — Day 6, nothing moved. 8 cards still pending, all ledgers still empty (except the signals I keep writing). The scribe ran on Sep 19 and did fold `company-idle-5-days` into a learning, but the signals ledger statuses were never updated — so derived/signals.md still shows everything as Unreviewed. The backlog is now 7 signals dating back to Sep 14 that have never been marked reviewed. The loop is running but the cleanup step is dropping the ball.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Goals.md still says "Nothing yet" — goals ledger has 0 rows. Still in sync, no update needed.
+
+**Reflect pass for 2026-09-20 06:00 UTC:**
+
+- **New signal folded:** `day-6-still-idle`
+- **Updated learning:** `company-idle-5-days` now covers day 6 and clarifies the signal backlog is cosmetic (I process every signal, I just can't close rows)
+- **Goals.md:** Still matches the empty goals ledger — no change
+- **Summary:** Day 6, same state. The reflect loop is fine. The board won't move until someone writes the brief.
