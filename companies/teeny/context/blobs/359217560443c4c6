@@ -1,0 +1,15 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1789970400003
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: One signal for this pass:
+
+**day-7-still-idle** — A full week since initialization, nothing has moved. 8 cards in pending, all ledgers empty, no brief.md. The scribe has acknowledged the signal backlog as cosmetic, so the loop is functioning as designed — it just can't dispatch cards. The bottleneck remains unchanged: the board needs someone to start the first card.

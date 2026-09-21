@@ -1,0 +1,17 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+One signal for this pass:
+
+**day-7-still-idle** — A full week since initialization, nothing has moved. 8 cards in pending, all ledgers empty, no brief.md. The scribe has acknowledged the signal backlog as cosmetic, so the loop is functioning as designed — it just can't dispatch cards. The bottleneck remains unchanged: the board needs someone to start the first card.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Goals.md still matches the empty goals ledger — no update.
+
+**Reflect pass for 2026-09-21 06:00 UTC:**
+
+- **New signal folded:** `day-7-still-idle`
+- **Updated learning:** `company-idle-5-days` extended to cover a full week
+- **Goals.md:** Still matches — empty ledger, empty Goals.md
+- **Summary:** One week, nothing. The reflect loop has been tested end-to-end every day for 7 days, works fine, can't start work. The daily idle observation is now itself redundant — the pattern is established. Unless something changes, these passes will keep printing the same fact.
