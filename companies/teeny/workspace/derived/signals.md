@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-8-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 22. Day 8 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe's Sep 21 learning update already noted that the daily idle signal is itself the pattern and the bottleneck is human — this observation confirms another day of the same.
+  - status: new
+  - where: ledgers: tasks
+  - seen_at: 2026-09-22T06:00:00Z
+  - bears_on: readiness
 - `day-7-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 21. Day 7 since initialization. No change from Sep 20: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe ran on Sep 20 and updated the company-idle-5-days learning to note the signal backlog is cosmetic — the loop is functioning, it just can't start cards.
   - status: new
   - where: ledgers: tasks

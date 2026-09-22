@@ -1,0 +1,16 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+One signal: **day-8-still-idle** — Day 8, nothing changed. The scribe already flagged the daily idle signal as the established pattern, so this is just another tick of the same clock.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: No new learning needed — the pattern is already recorded in `company-idle-5-days` and nothing has changed. Goals ledger still 0 rows, Goals.md still matches.
+
+**Reflect pass for 2026-09-22 06:00 UTC:**
+
+- **Signal seen:** `day-8-still-idle` — same state, day 8
+- **Learning update:** None. The existing `company-idle-5-days` learning covers the full pattern. Nothing new to add.
+- **Goals.md:** Still in sync with the empty goals ledger.
+
+Day 8, same page.

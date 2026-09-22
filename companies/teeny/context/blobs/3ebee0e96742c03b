@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1790056800004
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: One signal: **day-8-still-idle** — Day 8, nothing changed. The scribe already flagged the daily idle signal as the established pattern, so this is just another tick of the same clock.
