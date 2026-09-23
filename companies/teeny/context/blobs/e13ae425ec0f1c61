@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1790143200002
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-9-still-idle** — Day 9, same unchanged state. The pattern is well established at this point.
