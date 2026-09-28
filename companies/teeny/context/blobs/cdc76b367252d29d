@@ -1,0 +1,16 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-14-still-idle** — Two full weeks since initialization, nothing has ever moved.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Goals.md still matches the empty goals ledger — no update.
+
+**Reflect pass for 2026-09-28 06:00 UTC:**
+
+- **Signal seen:** `day-14-still-idle`
+- **Learning updated:** `company-idle-5-days` now marks two full weeks of proven loop reliability
+- **Goals.md:** Still in sync
+
+Two weeks. The reflect loop works, the board hasn't moved.
