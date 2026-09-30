@@ -24,3 +24,5 @@
 {"at_millis":1790575283476,"kind":"inference.spend","amount_usd":-0.0037135280000000002,"memo":"scribe"}
 {"at_millis":1790661623718,"kind":"inference.spend","amount_usd":-0.005368585600000001,"memo":"scout"}
 {"at_millis":1790661633108,"kind":"inference.spend","amount_usd":-0.0031836280000000004,"memo":"scribe"}
+{"at_millis":1790748023606,"kind":"inference.spend","amount_usd":-0.005258372000000001,"memo":"scout"}
+{"at_millis":1790748027882,"kind":"inference.spend","amount_usd":-0.0020156416,"memo":"scribe"}
