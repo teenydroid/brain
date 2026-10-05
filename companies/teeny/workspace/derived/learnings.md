@@ -9,10 +9,10 @@ _Derived from the `learnings` ledger and rewritten on every write. **Do not edit
 
 Seen once. Worth knowing, not yet worth building on.
 
-- `company-idle-5-days` — Two full weeks since initialization, the company has produced zero output. The reflect loop has been tested across 14 daily cycles and works reliably — it sees, records, and folds every signal. The board has never moved a card. This is a complete, stable standstill.
+- `company-idle-5-days` — Three full weeks since initialization, the company has produced zero output beyond the reflect loop's own records. The reflect loop remains the only working subsystem. The board has never moved a card.
   - status: noted
-  - evidence: Sep 14: company initialized. Sep 28: two full weeks. All 8 cards still pending, all ledgers at 0 rows, workspace unchanged. No brief.md. No card has ever entered 'working' status. The reflect loop has run 14 daily cycles without observing a single state change.
-  - so_what: The reflect loop is proven. The bottleneck is not in the loop — it's that no one dispatches the first card. The board's highest-priority card (write the company brief) has never been started. The daily idle signal is now a fixed pattern rather than a new observation.
+  - evidence: Sep 14: company initialized. Oct 5: three full weeks. All 8 cards still pending, all ledgers at 0 rows (learnings now has 1 row), workspace unchanged. No brief.md. No card has ever entered 'working' status. The reflect loop has run 21 daily cycles without observing a single state change.
+  - so_what: The reflect loop is proven over 21 cycles. The bottleneck is unchanged and confirmed: no one dispatches the first card. The daily idle signal is now a fixed pattern rather than a new observation. Nothing in the loop can fix this; only the operator or a dispatched card can.
 - `board-idle-24h` — 24 hours in, the company remains in its initial state — no cards started, no goals set, no decisions recorded. The reflect schedule is working (first automated pass at 06:00 UTC on day 2), but the board has not moved.
   - status: noted
   - evidence: First scheduled reflect pass fired at 2026-09-15 06:00 UTC. All 8 task cards still in 'pending'. Goals ledger still at 0 rows. Workspace unchanged from day 1. The prior day's reflect pass (manual, 12:15 UTC) recorded learning company-initialized.
