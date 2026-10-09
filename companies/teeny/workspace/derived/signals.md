@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-25-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 9. Day 25 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks
+  - seen_at: 2026-10-09T06:00:00Z
+  - bears_on: readiness
 - `day-24-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 8. Day 24 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks
