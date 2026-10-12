@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-28-still-idle** — Day 28, four weeks, nothing moved.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Four weeks. Goals.md still matches the empty goals ledger. Updated the idle learning and fixed its stale "Day 6" title.
+
+**Reflect pass for 2026-10-12 06:00 UTC:**
+
+- **Signal seen:** `day-28-still-idle`
+- **Learning updated:** `company-idle-5-days` now covers four weeks, 28 reflect cycles, and has a title that won't mislead
+- **Goals.md:** Still in sync
