@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-29-idle-learning-recorded** — one change yesterday: the scribe finally recorded a new learning ("company-idle-5-days", learnings now 3 rows). Board still untouched, all 8 cards pending, everything else zero.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Yesterday's change was my own bookkeeping, not a state change, so the existing learning already covers it. Goals ledger empty, Goals.md matches.
+
+**Reflect pass for 2026-10-13 06:00 UTC:**
+
+- **Signal seen:** `day-29-idle-learning-recorded`
+- **Learning update:** None, the Oct 12 row already records everything the signal observed
+- **Goals.md:** Still in sync
