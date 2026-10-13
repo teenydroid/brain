@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-29-idle-learning-recorded` — Scheduled scout pass at 06:00 UTC on Oct 13. Day 29 since initialization. One change since last pass: the scribe recorded a new learning row 'company-idle-5-days' at ~06:01 UTC Oct 12, consolidating the idle pattern (learnings now 3 rows). Everything else unchanged: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes still 0 rows, workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-13T06:00:00Z
+  - bears_on: readiness
 - `day-28-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 12. Day 28 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks

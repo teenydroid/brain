@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1791871200003
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-29-idle-learning-recorded** — one change yesterday: the scribe finally recorded a new learning ("company-idle-5-days", learnings now 3 rows). Board still untouched, all 8 cards pending, everything else zero.

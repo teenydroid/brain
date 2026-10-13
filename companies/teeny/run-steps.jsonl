@@ -692,3 +692,9 @@
 {"runId":"01a133d8bc0c-00000000014f","stepSeq":5,"atMillis":1791871213666,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=changes","result":"57 characters","elapsedMs":1}}
 {"runId":"01a133d8bc0c-00000000014f","stepSeq":6,"atMillis":1791871213678,"step":{"kind":"tool_call","status":"running","label":"Workspace List"}}
 {"runId":"01a133d8bc0c-00000000014f","stepSeq":6,"atMillis":1791871213687,"step":{"kind":"tool_call","status":"ok","label":"Workspace List","result":"Company workspace — 11 of 11 entries. Read one with `workspace_read` using its path or id.\nfile\tGoals.md\tid=01a09fadaa98-000000000000\trev=1789385353880\nfolder\tPlaybooks\tid=01a09fadaaa2-000000000003\tre…","elapsedMs":3}}
+{"runId":"01a133d8bc0c-00000000014f","stepSeq":7,"atMillis":1791871227606,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a133d8bc0c-00000000014f","stepSeq":7,"atMillis":1791871229160,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings","result":"2.6k characters","elapsedMs":453}}
+{"runId":"01a133d8bc0c-00000000014f","stepSeq":8,"atMillis":1791871259878,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a133d8bc0c-00000000014f","stepSeq":8,"atMillis":1791871260011,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=6 fields · id=day-29-idle-learning-recorded · ledger=signals","result":"642 characters","elapsedMs":110}}
+{"runId":"01a133d9ae98-000000000157","stepSeq":0,"atMillis":1791871272835,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a133d9ae98-000000000157","stepSeq":0,"atMillis":1791871273216,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings","result":"2.6k characters","elapsedMs":1}}
