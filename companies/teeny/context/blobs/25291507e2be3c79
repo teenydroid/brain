@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-30-one-month-idle** — one month since init, still zero movement. Learnings stayed at 3 rows, no new scribe output since the Oct 12 row.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: One month. Goals.md still matches the empty goals ledger. Updated the idle learning to the milestone.
+
+**Reflect pass for 2026-10-14 06:00 UTC:**
+
+- **Signal seen:** `day-30-one-month-idle`
+- **Learning updated:** `company-idle-5-days` now covers one month, 30 reflect cycles
+- **Goals.md:** Still in sync
