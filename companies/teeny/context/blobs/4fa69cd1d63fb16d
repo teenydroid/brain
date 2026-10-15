@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1792044000004
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-31-idle-learning-refreshed** — one change: the scribe bumped its idle learning to the one-month milestone (30 cycles). Board still untouched, everything else zero.

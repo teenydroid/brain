@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-31-idle-learning-refreshed** — one change: the scribe bumped its idle learning to the one-month milestone (30 cycles). Board still untouched, everything else zero.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: The signal is my own Oct 14 milestone bump, already recorded in the learning. Nothing new. Goals ledger empty, Goals.md matches.
+
+**Reflect pass for 2026-10-15 06:00 UTC:**
+
+- **Signal seen:** `day-31-idle-learning-refreshed`
+- **Learning update:** None
+- **Goals.md:** Still in sync
