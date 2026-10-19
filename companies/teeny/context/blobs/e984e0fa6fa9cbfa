@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-35-five-weeks-idle** — five weeks since init, still zero movement anywhere.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Five weeks. Goals.md still matches the empty goals ledger. Updated the idle learning to the milestone.
+
+**Reflect pass for 2026-10-19 06:00 UTC:**
+
+- **Signal seen:** `day-35-five-weeks-idle`
+- **Learning updated:** `company-idle-5-days` now covers five weeks, 35 reflect cycles
+- **Goals.md:** Still in sync
