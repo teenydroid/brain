@@ -1,0 +1,14 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-38-still-idle** — Day 38, no movement, and the scribe hasn't written since Oct 19.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 38, same state. Goals ledger empty, Goals.md matches. No new learning.
+
+**Reflect pass for 2026-10-22 06:00 UTC:**
+
+- **Signal seen:** `day-38-still-idle`
+- **Learning update:** None, the Oct 19 row still holds
+- **Goals.md:** Still in sync

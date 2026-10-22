@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1792648800002
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-38-still-idle** — Day 38, no movement, and the scribe hasn't written since Oct 19.
