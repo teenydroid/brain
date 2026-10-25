@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-41-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 25. Day 41 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, six days without a scribe write), workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-25T06:00:00Z
+  - bears_on: readiness
 - `day-40-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 24. Day 40 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, five days without a scribe write), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: workspace: workspace_list
   - seen_at: 2026-09-14T12:15:45Z
   - bears_on: infrastructure
-- `goals-md-empty` — Goals.md in the workspace says 'Nothing yet. The first task on the board is to write these.' The goals ledger is empty.
-  - status: new
-  - where: workspace: Goals.md
-  - seen_at: 2026-09-14T12:15:45Z
-  - bears_on: readiness
 
-_2 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_3 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._

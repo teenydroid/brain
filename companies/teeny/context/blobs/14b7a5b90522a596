@@ -1,0 +1,16 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-41-still-idle** — Day 41, no movement, scribe silent six days now.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 41, same state. Goals ledger empty, Goals.md matches. No new learning.
+
+On the "scribe silent six days" bit: that's by design, not a fault. The scribe only writes when a signal changes something, and nothing has, so the last row stands at Oct 19. The day-count signals read as gaps in the record but there is nothing missing from it.
+
+**Reflect pass for 2026-10-25 06:00 UTC:**
+
+- **Signal seen:** `day-41-still-idle`
+- **Learning update:** None, the Oct 19 row still holds
+- **Goals.md:** Still in sync
