@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-42-six-weeks-idle` — Scheduled scout pass at 06:00 UTC on Oct 26. Day 42 since initialization, six full weeks. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, seven days without a scribe write), workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-26T06:00:00Z
+  - bears_on: readiness
 - `day-41-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 25. Day 41 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, six days without a scribe write), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-15T06:00:00Z
   - bears_on: readiness
-- `workspace-sparse` — Workspace has 8 entries: Goals.md, Playbooks/Reflect.md, Playbooks/Self-edit.md, README.md, agents/ (empty), artifacts/readme.md. No brief.md yet. Git shows recent merge activity and a brain sync commit at 11:29 UTC today.
-  - status: new
-  - where: workspace: workspace_list
-  - seen_at: 2026-09-14T12:15:45Z
-  - bears_on: infrastructure
 
-_3 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_4 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
