@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-43-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 27. Day 43 since initialization. No change on the board: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. However, learnings.md rev changed (scribe updated the 'company-idle-5-days' learning row to reflect six weeks and 42 cycles). First scribe activity since Oct 19, after an 8-day pause.
+  - status: new
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-27T06:00:00Z
+  - bears_on: readiness
 - `day-42-six-weeks-idle` — Scheduled scout pass at 06:00 UTC on Oct 26. Day 42 since initialization, six full weeks. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, seven days without a scribe write), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-19T06:00:00Z
   - bears_on: readiness
-- `first-scheduled-reflect` — First scheduled reflect pass firing at 06:00 UTC. Prior day's signals were recorded by scout and processed into a learning (company-initialized) by the scribe, but no task cards have moved — all 8 still in 'pending'. The reflect playbook says this is the first automated pass.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-15T06:00:00Z
-  - bears_on: readiness
 
-_4 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_5 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
