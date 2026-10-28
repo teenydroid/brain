@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-44-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 28. Day 44 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings unchanged since the Oct 27 scribe update (3 rows), workspace unchanged, no brief.md. The Oct 27 scribe write did not carry forward: today's pass produced no new scribe update to learnings.md.
+  - status: new
+  - where: ledgers: tasks, learnings, workspace revs
+  - seen_at: 2026-10-28T06:00:00Z
+  - bears_on: readiness
 - `day-43-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 27. Day 43 since initialization. No change on the board: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. However, learnings.md rev changed (scribe updated the 'company-idle-5-days' learning row to reflect six weeks and 42 cycles). First scribe activity since Oct 19, after an 8-day pause.
   - status: new
   - where: ledgers: tasks, learnings
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: signals
   - seen_at: 2026-09-19T06:00:00Z
   - bears_on: process
-- `company-idle-5-days` — Scheduled scout pass at 06:00 UTC on Sep 19. The company has been in exactly the same state for 5 days since initialization on Sep 14: all 8 task cards still in 'pending', goals/decisions/risks/commitments/changes ledgers all at 0 rows, workspace unchanged (no brief.md, no goals set). The Sep 15 signal (first-scheduled-reflect) was never folded by a scribe pass — it remains 'new' on the signals ledger and 'Unreviewed' in derived/signals.md. No new activity detected anywhere.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-19T06:00:00Z
-  - bears_on: readiness
 
-_5 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_6 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
