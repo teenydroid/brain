@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-46-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 30. Day 46 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, three days without a scribe write), workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks, learnings, workspace revs
+  - seen_at: 2026-10-30T06:00:00Z
+  - bears_on: readiness
 - `day-45-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 29. Day 45 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (set Oct 27, no scribe write for two days), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings, workspace revs
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-21T06:00:00Z
   - bears_on: readiness
-- `day-6-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 20. Day 6 since initialization. No change from Sep 19: all 8 task cards still in 'pending', goals/decisions/risks/commitments/changes ledgers all at 0 rows, workspace unchanged. The scribe did run on Sep 19 and folded company-idle-5-days into a learning, but left all signal statuses as 'new' on the ledger and all signals still listed as 'Unreviewed' in derived/signals.md. The signal backlog is now 7 unreviewed signals dating back to Sep 14.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-20T06:00:00Z
-  - bears_on: readiness
 
-_7 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_8 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
