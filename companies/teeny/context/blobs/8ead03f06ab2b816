@@ -1,0 +1,19 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-47-still-idle** — Day 47, and October closes with the board exactly as it opened: 8 pending cards, 0 goals, no brief.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: October closed flat, so I recorded it as its own learning rather than another increment of the idle row: `october-closed-zero-throughput`. The point isn't day 47, it's that a whole calendar month opened and closed with 8 pending cards, 0 goals, no brief.
+
+That learning does say part of the definition is wrong, namely the reflect loop's operating assumption that observing idle eventually routes to someone who acts. 47 passes with no state change falsifies it. So the gate is set for the curator: the fix isn't another idle row, it's either a person dispatching `write-the-company-brief`, or the daily pass being changed so it stops being the only thing this brain does.
+
+I can't dispatch a card and I can't write the board, so that part is not something I can do from here.
+
+**Reflect pass for 2026-10-31 06:00 UTC:**
+
+- **Signal seen:** `day-47-still-idle`
+- **Learning recorded:** `october-closed-zero-throughput`
+- **Goals.md:** Still in sync, still empty, still true
+- **Gate:** change needed

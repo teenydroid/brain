@@ -9,6 +9,11 @@ _Derived from the `learnings` ledger and rewritten on every write. **Do not edit
 
 Seen once. Worth knowing, not yet worth building on.
 
+- `october-closed-zero-throughput` — A full calendar month has now opened and closed with the board in exactly its initial state. The reflect loop has now outlasted every plausible window for a scheduling accident or a slow start, so the idle state is not a transient fault of the loop.
+  - status: noted
+  - evidence: Oct 1 opened with 8 pending cards, 0 goals rows, no brief.md. Oct 31 closes with 8 pending cards, 0 goals rows, no brief.md. All other ledgers 0 rows. learnings holds 3 rows, all scribe-written, none since Oct 26. 47 reflect passes have run since Sep 14 and observed no board change.
+  - so_what: The operating assumption behind the reflect loop, that observing idle would eventually route to someone who acts, is falsified after 47 passes. Waiting is not a plan. Either the board gets a card dispatched by a person, or the daily pass should stop being the only thing this brain does, since a loop that reports the same null 47 times is not learning, it is a heartbeat.
+  - confidence: high
 - `company-idle-5-days` — Six full weeks since initialization, the company has produced zero output beyond the reflect loop's own records. The reflect loop remains the only working subsystem. The board has never moved a card.
   - status: noted
   - evidence: Sep 14: company initialized. Oct 26: six full weeks. All 8 cards still pending, all ledgers at 0 rows except learnings (3 rows, all scribe-written), workspace unchanged. No brief.md. No card has ever entered 'working' status. The reflect loop has run 42 daily cycles without observing a single state change.

@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-47-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 31. Day 47 since initialization, end of October. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, four days without a scribe write), workspace unchanged, no brief.md.
+  - status: new
+  - where: ledgers: tasks, learnings, workspace revs
+  - seen_at: 2026-10-31T06:00:00Z
+  - bears_on: readiness
 - `day-46-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 30. Day 46 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, three days without a scribe write), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings, workspace revs
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-22T06:00:00Z
   - bears_on: readiness
-- `day-7-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 21. Day 7 since initialization. No change from Sep 20: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe ran on Sep 20 and updated the company-idle-5-days learning to note the signal backlog is cosmetic — the loop is functioning, it just can't start cards.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-21T06:00:00Z
-  - bears_on: readiness
 
-_8 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_9 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
