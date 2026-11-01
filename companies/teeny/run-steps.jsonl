@@ -1068,3 +1068,25 @@
 {"runId":"01a1908b4f50-00000000026a","stepSeq":1,"atMillis":1793426422210,"step":{"kind":"tool_call","status":"error","label":"Record Entry","detail":"fields=3 fields · id=october-closed-zero-throughput · ledger=learnings","result":"Something went wrong with this action.","failure":"failed","elapsedMs":2}}
 {"runId":"01a1908b4f50-00000000026a","stepSeq":2,"atMillis":1793426426187,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
 {"runId":"01a1908b4f50-00000000026a","stepSeq":2,"atMillis":1793426426212,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=5 fields · id=october-closed-zero-throughput · ledger=learnings","result":"1.0k characters","elapsedMs":18}}
+{"runId":"01a195b17f56-000000000273","stepSeq":0,"atMillis":1793512803785,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":0,"atMillis":1793512803808,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=tasks · sort=recent","result":"4.8k characters","elapsedMs":7}}
+{"runId":"01a195b17f56-000000000273","stepSeq":1,"atMillis":1793512803979,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":1,"atMillis":1793512803989,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals","result":"55 characters","elapsedMs":3}}
+{"runId":"01a195b17f56-000000000273","stepSeq":2,"atMillis":1793512803992,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":2,"atMillis":1793512803993,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=decisions","result":"59 characters","elapsedMs":1}}
+{"runId":"01a195b17f56-000000000273","stepSeq":3,"atMillis":1793512803999,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":3,"atMillis":1793512804038,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=risks","result":"55 characters","elapsedMs":1}}
+{"runId":"01a195b17f56-000000000273","stepSeq":4,"atMillis":1793512804040,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":4,"atMillis":1793512804041,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=commitments","result":"61 characters","elapsedMs":4}}
+{"runId":"01a195b17f56-000000000273","stepSeq":5,"atMillis":1793512804042,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":5,"atMillis":1793512804043,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=changes","result":"57 characters","elapsedMs":3}}
+{"runId":"01a195b17f56-000000000273","stepSeq":6,"atMillis":1793512804044,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":6,"atMillis":1793512804046,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings · sort=recent","result":"3.7k characters","elapsedMs":1}}
+{"runId":"01a195b17f56-000000000273","stepSeq":7,"atMillis":1793512804048,"step":{"kind":"tool_call","status":"running","label":"Workspace List"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":7,"atMillis":1793512804049,"step":{"kind":"tool_call","status":"ok","label":"Workspace List","result":"Company workspace — 11 of 11 entries. Read one with `workspace_read` using its path or id.\nfile\tGoals.md\tid=01a09fadaa98-000000000000\trev=1789385353880\nfolder\tPlaybooks\tid=01a09fadaaa2-000000000003\tre…","elapsedMs":16}}
+{"runId":"01a195b17f56-000000000273","stepSeq":8,"atMillis":1793512806671,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a195b17f56-000000000273","stepSeq":8,"atMillis":1793512806730,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=6 fields · id=day-48-scribe-draws-conclusion · ledger=signals","result":"834 characters","elapsedMs":43}}
+{"runId":"01a195b1a026-00000000027b","stepSeq":0,"atMillis":1793512811624,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b1a026-00000000027b","stepSeq":0,"atMillis":1793512811639,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals","result":"55 characters","elapsedMs":1}}
+{"runId":"01a195b1a026-00000000027b","stepSeq":1,"atMillis":1793512812781,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a195b1a026-00000000027b","stepSeq":1,"atMillis":1793512812795,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings","result":"3.7k characters","elapsedMs":3}}

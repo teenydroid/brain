@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-48-scribe-draws-conclusion` — Scheduled scout pass at 06:00 UTC on Nov 1. Day 48 since initialization. No board change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. But the scribe wrote a new learning on Oct 31 (`october-closed-zero-throughput`, learnings.md rev 1793426426189), its first new row since Sep 14 and the first time it has drawn a conclusion rather than restated evidence: it calls the reflect loop's implicit theory falsified after 47 passes and says waiting is not a plan.
+  - status: new
+  - where: ledgers: tasks, learnings (october-closed-zero-throughput)
+  - seen_at: 2026-11-01T06:00:00Z
+  - bears_on: readiness
 - `day-47-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 31. Day 47 since initialization, end of October. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, four days without a scribe write), workspace unchanged, no brief.md.
   - status: new
   - where: ledgers: tasks, learnings, workspace revs
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-23T06:00:00Z
   - bears_on: readiness
-- `day-8-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 22. Day 8 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe's Sep 21 learning update already noted that the daily idle signal is itself the pattern and the bottleneck is human — this observation confirms another day of the same.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-22T06:00:00Z
-  - bears_on: readiness
 
-_9 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_10 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._

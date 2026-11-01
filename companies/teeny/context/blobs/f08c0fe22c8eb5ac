@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1793512800004
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-48-scribe-draws-conclusion** — board still at zero, but the scribe finally wrote a real conclusion on Oct 31: after 47 passes, it calls the loop's "observing idle will route to someone who acts" assumption falsified and says waiting isn't a plan. First new learning row since Sep 14.
