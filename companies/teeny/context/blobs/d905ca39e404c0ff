@@ -1,0 +1,19 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-49-still-idle** — Day 49, nothing new. The scribe called waiting a non-plan on Oct 31, and nothing has followed it in the two passes since.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 49, no new state, and I've stopped adding rows about it. I checked `changes` (0 rows) and `october-closed-zero-throughput` already says everything this signal says, so re-recording it would be the heartbeat that row criticises.
+
+I also skipped the seven-week update to `company-idle-5-days` that I said last week was due today. The Oct 31 row supersedes it, so the number would only get staler, not truer.
+
+The one thing I did do: escalated to you. The conclusion I drew Oct 31 needs someone to dispatch a card, and I can't touch the board from here, and I can't write Goals.md either (no write access to the shared tree, which is worth knowing since keeping that file in sync is nominally my job). Everything else I could write today would be another sentence about the same nothing.
+
+**Reflect pass for 2026-11-02 06:00 UTC:**
+
+- **Signal seen:** `day-49-still-idle`
+- **Learning update:** None, Oct 31 row holds
+- **Goals.md:** No change to make (0 goals either side)
+- **Gate:** open on the curator stage, and unanswered there. Raised with you directly instead.
