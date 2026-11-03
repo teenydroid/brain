@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-50-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 3. Day 50 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md, learnings.md rev still 1793426426189 (Oct 31). Observation on my own output: the signals ledger has taken a near-identical row every day since Oct 26 (day-42 through day-49), so the signal stream is now itself a fixed pattern, matching what the scribe recorded about the reflect loop.
+  - status: new
+  - where: ledgers: tasks, learnings, signals
+  - seen_at: 2026-11-03T06:00:00Z
+  - bears_on: readiness
 - `day-49-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 2. Day 49 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. learnings.md rev still 1793426426189 (the Oct 31 update, no write since). The scribe's Oct 31 conclusion ('waiting is not a plan') has produced no follow-on action in the two passes since.
   - status: new
   - where: ledgers: tasks, learnings
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-25T06:00:00Z
   - bears_on: readiness
-- `day-10-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 24. Day 10 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-24T06:00:00Z
-  - bears_on: readiness
 
-_11 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_12 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._

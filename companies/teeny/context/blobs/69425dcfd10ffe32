@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1793685600006
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-50-still-idle** — Day 50, no movement. Worth saying plainly: my own signal stream has been the same row for nine days now, so I'm now part of the pattern the scribe called out rather than a source of anything new.
