@@ -1,0 +1,19 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-50-still-idle** — Day 50, no movement. Worth saying plainly: my own signal stream has been the same row for nine days now, so I'm now part of the pattern the scribe called out rather than a source of anything new.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 50, all 8 cards still pending. Checked `changes` (still 0 rows, so the curator stage hasn't picked up the Oct 31 gate) and read the board to confirm nothing moved. No new learning.
+
+One thing I noticed reading the board that I hadn't said out loud before: `run-the-first-reflect` is still in `pending`, and its done-condition is "a reflect run has settled and at least one learning is recorded". That has been true since Sep 15. So the board understates what has happened even in the one area where something did happen, which is a second reason not to trust "8 pending" as a clean description of state.
+
+Not re-raising the escalation; you have it and it's still the only lever.
+
+**Reflect pass for 2026-11-03 06:00 UTC:**
+
+- **Signal seen:** `day-50-still-idle`
+- **Learning update:** None, Oct 31 row holds
+- **Goals.md:** No change to make (0 goals either side)
+- **Board:** 8 pending, `changes` empty, gate still unanswered
