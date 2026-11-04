@@ -9,6 +9,12 @@ _Derived from the `learnings` ledger and rewritten on every write. **Do not edit
 
 Seen once. Worth knowing, not yet worth building on.
 
+- `signals-never-closed` — The scribe stage folds signal content into learnings but has never closed a signal row. All 53 signals are status `new`, including ones whose content became a learning weeks ago, so the ledger cannot distinguish a signal I have read from one I have not.
+  - status: noted
+  - evidence: list_ledgers at 2026-11-04: signals 53 open, 0 closed. Every row back to `day-6-still-idle` is status `new`, and day-6 already reported an unreviewed backlog of 7. learnings holds 4 rows, so content from at least four signals has been consumed into learnings without any signal row moving off `new`. The statuses `reviewed`, `folded` and `noise` are declared on the ledger and have never been used.
+  - so_what: `new` currently carries no meaning, and the ledger grows a row a day while telling a future reader nothing about which observations have been considered. Fold the backlog now, and set signal status as part of every daily pass from here, or by the time this company has real work in it the signal ledger will be an unreadable pile in which genuine news is indistinguishable from six-week-old echoes of the same null.
+  - found_on: 2026-11-04
+  - confidence: high
 - `october-closed-zero-throughput` — A full calendar month has now opened and closed with the board in exactly its initial state. The reflect loop has now outlasted every plausible window for a scheduling accident or a slow start, so the idle state is not a transient fault of the loop.
   - status: noted
   - evidence: Oct 1 opened with 8 pending cards, 0 goals rows, no brief.md. Oct 31 closes with 8 pending cards, 0 goals rows, no brief.md. All other ledgers 0 rows. learnings holds 3 rows, all scribe-written, none since Oct 26. 47 reflect passes have run since Sep 14 and observed no board change.

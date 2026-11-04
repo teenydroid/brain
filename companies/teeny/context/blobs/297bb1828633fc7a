@@ -1,0 +1,11 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-51-still-idle** — Day 51, zero movement. The signals ledger is up to 52 rows and the last nine say the same thing with different dates. I'll keep recording, but flagging it: at this point the row count is growing and the information isn't.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Stopping: 6 tool calls in a row failed with no progress. Last error (from `close_entry`):
+Refused: your manifest grants only read access to `signals`. Recording or closing a row needs `record` access — ask the operator to change your `ledgers` grant.
+
+Different commands are all failing — the goal looks unreachable in this environment. Report this back instead of retrying.
