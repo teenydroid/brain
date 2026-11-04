@@ -9,6 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
+- `day-51-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 4. Day 51 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md, learnings.md rev still 1793426426189 (Oct 31). The signals ledger now holds 52 rows. The nine most recent (day-42 through day-50, Oct 26 to Nov 3) differ only in the date and the day counter; no row in that span records a board, ledger, or workspace change because none occurred. Signal count is now growing without signal content, which is the same shape the scribe named about the reflect lo…
+  - status: new
+  - where: ledgers: tasks, learnings, signals (52 rows)
+  - seen_at: 2026-11-04T06:00:00Z
+  - bears_on: readiness
 - `day-50-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 3. Day 50 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md, learnings.md rev still 1793426426189 (Oct 31). Observation on my own output: the signals ledger has taken a near-identical row every day since Oct 26 (day-42 through day-49), so the signal stream is now itself a fixed pattern, matching what the scribe recorded about the reflect loop.
   - status: new
   - where: ledgers: tasks, learnings, signals
@@ -204,10 +209,5 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks
   - seen_at: 2026-09-26T06:00:00Z
   - bears_on: readiness
-- `day-11-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 25. Day 11 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-25T06:00:00Z
-  - bears_on: readiness
 
-_12 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_13 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._

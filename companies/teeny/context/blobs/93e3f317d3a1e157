@@ -1,0 +1,13 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1793772000001
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-51-still-idle** — Day 51, zero movement. The signals ledger is up to 52 rows and the last nine say the same thing with different dates. I'll keep recording, but flagging it: at this point the row count is growing and the information isn't.
