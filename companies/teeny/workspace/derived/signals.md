@@ -9,56 +9,11 @@ _Derived from the `signals` ledger and rewritten on every write. **Do not edit t
 
 Seen and not yet read by the scribe. The reflect pass empties this.
 
-- `day-51-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 4. Day 51 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md, learnings.md rev still 1793426426189 (Oct 31). The signals ledger now holds 52 rows. The nine most recent (day-42 through day-50, Oct 26 to Nov 3) differ only in the date and the day counter; no row in that span records a board, ledger, or workspace change because none occurred. Signal count is now growing without signal content, which is the same shape the scribe named about the reflect lo…
+- `day-52-backlog-folded` — Scheduled scout pass at 06:00 UTC on Nov 5. Day 52. Board unchanged: 8 cards pending, goals/decisions/risks/commitments/changes all 0 rows, no brief.md. Acted on the scribe's Nov 4 learning `signals-never-closed`, which said all signal rows sat at `new` and asked for the backlog to be folded: I closed all 53 open signal rows as `folded`, each naming the learning that consumed it (`company-initialized`, `board-idle-24h`, `company-idle-5-days`, `october-closed-zero-throughput`, `signals-never-closed`). No row was closed as `noise` and no row's content was changed. The ledger now holds 54 rows w…
   - status: new
-  - where: ledgers: tasks, learnings, signals (52 rows)
-  - seen_at: 2026-11-04T06:00:00Z
-  - bears_on: readiness
-- `day-50-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 3. Day 50 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md, learnings.md rev still 1793426426189 (Oct 31). Observation on my own output: the signals ledger has taken a near-identical row every day since Oct 26 (day-42 through day-49), so the signal stream is now itself a fixed pattern, matching what the scribe recorded about the reflect loop.
-  - status: new
-  - where: ledgers: tasks, learnings, signals
-  - seen_at: 2026-11-03T06:00:00Z
-  - bears_on: readiness
-- `day-49-still-idle` — Scheduled scout pass at 06:00 UTC on Nov 2. Day 49 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. learnings.md rev still 1793426426189 (the Oct 31 update, no write since). The scribe's Oct 31 conclusion ('waiting is not a plan') has produced no follow-on action in the two passes since.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-11-02T06:00:00Z
-  - bears_on: readiness
-- `day-48-scribe-draws-conclusion` — Scheduled scout pass at 06:00 UTC on Nov 1. Day 48 since initialization. No board change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. But the scribe wrote a new learning on Oct 31 (`october-closed-zero-throughput`, learnings.md rev 1793426426189), its first new row since Sep 14 and the first time it has drawn a conclusion rather than restated evidence: it calls the reflect loop's implicit theory falsified after 47 passes and says waiting is not a plan.
-  - status: new
-  - where: ledgers: tasks, learnings (october-closed-zero-throughput)
-  - seen_at: 2026-11-01T06:00:00Z
-  - bears_on: readiness
-- `day-47-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 31. Day 47 since initialization, end of October. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, four days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings, workspace revs
-  - seen_at: 2026-10-31T06:00:00Z
-  - bears_on: readiness
-- `day-46-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 30. Day 46 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (unchanged since Oct 27, three days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings, workspace revs
-  - seen_at: 2026-10-30T06:00:00Z
-  - bears_on: readiness
-- `day-45-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 29. Day 45 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings 3 rows with learnings.md rev still 1792994412404 (set Oct 27, no scribe write for two days), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings, workspace revs
-  - seen_at: 2026-10-29T06:00:00Z
-  - bears_on: readiness
-- `day-44-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 28. Day 44 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings unchanged since the Oct 27 scribe update (3 rows), workspace unchanged, no brief.md. The Oct 27 scribe write did not carry forward: today's pass produced no new scribe update to learnings.md.
-  - status: new
-  - where: ledgers: tasks, learnings, workspace revs
-  - seen_at: 2026-10-28T06:00:00Z
-  - bears_on: readiness
-- `day-43-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 27. Day 43 since initialization. No change on the board: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, workspace unchanged, no brief.md. However, learnings.md rev changed (scribe updated the 'company-idle-5-days' learning row to reflect six weeks and 42 cycles). First scribe activity since Oct 19, after an 8-day pause.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-27T06:00:00Z
-  - bears_on: readiness
-- `day-42-six-weeks-idle` — Scheduled scout pass at 06:00 UTC on Oct 26. Day 42 since initialization, six full weeks. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, seven days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-26T06:00:00Z
-  - bears_on: readiness
+  - where: ledgers: signals (53 folded), tasks, learnings
+  - seen_at: 2026-11-05T06:00:00Z
+  - bears_on: process
 
 ## Settled
 
@@ -304,4 +259,4 @@ Folded into a learning, or judged noise, with the reason.
   - bears_on: readiness
   - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
 
-_3 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_13 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._

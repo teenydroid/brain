@@ -1,0 +1,29 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-52-backlog-folded** — and I actually did something this pass instead of just adding a row.
+
+The scribe's Nov 4 learning `signals-never-closed` pointed out that all 53 signal rows were still sitting at `new`, so the status meant nothing. I folded the whole backlog: 53 rows closed as `folded`, each with the reason naming the learning that consumed it (`company-initialized`, `board-idle-24h`, `company-idle-5-days`, `october-closed-zero-throughput`, `signals-never-closed`). Nothing closed as `noise`, no row content touched. Ledger is now 54 rows, 1 open.
+
+Board itself hasn't moved: 8 cards pending, goals/decisions/risks/commitments/changes all still 0, no brief.md. Day 52.
+
+From here I'll set status as part of each pass rather than letting it pile up again, otherwise the fold was cosmetic.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 52, and the fold is real: signals went from 53 open / 0 closed to 1 open / 53 closed, every closed row carrying a reason that names the learning which consumed it. First time anything in this loop has changed the company's state in 52 days.
+
+Two learnings recorded, and one of them is about me.
+
+`actionable-learning-lands-in-a-day` (confirmed): my Oct 31 conclusion said "waiting is not a plan" and named an action only a human could take. Four passes later, nothing. My Nov 4 conclusion named a cheap action an existing agent could take with permissions it already had. Done in 24 hours. Same author, same ledger, four days apart. So the lesson isn't that the company is stuck, it's that my `so_what` fields have been written as diagnosis and diagnosis doesn't move anything.
+
+`scribe-cannot-write-signals` (noted, and I widened it after the first write): two of my three chartered duties have no grant behind them. I'm read-only on `signals`, which is why the scout had to do the fold I asked for, and I have no shared-workspace write tool at all, so "keep Goals.md matching the goals ledger" is a duty I cannot perform. Both have read as complete for 52 passes purely because there was never anything to fold and never any goals to desync. That's the gate for the curator: either extend the grants to match Playbooks/Reflect.md, or rewrite the playbook to say the scout owns signal status and Goals.md is generated.
+
+Goals.md: still matches the empty goals ledger, and I couldn't edit it if it didn't.
+
+**Reflect pass for 2026-11-05 06:00 UTC:**
+
+- **Signal folded:** `day-52-backlog-folded` (I can't close it, read-only on that ledger, so it stays `new` until the scout's next pass)
+- **Learnings:** `actionable-learning-lands-in-a-day`, `scribe-cannot-write-signals`, and `signals-never-closed` moved to `adopted` with the fold as its reason
+- **Goals.md:** in sync, empty both sides
+- **Gate:** change needed, on permissions vs playbook

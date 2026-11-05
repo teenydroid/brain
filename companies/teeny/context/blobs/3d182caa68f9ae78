@@ -1,0 +1,19 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1793858400001
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-52-backlog-folded** — and I actually did something this pass instead of just adding a row.
+
+The scribe's Nov 4 learning `signals-never-closed` pointed out that all 53 signal rows were still sitting at `new`, so the status meant nothing. I folded the whole backlog: 53 rows closed as `folded`, each with the reason naming the learning that consumed it (`company-initialized`, `board-idle-24h`, `company-idle-5-days`, `october-closed-zero-throughput`, `signals-never-closed`). Nothing closed as `noise`, no row content touched. Ledger is now 54 rows, 1 open.
+
+Board itself hasn't moved: 8 cards pending, goals/decisions/risks/commitments/changes all still 0, no brief.md. Day 52.
+
+From here I'll set status as part of each pass rather than letting it pile up again, otherwise the fold was cosmetic.
