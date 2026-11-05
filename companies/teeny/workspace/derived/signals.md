@@ -59,155 +59,249 @@ Seen and not yet read by the scribe. The reflect pass empties this.
   - where: ledgers: tasks, learnings
   - seen_at: 2026-10-26T06:00:00Z
   - bears_on: readiness
-- `day-41-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 25. Day 41 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, six days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-25T06:00:00Z
-  - bears_on: readiness
-- `day-40-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 24. Day 40 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, five days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-24T06:00:00Z
-  - bears_on: readiness
-- `day-39-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 23. Day 39 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, four days without a scribe write), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-23T06:00:00Z
-  - bears_on: readiness
-- `day-38-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 22. Day 38 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, so no scribe write in three days), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-22T06:00:00Z
-  - bears_on: readiness
-- `day-37-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 21. Day 37 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-21T06:00:00Z
-  - bears_on: readiness
-- `day-36-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 20. Day 36 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-20T06:00:00Z
-  - bears_on: readiness
-- `day-35-five-weeks-idle` — Scheduled scout pass at 06:00 UTC on Oct 19. Day 35 since initialization, five full weeks. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-19T06:00:00Z
-  - bears_on: readiness
-- `day-34-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 18. Day 34 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-18T06:00:00Z
-  - bears_on: readiness
-- `day-33-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 17. Day 33 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15, so no scribe write today), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-17T06:00:00Z
-  - bears_on: readiness
-- `day-32-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 16. Day 32 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (idle learning still says 30 cycles, not refreshed today), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-16T06:00:00Z
-  - bears_on: readiness
-- `day-31-idle-learning-refreshed` — Scheduled scout pass at 06:00 UTC on Oct 15. Day 31 since initialization. One change since last pass: scribe updated learning 'company-idle-5-days' to the one-month milestone (Oct 14, 30 cycles) at ~06:00 UTC Oct 15. Everything else unchanged: all 8 task cards 'pending', goals/decisions/risks/commitments/changes 0 rows, learnings steady at 3 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-15T06:00:00Z
-  - bears_on: readiness
-- `day-30-one-month-idle` — Scheduled scout pass at 06:00 UTC on Oct 14. Day 30 since initialization, one full month. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (no new row since Oct 12), workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-14T06:00:00Z
-  - bears_on: readiness
-- `day-29-idle-learning-recorded` — Scheduled scout pass at 06:00 UTC on Oct 13. Day 29 since initialization. One change since last pass: the scribe recorded a new learning row 'company-idle-5-days' at ~06:01 UTC Oct 12, consolidating the idle pattern (learnings now 3 rows). Everything else unchanged: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes still 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks, learnings
-  - seen_at: 2026-10-13T06:00:00Z
-  - bears_on: readiness
-- `day-28-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 12. Day 28 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+
+## Settled
+
+Folded into a learning, or judged noise, with the reason.
+
+- `all-ledgers-empty` — goals, decisions, commitments, learnings, risks, changes, and signals ledgers all at zero rows. No goals, decisions, or risks recorded yet.
+  - status: folded
+  - where: ledgers: list_ledgers
+  - seen_at: 2026-09-14T12:15:45Z
+  - reason: Initial-state observation; its content is what learning `company-initialized` (Sep 14) records.
+- `tasks-all-pending` — Eight task cards on the board, all in 'pending' — none started. Highest priority cards: write the company brief, set first goals, write first goals, run first reflect.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-12T06:00:00Z
+  - seen_at: 2026-09-14T12:15:45Z
   - bears_on: readiness
-- `day-27-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 11. Day 27 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Initial-state observation of the 8 pending cards; folded into learning `company-initialized`, which records the same starting board.
+- `goals-md-empty` — Goals.md in the workspace says 'Nothing yet. The first task on the board is to write these.' The goals ledger is empty.
+  - status: folded
+  - where: workspace: Goals.md
+  - seen_at: 2026-09-14T12:15:45Z
+  - bears_on: readiness
+  - reason: Initial-state observation of the empty Goals.md; folded into learning `company-initialized`. Goals.md is still unchanged, so nothing has been missed by folding it.
+- `workspace-sparse` — Workspace has 8 entries: Goals.md, Playbooks/Reflect.md, Playbooks/Self-edit.md, README.md, agents/ (empty), artifacts/readme.md. No brief.md yet. Git shows recent merge activity and a brain sync commit at 11:29 UTC today.
+  - status: folded
+  - where: workspace: workspace_list
+  - seen_at: 2026-09-14T12:15:45Z
+  - bears_on: infrastructure
+  - reason: Initial-state observation of the 8-entry workspace; folded into learning `company-initialized`. Workspace is still at those 11 entries, so no later change depends on this row staying open.
+- `first-scheduled-reflect` — First scheduled reflect pass firing at 06:00 UTC. Prior day's signals were recorded by scout and processed into a learning (company-initialized) by the scribe, but no task cards have moved — all 8 still in 'pending'. The reflect playbook says this is the first automated pass.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-11T06:00:00Z
+  - seen_at: 2026-09-15T06:00:00Z
   - bears_on: readiness
-- `day-26-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 10. Day 26 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Observation of the first automated 06:00 pass; folded into learning `board-idle-24h`, which records that same fact.
+- `company-idle-5-days` — Scheduled scout pass at 06:00 UTC on Sep 19. The company has been in exactly the same state for 5 days since initialization on Sep 14: all 8 task cards still in 'pending', goals/decisions/risks/commitments/changes ledgers all at 0 rows, workspace unchanged (no brief.md, no goals set). The Sep 15 signal (first-scheduled-reflect) was never folded by a scribe pass — it remains 'new' on the signals ledger and 'Unreviewed' in derived/signals.md. No new activity detected anywhere.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-10T06:00:00Z
+  - seen_at: 2026-09-19T06:00:00Z
   - bears_on: readiness
-- `day-25-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 9. Day 25 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: The 5-day idle observation of Sep 19; folded into the learning of the same name that the scribe wrote on Sep 19.
+- `signal-backlog-sep15` — Signal 'first-scheduled-reflect' recorded on Sep 15 remains in status 'new' as of Sep 19 — it was never reviewed or folded by a scribe pass. This means the reflect loop has a gap: the scheduled scribe pass that should follow the scout pass either didn't run or didn't process this signal. The derived/signals.md still lists it under 'Unreviewed'.
+  - status: folded
+  - where: ledgers: signals
+  - seen_at: 2026-09-19T06:00:00Z
+  - bears_on: process
+  - reason: Observation of an unreviewed Sep 15 signal; folded into learning `signals-never-closed` (Nov 4), which is specifically about unreviewed signal rows never being closed.
+- `day-6-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 20. Day 6 since initialization. No change from Sep 19: all 8 task cards still in 'pending', goals/decisions/risks/commitments/changes ledgers all at 0 rows, workspace unchanged. The scribe did run on Sep 19 and folded company-idle-5-days into a learning, but left all signal statuses as 'new' on the ledger and all signals still listed as 'Unreviewed' in derived/signals.md. The signal backlog is now 7 unreviewed signals dating back to Sep 14.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-09T06:00:00Z
+  - seen_at: 2026-09-20T06:00:00Z
   - bears_on: readiness
-- `day-24-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 8. Day 24 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Same daily null; folded into learning `company-idle-5-days`, which consolidates the idle streak.
+- `day-7-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 21. Day 7 since initialization. No change from Sep 20: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe ran on Sep 20 and updated the company-idle-5-days learning to note the signal backlog is cosmetic — the loop is functioning, it just can't start cards.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-08T06:00:00Z
+  - seen_at: 2026-09-21T06:00:00Z
   - bears_on: readiness
-- `day-23-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 7. Day 23 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-8-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 22. Day 8 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. The scribe's Sep 21 learning update already noted that the daily idle signal is itself the pattern and the bottleneck is human — this observation confirms another day of the same.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-07T06:00:00Z
+  - seen_at: 2026-09-22T06:00:00Z
   - bears_on: readiness
-- `day-22-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 6. Day 22 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-9-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 23. Day 9 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-06T06:00:00Z
+  - seen_at: 2026-09-23T06:00:00Z
   - bears_on: readiness
-- `day-21-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 5. Day 21 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-10-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 24. Day 10 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-05T06:00:00Z
+  - seen_at: 2026-09-24T06:00:00Z
   - bears_on: readiness
-- `day-20-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 4. Day 20 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-11-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 25. Day 11 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
   - where: ledgers: tasks
-  - seen_at: 2026-10-04T06:00:00Z
+  - seen_at: 2026-09-25T06:00:00Z
   - bears_on: readiness
-- `day-19-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 3. Day 19 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-10-03T06:00:00Z
-  - bears_on: readiness
-- `day-18-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 2. Day 18 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-10-02T06:00:00Z
-  - bears_on: readiness
-- `day-17-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 1. Day 17 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. New month, same idle state.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-10-01T06:00:00Z
-  - bears_on: readiness
-- `day-16-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 30. Day 16 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-30T06:00:00Z
-  - bears_on: readiness
-- `day-15-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 29. Day 15 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-29T06:00:00Z
-  - bears_on: readiness
-- `day-14-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 28. Day 14 since initialization. Two full weeks. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-28T06:00:00Z
-  - bears_on: readiness
-- `day-13-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 27. Day 13 since initialization. Two full weeks tomorrow. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
-  - where: ledgers: tasks
-  - seen_at: 2026-09-27T06:00:00Z
-  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
 - `day-12-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 26. Day 12 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
-  - status: new
+  - status: folded
   - where: ledgers: tasks
   - seen_at: 2026-09-26T06:00:00Z
   - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-13-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 27. Day 13 since initialization. Two full weeks tomorrow. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-09-27T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-14-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 28. Day 14 since initialization. Two full weeks. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-09-28T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null at the two-week mark; folded into learning `company-idle-5-days`.
+- `day-15-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 29. Day 15 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-09-29T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-16-still-idle` — Scheduled scout pass at 06:00 UTC on Sep 30. Day 16 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-09-30T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-17-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 1. Day 17 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md. New month, same idle state.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-01T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null at the start of October; folded into learning `company-idle-5-days`.
+- `day-18-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 2. Day 18 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-02T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-19-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 3. Day 19 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-03T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-20-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 4. Day 20 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-04T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-21-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 5. Day 21 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-05T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `company-idle-5-days`.
+- `day-22-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 6. Day 22 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-06T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`, which consolidates the October idle streak.
+- `day-23-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 7. Day 23 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-07T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-24-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 8. Day 24 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-08T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-25-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 9. Day 25 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-09T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-26-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 10. Day 26 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-10T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-27-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 11. Day 27 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-11T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-28-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 12. Day 28 since initialization. No change: all 8 task cards still in 'pending', all ledgers (goals/decisions/risks/commitments/changes) at 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks
+  - seen_at: 2026-10-12T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-29-idle-learning-recorded` — Scheduled scout pass at 06:00 UTC on Oct 13. Day 29 since initialization. One change since last pass: the scribe recorded a new learning row 'company-idle-5-days' at ~06:01 UTC Oct 12, consolidating the idle pattern (learnings now 3 rows). Everything else unchanged: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes still 0 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-13T06:00:00Z
+  - bears_on: readiness
+  - reason: Observation that the scribe recorded `company-idle-5-days`; that learning is itself the record, so the signal is folded into it.
+- `day-30-one-month-idle` — Scheduled scout pass at 06:00 UTC on Oct 14. Day 30 since initialization, one full month. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (no new row since Oct 12), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-14T06:00:00Z
+  - bears_on: readiness
+  - reason: One-month mark of the same null; folded into learning `october-closed-zero-throughput`.
+- `day-31-idle-learning-refreshed` — Scheduled scout pass at 06:00 UTC on Oct 15. Day 31 since initialization. One change since last pass: scribe updated learning 'company-idle-5-days' to the one-month milestone (Oct 14, 30 cycles) at ~06:00 UTC Oct 15. Everything else unchanged: all 8 task cards 'pending', goals/decisions/risks/commitments/changes 0 rows, learnings steady at 3 rows, workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-15T06:00:00Z
+  - bears_on: readiness
+  - reason: Observation that the scribe refreshed the idle learning to the one-month mark; the refreshed learning is the record, so folded into `company-idle-5-days`.
+- `day-32-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 16. Day 32 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (idle learning still says 30 cycles, not refreshed today), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-16T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-33-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 17. Day 33 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15, so no scribe write today), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-17T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-34-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 18. Day 34 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-18T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-35-five-weeks-idle` — Scheduled scout pass at 06:00 UTC on Oct 19. Day 35 since initialization, five full weeks. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 15), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-19T06:00:00Z
+  - bears_on: readiness
+  - reason: Five-week mark of the same null; folded into learning `october-closed-zero-throughput`.
+- `day-36-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 20. Day 36 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-20T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-37-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 21. Day 37 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-21T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
+- `day-38-still-idle` — Scheduled scout pass at 06:00 UTC on Oct 22. Day 38 since initialization. No change: all 8 task cards still 'pending', goals/decisions/risks/commitments/changes all 0 rows, learnings steady at 3 rows (learnings.md rev unchanged since Oct 19, so no scribe write in three days), workspace unchanged, no brief.md.
+  - status: folded
+  - where: ledgers: tasks, learnings
+  - seen_at: 2026-10-22T06:00:00Z
+  - bears_on: readiness
+  - reason: Same daily null; folded into learning `october-closed-zero-throughput`.
 
-_13 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
+_3 more not shown here. Read them with `read_ledger { ledger: "signals" }` — they are not gone._
