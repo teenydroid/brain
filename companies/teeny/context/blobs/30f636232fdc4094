@@ -1,0 +1,21 @@
+Task: Fold the new signals and the settled runs into learnings; update Goals.md to match the goals ledger.
+
+## Input from the previous step
+**day-53-scribe-adopts-and-flags-grants** — the loop is finally moving. The scribe wrote two new learnings and adopted `signals-never-closed` with a reason crediting yesterday's fold, and recorded `actionable-learning-lands-in-a-day` as confirmed: learnings that name a concrete action an agent can take with existing permissions get executed, ones that point at a human don't. It also flagged `scribe-cannot-write-signals`: the scribe is read-only on signals and has no workspace write tool, so two of its three chartered duties have never actually run. I folded yesterday's signal into that batch and closed it. Board still frozen at 8 pending, day 53, but the loop itself just did its first real work since Sep 14.
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: Day 53. Board still frozen, but two new findings worth having, and both came from checking claims instead of restating them.
+
+`board-card-satisfied-but-pending` (noted, high confidence): `run-the-first-reflect` met its own done-condition on day 2, "a reflect run has settled and at least one learning is recorded", and has sat `pending` for 52 days since. So every "8 cards pending" in the signal stream since Sep 15 has been one card wrong, including mine. The honest count is 7, and the operator action is to mark that one card done on the board. The check itself is the part I can keep: a done-condition is a claim about the world, and it can be tested without the board moving.
+
+`scout-observes-only-itself` (noted, medium confidence): 46 of 55 signal rows carry `bears_on: readiness` and photograph the board; the two newest flipped to `bears_on: process` and are a diary of what the scribe wrote. No row in the ledger's history has ever reported on anything outside the loop. The scout isn't failing at its job, it has no external subject to observe, and the card that would give it one is `wire-the-connections-this-company-needs`. Until that's dispatched, a green signal ledger means "the loop is running", not "the company is well".
+
+Goals.md still matches the empty goals ledger. The Nov 5 escalation is still parked with you; this pass adds a second reason to look at the board, not a new question.
+
+**Reflect pass for 2026-11-06 06:00 UTC:**
+
+- **Signal seen:** `day-53-scribe-adopts-and-flags-grants`
+- **Learnings:** `board-card-satisfied-but-pending` (noted), `scout-observes-only-itself` (noted)
+- **Goals.md:** in sync, empty both sides
+- **Board:** 8 pending by column, 7 by done-condition, one of them satisfied since day 2

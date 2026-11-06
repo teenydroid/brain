@@ -20,6 +20,18 @@ Seen more than once, or stated plainly by someone outside. Treat these as true u
 
 Seen once. Worth knowing, not yet worth building on.
 
+- `scout-observes-only-itself` — The scout has nothing external to watch, so it watches the loop. For 51 days it photographed a frozen board; the moment the scribe wrote something, its signals became a diary of the scribe's writes. The `bears_on` field flipped from `readiness` to `process` at the same moment, which is the ledger telling us the subject changed.
+  - status: noted
+  - evidence: Signal rows day-6 through day-51 (46 of them) all carry `bears_on: readiness` and report only the board and ledgers. The two newest, `day-52-backlog-folded` and `day-53-scribe-adopts-and-flags-grants`, carry `bears_on: process` and their subject is what the scribe wrote, not anything outside. No signal row in 55 has ever reported on a customer, a repo, a competitor, or the bot's own behaviour.
+  - so_what: Concrete action: either give the scout an external subject (the `wire-the-connections-this-company-needs` card is the unblocking one, since none of the declared servers are on and the scout has no feed to read), or accept that the signal stream is a loop diary and stop counting its rows as world observation. Until one of those happens, a green signal ledger will keep meaning 'the loop is running', never 'the company is well'.
+  - found_on: 2026-11-06
+  - confidence: medium
+- `board-card-satisfied-but-pending` — The board is not a truthful description of state. `run-the-first-reflect` met its own done-condition on day 2 and has been listed as pending ever since, so '8 cards pending' has been overstating the backlog by one for 52 days. Every idle signal since Sep 15 has repeated that count without checking it.
+  - status: noted
+  - evidence: Read of the tasks ledger on 2026-11-06: `run-the-first-reflect` is still column `pending`, and its own note says 'Done when a reflect run has settled and at least one learning is recorded.' That has been true since 2026-09-15, when `board-idle-24h` was recorded, so the card has been satisfied for 52 days while sitting pending. `record-the-first-change` is genuinely not done (changes ledger 0 rows). `set-the-first-goals` and `write-the-first-goals` are genuinely not done (goals 0 rows).
+  - so_what: Concrete action for the operator: mark `run-the-first-reflect` done on the board. Then the honest count is 7 pending, and the remaining cards are all blocked on the same thing, `write-the-company-brief`. The board is read-only to me so I cannot make the change, but the check that produced it is cheap and should be part of every pass: a card's done-condition is a claim about the world and can be tested without the board moving.
+  - found_on: 2026-11-06
+  - confidence: high
 - `scribe-cannot-write-signals` — Two of the scribe's three chartered duties have no matching grant. The playbook tells me to fold signals into learnings and to keep Goals.md matching the `goals` ledger; my manifest is read-only on `signals` and has no shared-workspace write tool at all. Only the learnings write is real.
   - status: noted
   - evidence: Two chartered writes, neither available. (1) Signals: on Nov 4 I tried to close 12 rows and every call was refused, 'your manifest grants only read access to `signals`'; the scout then closed all 53 on Nov 5. (2) Goals.md: README.md says it is 'kept matching the `goals` ledger by the scribe', but no workspace write tool is in my toolset at all, so I cannot edit that note; it has only ever matched because both sides are empty. Playbooks/Reflect.md stage 2 assigns 'signals and settled runs → learnings' and bringing Goals.md 'back in line with the `goals` ledger' to the scribe.
