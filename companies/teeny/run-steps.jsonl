@@ -1382,3 +1382,33 @@
 {"runId":"01a1af71c01c-000000000341","stepSeq":4,"atMillis":1793944882782,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=7 fields · id=board-card-satisfied-but-pending · ledger=learnings","result":"1.4k characters","elapsedMs":29}}
 {"runId":"01a1af71c01c-000000000341","stepSeq":5,"atMillis":1793944882784,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
 {"runId":"01a1af71c01c-000000000341","stepSeq":5,"atMillis":1793944882842,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=7 fields · id=scout-observes-only-itself · ledger=learnings","result":"1.4k characters","elapsedMs":51}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":0,"atMillis":1794031203151,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":0,"atMillis":1794031203166,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=tasks · sort=recent","result":"4.8k characters","elapsedMs":5}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":1,"atMillis":1794031203246,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":1,"atMillis":1794031203248,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=goals","result":"55 characters","elapsedMs":4}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":2,"atMillis":1794031203251,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":2,"atMillis":1794031203253,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=decisions","result":"59 characters","elapsedMs":2}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":3,"atMillis":1794031203260,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":3,"atMillis":1794031203262,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=risks","result":"55 characters","elapsedMs":3}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":4,"atMillis":1794031203265,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":4,"atMillis":1794031203265,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=commitments","result":"61 characters","elapsedMs":3}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":5,"atMillis":1794031203270,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":5,"atMillis":1794031203272,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=changes","result":"57 characters","elapsedMs":3}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":6,"atMillis":1794031203274,"step":{"kind":"tool_call","status":"running","label":"Read Ledger"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":6,"atMillis":1794031203275,"step":{"kind":"tool_call","status":"ok","label":"Read Ledger","detail":"ledger=learnings · sort=recent","result":"10.9k characters","elapsedMs":16}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":7,"atMillis":1794031203278,"step":{"kind":"tool_call","status":"running","label":"List Ledgers"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":7,"atMillis":1794031203280,"step":{"kind":"tool_call","status":"ok","label":"List Ledgers","result":"2.7k characters","elapsedMs":13}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":8,"atMillis":1794031203283,"step":{"kind":"tool_call","status":"running","label":"Workspace List"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":8,"atMillis":1794031203284,"step":{"kind":"tool_call","status":"ok","label":"Workspace List","result":"Company workspace — 11 of 11 entries. Read one with `workspace_read` using its path or id.\nfile\tGoals.md\tid=01a09fadaa98-000000000000\trev=1789385353880\nfolder\tPlaybooks\tid=01a09fadaaa2-000000000003\tre…","elapsedMs":1}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":9,"atMillis":1794031209151,"step":{"kind":"tool_call","status":"running","label":"Http Request"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":9,"atMillis":1794031209223,"step":{"kind":"tool_call","status":"error","label":"Http Request","detail":"url=https://api.github.com/search/repositories?q=Tin…","result":"The saved sign-in details are missing or no longer valid.","failure":"unauthorized","elapsedMs":73}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":10,"atMillis":1794031209226,"step":{"kind":"tool_call","status":"running","label":"Http Request"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":10,"atMillis":1794031209276,"step":{"kind":"tool_call","status":"error","label":"Http Request","detail":"url=https://api.github.com/search/repositories?q=Tee…","result":"The saved sign-in details are missing or no longer valid.","failure":"unauthorized","elapsedMs":36}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":11,"atMillis":1794031212209,"step":{"kind":"tool_call","status":"running","label":"Http Request"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":11,"atMillis":1794031212247,"step":{"kind":"tool_call","status":"error","label":"Http Request","detail":"url=https://api.github.com/orgs/TinyHumans/repos?per…","result":"The saved sign-in details are missing or no longer valid.","failure":"unauthorized","elapsedMs":34}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":12,"atMillis":1794031212248,"step":{"kind":"tool_call","status":"running","label":"Http Request"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":12,"atMillis":1794031212278,"step":{"kind":"tool_call","status":"error","label":"Http Request","detail":"url=https://api.coingecko.com/api/v3/search?query=te…","result":"The saved sign-in details are missing or no longer valid.","failure":"unauthorized","elapsedMs":19}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":13,"atMillis":1794031219429,"step":{"kind":"tool_call","status":"running","label":"Record Entry"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":13,"atMillis":1794031219467,"step":{"kind":"tool_call","status":"ok","label":"Record Entry","detail":"fields=6 fields · id=day-54-external-reads-blocked · ledger=signals","result":"1.3k characters","elapsedMs":27}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":14,"atMillis":1794031221617,"step":{"kind":"tool_call","status":"running","label":"Close Entry"}}
+{"runId":"01a1b497a780-00000000034c","stepSeq":14,"atMillis":1794031221660,"step":{"kind":"tool_call","status":"ok","label":"Close Entry","detail":"id=day-53-scribe-adopts-and-flags-grants · ledger=signals · reason=Folded on Nov 6: the scribe's two new learnings … · status=folded","result":"112 characters","elapsedMs":33}}

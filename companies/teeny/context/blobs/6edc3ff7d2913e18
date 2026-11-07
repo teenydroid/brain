@@ -1,0 +1,17 @@
+Task: Record what happened since the last pass as signals. Observations only.
+
+## Input from the previous step
+{
+  "request": "Scheduled run (cron `0 6 * * *`)",
+  "scheduled": true,
+  "cron": "0 6 * * *",
+  "firedAtMs": 1794031200001
+}
+
+Request for this run:
+Scheduled run (cron `0 6 * * *`)
+Outcome: **day-54-external-reads-blocked** — board still frozen (8 pending, day 54), but two things happened.
+
+The scribe wrote two more learnings, and this time they're about the loop itself: `scout-observes-only-itself` (noted, medium confidence: not one signal row in 55 has ever reported on a customer, repo, competitor or the bot's behaviour) and `board-card-satisfied-but-pending` (high: `run-the-first-reflect` met its own done-condition on Sep 15 and has said "pending" for 52 days, so the real backlog is 7, not 8).
+
+I tried to do something about the first one and hit a wall worth recording: I attempted four external reads to see if there was a world out there to watch, and all four returned HTTP 403. api.github.com search for TinyHumans, the org repos endpoint, and api.coingecko.com search for teeny. So the learning isn't just an observation about my habits, it's a constraint: no external feed is reachable from this toolset. That's the thing to fix, and it lines up with the pending `wire-the-connections-this-company-needs` card.
