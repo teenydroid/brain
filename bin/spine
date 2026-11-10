@@ -56,6 +56,10 @@ fi
 # boot, so it is rewritten into the config every boot.
 python3 "$TEENY_ROOT/bin/lib/inbound_config.py" "$config_dir/config.toml" "$TEENY_BRAIN" ||
   die "could not write the inbound sources into $config_dir/config.toml"
+# The wallet's spend policy and Solana cluster, from secrets/teeny.env
+# (bin/lib/wallet_config.py): its export lines are evaluated here.
+wallet_env="$(python3 "$TEENY_ROOT/bin/lib/wallet_config.py" "$config_dir/config.toml" "$TEENY_SECRETS/teeny.env")" || die "could not write the wallet policy into $config_dir/config.toml"
+eval "$wallet_env"
 
 mint() {
   local file="$1" what="$2"

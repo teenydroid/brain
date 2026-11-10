@@ -99,15 +99,11 @@ class FakeRpc:
 
     def _answer(self, body: dict[str, Any]) -> tuple[int, Any]:
         method = body.get("method")
-        answer = self.answers.get(method)
-        if isinstance(answer, list) and answer and isinstance(answer[0], (Failure, HttpStatus)) or callable(answer) or (
-            isinstance(answer, list) and answer and callable(answer[0])
-        ):
-            pass
-        if isinstance(answer, Sequence):
-            answer = answer.pop(0) if len(answer) > 1 else answer[0]
         if method not in self.answers:
             return 200, {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": -32601, "message": f"unknown method {method}"}}
+        answer = self.answers[method]
+        if isinstance(answer, Sequence):
+            answer = answer.pop(0) if len(answer) > 1 else answer[0]
         if callable(answer) and not isinstance(answer, (Failure, HttpStatus)):
             answer = answer(body.get("params"))
         if isinstance(answer, HttpStatus):
