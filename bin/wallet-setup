@@ -52,7 +52,8 @@ def main(argv: list[str]) -> int:
         print("usage: bin/wallet-setup [--force]", file=sys.stderr)
         return 2
     try:
-        tty = open("/dev/tty", "r+", buffering=1)
+        tty_in = open("/dev/tty", "r")
+        tty = open("/dev/tty", "w")
     except OSError:
         print("wallet-setup: needs a terminal (the recovery phrase is shown only there); refusing", file=sys.stderr)
         return 1
@@ -76,7 +77,7 @@ def main(argv: list[str]) -> int:
         say(f"This REPLACES the wallet {existing}. Funds in it are lost unless you have its recovery phrase.")
         tty.write(f"Type {expect} to go on: ")
         tty.flush()
-        if tty.readline().strip() != expect:
+        if tty_in.readline().strip() != expect:
             print("wallet-setup: not confirmed; nothing changed", file=sys.stderr)
             return 1
 
@@ -123,7 +124,7 @@ def main(argv: list[str]) -> int:
         say()
         tty.write("Press Enter once it is written down. The screen is cleared after. ")
         tty.flush()
-        tty.readline()
+        tty_in.readline()
         tty.write("\033[3J\033[2J\033[H")
         tty.flush()
     except hand.HandError as exc:
@@ -132,6 +133,7 @@ def main(argv: list[str]) -> int:
     finally:
         phrase = None
         tty.close()
+        tty_in.close()
 
     try:
         cluster = caps.cluster(hand.secrets())
