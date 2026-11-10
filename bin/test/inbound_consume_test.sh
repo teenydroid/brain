@@ -44,6 +44,8 @@ case "$1" in
     echo '{"ok": true, "dry_run": true, "would_post": {"kind": "reply"}}'
     ;;
   mark) echo '{"ok": true}' ;;
+  ingest) echo '{"ok": true, "read": 0}'; exit "${FAKE_INGEST_EXIT:-0}" ;;
+  requests) echo '{"ok": true, "noted": 0}' ;;
   *) echo '{"ok": false}'; exit 1 ;;
 esac
 FAKE
@@ -127,6 +129,22 @@ reset
 echo '{"results": []}' >"$FAKE_RESULTS"
 check "no results is a quiet success" run
 check "and touches no hand" test ! -s "$FAKE_HANDS"
+
+# --- bin/mentions: ingest, then the build-request scan, then the answers ---------------------
+mentions_bin="$here/../mentions"
+reset
+jq -cn '{results: []}' >"$FAKE_RESULTS"
+"$mentions_bin" >/dev/null 2>"$scratch/stderr"
+check "mentions: ingests first" test "$(sed -n 1p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x ingest"
+check "mentions: then scans the stored mentions for build requests" test "$(sed -n 2p "$FAKE_HANDS" | cut -d' ' -f1-2)" = "x requests"
+check "mentions: then asks the core for its drafts" grep -q '^inbound_results ' "$FAKE_CALLS"
+reset
+jq -cn '{results: []}' >"$FAKE_RESULTS"
+code=0
+FAKE_INGEST_EXIT=1 "$mentions_bin" >/dev/null 2>"$scratch/stderr" || code=$?
+check "mentions: a failed ingest still scans what is stored" grep -q '^x requests ' "$FAKE_HANDS"
+check "mentions: and still answers what was drafted" grep -q '^inbound_results ' "$FAKE_CALLS"
+check "mentions: and the run reports the failure" test "$code" != 0
 
 # --- mail: the same loop through hands/mail ---------------------------------------------
 # hands/mail: `reply` answers a dry run, `mark` is logged, like hands/x above.
