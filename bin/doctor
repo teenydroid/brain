@@ -131,6 +131,16 @@ if [ ! -s "$brain/agents/judge.toml" ]; then
   note "agent judge.toml" fail "missing: bin/eval judges with it"
 fi
 
+# --- the browser's allowed websites: a reviewed list that parses -------------------
+run "browser-allow.txt" python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from teeny_hands import websites
+hosts = websites.load(Path(sys.argv[2]))
+print(f"{len(hosts)} host(s)")
+' "$root/hands/lib" "$root"
+
 # --- invariants: the brain still says what Teeny is (evals/invariants.md) ----------
 if [ -s "$root/evals/invariants.md" ]; then
   run "invariants" invariants_hold
