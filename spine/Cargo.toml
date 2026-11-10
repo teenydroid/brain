@@ -36,6 +36,10 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     # Upstream's product set has it, and at this pin the core does not
     # compile without it (`modules::tinyflows` names its flow-scope import).
     "legacy-import",
+    # The encrypted file keyring (OPENHUMAN_KEYRING_BACKEND=file) the spine
+    # keeps every secret in; since this pin it is its own gate, and without it
+    # the file backend fails closed at the first secret.
+    "secret-file",
     "storage-sqlite",
     "inbound-queues",
 ] }
