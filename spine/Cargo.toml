@@ -40,6 +40,11 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     # keeps every secret in; since this pin it is its own gate, and without it
     # the file backend fails closed at the first secret.
     "secret-file",
+    # TinySecurity, which since this pin decides every path a file tool may
+    # touch (`workspace_only`, the forbidden paths, the workbench grant) and
+    # encrypts what the keyring stores. Without it those fail closed with
+    # "not built into this host".
+    "security-module",
     "storage-sqlite",
     "inbound-queues",
 ] }

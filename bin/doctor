@@ -106,7 +106,7 @@ if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$roo
     checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
-  done < <(jq -r '.[] | .command | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
+  done < <(jq -r '.[] | (.command // "") | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
 else
   note "cron.toml" fail "$jobs"
 fi
