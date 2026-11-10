@@ -219,7 +219,9 @@ check "a job that changes kind is replaced (added)" test "$(job_field teeny.buil
 check "and is now a shell job with its command" test "$(job_field teeny.builder .command)" = bin/heartbeat
 
 refuses "refuses an agent no cron job may run" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "act"\nprompt = "p"'
-refuses "refuses an agent that is not defined" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.y]\nschedule = "0 * * * *"\nagent = "ghost"\nprompt = "p"'
+mv "$scratch/agents/operator.toml" "$scratch/operator.toml.away"
+refuses "refuses an allowed agent the brain does not define" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "operator"\nprompt = "p"'
+mv "$scratch/operator.toml.away" "$scratch/agents/operator.toml"
 refuses "refuses an agent without scheduled_actions" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "operator"\nprompt = "p"'
 refuses "refuses an agent job without a prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"'
 refuses "refuses an agent job with an empty prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "  "'
