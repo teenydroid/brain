@@ -15,8 +15,10 @@ path = "src/main.rs"
 # product feature set minus `os-keyring`: the spine keeps secrets in the file
 # store under a master key file, never an OS keychain, which a container does
 # not have (docs/architecture.md, "Keyring"). Desktop-only features (voice,
-# whatsapp-web, wallet) stay off. `inbound-queues` is the durable event intake
-# X mentions are offered to (`openhuman.inbound_offer`).
+# whatsapp-web) stay off. `inbound-queues` is the durable event intake X
+# mentions are offered to (`openhuman.inbound_offer`). `web3` is the wallet
+# domain (`[wallet_policy]`, the wallet tools) that the tinywallet module
+# serves.
 openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-features = false, features = [
     "http-client",
     "server",
@@ -30,8 +32,18 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "file-logging",
     "modules",
     "jev",
-    "tinymemes",
+    "web3",
     "storage-sqlite",
     "inbound-queues",
+] }
+# The two modules the spine serves from its own executable instead of a
+# downloaded release: TinyComputer (the `browser` tool) and tinywallet (the
+# `web3` domain). Neither publishes a Debian build, which is what the image
+# runs, so they are linked in and `bin/lib/core_config.py` points
+# `[modules] overrides` at `source = "linked"` for exactly these two; every
+# other module still loads from its pinned, digest-checked release.
+openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-modules-linked", default-features = false, features = [
+    "tinycomputer",
+    "tinywallet",
 ] }
 libc = "0.2"
