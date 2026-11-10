@@ -1,0 +1,8 @@
+#!/bin/sh
+# GIT_ASKPASS for hands/gh's one `git push`. It holds no secret: the token
+# reaches it only through the environment of that single git command
+# (teeny_hands/gh/gitpush.py), and nothing writes it to disk.
+case "$1" in
+  Username*) printf '%s\n' "$TEENY_GH_ASKPASS_USER" ;;
+  *) printf '%s\n' "$TEENY_GH_ASKPASS_TOKEN" ;;
+esac
