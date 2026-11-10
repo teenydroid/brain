@@ -101,7 +101,7 @@ wallet_env() { mkdir -p "$root/secrets"; printf '%s\n' "$@" >"$root/secrets/teen
 caps_ok=(WALLET_MAX_PER_TX_USD=50 WALLET_MAX_PER_DAY_USD=100 WALLET_MAX_PER_RECIPIENT_WEEK_USD=60 WALLET_SOL_USD=200)
 fresh; wallet_env WALLET_CLUSTER=devnet "${caps_ok[@]}"
 check "passes a wallet with sane caps" doctor
-check "and says what the caps are" grep -q '^ok   wallet caps: devnet: \$50.00 a payment' "$scratch/doctor.log"
+check "and says what the caps are" grep -qF "ok   wallet caps: devnet: \$50.00 a payment" "$scratch/doctor.log"
 fresh; wallet_env WALLET_CLUSTER=devnet
 fails "fails wallet keys without caps" "wallet caps"
 fresh; wallet_env WALLET_MAX_PER_TX_USD=0 WALLET_MAX_PER_DAY_USD=100 WALLET_MAX_PER_RECIPIENT_WEEK_USD=60 WALLET_SOL_USD=200
