@@ -5,9 +5,9 @@ bot at `55c2c75`, the code each hand replaces. See [`architecture.md`](architect
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
-**Status.** `guard` and the outbound and read half of `x` are built
-(`hands/guard`, `hands/x`, code in `hands/lib/teeny_hands/`, tests in
-`hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
+**Status.** `guard`, the outbound and read half of `x`, and `gh` are built
+(`hands/guard`, `hands/x`, `hands/gh`, code in `hands/lib/teeny_hands/`,
+tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
 claim or lease here. `article`, `auth` and the other hands are still to
@@ -53,10 +53,26 @@ receive them. Bring them back only if a 5-minute poll proves too slow.
 
 | Verb | | Does |
 |---|---|---|
-| `check` | R | Run, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` or `hold{reason}` and writes the hold. |
+| `check` | R | Run, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
+| `check --fields title,body` | R | The same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field)`. |
 | `inbound` | R | Screens third-party text before a model sees it. `bin/job` calls it before every draft. |
 | `style` | R | House style: strip leading @handles, replace dashes, straighten quotes, drop NFA/DYOR. |
-| `holds list/approve/reject/release` | A | Operator review. `release` atomically moves `pending` to `releasing`, publishes through `x`, and on failure goes back to `pending` with the error recorded. |
+| `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft: it atomically moves `pending` to `releasing`, publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context, with the posting rules and `DRY_RUN` but without asking the guard again, since the operator's approval is the decision it deferred), marks it `approved` with where it went, and on failure goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
+
+**Surfaces and limits** (lengths in UTF-16 code units, refused over, never
+cut; `max_emoji` overrides the cap):
+
+| Surface | Fields and limits | Emoji per field |
+|---|---|---|
+| `x` (and every surface not below: `telegram`, `narrative`, ...) | `text` 280 | `MAX_EMOJI_PER_POST` (1) |
+| `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
+| `moltbook` | `title` 300, `body` 10000 | 3 |
+| `mail` | `subject` 200, `body` 10000 | 3 |
+
+On a long-form surface, `text` is the body, and a leading `@handle` is kept
+(nothing adds it back there). The built-in link allowlist also carries
+`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to` and
+`solscan.io`.
 
 **One deliberate change from the Rust.** The old screen collapsed every
 repeated letter, so the term `xxx` read as `x+` and held a lone "x" as sexual,
@@ -72,6 +88,30 @@ lexicon and the links.
 
 Replaces `crates/teeny-safety/*` and `teeny/src/http/{safety,release}.rs`.
 Holds are written best-effort and never turn into a publish.
+
+## `gh`: the only holder of the GitHub token
+
+Teeny codes in public as `GITHUB_USER` (default `teenydroid`). Every word it
+publishes on GitHub goes through `guard check --fields` (in-process,
+surface `github`) first, and what goes out is the guard's rewrite.
+
+| Verb | | Does |
+|---|---|---|
+| `whoami` | R | The token's account, and whether it `matches` `GITHUB_USER`. |
+| `repo OWNER/REPO` | R | One repository (cached 10 minutes). |
+| `issues OWNER/REPO [--label L] [--max N]` | R | Open issues, pull requests left out (10 minutes). |
+| `pr OWNER/REPO NUMBER` | R | One pull request (5 minutes). |
+| `contributing OWNER/REPO` | R | Reads `AI_POLICY.md`, `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` (root, `.github/`, `docs/`) and says whether the project forbids AI-, LLM- or bot-made contributions: `{forbids_ai, verdict: forbids\|allows\|silent, files, evidence}`. A keyword-and-phrase heuristic, conservative: a ban forbids, a clear welcome allows, a mention it cannot read forbids, silence is not a ban (a day). |
+| `activity [--days N]` | R | Teeny's own pull requests opened and merged and its commits over the last N days (default 7), for the ship log (10 minutes). |
+| `create-repo` | A | `{name, description?, private?}`. Under `GITHUB_USER` only, and only when the token is that account's. The description is screened. |
+| `push` | A | `{workdir, repo, branch, message}`. Commits everything git would add in a folder under `state/workbench/` (symlinks resolved) as `GITHUB_USER` (noreply address) and pushes `HEAD` to `branch` on an own repo. Never forces, ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when the files or the history hold a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`) or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block). The token reaches git only through the environment of that one command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
+| `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch, the disclosure footer is appended (`—` / "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."), and it is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
+| `comment` | A | `{repo, number, body}`. |
+| `fork` | A | `{repo}`, somebody else's. |
+
+Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
+with no write anywhere: GitHub, git or the ledger. Done actions are recorded
+in `gh_actions` (which also counts the daily cap); reads in `gh_cache`.
 
 ## `cadence`: when Teeny may post
 
@@ -117,6 +157,7 @@ persisted, which is a deliberate fix.
 | `own_posts` (ledger, heat samples, hot hold) | `own_posts` |
 | `holds`, `approved_hosts` | `holds`, `holds_links` |
 | `x_cache` | `x-cache` |
+| `gh_actions` (the GitHub ledger and the external-PR cap), `gh_cache` | — |
 | `people` | `people` |
 | `media` (minted ids) | in-process today |
 | `guards` (20h, calendar, article interval, pacing, media budget) | in-memory today |
