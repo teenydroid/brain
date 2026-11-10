@@ -10,6 +10,7 @@ asks to pick from, whatever channel they came in on:
   picked   Teeny chose to build it (a promise is still never made in a reply)
   skipped  not doing it
   shipped  built and out
+  failed   Teeny tried to build it and could not (hands/build says why)
 
 A request is recorded once per (source, source_id). Nothing here answers the
 asker: the drafting agent may acknowledge a request ("noted, no promises"),
@@ -24,7 +25,7 @@ from typing import Any, Mapping
 
 from . import hand
 
-STATUSES = ("pending", "picked", "skipped", "shipped")
+STATUSES = ("pending", "picked", "skipped", "shipped", "failed")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS build_requests (
