@@ -117,6 +117,8 @@ mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
+mkdir -p "$root/deploy"
+cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
 cat >"$root/secrets/spine.env" <<ENV

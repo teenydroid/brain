@@ -33,6 +33,10 @@ services:
       - "cortexdb:host-gateway"
     volumes:
       - ..:/srv/teeny
+    # Chromium (the browser operator) wants more shared memory than Docker's
+    # 64 MB default. Its profile and downloads live in state/browser/, in
+    # the mounted checkout, so a logged-in session survives a restart.
+    shm_size: 1gb
 
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web

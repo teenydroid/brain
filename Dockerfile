@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 #
 # The spine image: teeny-spine (OpenHuman's host, built here from the
-# vendored library), OpenHuman's pinned module releases, and the tools bin/
-# needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
+# vendored library, with TinyComputer and tinywallet linked in), OpenHuman's
+# pinned module releases, Chromium for the browser, and the tools bin/ needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
 # mounts the checkout at /srv/teeny, so a job or cron.toml change is a pull and
 # a restart, not a rebuild.
 #
@@ -13,10 +13,11 @@
 FROM rust:1.96.1-bookworm AS builder
 ARG CARGO_BUILD_JOBS=4
 ENV DEBIAN_FRONTEND=noninteractive
-# What OpenHuman links on Linux (X11, xdo, evdev, ALSA), as its own image has.
+# What OpenHuman links on Linux (X11, xdo, evdev, ALSA), as its own image has,
+# plus what the linked TinyComputer needs (Xi, udev), as CI installs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake pkg-config libssl-dev libasound2-dev libxdo-dev \
-      libxtst-dev libx11-dev libevdev-dev clang mold git ca-certificates \
+      libxtst-dev libx11-dev libxi-dev libevdev-dev libudev-dev clang mold git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
@@ -44,10 +45,21 @@ RUN node scripts/release/stage-modules.mjs --output /bundled-modules
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 # The core's runtime libraries, curl for the health check and bin/oh, jq and
-# sqlite3 for bin/, python3 for bin/seed-cron's TOML.
+# sqlite3 for bin/, python3 for bin/seed-cron's TOML and the hands, git for
+# hands/gh's pushes.
+#
+# The browser (docs/gitbooks/en/developing/tinycomputer-docker.md in
+# vendor/openhuman): Chromium at /usr/bin/chromium, which
+# bin/lib/core_sections/automation.py writes as `[browser] chrome_path`
+# (TEENY_CHROME_PATH below), with fonts so pages render. TinyComputer itself
+# is linked into teeny-spine, so there is no module library to copy or
+# attest. agent-browser adds --no-sandbox and --disable-dev-shm-usage itself
+# inside a container. bubblewrap is TinyBox's namespace sandbox, which the
+# builder's shell commands run under (brain/agents/builder.toml).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates libssl3 libasound2 libxdo3 libxtst6 libx11-6 libevdev2 \
-      curl jq sqlite3 python3 \
+      ca-certificates libssl3 libasound2 libxdo3 libxtst6 libx11-6 libxi6 libevdev2 libudev1 \
+      curl jq sqlite3 python3 git \
+      chromium fonts-liberation bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /teeny-spine /usr/local/bin/teeny-spine
 COPY --from=modules /bundled-modules /opt/openhuman/bundled-modules
@@ -55,7 +67,8 @@ ENV OPENHUMAN_BUNDLED_MODULES=/opt/openhuman/bundled-modules \
     OPENHUMAN_CORE_BIN=/usr/local/bin/teeny-spine \
     OPENHUMAN_DOCKER=1 \
     OPENHUMAN_CORE_HOST=127.0.0.1 \
-    OPENHUMAN_CORE_PORT=7788
+    OPENHUMAN_CORE_PORT=7788 \
+    TEENY_CHROME_PATH=/usr/bin/chromium
 WORKDIR /srv/teeny
 # The core answers on loopback inside the container only; operators use
 # `docker compose exec spine bin/ask ...`.
