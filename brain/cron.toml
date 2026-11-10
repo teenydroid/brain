@@ -36,3 +36,23 @@ enabled = false
 schedule = "*/15 * * * *"
 command = "bin/act mentions"
 enabled = false
+
+# A receipt post for each payment the wallet made (brain/playbooks/wallet-receipt.md).
+# Off until the wallet is set up and DRY_RUN has been watched on the box.
+[jobs.wallet-receipt]
+schedule = "17 */3 * * *"
+command = "bin/act wallet-receipt"
+enabled = false
+
+# The weekly cost of keeping Teeny running, real numbers only (cost-of-living.md).
+[jobs.cost-of-living]
+schedule = "0 16 * * 0"
+command = "bin/act cost-of-living"
+enabled = false
+
+# Pick and announce the winner of a bounty past its deadline (bounty-winner.md).
+# bin/bounty-pay (pinned) pays it after the challenge window.
+[jobs.bounty-winner]
+schedule = "40 15 * * *"
+command = "bin/act bounty-winner"
+enabled = false
