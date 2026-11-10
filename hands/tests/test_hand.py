@@ -193,8 +193,16 @@ class RunContractTest(Scratch):
             "v = sub.add_parser('go'); v.set_defaults(handler=go, takes_body=True)\n"
             "sys.exit(hand.run('fake', p, sys.argv[1:]))\n"
         )
+        # No body is an empty stdin, never the test runner's own: inherited, a
+        # stdin that is an open pipe or socket (a CI runner, an agent's shell)
+        # blocks the hand's read forever.
         done = subprocess.run(
-            [sys.executable, "-I", str(script), *argv], input=stdin, capture_output=True, text=True, env=os.environ
+            [sys.executable, "-I", str(script), *argv],
+            input="" if stdin is None else stdin,
+            capture_output=True,
+            text=True,
+            env=os.environ,
+            timeout=60,
         )
         return done.returncode, json.loads(done.stdout)
 
