@@ -177,6 +177,32 @@ answer '{"action": "hand", "title": "fine", "body": "BAD body"}'
 out="$(run pr)"
 check "a held field stops the long-form hand" test "$(hand_calls lab)" = 0
 check "and is reported as refused" test "$(jq -r '.actions[0].status' <<<"$out")" = refused
+
+# --- the body shapes the moltbook and requests hands take -----------------------------
+# A hand that refuses a field it does not know (hands/moltbook, hands/requests)
+# must get exactly the draft's fields: no "text" the model was never asked for.
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab post"\nsurface = "moltbook"\n+++\npost it\n' >"$brain/playbooks/molt.md"
+answer '{"action": "hand", "submolt": "general", "title": "a tip", "body": "cache your reads"}'
+out="$(run molt)"
+check "asks for the hand's own fields, not a text it may refuse" bash -c "! grep -q '\"text\"' <<<\"\$1\"" _ "$(jq -r .message "$FAKE_CALLS" | grep '^Each is')"
+check "a moltbook post's title and body are screened together, once" test "$(hand_calls guard)" = 1
+check "on the moltbook surface" grep -q '^guard check --fields title,body stdin={"title":"a tip","body":"cache your reads","surface":"moltbook"}' "$FAKE_HANDS"
+check "the hand gets the submolt and the guard's title and body, nothing more" \
+  grep -q '^lab post stdin={"submolt":"general","title":"a tip\[g\]","body":"cache your reads\[g\]"}$' "$FAKE_HANDS"
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab comment"\nsurface = "moltbook"\nmax_per_day = 3\n+++\nanswer it\n' >"$brain/playbooks/molt.md"
+answer '{"action": "hand", "post_id": "p-1", "body": "try a smaller batch"}'
+run molt >/dev/null
+check "a moltbook comment's body is screened" grep -q '^guard check --fields body stdin={"body":"try a smaller batch","surface":"moltbook"}' "$FAKE_HANDS"
+check "and the hand gets the post id and the guard's body" grep -q '^lab comment stdin={"post_id":"p-1","body":"try a smaller batch\[g\]"}$' "$FAKE_HANDS"
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab pick"\n+++\npick one\n' >"$brain/playbooks/pick.md"
+answer '{"action": "hand", "id": 4, "reason": "small and useful"}'
+out="$(run pick)"
+check "a pick with no words to publish asks the guard nothing" test "$(hand_calls guard)" = 0
+check "and hands the id and reason over as they are" grep -q '^lab pick stdin={"id":4,"reason":"small and useful"}$' "$FAKE_HANDS"
+check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
 check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
