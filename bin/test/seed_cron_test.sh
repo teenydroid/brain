@@ -29,7 +29,7 @@ case "$method" in
   cron_list) printf '%s\n' "$jobs" ;;
   cron_add)
     id="job-$(( $(jq length <<<"$jobs") + $(wc -l <"$FAKE_CALLS") ))"
-    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, schedule, enabled: true}' <<<"$params")"
+    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true}' <<<"$params")"
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
@@ -48,8 +48,12 @@ unset CALENDAR_TZ
 toml="$scratch/cron.toml"
 pinned="$scratch/pinned.toml"
 : >"$pinned"
-mkdir -p "$scratch/playbooks"
+mkdir -p "$scratch/playbooks" "$scratch/agents"
 printf '+++\ndescription = "x"\noutput = "post"\n+++\ndraft it\n' >"$scratch/playbooks/morning.md"
+# Agents a cron job may run: the builder as written for it, and an operator
+# that is not (no scheduled_actions), to be refused.
+printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["shell"]\n' >"$scratch/agents/builder.toml"
+printf 'id = "operator"\nwhen_to_use = "x"\n[tools]\nnamed = ["browser"]\n' >"$scratch/agents/operator.toml"
 
 reset() {
   # The core's own system job is always present and never ours to touch.
@@ -188,6 +192,48 @@ seed
 check "keeps the pinned jobs when the brain drops every job of its own" test -n "$(job_field teeny.watch .id)"
 check "and removes the brain's heartbeat when the brain drops it" test -z "$(job_field teeny.heartbeat .id)"
 refuses "refuses a brain job that takes a pinned job's name" $'[jobs.watch]\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"'
+: >"$pinned"
+
+# --- agent jobs: an agent written to act on a schedule, with a prompt ------------
+reset
+printf '[jobs.builder]\nschedule = "0 */2 * * *"\nagent = "builder"\nprompt = "build the next job"\n' >"$toml"
+seed
+check "adds an agent job" test "$(job_field teeny.builder .job_type)" = agent
+check "names its agent" test "$(job_field teeny.builder .agent_id)" = builder
+check "stores its prompt" test "$(job_field teeny.builder .prompt)" = "build the next job"
+check "runs it in its own session" test "$(job_field teeny.builder .session_target)" = isolated
+check "gives an agent job no command" test "$(job_field teeny.builder .command)" = null
+: >"$FAKE_CALLS"
+seed
+check "an unchanged agent job is kept" test "$(calls cron_add)$(calls cron_update)$(calls cron_remove)" = 000
+id_before="$(job_field teeny.builder .id)"
+printf '[jobs.builder]\nschedule = "0 */2 * * *"\nagent = "builder"\nprompt = "build something else"\n' >"$toml"
+seed
+check "updates a changed prompt in place" test "$(job_field teeny.builder .prompt)" = "build something else"
+check "keeps the agent job's id" test "$(job_field teeny.builder .id)" = "$id_before"
+printf '[jobs.builder]\nschedule = "0 */2 * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
+: >"$FAKE_CALLS"
+seed
+check "a job that changes kind is replaced (removed)" test "$(calls cron_remove)" = 1
+check "a job that changes kind is replaced (added)" test "$(job_field teeny.builder .job_type)" = shell
+check "and is now a shell job with its command" test "$(job_field teeny.builder .command)" = bin/heartbeat
+
+refuses "refuses an agent no cron job may run" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "act"\nprompt = "p"'
+refuses "refuses an agent that is not defined" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.y]\nschedule = "0 * * * *"\nagent = "ghost"\nprompt = "p"'
+refuses "refuses an agent without scheduled_actions" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "operator"\nprompt = "p"'
+refuses "refuses an agent job without a prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"'
+refuses "refuses an agent job with an empty prompt" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "  "'
+refuses "refuses a job with both a command and an agent" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"\ncommand = "bin/heartbeat"'
+refuses "refuses more agent runs a day than the budget" \
+  $'[jobs.a]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"\n[jobs.b]\nschedule = "*/20 * * * *"\nagent = "builder"\nprompt = "p"'
+printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["*"]\n' >"$scratch/agents/builder.toml"
+refuses "refuses an agent whose tools are the wildcard" $'[jobs.x]\nschedule = "0 * * * *"\nagent = "builder"\nprompt = "p"'
+printf 'id = "builder"\nwhen_to_use = "x"\nscheduled_actions = true\n[tools]\nnamed = ["shell"]\n' >"$scratch/agents/builder.toml"
+printf '[jobs.pinned-builder]\nschedule = "0 */2 * * *"\nagent = "builder"\nprompt = "p"\n' >"$pinned"
+reset
+printf '' >"$toml"
+seed
+check "a pinned agent job reads its agent from the brain" test "$(job_field teeny.pinned-builder .agent_id)" = builder
 : >"$pinned"
 
 # --- --check validates without asking the core anything --------------------------
