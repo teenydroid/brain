@@ -46,17 +46,7 @@ class BountyTest(Scratch):
             MOLTBOOK_AGENT_NAME="teenydroid",
             POST_MIN_GAP_HOURS="1",
         )
-        self.posted = []
-        self.web.route("POST", "/2/tweets", lambda: None, status=201)  # replaced below
-        self.next_id = iter(range(2000, 3000))
-
-        def created(seen):
-            self.posted.append(seen.json()["text"])
-            return True
-
-        self.web.routes.clear()
-        self.web.route("POST", "/2/tweets", {"data": {"id": X_POST}}, status=201, when=created)
-        self.replies: dict[str, list] = {X_POST: []}
+        self.web.route("POST", "/2/tweets", {"data": {"id": X_POST}}, status=201)
 
     def conversation(self, conversation: str, *items: tuple[dict, dict]) -> None:
         data = [i[0] for i in items]
@@ -208,12 +198,11 @@ class BountyTest(Scratch):
         bounty_id = self.open_and_announce()
         self.collect_entries(bounty_id)
         self.configure(DRY_RUN="1")
-        posts_before = len(self.web.requests("POST", "/2/tweets")) if hasattr(self.web, "requests") else None
+        posts_before = len(self.web.requests("POST", "/2/tweets"))
         out = actions.pick({"bounty_id": bounty_id, "entry_id": self.entry_id("alice"), "reasons": "funny", "text": f"bounty #{bounty_id}: @alice"})
         self.assertTrue(out["dry_run"])
         self.assertEqual(self.row(bounty_id)["status"], "open")
-        if posts_before is not None:
-            self.assertEqual(len(self.web.requests("POST", "/2/tweets")), posts_before)
+        self.assertEqual(len(self.web.requests("POST", "/2/tweets")), posts_before)
 
     # --- claim -------------------------------------------------------------------------------------
 
