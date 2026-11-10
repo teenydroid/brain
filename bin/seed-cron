@@ -13,12 +13,18 @@
 # core's own system jobs (memory_background, ...) are left alone. Running it
 # twice changes nothing the second time.
 #
-# Every job is a shell job running an operator script under bin/. A turn
-# that cron starts may only use read-only tools (docs/architecture.md, §1), so
-# the scripts act and the models only draft; an agent job here would be a job
-# that cannot do its work. Teeny owns brain/cron.toml; what its jobs may run,
-# how often, and which jobs it cannot drop are bin/lib/cron_policy.py's rules,
-# and the pinned jobs in evals/cron.pinned.toml are always merged in.
+# Almost every job is a shell job running an operator script under bin/: a
+# turn that cron starts may only use read-only tools (docs/architecture.md,
+# §1), so the scripts act and the models only draft. The exception is an
+# agent job (`agent` and `prompt`) for an agent written to act on a schedule
+# (`scheduled_actions = true`, named tools: the builder and the operator);
+# OpenHuman runs those as CronActions turns ("Scheduled agents"). Teeny owns
+# brain/cron.toml; what its jobs may run, how often, and which jobs it cannot
+# drop are bin/lib/cron_policy.py's rules, and the pinned jobs in
+# evals/cron.pinned.toml are always merged in.
+#
+# A job that changes kind (shell to agent or back) is removed and added
+# again: the core cannot change a job's type in place.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -42,7 +48,7 @@ done
 
 # The file and the pinned jobs, checked against the cron rules
 # (bin/lib/cron_policy.py) and flattened to one JSON array:
-#   [{name, expr, tz, command, enabled}]
+#   [{name, kind, expr, tz, command, agent, prompt, enabled}]
 desired="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$file" "$pinned" "${CALENDAR_TZ:-}")" ||
   die "invalid schedule file"
 if [ "$check" = 1 ]; then
@@ -54,7 +60,11 @@ fi
 # (`.enabled // true` would read a disabled job as enabled: `//` treats false
 # as missing.)
 current="$(oh cron_list | jq -c '[.[] | select((.name // "") | startswith("teeny.")) |
-  {id, name, expr: .schedule.expr, tz: (.schedule.tz // null), command,
+  {id, name, kind: (if .job_type == "agent" then "agent" else "shell" end),
+   expr: .schedule.expr, tz: (.schedule.tz // null),
+   command: (if .job_type == "agent" then null else .command end),
+   agent: (if .job_type == "agent" then .agent_id else null end),
+   prompt: (if .job_type == "agent" then .prompt else null end),
    enabled: (if .enabled == null then true else .enabled end)}]')"
 
 plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
@@ -62,13 +72,29 @@ plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
   | [ $want[] as $w
       | ($byname[$w.name] // []) as $hs
       | if ($hs | length) == 0 then {op: "add", job: $w}
-        elif ($hs[0] | {expr, tz, command, enabled}) == ($w | {expr, tz, command, enabled}) then {op: "keep", job: $w}
+        elif ($hs[0] | {kind, expr, tz, command, agent, prompt, enabled})
+             == ($w | {kind, expr, tz, command, agent, prompt, enabled}) then {op: "keep", job: $w}
+        elif $hs[0].kind != $w.kind then {op: "replace", id: $hs[0].id, job: $w}
         else {op: "update", id: $hs[0].id, job: $w} end ]
   + [ $have | group_by(.name)[] as $g
       | if ([$want[].name] | index($g[0].name)) == null then $g[] | {op: "remove", id, job: .}
         else $g[1:][] | {op: "remove", id, job: .} end ]')"
 
 schedule() { jq -c '{kind: "cron", expr: .expr, tz: .tz}' <<<"$1"; }
+# A shell job runs its command; an agent job runs its agent on its prompt, in
+# a fresh session of its own, delivering nothing anywhere (the agent reports
+# through its hands). A job is created enabled; one the file disables is
+# switched off after.
+add_job() {
+  local job="$1" id
+  id="$(oh cron_add "$(jq -c --argjson s "$(schedule "$job")" '
+    if .kind == "agent"
+    then {name, job_type: "agent", agent_id: .agent, prompt, session_target: "isolated", schedule: $s, delivery: {mode: "none"}}
+    else {name, job_type: "shell", command, schedule: $s, delivery: {mode: "none"}} end' <<<"$job")" | jq -r .id)"
+  if [ "$(jq -r .enabled <<<"$job")" = false ]; then
+    oh cron_update "$(jq -cn --arg id "$id" '{job_id: $id, patch: {enabled: false}}')" >/dev/null
+  fi
+}
 changed=0
 while IFS= read -r step; do
   op="$(jq -r .op <<<"$step")"
@@ -78,21 +104,19 @@ while IFS= read -r step; do
     log "$(printf '%-6s %s' keep "$name")"
     continue
   fi
-  log "$(printf '%-6s %s  %s' "$op" "$name" "$(jq -r '"\(.expr) \(.tz) \(.command)"' <<<"$job")")"
+  log "$(printf '%-7s %s  %s' "$op" "$name" "$(jq -r '"\(.expr) \(.tz) " + (if .kind == "agent" then "agent:\(.agent)" else .command end)' <<<"$job")")"
   changed=$((changed + 1))
   [ "$dry_run" = 1 ] && continue
   case "$op" in
-    add)
-      id="$(oh cron_add "$(jq -c --argjson s "$(schedule "$job")" \
-        '{name, job_type: "shell", command, schedule: $s, delivery: {mode: "none"}}' <<<"$job")" | jq -r .id)"
-      # A job is created enabled; one the file disables is switched off after.
-      if [ "$(jq -r .enabled <<<"$job")" = false ]; then
-        oh cron_update "$(jq -cn --arg id "$id" '{job_id: $id, patch: {enabled: false}}')" >/dev/null
-      fi
+    add) add_job "$job" ;;
+    replace)
+      oh cron_remove "$(jq -cn --arg id "$(jq -r .id <<<"$step")" '{job_id: $id}')" >/dev/null
+      add_job "$job"
       ;;
     update)
       oh cron_update "$(jq -cn --arg id "$(jq -r .id <<<"$step")" --argjson s "$(schedule "$job")" \
-        --argjson j "$job" '{job_id: $id, patch: {command: $j.command, schedule: $s, enabled: $j.enabled}}')" >/dev/null
+        --argjson j "$job" '{job_id: $id, patch: ({schedule: $s, enabled: $j.enabled} +
+          (if $j.kind == "agent" then {prompt: $j.prompt, agent_id: $j.agent} else {command: $j.command} end))}')" >/dev/null
       ;;
     remove)
       oh cron_remove "$(jq -cn --arg id "$(jq -r .id <<<"$step")" '{job_id: $id}')" >/dev/null
