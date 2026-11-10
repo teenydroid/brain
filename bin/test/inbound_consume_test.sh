@@ -79,8 +79,8 @@ reset
 results '[{"action": "reply", "to": "999", "text": "hi"}, {"action": "post", "to": "11", "text": "x"}]' '["11"]'
 out="$(run)"
 check "never replies outside the batch" bash -c "! grep -q '^x reply' '$FAKE_HANDS'"
-check "says why" test "$(jq -r '.actions[0].refused' <<<"$out")" = "not a mention in this batch"
-check "only replies or skips" test "$(jq -r '.actions[1].refused' <<<"$out")" = "mentions only reply or skip"
+check "says why" test "$(jq -r '.actions[0].refused' <<<"$out")" = "not an event in this batch"
+check "only replies or skips" test "$(jq -r '.actions[1].refused' <<<"$out")" = "an inbound draft only replies or skips"
 
 # --- outcomes from hands/x ------------------------------------------------------------
 reset
