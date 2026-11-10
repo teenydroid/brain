@@ -13,7 +13,8 @@ set -euo pipefail
 
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 cd "$TEENY_ROOT"
-# A desk that fails (a broken report is kept aside, not fatal) must not stop
+# The desk's answer goes to the log (stderr); stdout is the ship's. A desk
+# that fails (a broken report is kept aside, not fatal) must not stop
 # what is already finished from shipping.
-"$hands/build" desk </dev/null || log "the builder's desk failed; shipping what is done anyway"
+"$hands/build" desk </dev/null >&2 || log "the builder's desk failed; shipping what is done anyway"
 exec "$hands/build" ship </dev/null
