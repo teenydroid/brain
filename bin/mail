@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# The mail loop, one cron run of it (evals/cron.pinned.toml, mail-inbound):
+#
+#   1. `hands/mail ingest`: new mail from Teeny's AgentMail inbox, screened by
+#      the inbound guard, build requests noted, the rest offered to the core
+#      (source mail:inbox, one conversation per thread);
+#   2. `bin/inbound-consume --source mail:inbox`: the replies the core has
+#      drafted since (the tool-less `teeny-mail` agent), each sent through
+#      `hands/mail reply` (guard, one reply per message, the daily cap,
+#      DRY_RUN).
+#
+# As with bin/mentions, a message read in one run is usually answered in the
+# next, and an ingest failure does not stop drafted replies from going out.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+status=0
+(cd "$TEENY_ROOT" && "$hands/mail" ingest </dev/null) || status=$?
+"$TEENY_ROOT/bin/inbound-consume" --source mail:inbox || status=$?
+exit "$status"

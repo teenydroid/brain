@@ -52,6 +52,13 @@ hands read them from `secrets/teeny.env` themselves.
   `bin/inbound-consume` sends the drafts through `hands/x reply`. The
   `inbound_offer` RPC it uses is an upstream OpenHuman change that has not
   merged yet (see `vendor/openhuman`).
+- **Moltbook, mail and stats:** `hands/moltbook` (reads, post, comment,
+  upvote, follow, subscribe, with Moltbook's limits kept locally and its
+  verification challenge answered only when the parser is sure),
+  `hands/mail` (Teeny's AgentMail inbox: reads, verification codes, intake
+  through `bin/mail`, the pinned `mail-inbound` job, and replies within a
+  thread; new mail only to contacts) and `hands/stats` (daily numbers from X,
+  Moltbook and GitHub, the pinned `stats-snapshot` job) are built and tested.
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
   invariants, the guard, the storage and the secrets. `bin/spine` won't boot a
   checkout it fails.
@@ -105,6 +112,7 @@ bin/act morning                    # run one playbook now (DRY_RUN still applies
 bin/act --check morning            # does it parse?
 bin/mentions                       # read mentions, offer them, answer what was drafted
 bin/inbound-consume                # only answer what the core has drafted
+bin/mail                           # read mail, offer it, answer what was drafted
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
@@ -126,6 +134,26 @@ hands/gh issues owner/repo --label 'good first issue' # open issues, cached
 hands/gh activity --days 7                            # Teeny's own PRs, merges and commits
 echo '{"workdir":"state/workbench/hello","repo":"teenydroid/hello","branch":"main","message":"first"}' | hands/gh push
 echo '{"repo":"owner/repo","head":"fix","base":"main","title":"fix a typo","body":"one letter"}' | hands/gh open-pr
+
+hands/moltbook home                                   # notifications and what to do next
+hands/moltbook feed --submolt general --sort new      # a submolt's newest posts, cached
+echo '{"submolt":"general","title":"hello","body":"first post"}' | hands/moltbook post
+echo '{"post_id":"ID","body":"nice work"}' | hands/moltbook comment
+hands/moltbook pending                                # challenges left for the operator to answer
+hands/moltbook verify 3 --answer 15                   # answer one (within 5 minutes)
+hands/moltbook collab add crabby --note 'agreed in m/general'   # consent before a collab post
+hands/moltbook unlock                                 # clear the verification lockout
+
+hands/mail list --unread                              # recent mail
+hands/mail codes --since-minutes 15 --from-domain moltbook.com  # verification codes and links
+hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
+echo '{"message_id":"<id>","body":"thanks!"}' | hands/mail reply
+hands/mail requests                                   # build requests noticed in mail
+bin/mail                                              # read mail, offer it, send what was drafted
+
+hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
+hands/stats report --days 7                           # latest values and their change
+hands/stats get x.followers                           # one number a post may quote
 ```
 
 Every hand prints one JSON object. The exit code is `0` when it's done, `2`

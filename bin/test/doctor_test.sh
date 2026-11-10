@@ -27,7 +27,7 @@ fresh() {
   mkdir -p "$root/brain"
   cp -R "$repo/bin" "$repo/evals" "$root/"
   mkdir -p "$root/hands"
-  cp -R "$repo/hands/lib" "$repo/hands/x" "$repo/hands/guard" "$root/hands/"
+  cp -R "$repo/hands/lib" "$repo/hands/x" "$repo/hands/guard" "$repo/hands/mail" "$root/hands/"
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
   cp "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
@@ -99,6 +99,8 @@ check "passes with pre-spine leftovers" doctor
 check "but warns about the old kernel env" grep -q '^warn secrets/kernel.env: pre-spine leftover' "$scratch/doctor.log"
 check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-spine leftover' "$scratch/doctor.log"
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/doctor'"
+fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
+fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
 
 # --- storage and secrets ------------------------------------------------------------------
 fresh; sqlite3 "$root/brain/storage.db" 'create table t (x); insert into t values (1);'
