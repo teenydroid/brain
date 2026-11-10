@@ -33,15 +33,20 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "modules",
     "jev",
     "web3",
+    # Upstream's product set has it, and at this pin the core does not
+    # compile without it (`modules::tinyflows` names its flow-scope import).
+    "legacy-import",
     "storage-sqlite",
     "inbound-queues",
 ] }
 # The two modules the spine serves from its own executable instead of a
 # downloaded release: TinyComputer (the `browser` tool) and tinywallet (the
-# `web3` domain). Neither publishes a Debian build, which is what the image
-# runs, so they are linked in and `bin/lib/core_config.py` points
-# `[modules] overrides` at `source = "linked"` for exactly these two; every
-# other module still loads from its pinned, digest-checked release.
+# `web3` domain). Linked, each is the exact `vendor/openhuman` gitlink the core
+# was built against (no contract mismatch, no download at boot), and
+# tinywallet's confidential calls reach it attested as host code.
+# `bin/lib/core_config.py` sets `[modules] overrides` to `source = "linked"`
+# for exactly these two; every other module still loads from its pinned,
+# digest-checked release.
 openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-modules-linked", default-features = false, features = [
     "tinycomputer",
     "tinywallet",

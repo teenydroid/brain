@@ -3249,6 +3249,7 @@ dependencies = [
  "tinystoragedrivers-api",
  "tinystoragedrivers-bus",
  "tinystoragedrivers-busproxy",
+ "tinystoragedrivers-connect",
  "tinystoragedrivers-fence",
  "tinystoragedrivers-secrets",
  "tinystoragedrivers-types",
