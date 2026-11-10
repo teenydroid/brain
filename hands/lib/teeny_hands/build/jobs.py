@@ -28,6 +28,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Mapping
 
+from .. import desk as _desk
 from .. import hand
 from .. import requests as build_requests
 
@@ -54,7 +55,7 @@ DAILY_BRIEF = (
 RULES = (
     "Work only inside workdir. Write small, working code with tests and run them. Never read or "
     "write anything outside workdir, never open secrets/, and never push: shipping happens later "
-    "and is not yours to do. Report with build_done when finished."
+    "and is not yours to do. When finished, write your report to report_to, once."
 )
 
 SCHEMA = """
@@ -261,6 +262,19 @@ def done(body: Any) -> Json:
     finally:
         conn.close()
     return {"job_id": job_id, "status": status}
+
+
+#: What the builder writes to state/workbench/desk/build-done.json.
+REPORT_SHAPE = (
+    '{"job_id": <the job_id above>, "status": "ok" or "failed", "summary": "<one line first: what it is, or why it '
+    'failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional better name>"}'
+)
+
+
+def desk() -> Json:
+    """The builder's desk (teeny_hands.desk): settle its report, then put
+    its next job on state/workbench/desk/build.json."""
+    return _desk.run("build", done, next_job, REPORT_SHAPE)
 
 
 def listing(status: str | None = None, limit: int = 50) -> Json:

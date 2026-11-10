@@ -1,10 +1,12 @@
-"""The verbs of hands/build (docs/hands.md, "build"). The builder agent
-reaches `next` and `done` through hands/mcp; `ship` runs from cron
-(bin/build-ship).
+"""The verbs of hands/build (docs/hands.md, "build"). `desk` and `ship`
+run from cron (bin/build-ship); the builder agent only reads and writes the
+desk files.
 
-  B  next                     claim a job: the builder's open one, the oldest picked
+  A  next                     claim a job: the builder's open one, the oldest picked
                               build request, or today's daily job; creates its folder
-  B  done                     stdin {job_id, status: ok|failed, summary, tests, repo?}
+  A  done                     stdin {job_id, status: ok|failed, summary, tests, repo?}
+  J  desk                     settle the builder's report (state/workbench/desk/build-done.json)
+                              with `done`, then write its next job to state/workbench/desk/build.json
   R  jobs [--status S] [--limit N]   the jobs, newest first
   J  ship                     push every ok job to GITHUB_USER/<repo> through hands/gh
                               (create the repository when missing); DRY_RUN applies
@@ -40,6 +42,7 @@ def parser() -> argparse.ArgumentParser:
     listing = verb("jobs", lambda a, _: jobs.listing(a.status, a.limit), "the jobs, newest first")
     listing.add_argument("--status", choices=jobs.STATUSES, default=None)
     listing.add_argument("--limit", type=_limit, default=50)
+    verb("desk", lambda a, _: jobs.desk(), "settle the builder's report and lay out its next job")
     verb("ship", lambda a, _: jobs.ship(), "push finished jobs to GitHub")
     return root
 

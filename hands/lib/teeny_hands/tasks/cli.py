@@ -1,12 +1,14 @@
-"""The verbs of hands/tasks (docs/hands.md, "tasks"). The operator agent
-reaches `next` and `done` through hands/mcp.
+"""The verbs of hands/tasks (docs/hands.md, "tasks"). `desk` runs from cron
+(bin/tasks-desk); the operator agent only reads and writes the desk files.
 
   A  add                       stdin {goal, start_url, done_when, kind?}; the start page
                                must be on deploy/browser-allow.txt
-  B  next                      claim a task: the operator's open one, else the oldest pending
-  B  done                      stdin {task_id, outcome: ok|failed|needs_human, notes,
+  A  next                      claim a task: the operator's open one, else the oldest pending
+  A  done                      stdin {task_id, outcome: ok|failed|needs_human, notes,
                                screenshots?: [paths]}; images are copied under
                                state/media/tasks/<id>/ for hands/x upload
+  J  desk                      settle the operator's report (state/workbench/desk/task-done.json)
+                               with `done`, then write its next task to state/workbench/desk/task.json
   R  list [--status S] [--limit N]   the tasks, newest first
 """
 
@@ -40,6 +42,7 @@ def parser() -> argparse.ArgumentParser:
     adding.add_argument("--source", default=None, help="who asked: a playbook name, 'operator', ...")
     verb("next", lambda a, _: queue.next_task(), "claim the next task for the operator")
     verb("done", lambda a, body: queue.done(body), "finish the claimed task (JSON on stdin)", body=True)
+    verb("desk", lambda a, _: queue.desk(), "settle the operator's report and lay out its next task")
     listing = verb("list", lambda a, _: queue.listing(a.status, a.limit), "the tasks, newest first")
     listing.add_argument("--status", choices=queue.STATUSES, default=None)
     listing.add_argument("--limit", type=_limit, default=50)
