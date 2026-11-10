@@ -33,7 +33,7 @@ class AllowlistEntry:
 
 
 # What the account may link to without anyone adding to the list: its own
-# sites, code and community, and the platform it is on. The launchpad is
+# sites, code and community, and the platforms it is on. The launchpad is
 # root-only, so the origin story can name it and a stranger's coin page on
 # it still cannot go out.
 DEFAULT_LINK_ALLOWLIST: tuple[str, ...] = (
@@ -45,6 +45,13 @@ DEFAULT_LINK_ALLOWLIST: tuple[str, ...] = (
     "twitter.com",
     "t.me/TinyHumanAi",
     "pump.fun/",
+    # Teeny's own code, its Moltbook, its inbox, and the
+    # explorer its wallet's receipts are read on.
+    "github.com/teenydroid",
+    "moltbook.com",
+    "www.moltbook.com",
+    "agentmail.to",
+    "solscan.io",
 )
 
 

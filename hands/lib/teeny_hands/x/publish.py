@@ -6,7 +6,11 @@ because there is no step to forget. Ported from
 crates/teeny-x/src/publisher.rs and the host side of
 crates/teeny-agent/src/tools/post.rs and teeny-jobs/src/reply/job.rs.
 
-What goes out is always the guard's text, never the caller's.
+What goes out is always the guard's text, never the caller's. The one
+exception is `approved=True`, which only `hands/guard holds release` passes:
+the text is a draft the guard held and an operator then approved, so the
+guard is not asked again (it would hold it again); every posting rule,
+the 280 cap and DRY_RUN still apply.
 """
 
 from __future__ import annotations
@@ -97,13 +101,15 @@ def _db():
     return open_db(rules.SCHEMA)
 
 
-def post(body: Any, x: XApi | None = None) -> Json:
+def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: guard, 280, attachments, then the gap under
     the process-wide posting lock, so two jobs firing in the same minute
-    cannot both read the ledger before either is recorded."""
+    cannot both read the ledger before either is recorded. `approved`: a
+    released hold, which skips the guard only."""
     text, media_ids, gif_id, quote_of = _draft(body, quote=True)
     kind = "quote" if quote_of else "post"
-    text = _guarded(text, kind)
+    if not approved:
+        text = _guarded(text, kind)
     rules.check_length(text)
     live = not hand.dry_run()
     conn = _db()
@@ -133,7 +139,7 @@ def _in_doubt(error: XError) -> bool:
     return error.status is None or error.status >= 500
 
 
-def reply(to: str, body: Any, x: XApi | None = None) -> Json:
+def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """A reply to post `to`: guard (told whom it answers), 280, never the
     account's own post, attachments, then under the replying lock one reply
     per post and the pacing. The reply id is recorded the moment X returns
@@ -147,16 +153,17 @@ def reply(to: str, body: Any, x: XApi | None = None) -> Json:
     if target is None:
         raise hand.Refused(f"X does not have post {to} (deleted, protected or not visible); nothing was published", rule="target")
     account = reads.identity()
-    text = _guarded(
-        text,
-        "reply",
-        replying_to=target.get("authorUsername"),
-        context={
-            "post_id": to,
-            "conversation_id": target.get("conversationId"),
-            "author_username": target.get("authorUsername"),
-        },
-    )
+    if not approved:
+        text = _guarded(
+            text,
+            "reply",
+            replying_to=target.get("authorUsername"),
+            context={
+                "post_id": to,
+                "conversation_id": target.get("conversationId"),
+                "author_username": target.get("authorUsername"),
+            },
+        )
     rules.check_length(text)
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()

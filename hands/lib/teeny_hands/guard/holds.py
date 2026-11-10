@@ -63,6 +63,11 @@ SURFACES = (
     "article",
     "quote",
     "lore",
+    # Long-form surfaces: GitHub titles, bodies and comments, Moltbook
+    # posts, AgentMail mail. Their limits are in gate.py's LIMITS.
+    "github",
+    "moltbook",
+    "mail",
 )
 
 DIRECTIONS = ("inbound", "outbound", "narrative", "article")
