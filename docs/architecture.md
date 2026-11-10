@@ -193,6 +193,8 @@ That's gap G4.
 | Job | `cron.toml` schedule (defaults today) | `bin/job` does |
 |---|---|---|
 | `mentions-inbound` (pinned, built) | `*/5 * * * *` | `bin/mentions`: `hands/x ingest` offers new mentions to the core's inbound queue, which drafts each debounced batch with `teeny-mentions`; `bin/inbound-consume` sends the drafts through `hands/x reply` (§7) |
+| `mail-inbound` (pinned, built) | `*/5 * * * *` | `bin/mail`: `hands/mail ingest` screens new mail and offers it to the core (source `mail:inbox`, one conversation per thread), which drafts with `teeny-mail`; `bin/inbound-consume --source mail:inbox` sends the drafts through `hands/mail reply` |
+| `stats-snapshot` (pinned, built) | `15 0 * * *` | `bin/stats-snapshot`: `hands/stats snapshot`, today's X, Moltbook and GitHub numbers into `stats` |
 | `heat` | `*/20 * * * *` | `hands/cadence heat` |
 | `cortex-health` | `17 * * * *` | `hands/record health` (CortexDB readiness into `record/`) |
 | `learnings` | `0 5 * * *` | draft with `teeny-learner` → `hands/record brief` |

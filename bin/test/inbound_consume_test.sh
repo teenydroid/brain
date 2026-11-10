@@ -79,8 +79,8 @@ reset
 results '[{"action": "reply", "to": "999", "text": "hi"}, {"action": "post", "to": "11", "text": "x"}]' '["11"]'
 out="$(run)"
 check "never replies outside the batch" bash -c "! grep -q '^x reply' '$FAKE_HANDS'"
-check "says why" test "$(jq -r '.actions[0].refused' <<<"$out")" = "not a mention in this batch"
-check "only replies or skips" test "$(jq -r '.actions[1].refused' <<<"$out")" = "mentions only reply or skip"
+check "says why" test "$(jq -r '.actions[0].refused' <<<"$out")" = "not an event in this batch"
+check "only replies or skips" test "$(jq -r '.actions[1].refused' <<<"$out")" = "an inbound draft only replies or skips"
 
 # --- outcomes from hands/x ------------------------------------------------------------
 reset
@@ -127,6 +127,31 @@ reset
 echo '{"results": []}' >"$FAKE_RESULTS"
 check "no results is a quiet success" run
 check "and touches no hand" test ! -s "$FAKE_HANDS"
+
+# --- mail: the same loop through hands/mail ---------------------------------------------
+# hands/mail: `reply` answers a dry run, `mark` is logged, like hands/x above.
+cat >"$scratch/hands/mail" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'mail %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+case "$1" in
+  reply) echo '{"ok": true, "dry_run": true, "would_reply": {}}' ;;
+  mark) echo '{"ok": true}' ;;
+  *) echo '{"ok": false}'; exit 1 ;;
+esac
+FAKE
+chmod +x "$scratch/hands/mail"
+reset
+jq -cn '{results: [{turn_id: "m1", source: "mail:inbox", key: "t-1", status: "completed",
+  text: "[{\"action\": \"reply\", \"to\": \"<a@x>\", \"text\": \"thanks\"}]", event_ids: ["<a@x>", "<b@x>"]}]}' >"$FAKE_RESULTS"
+out="$("$consume" --source mail:inbox 2>"$scratch/stderr")"
+check "mail: asks for completed mail:inbox results" grep -q '^inbound_results .*"source": "mail:inbox"' "$FAKE_CALLS"
+check "mail: replies through hands/mail reply with the message id" grep -qF 'mail reply stdin={"message_id":"<a@x>","body":"thanks"}' "$FAKE_HANDS"
+check "mail: a dry-run reply is marked drafted" grep -qF 'mail mark <a@x> --status drafted ' "$FAKE_HANDS"
+check "mail: a message the draft left out is skipped" grep -qF 'mail mark <b@x> --status skipped ' "$FAKE_HANDS"
+check "mail: hands/x is never called" bash -c "! grep -q '^x ' '$FAKE_HANDS'"
+check "mail: the record names its source" test "$(jq -r .source <<<"$out")" = mail:inbox
+check "an unknown source is an error" bash -c "! '$consume' --source telegram:dm 2>/dev/null"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2

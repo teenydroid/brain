@@ -69,6 +69,7 @@ class Route:
     content_type: str = "application/json"
     delay: float = 0.0
     times: list[int] = field(default_factory=lambda: [0])
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 class FakeX:
@@ -111,10 +112,12 @@ class FakeX:
                 self.send_response(status)
                 self.send_header("content-type", ctype)
                 self.send_header("content-length", str(len(data)))
+                for name, value in (route.headers.items() if route is not None else ()):
+                    self.send_header(name, value)
                 self.end_headers()
                 self.wfile.write(data)
 
-            do_GET = do_POST = do_DELETE = do_PUT = _serve
+            do_GET = do_POST = do_DELETE = do_PUT = do_PATCH = _serve
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
@@ -134,8 +137,9 @@ class FakeX:
         raw: bytes | None = None,
         content_type: str = "application/json",
         delay: float = 0.0,
+        headers: dict[str, str] | None = None,
     ) -> Route:
-        route = Route(method, path, status, body, when, raw, content_type, delay)
+        route = Route(method, path, status, body, when, raw, content_type, delay, headers=dict(headers or {}))
         with self._lock:
             # Newest first, so a test can override a default route.
             self.routes.insert(0, route)

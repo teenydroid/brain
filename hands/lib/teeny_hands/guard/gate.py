@@ -25,15 +25,16 @@ Publisher guard called (the legacy `x_post` tool's checks).
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 from .. import hand
 from . import holds
 from .judge import judge
-from .links import AllowlistEntry, configured_allowlist, filter_links, parse_allowlist
+from .links import AllowlistEntry, LinkFilterResult, configured_allowlist, filter_links, parse_allowlist
 from .screen import ARTICLE, INBOUND, NARRATIVE, OUTBOUND, screen_text
 from .style import MAX_POST_LENGTH, apply_house_style, count_emoji, post_length
 
@@ -45,6 +46,23 @@ APPROVED_LINKS_TTL = 60.0
 # `MAX_EMOJI_PER_POST`'s default and bounds, as the Rust config read it.
 DEFAULT_MAX_EMOJI = 1
 MAX_EMOJI_LIMIT = 10
+
+# The hard length limits, per surface and field, in UTF-16 code units. Over
+# one is refused, never cut: the model rewrites it. A surface not named here
+# has X's 280 on `text`; a long-form surface's `text` is its body.
+LIMITS: dict[str, dict[str, int]] = {
+    "x": {"text": MAX_POST_LENGTH},
+    "moltbook": {"title": 300, "body": 10000},
+    # A repo's description and a commit message are GitHub's too (hands/gh).
+    "github": {"title": 256, "body": 20000, "description": 350, "message": 5000},
+    "mail": {"subject": 200, "body": 10000},
+}
+
+# Where a title, a body or a subject is written rather than a post: the emoji
+# cap there is LONG_FORM_MAX_EMOJI per field, not MAX_EMOJI_PER_POST, and a
+# leading @handle is an address, not a tag X adds back.
+LONG_FORM_SURFACES = ("github", "moltbook", "mail")
+LONG_FORM_MAX_EMOJI = 3
 
 
 @dataclass(frozen=True)
@@ -117,6 +135,29 @@ def max_emoji_per_post() -> int:
     if not value.is_integer() or not 0 <= value <= MAX_EMOJI_LIMIT:
         return DEFAULT_MAX_EMOJI
     return int(value)
+
+
+def default_max_emoji(surface: str) -> int:
+    """The emoji cap a check uses when the caller names none: a few on a
+    long-form surface, `MAX_EMOJI_PER_POST` everywhere else."""
+    return LONG_FORM_MAX_EMOJI if surface in LONG_FORM_SURFACES else max_emoji_per_post()
+
+
+def surface_fields(surface: str) -> tuple[str, ...]:
+    """The fields a surface takes, `text` always among them."""
+    named = tuple(LIMITS.get(surface, {}))
+    return named if "text" in named else ("text", *named)
+
+
+def field_limit(surface: str, name: str) -> int:
+    """The hard length limit on one field of one surface. `text` on a surface
+    that has no `text` is its body; on a surface with neither, X's 280."""
+    limits = LIMITS.get(surface, {})
+    if name in limits:
+        return limits[name]
+    if name == "text":
+        return limits.get("body", MAX_POST_LENGTH)
+    raise hand.HandError(f"surface {surface} has no field {name!r} (it takes {', '.join(surface_fields(surface))})")
 
 
 # --- the allowlist ---------------------------------------------------------------
@@ -202,23 +243,34 @@ def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | Non
     return held
 
 
+def _direction(surface: str | None) -> str:
+    """The screen profile for a surface: the serial's posts and the articles
+    written from its lore are read under the narrative profile; every other
+    draft under the strict one."""
+    return {"narrative": NARRATIVE, "article": ARTICLE}.get(surface or "", OUTBOUND)
+
+
+def _screen_outbound(text: str, surface: str | None) -> tuple[LinkFilterResult, Held | None]:
+    """Links cut, then the lexicon and the judge on what is left: the text
+    with its links filtered, and why it is held (None when it is not). Writes
+    nothing; the caller records the hold."""
+    links = filter_links(text, allowlist())
+    cut = bool(links.removed)
+    if cut:
+        log.warning("safety: cut links from an outbound draft: %s", links.removed)
+    return links, _outbound_decision(links.text, cut, _direction(surface))
+
+
 def gate_outbound(text: str, context: dict[str, Any] | None = None) -> OutboundResult:
     """The account's own words, checked before they leave. The text handed
     back has its links filtered; the caller publishes that. A cut link is
     a hold of its own even when the rest goes out, because it is the
     decision a reviewer most often wants to overturn."""
     fixes: list[str] = []
-    links = filter_links(text, allowlist())
+    links, held = _screen_outbound(text, context.get("surface") if context else None)
     cut = bool(links.removed)
     if cut:
         fixes.append(f"cut {len(links.removed)} link(s) not on the allowlist")
-        log.warning("safety: cut links from an outbound draft: %s", links.removed)
-
-    # The serial's posts and the articles written from its lore are read
-    # under the narrative profile; every other draft under the strict one.
-    surface = context.get("surface") if context else None
-    direction = {"narrative": NARRATIVE, "article": ARTICLE}.get(surface or "", OUTBOUND)
-    held = _outbound_decision(links.text, cut, direction)
     hold_id = None
     if context is not None:
         removed = links.removed if cut else None
@@ -295,11 +347,14 @@ def check_outbound(
 
     `kind` is what is being published ("post", "reply", ...); a hold of it
     is a `draft` hold with the kind kept in its context, unless it names a
-    hold kind itself (`prompt` for a picture). `max_emoji` None is
-    `MAX_EMOJI_PER_POST`."""
-    if max_emoji is None:
-        max_emoji = max_emoji_per_post()
+    hold kind itself (`prompt` for a picture). `max_emoji` None is the
+    surface's default (`default_max_emoji`). The length limit is the
+    surface's on `text` (`field_limit`): 280 on X and every surface that
+    names none."""
     hold_context = _context(surface, context)
+    if max_emoji is None:
+        max_emoji = default_max_emoji(surface)
+    limit = field_limit(surface, "text")
     if kind in holds.KINDS:
         hold_context["kind"] = kind
     else:
@@ -307,33 +362,150 @@ def check_outbound(
     if replying_to:
         hold_context["replying_to"] = replying_to
 
-    length = post_length(text)
-    if length > MAX_POST_LENGTH:
-        return Verdict("refuse", "", f"the text is {length} characters, over the {MAX_POST_LENGTH} limit.")
-    emoji = count_emoji(text)
-    if emoji > max_emoji:
-        return Verdict(
-            "refuse",
-            "",
-            f"the text has {emoji} emoji and this account allows at most {max_emoji} per post."
-            " Rewrite it and call the tool again.",
-        )
-    styled = apply_house_style(text, max_emoji=max_emoji, max_length=MAX_POST_LENGTH, replying_to=replying_to)
+    refused = _hard_limits("text", text, limit, max_emoji)
+    if refused is not None:
+        return Verdict("refuse", "", refused)
+    styled = apply_house_style(
+        text,
+        max_emoji=max_emoji,
+        max_length=limit,
+        replying_to=replying_to,
+        strip_handles=surface not in LONG_FORM_SURFACES,
+    )
     result = gate_outbound(styled.text, hold_context)
     if result.held is not None:
-        return Verdict(
-            "hold",
-            "",
-            f"this account does not publish that ({result.held.category})."
-            " Do not rephrase it; say something else or say nothing.",
-            result.held.category,
-            result.held.hold_id,
-        )
+        return Verdict("hold", "", _HELD.format(category=result.held.category), result.held.category, result.held.hold_id)
     if result.fixes:
-        return Verdict(
-            "refuse",
-            "",
-            "the text links to a site that is not on the allowlist. This account only links to its own sites,"
-            " code and community. Drop the link and call the tool again.",
-        )
+        return Verdict("refuse", "", _OFF_LIST.format(what="the text"))
     return Verdict("allow", result.text, "")
+
+
+_HELD = "this account does not publish that ({category}). Do not rephrase it; say something else or say nothing."
+_OFF_LIST = (
+    "{what} links to a site that is not on the allowlist. This account only links to its own sites,"
+    " code and community. Drop the link and call the tool again."
+)
+
+
+def _hard_limits(name: str, value: str, limit: int, max_emoji: int) -> str | None:
+    """Why `value` is refused as written (over its length or the emoji cap),
+    or None. Refused rather than fixed, so the model learns the limit."""
+    what = "the text" if name == "text" else f"the {name}"
+    length = post_length(value)
+    if length > limit:
+        return f"{what} is {length} characters, over the {limit} limit."
+    emoji = count_emoji(value)
+    if emoji > max_emoji:
+        per = "per post" if name == "text" else f"per {name}"
+        return f"{what} has {emoji} emoji and this account allows at most {max_emoji} {per}. Rewrite it and call the tool again."
+    return None
+
+
+@dataclass(frozen=True)
+class FieldsVerdict:
+    """What may happen to a draft of several fields (a title and a body).
+
+    `kind` is as `Verdict`'s. On "allow", `fields` holds every field as it
+    may be published (house style applied, the gate passed). On "hold" or
+    "refuse", `field` names the field that failed and `fields` is empty."""
+
+    kind: str
+    fields: dict[str, str]
+    reason: str
+    category: str | None = None
+    hold_id: int | None = None
+    field: str | None = None
+
+
+def check_fields(
+    fields: Mapping[str, str],
+    *,
+    surface: str,
+    kind: str = "post",
+    max_emoji: int | None = None,
+    context: dict[str, Any] | None = None,
+) -> FieldsVerdict:
+    """`check_outbound` for a draft of several fields, as GitHub, Moltbook
+    and mail take them: every field gets the surface's hard limits (refused,
+    never fixed), the house style, then links, the lexicon and the judge.
+    Any field that fails fails the draft, and a draft writes at most one
+    hold: the whole draft, as JSON of its fields, with `fields` (their names)
+    and `field` (the one held) in its context. This is the guard's Python API
+    for hands that publish long-form (`teeny_hands.gh`, and those to come);
+    `hands/guard check --fields a,b` is the same on the command line.
+
+    `fields` maps a field name the surface takes (`surface_fields`) to its
+    text, in the order they are checked. `max_emoji` None is the surface's
+    default (`default_max_emoji`), applied to each field."""
+    hold_context = _context(surface, context)
+    if not fields:
+        raise hand.HandError("check_fields needs at least one field")
+    for name, value in fields.items():
+        if not isinstance(value, str):
+            raise hand.HandError(f"{name} must be a string")
+        field_limit(surface, name)  # an unknown field is an error, not a pass
+    if max_emoji is None:
+        max_emoji = default_max_emoji(surface)
+    if kind in holds.KINDS:
+        hold_context["kind"] = kind
+    else:
+        hold_context["post_kind"] = kind
+    hold_context["fields"] = list(fields)
+
+    # The hard limits first, every field, before anything is asked or written.
+    for name, value in fields.items():
+        if not value.strip():
+            return FieldsVerdict("refuse", {}, f"the {name} is empty. Write it and call the tool again.", field=name)
+        refused = _hard_limits(name, value, field_limit(surface, name), max_emoji)
+        if refused is not None:
+            return FieldsVerdict("refuse", {}, refused, field=name)
+
+    styled: dict[str, str] = {}
+    for name, value in fields.items():
+        styled[name] = apply_house_style(
+            value,
+            max_emoji=max_emoji,
+            max_length=field_limit(surface, name),
+            strip_handles=surface not in LONG_FORM_SURFACES,
+        ).text
+
+    cleaned: dict[str, str] = {}
+    removed: list[dict[str, str]] = []
+    cut_in: str | None = None
+    for name, value in styled.items():
+        links, held = _screen_outbound(value, surface)
+        if held is not None:
+            hold_id = _record(
+                direction=OUTBOUND,
+                kind=hold_context.get("kind") or "draft",
+                context={**hold_context, "field": name},
+                category=held.category,
+                reason=held.reason,
+                by=held.by,
+                text=_joined(styled),
+                links=[*removed, *links.removed] or None,
+            )
+            return FieldsVerdict("hold", {}, _HELD.format(category=held.category), held.category, hold_id, name)
+        if links.removed:
+            removed.extend(links.removed)
+            cut_in = cut_in or name
+        cleaned[name] = links.text
+    if removed:
+        hold_id = _record(
+            direction=OUTBOUND,
+            kind="link",
+            context={**hold_context, "field": cut_in},
+            category="links",
+            reason="; ".join(r["reason"] for r in removed),
+            by="links",
+            text=_joined(styled),
+            links=removed,
+        )
+        return FieldsVerdict("refuse", {}, _OFF_LIST.format(what=f"the {cut_in}"), "links", hold_id, cut_in)
+    return FieldsVerdict("allow", cleaned, "")
+
+
+def _joined(fields: Mapping[str, str]) -> str:
+    """A draft of several fields as one hold text: JSON, so a release can
+    read every field back exactly."""
+    return json.dumps(dict(fields), ensure_ascii=False)

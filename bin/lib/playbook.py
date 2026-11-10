@@ -4,12 +4,14 @@ check every playbook a cron names); never by a model.
 
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
-Prints {name, description, output, max_per_day, inputs: [{name, argv}],
-prompt} or exits non-zero with what is wrong.
+Prints {name, description, output, surface, max_per_day, inputs: [{name,
+argv}], prompt} or exits non-zero with what is wrong.
 
     +++
     description = "the morning post"
     output = "post"            # post | reply | like | none | "hand:<name> <verb>"
+    surface = "x"              # where a hand: output's text goes, for the guard
+                               # (its surfaces: x, github, moltbook, mail, ...)
     max_per_day = 1            # actions taken a day, 1-100; skips are free
     [[inputs]]
     name = "mentions"
@@ -44,6 +46,17 @@ class PlaybookError(Exception):
     pass
 
 
+def guard_surfaces() -> tuple[str, ...]:
+    """The guard's own surface list (hands/guard holds.SURFACES), so a
+    playbook cannot name a surface the guard would refuse at the action."""
+    lib = Path(__file__).resolve().parents[2] / "hands" / "lib"
+    if str(lib) not in sys.path:
+        sys.path.insert(0, str(lib))
+    from teeny_hands.guard.holds import SURFACES
+
+    return tuple(SURFACES)
+
+
 def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
     try:
         argv = shlex.split(run)
@@ -75,7 +88,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if not prompt:
         raise PlaybookError(f"{path}: the prompt is empty")
 
-    extra = set(meta) - {"description", "output", "max_per_day", "inputs"}
+    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -95,6 +108,11 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             raise PlaybookError(f"{path}: no hand hands/{argv[0]}")
     elif output not in SIMPLE_OUTPUTS:
         raise PlaybookError(f"{path}: output is one of {', '.join(SIMPLE_OUTPUTS)} or hand:<name> <verb>, got {output!r}")
+
+    surface = meta.get("surface", "x")
+    surfaces = guard_surfaces()
+    if not isinstance(surface, str) or surface not in surfaces:
+        raise PlaybookError(f"{path}: surface is one of {', '.join(surfaces)}, got {surface!r}")
 
     max_per_day = meta.get("max_per_day", 1)
     if not isinstance(max_per_day, int) or isinstance(max_per_day, bool) or not 1 <= max_per_day <= 100:
@@ -117,6 +135,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         "name": name,
         "description": description.strip(),
         "output": output,
+        "surface": surface,
         "max_per_day": max_per_day,
         "inputs": parsed,
         "prompt": prompt,

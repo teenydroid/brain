@@ -17,7 +17,10 @@
 # 4. The action, through a hand that applies its own rules: hands/x post,
 #    reply or like (the guard, the posting rules and DRY_RUN live in hands/x),
 #    or a playbook's own hand, after bin/act has put the draft through
-#    hands/guard check itself.
+#    hands/guard check itself, on the playbook's `surface` (default x): the
+#    `text` with `check`, and any `title`, `body` and `subject` together with
+#    `check --fields`. The hand gets what the guard handed back, never the
+#    model's own words.
 #
 # Prints one JSON summary; every run is appended to state/act/<name>/runs.jsonl.
 # Exits 0 when it ran (including skips and guard holds), 1 on an error.
@@ -38,11 +41,12 @@ name="$1"
 book="$(python3 "$TEENY_ROOT/bin/lib/playbook.py" "$TEENY_BRAIN" "$name" "$hands")" ||
   die "playbook $name is invalid"
 if [ "$check" = 1 ]; then
-  jq -c '{ok: true, playbook: .name, output, max_per_day, inputs: [.inputs[].name]}' <<<"$book"
+  jq -c '{ok: true, playbook: .name, output, surface, max_per_day, inputs: [.inputs[].name]}' <<<"$book"
   exit 0
 fi
 
 output="$(jq -r .output <<<"$book")"
+surface="$(jq -r .surface <<<"$book")"
 max_per_day="$(jq -r .max_per_day <<<"$book")"
 dir="$TEENY_STATE/act/$name"
 mkdir -p "$dir"
@@ -167,12 +171,39 @@ while IFS= read -r item; do
     hand)
       read -r hand verb <<<"${output#hand:}"
       # A playbook's own hand did not come with the posting rules hands/x
-      # carries, so the guard reads its text here first.
-      if [ -n "$text" ] && ! verdict="$(jq -cn --arg t "$text" '{text: $t}' | (cd "$TEENY_ROOT" && "$hands/guard" check))"; then
-        result="$verdict"
-        status=2
-      else
-        result="$(jq -c 'del(.action)' <<<"$item" | (cd "$TEENY_ROOT" && "$hands/$hand" "$verb"))" || status=$?
+      # carries, so the guard reads its words here first, and what goes to
+      # the hand is the guard's rewrite, never the model's draft.
+      body="$(jq -c 'del(.action)' <<<"$item")"
+      fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
+      if [ -n "$text" ]; then
+        verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
+        if [ "$status" = 0 ]; then
+          if jq -e '.text | type == "string"' <<<"$verdict" >/dev/null 2>&1; then
+            body="$(jq -c --argjson v "$verdict" '.text = $v.text' <<<"$body")"
+          else
+            result="$(jq -cn --arg v "${verdict:0:500}" '{ok: false, error: "the guard passed the text but returned none", guard: $v}')"
+            status=1
+          fi
+        else
+          result="$verdict"
+        fi
+      fi
+      if [ "$status" = 0 ] && [ -n "$fields" ]; then
+        verdict="$(jq -c --arg s "$surface" --arg f "$fields" '($f | split(",")) as $names | with_entries(select(.key as $k | $names | index($k))) + {surface: $s}' <<<"$body" |
+          (cd "$TEENY_ROOT" && "$hands/guard" check --fields "$fields"))" || status=$?
+        if [ "$status" = 0 ]; then
+          if jq -e --arg f "$fields" '.fields as $g | $f | split(",") | all(. as $k | $g[$k] | type == "string")' <<<"$verdict" >/dev/null 2>&1; then
+            body="$(jq -c --argjson v "$verdict" '. + $v.fields' <<<"$body")"
+          else
+            result="$(jq -cn --arg v "${verdict:0:500}" '{ok: false, error: "the guard passed the fields but returned none", guard: $v}')"
+            status=1
+          fi
+        else
+          result="$verdict"
+        fi
+      fi
+      if [ "$status" = 0 ]; then
+        result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && "$hands/$hand" "$verb"))" || status=$?
       fi
       ;;
   esac

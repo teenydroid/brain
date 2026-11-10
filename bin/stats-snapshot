@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Today's numbers into state/hands.db (evals/cron.pinned.toml, stats-snapshot):
+# `hands/stats snapshot` reads X, Moltbook and GitHub through their hands'
+# clients and writes one row per metric per day. A source without its key is
+# skipped. Posts may quote only numbers that came from these rows
+# (`hands/stats get`, `hands/stats report`).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/stats" snapshot </dev/null

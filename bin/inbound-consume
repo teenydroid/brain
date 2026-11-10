@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Answer the mentions the core has drafted for: the act side of the inbound
+# Answer what the core has drafted for: the sending side of the inbound
 # path (docs/architecture.md, "Triggers").
 #
-#   bin/inbound-consume
+#   bin/inbound-consume                       mentions (source x:mentions)
+#   bin/inbound-consume --source mail:inbox   mail (bin/mail)
+#
+# For mail it is the same loop with hands/mail: `hands/mail ingest` offers
+# messages (source mail:inbox, keyed on the thread), the tool-less
+# `teeny-mail` agent drafts, and each reply goes through `hands/mail reply`
+# ({message_id, body}) and is marked with `hands/mail mark`. Pacing is X's.
 #
 # `hands/x ingest` offers mentions to the core (`openhuman.inbound_offer`,
 # source x:mentions). The core coalesces them and runs one turn of the
@@ -33,26 +39,49 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need jq python3
 
+source=x:mentions
+if [ "${1:-}" = --source ]; then
+  source="${2:-}"
+  shift 2 || true
+fi
+[ $# -eq 0 ] || die "usage: bin/inbound-consume [--source x:mentions|mail:inbox]"
+case "$source" in
+  x:mentions) hand=x lock=inbound-consume ;;
+  mail:inbox) hand=mail lock=inbound-consume-mail ;;
+  *) die "unknown inbound source: $source" ;;
+esac
+
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 dir="$TEENY_STATE/inbound"
 mkdir -p "$dir" "$TEENY_STATE/locks"
 record() { printf '%s\n' "$1" | tee -a "$dir/runs.jsonl"; }
 
-# One consumer at a time: two would answer the same batch twice before
-# either acknowledged it (hands/x reply would still refuse the second reply).
-exec 9>"$TEENY_STATE/locks/inbound-consume.lock"
+# One consumer per source at a time: two would answer the same batch twice
+# before either acknowledged it (the hand would still refuse the second reply).
+exec 9>"$TEENY_STATE/locks/$lock.lock"
 if command -v flock >/dev/null 2>&1; then
   flock -n 9 || { log "already running"; exit 0; }
 fi
 
-results="$(oh inbound_results '{"source": "x:mentions", "status": "completed", "limit": 20}')" ||
+# $source is one of the names above, so it is safe to write into the JSON.
+results="$(oh inbound_results "$(printf '{"source": "%s", "status": "completed", "limit": 20}' "$source")")" ||
   die "could not read the core's results"
 jq -e 'type == "object" and (.results | type == "array")' <<<"$results" >/dev/null ||
   die "unexpected answer from inbound_results"
 
 budget="${INBOUND_BUDGET_SECONDS:-100}"
 started="$(date +%s)"
-mark() { (cd "$TEENY_ROOT" && "$hands/x" mark "$1" --status "$2" --note "$3" </dev/null >/dev/null) || true; }
+mark() { (cd "$TEENY_ROOT" && "$hands/$hand" mark "$1" --status "$2" --note "$3" </dev/null >/dev/null) || true; }
+# One draft item to its hand: X takes {text, gif_id?} and --to; mail takes
+# {message_id, body}.
+send_reply() { # ITEM TO
+  if [ "$hand" = mail ]; then
+    jq -c --arg to "$2" '{message_id: $to, body: (.text // "")}' <<<"$1" | (cd "$TEENY_ROOT" && "$hands/mail" reply)
+  else
+    jq -c '{text: (.text // "")} + (if .gif_id then {gif_id} else {} end)' <<<"$1" |
+      (cd "$TEENY_ROOT" && "$hands/x" reply --to "$2")
+  fi
+}
 
 while IFS= read -r turn; do
   turn_id="$(jq -r .turn_id <<<"$turn")"
@@ -66,7 +95,7 @@ while IFS= read -r turn; do
       action="$(jq -r .action <<<"$item")"
       to="$(jq -r '.to // .id // ""' <<<"$item")"
       if ! jq -e --arg to "$to" 'index($to) != null' <<<"$batch" >/dev/null; then
-        actions="$(jq -c --arg a "$action" --arg to "$to" '. + [{action: $a, to: $to, refused: "not a mention in this batch"}]' <<<"$actions")"
+        actions="$(jq -c --arg a "$action" --arg to "$to" '. + [{action: $a, to: $to, refused: "not an event in this batch"}]' <<<"$actions")"
         continue
       fi
       handled="$(jq -c --arg to "$to" '. + [$to]' <<<"$handled")"
@@ -79,8 +108,7 @@ while IFS= read -r turn; do
         reply)
           while :; do
             status=0
-            result="$(jq -c '{text: (.text // "")} + (if .gif_id then {gif_id} else {} end)' <<<"$item" |
-              (cd "$TEENY_ROOT" && "$hands/x" reply --to "$to"))" || status=$?
+            result="$(send_reply "$item" "$to")" || status=$?
             result="$(jq -c . <<<"$result" 2>/dev/null || jq -cn --arg r "$result" '{raw: $r}')"
             [ "$status" = 2 ] && [ "$(jq -r '.rule // ""' <<<"$result")" = pacing ] || break
             wait="$(jq -r '.wait_seconds | ceil' <<<"$result")"
@@ -107,7 +135,7 @@ while IFS= read -r turn; do
             '. + [{action: "reply", to: $to, status: (if $s == 0 then "done" elif $s == 2 then "refused" else "error" end), result: $r}]' <<<"$actions")"
           ;;
         *)
-          actions="$(jq -c --arg a "$action" --arg to "$to" '. + [{action: $a, to: $to, refused: "mentions only reply or skip"}]' <<<"$actions")"
+          actions="$(jq -c --arg a "$action" --arg to "$to" '. + [{action: $a, to: $to, refused: "an inbound draft only replies or skips"}]' <<<"$actions")"
           ;;
       esac
     done < <(jq -c '.[]' <<<"$items")
@@ -115,8 +143,8 @@ while IFS= read -r turn; do
     actions="$(jq -cn --arg e "$(cat "$dir/parse.err")" '[{error: "the draft is not usable JSON: \($e)"}]')"
   fi
   if [ "$paused" = 1 ]; then
-    record "$(jq -cn --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" \
-      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a, paused: true}')"
+    record "$(jq -cn --arg s "$source" --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" \
+      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, source: $s, turn_id: $t, mentions: $b, actions: $a, paused: true}')"
     break
   fi
   while IFS=$'\t' read -r id reason; do
@@ -128,6 +156,6 @@ while IFS= read -r turn; do
   done < <(jq -r --argjson h "$handled" '.[] | select(. as $id | $h | index($id) | not)' <<<"$batch")
   oh inbound_result_ack "$(jq -cn --arg t "$turn_id" '{turn_id: $t}')" >/dev/null ||
     log "could not acknowledge $turn_id; it will be read again"
-  record "$(jq -cn --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" --argjson k "$blocked" \
-    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, turn_id: $t, mentions: $b, actions: $a, blocked: $k}')"
+  record "$(jq -cn --arg s "$source" --arg t "$turn_id" --argjson b "$batch" --argjson a "$actions" --argjson k "$blocked" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at, source: $s, turn_id: $t, mentions: $b, actions: $a, blocked: $k}')"
 done < <(jq -c '.results[]' <<<"$results")

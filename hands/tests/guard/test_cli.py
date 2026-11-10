@@ -19,7 +19,8 @@ class Cli(support.Scratch):
         done = subprocess.run(
             # -B: the run writes no bytecode into the checkout.
             [sys.executable, "-I", "-B", str(GUARD), *argv],
-            input=None if body is None else (body if isinstance(body, str) else json.dumps(body)),
+            # No body is an empty stdin, never the runner's own (which can block).
+            input="" if body is None else (body if isinstance(body, str) else json.dumps(body)),
             capture_output=True,
             text=True,
             env=os.environ,

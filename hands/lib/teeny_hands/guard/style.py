@@ -138,16 +138,18 @@ def apply_house_style(
     max_emoji: int = 1,
     max_length: int = MAX_POST_LENGTH,
     replying_to: str | None = None,
+    strip_handles: bool = True,
 ) -> HouseStyleResult:
     """Applies the house style to a draft about to be published. `max_emoji`
     is `MAX_EMOJI_PER_POST`; `replying_to` is the handle being replied to,
-    whose `@` X adds by itself."""
+    whose `@` X adds by itself. `strip_handles` False keeps a leading
+    @handle: on GitHub or in mail nothing adds it back, so it is the address."""
     fixes: list[str] = []
     text = draft.strip()
 
     # X prefixes a reply with every participant's handle, so any handle a
     # draft opens with is published twice.
-    if _LEADING_HANDLES.match(text):
+    if strip_handles and _LEADING_HANDLES.match(text):
         stripped = _LEADING_HANDLES.sub("", text, count=1).strip()
         # A post that is nothing but handles has no reply left once they go.
         if stripped:

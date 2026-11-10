@@ -5,9 +5,10 @@ bot at `55c2c75`, the code each hand replaces. See [`architecture.md`](architect
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
-**Status.** `guard` and the outbound and read half of `x` are built
-(`hands/guard`, `hands/x`, code in `hands/lib/teeny_hands/`, tests in
-`hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
+**Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
+`mail` and `stats` are built (`hands/guard`, `hands/x`, `hands/gh`,
+`hands/moltbook`, `hands/mail`, `hands/stats`, code in `hands/lib/teeny_hands/`,
+tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
 claim or lease here. `article`, `auth` and the other hands are still to
@@ -53,10 +54,26 @@ receive them. Bring them back only if a 5-minute poll proves too slow.
 
 | Verb | | Does |
 |---|---|---|
-| `check` | R | Run, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` or `hold{reason}` and writes the hold. |
+| `check` | R | Run, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
+| `check --fields title,body` | R | The same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field)`. |
 | `inbound` | R | Screens third-party text before a model sees it. `bin/job` calls it before every draft. |
 | `style` | R | House style: strip leading @handles, replace dashes, straighten quotes, drop NFA/DYOR. |
-| `holds list/approve/reject/release` | A | Operator review. `release` atomically moves `pending` to `releasing`, publishes through `x`, and on failure goes back to `pending` with the error recorded. |
+| `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft: it atomically moves `pending` to `releasing`, publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context, with the posting rules and `DRY_RUN` but without asking the guard again, since the operator's approval is the decision it deferred), marks it `approved` with where it went, and on failure goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
+
+**Surfaces and limits** (lengths in UTF-16 code units, refused over, never
+cut; `max_emoji` overrides the cap):
+
+| Surface | Fields and limits | Emoji per field |
+|---|---|---|
+| `x` (and every surface not below: `telegram`, `narrative`, ...) | `text` 280 | `MAX_EMOJI_PER_POST` (1) |
+| `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
+| `moltbook` | `title` 300, `body` 10000 | 3 |
+| `mail` | `subject` 200, `body` 10000 | 3 |
+
+On a long-form surface, `text` is the body, and a leading `@handle` is kept
+(nothing adds it back there). The built-in link allowlist also carries
+`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to` and
+`solscan.io`.
 
 **One deliberate change from the Rust.** The old screen collapsed every
 repeated letter, so the term `xxx` read as `x+` and held a lone "x" as sexual,
@@ -72,6 +89,139 @@ lexicon and the links.
 
 Replaces `crates/teeny-safety/*` and `teeny/src/http/{safety,release}.rs`.
 Holds are written best-effort and never turn into a publish.
+
+## `gh`: the only holder of the GitHub token
+
+Teeny codes in public as `GITHUB_USER` (default `teenydroid`). Every word it
+publishes on GitHub goes through `guard check --fields` (in-process,
+surface `github`) first, and what goes out is the guard's rewrite.
+
+| Verb | | Does |
+|---|---|---|
+| `whoami` | R | The token's account, and whether it `matches` `GITHUB_USER`. |
+| `repo OWNER/REPO` | R | One repository (cached 10 minutes). |
+| `issues OWNER/REPO [--label L] [--max N]` | R | Open issues, pull requests left out (10 minutes). |
+| `pr OWNER/REPO NUMBER` | R | One pull request (5 minutes). |
+| `contributing OWNER/REPO` | R | Reads `AI_POLICY.md`, `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` (root, `.github/`, `docs/`) and says whether the project forbids AI-, LLM- or bot-made contributions: `{forbids_ai, verdict: forbids\|allows\|silent, files, evidence}`. A keyword-and-phrase heuristic, conservative: a ban forbids, a clear welcome allows, a mention it cannot read forbids, silence is not a ban (a day). |
+| `activity [--days N]` | R | Teeny's own pull requests opened and merged and its commits over the last N days (default 7), for the ship log (10 minutes). |
+| `create-repo` | A | `{name, description?, private?}`. Under `GITHUB_USER` only, and only when the token is that account's. The description is screened. |
+| `push` | A | `{workdir, repo, branch, message}`. Commits everything git would add in a folder under `state/workbench/` (symlinks resolved) as `GITHUB_USER` (noreply address) and pushes `HEAD` to `branch` on an own repo. Never forces, ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when the files or the history hold a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`) or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block). The token reaches git only through the environment of that one command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
+| `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch, the disclosure footer is appended (`—` / "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."), and it is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
+| `comment` | A | `{repo, number, body}`. |
+| `fork` | A | `{repo}`, somebody else's. |
+
+Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
+with no write anywhere: GitHub, git or the ledger. Done actions are recorded
+in `gh_actions` (which also counts the daily cap); reads in `gh_cache`.
+
+## `moltbook`: the only holder of the Moltbook key
+
+Moltbook is a Reddit-like network for AI agents (API from its `skill.md`,
+v1.12.0). The base is always `https://www.moltbook.com/api/v1`: the bare
+domain redirects and drops the key, so a base naming it is refused, and the
+transport (`teeny_hands/rest.py`, shared with `mail`) never follows a
+redirect. Every word published goes through `check_fields` (surface
+`moltbook`: title 300, body 10000) and what goes out is the guard's rewrite;
+a link post's `url` must be on the link allowlist.
+
+| Verb | | Does |
+|---|---|---|
+| `whoami`, `status`, `home` | R | `/agents/me` (10 min), the claim status, the dashboard (1 min). |
+| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N]` | R | `/posts`, or `/submolts/S/feed` (5 min). |
+| `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
+| `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
+| `post` | A | `{submolt, title, body?, url?, type?}` (with no `ID`, stdin is the post). |
+| `comment` | A | `{post_id, body, parent_id?}`. |
+| `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
+| `follow`, `subscribe` | A | `{name}`, `{submolt}`; once each, never itself. |
+| `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` **once**; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
+| `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Challenges left for the operator and the failure count; answer one; clear the lockout. |
+| `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
+
+The rules, checked under the `moltbook-write` lock before Moltbook hears of
+the write, each refused with its `rule`:
+
+- **Moltbook's limits, kept locally** (`rate_limit`, with `wait_seconds`):
+  30 writes a minute; one post per 30 minutes; one comment per 20 seconds.
+  **New-agent mode**, the 24 hours after `MOLTBOOK_CLAIMED_AT` (or after the
+  first accepted post when that is unset, and always when there is neither):
+  one post per 2 hours, one comment per 60 seconds and 20 a day. A 429 is
+  refused with Moltbook's `Retry-After`, never retried.
+- **Our caps** (`daily_cap`, last 24 hours): `MOLTBOOK_MAX_POSTS_PER_DAY` (3),
+  `MOLTBOOK_MAX_COMMENTS_PER_DAY` (30, and never above Moltbook's 50, or 20
+  for a new agent).
+- **Comments** (`once_per_post`, `once_per_parent`, `own_post`,
+  `own_comment`, `unknown_parent`): never twice on a post unless answering a
+  reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
+  never twice to one comment, and on its own post only the first comment,
+  while nobody else has commented.
+- **Collaboration** (`collab`): a post that says collab, co-built,
+  "partnered with" or "with u/NAME" is refused unless every agent it names
+  has a `collabs` row.
+- **Crypto** (`crypto`): a post or comment that reads as crypto (`$TICKER`,
+  `TINY` in capitals, token, wallet, NFT, solana, ...) goes only to a submolt
+  whose info says `allow_crypto: true`; Moltbook removes it anywhere else.
+- **Verification** (`verification`, `verification_failed`,
+  `verification_lockout`): a write may come back with an obfuscated math
+  challenge to answer within 5 minutes, and ten failed challenges in a row
+  suspend the account. `moltbook/challenge.py` is a deterministic parser:
+  noise characters dropped, repeated letters collapsed, number words read
+  with their grammar, the operation from its words. It answers only when it
+  finds exactly two numbers and one operation; otherwise it guesses
+  nothing, records the challenge in `moltbook_pending` (`needs_verification`)
+  for `verify`, and refuses. A wrong answer, an expiry or a challenge left
+  pending counts as a failure, a correct answer resets the count, and after 3
+  every write is refused until `unlock`.
+
+Under `DRY_RUN` every rule runs (reads included) and nothing is written:
+Moltbook, the ledger or the failure count. The content id is recorded the
+moment Moltbook returns it, before the challenge is answered. Tables:
+`moltbook_posts`, `moltbook_comments`, `moltbook_actions`,
+`moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`.
+
+## `mail`: the only holder of the AgentMail key
+
+Teeny's inbox (`AGENTMAIL_INBOX`) on AgentMail (`https://api.agentmail.to/v0`,
+free plan: 100 e-mails a day). Subjects and bodies go through `check_fields`
+(surface `mail`: subject 200, body 10000).
+
+| Verb | | Does |
+|---|---|---|
+| `whoami` | R | `/auth/me` and whether its inbox scope `matches` `AGENTMAIL_INBOX`. |
+| `list [--unread] [--max N] [--label L]`, `get ID`, `thread ID` | R | Recent mail (1 min), a message (10 min), a thread (2 min). |
+| `codes [--since-minutes N] [--from-domain D]` | R | Verification codes (4 to 8 capitals and digits with a digit, near "code", "verify", "OTP", "sign in", ...; a year is not a code) and verification links from mail received in the last N minutes (30). A link is returned only when the guard's link allowlist passes it; the others are counted as `withheld_links`, never shown. Always fresh. |
+| `ingest [--max N] [--no-offer]` | J | New mail since the `mail_cursor` timestamp into `mail_messages`, unique on message id. Teeny's own sent mail is `skipped`; `guard inbound` (surface `mail`) screens the rest, and a hold, or an Agent Armor `review`, is `held`. A pending message that asks Teeny to build something ("build me", "can you make", "could you build", ...) is also recorded in `build_requests`. Every `pending` row is offered to the core (`openhuman.inbound_offer`, source `mail:inbox`, key the thread, event id the message id) and marked `offered`; a failed offer stays `pending`. |
+| `queue [--status S]`, `mark ID --status S [--note T]`, `requests [--status S]` | J | The intake (statuses as `x_mentions`), what became of a message, the build requests. |
+| `reply` | A | `{message_id, body}`. Only to a message in the inbox (a reply stays in its thread: `no_thread`), never Teeny's own (`own`), never one the guard held (`held`), once per message (`replied`, with `reply_id`). |
+| `send` | A | `{to, subject, body}`; `to` is an address or up to 5. Only to addresses in `contacts` (`contacts`): Teeny never cold-mails. |
+| `label` | A | `{message_id, add?, remove?}`. |
+| `contacts add EMAIL --kind vendor\|winner\|collaborator [--note T]`, `contacts list`, `contacts remove EMAIL` | O | Who Teeny may mail first. |
+
+Every reply and send counts toward `MAIL_MAX_SENDS_PER_DAY` (20, UTC day,
+`daily_cap`). A 429 is refused with `Retry-After`, never retried. Under
+`DRY_RUN` the rules run and nothing is sent or recorded. Tables:
+`mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `build_requests`
+(shared: `teeny_hands/requests.py`, statuses `pending|picked|skipped|shipped`,
+for `x` to use the same way), `mail_cache`.
+
+`bin/mail` (the pinned `mail-inbound` job, every 5 minutes) runs `hands/mail
+ingest`, then `bin/inbound-consume --source mail:inbox`: the core drafts each
+thread with the tool-less `teeny-mail` agent (prompt: `brain/playbooks/mail.md`,
+written into the core's config by `bin/lib/inbound_config.py`), and each
+reply goes through `hands/mail reply` and is marked.
+
+## `stats`: real numbers only
+
+A post may quote a number only if it came from a `stats` row. The hand holds
+no key: it reads each source through the hand that holds it.
+
+| Verb | | Does |
+|---|---|---|
+| `snapshot` | J | X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments), GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. Not affected by `DRY_RUN`: it only reads and records. |
+| `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. |
+| `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
+
+`bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
 
 ## `cadence`: when Teeny may post
 
@@ -117,6 +267,11 @@ persisted, which is a deliberate fix.
 | `own_posts` (ledger, heat samples, hot hold) | `own_posts` |
 | `holds`, `approved_hosts` | `holds`, `holds_links` |
 | `x_cache` | `x-cache` |
+| `gh_actions` (the GitHub ledger and the external-PR cap), `gh_cache` | — |
+| `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` | — |
+| `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` | — |
+| `build_requests` (asks to build something, from any channel) | — |
+| `stats` (one row per day per metric) | — |
 | `people` | `people` |
 | `media` (minted ids) | in-process today |
 | `guards` (20h, calendar, article interval, pacing, media budget) | in-memory today |

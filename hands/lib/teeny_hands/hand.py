@@ -163,6 +163,41 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+def open_db(schema: str) -> sqlite3.Connection:
+    """state/hands.db with `schema` in place, retrying a "database is locked"
+    from another hand creating its own tables at the same moment (as
+    hands/x and hands/gh each do for theirs)."""
+    for attempt in range(20):
+        try:
+            conn = db()
+            conn.executescript(schema)
+            return conn
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == 19:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
+def number(name: str, default: int, low: int, high: int) -> int:
+    """A whole-number setting, clamped to [low, high]; the default when it is
+    unset or unreadable, so a typo cannot lift a cap."""
+    raw = setting(name)
+    try:
+        value = int(raw) if raw is not None else default
+    except ValueError:
+        return default
+    return max(low, min(value, high))
+
+
+def day_start(at: float | None = None) -> float:
+    """The start of the UTC day `at` (default now) falls in."""
+    import datetime as _dt
+
+    moment = _dt.datetime.fromtimestamp(now() if at is None else at, _dt.timezone.utc)
+    return moment.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+
 @contextlib.contextmanager
 def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     """BEGIN IMMEDIATE: the write lock is taken up front, so a read-then-write
