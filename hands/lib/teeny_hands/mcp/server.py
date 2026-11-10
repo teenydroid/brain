@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import traceback
 from typing import Any, Callable, Mapping, TextIO
@@ -115,7 +116,7 @@ def call(name: str, arguments: Any) -> dict[str, Any]:
         return _result({"ok": False, "error": str(exc)}, True)
     except Exception as exc:  # noqa: BLE001 - a tool error, never a dead server
         print(f"hands/mcp: {name}: {type(exc).__name__}", file=sys.stderr)
-        if hand.os.environ.get("TEENY_HANDS_DEBUG"):
+        if os.environ.get("TEENY_HANDS_DEBUG"):
             traceback.print_exc()
         return _result({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, True)
     out.setdefault("ok", True)
