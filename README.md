@@ -36,14 +36,16 @@ tools, so OpenHuman runs its cron job as a `CronActions` turn
 ([`docs/architecture.md`](docs/architecture.md) §6a):
 
 ```
-cron ──► builder agent ──► hands/mcp build_next      claim a job: a picked build request, or one small daily thing
-                       ──► shell, file tools         write and test it in state/workbench/<job>/ (sandboxed, no network)
-                       ──► hands/mcp build_done      report ok or failed
-cron ──► bin/build-ship ──► hands/build ship ──► hands/gh create-repo, push   guard, owner rule, secret scan, DRY_RUN
+cron ──► bin/build-ship ──► hands/build desk    collect the builder's report; lay out its next job in state/workbench/desk/build.json
+                        ──► hands/build ship    push finished jobs through hands/gh: guard, owner rule, secret scan, DRY_RUN
+cron ──► builder agent  ──► file_read           its job: a picked build request, or one small daily thing
+                        ──► shell, file tools   write and test it in state/workbench/<job>/ (sandboxed, no network)
+                        ──► file_write          its report: state/workbench/desk/build-done.json
 
-cron ──► operator agent ──► hands/mcp tasks_next     claim a browser task
-                        ──► browser                  on deploy/browser-allow.txt only; a payment stops it
-                        ──► hands/mcp tasks_done     ok, failed or needs_human, screenshots into state/media/
+cron ──► bin/tasks-desk ──► hands/tasks desk    collect the operator's report; lay out its next task
+cron ──► operator agent ──► file_read           its task: state/workbench/desk/task.json
+                        ──► browser             on deploy/browser-allow.txt only; a payment stops it
+                        ──► file_write          ok, failed or needs_human, and its screenshots
 ```
 
 ## Status
@@ -77,9 +79,10 @@ cron ──► operator agent ──► hands/mcp tasks_next     claim a browser
   Moltbook and GitHub, the pinned `stats-snapshot` job) are built and tested.
 - **Builder and browser operator:** `hands/build` (the builder's queue: claim,
   finish, ship through `hands/gh`), `hands/tasks` (the operator's queue) and
-  `hands/mcp` (the four claim and finish verbs the two agents reach) are
-  built and tested. The pinned `builder` (every 2 hours), `build-ship` (every
-  30 minutes) and `operator` (hourly) jobs run them. The spine links
+  their desks (a job or task laid out as a file, the agent's report collected
+  from beside it) are built and tested. The pinned `builder` (every 2 hours),
+  `build-ship` (every 30 minutes), `operator` (hourly) and `tasks-desk` (every
+  15 minutes) jobs run them. The spine links
   TinyComputer (the browser) and tinywallet (`web3`) into its executable, and
   the image carries Chromium.
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
@@ -179,7 +182,8 @@ hands/build jobs --status ok                          # built and tested, waitin
 hands/build ship                                      # push them now (DRY_RUN still applies)
 echo '{"goal":"read the latest release notes","start_url":"https://github.com/tinyhumansai/openhuman/releases","done_when":"you can name the newest version","kind":"research"}' | hands/tasks add --source operator
 hands/tasks list --status needs_human                 # what the browser left for a person
-hands/mcp --tool-names                                # the names the builder and operator use for hands/mcp's tools
+hands/build desk                                      # collect the builder's report, lay out its next job (bin/build-ship does)
+hands/tasks desk                                      # the same for the browser operator (bin/tasks-desk)
 bin/oh cron_run '{"job_id":"<id of teeny.builder>"}'  # run the builder now (bin/crons lists the ids)
 
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
@@ -263,7 +267,6 @@ table is replaced whole):
 | `[browser]` | Headless Chromium (`TEENY_CHROME_PATH`, or the first one found), a persistent profile and downloads under `state/browser/`, and the `unattended_actions` a cron run may take. |
 | `[http_request]` | `allowed_domains` from `deploy/browser-allow.txt`. |
 | `[modules]` | TinyComputer and tinywallet from the spine's own executable. |
-| `[mcp_client]` | `hands/mcp`, the scheduled agents' way into their queues. |
 
 A new concern (the wallet's `[wallet_policy]`, say) is a new module in
 `bin/lib/core_sections/`.
@@ -278,9 +281,9 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
-bin/                 spine, doctor, act, mentions, mail, inbound-consume, build-ship, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell, policy and core config; bin/test/
+bin/                 spine, doctor, act, mentions, mail, inbound-consume, build-ship, tasks-desk, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell, policy and core config; bin/test/
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
-hands/               guard, x, gh, moltbook, mail, stats, build, tasks, mcp: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
+hands/               guard, x, gh, moltbook, mail, stats, build, tasks: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
@@ -303,7 +306,7 @@ These are gitignored and created at run time:
 ## Tests
 
 ```sh
-python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, hands/mcp and the core config; X, GitHub and the core are faked
+python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, their desks and the core config; X, GitHub and the core are faked
 bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
@@ -324,10 +327,11 @@ a stub model. It checks:
 - `bin/act` running a playbook, with the `act` agent offering the model no tools;
 - `bin/eval` drafting a task and judging a pair, with the `judge` agent offering
   the model no tools;
-- the builder and operator seeded as agent jobs, and a builder run built from
-  `brain/agents/` with its named tools, run with the scheduled-actions opt-in,
-  and offered hands/mcp's `build_next` and `build_done` (the core started
-  `hands/mcp` itself);
+- the builder and operator seeded as agent jobs; `bin/build-ship` laying the
+  builder's desk out; one builder run and one operator run built from
+  `brain/agents/` with their named tools (the shell and file tools for the
+  builder, no browser; file tools and no shell for the operator), run with
+  the scheduled-actions opt-in;
 - the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus

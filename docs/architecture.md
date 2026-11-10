@@ -106,7 +106,7 @@ container. Configuration:
 
 Not used: desktop control (macOS and Windows only), flows, Composio, and
 OpenHuman's own `http_request` (it can't keep a secret out of the model's
-view). MCP is used for exactly one server, `hands/mcp` (§6a).
+view). MCP is not used yet: `hands/mcp` (§5) waits on gap G11.
 
 ## 3. Hands
 
@@ -269,8 +269,8 @@ Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
 
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
-| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `0 */2 * * *` | `hands/build next`: the oldest picked build request, or one small daily thing | `shell` (sandboxed), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search`, and hands/mcp's `build_next`, `build_done` | `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build ship` → `hands/gh create-repo` and `push` |
-| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `30 * * * *` | `hands/tasks next`: tasks playbooks and the operator queued | `browser`, `tool_search`, and hands/mcp's `tasks_next`, `tasks_done` | screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
+| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
+| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `40 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
 names its tools (never the wildcard). A cron job naming that agent in
@@ -285,33 +285,35 @@ named tools, gives the builder the browser or a wallet tool, or gives the
 operator the shell or file writes; the drafting agents (`act`, `judge`,
 `teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
 
-**How they reach the hands: `hands/mcp`.** The core's workspace is
+**How they reach the hands: a desk, not a call.** The core's workspace is
 `brain/` and its action directory is the checkout, so `workspace_only`
 alone would let a file tool reach `brain/` and nothing of `state/`.
-`bin/spine` therefore grants exactly `state/workbench/` as a trusted root and
-forbids Teeny's brain files (agents, playbooks, cron, storage) and
-`secrets/`. The agents take and finish their work through a stdio MCP server,
-`hands/mcp`, whose catalog is fixed in the repository and holds four verbs
-(`build_next`, `build_done`, `tasks_next`, `tasks_done`), none of which holds
-a secret or reaches the outside. This was the simplest safe choice:
-- the operator has no shell at all, so a shell wrapper could not serve it;
+`bin/spine` therefore grants exactly `state/workbench/` as a trusted root
+(read and write) and forbids Teeny's brain files (agents, playbooks, cron,
+storage) and `secrets/`. The agents call no hand. A cron shell job runs the
+hand's `desk` verb: it collects the report the agent left in
+`state/workbench/desk/<name>-done.json`, passes it to the hand's own `done`
+(every rule applies; a refused report is set aside with the reason, which
+the next offer carries), then writes the next job or task to
+`state/workbench/desk/<name>.json`. The agent reads one file and writes one.
+This was the simplest safe choice, and the one that works at this pin:
+- the operator has no shell, so a shell wrapper could not serve it;
 - the builder's shell runs sandboxed (`sandbox_mode = "sandboxed"`: TinyBox's
-  namespace jail, a private mount tree and no network) and never needs a
-  hand; a shell that could run `hands/*` could also run `hands/gh push`;
-- an MCP call registers as `Execute`, which a plain cron turn refuses and a
-  `CronActions` turn allows, so only these two agents can call it, and each
-  agent's named tools list only its own two verbs.
-
-The core registers each tool as `mcp_hands_<tool>_<6 hex of
-sha256("hands\0<tool>")>`; `hands/mcp --tool-names` prints them, the agent
-definitions list them, and `bin/doctor` checks the two agree.
+  namespace jail, a private mount tree and no network); a shell that could
+  run `hands/build` could also run `hands/gh push`;
+- the file tools are ones both agents need anyway, scoped by OpenHuman's
+  own path policy to the workbench;
+- the hand that acts on a report runs outside any model turn;
+- MCP (`hands/mcp`, the plan in §5) would be the cleaner call, but a serve
+  host drops every configured MCP server's tools when TinySecurity is on
+  (gap G11), so it waits.
 
 **Configuration.** `bin/lib/core_config.py` runs every boot (after the
 inbound sources) and writes each module in `bin/lib/core_sections/` into
 the core's config, each table replaced whole. `automation.py` owns `[cron]`
 (`shell_timeout_secs = 1800`), `[autonomy]`, `[browser]`, `[http_request]`
 (`allowed_domains` from `deploy/browser-allow.txt`), `[modules]` (the two
-linked modules) and `[mcp_client]` (`hands/mcp`). Another concern, the
+linked modules). Another concern, the
 wallet's `[wallet_policy]`, is another module beside it.
 
 **What the builder may not do.** It has no token and no network in its

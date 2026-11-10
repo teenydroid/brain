@@ -6,9 +6,9 @@ contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail`, `stats`, `build`, `tasks` and `mcp` are built (`hands/guard`,
+`mail`, `stats`, `build` and `tasks` are built (`hands/guard`,
 `hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
-`hands/build`, `hands/tasks`, `hands/mcp`, code in `hands/lib/teeny_hands/`,
+`hands/build`, `hands/tasks`, code in `hands/lib/teeny_hands/`,
 tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
@@ -27,10 +27,10 @@ codes, secrets, dry run, state, the core client) is
 **R** marks a read verb. **A** marks an acting verb, which only `bin/`
 scripts, playbooks and the operator (the person) call. **J** marks a job
 verb: it says nothing to anyone but writes state and calls the core, so like
-an acting verb it is never given to a model. **B** marks a work-queue verb
-that one scheduled agent (the builder or the browser operator) calls through
-`hands/mcp` to take and finish its work; it holds no secret and reaches
-nothing outside `state/`.
+an acting verb it is never given to a model. The scheduled agents (the
+builder and the browser operator) call no hand at all: a `desk` job verb
+lays their work out as a file under `state/workbench/desk/` and collects the
+report they leave beside it.
 
 ## `x`: the only holder of the X keys
 
@@ -230,14 +230,17 @@ no key: it reads each source through the hand that holds it.
 
 The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
 every 2 hours) builds one job at a time in its own folder,
-`state/workbench/<slug>/`. It claims and finishes jobs through `hands/mcp`
-and holds no token: `ship`, from cron, publishes what it made through
+`state/workbench/<slug>/`. It reads its job from
+`state/workbench/desk/build.json` and leaves its report in
+`build-done.json` beside it, and holds no token: `desk` and `ship`, from
+cron (`bin/build-ship`), collect the report and publish what it made through
 hands/gh's own actions.
 
 | Verb | | Does |
 |---|---|---|
-| `next` | B | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. A claim older than 6 hours is failed as abandoned (and its request marked `failed`) before anything is handed out. |
-| `done` | B | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
+| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. A claim older than 6 hours is failed as abandoned (and its request marked `failed`) before anything is handed out. |
+| `done` | A | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
+| `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. Then claims: `next`, written to `build.json` with `report_to` and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
 | `ship` | J | Every `ok` job, oldest first: creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). Then the job is `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
@@ -245,20 +248,23 @@ hands/gh's own actions.
 `repo`, `status`: `claimed`, `ok`, `failed`, `shipped`). This hand only reads
 `build_requests`, and writes back only to a request it built, and only while
 that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the pinned `build-ship` job (every 30 minutes).
+`bin/build-ship` is the pinned `build-ship` job (every 30 minutes): `desk`,
+then `ship`. The builder runs at ten past every second hour, after a desk.
 
 ## `tasks`: the browser operator's queue
 
 The browser operator (`brain/agents/operator.toml`, the pinned `operator`
-agent job, hourly) does one task at a time in OpenHuman's browser and
-reports it through `hands/mcp`. Playbooks (`hand:tasks add`) and the
-operator (the person) add tasks.
+agent job, hourly) does one task at a time in OpenHuman's browser. It reads
+its task from `state/workbench/desk/task.json` and leaves its report in
+`task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
+Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
 
 | Verb | | Does |
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
-| `next` | B | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed}, rules}`, or `{task: null}`. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | B | `{task_id, outcome: ok\|failed\|needs_human, notes, screenshots?}`. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed}, rules}`, or `{task: null}`. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human, notes, screenshots?}`. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done`, then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 
 `needs_human` is how a task ends wherever only a person may go on: the
@@ -267,22 +273,18 @@ unattended settings say), a login Teeny has no account for, a CAPTCHA,
 anything that asks for money or a secret. Money moves only through
 `hands/wallet`, never the browser. `browser_tasks`: one row per task.
 
-## `mcp`: the scheduled agents' way in
+## Why a desk, and not a hand the agent calls
 
-A stdio MCP server (newline-delimited JSON-RPC: `initialize`, `ping`,
-`tools/list`, `tools/call`) whose catalog is fixed in the repository and
-holds only the **B** verbs: `build_next`, `build_done`, `tasks_next`,
-`tasks_done`. Each call runs the hand's function in-process, so its rules
-apply; a refusal comes back as a tool error carrying the hand's JSON. The
-core starts it from `[mcp_client] servers` (`bin/lib/core_sections/automation.py`,
-`operator_trusted`, `expose = "direct"`) and names each tool
-`mcp_hands_<tool>_<6 hex>`; `hands/mcp --tool-names` prints the names, which
-the agent definitions list exactly and `bin/doctor` checks.
-
-Why MCP rather than the shell: the operator has no shell at all, and the
-builder's shell runs sandboxed in its folder; neither should reach a hand
-that holds a secret. The catalog has nothing that publishes (`ship`) or
-adds work (`add`).
+The operator has no shell, and the builder's shell runs sandboxed in its
+job's folder: neither should be able to reach a hand, least of all one that
+holds a secret (a shell that can run `hands/build` can run `hands/gh push`).
+The two file tools both agents already need reach `state/workbench/` and
+nothing else of the checkout (the trusted root `bin/spine` grants), so the
+work goes back and forth as two files there, and the hand that acts on a
+report runs from cron, outside any model turn, with all its own rules.
+OpenHuman's MCP would be the other way in, but at this pin a serve host
+drops every configured MCP server's tools when TinySecurity is on
+([`oh-gaps.md`](oh-gaps.md), G11).
 
 ## `cadence`: when Teeny may post
 
