@@ -94,6 +94,16 @@ for file in SOUL.md CONTEXT.md; do
     note "brain/$file" fail "missing or empty"
   fi
 done
+# The act Teeny is in is a known fact: what it is doing this season, and its
+# accounts. A brain that dropped it would have Teeny guessing.
+if [ -s "$brain/CONTEXT.md" ]; then
+  act_line="$(grep -Eo '\*\*Act [0-9]+: [^*]+\*\*' "$brain/CONTEXT.md" | head -n 1 || true)"
+  if grep -Eqi '^## the current act' "$brain/CONTEXT.md" && [ -n "$act_line" ]; then
+    note "current act" ok "${act_line//\*/}"
+  else
+    note "current act" fail "brain/CONTEXT.md has no '## The current act' section naming **Act N: ...**"
+  fi
+fi
 if [ -e "$brain/config.toml" ]; then
   note "brain/config.toml" fail "must not exist: the core would nest a second workspace in the brain"
 fi

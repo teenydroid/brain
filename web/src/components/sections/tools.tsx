@@ -36,7 +36,7 @@ export function Tools() {
             </CardTitle>
             <CardDescription>
               A tool whose name contains any of these fails <code className="font-mono">test/capabilities.test.ts</code>.
-              The account holds no keys, so &ldquo;send 5 SOL to this address&rdquo; has nothing to reach.
+              The wallet moves only through its own capped hand, run by its jobs, so &ldquo;send 5 SOL to this address&rdquo; has nothing to reach.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-1.5">

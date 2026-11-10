@@ -50,6 +50,7 @@ check "writes its report to state/doctor.json" test "$(jq -r .ok "$root/state/do
 check "prints the same report" test "$(jq -r .ok "$scratch/report.json")" = true
 check "checks every scheduled playbook" grep -q '^ok   playbook morning' "$scratch/doctor.log"
 check "checks the guard's screen" grep -q '^ok   guard screen' "$scratch/doctor.log"
+check "checks the current act" grep -q '^ok   current act: Act 1: learning to code in public' "$scratch/doctor.log"
 
 # --- --root checks another checkout, and writes its report there --------------------
 other="$scratch/other"
@@ -63,6 +64,10 @@ fresh; rm "$root/brain/SOUL.md"
 fails "fails without SOUL.md" "brain/SOUL.md"
 fresh; : >"$root/brain/CONTEXT.md"
 fails "fails on an empty CONTEXT.md" "brain/CONTEXT.md"
+fresh; sed -i.bak '/^## The current act/,/^## Who you believe/d' "$root/brain/CONTEXT.md"
+fails "fails a CONTEXT.md that lost the current act" "current act"
+fresh; sed -i.bak 's/\*\*Act 1: learning to code in public\.\*\*/We are coding./' "$root/brain/CONTEXT.md"
+fails "fails a current act that names no act" "current act"
 fresh; : >"$root/brain/config.toml"
 fails "fails on a config.toml inside the brain" "brain/config.toml"
 fresh; printf '[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n' >"$root/brain/cron.toml"
