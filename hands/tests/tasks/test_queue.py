@@ -193,3 +193,32 @@ class WebsitesTest(unittest.TestCase):
         for text in ("*\n", "github.com\n*.example.com\n", "https://github.com\n", "# only comments\n", ""):
             with self.subTest(text=text), self.assertRaises(websites.BadList):
                 websites.parse(text)
+
+
+class DeskTest(Scratch):
+    def desk(self, name):
+        return self.root / "state" / "workbench" / "desk" / name
+
+    def test_the_operator_desk_round_trip(self):
+        tid = self.add()["task_id"]
+        queue.desk()
+        offer = json.loads(self.desk("task.json").read_text())
+        self.assertEqual((offer["task"]["task_id"], offer["report_to"]), (tid, "state/workbench/desk/task-done.json"))
+        self.assertIn("needs_human", offer["rules"])
+        Path(offer["task"]["screenshot_dir"], "shot.png").write_bytes(PNG)
+        self.desk("task-done.json").write_text(json.dumps({
+            "task_id": tid, "outcome": "needs_human", "notes": "a payment checkpoint",
+            "screenshots": [str(Path(offer["task"]["screenshot_dir"], "shot.png"))]}))
+        out = queue.desk()
+        self.assertEqual(out["settled"]["status"], "needs_human")
+        self.assertEqual(out["settled"]["screenshots"], [f"state/media/tasks/{tid}/shot.png"])
+        self.assertIsNone(json.loads(self.desk("task.json").read_text())["task"])
+
+    def test_a_report_for_another_task_is_set_aside(self):
+        tid = self.add()["task_id"]
+        queue.desk()
+        self.desk("task-done.json").write_text(json.dumps({"task_id": tid + 7, "outcome": "ok", "notes": "n"}))
+        out = queue.desk()
+        self.assertEqual(out["rejected"], "unknown task")
+        self.assertEqual(json.loads(self.desk("task.json").read_text())["last_report_rejected"], "unknown task")
+        self.assertEqual(queue.listing("claimed")["tasks"][0]["id"], tid)

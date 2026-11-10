@@ -214,3 +214,65 @@ class ShipTest(Scratch):
                                  '"summary": "s", "tests": "t"}', capture_output=True, text=True)
         self.assertEqual(refused.returncode, 2)
         self.assertEqual(json.loads(refused.stdout)["refused"], "unknown job")
+
+
+class DeskTest(Scratch):
+    """The builder's desk: the job laid out as a file, the report it leaves
+    collected through `done` with every rule, a bad report set aside."""
+
+    def desk(self, name):
+        return self.root / "state" / "workbench" / "desk" / name
+
+    def test_lays_out_the_next_job_and_where_to_report(self):
+        rid = request("build me a coin flipper")
+        out = jobs.desk()
+        self.assertEqual(out["offer"], "state/workbench/desk/build.json")
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertEqual(offer["job"]["request"], "build me a coin flipper")
+        self.assertEqual(offer["report_to"], "state/workbench/desk/build-done.json")
+        self.assertIn("job_id", offer["report_shape"])
+        self.assertIn("Work only inside workdir", offer["rules"])
+        # Laying it out again before a report is the same claim, resumed.
+        jobs.desk()
+        again = json.loads(self.desk("build.json").read_text())
+        self.assertEqual((again["job"]["job_id"], again["job"]["resumed"]), (offer["job"]["job_id"], True))
+        self.assertEqual(request_row(rid)["status"], "picked")
+
+    def test_collects_the_report_then_lays_out_the_next(self):
+        request("build me a coin flipper")
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        (self.root / job["workdir"] / "flip.py").write_text("import random\n")
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"}))
+        out = jobs.desk()
+        self.assertEqual(out["settled"], {"job_id": job["job_id"], "status": "ok"})
+        self.assertFalse(self.desk("build-done.json").exists())
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
+        self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
+
+    def test_a_refused_report_is_set_aside_with_the_reason(self):
+        request("build me a coin flipper")
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        # ok with nothing in the folder is refused by `done` itself.
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t"}))
+        out = jobs.desk()
+        self.assertIn("workdir is empty", out["rejected"])
+        self.assertFalse(self.desk("build-done.json").exists())
+        self.assertTrue(self.desk("build-done.rejected.json").exists())
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertIn("workdir is empty", offer["last_report_rejected"])
+        self.assertEqual(offer["job"]["job_id"], job["job_id"])  # still the builder's
+        self.desk("build-done.json").write_text("{not json")
+        self.assertIsNotNone(jobs.desk()["rejected"])
+
+    def test_bin_build_ship_runs_the_desk_then_ships(self):
+        self.configure(DRY_RUN="1")
+        script = Path(__file__).resolve().parents[3] / "bin" / "build-ship"
+        env = {**os.environ, "TEENY_ROOT": str(self.root), "TEENY_HANDS": str(BUILD.parent)}
+        done = subprocess.run([str(script)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(json.loads(done.stdout)["dry_run"])
+        self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
