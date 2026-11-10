@@ -27,7 +27,6 @@ import sys
 from typing import Any, Mapping
 
 from .. import hand
-from .. import requests as build_requests
 from . import cache, open_db
 from . import posting_rules as rules
 from .client import XApi, number_setting
@@ -191,6 +190,8 @@ def note_requests(limit: int = 200) -> Mapping[str, Any]:
     """Reads the stored mentions (never X again: `ingest` already has them)
     for asks to build something and records each in `build_requests`, once
     per mention. Answers nobody."""
+    from .. import requests as build_requests
+
     conn = open_db(SCHEMA + build_requests.SCHEMA)
     try:
         placeholders = ", ".join("?" for _ in _REQUEST_STATUSES)
