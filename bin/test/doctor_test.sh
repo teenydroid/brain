@@ -73,6 +73,8 @@ fresh; printf '[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act gone"\n' >"$
 fails "fails a cron naming a playbook that does not exist" "cron.toml"
 fresh; printf '+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "rm -rf /"\n+++\ngo\n' >"$root/brain/playbooks/morning.md"
 fails "fails a scheduled playbook that runs something other than a hand" "playbook morning"
+fresh; printf '+++\ndescription = "x"\noutput = "hand:build done"\n+++\ngo\n' >"$root/brain/playbooks/someday.md"
+fails "fails a playbook that hands its draft to the builder's queue" "playbook someday"
 fresh; printf 'no front matter\n' >"$root/brain/playbooks/someday.md"
 fails "fails a playbook nothing schedules yet" "playbook someday"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/act.toml"
