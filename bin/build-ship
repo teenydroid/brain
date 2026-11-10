@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Ship what the builder finished (evals/cron.pinned.toml, build-ship):
+# `hands/build ship` pushes every job the builder reported ok to
+# GITHUB_USER/<repo> through hands/gh (the guard, the owner rule, the secret
+# scan, DRY_RUN), creating the repository when it is missing, and marks the
+# build request it answered shipped. Nothing to ship is a quiet success.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/build" ship </dev/null

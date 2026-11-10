@@ -24,3 +24,24 @@ command = "bin/mail"
 [jobs.stats-snapshot]
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
+
+# The builder (brain/agents/builder.toml), an agent job: it claims one job
+# from hands/build (the oldest picked build request, or a small daily thing
+# of its own), writes and tests it in state/workbench/<job>/, and reports
+# back. It publishes nothing itself.
+[jobs.builder]
+schedule = "0 */2 * * *"
+agent = "builder"
+prompt = "Build your next job from the build queue, following your instructions."
+
+# Push what the builder finished to GitHub (bin/build-ship, hands/build ship).
+[jobs.build-ship]
+schedule = "*/30 * * * *"
+command = "bin/build-ship"
+
+# The browser operator (brain/agents/operator.toml), an agent job: one task
+# from hands/tasks in the browser, then report it.
+[jobs.operator]
+schedule = "30 * * * *"
+agent = "operator"
+prompt = "Do your next browser task from the task queue, following your instructions."
