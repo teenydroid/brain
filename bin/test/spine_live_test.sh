@@ -71,6 +71,9 @@ class Model(BaseHTTPRequestHandler):
             log.write(self.path + "\n")
         # What the model was actually asked: the last user message it received.
         users = [m for m in body.get("messages", []) if m.get("role") == "user"]
+        # Every request whole, for checks on what an agent was offered.
+        with open(sys.argv[4], "a") as log:
+            log.write(json.dumps(body) + "\n")
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
@@ -105,7 +108,7 @@ class Model(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
-python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" &
+python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" "$scratch/model-bodies.jsonl" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -286,6 +289,13 @@ offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr
 check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
 check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
+# The hands tools come from hands/mcp, which the core starts as a stdio MCP
+# server: the builder's request must name them as the core registered them.
+builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | tail -n 1; }
+check "the core started hands/mcp and listed its tools" grep -q 'configured server listed server=hands tools=4' "$scratch/spine.log"
+check "the builder is offered hands/mcp's build_next" grep -q "$(python3 "$root/hands/mcp" --tool-names | jq -r .build_next)" <<<"$(builder_request)"
+check "the builder is offered hands/mcp's build_done" grep -q "$(python3 "$root/hands/mcp" --tool-names | jq -r .build_done)" <<<"$(builder_request)"
+check "the builder is not offered the tasks tools" bash -c "! grep -q mcp_hands_tasks_ <<<\"\$1\"" _ "$(builder_request)"
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 
 registered_window() {
