@@ -54,15 +54,15 @@ def drop(text: str, name: str) -> str:
     return "".join(out)
 
 
-def modules() -> list[Path]:
-    return sorted(p for p in SECTIONS.glob("*.py") if not p.name.startswith("_"))
+def modules(sections: Path = SECTIONS) -> list[Path]:
+    return sorted(p for p in sections.glob("*.py") if not p.name.startswith("_"))
 
 
-def collect(root: Path) -> dict[str, str]:
+def collect(root: Path, sections: Path = SECTIONS) -> dict[str, str]:
     """Every section module's tables, by header."""
     owned: dict[str, str] = {}
     owner: dict[str, str] = {}
-    for path in modules():
+    for path in modules(sections):
         spec = importlib.util.spec_from_file_location(f"teeny_core_section_{path.stem}", path)
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)

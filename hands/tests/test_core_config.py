@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+if str(REPO / "hands" / "lib") not in sys.path:
+    sys.path.insert(0, str(REPO / "hands" / "lib"))
 spec = importlib.util.spec_from_file_location("core_config", REPO / "bin" / "lib" / "core_config.py")
 core_config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core_config)  # type: ignore[union-attr]
@@ -101,16 +103,20 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(core_config.drop(text, "a"), "[ab]\nw = 4\n")
 
     def test_two_sections_cannot_claim_one_table(self):
-        extra = core_config.SECTIONS / "_twice_test.py"
-        clone = core_config.SECTIONS / "zz_twice_test.py"
-        clone.write_text('def tables(root):\n    return {"[cron]": "x = 1\\n"}\n')
-        try:
-            with self.assertRaises(ValueError) as caught:
-                core_config.collect(self.root)
-            self.assertIn("[cron]", str(caught.exception))
-        finally:
-            clone.unlink()
-            self.assertFalse(extra.exists())
+        sections = Path(self.tmp.name) / "sections"
+        sections.mkdir()
+        for name in ("a.py", "b.py"):
+            (sections / name).write_text('def tables(root):\n    return {"[cron]": "x = 1\\n"}\n')
+        (sections / "_helper.py").write_text("raise SystemExit('a leading underscore is not a section')\n")
+        with self.assertRaises(ValueError) as caught:
+            core_config.collect(self.root, sections)
+        self.assertIn("[cron]", str(caught.exception))
+
+    def test_another_concern_is_its_own_section(self):
+        sections = Path(self.tmp.name) / "sections"
+        sections.mkdir()
+        (sections / "wallet.py").write_text('def tables(root):\n    return {"[wallet_policy]": "enabled = true\\n"}\n')
+        self.assertEqual(core_config.collect(self.root, sections), {"[wallet_policy]": "enabled = true\n"})
 
 
 if __name__ == "__main__":
