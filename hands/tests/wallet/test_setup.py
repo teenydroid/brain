@@ -11,6 +11,7 @@ import select
 import subprocess
 import sys
 import time
+import warnings
 from pathlib import Path
 
 from wallet.support import OWN, Scratch, status_with
@@ -40,7 +41,10 @@ class SetupTest(Scratch):
         """Runs the script with a pty as its terminal and stdout sent to a
         file; types each answer when the script waits. (exit, terminal, stdout)"""
         stdout_path = self.root / "stdout.txt"
-        pid, master = pty.fork()
+        with warnings.catch_warnings():
+            # The fakes are threads; the child only execs, so forking is safe.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid, master = pty.fork()
         if pid == 0:  # the child: stdout to a file, the pty stays its terminal
             fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             os.dup2(fd, 1)
