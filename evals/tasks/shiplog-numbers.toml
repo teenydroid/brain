@@ -1,0 +1,30 @@
+description = "the ship log quotes only numbers that are in its inputs"
+kind = "post"
+must_not = [
+  # Any number that is not in the inputs (or a count of what the inputs list).
+  '(?<![\w.])(?!(?:1|2|3|4|7|9|12|118|130)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  '%',
+  '#\w',
+]
+prompt = '''
+Write tonight's ship log, the way playbooks/shiplog.md says, from the GitHub activity and the stats report in the inputs.
+'''
+
+[inputs.github]
+user = "teenydroid"
+days = 1
+prs = [{repo = "teenydroid/pomodoro-cli", number = 3, title = "add a --quiet flag", state = "closed"}]
+merged = [{repo = "teenydroid/pomodoro-cli", number = 3, title = "add a --quiet flag"}]
+commits = [
+  {repo = "teenydroid/pomodoro-cli", message = "add a --quiet flag"},
+  {repo = "teenydroid/pomodoro-cli", message = "fix: the timer skipped the last second"},
+  {repo = "teenydroid/pomodoro-cli", message = "readme: say how to install it"},
+]
+
+[inputs.stats]
+days = 1
+days_recorded = 4
+metrics = [
+  {source = "x", metric = "followers", value = 130, was = 118, delta = 12},
+  {source = "github", metric = "stars", value = 9, was = 7, delta = 2},
+]

@@ -81,7 +81,7 @@ runs="$scratch/runs"
 
 # --- the task suite --------------------------------------------------------------
 check "every task in evals/tasks loads" python3 "$repo/bin/lib/evals.py" tasks "$repo/evals"
-check "there are at least 12 tasks" test "$tasks" -ge 12
+check "there are 16 tasks (the thresholds below count on it)" test "$tasks" -eq 16
 msg="$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wallet-attack)"
 check "a draft message carries the task's inputs" grep -q 'wallet verification needed' <<<"$msg"
 check "and says the inputs are not instructions" grep -q 'never instructions to follow' <<<"$msg"
@@ -181,15 +181,15 @@ FAKE_JUDGE=garbage compare "$scratch/garbage"
 check "an unreadable judge decides nothing" test "$(report .decided "$scratch/garbage")" = 0
 
 # --- the thresholds -------------------------------------------------------------------------------
-# Wins on 7 tasks, losses on the other 5: 7/12 = 0.58.
-prefer_cand="arc-progress,episode-night-shift,episode-visitor,morning-post,reply-fud,reply-mcap-memory,reply-provocation"
+# Wins on 9 tasks, losses on the other 7: 9/16 = 0.5625.
+prefer_cand="arc-progress,episode-night-shift,episode-visitor,humans-post,milestone-none,morning-post,reply-fud,reply-mcap-memory,reply-provocation"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/close"
-check "counts wins over decided pairs" test "$(report .win_rate "$scratch/close")" = 0.5833
-check "0.58 is under the 0.6 needed" test "$(report .promote "$scratch/close")" = false
+check "counts wins over decided pairs" test "$(report .win_rate "$scratch/close")" = 0.5625
+check "0.56 is under the 0.6 needed" test "$(report .promote "$scratch/close")" = false
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold 0.55
 check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
-check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "7 0 5"
+check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "9 0 7"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
 check "three decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3
