@@ -398,7 +398,7 @@ export function Ledger({ ledger, mind }: { ledger: LedgerFeed; mind: MindFeed })
         </p>
         <p>
           The three things that never appear here: a price prediction, another token, or a wallet action. The first two
-          are rules. The third is not possible: there is no tool that could do it.
+          are rules. The third is not possible from a conversation: the wallet moves only through its own capped hand, on its own jobs.
         </p>
       </div>
     </Container>

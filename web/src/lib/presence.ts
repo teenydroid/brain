@@ -2,8 +2,9 @@
  * Everywhere Teeny exists in public. One list so the hero, the "Find it"
  * section, the nav and the footer never disagree about a handle or a link.
  *
- * The wallet is listed because it is public on chain; the agent still has no
- * wallet tool (see `test/capabilities.test.ts`), so it can be watched, not
+ * The wallet is listed because it is public on chain. It acts only through
+ * Teeny's own capped wallet hand, run by its jobs; the conversational agent has
+ * no wallet tool (see `test/capabilities.test.ts`), so it can be watched, not
  * asked to do anything.
  */
 
@@ -58,7 +59,7 @@ export const PRESENCE: Presence[] = [
     handle: shortAddress(WALLET_ADDRESS),
     href: `https://robinhoodchain.blockscout.com/address/${WALLET_ADDRESS}`,
     blurb: 'Its wallet, in the open. Watch it on Blockscout.',
-    detail: 'The agent has no wallet tool: nothing you say can move it.',
+    detail: 'It moves only through its own capped wallet hand, never from a conversation: nothing you say can move it.',
   },
   {
     kind: 'github',
