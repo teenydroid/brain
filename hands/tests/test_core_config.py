@@ -19,7 +19,6 @@ spec = importlib.util.spec_from_file_location("core_config", REPO / "bin" / "lib
 core_config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core_config)  # type: ignore[union-attr]
 
-from teeny_hands.mcp.server import TOOLS  # noqa: E402
 from teeny_hands import websites  # noqa: E402
 
 
@@ -66,10 +65,7 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["http_request"]["allowed_domains"], websites.load(self.root))
         self.assertEqual(doc["modules"]["overrides"],
                          [{"id": "tinycomputer", "source": "linked"}, {"id": "tinywallet", "source": "linked"}])
-        [hands] = doc["mcp_client"]["servers"]
-        self.assertEqual((hands["name"], hands["command"], hands["operator_trusted"], hands["expose"]),
-                         ("hands", str(self.root / "hands" / "mcp"), True, "direct"))
-        self.assertEqual(hands["allowed_tools"], list(TOOLS))
+        self.assertNotIn("mcp_client", doc)
 
     def test_chrome_path_comes_from_the_environment_when_given(self):
         os.environ["TEENY_CHROME_PATH"] = "/opt/chrome/chrome"

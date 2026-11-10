@@ -272,7 +272,12 @@ check "the core kept the cron shell timeout" python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
 assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")
 assert cfg["autonomy"]["enabled"] and cfg["autonomy"]["workspace_only"]
-assert cfg["mcp_client"]["servers"][0]["name"] == "hands"' "$root/.openhuman/config.toml"
+assert cfg["browser"]["unattended_actions"]' "$root/.openhuman/config.toml"
+# The builder's desk, laid out the way bin/build-ship does it every 30 minutes
+# (DRY_RUN is on: nothing ships).
+"$root/bin/build-ship" >"$scratch/build-ship.log" 2>&1 || true
+check "bin/build-ship lays the builder's desk out" \
+  test "$(jq -r .job.kind "$root/state/workbench/desk/build.json" 2>/dev/null)" = daily
 # One builder run now, against the stub model (which answers without calling
 # a tool): the core builds the builder from brain/agents/ with its named tools
 # and runs it with the scheduled-actions opt-in.
@@ -289,14 +294,22 @@ offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr
 check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
 check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
-# The hands tools come from hands/mcp, which the core starts as a stdio MCP
-# server: the builder's request must name them as the core registered them.
 builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | tail -n 1; }
-check "the core started hands/mcp and listed its tools" grep -q 'configured server listed server=hands tools=4' "$scratch/spine.log"
-check "the builder is offered hands/mcp's build_next" grep -q "$(python3 "$root/hands/mcp" --tool-names | jq -r .build_next)" <<<"$(builder_request)"
-check "the builder is offered hands/mcp's build_done" grep -q "$(python3 "$root/hands/mcp" --tool-names | jq -r .build_done)" <<<"$(builder_request)"
-check "the builder is not offered the tasks tools" bash -c "! grep -q mcp_hands_tasks_ <<<\"\$1\"" _ "$(builder_request)"
+check "the builder is told where its desk is" grep -q 'state/workbench/desk/build.json' <<<"$(builder_request)"
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
+# And one operator run: the browser and its desk's two file tools, no shell.
+operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
+if [ -n "$operator_id" ]; then
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    grep -q 'tool spec filter:' <<<"$(agent_tools operator)" && break
+    sleep 1
+  done
+fi
+check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
+check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
+check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
+printf 'info the operator was offered: %s\n' "$(offered operator | tr '\n' ' ')"
 
 registered_window() {
   python3 -c 'import sys, tomllib

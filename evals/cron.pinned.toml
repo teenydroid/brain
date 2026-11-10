@@ -25,23 +25,31 @@ command = "bin/mail"
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
 
-# The builder (brain/agents/builder.toml), an agent job: it claims one job
-# from hands/build (the oldest picked build request, or a small daily thing
-# of its own), writes and tests it in state/workbench/<job>/, and reports
-# back. It publishes nothing itself.
+# The builder (brain/agents/builder.toml), an agent job: it reads one job
+# from its desk (state/workbench/desk/build.json: the oldest picked build
+# request, or a small daily thing of its own), writes and tests it in
+# state/workbench/<job>/, and leaves its report on the desk. It publishes
+# nothing itself. Ten past, so build-ship has laid the desk out at the hour.
 [jobs.builder]
-schedule = "0 */2 * * *"
+schedule = "10 */2 * * *"
 agent = "builder"
-prompt = "Build your next job from the build queue, following your instructions."
+prompt = "Build the job on your desk, following your instructions."
 
-# Push what the builder finished to GitHub (bin/build-ship, hands/build ship).
+# The builder's desk and shipping (bin/build-ship): collect its report, lay
+# out its next job, and push what it finished to GitHub through hands/gh.
 [jobs.build-ship]
 schedule = "*/30 * * * *"
 command = "bin/build-ship"
 
-# The browser operator (brain/agents/operator.toml), an agent job: one task
-# from hands/tasks in the browser, then report it.
+# The browser operator (brain/agents/operator.toml), an agent job: the one
+# task on its desk (state/workbench/desk/task.json), done in the browser,
+# reported on the desk.
 [jobs.operator]
-schedule = "30 * * * *"
+schedule = "40 * * * *"
 agent = "operator"
-prompt = "Do your next browser task from the task queue, following your instructions."
+prompt = "Do the browser task on your desk, following your instructions."
+
+# The operator's desk (bin/tasks-desk): collect its report, lay out its next task.
+[jobs.tasks-desk]
+schedule = "*/15 * * * *"
+command = "bin/tasks-desk"
