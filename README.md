@@ -30,6 +30,22 @@ cron use only read-only tools ("a scheduled prompt is data"), so a script
 drives the job and the model only drafts. The model never sees a key; the
 hands read them from `secrets/teeny.env` themselves.
 
+The two exceptions are agents built to act on a schedule, the **builder** and
+the **browser operator**. Each sets `scheduled_actions = true` and names its
+tools, so OpenHuman runs its cron job as a `CronActions` turn
+([`docs/architecture.md`](docs/architecture.md) §6a):
+
+```
+cron ──► builder agent ──► hands/mcp build_next      claim a job: a picked build request, or one small daily thing
+                       ──► shell, file tools         write and test it in state/workbench/<job>/ (sandboxed, no network)
+                       ──► hands/mcp build_done      report ok or failed
+cron ──► bin/build-ship ──► hands/build ship ──► hands/gh create-repo, push   guard, owner rule, secret scan, DRY_RUN
+
+cron ──► operator agent ──► hands/mcp tasks_next     claim a browser task
+                        ──► browser                  on deploy/browser-allow.txt only; a payment stops it
+                        ──► hands/mcp tasks_done     ok, failed or needs_human, screenshots into state/media/
+```
+
 ## Status
 
 - **Spine:** done. It builds, boots from `brain/` (in Docker or on a laptop),
@@ -59,6 +75,13 @@ hands read them from `secrets/teeny.env` themselves.
   through `bin/mail`, the pinned `mail-inbound` job, and replies within a
   thread; new mail only to contacts) and `hands/stats` (daily numbers from X,
   Moltbook and GitHub, the pinned `stats-snapshot` job) are built and tested.
+- **Builder and browser operator:** `hands/build` (the builder's queue: claim,
+  finish, ship through `hands/gh`), `hands/tasks` (the operator's queue) and
+  `hands/mcp` (the four claim and finish verbs the two agents reach) are
+  built and tested. The pinned `builder` (every 2 hours), `build-ship` (every
+  30 minutes) and `operator` (hourly) jobs run them. The spine links
+  TinyComputer (the browser) and tinywallet (`web3`) into its executable, and
+  the image carries Chromium.
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
   invariants, the guard, the storage and the secrets. `bin/spine` won't boot a
   checkout it fails.
@@ -151,6 +174,14 @@ echo '{"message_id":"<id>","body":"thanks!"}' | hands/mail reply
 hands/mail requests                                   # build requests noticed in mail
 bin/mail                                              # read mail, offer it, send what was drafted
 
+hands/build jobs                                      # the builder's jobs: claimed, ok, failed, shipped
+hands/build jobs --status ok                          # built and tested, waiting for bin/build-ship
+hands/build ship                                      # push them now (DRY_RUN still applies)
+echo '{"goal":"read the latest release notes","start_url":"https://github.com/tinyhumansai/openhuman/releases","done_when":"you can name the newest version","kind":"research"}' | hands/tasks add --source operator
+hands/tasks list --status needs_human                 # what the browser left for a person
+hands/mcp --tool-names                                # the names the builder and operator use for hands/mcp's tools
+bin/oh cron_run '{"job_id":"<id of teeny.builder>"}'  # run the builder now (bin/crons lists the ids)
+
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
 hands/stats report --days 7                           # latest values and their change
 hands/stats get x.followers                           # one number a post may quote
@@ -170,10 +201,22 @@ tz = "Asia/Kolkata"
 command = "bin/act morning"
 ```
 
-A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
-often than every 5 minutes, there can be at most 24 jobs, and `bin/act` can run
-at most 400 times a day. The jobs in `evals/cron.pinned.toml` are always added.
-These rules live in `bin/lib/cron_policy.py`.
+A brain job runs `bin/heartbeat` or `bin/act <playbook>`, or is an agent job
+for one of the agents built to act on a schedule (`builder`, `operator`):
+
+```toml
+[jobs.builder]
+schedule = "0 */2 * * *"
+agent = "builder"
+prompt = "Build your next job from the build queue, following your instructions."
+```
+
+An agent job's agent must be defined in `brain/agents/` with
+`scheduled_actions = true` and explicitly named tools. No job may run more
+often than every 5 minutes, there can be at most 24 jobs, `bin/act` can run
+at most 400 times a day and agent jobs at most 48. The jobs in
+`evals/cron.pinned.toml` are always added. These rules live in
+`bin/lib/cron_policy.py`.
 
 ## Configure it
 
@@ -203,6 +246,28 @@ can't override it, though `DRY_RUN=1` in the environment can force a rehearsal):
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). |
 | `GH_MAX_EXTERNAL_PRS_PER_DAY` | Pull requests to other people's projects a UTC day (2). |
 
+**`deploy/browser-allow.txt`**: the websites the browser may open (and that
+OpenHuman's `http_request` shares), one host per line, subdomains included.
+Reviewed by the operator, outside the brain Teeny edits; `bin/spine` writes it
+into the core's config at every boot and `hands/tasks add` refuses a task that
+starts anywhere else.
+
+**What `bin/spine` writes into the core's config at every boot**
+(`bin/lib/core_config.py` runs each module in `bin/lib/core_sections/`; each
+table is replaced whole):
+
+| Table | |
+|---|---|
+| `[cron]` | `shell_timeout_secs = 1800`: a shell job's wall clock. |
+| `[autonomy]` | On, `full` tier, `workspace_only`; file tools reach the brain minus Teeny's own files, and `state/workbench/`. |
+| `[browser]` | Headless Chromium (`TEENY_CHROME_PATH`, or the first one found), a persistent profile and downloads under `state/browser/`, and the `unattended_actions` a cron run may take. |
+| `[http_request]` | `allowed_domains` from `deploy/browser-allow.txt`. |
+| `[modules]` | TinyComputer and tinywallet from the spine's own executable. |
+| `[mcp_client]` | `hands/mcp`, the scheduled agents' way into their queues. |
+
+A new concern (the wallet's `[wallet_policy]`, say) is a new module in
+`bin/lib/core_sections/`.
+
 The spine writes these itself on first boot: `secrets/core.token` (the RPC
 bearer) and `secrets/openhuman.key` (the master key for every secret the core
 stores). **Back up `brain/storage.db` and `secrets/openhuman.key` together.**
@@ -213,11 +278,11 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
-bin/                 spine, doctor, act, mentions, inbound-consume, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
+bin/                 spine, doctor, act, mentions, mail, inbound-consume, build-ship, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell, policy and core config; bin/test/
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
-hands/               guard, x, gh: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
+hands/               guard, x, gh, moltbook, mail, stats, build, tasks, mcp: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
-deploy/              compose.yaml, spine.env.example, teeny.env.example, the landing page's nginx vhost
+deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, upstream gaps
 ```
@@ -225,7 +290,10 @@ docs/                architecture, hands, upstream gaps
 These are gitignored and created at run time:
 - `secrets/`: the env files, the core token and the master key.
 - `state/`: what the hands keep. `hands.db` holds the posting ledger, cache,
-  holds and pacing, `locks/` the locks, and `core.url` where the core answers.
+  holds, pacing and the builder's and operator's queues, `locks/` the locks,
+  `core.url` where the core answers, `workbench/` what the builder builds,
+  `browser/` the browser's profile and downloads, and `media/` what a post may
+  attach.
 - `.openhuman/`: the core's config, written by the core.
 - `brain/storage.db`: all of the core's state (sessions, cron jobs and runs,
   encrypted secrets) in one SQLite file, so `sqlite3` can read it.
@@ -235,7 +303,7 @@ These are gitignored and created at run time:
 ## Tests
 
 ```sh
-python3 -m unittest discover -s hands/tests -t hands/tests   # the hands; X and the core are faked
+python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, hands/mcp and the core config; X, GitHub and the core are faked
 bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
@@ -256,6 +324,10 @@ a stub model. It checks:
 - `bin/act` running a playbook, with the `act` agent offering the model no tools;
 - `bin/eval` drafting a task and judging a pair, with the `judge` agent offering
   the model no tools;
+- the builder and operator seeded as agent jobs, and a builder run built from
+  `brain/agents/` with its named tools, run with the scheduled-actions opt-in,
+  and offered hands/mcp's `build_next` and `build_done` (the core started
+  `hands/mcp` itself);
 - the key surviving a restart.
 
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above, plus
