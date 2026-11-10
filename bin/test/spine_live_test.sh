@@ -281,10 +281,11 @@ check "bin/build-ship lays the builder's desk out" \
 # One builder run now, against the stub model (which answers without calling
 # a tool): the core builds the builder from brain/agents/ with its named tools
 # and runs it with the scheduled-actions opt-in.
+builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | tail -n 1; }
 if [ -n "$builder_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
   for _ in $(seq 1 60); do
-    grep -q 'building session agent id=builder ' "$scratch/spine.log" && grep -q 'tool spec filter:' <<<"$(agent_tools builder)" && break
+    grep -q 'tool spec filter:' <<<"$(agent_tools builder)" && [ -n "$(builder_request)" ] && break
     sleep 1
   done
 fi
@@ -294,7 +295,6 @@ offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr
 check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
 check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
-builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | tail -n 1; }
 check "the builder is told where its desk is" grep -q 'state/workbench/desk/build.json' <<<"$(builder_request)"
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
