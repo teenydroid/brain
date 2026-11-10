@@ -10,8 +10,10 @@
 #    storage.db without its key is unreadable.
 # 2. Runs bin/doctor, and refuses to boot a checkout it fails.
 # 3. Starts `openhuman-core serve` with the brain, the single storage file
-#    and the file keyring (docs/architecture.md, "Spine"), and the mentions
-#    inbound source written into its config (bin/lib/inbound_config.py).
+#    and the file keyring (docs/architecture.md, "Spine"), with the inbound
+#    sources (bin/lib/inbound_config.py) and Teeny's core settings
+#    (bin/lib/core_config.py: cron, autonomy, browser, modules, hands/mcp)
+#    written into its config.
 # 4. Once it answers, points it at the model and the memory store named in
 #    secrets/spine.env, then makes cron match brain/cron.toml.
 # 5. Waits on the core, forwarding SIGTERM, and exits with its status.
@@ -56,6 +58,13 @@ fi
 # boot, so it is rewritten into the config every boot.
 python3 "$TEENY_ROOT/bin/lib/inbound_config.py" "$config_dir/config.toml" "$TEENY_BRAIN" ||
   die "could not write the inbound sources into $config_dir/config.toml"
+
+# Teeny's own core settings (bin/lib/core_sections/*.py): the cron shell
+# timeout, the autonomy policy, the browser and its allowed websites
+# (deploy/browser-allow.txt), the linked modules and the hands' MCP server
+# the scheduled agents work through. Read only at boot, so rewritten every boot.
+python3 "$TEENY_ROOT/bin/lib/core_config.py" "$config_dir/config.toml" "$TEENY_ROOT" ||
+  die "could not write Teeny's core settings into $config_dir/config.toml"
 
 mint() {
   local file="$1" what="$2"
