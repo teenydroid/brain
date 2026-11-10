@@ -1,6 +1,6 @@
 """One agent definition's posture, for bin/doctor.
 
-    python3 bin/lib/agent_check.py AGENT_TOML HANDS_LIB
+    python3 bin/lib/agent_check.py AGENT_TOML
 
 Prints "id <id>" and exits 0 when the definition is what Teeny's design
 needs; exits non-zero with the reason otherwise:
@@ -11,8 +11,8 @@ needs; exits non-zero with the reason otherwise:
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
-- an `mcp_hands_*` tool is one hands/mcp actually serves, spelled the way
-  the core names it, and one that agent's role uses.
+- each scheduled agent has the tools its desk needs (it reads its work from
+  state/workbench/desk/ and writes its report there) and its role's own.
 """
 
 from __future__ import annotations
@@ -22,15 +22,16 @@ import tomllib
 from pathlib import Path
 
 NO_TOOLS = ("act", "judge", "teeny-mentions", "teeny-mail")
-#: agent -> (hands/mcp tools it uses, tool name prefixes it must not have)
+#: Never in a scheduled agent: money, connectors, and any MCP server.
+NEVER = ("wallet", "web3", "x402", "composio", "mcp")
+#: agent -> (tools it must have, tool name prefixes it must not have)
 SCHEDULED = {
-    "builder": (("build_next", "build_done"), ("browser", "wallet", "web3", "x402", "composio", "mcp_list", "mcp_call")),
-    "operator": (("tasks_next", "tasks_done"),
-                 ("shell", "file_write", "edit", "apply_patch", "wallet", "web3", "x402", "composio", "mcp_list", "mcp_call")),
+    "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
+    "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
 }
 
 
-def check(path: Path, hands_lib: Path) -> str:
+def check(path: Path) -> str:
     with open(path, "rb") as fh:
         doc = tomllib.load(fh)
     for key in ("id", "when_to_use"):
@@ -53,25 +54,20 @@ def check(path: Path, hands_lib: Path) -> str:
         raise SystemExit(f"the {agent} agent runs from cron and must set scheduled_actions = true")
     if not isinstance(named, list) or not named or not all(isinstance(t, str) and t for t in named) or "*" in named:
         raise SystemExit(f"the {agent} agent must name its tools explicitly ([tools] named = [...], no wildcard)")
-    uses, banned = SCHEDULED[agent]
+    needs, banned = SCHEDULED[agent]
     for tool in named:
         if any(tool == b or tool.startswith(b) for b in banned):
             raise SystemExit(f"the {agent} agent must not have {tool!r}")
-    sys.path.insert(0, str(hands_lib))
-    from teeny_hands.mcp.server import agent_tool_name
-
-    wanted = {agent_tool_name(t) for t in uses}
-    have = {t for t in named if t.startswith("mcp_hands_")}
-    if have != wanted:
-        raise SystemExit(
-            f"the {agent} agent's hands tools are {sorted(have)}, not {sorted(wanted)} (hands/mcp --tool-names)")
+    missing = [t for t in needs if t not in named]
+    if missing:
+        raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
     return agent
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit("usage: agent_check.py AGENT_TOML HANDS_LIB")
+    if len(sys.argv) != 2:
+        sys.exit("usage: agent_check.py AGENT_TOML")
     try:
-        print("id " + check(Path(sys.argv[1]), Path(sys.argv[2])))
+        print("id " + check(Path(sys.argv[1])))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         sys.exit(str(exc))

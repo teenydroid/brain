@@ -122,7 +122,7 @@ done
 # the scheduled agents (builder, operator) act from cron, with named tools -----
 for path in "$brain"/agents/*.toml; do
   [ -e "$path" ] || continue
-  run "agent $(basename "$path")" python3 "$TEENY_ROOT/bin/lib/agent_check.py" "$path" "$root/hands/lib"
+  run "agent $(basename "$path")" python3 "$TEENY_ROOT/bin/lib/agent_check.py" "$path"
 done
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"

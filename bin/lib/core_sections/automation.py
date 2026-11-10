@@ -1,7 +1,7 @@
 """The scheduled agents' settings (docs/architecture.md, "Scheduled agents"):
 how long a cron shell job may run, the autonomy policy and what the agents'
-file tools may reach, the browser, the websites it may open, the two linked
-modules, and the hands' MCP server.
+file tools may reach, the browser, the websites it may open, and the two
+linked modules.
 
   [cron]         shell_timeout_secs: bin/ jobs that draft several turns
                  take minutes, not the core's default 120 s
@@ -15,8 +15,6 @@ modules, and the hands' MCP server.
                  browser shares
   [modules]      TinyComputer and tinywallet from the spine's own executable
                  (spine/Cargo.toml), every other module from its release
-  [mcp_client]   hands/mcp, the fixed catalog the builder and the operator
-                 claim and finish work through
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
@@ -87,7 +85,6 @@ def chrome_path() -> str | None:
 def tables(root: Path) -> dict[str, str]:
     _hands_lib(root)
     from teeny_hands import websites
-    from teeny_hands.mcp.server import TOOLS, agent_tool_name
 
     workbench = root / "state" / "workbench"
     profile = root / "state" / "browser" / "profile"
@@ -124,22 +121,10 @@ def tables(root: Path) -> dict[str, str]:
 
     overrides = ", ".join(f'{{ id = {_s(m)}, source = "linked" }}' for m in LINKED_MODULES)
 
-    tools = list(TOOLS)
-    server = (
-        "{ "
-        f'name = "hands", command = {_s(str(root / "hands" / "mcp"))}, args = [], cwd = {_s(str(root))}, '
-        'description = "Teeny\'s work queues: claim a build job or a browser task, and report it done", '
-        f"operator_trusted = true, expose = \"direct\", allowed_tools = {_list(tools)}, timeout_secs = 60"
-        " }"
-    )
-    # The names the agents use must be the ones the core will register.
-    assert all(agent_tool_name(t).startswith("mcp_hands_") for t in tools)
-
     return {
         "[cron]": f"shell_timeout_secs = {SHELL_TIMEOUT_SECS}\n",
         "[autonomy]": autonomy,
         "[browser]": browser,
         "[http_request]": f"allowed_domains = {_list(websites.load(root))}\n",
         "[modules]": f"overrides = [{overrides}]\n",
-        "[mcp_client]": f"enabled = true\nservers = [{server}]\n",
     }

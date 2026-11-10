@@ -38,10 +38,10 @@ NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
 # itself, and a draft must not reach the guard's own admin verbs; the
-# builder's queue and the MCP server belong to the scheduled agents and
-# bin/build-ship, not to a playbook's draft (a playbook may still queue a
-# browser task with hand:tasks add).
-NOT_OUTPUTS = ("guard", "build", "mcp")
+# builder's queue belongs to the builder and bin/build-ship, not to a
+# playbook's draft (a playbook may still queue a browser task with
+# hand:tasks add).
+NOT_OUTPUTS = ("guard", "build")
 MAX_INPUTS = 8
 
 
