@@ -12,3 +12,15 @@
 [jobs.mentions-inbound]
 schedule = "*/5 * * * *"
 command = "bin/mentions"
+
+# Read Teeny's mail and send the replies the core has drafted (bin/mail).
+# Operator-owned for the same reason as mentions-inbound.
+[jobs.mail-inbound]
+schedule = "*/5 * * * *"
+command = "bin/mail"
+
+# Today's numbers from X, Moltbook and GitHub into the stats table
+# (bin/stats-snapshot). The only numbers a post may quote come from there.
+[jobs.stats-snapshot]
+schedule = "15 0 * * *"
+command = "bin/stats-snapshot"
