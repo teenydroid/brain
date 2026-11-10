@@ -36,12 +36,21 @@ case "$1" in
   *) echo '{"ok": true, "dry_run": true}'; exit "${FAKE_X_EXIT:-0}" ;;
 esac
 FAKE
+# The guard: holds anything with BAD in it; otherwise hands back its rewrite
+# (the text, or each --fields field, with "[g]" appended), so a test can see
+# the hand got the guard's words and not the model's. $FAKE_GUARD_EMPTY
+# makes it pass without handing anything back.
 cat >"$scratch/hands/guard" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'guard %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
 if grep -q BAD <<<"$in"; then echo '{"ok": false, "refused": "held"}'; exit 2; fi
-echo '{"ok": true}'
+if [ -n "${FAKE_GUARD_EMPTY:-}" ]; then echo '{"ok": true}'; exit 0; fi
+if [ "${2:-}" = --fields ]; then
+  jq -c --arg f "$3" '. as $b | {ok: true, fields: ([$f | split(",")[] | {key: ., value: ($b[.] + "[g]")}] | from_entries)}' <<<"$in"
+else
+  jq -c '{ok: true, text: (.text + "[g]")}' <<<"$in"
+fi
 FAKE
 cat >"$scratch/hands/lab" <<'FAKE'
 #!/usr/bin/env bash
@@ -56,7 +65,7 @@ mkdir -p "$brain/playbooks"
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" \
   TEENY_STATE="$scratch/state" FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" \
   FAKE_ANSWER="$scratch/answer.txt"
-unset DRY_RUN FAKE_X_EXIT
+unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY
 
 book() { # NAME OUTPUT MAX [INPUT_RUN]
   {
@@ -136,13 +145,40 @@ reset
 book note "hand:lab log" 3
 answer '{"action": "hand", "text": "the terminal typed: hello", "tag": "terminal"}'
 run note >/dev/null
-check "puts a hand output's text through hands/guard check" grep -q '^guard check stdin={"text":"the terminal typed: hello"}' "$FAKE_HANDS"
-check "then gives the hand the draft" grep -q '^lab log stdin={"text":"the terminal typed: hello","tag":"terminal"}' "$FAKE_HANDS"
+check "puts a hand output's text through hands/guard check on the surface" grep -q '^guard check stdin={"text":"the terminal typed: hello","surface":"x"}' "$FAKE_HANDS"
+check "then gives the hand the guard's text, not the model's" grep -q '^lab log stdin={"text":"the terminal typed: hello\[g\]","tag":"terminal"}' "$FAKE_HANDS"
+reset
+FAKE_GUARD_EMPTY=1 run note >/dev/null || true
+check "a guard pass without text runs no hand" test "$(hand_calls lab)" = 0
 reset
 answer '{"action": "hand", "text": "BAD words"}'
 out="$(run note)"
 check "a guard hold stops the hand" test "$(hand_calls lab)" = 0
 check "and is reported as refused" test "$(jq -r '.actions[0].status' <<<"$out")" = refused
+
+# --- a long-form hand output: title, body and subject through check --fields ----------
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab open"\nsurface = "github"\n+++\nopen it\n' >"$brain/playbooks/pr.md"
+answer '{"action": "hand", "title": "fix a typo", "body": "small fix", "repo": "a/b"}'
+out="$(run pr)"
+check "screens the title and body together on the playbook's surface" \
+  grep -q '^guard check --fields title,body stdin={"title":"fix a typo","body":"small fix","surface":"github"}' "$FAKE_HANDS"
+check "gives the hand the guard's fields and the rest of the draft" \
+  grep -q '^lab open stdin={"title":"fix a typo\[g\]","body":"small fix\[g\]","repo":"a/b"}' "$FAKE_HANDS"
+check "reports the long-form action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+reset
+answer '{"action": "hand", "text": "a note", "subject": "hello"}'
+run pr >/dev/null
+check "checks the text and then the subject" test "$(hand_calls guard)" = 2
+check "the text check carries the playbook's surface" grep -q '^guard check stdin={"text":"a note","surface":"github"}' "$FAKE_HANDS"
+check "and the hand gets both rewritten" grep -q '^lab open stdin={"text":"a note\[g\]","subject":"hello\[g\]"}' "$FAKE_HANDS"
+reset
+answer '{"action": "hand", "title": "fine", "body": "BAD body"}'
+out="$(run pr)"
+check "a held field stops the long-form hand" test "$(hand_calls lab)" = 0
+check "and is reported as refused" test "$(jq -r '.actions[0].status' <<<"$out")" = refused
+check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
+check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
 # --- drafts that are not usable ------------------------------------------------------------
 reset
@@ -173,6 +209,8 @@ refuses "refuses an input hand that does not exist" $'+++\ndescription = "x"\nou
 refuses "refuses the guard as an output" $'+++\ndescription = "x"\noutput = "hand:guard holds"\n+++\ngo'
 refuses "refuses an unknown output" $'+++\ndescription = "x"\noutput = "shell"\n+++\ngo'
 refuses "refuses an empty prompt" $'+++\ndescription = "x"\noutput = "post"\n+++\n'
+refuses "refuses a surface the guard does not know" $'+++\ndescription = "x"\noutput = "post"\nsurface = "myspace"\n+++\ngo'
+refuses "refuses a surface that is not a string" $'+++\ndescription = "x"\noutput = "post"\nsurface = 3\n+++\ngo'
 refuses "refuses a budget over 100 a day" $'+++\ndescription = "x"\noutput = "post"\nmax_per_day = 500\n+++\ngo'
 check "refuses a playbook name with a path in it" bash -c "! '$act' --check ../secrets >/dev/null 2>&1"
 
