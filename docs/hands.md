@@ -312,6 +312,7 @@ persisted, which is a deliberate fix.
 | `record` | A: `log` (journal, handles redacted for the public feed), `brief`, `health`, `export` | `teeny-jobs/src/journal_glue.rs`, `teeny/src/http/feeds.rs`, `reflections` |
 | `telegram` | A: `poll` (debounced, ordered per chat), `send` (after `guard check`, honours `TELEGRAM_DRY_RUN`; the token is never logged, since it sits in the URL path) | `crates/teeny/src/telegram/*`, `teeny-jobs/src/chat` |
 | `policy` | `shell`: the `beforeShellExecution` hook. Refuses anything but `hands/*` with known verbs. | `teeny-agent/src/posture.rs` DENY list |
+| `mcp` | A stdio MCP server exposing only the **R** verbs above, each `ReadOnly` with no external effect (waits on [`oh-gaps.md`](oh-gaps.md) G11) | `teeny-agent/src/tools/*` registration |
 
 **The guarded fetch** (`media look`, `web read`) inherits
 `crates/teeny-media/src/fetch.rs`:
