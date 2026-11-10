@@ -6,8 +6,9 @@ contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail` and `stats` are built (`hands/guard`, `hands/x`, `hands/gh`,
-`hands/moltbook`, `hands/mail`, `hands/stats`, code in `hands/lib/teeny_hands/`,
+`mail`, `stats`, `build`, `tasks` and `mcp` are built (`hands/guard`,
+`hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
+`hands/build`, `hands/tasks`, `hands/mcp`, code in `hands/lib/teeny_hands/`,
 tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
@@ -23,11 +24,13 @@ codes, secrets, dry run, state, the core client) is
 `hands/lib/teeny_hands/hand.py`. Run every test with
 `python3 -m unittest discover -s hands/tests -t hands/tests`.
 
-**R** marks a read verb. Read verbs are exposed to no-shell agents through
-`hands/mcp` as read-only tools. **A** marks an acting verb, which only
-`bin/job` scripts and the operator call. **J** marks a job verb: it says
-nothing to anyone but writes state and calls the core, so like an acting
-verb it is never given to a model.
+**R** marks a read verb. **A** marks an acting verb, which only `bin/`
+scripts, playbooks and the operator (the person) call. **J** marks a job
+verb: it says nothing to anyone but writes state and calls the core, so like
+an acting verb it is never given to a model. **B** marks a work-queue verb
+that one scheduled agent (the builder or the browser operator) calls through
+`hands/mcp` to take and finish its work; it holds no secret and reaches
+nothing outside `state/`.
 
 ## `x`: the only holder of the X keys
 
@@ -223,6 +226,64 @@ no key: it reads each source through the hand that holds it.
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
 
+## `build`: the builder's work queue
+
+The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
+every 2 hours) builds one job at a time in its own folder,
+`state/workbench/<slug>/`. It claims and finishes jobs through `hands/mcp`
+and holds no token: `ship`, from cron, publishes what it made through
+hands/gh's own actions.
+
+| Verb | | Does |
+|---|---|---|
+| `next` | B | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. A claim older than 6 hours is failed as abandoned (and its request marked `failed`) before anything is handed out. |
+| `done` | B | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
+| `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
+| `ship` | J | Every `ok` job, oldest first: creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). Then the job is `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
+
+`build_jobs`: one row per job (`kind`, `request_id` unique, `slug` unique,
+`repo`, `status`: `claimed`, `ok`, `failed`, `shipped`). This hand only reads
+`build_requests`, and writes back only to a request it built, and only while
+that request is still `picked`: `shipped` or `failed`, with a note.
+`bin/build-ship` is the pinned `build-ship` job (every 30 minutes).
+
+## `tasks`: the browser operator's queue
+
+The browser operator (`brain/agents/operator.toml`, the pinned `operator`
+agent job, hourly) does one task at a time in OpenHuman's browser and
+reports it through `hands/mcp`. Playbooks (`hand:tasks add`) and the
+operator (the person) add tasks.
+
+| Verb | | Does |
+|---|---|---|
+| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
+| `next` | B | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed}, rules}`, or `{task: null}`. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `done` | B | `{task_id, outcome: ok\|failed\|needs_human, notes, screenshots?}`. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `list [--status S] [--limit N]` | R | The tasks, newest first. |
+
+`needs_human` is how a task ends wherever only a person may go on: the
+browser's checkpoint before any payment (which OpenHuman keeps whatever the
+unattended settings say), a login Teeny has no account for, a CAPTCHA,
+anything that asks for money or a secret. Money moves only through
+`hands/wallet`, never the browser. `browser_tasks`: one row per task.
+
+## `mcp`: the scheduled agents' way in
+
+A stdio MCP server (newline-delimited JSON-RPC: `initialize`, `ping`,
+`tools/list`, `tools/call`) whose catalog is fixed in the repository and
+holds only the **B** verbs: `build_next`, `build_done`, `tasks_next`,
+`tasks_done`. Each call runs the hand's function in-process, so its rules
+apply; a refusal comes back as a tool error carrying the hand's JSON. The
+core starts it from `[mcp_client] servers` (`bin/lib/core_sections/automation.py`,
+`operator_trusted`, `expose = "direct"`) and names each tool
+`mcp_hands_<tool>_<6 hex>`; `hands/mcp --tool-names` prints the names, which
+the agent definitions list exactly and `bin/doctor` checks.
+
+Why MCP rather than the shell: the operator has no shell at all, and the
+builder's shell runs sandboxed in its folder; neither should reach a hand
+that holds a secret. The catalog has nothing that publishes (`ship`) or
+adds work (`add`).
+
 ## `cadence`: when Teeny may post
 
 | Verb | | Does |
@@ -249,7 +310,6 @@ persisted, which is a deliberate fix.
 | `record` | A: `log` (journal, handles redacted for the public feed), `brief`, `health`, `export` | `teeny-jobs/src/journal_glue.rs`, `teeny/src/http/feeds.rs`, `reflections` |
 | `telegram` | A: `poll` (debounced, ordered per chat), `send` (after `guard check`, honours `TELEGRAM_DRY_RUN`; the token is never logged, since it sits in the URL path) | `crates/teeny/src/telegram/*`, `teeny-jobs/src/chat` |
 | `policy` | `shell`: the `beforeShellExecution` hook. Refuses anything but `hands/*` with known verbs. | `teeny-agent/src/posture.rs` DENY list |
-| `mcp` | A stdio MCP server exposing only the **R** verbs above, each `ReadOnly` with no external effect | `teeny-agent/src/tools/*` registration |
 
 **The guarded fetch** (`media look`, `web read`) inherits
 `crates/teeny-media/src/fetch.rs`:
@@ -271,6 +331,8 @@ persisted, which is a deliberate fix.
 | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` | — |
 | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` | — |
 | `build_requests` (asks to build something, from any channel) | — |
+| `build_jobs` (the builder's queue, what shipped where) | — |
+| `browser_tasks` (the browser operator's queue and outcomes) | — |
 | `stats` (one row per day per metric) | — |
 | `people` | `people` |
 | `media` (minted ids) | in-process today |

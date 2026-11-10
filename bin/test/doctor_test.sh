@@ -79,6 +79,11 @@ fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/act.t
 fails "fails an act agent that was given a tool" "agent act.toml"
 fresh; rm "$root/brain/agents/act.toml"
 fails "fails without the act agent" "agent act.toml"
+# An agent job has no command: the playbook scan must step over it, not stop at it.
+fresh; printf '[jobs.aaa]\nschedule = "0 */2 * * *"\nagent = "builder"\nprompt = "build"\n[jobs.morning]\nschedule = "0 7 * * *"\ncommand = "bin/act morning"\n' >"$root/brain/cron.toml"
+doctor || true
+check "checks a scheduled playbook listed after an agent job" grep -q '^ok   playbook morning' "$scratch/doctor.log"
+check "and an agent job does not upset the scan" bash -c "! grep -q 'startswith' '$scratch/doctor.log'"
 # The scheduled agents: they must opt in, name their tools, and keep to their role.
 fresh; sed -i.bak 's/^scheduled_actions = true/scheduled_actions = false/' "$root/brain/agents/builder.toml"
 fails "fails a builder that does not set scheduled_actions" "cron.toml"
