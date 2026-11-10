@@ -29,6 +29,7 @@ class CoreConfigTest(unittest.TestCase):
         self.config = Path(self.tmp.name) / "config.toml"
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
+        os.environ.pop("OPENHUMAN_WORKSPACE", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -51,8 +52,12 @@ class CoreConfigTest(unittest.TestCase):
         autonomy = doc["autonomy"]
         self.assertEqual((autonomy["enabled"], autonomy["level"], autonomy["workspace_only"]), (True, "full", True))
         self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
-        for path in (str(self.root / "secrets"), "storage.db", "agents", "playbooks", "cron.toml", "~/.ssh"):
-            self.assertIn(path, autonomy["forbidden_paths"])
+        brain = self.root / "brain"
+        for path in (self.root / "secrets", brain / "storage.db", brain / "agents", brain / "playbooks",
+                     brain / "cron.toml", Path.home() / ".ssh"):
+            self.assertIn(str(path), autonomy["forbidden_paths"])
+        # TinySecurity refuses the whole policy over one relative entry.
+        self.assertTrue(all(Path(p).is_absolute() for p in autonomy["forbidden_paths"]))
         browser = doc["browser"]
         self.assertEqual((browser["enabled"], browser["headless"], browser["profile_mode"]), (True, True, "persistent"))
         self.assertEqual(browser["profile_path"], str(self.root / "state" / "browser" / "profile"))

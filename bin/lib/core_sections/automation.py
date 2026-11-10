@@ -43,9 +43,9 @@ DEFAULT_FORBIDDEN = (
     "/var", "/tmp", "~/.ssh", "~/.gnupg", "~/.aws", "~/.config",
 )
 #: Teeny's files in the brain (the core's workspace, which workspace_only
-#: always allows): no agent's file tool reads or writes them. Relative
-#: entries are the brain's own; SOUL.md and IDENTITY.md the core reserves
-#: itself.
+#: always allows): no agent's file tool reads or writes them. SOUL.md and
+#: IDENTITY.md the core reserves itself. TinySecurity takes only absolute
+#: forbidden paths, so these and `~` are resolved here.
 BRAIN_FORBIDDEN = (
     "storage.db", "storage.db-wal", "storage.db-shm", "agents", "playbooks", "skills", "narrative", "assets",
     "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md",
@@ -95,7 +95,13 @@ def tables(root: Path) -> dict[str, str]:
     for folder in (workbench, profile, downloads, root / "state" / "media"):
         folder.mkdir(parents=True, exist_ok=True)
 
-    forbidden = [*DEFAULT_FORBIDDEN, str(root / "secrets"), str(root / ".openhuman"), *BRAIN_FORBIDDEN]
+    brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
+    forbidden = [
+        *(os.path.expanduser(p) for p in DEFAULT_FORBIDDEN),
+        str(root / "secrets"),
+        str(root / ".openhuman"),
+        *(str(brain / name) for name in BRAIN_FORBIDDEN),
+    ]
     autonomy = (
         "enabled = true\n"
         'level = "full"\n'
