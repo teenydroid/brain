@@ -27,6 +27,7 @@ import sys
 from typing import Any, Mapping
 
 from .. import hand
+from .. import requests as build_requests
 from . import cache, open_db
 from . import posting_rules as rules
 from .client import XApi, number_setting
@@ -178,6 +179,34 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
             _warn(f"offer failed, left pending: {failed}")
             result["offer_error"] = failed
         return result
+
+
+#: The mentions `requests` reads for asks to build: every row the guard let
+#: through. A held mention is never a request, and a skipped one is the
+#: account's own post or one already answered.
+_REQUEST_STATUSES = ("pending", "offered", "drafted", "replied", "refused")
+
+
+def note_requests(limit: int = 200) -> Mapping[str, Any]:
+    """Reads the stored mentions (never X again: `ingest` already has them)
+    for asks to build something and records each in `build_requests`, once
+    per mention. Answers nobody."""
+    conn = open_db(SCHEMA + build_requests.SCHEMA)
+    try:
+        placeholders = ", ".join("?" for _ in _REQUEST_STATUSES)
+        rows = conn.execute(
+            f"SELECT id, author_username, text FROM x_mentions WHERE status IN ({placeholders})"
+            " ORDER BY seen_at DESC, CAST(id AS INTEGER) DESC LIMIT ?",
+            (*_REQUEST_STATUSES, limit),
+        ).fetchall()
+        noted = []
+        for row in rows:
+            if build_requests.looks_like_build_request(row["text"]):
+                if build_requests.record(SOURCE, row["id"], row["author_username"], row["text"], conn):
+                    noted.append(row["id"])
+    finally:
+        conn.close()
+    return {"scanned": len(rows), "noted": len(noted), "ids": noted}
 
 
 def mentions_list(status: str | None = None, limit: int = 50) -> Mapping[str, Any]:

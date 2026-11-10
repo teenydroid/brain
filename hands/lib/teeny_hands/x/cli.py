@@ -15,6 +15,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   J  ingest [--max N] [--no-offer]   new mentions into the queue, offered to the core
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
+  J  requests [--max N]     asks to build something in the stored mentions, into build_requests
 
 Job verbs (J) keep the mentions queue. They answer nobody, but they write
 state and call the core, so no drafting agent is given them.
@@ -90,10 +91,21 @@ def _mark(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return mentions.mark(args.id, args.status, args.note)
 
 
+def _requests(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return mentions.note_requests(args.max)
+
+
 def _max(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 100:
         raise argparse.ArgumentTypeError("--max is 1..100")
+    return number
+
+
+def _bounded_scan(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 1000:
+        raise argparse.ArgumentTypeError("--max is 1..1000")
     return number
 
 
@@ -132,6 +144,8 @@ def parser() -> argparse.ArgumentParser:
     marking.add_argument("id")
     marking.add_argument("--status", required=True, choices=mentions.MARKS)
     marking.add_argument("--note", default=None)
+    noting = verb("requests", _requests, "asks to build something in the stored mentions, into build_requests")
+    noting.add_argument("--max", type=_bounded_scan, default=200)
     return root
 
 
