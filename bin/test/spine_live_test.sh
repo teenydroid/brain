@@ -282,9 +282,11 @@ if [ -n "$builder_id" ]; then
 fi
 check "the core loaded the builder agent from brain/agents/" grep -q 'building session agent id=builder ' "$scratch/spine.log"
 check "the builder run opted into scheduled actions" grep -q 'agent opted into scheduled actions' "$scratch/spine.log"
-check "the builder's turn offers the shell and the file tools" bash -c 'grep -q "shell" <<<"$1" && grep -q "file_write" <<<"$1"' _ "$(agent_tools builder)"
-check "the builder's turn offers no browser" bash -c '! grep -Eq "names=\[.*\bbrowser\b" <<<"$1"' _ "$(agent_tools builder)"
-printf 'info the builder was offered: %s\n' "$(agent_tools builder | sed 's/.*names=//')"
+offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr -d ' '; }
+check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
+check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
+check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
+printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 
 registered_window() {
   python3 -c 'import sys, tomllib
