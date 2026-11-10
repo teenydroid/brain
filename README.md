@@ -35,8 +35,10 @@ hands read them from `secrets/teeny.env` themselves.
 - **Spine:** done. It builds, boots from `brain/` (in Docker or on a laptop),
   points itself at the model and CortexDB, and seeds cron from
   `brain/cron.toml`.
-- **Hands:** `hands/guard` (the content filter) and `hands/x` (reads, post,
-  reply, like, upload, unsay) are built and tested.
+- **Hands:** `hands/guard` (the content filter, with per-surface limits for
+  X, GitHub, Moltbook and mail), `hands/x` (reads, post, reply, like, upload,
+  unsay) and `hands/gh` (GitHub as `teenydroid`: reads, create-repo, push,
+  open-pr, comment, fork) are built and tested.
 - **First live run:** the spine booted, the heartbeat ran from cron,
   `bin/ask` drafted a post in Teeny's voice, `hands/guard` passed it, and
   `hands/x post` returned `dry_run: true`.
@@ -115,6 +117,15 @@ hands/x mentions --status drafted                     # the mentions queue and w
 echo '{"text":"gm"}' | hands/guard check              # ok, or a hold with the reason
 echo '{"text":"gm"}' | hands/x post                   # guard, rules, then DRY_RUN or X
 hands/guard holds list                                # what the guard is holding for review
+hands/guard holds release 12                          # publish a withheld X draft the operator approves
+echo '{"title":"fix","body":"a typo","surface":"github"}' | hands/guard check --fields title,body
+
+hands/gh whoami                                       # who the GitHub token belongs to
+hands/gh contributing owner/repo                      # does this project forbid AI contributions?
+hands/gh issues owner/repo --label 'good first issue' # open issues, cached
+hands/gh activity --days 7                            # Teeny's own PRs, merges and commits
+echo '{"workdir":"state/workbench/hello","repo":"teenydroid/hello","branch":"main","message":"first"}' | hands/gh push
+echo '{"repo":"owner/repo","head":"fix","base":"main","title":"fix a typo","body":"one letter"}' | hands/gh open-pr
 ```
 
 Every hand prints one JSON object. The exit code is `0` when it's done, `2`
@@ -161,6 +172,8 @@ can't override it, though `DRY_RUN=1` in the environment can force a rehearsal):
 | `POST_MIN_GAP_HOURS`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules. See `deploy/teeny.env.example`. |
 | `MAX_EMOJI_PER_POST`, `SAFETY_JUDGE`, `LINK_ALLOWLIST` | The guard. |
 | `GIPHY_API_KEY` | GIFs for posts. |
+| `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). |
+| `GH_MAX_EXTERNAL_PRS_PER_DAY` | Pull requests to other people's projects a UTC day (2). |
 
 The spine writes these itself on first boot: `secrets/core.token` (the RPC
 bearer) and `secrets/openhuman.key` (the master key for every secret the core
@@ -174,7 +187,7 @@ spine/               teeny-spine, the one Rust package (OpenHuman's host, built 
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit on upstream/main
 bin/                 spine, doctor, act, mentions, inbound-consume, eval, oh, ask, crons, seed-cron, heartbeat; bin/lib/ shared shell and policy; bin/test/
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
-hands/               guard, x: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
+hands/               guard, x, gh: Python 3.11 stdlib, no dependencies; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, skills/, playbooks/, agents/, narrative/ (LORE, ARCS), assets/, calendar.json, cron.toml
 deploy/              compose.yaml, spine.env.example, teeny.env.example, the landing page's nginx vhost
 web/                 the landing page (Next.js), its own image
