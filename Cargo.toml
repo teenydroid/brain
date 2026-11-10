@@ -10,7 +10,7 @@
 # fails `cargo metadata` outright); Cargo.lock started as OpenHuman's own.
 #
 # Except the entries the spine's graph never uses (tinyagents-live,
-# tinychannels, tinyflows, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
+# tinychannels, tinystoragedrivers-testkit at this pin): Cargo records
 # an unused patch in Cargo.lock in an order that differs between macOS and
 # Linux, so the image's `--locked` build fails on a lock written on a Mac.
 # Drop any entry `cargo metadata` warns "was not used in the crate graph".
@@ -50,7 +50,6 @@ tinystoragedrivers-document = { path = "vendor/openhuman/vendor/tinystoragedrive
 tinystoragedrivers-kv = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-kv" }
 tinystoragedrivers-queue = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-queue" }
 tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
-tinystoragedrivers-testkit = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-testkit" }
 tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
 [patch."https://github.com/senamakel/tinystoragedrivers"]
@@ -64,7 +63,6 @@ tinystoragedrivers-document = { path = "vendor/openhuman/vendor/tinystoragedrive
 tinystoragedrivers-kv = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-kv" }
 tinystoragedrivers-queue = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-queue" }
 tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
-tinystoragedrivers-testkit = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-testkit" }
 tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
 [patch."https://github.com/tinyhumansai/tinyinference"]
@@ -77,7 +75,6 @@ tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/ti
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 
 [patch.crates-io]
-tinyagents-live = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-live" }
 tinyagents-harness = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-harness" }
 tinyagents-hooks = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-hooks" }
 tinytools = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
@@ -91,7 +88,6 @@ tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyin
 tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
-tinychannels = { path = "vendor/openhuman/vendor/tinychannels" }
 tiny-artifacts = { path = "vendor/openhuman/vendor/tiny-artifacts/crates/tiny-artifacts" }
 
 [profile.release]

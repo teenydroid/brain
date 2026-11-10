@@ -7696,19 +7696,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "tinystoragedrivers-testkit"
-version = "2.1.2"
-
-[[patch.unused]]
-name = "tinyagents-live"
-version = "3.1.4"
-
-[[patch.unused]]
-name = "tinychannels"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "tinystoragedrivers-testkit"
-version = "2.1.2"
