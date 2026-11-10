@@ -38,6 +38,14 @@ docker compose -f deploy/compose.yaml exec spine bin/ask "hello"
   baked into the image.
 - **OpenHuman itself:** bump `vendor/openhuman` (see the root README), then
   `up -d --build`.
+- **Where the browser may go:** edit `browser-allow.txt` here (one host per
+  line, reviewed by you, never by Teeny), then restart. The operator agent's
+  browser profile and downloads are in `state/browser/`; a logged-in session
+  survives restarts. Delete that folder to log everything out.
+- **The builder and the operator:** their queues are `hands/build jobs` and
+  `hands/tasks list`. `hands/tasks list --status needs_human` is what the
+  browser left for you (a payment, a login, a CAPTCHA). Nothing the builder
+  makes leaves the box while `DRY_RUN=1`.
 
 ## Backups
 
