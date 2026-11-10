@@ -256,6 +256,36 @@ if [ "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" != "th
   { tail -n 5 "$scratch/eval.log"; cat "$evals/base/drafts.jsonl" "$evals/out/judged.jsonl" 2>/dev/null; } >&2
 fi
 
+# --- the scheduled agents: seeded as agent jobs, run as CronActions ------------
+jobs_json="$("$root/bin/oh" cron_list 2>/dev/null || echo '[]')"
+builder_id="$(jq -r '[.[] | select(.name == "teeny.builder")][0].id // empty' <<<"$jobs_json")"
+check "seeds the builder as an agent job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.builder")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent builder"
+check "seeds the operator as an agent job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.operator")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent operator"
+check "seeds build-ship as a shell job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.build-ship")][0].job_type' <<<"$jobs_json")" = shell
+check "the core kept the cron shell timeout" python3 -c 'import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")
+assert cfg["autonomy"]["enabled"] and cfg["autonomy"]["workspace_only"]
+assert cfg["mcp_client"]["servers"][0]["name"] == "hands"' "$root/.openhuman/config.toml"
+# One builder run now, against the stub model (which answers without calling
+# a tool): the core builds the builder from brain/agents/ with its named tools
+# and runs it with the scheduled-actions opt-in.
+if [ -n "$builder_id" ]; then
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    grep -q 'building session agent id=builder ' "$scratch/spine.log" && grep -q 'tool spec filter:' <<<"$(agent_tools builder)" && break
+    sleep 1
+  done
+fi
+check "the core loaded the builder agent from brain/agents/" grep -q 'building session agent id=builder ' "$scratch/spine.log"
+check "the builder run opted into scheduled actions" grep -q 'agent opted into scheduled actions' "$scratch/spine.log"
+check "the builder's turn offers the shell and the file tools" bash -c 'grep -q "shell" <<<"$1" && grep -q "file_write" <<<"$1"' _ "$(agent_tools builder)"
+check "the builder's turn offers no browser" bash -c '! grep -Eq "names=\[.*\bbrowser\b" <<<"$1"' _ "$(agent_tools builder)"
+printf 'info the builder was offered: %s\n' "$(agent_tools builder | sed 's/.*names=//')"
+
 registered_window() {
   python3 -c 'import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
