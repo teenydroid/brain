@@ -226,7 +226,7 @@ refuses "refuses opening a bounty as an output" $'+++\ndescription = "x"\noutput
 refuses "refuses the wallet's pay as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet pay"\n+++\ngo'
 refuses "refuses a bounty job verb as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/bounty pay-due"\n+++\ngo'
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:bounty pick"\n[[inputs]]\nrun = "hands/wallet costs --days 7"\n[[inputs]]\nrun = "hands/bounty announcements"\n+++\ngo' >"$brain/playbooks/money.md"
-check "allows a bounty pick output and the money hands' reads as inputs" "$act" --check money
+check "allows a bounty pick output and the money hands' reads as inputs" bash -c "'$act' --check money >/dev/null"
 rm -f "$brain/playbooks/money.md"
 
 # --- bin/ask: a long message is asked, not stalled --------------------------------------
