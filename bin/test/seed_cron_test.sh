@@ -33,7 +33,11 @@ case "$method" in
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
-    jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch else . end)' <<<"$jobs" >"$FAKE_JOBS"
+    # A patched schedule moves the job's next run to its next slot, as the
+    # core's does; here that is simply an hour from now.
+    jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch +
+        (if $p.patch | has("schedule") then {next_run: (now + 3600 | todate)} else {} end) else . end)' \
+      <<<"$jobs" >"$FAKE_JOBS"
     echo '{}' ;;
   cron_remove)
     jq -c --argjson p "$params" 'map(select(.id != $p.job_id))' <<<"$jobs" >"$FAKE_JOBS"
