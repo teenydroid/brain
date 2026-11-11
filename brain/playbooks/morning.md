@@ -3,6 +3,9 @@ description = "the morning post: one gm for the timeline, about what is actually
 output = "post"
 max_per_day = 1
 media = ["image"]
+# A habit, not an order: the mind gets this with the night's backlog when it
+# wakes, and says gm its own way, or not at all.
+nudge = true
 +++
 Write today's morning post for the timeline.
 

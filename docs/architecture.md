@@ -229,8 +229,25 @@ kept in `state/reflect/`, and the diary entry goes to `state/diary/<date>.md`
 and to the core's memory. The prompts are rebuilt, so the next beat reads the
 new page. An unusable answer changes nothing.
 
-Next (planned): playbooks become nudges into the inbox that the mind may
-decline, and a day/night rhythm with mood and energy.
+**Rhythm** (`bin/lib/rhythm.py`):
+
+- **Night.** Between `TEENY_QUIET_HOURS` (1–7, Teeny's time) a beat only
+  gathers. Only an operator stuck on a code or needing a person wakes it.
+  The first beat of the day opens with "You just woke up. N thing(s) came in
+  overnight."
+- **Mood and energy.** `state/mind.json` holds a mood and what is on Teeny's
+  mind, both set by the mind's own `feel` intent. Energy starts at 100 each
+  day and every action costs 6. Every beat header shows them, and a tired
+  Teeny is told doing less is fine.
+- **Idle curiosity.** A beat with an empty inbox, awake and with energy left,
+  at most every 2 hours, gets a read-only look at Moltbook's hot page
+  (`world · idle`).
+- **Jitter.** Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) late.
+- **Habits.** A playbook with `nudge = true` is not drafted by `bin/act`. Its
+  prompt and inputs go to the mind as a `nudge` stimulus, and the mind
+  decides. `morning` is one: the gm arrives with the overnight backlog.
+- **Pictures.** A `post_x` intent may carry an `image` of Teeny, made through
+  the same guard → `hands/image` → `hands/x upload` path `bin/act` uses.
 
 ## 5. Roster
 
