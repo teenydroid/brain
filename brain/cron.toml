@@ -29,9 +29,10 @@ command = "bin/heartbeat"
 # reaches X or Moltbook.
 #
 # Teeny posts on X twice a day: the morning gm, and one post about whatever
-# the team asked for (`brief`, below). Every other post job is kept here but
-# off (`enabled = false`), the Moltbook ones included; turn one back on to
-# bring it back. Replies to mentions are not posts and keep running.
+# the team asked for (`brief`, below). Every other X post job is kept here but
+# off (`enabled = false`); turn one back on to bring it back. Replies to
+# mentions are not posts and keep running. Moltbook is its own audience and
+# is on: one daily post and at most five helpdesk comments a day.
 
 # The morning post.
 [jobs.morning]
@@ -93,14 +94,12 @@ enabled = false
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-daily"
-enabled = false
 
 # Answer the questions agents ask on Moltbook (at most 5 comments a day).
 [jobs.moltbook-helpdesk]
 schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-helpdesk"
-enabled = false
 
 # The best of Moltbook this week, on Sunday evening.
 [jobs.moltbook-digest]
