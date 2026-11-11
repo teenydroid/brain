@@ -23,7 +23,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("act", "judge", "teeny-mentions", "teeny-mail")
+NO_TOOLS = ("teeny", "act", "judge", "teeny-mentions", "teeny-mail")
 #: Never in a scheduled agent: money, connectors, and any MCP server.
 NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 #: agent -> (tools it must have, tool name prefixes it must not have)
