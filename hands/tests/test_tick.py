@@ -3,12 +3,15 @@ hands. The batch reaches the teeny agent on the one teeny:mind thread, each
 intent goes to the hand it names and nowhere else, what the hands did comes
 back as the next beat's stimuli, and a failed turn loses nothing."""
 
+import fcntl
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -27,6 +30,8 @@ method, params = sys.argv[1], json.loads(sys.argv[2] if len(sys.argv) > 2 else "
 with open(os.environ["FAKE_CALLS"], "a") as fh:
     fh.write(json.dumps({"method": method, "params": params}) + "\n")
 if method == "inference_agent_chat":
+    import time
+    time.sleep(float(os.environ.get("FAKE_TURN_SLEEP") or 0))
     if os.environ.get("FAKE_TURN_FAIL"):
         sys.exit("the core is down")
     answers = open(os.environ["FAKE_ANSWER"]).read().split("\n===\n")
@@ -100,12 +105,18 @@ class TickTest(unittest.TestCase):
             TEENY_TICK_JITTER_SECS="0",
             TEENY_QUIET_HOURS="off",
         )
-        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED"):
+        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
+        self.detached: list[int] = []
 
     def tearDown(self):
+        for pid in self.detached:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         os.environ.clear()
         os.environ.update(self._env)
         hand._ENV_CACHE = None
@@ -591,6 +602,98 @@ class TickTest(unittest.TestCase):
         self.tick()
         line = json.loads((self.root / "state" / "tick" / "runs.jsonl").read_text().splitlines()[-1])
         self.assertEqual(line["thought"], "hello world")
+
+
+    # --- the cron call: bin/tick --detach ---------------------------------------------
+    # The core gives up on a cron shell job after 300 s (TinyBox's module call
+    # timeout, docs/oh-gaps.md G12), and a beat can take longer. The cron call
+    # starts the beat in its own session and returns; the beat logs itself.
+
+    def detach(self) -> tuple[dict, float]:
+        started = time.monotonic()
+        proc = subprocess.run([str(REPO / "bin" / "tick"), "--detach"], capture_output=True, text=True,
+                              env=os.environ, timeout=120)
+        took = time.monotonic() - started
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        if isinstance(out.get("pid"), int):
+            self.detached.append(out["pid"])
+        return out, took
+
+    def wait_for(self, what, timeout: float = 30.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            got = what()
+            if got:
+                return got
+            time.sleep(0.1)
+        self.fail("timed out waiting")
+
+    def tick_lock_held(self) -> bool:
+        path = self.root / "state" / "locks" / "tick.lock"
+        if not path.exists():
+            return False
+        with open(path, "a+") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            return False
+
+    def test_the_cron_call_returns_at_once_and_the_beat_carries_on(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "took my time", "intents": [{"do": "like_x", "id": "1"}]})
+        os.environ["FAKE_TURN_SLEEP"] = "3"
+        out, took = self.detach()
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["kind"], "started")
+        self.assertEqual(out["log"], "state/tick/beat.log")
+        self.assertLess(took, 2.0)
+        self.assertEqual(self.runs(), [])  # still thinking
+        [line] = self.wait_for(self.runs)
+        self.assertEqual(line["kind"], "beat")
+        self.assertEqual(line["thought"], "took my time")
+        self.assertEqual([c["argv"] for c in self.hand_calls()], [["like", "1"]])
+        log = self.root / "state" / "tick" / "beat.log"
+        self.wait_for(lambda: '"thought": "took my time"' in log.read_text())
+
+    def test_the_jitter_is_spent_in_the_detached_beat_not_the_cron_call(self):
+        os.environ["TEENY_TICK_JITTER_SECS"] = "180"
+        out, took = self.detach()
+        self.assertEqual(out["kind"], "started")
+        self.assertLess(took, 2.0)
+        self.assertEqual(self.chats(), [])
+
+    def test_a_beat_still_running_makes_the_next_cron_call_busy(self):
+        os.environ["FAKE_TURN_SLEEP"] = "4"
+        first, _ = self.detach()
+        self.assertEqual(first["kind"], "started")
+        self.wait_for(self.tick_lock_held)
+        second, took = self.detach()
+        self.assertTrue(second["ok"], second)
+        self.assertEqual(second["kind"], "busy")
+        self.assertNotIn("pid", second)
+        self.assertLess(took, 2.0)
+        self.wait_for(self.runs)
+        self.wait_for(lambda: not self.tick_lock_held())
+        self.assertEqual(len(self.chats()), 1)
+        self.assertEqual([r["kind"] for r in self.runs()], ["quiet"])
+
+    def test_the_beat_log_is_rotated_before_it_grows_too_big(self):
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import detach
+
+        log = self.root / "state" / "tick" / "beat.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("old\n" * (detach.LOG_MAX_BYTES // 4 + 1))
+        out, _ = self.detach()
+        self.assertEqual(out["kind"], "started")
+        self.wait_for(self.runs)
+        self.wait_for(lambda: not self.tick_lock_held())
+        self.assertTrue((log.parent / "beat.log.1").read_text().startswith("old\n"))
+        self.assertLess(log.stat().st_size, 10_000)
+        self.assertNotIn("old\n", log.read_text())
 
 
 if __name__ == "__main__":
