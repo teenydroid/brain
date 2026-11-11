@@ -56,7 +56,9 @@ export function ArticlesSection({ list }: { list: ArticleList }) {
                     <CardDescription className="leading-relaxed">{article.dek}</CardDescription>
                   </CardHeader>
                   <CardContent className="mt-auto font-mono text-xs text-muted-foreground">
-                    {article.wordCount} words{article.postId ? " · on x" : ""}
+                    {[typeof article.wordCount === "number" ? `${article.wordCount} words` : undefined, article.postId ? "on x" : undefined]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </CardContent>
                 </Card>
               </Link>
