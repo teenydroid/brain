@@ -1,11 +1,11 @@
-# teeny / web
+# teeny / mind
 
-The landing page at teeny.enamakel.com: Teeny's soul, the rules it runs under,
-the tools it can reach, its ledger and its articles.
+The landing page for Teeny's mind: its soul, the rules it runs under, the tools
+it can reach, how its memory works, a log of reflections behind each reply, and
+the mistakes it made in public.
 
 Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
-react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
-(its own image, `127.0.0.1:3120`, behind the `web` profile).
+react-three-fiber.
 
 ## Pages
 
@@ -13,13 +13,15 @@ One route per part of the mind, each with its own scene behind the hero:
 
 | Route | What | Scene |
 | --- | --- | --- |
-| `/` | the token counter, the desk, the last few calls | a brain: points on a sphere, linked to their neighbours, neurons firing |
-| `/ledger` | every model call: input, thinking, output, cost, digest | a stream of thoughts flowing past a few that settled |
-| `/brain` | the brain's roster, workflow and runs | rings of tools orbiting a core |
+| `/` | the token counter, both minds; the agents' desk; the last few calls | a brain: points on a sphere, linked to their neighbours, neurons firing |
+| `/ledger` | every model call: input, thinking, output, cost, digest; the journal's turns; the lessons | a stream of thoughts flowing past a few that settled |
+| `/brain` | the OpenCompany company: the desk, the roster, the workflow, the runs, the repository | rings of tools orbiting a core |
 | `/soul` | who it is | one warm, soft, restless blob |
 | `/rules` | what no message can change | a core held inside a cage of turning rings |
 | `/tools` | everything it can do, and cannot | a lattice of points |
-| `/articles` | long pieces, in full | |
+
+`/reflections`, `/memory` and `/lessons` are gone: the ledger is where the
+turns and the lessons live now, and memory is described under the rules.
 
 `src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
 read from it. Scenes live in `src/components/scene/scenes/` and honour
@@ -33,21 +35,23 @@ npm run build
 
 ## The feeds
 
-The live parts read a JSON API at `MIND_API_URL` (`src/lib/api.ts`), each
-revalidated every 60s: `/mind` (`src/lib/mind.ts`), `/ledger`
-(`src/lib/ledger.ts`), `/brain` (`src/lib/company.ts`) and `/articles`
-(`src/lib/articles.ts`). The front-page counter polls `/api/pulse`, a route
-in this app that reads the same API. Unset or unreachable, every page says so
-and shows nothing: there is no sample data.
+Set `MIND_API_URL` to the bot's base URL and the page reads three things from
+it, each revalidated every 60s and marked live: `/mind` (the journal:
+`src/lib/mind.ts`), `/ledger` (every model call and the running token count:
+`src/lib/ledger.ts`) and `/brain` (the roster, the workflows and the latest
+runs of the OpenCompany company: `src/lib/company.ts`). Unset or unreachable,
+every page says so and shows nothing: there is no sample data anywhere. `BRAIN_REPO` (default `teenydroid/diary`) is read from the
+public GitHub API for the commits shown on `/brain`; `GITHUB_TOKEN` is optional
+and only raises the rate limit.
 
-That API was served by Teeny's previous runtime, which no longer runs, and
-the current spine does not serve it. So today the feeds show their empty
-state, and the copy on `/` and `/brain` still describes the previous brain.
-Both are being reworked in `src/`.
+The counter on the front page is one figure, every token Teeny has burned
+across the account and the brain, counting from the first call the ledger
+saw. It polls `/api/pulse`, a route in this app that reads the bot's totals
+on every request, every twenty seconds, and rolls to the new value. It never
+extrapolates: between polls it holds still.
 
-`BRAIN_REPO` names the GitHub repository whose commits `/brain` shows.
-`GITHUB_TOKEN` is optional and only raises GitHub's rate limit.
-`NEXT_PUBLIC_GA_ID` turns on analytics.
-
+The desk (`src/components/agent-desk.tsx`) lays the brain's workflow out by
+rank and replays its latest run from the host's own step record; with no run
+recorded yet it rehearses the workflow from its node summaries and says so.
 Everything static on the page (`src/lib/brain.ts`) is sourced from `SOUL.md`,
 `CONTEXT.md`, `README.md` and the published tool list.
