@@ -160,11 +160,10 @@ export function assemble(head: number, files: string[], latest: number): Assembl
   }
 }
 
-export interface Receipts extends Assembled {
-  /** `unavailable` when GitHub did not answer for head.json: then there is no count at all. */
-  source: 'live' | 'unavailable'
-  url: string
-}
+/** `unavailable` when GitHub did not answer for head.json: then there is no count at all, not a zero. */
+export type Receipts =
+  | ({ source: 'live'; url: string } & Assembled)
+  | { source: 'unavailable'; url: string; head?: undefined; latest: Receipt[]; tally: Assembled['tally']; window?: undefined }
 
 /**
  * The receipts as published: head.json for the count, the receipts/ listing
@@ -174,7 +173,7 @@ export interface Receipts extends Assembled {
  */
 export async function loadReceipts(options: { latest?: number; days?: number } = {}): Promise<Receipts> {
   const url = `${DIARY_REPO_URL}/tree/main/receipts`
-  const unavailable: Receipts = { source: 'unavailable', url, head: 0, latest: [], tally: [] }
+  const unavailable: Receipts = { source: 'unavailable', url, latest: [], tally: [] }
   const headRead = await readRaw(DIARY_REPO, 'head.json', REVALIDATE)
   if (headRead.status === 'unavailable') return unavailable
   let head = 0
