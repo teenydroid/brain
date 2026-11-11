@@ -67,6 +67,16 @@ class Model(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
+        # Like the ladder: no key, no answer. A core that never stored the key
+        # (a secret write it could not make) must fail here, not pass.
+        if self.headers.get("authorization") != "Bearer stub-key":
+            data = json.dumps({"error": {"message": "missing or invalid api key", "type": "ladder_router_error"}}).encode()
+            self.send_response(401)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         with open(sys.argv[2], "a") as log:
             log.write(self.path + "\n")
         # What the model was actually asked: the last user message it received.
@@ -151,6 +161,8 @@ pass "the spine boots and reports ready"
 # --- first boot -----------------------------------------------------------------
 check "mints the core token" test -s "$root/secrets/core.token"
 check "mints the keyring master key" test -s "$root/secrets/openhuman.key"
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+check "keeps the core's config (with the model key) private" test "$(mode_of "$root/.openhuman/config.toml")" = 600
 check "keeps the token private" test "$(stat -c %a "$root/secrets/core.token" 2>/dev/null || stat -f %Lp "$root/secrets/core.token")" = 600
 check "writes one storage file in the brain" test -s "$root/brain/storage.db"
 check "leaves Teeny's SOUL.md exactly as it was" cmp -s "$repo/brain/SOUL.md" "$root/brain/SOUL.md"
@@ -330,7 +342,7 @@ sed -i.bak '/^LADDER_API_KEY=/d' "$root/secrets/spine.env"
 spine_pid=$!
 for _ in $(seq 1 120); do grep -q '\[spine\] ready' "$scratch/spine2.log" && break; sleep 1; done
 answer="$("$root/bin/ask" "say hello" 2>/dev/null || true)"
-check "the model key survives a restart in the encrypted store" grep -q 'teeny spine says hello' <<<"$answer"
+check "the model key survives a restart in the core's config" grep -q 'teeny spine says hello' <<<"$answer"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s); spine log:\n' "$failures" >&2

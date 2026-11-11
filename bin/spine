@@ -39,6 +39,11 @@ port="${OPENHUMAN_CORE_PORT:-7788}"
 
 mkdir -p "$TEENY_BRAIN" "$TEENY_STATE"
 (umask 077 && mkdir -p "$TEENY_SECRETS")
+# The core's file keyring (in the brain) refuses a directory others can write,
+# and a clone under umask 002 leaves the checkout and brain/ group-writable.
+# Tighten what this user owns, from the brain up to the checkout; bin/doctor
+# fails anything still wrong (a parent owned by someone else).
+python3 "$TEENY_ROOT/bin/lib/private_dirs.py" --fix "$TEENY_BRAIN" "$(dirname "$TEENY_BRAIN")" >/dev/null || true
 # Never a config.toml inside the brain: the core would take the brain
 # for its home and nest a second workspace/ inside it.
 [ ! -e "$TEENY_BRAIN/config.toml" ] ||
@@ -69,6 +74,9 @@ eval "$wallet_env"
 # and the linked modules. Read only at boot, so rewritten every boot.
 python3 "$TEENY_ROOT/bin/lib/core_config.py" "$config_dir/config.toml" "$TEENY_ROOT" ||
   die "could not write Teeny's core settings into $config_dir/config.toml"
+# It holds the model key in plain text ([secrets] in bin/lib/core_sections/secrets.py).
+chmod 700 "$config_dir"
+chmod 600 "$config_dir/config.toml"
 
 mint() {
   local file="$1" what="$2"
@@ -139,15 +147,19 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not ans
   fi
   if [ -n "${LADDER_URL:-}" ]; then
     [ -n "${SPINE_MODEL:-}" ] || die "LADDER_URL is set without SPINE_MODEL (the model id every workload uses, as LLM_MODEL is today)"
-    # The key goes to the core's encrypted store, never its environment. Once
-    # stored it can be dropped from spine.env: a boot without it keeps the
-    # stored one.
+    # The key goes to the core's config, never its environment. Once stored it
+    # can be dropped from spine.env: a boot without it keeps the stored one.
+    # Every call here ends in `|| die`: this block runs in a subshell whose
+    # status is tested, and bash ignores set -e inside one, so a failed call
+    # would otherwise fall through to "ready" and every turn would 401.
     oh config_update_local_ai_settings "$(jq -cn --arg k "${LADDER_API_KEY:-}" \
-      '{runtime_enabled: true, opt_in_confirmed: true} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null
+      '{runtime_enabled: true, opt_in_confirmed: true} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null ||
+      die "model: the core did not store the model settings (the key above); every turn would fail"
     [ -n "${LADDER_API_KEY:-}" ] || log "model: no LADDER_API_KEY; keeping the key the core already stores"
     oh config_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" '("local-openai:" + $m) as $p |
       {default_model: $m, chat_provider: $p, reasoning_provider: $p, agentic_provider: $p,
-       coding_provider: $p, vision_provider: $p, memory_provider: $p}')" >/dev/null
+       coding_provider: $p, vision_provider: $p, memory_provider: $p}')" >/dev/null ||
+      die "model: the core did not take $SPINE_MODEL as its model"
     log "model: $LADDER_URL as local-openai:$SPINE_MODEL"
     # The core never asks a local-openai endpoint for the model's window and
     # budgets an unknown one at a few thousand tokens: less than its own
@@ -164,7 +176,8 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not ans
     fi
     if [[ "$window" =~ ^[1-9][0-9]*$ ]]; then
       oh inference_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" --argjson w "$window" \
-        '{model_registry: [{id: $m, provider: "local-openai", context_window: $w}]}')" >/dev/null
+        '{model_registry: [{id: $m, provider: "local-openai", context_window: $w}]}')" >/dev/null ||
+        die "model: the core did not take the $window-token window"
       log "model: $SPINE_MODEL has a $window-token window"
     else
       log "model: no window for $SPINE_MODEL from the endpoint; keeping the stored one (set SPINE_CONTEXT_WINDOW if turns come back empty)"
@@ -173,8 +186,10 @@ curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not ans
     log "model: not configured (no LADDER_URL in $env_file)"
   fi
   if [ -n "${CORTEX_API_URL:-}" ]; then
-    status="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \
-      '{engine: "cortexdb", endpoint: $u} + (if $k != "" then {api_key: $k} else {} end)')" | jq -r '.status // "unknown"')"
+    result="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \
+      '{engine: "cortexdb", endpoint: $u} + (if $k != "" then {api_key: $k} else {} end)')")" ||
+      die "memory: the core did not take cortexdb at $CORTEX_API_URL"
+    status="$(jq -r '.status // "unknown"' <<<"$result")"
     log "memory: cortexdb at $CORTEX_API_URL ($status)"
   else
     log "memory: not configured (no CORTEX_API_URL in $env_file)"

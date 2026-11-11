@@ -75,7 +75,7 @@ compare() {
   done
   [ $# -eq 3 ] || usage
   base="$1/drafts.jsonl" cand="$2/drafts.jsonl" out="$3"
-  [ -s "$base" ] && [ -s "$cand" ] || die "both runs need a drafts.jsonl"
+  if [ ! -s "$base" ] || [ ! -s "$cand" ]; then die "both runs need a drafts.jsonl"; fi
   mkdir -p "$out"
   : >"$out/judged.jsonl"
   # Every pair both sides drafted, judged twice: the baseline shown first,
