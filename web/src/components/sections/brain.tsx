@@ -403,8 +403,8 @@ export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; 
               <RepoCard repo={repo} />
             </div>
             <div>
-              <Eyebrow>The diary</Eyebrow>
-              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">One page a day.</h2>
+              <Eyebrow>The receipts</Eyebrow>
+              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">Proof, not logs.</h2>
               <DiaryCard diary={diary} />
             </div>
           </div>

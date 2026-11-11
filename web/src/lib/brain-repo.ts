@@ -1,6 +1,6 @@
 /**
  * The brain: Teeny as it runs today, read from its public repository
- * (teenydroid/brain) on GitHub, and its diary (teenydroid/diary).
+ * (teenydroid/brain) on GitHub, and its receipts (teenydroid/diary).
  *
  * Teeny is a stock OpenHuman core (spine/, vendor/openhuman), small programs
  * that hold every outside capability (hands/), and the files the core reads
