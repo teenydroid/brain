@@ -350,3 +350,46 @@ class SelfShipTest(SelfJobScratch):
         self.assertEqual(out["results"][0]["error"], "held")
         self.assertIsNone(self.origin_ref(job["branch"]))
         self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/pulls"), [])
+
+
+class ScheduledTest(SelfJobScratch):
+    """The pinned build-ship job (every 30 minutes) syncs the clone first, so
+    Teeny's copy of itself is never more than a run behind main."""
+
+    def build_ship(self) -> dict:
+        env = {**os.environ, "TEENY_ROOT": str(self.root), "TEENY_HANDS": str(HANDS)}
+        done = subprocess.run([str(BUILD_SHIP)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_scheduled_run_picks_up_a_new_commit_on_main(self):
+        self.configure(DRY_RUN="1")
+        self.build_ship()
+        record = json.loads((self.root / "state" / "self" / "sync.json").read_text())
+        self.assertEqual((record["state"], record["commit"]), ("cloned", self.origin_ref("main")))
+        new = self.upstream({"brain/NEW.md": "merged between two runs\n"}, "between runs")
+        self.later(1800)
+        self.build_ship()
+        record = json.loads((self.root / "state" / "self" / "sync.json").read_text())
+        self.assertEqual((record["state"], record["commit"], record["head"], record["at"]),
+                         ("synced", new, new, T0 + 1800))
+        self.assertTrue((self.tree / "brain" / "NEW.md").exists())
+
+    def test_a_sync_that_fails_does_not_stop_the_desk_or_shipping(self):
+        self.configure(DRY_RUN="1", GITHUB_GIT_BASE="file://" + str(self.root / "nowhere"))
+        out = self.build_ship()
+        self.assertTrue(out["dry_run"])
+        self.assertEqual(json.loads((self.root / "state" / "workbench" / "desk" / "build.json").read_text())
+                         ["job"]["kind"], "daily")
+
+    def test_the_cli_proposes_and_syncs(self):
+        build = HANDS / "build"
+        env = {**os.environ, "TEENY_ROOT": str(self.root)}
+        proposed = subprocess.run([str(build), "self"], input='{"text": "say gm less often"}', capture_output=True,
+                                  text=True, env=env)
+        self.assertEqual(proposed.returncode, 0, proposed.stderr)
+        self.assertEqual(json.loads(proposed.stdout)["status"], "pending")
+        synced = subprocess.run([str(build), "self-sync"], capture_output=True, text=True, env=env,
+                                stdin=subprocess.DEVNULL)
+        self.assertEqual(synced.returncode, 0, synced.stderr)
+        self.assertEqual(json.loads(synced.stdout)["state"], "cloned")
