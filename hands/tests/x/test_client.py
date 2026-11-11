@@ -12,8 +12,8 @@ from teeny_hands import hand
 from teeny_hands.x import model
 from teeny_hands.x.client import XApi, XError
 
-POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics"
-EXPANSIONS = "author_id,in_reply_to_user_id,attachments.media_keys"
+POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics,in_reply_to_user_id"
+EXPANSIONS = "author_id,attachments.media_keys"
 
 
 class ReadsTest(Scratch):

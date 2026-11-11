@@ -5,7 +5,7 @@ max_per_day = 40
 
 [[inputs]]
 name = "mentions"
-run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
+run = "hands/x mentions --status offered"
 +++
 Answer the mentions that deserve an answer.
 

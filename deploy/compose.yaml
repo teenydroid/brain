@@ -38,6 +38,31 @@ services:
     # the mounted checkout, so a logged-in session survives a restart.
     shm_size: 1gb
 
+  # X's webhook (bin/x-webhook): mentions, replies and quotes pushed by X as
+  # they happen, so nothing is searched or billed per post. The vhost routes
+  # https://teeny.enamakel.com/api/webhooks/x to 127.0.0.1:3110/webhooks/x.
+  # Same image and checkout as the spine; it only writes x_mentions in
+  # state/hands.db, and bin/mentions offers what it queued.
+  xhook:
+    image: teeny-spine:current
+    restart: unless-stopped
+    init: true
+    user: "${TEENY_UID:-1000}:${TEENY_GID:-1000}"
+    environment:
+      HOME: /tmp
+    entrypoint: ["/srv/teeny/bin/x-webhook"]
+    # Its own check: the image's default one asks the core on 7788, which
+    # this container does not run.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3110/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "127.0.0.1:${XHOOK_PORT:-3110}:3110"
+    volumes:
+      - ..:/srv/teeny
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try

@@ -55,6 +55,20 @@ Replaces: `crates/teeny-x/*`, `teeny-agent/src/tools/{x,post}.rs`,
 stream are dropped in favour of polling, because there's no HTTP server to
 receive them. Bring them back only if a 5-minute poll proves too slow.
 
+### The webhook
+
+X also pushes mentions, replies and quotes to the account's webhook,
+`https://teeny.enamakel.com/api/webhooks/x` (registered with X, subscribed
+through the X Activity API to `post.mention.create`, `post.reply.create` and
+`post.quote.create` for the account). `bin/x-webhook`, the `xhook` service in
+`deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge, refuses
+any delivery whose `x-twitter-webhooks-signature` is not the HMAC-SHA256 of the
+body under `X_API_SECRET`, and queues each post about the account by somebody
+else into `x_mentions` exactly as `ingest` does (screened, unique on post id),
+for the next `ingest` to offer. Nothing is searched or billed per post, and it
+catches replies X's mentions timeline leaves out (2026-11-11: four of nine
+replies to the gm never came back from `/mentions`).
+
 ## `guard`: the content filter
 
 | Verb | | Does |

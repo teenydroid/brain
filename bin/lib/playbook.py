@@ -18,7 +18,7 @@ argv}], prompt} or exits non-zero with what is wrong.
                                # "video" (hands/image, hands/video); default none
     [[inputs]]
     name = "mentions"
-    run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
+    run = "hands/x mentions --status offered"
     required = true            # optional: an empty result skips the run
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those

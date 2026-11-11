@@ -1,0 +1,20 @@
+#!/usr/bin/env -S python3 -I
+"""Receive X's webhook deliveries (hands/lib/teeny_hands/x/webhook.py).
+
+    bin/x-webhook [--host 0.0.0.0] [--port 3110]
+
+Runs as the `xhook` service in deploy/compose.yaml, published on
+127.0.0.1:3110, where the vhost routes https://teeny.enamakel.com/api/webhooks/x
+(deploy/nginx/teeny.enamakel.com.conf). It answers X's CRC challenge, checks
+every delivery's signature, and queues mentions, replies and quotes into
+x_mentions for bin/mentions to offer.
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "hands", "lib"))
+from teeny_hands.x import webhook
+
+parser = argparse.ArgumentParser(prog="bin/x-webhook")
+parser.add_argument("--host", default="0.0.0.0")
+parser.add_argument("--port", type=int, default=3110)
+args = parser.parse_args()
+webhook.serve(args.host, args.port)

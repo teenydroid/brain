@@ -250,3 +250,13 @@ if __name__ == "__main__":
     import unittest
 
     unittest.main()
+
+
+class LinkReplyTest(Replying):
+    def test_a_link_reply_over_the_days_cap_is_refused_before_x(self):
+        self.configure(X_LINK_POSTS_MAX_PER_DAY="0", REPLY_MIN_INTERVAL_MS="45000", REPLY_MAX_INTERVAL_MS="45000")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("5", {"text": "here: github.com/teenydroid"})
+        self.assertEqual(caught.exception.detail["rule"], "links")
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
