@@ -115,7 +115,9 @@ class TickTest(unittest.TestCase):
     def hand_calls(self) -> list[dict]:
         if not self.hands_log.exists():
             return []
-        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] != ["mark"]]
+        # What the intents did: not the surfaces' bookkeeping (mark) or the
+        # beat's own read-only browse of Moltbook (inbox).
+        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"])]
 
     def marks(self) -> list[dict]:
         if not self.hands_log.exists():
