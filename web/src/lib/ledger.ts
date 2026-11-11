@@ -5,8 +5,8 @@
  * brain's samples in beside them (`src/ledger/` in the repo). Each row is what
  * the model was shown short of the system prompt, what it reasoned, what came
  * back, and what it cost. The prompt is committed to by digest and never
- * served. Nothing here is invented: when the bot cannot be reached the page
- * says so and shows nothing.
+ * served. Nothing here is invented: when the bot cannot be reached there are
+ * no totals at all (never zeros) and the page says so or leaves the widget out.
  */
 
 import { readApi } from './api'
@@ -85,13 +85,6 @@ export const LANES: Lane[] = ['mascot', 'brain']
 
 export function zeroTokens(): Tokens {
   return { input: 0, output: 0, reasoning: 0, cached: 0, total: 0 }
-}
-
-export function emptyTotals(): Totals {
-  return {
-    lanes: { mascot: { calls: 0, tokens: zeroTokens() }, brain: { calls: 0, tokens: zeroTokens() } },
-    sources: {},
-  }
 }
 
 /** Every token in every lane, as one figure. */
