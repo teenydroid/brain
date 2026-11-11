@@ -91,7 +91,7 @@ describe("the brain on the front page", () => {
 
 describe("where Teeny is", () => {
   it("lists no wallet the wallet hand does not use (its Solana address is not published)", () => {
-    expect(PRESENCE.some((p) => p.kind === "wallet")).toBe(false)
+    expect(PRESENCE.map((p) => `${p.place} ${p.href}`).join(" ")).not.toMatch(/wallet|robinhood|0x[0-9a-fA-F]{40}/i)
   })
 
   it("points the source link at the brain repository", () => {

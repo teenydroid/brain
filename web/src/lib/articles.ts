@@ -55,7 +55,11 @@ export async function loadArticle(slug: string): Promise<Article | undefined> {
     revalidate: 300,
     check: (value) => typeof (value as { markdown?: unknown }).markdown === 'string',
   })
-  if (!body) return undefined
+  return body ? toArticle(body) : undefined
+}
+
+/** One article as the bot serves it at /articles/<slug>. */
+export function toArticle(body: Record<string, unknown>): Article {
   const cover = body.cover as ArticleImage | undefined
   return {
     slug: String(body.slug),
