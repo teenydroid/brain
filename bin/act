@@ -128,15 +128,24 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
    " to the object. Describe a scene, never text or a real person; leave it out when the post is better without one.\n" end) +
 "Skip when nothing is worth doing; a skip costs nothing."' <<<"$book")"
 
-if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then
-  record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
-  exit 1
-fi
-if ! items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
-  record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
-    '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
-  exit 1
-fi
+# A draft that is not usable JSON is asked for once more: some models
+# (glm-5.3-flash through Surplus, about one answer in eight) come back with
+# the opening of the JSON cut off. A second unusable draft is an error.
+for attempt in 1 2; do
+  if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then
+    record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
+    exit 1
+  fi
+  if items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
+    break
+  fi
+  if [ "$attempt" = 2 ]; then
+    record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
+      '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
+    exit 1
+  fi
+  log "$name: the draft is not usable JSON; asking once more"
+done
 
 # --- media: a picture or clip of Teeny for a post ---------------------------------
 # A draft may ask for one ("image" / "video") when the playbook allows it
