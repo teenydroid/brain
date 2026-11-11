@@ -6,6 +6,11 @@ handful of small programs. There is no custom runtime: OpenHuman runs the
 agent loop, cron, memory and tools, and Teeny is the files it reads and the
 programs it calls.
 
+This repository lives at [`teenydroid/brain`](https://github.com/teenydroid/brain)
+(it was `senamakel/teeny`). The earlier brain repository, the OpenCompany
+company the old stack committed to, is now
+[`teenydroid/diary`](https://github.com/teenydroid/diary).
+
 | | What | Where |
 |---|---|---|
 | **Spine** | `teeny-spine`, OpenHuman's own command-line host, built here from the vendored library and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. No Teeny logic lives in it. | `spine/`, `vendor/openhuman` |
