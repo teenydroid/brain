@@ -220,8 +220,17 @@ as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
 returns when due. `TEENY_INBOX=core` restores the old per-surface path.
 
+**Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
+`bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
+to rewrite `MEMORY.md`. It works from what the mind chose to remember
+(`mind_notes`), what it thought and did each beat (`state/tick/runs.jsonl`),
+the follow-ups still waiting, and the page as it stands. The old page is
+kept in `state/reflect/`, and the diary entry goes to `state/diary/<date>.md`
+and to the core's memory. The prompts are rebuilt, so the next beat reads the
+new page. An unusable answer changes nothing.
+
 Next (planned): playbooks become nudges into the inbox that the mind may
-decline. A nightly reflection rewrites `MEMORY.md` from the day's notes.
+decline, and a day/night rhythm with mood and energy.
 
 ## 5. Roster
 

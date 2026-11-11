@@ -28,6 +28,15 @@ command = "bin/mail"
 schedule = "2-59/5 * * * *"
 command = "bin/tick"
 
+# Teeny's end of day (bin/reflect): on the teeny:mind thread, with the day
+# still in context, it rewrites MEMORY.md (the page in every prompt) from
+# what it chose to remember and what it did, and keeps a diary entry. After
+# the quiet hours start, before the morning.
+[jobs.reflect]
+schedule = "0 2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/reflect"
+
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
 [jobs.stats-snapshot]

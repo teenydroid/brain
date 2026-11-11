@@ -257,6 +257,7 @@ reset
 "$seed" --dry-run --file "$here/../../brain/cron.toml" --pinned "$here/../../evals/cron.pinned.toml" 2>"$scratch/stderr"
 check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
 check "and the mind's tick is pinned beside it" grep -q 'teeny.tick' "$scratch/stderr"
+check "and its nightly reflection" grep -q 'teeny.reflect' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
