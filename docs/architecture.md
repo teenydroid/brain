@@ -1,30 +1,19 @@
 # Teeny on a stock OpenHuman: spine, hands, brain
 
-Status: **the repository is this design.**
-- **Done:** the Rust bot, the TypeScript service and the OpenCompany brain are
-  gone. `teeny-spine` (`spine/`) builds OpenHuman's host from the vendored
-  library, boots from `brain/`, and runs operator jobs (`bin/`,
-  `Dockerfile`, `deploy/compose.yaml`).
-- **To come:** the hands and the jobs that act.
-- **Pre-rewrite paths:** references below to `crates/...` and `legacy/...` are
-  to the code as it stood at `55c2c75`, before the rewrite. The invariants in
-  `hands.md` come from there. This replaces the Rust workspace
-(`crates/`, about 105k lines with tests) and the TypeScript service (`legacy/`)
-with three things:
+Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell, the Telegram channel, hooks and JSON-RPC. No Teeny behaviour in it. | `spine/`, `vendor/openhuman` |
-| **Hands** | Small executables, one per outside capability. They are the only code Teeny owns. Every hard rule (gap, budgets, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
-| **Brain** | Identity, skills, agent definitions, job prompts, schedules and the record. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
+| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. No Teeny behaviour in it. | `spine/`, `vendor/openhuman` |
+| **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
+| **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
-Plus `bin/`, which holds the bash that wires the three together, and `web/`,
-which is unchanged and reads `brain/record/`.
+Plus `bin/`, the scripts that wire the three together, `evals/`, what Teeny
+may not change about itself, and `web/`, the landing page.
 
-OpenHuman references below are `upstream/main` at `6741ea4b41` unless they
-say `b56f31fb7f` (the bump that brought the inbound event queues), with
-`$C = crates/openhuman-core/src`. Upstream's gaps are in
-[`oh-gaps.md`](oh-gaps.md) and the hands' verbs are in [`hands.md`](hands.md).
+OpenHuman references below use `$C = crates/openhuman-core/src`. Upstream's
+gaps are in [`oh-gaps.md`](oh-gaps.md) and the hands' verbs are in
+[`hands.md`](hands.md).
 
 ---
 
@@ -35,46 +24,32 @@ started, and it checks this before every approval setting:
 
 > "A scheduled prompt is data, not an open-ended approval for later actions.
 > Keep cron agent turns within a read-only tool capability."
-> (`$C/agent/tinyagents/host/security_gate.rs:532`; again in
-> `$C/security/approval/gate_intercept.rs:62`)
+> (`$C/agent/tinyagents/host/security_gate.rs`; again in
+> `$C/security/approval/gate_intercept.rs`)
 
-The Rust bot reaches the same conclusion for its own reasons
-(`crates/teeny-agent/src/posture.rs:17-23`):
+So **models draft, and operator-written scripts act.** In concrete terms:
 
-> "Every belt but the Operator reads text a third party wrote … and can be
-> started by a cron or the public, so none of them holds a posting tool or
-> `remember`: an instruction injected into something it read has nothing to
-> write with. They produce text, and host code checks it and posts it."
+- **Every scheduled job is a cron *shell* job** that runs a script in `bin/`
+  (`bin/act <playbook>`, `bin/tick`, `bin/mentions`, ...). OpenHuman runs a
+  shell job's stored command directly. It isn't a model turn, so the
+  read-only rule doesn't apply. The command was written by the operator and
+  recorded when the job was seeded.
+- **The script asks a tool-less agent for a draft** over the core's JSON-RPC
+  (`openhuman.agent_chat` with an `agent_id`, through `bin/ask`). The
+  drafting agents (`act`, `teeny`, `teeny-mentions`, `teeny-mail`, `judge`)
+  have no tools at all. They answer JSON.
+- **The script then calls the hands that act.** Each acting verb runs the
+  guard and its own rules *itself*, in the same invocation, so a script that
+  forgets them still can't post unchecked.
+- **No agent that reads strangers' text holds a tool.** Mentions, mail and
+  Moltbook comments reach only tool-less agents. An instruction injected into
+  something they read has nothing to act with.
 
-So the design keeps that shape and replaces only the "host code". **Models
-draft, and operator-written scripts act.** In concrete terms:
-
-- **Every scheduled job is a cron *shell* job that runs `bin/job <name>`.**
-  OpenHuman runs a shell job's stored command directly. It isn't a model
-  turn, so the read-only rule doesn't apply. The command was written by the
-  operator and recorded when the job was seeded (`$C/cron/README.md`,
-  "shell jobs").
-- **The script asks a locked-down agent for a draft** over the server's
-  JSON-RPC (`openhuman.agent_chat` with an `agent_id`; see
-  `$C/inference/host_runtime/schemas.rs:122`). The agent's belt is read-only:
-  memory recall, X reads through a read-only hand verb, web search and vision.
-  It returns JSON.
-- **The script then calls the hands that act.** That's
-  `hands/guard check | hands/x reply …`. Each acting verb runs the guard and
-  the cadence claim *itself*, in the same invocation, so a script that forgets
-  them still can't post unchecked.
-- **No public agent holds `shell`.** Agents that read third-party text (reply,
-  chat, room, drafter) have shell off their `tool_allowlist`. Only the
-  operator agent has it, and only bearer-authenticated `bin/ask` turns run it.
-  Even then, `[autonomy] allowed_commands` limits it to `hands/*`, and a
-  `beforeShellExecution` hook refuses anything else.
-
-This needs no change to OpenHuman's security model. The few upstream changes
-that would make it nicer are listed in `oh-gaps.md`.
+This needs no change to OpenHuman's security model.
 
 **The one exception: the scheduled agents.** Two jobs need a model in the
 loop that acts: the builder writes and tests code, and the browser operator
-clicks through websites. OpenHuman lets exactly that, per agent: a cron job
+clicks through websites. OpenHuman allows exactly that, per agent: a cron job
 that targets an agent whose definition sets `scheduled_actions = true` and
 names its tools explicitly runs as a `CronActions` turn and may use those
 tools without a person's approval (§6a). Nothing else is lifted, and nothing
@@ -83,30 +58,28 @@ and what they make leaves only through a hand.
 
 ## 2. Spine
 
-One process, `openhuman-core serve`, running as a non-root uid in the
-container. Configuration:
+One process, `teeny-spine serve`, running as the checkout owner's uid in the
+container. `bin/spine` is the entrypoint. Configuration:
 
-| Concern | How | Reference |
-|---|---|---|
-| Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/brain`, with **no `config.toml` inside it**. OpenHuman then uses `brain/` as its files directory (SOUL.md, skills, agents) and keeps its config at `/srv/teeny/.openhuman/config.toml`, which is gitignored. The core writes it itself, and `bin/spine` sets the model and memory over RPC at every boot, so there is no template to render. OpenHuman takes the sibling `.openhuman/` for its config only when the folder is named `workspace` or that config already exists; otherwise, and whenever `config.toml` is put inside `brain/`, it treats `brain/` as the home and nests a second `brain/workspace/`. So `bin/spine` writes an empty `.openhuman/config.toml` before the first boot (an empty file is the core's defaults) and refuses to start with a `brain/config.toml`. Both behaviours were measured on a build of `6741ea4b41`. There is no `--home` flag. | `$C/config/README.md` |
-| One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/brain/storage.db`. This holds sessions, threads and memory state. Every store is a row in one `docs` table (`scope, coll, id, body` JSON), and crons are `coll = 'cron.jobs'` and `'cron.runs'` (`cron_jobs` and `cron_runs` before the v2 schedule store; measured on a build of `b56f31fb7f`, §6). | `$C/storage/config.rs:95`, `$C/cron/documents_port.rs:44-53` |
-| Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` resolves | |
-| RPC auth | `OPENHUMAN_CORE_TOKEN` from a file. `bin/oh` reads it, and so does every script. | `$C/core/auth.rs:70` |
-| Model | The core's `local-openai` runtime, which needs no TinyHumans account. A custom cloud provider set through `inference_url` does need one: every turn fails `SESSION_EXPIRED` without a sign-in (measured). `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL` with `config_update_model_settings`. The core never asks a `local-openai` endpoint for the model's context window and budgets an unknown model at a few thousand tokens, less than its own system prompt, so the trim drops the user's message (measured: the model answered an empty turn). `bin/spine` therefore registers the window with `inference_update_model_settings` (`model_registry`), from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models` `context_length` | OpenHuman `docs/gitbooks/en/features/cloud-deploy.md`, "Headless without a TinyHumans account" |
-| Memory | `[memory] engine = "cortexdb"` and `[memory.engines.cortexdb] endpoint`. The key goes in the keyring via `openhuman.memory_engine_set`. Recall is injected into every turn. | `$C/config/schema/memory.rs` |
-| Keyring | **File store**: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key` (64 hex characters, mode 0400, outside `brain/`). Every secret OpenHuman holds (the CortexDB key, the model key) is a row in `storage.db` (`coll = 'secrets'`, encrypted `enc2:` ciphertext) under that key. Measured: the core logs "master key loaded from OPENHUMAN_KEYRING_MASTER_KEY_FILE", and the CortexDB key survives a restart. Without the variable it looks for a host source and then a brain key file. Unset, the backend is `memory`. Back up `storage.db` and the key file together. | `$C/security/secret_storage/store.rs:189-197`, `encrypted_file_backend.rs:31-35` |
-| Persona | `brain/SOUL.md` and `IDENTITY.md`, read every turn | `$C/prompts/workspace_files.rs` |
-| Agents | Custom agents with `tool_allowlist`, a system prompt and a model. The core loads `brain/agents/*.toml` itself at boot (`$C/agent_registry/host_definition.rs`); nothing seeds them | `$C/agent_registry/types.rs:76` |
-| Shell limits | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` the one trusted root (read and write). `full` keeps the cron shell jobs (`bin/<job>`) running as before; what an agent may do is bounded by its named tools, the workspace scoping and the hands. Written every boot by `bin/lib/core_sections/automation.py` (§6a) | `$C/config/schema/autonomy.rs` |
-| Hooks | `brain/hooks.json`: `beforeShellExecution` runs `hands/policy shell` for the operator's shell. Inbound screening is **not** a hook: `beforeSubmitPrompt` fires only on the web-chat path (`$C/web_chat/ops/start_chat.rs:313`), not on `agent_chat`, so `bin/job` calls `hands/guard inbound` itself before every draft | `vendor/tinyagents/crates/tinyagents-hooks/src/command/types.rs` |
-| Browser | `[browser] enabled`, `headless`, `chrome_path` (Chromium in the image), `profile_mode = "persistent"` with the profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer is linked into `teeny-spine` (`spine/Cargo.toml`, `[modules] overrides` with `source = "linked"`), as is tinywallet for the `web3` domain | `$C/config/schema/tools/browser.rs`, OpenHuman `docs/gitbooks/en/developing/tinycomputer-docker.md` |
-| Telegram | See §6. The channel is not enabled until gap G3 lands. | |
-| Errors | `OPENHUMAN_CORE_SENTRY_DSN` | |
-| Traces | `[observability.agent_tracing]` writes NDJSON to `brain/.traces/` (gap G5) | |
+| Concern | How |
+|---|---|
+| Home in the repo | `OPENHUMAN_WORKSPACE=/srv/teeny/brain`, with **no `config.toml` inside it**. OpenHuman then uses `brain/` as its files directory and keeps its config at `/srv/teeny/.openhuman/config.toml`, which is gitignored. OpenHuman takes the sibling `.openhuman/` for its config only when that config already exists, so `bin/spine` writes an empty one before the first boot and refuses to start with a `brain/config.toml` (the core would nest a second `brain/workspace/`). |
+| One state file | `OPENHUMAN_STORAGE_URL=sqlite:/srv/teeny/brain/storage.db`. Sessions, threads, memory state, crons and encrypted secrets are rows in one `docs` table (`scope, coll, id, body` JSON). Crons are `coll = 'cron.jobs'` and `'cron.runs'`. |
+| Tool working dir | `OPENHUMAN_ACTION_DIR=/srv/teeny`, so `hands/*` and `bin/*` resolve. |
+| RPC auth | `OPENHUMAN_CORE_TOKEN` from `secrets/core.token`. `bin/oh` reads it, and so does every script. |
+| Model | The core's `local-openai` runtime, which needs no TinyHumans account. `bin/spine` exports `LOCAL_OPENAI_URL=$LADDER_URL`, stores the key with `config_update_local_ai_settings`, and pins every workload to `local-openai:$SPINE_MODEL`. The core does not ask a `local-openai` endpoint for the model's context window, and budgets an unknown model at a few thousand tokens, so `bin/spine` registers the window with `inference_update_model_settings`, from `SPINE_CONTEXT_WINDOW` or the endpoint's `/models`. |
+| Memory | `[memory] engine = "cortexdb"` with its endpoint. The key goes in the keyring via `openhuman.memory_engine_set`. Recall is injected into every turn on a thread (§4a). |
+| Keyring | **File store**: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key`. Every secret OpenHuman holds is an encrypted row in `storage.db` under that key. Back up `storage.db` and the key file together. |
+| Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
+| Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
+| Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` the one trusted root. `full` keeps the cron shell jobs running; what an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
+| Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer and tinywallet are linked into `teeny-spine` (`spine/Cargo.toml`). |
+| Wallet | `[wallet_policy]`, written every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`). |
 
-Not used: desktop control (macOS and Windows only), flows, Composio, and
-OpenHuman's own `http_request` (it can't keep a secret out of the model's
-view). MCP is not used yet: `hands/mcp` (§5) is unblocked since gap G11 was fixed upstream (openhuman#8654) but not built.
+Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
+and the rest), and OpenHuman's own `http_request` for anything that needs a
+secret. MCP is not used: the scheduled agents reach the hands through desk
+files instead (§6a).
 
 ## 3. Hands
 
@@ -116,62 +89,54 @@ view). MCP is not used yet: `hands/mcp` (§5) is unblocked since gap G11 was fix
   The output is exactly one JSON object on stdout. Exit `0` means ok, `2`
   means refused by a rule (the body says which), and anything else is an
   error.
-- **Secrets never reach the model.** A hand reads `/srv/teeny/secrets/*.env`
-  itself. That directory is outside `brain/`, mode 0400, and owned by the
-  service uid.
+- **Secrets never reach the model.** A hand reads `secrets/teeny.env`
+  itself. That directory is outside `brain/` and forbidden to every agent's
+  file tools.
 - **Jobs find everything from the repository root.** Cron shell jobs run from
-  `OPENHUMAN_ACTION_DIR` (the checkout) with an allowlisted environment:
-  `HOME`, `PATH` and `LANG`, with no `OPENHUMAN_*` or `TEENY_*` (measured). So
-  a job locates `state/` and `secrets/` from where it runs, reads the core
-  token from `secrets/core.token`, and reads the core's URL from
-  `state/core.url`, which `bin/spine` writes at boot.
-- **State lives in `/srv/teeny/state/hands.db`** (SQLite, WAL), separate from
+  `OPENHUMAN_ACTION_DIR` (the checkout) with an allowlisted environment
+  (`HOME`, `PATH`, `LANG`; no `OPENHUMAN_*` or `TEENY_*`). So a job locates
+  `state/` and `secrets/` from where it runs, reads the core token from
+  `secrets/core.token`, and reads the core's URL from `state/core.url`, which
+  `bin/spine` writes at boot.
+- **State lives in `state/hands.db`** (SQLite, WAL), separate from
   OpenHuman's `storage.db`, so a spine upgrade or reset never touches the
-  mention queue or the post ledger. Every rule that spans calls is a
-  transaction there, and the posting path also holds an `flock`.
+  ledgers or the queues. Every rule that spans calls is a transaction there,
+  and the posting path also holds a lock.
 - `DRY_RUN=1` is the default for every acting verb. Going live is
   `secrets/teeny.env: DRY_RUN=0`, never an argument the model could pass.
-- Language: bash with `curl`, `jq` and `sqlite3` by default. A hand may be one
-  small compiled helper where bash is the wrong tool: X OAuth 1.0a signing,
-  media upload, SVG→PNG. That's a single file, outside `crates/`, with no
-  OpenHuman dependency.
+- Language: Python 3.11 standard library, no dependencies. Each executable is
+  a short shim that runs `python3 -I` over `hands/lib/teeny_hands/`.
 
-The hands are `x`, `guard`, `cadence`, `market`, `chart`, `media`, `web`,
-`record`, `telegram`, `policy` and `mcp`.
+The hands are `x`, `guard`, `gh`, `moltbook`, `mail`, `stimuli`, `brief`,
+`image`, `video`, `stats`, `requests`, `build`, `tasks`, `wallet`, `bounty`
+and `slopcash`.
 
-**Memory captures.** After a post, the hand files what Teeny said and what
-it answered into memory through the core's RPC: `openhuman.memory_learn`, or
-`memory_brain_ingest` for long text. This replaces the host captures that
-needed the `embed-memory-store` vendor patch (#7486). Whether these keep the
-current labels and per-person keys is still unproven (gap G10).
+**Memory captures.** A `remember` intent from the mind, and the nightly
+diary entry, are taught to the core's memory with `openhuman.memory_learn`.
 
 ## 4. Brain (`brain/`)
 
 ```
 brain/
-  SOUL.md  IDENTITY.md  CONTEXT.md     identity and the facts it may treat as known
-  skills/<name>/SKILL.md               humanizer, humor, conversation, video-script (exist),
-                                       reply, morning, chart, moon, lore, quote, article,
-                                       serial, backrooms, critic, learnings (ported)
-  agents/<id>.toml                     roster (§5); the core loads them at boot
-  jobs/<name>.md                       the drafting prompt each job sends
-  cron.toml                            schedules; seeded by bin/seed-cron
-  hooks.json                           shell policy for the operator
-  record/                              journal.jsonl, posts.jsonl, brief.md, holds.jsonl
-                                       (written by hands/record; read by web/ and by jobs)
-  # gitignored: storage.db* (OH state and encrypted secrets), .browser/, .traces/, logs/
-# beside it, also gitignored: /.openhuman/ (rendered config), /secrets/ (master key, hand env files), /state/ (hands.db)
+  SOUL.md  CONTEXT.md  MEMORY.md       who Teeny is, what it may treat as known, its own page of things to keep in mind
+  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
+  skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
+  agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
+  playbooks/<name>.md                  what a scheduled bin/act job drafts, with its inputs and output
+  assets/                              teeny-reference.png (the character sheet), tiny/ (published artwork)
+  calendar.json                        an older posting calendar; nothing reads it now
+  cron.toml                            the brain's schedule; seeded by bin/seed-cron
+  # gitignored: storage.db* (the core's state and encrypted secrets), agent/prompts/ (built at boot),
+  #             IDENTITY.md, ROLE.md, STYLE.md (the core's persona defaults)
+# beside it, also gitignored: /.openhuman/ (config), /secrets/ (master key, env files), /state/ (hands.db and the rest)
 ```
 
-`narrative/`, `assets/` and `calendar.json` move under `brain/` as they
-are. The calendar items become `cron.toml` entries.
-
-**Self-improvement** is Teeny's own: it edits its brain (`SOUL.md`,
-`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and adds hands,
+**Self-improvement** is Teeny's own: it may edit its brain (`SOUL.md`,
+`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands,
 driven by the goals in `narrative/LORE.md` and tracked in
 `narrative/ARCS.md`. A candidate brain is judged against the current one and
 merged only if it wins, behind rules in code the brain cannot edit. The spec
-is [`evolve.md`](evolve.md).
+is [`evolve.md`](evolve.md); the loop itself is not built yet.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -234,61 +199,53 @@ decline, and a day/night rhythm with mood and energy.
 
 ## 5. Roster
 
-This keeps the current posture (`crates/teeny-agent/src/posture.rs`) and
-expresses it in agent definitions. Nothing public can write.
+Every agent is a definition in `brain/agents/`. The speaking agents' prompts
+are built at boot (§4a).
 
-| Agent | Started by | Belt | Shell |
-|---|---|---|---|
-| `teeny-reply` | `bin/job reply` | memory recall, `hands/x` read verbs (`get`, `thread`, `user`, `search`) through `hands/mcp`, web search, vision, gif search, market reads | no |
-| `teeny-chat` | `bin/job telegram` | same as reply | no |
-| `teeny-drafter` | slot jobs | reply's belt plus `chart render`, `media gen` (the job script attaches the result by id) | no |
-| `teeny-room-<persona>` | `bin/job backrooms` | recall, web search, X search, `browser` (navigation and reads only, behind `BROWSER_RESEARCH`; a click needs a live approval that a script turn can't give) | no |
-| `teeny-learner` | `bin/job learnings` | memory recall | no |
-| `teeny-operator` | `bin/ask` (operator only) | drafter's belt plus `shell` limited to `hands/*` | yes |
+| Agent | Started by | Tools |
+|---|---|---|
+| `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/reflect` | none |
+| `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
+| `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
+| `judge` | `bin/eval` | none |
+| `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
+| `operator` | the pinned `operator` cron job (§6a) | `browser`, `file_read`, `file_write` |
 
-Read-only hand verbs reach no-shell agents as **one MCP server**,
-`hands/mcp`, a stdio wrapper whose tool catalog is only the **R** verbs in
-`hands.md`, fixed in the repo. Drafting turns are started by `bin/job` over
-RPC (`agent_chat`), not by cron, so the cron rule doesn't apply to them. What
-keeps them safe is structural: the server has no acting verb to call, and each
-agent's `tool_allowlist` names only its read tools. OpenHuman can't see that
-these tools are read-only, because an MCP call always registers as `Execute`
-with no external-effect distinction (`$C/tools/impl/network/mcp.rs:319`).
-That's gap G4.
+`bin/ask` without `--agent` runs as the core's default orchestrator. Whoever
+can run it holds the core token, so it is the operator's way in and is never
+wired to anything public. `bin/doctor` and `bin/lib/agent_check.py` refuse a
+drafting agent that gains a tool.
 
 ## 6. Triggers
 
-| Job | `cron.toml` schedule (defaults today) | `bin/job` does |
-|---|---|---|
-| `mentions-inbound` (pinned, built) | `*/5 * * * *` | `bin/mentions`: `hands/x ingest` offers new mentions to the core's inbound queue, which drafts each debounced batch with `teeny-mentions`; `bin/inbound-consume` sends the drafts through `hands/x reply` (§7) |
-| `mail-inbound` (pinned, built) | `*/5 * * * *` | `bin/mail`: `hands/mail ingest` screens new mail and offers it to the core (source `mail:inbox`, one conversation per thread), which drafts with `teeny-mail`; `bin/inbound-consume --source mail:inbox` sends the drafts through `hands/mail reply` |
-| `stats-snapshot` (pinned, built) | `15 0 * * *` | `bin/stats-snapshot`: `hands/stats snapshot`, today's X, Moltbook and GitHub numbers into `stats` |
-| `heat` | `*/20 * * * *` | `hands/cadence heat` |
-| `cortex-health` | `17 * * * *` | `hands/record health` (CortexDB readiness into `record/`) |
-| `learnings` | `0 5 * * *` | draft with `teeny-learner` → `hands/record brief` |
-| `morning` | `0 7 * * *` | `hands/cadence claim morning` → drafter stages → `hands/x post` |
-| `afternoon` | `0 15 * * *` | `hands/cadence slot afternoon` picks chart, moon or lore → stages → post |
-| `evening` | `0 23 * * *` | slot picks article, serial or quote → stages → `hands/x article` or `post` |
-| `telegram` | `* * * * *` | `hands/telegram poll` → draft with `teeny-chat` → `hands/guard check` → `hands/telegram send` |
-| `cal-<item>` | per item | as calendar items do today |
+Every scheduled job is in one of two files:
 
-All schedules are read in `CALENDAR_TZ`, matching today.
+- **`evals/cron.pinned.toml`**, frozen, always merged in: `mentions-inbound`
+  (`bin/mentions`, every 5 minutes), `mail-inbound` (`bin/mail`, every 5
+  minutes), `tick` (`bin/tick`, every 5 minutes, two minutes after each
+  ingest), `reflect` (`bin/reflect`, 02:00 IST), `stats-snapshot`,
+  `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`.
+- **`brain/cron.toml`**, Teeny's own: the heartbeat, `morning`, `brief`, and
+  the playbooks that are kept but off (`enabled = false`).
+
+All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
+post jobs use `Asia/Kolkata`.
 
 **What the brain may schedule.** Teeny owns `brain/cron.toml` and may add,
 remove or reschedule any job in it, its heartbeat included. A brain job runs
 `bin/heartbeat` or `bin/act <playbook>`: `bin/act` gathers the playbook's
 inputs from hand read verbs (with `DRY_RUN=1` forced), drafts as the tool-less
-`act` agent (`brain/agents/act.toml`), and acts through a hand. The rules it
-cannot change are in `bin/lib/cron_policy.py`: no job more often than every 5
-minutes, at most 24 jobs, at most 400 `bin/act` runs a day, and the jobs in
-`evals/cron.pinned.toml` are always merged in. `bin/doctor` checks all of it,
-and `bin/spine` will not boot a checkout the doctor fails. See
-[`evolve.md`](evolve.md).
+`act` agent, and acts through a hand. The rules it cannot change are in
+`bin/lib/cron_policy.py`: no job more often than every 5 minutes, at most 24
+brain jobs, at most 400 `bin/act` runs a day, and the jobs in
+`evals/cron.pinned.toml` are always merged in and cannot be shadowed.
+`bin/doctor` checks all of it, and `bin/spine` will not boot a checkout the
+doctor fails. See [`evolve.md`](evolve.md).
 
 - **Seeding.** OpenHuman has no file-declared crons (gap G2). `bin/seed-cron`
-  reconciles `cron.toml` against `openhuman.cron_list` by name, adding,
-  updating or removing jobs. It is idempotent and runs at every container
-  start.
+  reconciles both files against `openhuman.cron_list` by name, adding,
+  updating or removing jobs whose name starts with `teeny.`. It is idempotent
+  and runs at every boot.
 - **Inspection.** Crons are a SQL query, with no RPC and no running core
   needed. `bin/crons` is:
 
@@ -302,24 +259,14 @@ and `bin/spine` will not boot a checkout the doctor fails. See
     from docs where coll = 'cron.jobs' and deleted = 0"
   ```
 
-  On a fresh core this lists the job `bin/seed-cron` added beside OpenHuman's
-  own `memory_background` and `memory_sources_sync` system jobs. Runs are
-  `coll = 'cron.runs'`, one row per run with its `job_id`, `status` and `output`.
-  Treat the table as **read-only**: writes go through `cron_add`, `cron_update`
-  and `cron_remove`, because rows carry claim generations and an admission
-  record (`cron.admission`).
+  Runs are `coll = 'cron.runs'`, one row per run with its `job_id`, `status`
+  and `output`. Treat the table as **read-only**: writes go through
+  `cron_add`, `cron_update` and `cron_remove`, because rows carry claim
+  generations and an admission record.
 - **The shell-job timeout.** OpenHuman kills a shell job after
   `[cron] shell_timeout_secs` (default 120 s). `bin/spine` sets it to 1800
   (`bin/lib/core_sections/automation.py`), so a job that drafts several turns
-  runs to the end in the foreground and cron records its real outcome (gap
-  G1, now closed).
-- **No retries.** Every posting job is `retries = 0`, the same as today
-  (`crates/teeny/src/schedule.rs:382`).
-- **Telegram** uses a 1-minute poll in bash, not OpenHuman's channel. The
-  channel sends the model's text straight to the chat with no outbound
-  filter, house style or dry run (the Rust bot notes the same thing in
-  `crates/teeny/src/telegram/mod.rs:8-17`), and no hook can rewrite or block
-  it (gap G3). Shell jobs are exempt from the 5-minute minimum interval.
+  runs to the end and cron records its real outcome.
 
 ## 6a. Scheduled agents: the builder and the browser operator
 
@@ -363,17 +310,18 @@ This was the simplest safe choice, and the one that works at this pin:
 - the file tools are ones both agents need anyway, scoped by OpenHuman's
   own path policy to the workbench;
 - the hand that acts on a report runs outside any model turn;
-- MCP (`hands/mcp`, the plan in §5) would be the cleaner call. A serve host
-  used to drop every configured MCP server's tools when TinySecurity was on
-  (gap G11, fixed in openhuman#8654), so it is possible now but not built.
+- an MCP server wrapping the hands' read verbs would be the cleaner call. A
+  serve host used to drop every configured MCP server's tools when
+  TinySecurity was on (gap G11, fixed in openhuman#8654), so it is possible
+  now but not built.
 
 **Configuration.** `bin/lib/core_config.py` runs every boot (after the
 inbound sources) and writes each module in `bin/lib/core_sections/` into
 the core's config, each table replaced whole. `automation.py` owns `[cron]`
 (`shell_timeout_secs = 1800`), `[autonomy]`, `[browser]`, `[http_request]`
-(`allowed_domains` from `deploy/browser-allow.txt`), `[modules]` (the two
-linked modules). Another concern, the
-wallet's `[wallet_policy]`, is another module beside it.
+(`allowed_domains` from `deploy/browser-allow.txt`) and `[modules]` (the two
+linked modules). `context.py` owns `[context]` and `secrets.py` owns
+`[secrets]`.
 
 **What the builder may not do.** It has no token and no network in its
 shell; it publishes nothing. `hands/build ship` runs from cron, outside any
@@ -384,46 +332,44 @@ and its request is marked `failed`.
 
 ## 7. Two walkthroughs
 
-**A reply** (built: `bin/mentions`, the pinned `mentions-inbound` job, every
-5 minutes).
-1. `hands/x ingest` reads the account's mentions timeline
-   (`/2/users/:id/mentions`, which includes replies to its own posts) from the
-   `since_id` cursor in `x_cursor`, so each mention is read and billed once.
-   Each new one is a row in `x_mentions`, unique on post id. Its own posts and
-   anything already answered are `skipped`; `hands/guard inbound` screens the
-   rest, and a held mention is never offered to a model.
-2. Each `pending` row is offered to the core with `openhuman.inbound_offer`
-   (source `x:mentions`, key `mentions`, the post id as the event id) and
-   marked `offered`. A failed offer leaves it `pending` for the next run.
-3. The core queues the offers durably and coalesces them: 30s after the last
-   one, or 5 minutes after the first, or 20 in a batch
-   (`[inbound.sources."x:mentions"]`, written into the core's config by
-   `bin/lib/inbound_config.py` at every boot). The batch is **one turn** of
-   the tool-less `teeny-mentions` agent, prompted with the body of
-   `brain/playbooks/mentions.md` and the mentions as JSON. Its answer is kept
-   as a result (`openhuman.inbound_results`), and `InboundTurnCompleted` goes
-   out on `/events/domain` to wake anything listening.
-4. `bin/inbound-consume` reads the completed results. Each `reply` item goes
-   through `hands/x reply --to <id>`, but only to a mention in that batch, so
-   a draft cannot choose whom it answers. Inside the hand, in order: `guard
-   check`, house style, the 280 and emoji checks, one reply per post, the
-   30–60s pacing, then `DRY_RUN`, then X. The outcome is written back with
-   `hands/x mark` (`drafted` under `DRY_RUN`, `replied`, `refused` or
-   `skipped`), and the result is acknowledged so it is handled once. A
-   pacing wait longer than the run's budget leaves the result unacknowledged
-   for the next run.
+**A reply to a mention.**
+1. X pushes the mention to `https://teeny.enamakel.com/api/webhooks/x`. The
+   host's nginx sends it to `bin/x-webhook` (the `xhook` service on
+   `127.0.0.1:3110`), which checks the signature and stores the post as a
+   row in `x_mentions`, unique on post id. Teeny's own posts and anything
+   already answered are `skipped`; `hands/guard inbound` screens the rest, and
+   a held mention is never shown to a model.
+2. `bin/mentions` (the pinned `mentions-inbound` job, every 5 minutes) runs
+   `hands/x ingest`. That reads the mentions timeline from its cursor too, in
+   case the webhook missed one, and offers every `pending` row to the mind's
+   inbox (`hands/stimuli`). Then `hands/x requests` notes any ask to build
+   something.
+3. Two minutes later `bin/tick` takes a batch from the inbox and sends it to
+   the tool-less `teeny` agent on the `teeny:mind` thread (§4a). The answer is
+   a `thought` and intents, such as `{"do": "reply_x", "to": "<id>", "text":
+   "..."}`.
+4. Each intent goes to the one hand verb it names: here `hands/x reply
+   --to <id>`. Inside the hand, in order: `guard check`, house style, the 280
+   and emoji checks, one reply per post, never to Teeny's own post, the
+   30–60s pacing, then `DRY_RUN`, then X. What the hand did goes back into the
+   inbox for the next beat.
+
+With `TEENY_INBOX=core`, step 2 offers the mentions to the core's inbound
+queue instead, the core drafts each batch with `teeny-mentions`, and
+`bin/inbound-consume` sends the drafts through `hands/x reply`.
 
 **The morning post.**
-1. `morning` at 07:00 runs `hands/cadence claim morning`. It applies the 20h
-   re-run guard (recorded at the decision, so a failed run still counts), the
-   posting gap (3h) and any hot-post hold, and marks the claim.
-2. The script runs the morning skill's stages as separate `teeny-drafter`
-   turns: pick (news and timeline through read verbs) → script → video
-   (`hands/media gen`, under the media budget) → caption → critique.
-3. `hands/x post --media <id> < caption.json` runs the guard and checks, takes
-   the posting `flock`, re-checks the gap inside the lock, posts, and records
-   to the ledger. A ledger write that fails after the post is logged and
-   never retried.
+1. The `morning` job runs `bin/act morning` at 07:00 IST. `bin/act` checks the
+   playbook's daily budget (`max_per_day`) and gathers its inputs (none for
+   `morning`).
+2. One turn as the tool-less `act` agent on the `teeny:act` thread drafts the
+   post as JSON, optionally with an `"image"` scene.
+3. If there is a scene, `bin/act` runs it past the guard, calls
+   `hands/image generate`, and uploads the file with `hands/x upload`. A
+   failure there leaves the post text-only.
+4. `hands/x post` runs the guard and checks, takes the posting lock, re-checks
+   the 3-hour gap inside the lock, posts, and records the post. A ledger write
+   that fails after the post is logged and never retried.
 
 ## 8. Deploy
 
@@ -431,65 +377,28 @@ and its request is marked `failed`.
   - build `teeny-spine` from `vendor/openhuman`;
   - stage OpenHuman's pinned, digest-checked module releases with its own
     `stage-modules.mjs` (TinyBox among them, which cron shell jobs need);
-  - a slim runtime with `jq`, `sqlite3` and `python3`.
+  - a slim Debian runtime with Chromium, `jq`, `sqlite3`, `curl` and
+    `python3`.
 - Nothing of Teeny's is baked in: `deploy/compose.yaml` mounts the checkout at
-  `/srv/teeny`, so a job or `cron.toml` change is a pull and a restart, not a
-  rebuild.
-- The entrypoint is `bin/spine`. It mints `secrets/core.token` and
-  `secrets/openhuman.key` on first boot, starts `serve`, configures the model
-  and memory from `secrets/spine.env` (read in a subshell, so the keys never
-  enter the core's environment, which jobs inherit), writes the mentions
-  inbound source into the core's config, and runs `bin/seed-cron`.
-- Gone: Mongo (its collections move into `hands.db`; see `hands.md`), the
-  axum server and its feeds (`web/` reads `record/`), and the `opencompany`
-  and `brain-sync` services.
-- The shadow run follows today's pattern (`deploy/README.md`, "Moving to the
-  Rust bot"): the new stack runs beside the live bot with `DRY_RUN=1` and its
-  own memory root, and its drafts are compared before cutover.
-
-## 9. What was removed
-
-The rewrite removed (see `55c2c75` for the code):
-- the Rust bot: `crates/` (11 crates), its `Dockerfile`, `docker/` and
-  `scripts/`;
-- the bot's fork of OpenHuman, replaced by upstream at `vendor/openhuman`;
-- the TypeScript service, `legacy/`;
-- the OpenCompany brain, `brain/`;
-- the bot's deploy: `compose.prod.yaml`, `deploy.sh` and the
-  deploy-on-merge workflow.
-
-Where each crate's job goes:
-
-| Crate | Goes to |
-|---|---|
-| `teeny` (serve, http, schedule, cmd, telegram, stream) | Spine `serve`, `bin/*`, `cron.toml`. `auth-x` and `unsay` become `hands/x`, telegram becomes `hands/telegram`, the feeds become `hands/record` |
-| `teeny-agent` (specs, posture, runtime, prompt, tools) | Brain `agents/*.toml`, `SOUL.md` and skills. The tools become hands, with the read verbs served by `hands/mcp` |
-| `teeny-jobs` (reply, morning, afternoon, evening, chart, moon, lore, quote, article, narrative, backrooms, calendar, learnings, chat, heat, ingest, runner) | Brain `jobs/*.md` and skills, plus `bin/job` |
-| `teeny-x` | `hands/x` |
-| `teeny-safety` | `hands/guard` |
-| `teeny-cadence` | `hands/cadence` |
-| `teeny-store` | `state/hands.db` (tables in `hands.md`) |
-| `teeny-memory` | Spine memory (CortexDB engine). `memory import` is dropped after cutover |
-| `teeny-market` | `hands/market` |
-| `teeny-media` | `hands/media` and `hands/chart` |
-| `teeny-core` | Dropped. Config becomes the hands' env files |
-
-The invariants each hand inherits are listed in `hands.md`.
-
-## 10. Migration (one PR each)
-
-1. **Done.** The spine boots in compose from `brain/`, with
-   `bin/spine`, `bin/seed-cron`, `bin/crons`, `bin/oh` and `bin/ask`. Its
-   only job is `bin/heartbeat`. `bin/test/spine_live_test.sh` runs all of it
-   against a real core and a stub model.
-2. `hands/guard`, `hands/cadence` and `hands/x` with `hands.db`, each with the
-   tests ported from `crates/teeny-safety`, `teeny-cadence` and
-   `teeny-x`/`teeny-store`.
-3. `ingest` and `reply` in shadow (`DRY_RUN=1`), compared against the live
-   bot.
-4. Morning and the two slots.
-5. Telegram.
-6. Backrooms and narrative.
-7. Cutover: retire the old stack still running on the box (its containers
-   outlive the code, which is already gone from `main`) and its Mongo, after
-   copying the live collections with `bin/migrate-mongo`.
+  `/srv/teeny`, so a script, playbook or `cron.toml` change is a pull and a
+  restart, not a rebuild.
+- Three services in `deploy/compose.yaml`:
+  - `spine`: the core. The entrypoint is `bin/spine`. It mints
+    `secrets/core.token` and `secrets/openhuman.key` on first boot, runs the
+    doctor, writes Teeny's sections into the core's config, starts `serve`,
+    configures the model and memory from `secrets/spine.env` (read in a
+    subshell, so the keys never enter the core's environment, which jobs
+    inherit), and runs `bin/seed-cron`. It publishes no port.
+  - `xhook`: the same image running `bin/x-webhook` on `127.0.0.1:3110`. It
+    only writes `x_mentions` in `state/hands.db`.
+  - `web`: the landing page (`web/`, its own Next.js image) on
+    `127.0.0.1:3120`, behind the `web` compose profile.
+- The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
+  `teeny.enamakel.com`: `/api/webhooks/x` to the webhook, everything else to
+  the landing page.
+- **The diary.** `teenydroid/diary` is Teeny's public diary, one page per day
+  at `days/YYYY/MM/YYYY-MM-DD.md`: the night's entry from `bin/reflect`
+  (`state/diary/<date>.md`), plus Teeny's own X posts and replies, Moltbook
+  posts and finished build jobs that day. `bin/diary` (`bin/lib/diary.py`,
+  the daily `[jobs.diary]`) renders and pushes it with a `GITHUB_TOKEN` from
+  `secrets/teeny.env` that can push there. It is a dry run by default.
