@@ -3,8 +3,9 @@
   O  add TEXT           queue a brief: what the next told-to post is about
   R  next               the oldest open brief, or {"brief": null}
   R  list [--max N]     the briefs, newest first
-  A  post {id, text}    post `text` (Teeny's draft of brief `id`) through
-                        hands/x post, then mark the brief posted
+  A  post {id, text, media_ids?}  post `text` (Teeny's draft of brief `id`),
+                        with any picture bin/act attached, through hands/x
+                        post, then mark the brief posted
   O  cancel ID          drop an open brief
 
 Teeny posts twice a day: the morning gm (brain/playbooks/morning.md) and one
@@ -119,6 +120,10 @@ def post(body: Any) -> Json:
         raise hand.Refused("post needs the brief's id")
     if not isinstance(text, str) or not text.strip():
         raise hand.Refused("post needs the text to post")
+    media_ids = body.get("media_ids") or []
+    if not isinstance(media_ids, list) or not all(isinstance(m, str) and m for m in media_ids):
+        raise hand.HandError('"media_ids" must be a list of media ids')
+    x_body: Json = {"text": text, **({"media_ids": media_ids} if media_ids else {})}
     with hand.lock("brief"):
         conn = _db()
         try:
@@ -127,7 +132,7 @@ def post(body: Any) -> Json:
                 raise hand.Refused(f"brief {brief_id} is not open")
             done = subprocess.run(
                 [str(_x_hand()), "post"],
-                input=json.dumps({"text": text}),
+                input=json.dumps(x_body),
                 capture_output=True,
                 text=True,
                 cwd=str(hand.root()),

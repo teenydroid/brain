@@ -119,17 +119,80 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
  elif .output == "reply" then "Each is {\"action\": \"reply\", \"to\": \"<post id from the inputs>\", \"text\": \"...\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  elif .output == "like" then "Each is {\"action\": \"like\", \"id\": \"<post id from the inputs>\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  else "Each is {\"action\": \"hand\", ...the fields \(.output | ltrimstr("hand:")) takes, as the playbook says, and nothing else} or {\"action\": \"skip\", \"reason\": \"...\"}.\n" end) +
+(if (.media | length) == 0 then ""
+ else "\nA post may carry a picture of you (Teeny) made from your character sheet" +
+   (if (.media | index("video")) then ", or a short clip of it" else "" end) +
+   ": add " +
+   ([(if (.media | index("image")) then "\"image\": \"<what you are doing in the picture, and where>\"" else empty end),
+     (if (.media | index("video")) then "\"video\": \"<how you move in a 5-second clip>\" (with \"image\" for its first frame)" else empty end)] | join(" or ")) +
+   " to the object. Describe a scene, never text or a real person; leave it out when the post is better without one.\n" end) +
 "Skip when nothing is worth doing; a skip costs nothing."' <<<"$book")"
 
-if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then
-  record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
-  exit 1
-fi
-if ! items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
-  record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
-    '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
-  exit 1
-fi
+# A draft that is not usable JSON is asked for once more: some models
+# (glm-5.3-flash through Surplus, about one answer in eight) come back with
+# the opening of the JSON cut off. A second unusable draft is an error.
+for attempt in 1 2; do
+  if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then
+    record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
+    exit 1
+  fi
+  if items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
+    break
+  fi
+  if [ "$attempt" = 2 ]; then
+    record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
+      '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
+    exit 1
+  fi
+  log "$name: the draft is not usable JSON; asking once more"
+done
+
+# --- media: a picture or clip of Teeny for a post ---------------------------------
+# A draft may ask for one ("image" / "video") when the playbook allows it
+# (`media`). Its description goes past the guard like any words, the hand
+# makes it from Teeny's character sheet under its own caps, and hands/x upload
+# mints the id the post carries. Any failure leaves the post text-only and
+# says why in the result: a picture never costs the post.
+media_kinds="$(jq -c '.media // []' <<<"$book")"
+attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON)
+  local item="$1" kind="" body verdict gen path up field
+  media_ids='[]'
+  media_note='null'
+  if jq -e --argjson k "$media_kinds" '($k | index("video")) and (.video | type) == "string" and .video != ""' <<<"$item" >/dev/null; then
+    kind=video
+    body="$(jq -c '{prompt: .video} + (if (.image | type) == "string" and .image != "" then {image_prompt: .image} else {} end)' <<<"$item")"
+  elif jq -e --argjson k "$media_kinds" '($k | index("image")) and (.image | type) == "string" and .image != ""' <<<"$item" >/dev/null; then
+    kind=image
+    body="$(jq -c '{prompt: .image}' <<<"$item")"
+  else
+    return 0
+  fi
+  for field in prompt image_prompt; do
+    jq -e --arg f "$field" 'has($f)' <<<"$body" >/dev/null || continue
+    if ! verdict="$(jq -c --arg f "$field" --arg s "$surface" '{text: .[$f], surface: $s}' <<<"$body" | (cd "$TEENY_ROOT" && "$hands/guard" check))" ||
+      ! jq -e '.text | type == "string"' <<<"$verdict" >/dev/null 2>&1; then
+      media_note="$(jq -cn --arg k "$kind" --arg v "${verdict:0:300}" '{kind: $k, skipped: "the guard held its description", guard: ($v | try fromjson catch $v)}')"
+      return 0
+    fi
+    body="$(jq -c --arg f "$field" --argjson v "$verdict" '.[$f] = $v.text' <<<"$body")"
+  done
+  if ! gen="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && "$hands/$kind" generate))"; then
+    media_note="$(jq -cn --arg k "$kind" --arg g "${gen:0:500}" '{kind: $k, skipped: "not made", result: ($g | try fromjson catch $g)}')"
+    return 0
+  fi
+  if jq -e '.dry_run == true' <<<"$gen" >/dev/null 2>&1; then
+    media_note="$(jq -c --arg k "$kind" '{kind: $k, dry_run: true, prompt}' <<<"$gen")"
+    return 0
+  fi
+  path="$(jq -r '.asset.path // empty' <<<"$gen")"
+  if [ -z "$path" ] || ! up="$(cd "$TEENY_ROOT" && "$hands/x" upload --file "$path" </dev/null)" ||
+    ! jq -e '.media_id | type == "string"' <<<"$up" >/dev/null 2>&1; then
+    media_note="$(jq -cn --arg k "$kind" --arg p "$path" --arg u "${up:-}" '{kind: $k, path: $p, skipped: "upload failed", result: ($u | try fromjson catch $u)}')"
+    return 0
+  fi
+  media_ids="$(jq -c '[.media_id]' <<<"$up")"
+  media_note="$(jq -cn --arg k "$kind" --argjson g "$gen" --argjson u "$up" '{kind: $k, asset: $g.asset.id, path: $g.asset.path, cost_usd: $g.asset.cost_usd, media_id: $u.media_id}')"
+}
 
 # --- the actions ---------------------------------------------------------------
 results='[]'
@@ -138,6 +201,7 @@ case "$output" in hand:*) expected=hand ;; none) expected=note ;; esac
 while IFS= read -r item; do
   action="$(jq -r .action <<<"$item")"
   result=""
+  media_note=null
   status=0
   if [ "$action" = skip ]; then
     results="$(jq -c --argjson i "$item" '. + [{action: "skip", reason: ($i.reason // null)}]' <<<"$results")"
@@ -157,7 +221,9 @@ while IFS= read -r item; do
       result="$(jq -cn --arg t "$text" '{ok: true, noted: $t}')"
       ;;
     post)
-      result="$(jq -cn --arg t "$text" '{text: $t}' | (cd "$TEENY_ROOT" && "$hands/x" post))" || status=$?
+      attach_media "$item"
+      result="$(jq -cn --arg t "$text" --argjson m "$media_ids" '{text: $t} + (if $m == [] then {} else {media_ids: $m} end)' |
+        (cd "$TEENY_ROOT" && "$hands/x" post))" || status=$?
       ;;
     reply)
       to="$(jq -r '.to // ""' <<<"$item")"
@@ -182,7 +248,7 @@ while IFS= read -r item; do
       # A playbook's own hand did not come with the posting rules hands/x
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
-      body="$(jq -c 'del(.action)' <<<"$item")"
+      body="$(jq -c 'del(.action, .image, .video)' <<<"$item")"
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
@@ -212,6 +278,8 @@ while IFS= read -r item; do
         fi
       fi
       if [ "$status" = 0 ]; then
+        attach_media "$item"
+        [ "$media_ids" = '[]' ] || body="$(jq -c --argjson m "$media_ids" '. + {media_ids: $m}' <<<"$body")"
         result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && "$hands/$hand" "$verb"))" || status=$?
       fi
       ;;
@@ -222,8 +290,9 @@ while IFS= read -r item; do
   if [ "$status" = 0 ]; then
     echo $(($(taken) + 1)) >"$count_file"
   fi
-  results="$(jq -c --arg a "$action" --argjson s "$status" --argjson r "$result" \
-    '. + [{action: $a, status: (if $s == 0 then "done" elif $s == 2 then "refused" else "error" end), result: $r}]' <<<"$results")"
+  results="$(jq -c --arg a "$action" --argjson s "$status" --argjson r "$result" --argjson m "${media_note:-null}" \
+    '. + [{action: $a, status: (if $s == 0 then "done" elif $s == 2 then "refused" else "error" end), result: $r}
+      + (if $m == null then {} else {media: $m} end)]' <<<"$results")"
 done < <(jq -c '.[]' <<<"$items")
 
 record "$(jq -cn --arg p "$name" --argjson r "$results" --argjson left "$((max_per_day - $(taken)))" \

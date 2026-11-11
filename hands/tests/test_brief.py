@@ -88,6 +88,18 @@ class BriefTest(unittest.TestCase):
         sent = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual(sent, [{"argv": ["post"], "body": {"text": "hi new holders"}}])
 
+    def test_a_picture_bin_act_attached_goes_on_the_post(self):
+        brief_id = briefs.add("show the new home")["brief"]["id"]
+        self.x_answers({"id": "1901", "kind": "post", "text": "new home"})
+        briefs.post({"id": brief_id, "text": "new home", "media_ids": ["123456"]})
+        sent = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(sent[-1]["body"], {"text": "new home", "media_ids": ["123456"]})
+
+    def test_media_ids_must_be_a_list_of_ids(self):
+        brief_id = briefs.add("bad media")["brief"]["id"]
+        with self.assertRaises(hand.HandError):
+            briefs.post({"id": brief_id, "text": "x", "media_ids": "https://example.com/cat.png"})
+
     def test_a_dry_run_leaves_the_brief_open(self):
         brief_id = briefs.add("rehearse this")["brief"]["id"]
         self.x_answers({"ok": True, "dry_run": True, "would_post": "rehearsed", "kind": "post"})

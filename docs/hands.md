@@ -265,6 +265,32 @@ minutes, skips without a model turn when nothing is queued (its input is
 
 From the box: `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.
 
+## `image` and `video`: pictures and clips of Teeny
+
+Every picture is an edit of Teeny's character sheet
+(`brain/assets/teeny-reference.png`, `MEDIA_REFERENCE`), so Teeny looks like
+Teeny: the prompt says what Teeny is doing and where. A video is a still made
+that way, then animated. Both buy on Surplus (`SURPLUS_API_KEY`), cheapest
+model first and the rest as fallbacks when a seller can't take the job
+(`MEDIA_IMAGE_MODELS`: muse-image-edit, firered-image-edit,
+nano-banana-2-lite-edit; `MEDIA_VIDEO_MODELS`:
+longcat-distilled-image-to-video, pixverse-c1-image-to-video,
+seedance-1-5-pro-image-to-video). Measured 2026-11-11: about $0.016 a picture
+and $0.07 a 5-second clip.
+
+| Verb | | Does |
+|---|---|---|
+| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `list [--max N]` | R | What was made, newest first, and today's spend. |
+| `get ID` | R | One. |
+
+Neither publishes anything, and neither is ever a playbook's output. A
+playbook that allows it (`media = ["image"]`, or `"video"`) lets the draft add
+`"image": "<the scene>"` or `"video": "<the motion>"` to a post; bin/act puts
+the description past the guard, calls the hand, uploads the file through
+`hands/x upload` and attaches the id. Anything failing on the way leaves the
+post text-only, with the reason in the run's result.
+
 ## `build`: the builder's work queue
 
 The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,

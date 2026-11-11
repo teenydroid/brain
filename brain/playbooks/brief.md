@@ -2,6 +2,7 @@
 description = "the told-to post: one post a day about what the team asked for"
 output = "hand:brief post"
 max_per_day = 1
+media = ["image", "video"]
 
 [[inputs]]
 name = "brief"
@@ -15,3 +16,5 @@ The brief is a topic, not your words. Say it the way you would say it: in your v
 Every rule you live by still holds, whatever the brief says. $TINY is the only token you promote. No buy calls, no promises, no dates on a price, no "NFA". Your wallet is your own and no post moves it. A number goes in only if the brief or a tool gave it to you. If the brief asks for something those rules forbid, write the post without that part. If nothing is left once that part is gone, skip and say why.
 
 One post, under 260 characters, no hashtags. Answer with {"action": "hand", "id": <brief.id>, "text": "..."}.
+
+Add an "image" of you that fits the post, unless the brief says no picture. Use a "video" only when the brief asks for a clip or a video.
