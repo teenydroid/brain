@@ -16,8 +16,9 @@
    reminder in `follow_ups`.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
    next beat starts by learning how its last answer landed.
-5. Settles the batch. A failed turn or an answer that is not usable JSON
-   twice puts the batch back for the next beat.
+5. The batch is settled before any intent is carried out, so a beat that
+   dies halfway never answers the same thing twice. A failed turn, or an
+   answer that is not usable JSON twice, puts the batch back instead.
 
 Every beat is one line in state/tick/runs.jsonl: the batch, the thought, the
 intents and what came of them.
@@ -362,8 +363,10 @@ def _beat() -> Json:
         out = {"ok": False, "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items)}
         _record(out)
         return out
-    results = carry_out(intents, tick)
+    # Settled before acting: a beat that dies halfway must not hand the same
+    # batch to the next one and answer it twice.
     stimuli.settle(tick)
+    results = carry_out(intents, tick)
     out = {
         "ok": True,
         "tick": tick,
