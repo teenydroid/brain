@@ -97,6 +97,26 @@ def body_text(message: Mapping[str, Any]) -> str:
     return preview if isinstance(preview, str) else ""
 
 
+_AUTOMATED_LOCAL = re.compile(r"^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?)([+._-].*)?$")
+
+
+def is_automated(message: Mapping[str, Any]) -> bool:
+    """Mail a machine sent and nobody reads replies to: a noreply-style
+    sender, a bounce, or an `Auto-Submitted` / bulk `Precedence` header when
+    AgentMail passes headers along."""
+    sender = address_of(message.get("from"))
+    if sender and _AUTOMATED_LOCAL.match(sender.split("@", 1)[0]):
+        return True
+    headers = message.get("headers")
+    if isinstance(headers, Mapping):
+        named = {str(k).lower(): str(v).strip().lower() for k, v in headers.items()}
+        if named.get("auto-submitted", "no") != "no":
+            return True
+        if named.get("precedence") in ("bulk", "junk", "auto_reply"):
+            return True
+    return False
+
+
 def is_own(message: Mapping[str, Any]) -> bool:
     """Sent by Teeny's inbox (AgentMail lists both directions)."""
     labels = message.get("labels") if isinstance(message.get("labels"), list) else []
