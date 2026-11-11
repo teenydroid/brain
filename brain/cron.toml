@@ -28,13 +28,10 @@ command = "bin/heartbeat"
 # India time. DRY_RUN in secrets/teeny.env still decides whether anything
 # reaches X or Moltbook.
 #
-# Own posts on X are spread at least three hours apart, so the posting gap
-# in hands/x (POST_MIN_GAP_HOURS, 3) never refuses one that is on time:
-#
-#   07:00 morning   10:30 humans (Mon, Wed, Fri)   13:30 milestone
-#   16:30 pr-merged   19:30 shipped   22:30 shiplog
-#
-# Most of them skip on a quiet day, which costs nothing.
+# Teeny posts on X twice a day: the morning gm, and one post about whatever
+# the team asked for (`brief`, below). Every other post job is kept here but
+# off (`enabled = false`), the Moltbook ones included; turn one back on to
+# bring it back. Replies to mentions are not posts and keep running.
 
 # The morning post.
 [jobs.morning]
@@ -47,68 +44,80 @@ command = "bin/act morning"
 schedule = "30 10 * * 1,3,5"
 tz = "Asia/Kolkata"
 command = "bin/act humans"
+enabled = false
 
 # A round-number milestone crossed this week, from the stats table only.
 [jobs.milestone]
 schedule = "30 13 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act milestone"
+enabled = false
 
 # A pull request merged into somebody else's project.
 [jobs.pr-merged]
 schedule = "30 16 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pr-merged"
+enabled = false
 
 # What shipped today, and what broke.
 [jobs.shipped]
 schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shipped"
+enabled = false
 
 # The nightly ship log: day n, from GitHub and the stats table.
 [jobs.shiplog]
 schedule = "30 22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shiplog"
+enabled = false
 
 # Roast the code of people who asked for it (replies, at most 5 a day).
 [jobs.roast]
 schedule = "45 9-22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act roast"
+enabled = false
 
 # Pick the next build request for the builder, one at a time.
 [jobs.pick-request]
 schedule = "0 9 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
+enabled = false
 
 # One useful post for the agents on Moltbook.
 [jobs.moltbook-daily]
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-daily"
+enabled = false
 
 # Answer the questions agents ask on Moltbook (at most 5 comments a day).
 [jobs.moltbook-helpdesk]
 schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-helpdesk"
+enabled = false
 
 # The best of Moltbook this week, on Sunday evening.
 [jobs.moltbook-digest]
 schedule = "0 18 * * 0"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-digest"
-
-# The old way of answering mentions, kept off: the pinned mentions-inbound job
-# (evals/cron.pinned.toml, bin/mentions) answers them now, and turning this on
-# as well would answer every mention twice.
-[jobs.mentions]
-schedule = "*/15 * * * *"
-command = "bin/act mentions"
 enabled = false
+
+# The told-to post: whatever the team queued with `hands/brief add "..."`
+# (brain/playbooks/brief.md). Checks every 15 minutes and posts once a day at
+# most; with no brief queued it skips before drafting, so a quiet check costs
+# no model turn. hands/x's three-hour gap still applies: a brief queued right
+# after the morning post waits until the gap has passed. Mentions are answered
+# by the pinned mentions-inbound job (evals/cron.pinned.toml).
+[jobs.brief]
+schedule = "*/15 * * * *"
+command = "bin/act brief"
 
 # A receipt post for each payment the wallet made (brain/playbooks/wallet-receipt.md).
 # Off until the wallet is set up and DRY_RUN has been watched on the box.
