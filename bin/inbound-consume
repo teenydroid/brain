@@ -110,7 +110,7 @@ while IFS= read -r turn; do
             status=0
             result="$(send_reply "$item" "$to")" || status=$?
             result="$(jq -c . <<<"$result" 2>/dev/null || jq -cn --arg r "$result" '{raw: $r}')"
-            [ "$status" = 2 ] && [ "$(jq -r '.rule // ""' <<<"$result")" = pacing ] || break
+            if [ "$status" != 2 ] || [ "$(jq -r '.rule // ""' <<<"$result")" != pacing ]; then break; fi
             wait="$(jq -r '.wait_seconds | ceil' <<<"$result")"
             if [ $(($(date +%s) - started + wait)) -gt "$budget" ]; then
               paused=1

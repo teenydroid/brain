@@ -204,6 +204,14 @@ for file in core.token openhuman.key; do
   fi
 done
 
+# The core's file keyring lives in the brain and refuses a directory anybody
+# but this user could change, all the way up from / (bin/lib/private_dirs.py).
+# A group-writable checkout fails every secret write, which the agents only
+# see as the model answering 401.
+if [ -d "$brain" ]; then
+  run "keyring path" python3 "$TEENY_ROOT/bin/lib/private_dirs.py" "$brain"
+fi
+
 # --- the box ---------------------------------------------------------------------
 free_kb="$(df -Pk "$root" | awk 'NR == 2 {print $4}')"
 if [ "${free_kb:-0}" -ge $((1024 * 1024)) ]; then

@@ -9,7 +9,9 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-doctor.XXXXXX")"
+# Resolved (pwd -P): the keyring check walks every component, and a symlinked
+# temp root (macOS /var) would fail it for the wrong reason.
+scratch="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/teeny-doctor.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$scratch"' EXIT
 
 failures=0
@@ -138,6 +140,16 @@ fresh; wallet_env WALLET_MAX_PER_TX_USD=50 WALLET_MAX_PER_DAY_USD=1000000 WALLET
 fails "fails an absurd cap" "wallet caps"
 fresh; wallet_env "${caps_ok[@]}" WALLET_CLUSTER=testnet
 fails "fails an unknown cluster" "wallet caps"
+
+# --- the keyring's directory: nobody else may write it, from / down -----------------
+fresh; chmod 775 "$root/brain"
+fails "fails a group-writable brain (the keyring would refuse it)" "keyring path"
+check "and names the directory" grep -q '^FAIL keyring path: .*brain: mode 775' "$scratch/doctor.log"
+fresh; chmod 775 "$root"
+fails "fails a group-writable checkout above the brain" "keyring path"
+python3 "$root/bin/lib/private_dirs.py" --fix "$root/brain" "$root" 2>/dev/null >/dev/null || true
+check "private_dirs --fix tightens the brain up to the checkout" doctor
+check "and the doctor names the keyring path ok" grep -q '^ok   keyring path' "$scratch/doctor.log"
 
 # --- pre-spine leftovers warn, never fail --------------------------------------------
 fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"; : >"$root/workspace/storage.db"

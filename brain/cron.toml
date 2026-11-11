@@ -102,7 +102,9 @@ schedule = "0 18 * * 0"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-digest"
 
-# Answer mentions. Off until DRY_RUN has been watched on the box.
+# The old way of answering mentions, kept off: the pinned mentions-inbound job
+# (evals/cron.pinned.toml, bin/mentions) answers them now, and turning this on
+# as well would answer every mention twice.
 [jobs.mentions]
 schedule = "*/15 * * * *"
 command = "bin/act mentions"
