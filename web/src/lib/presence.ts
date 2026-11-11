@@ -2,12 +2,12 @@
  * Everywhere Teeny exists in public. One list so the hero, the "Find it"
  * section, the nav and the footer never disagree about a handle or a link.
  *
- * No wallet is listed. Teeny's wallet is the Solana account its wallet hand
- * reads from the core at run time (`hands/wallet address`), and that address
- * is not published anywhere this site can read; the old Robinhood Chain
- * address the page used to show is not the wallet the hand pays from. What
- * the wallet paid is public all the same: every payment is a `wallet.paid`
- * receipt, linked to its transaction on Solscan.
+ * No wallet is listed here. Teeny's wallet is the Solana account its wallet
+ * hand reads from the core at run time (`hands/wallet address`); bin/receipts
+ * publishes that address as wallet.json, and the front page's wallet card
+ * reads it from there (src/lib/wallet.ts), so no address is ever hardcoded.
+ * The old Robinhood Chain address the page used to show is not the wallet the
+ * hand pays from.
  */
 
 export type PresenceKind = 'x' | 'telegram' | 'fomo' | 'github'
