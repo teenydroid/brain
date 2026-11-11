@@ -442,14 +442,37 @@ hands/gh's own actions.
 | `done` | A | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
 | `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. A report left while `build.json` offered no job (`job: null`) that names no `job_id` only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then claims: `next`, written to `build.json` with `report_to` and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
+| `self` | A | `{text}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). |
+| `self-sync` | J | Teeny's own clone (docs/evolve.md, "Teeny's own clone"): clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing, else fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
 | `ship` | J | Every `ok` job, oldest first: creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). Then the job is `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
 `build_jobs`: one row per job (`kind`, `request_id` unique, `slug` unique,
 `repo`, `status`: `claimed`, `ok`, `failed`, `shipped`). This hand only reads
 `build_requests`, and writes back only to a request it built, and only while
 that request is still `picked`: `shipped` or `failed`, with a note.
-`bin/build-ship` is the pinned `build-ship` job (every 30 minutes): `desk`,
-then `ship`. The builder runs at ten past every second hour, after a desk.
+`bin/build-ship` is the pinned `build-ship` job (every 30 minutes):
+`self-sync`, `desk`, then `ship`. The builder runs at ten past every second
+hour, after a desk.
+
+**A self job** comes from a picked request with source `self`. `next` syncs
+the clone and starts `teeny/<slug>` from the fresh `origin/main`. While the
+clone isn't free, the request waits (`waiting` in the answer) and the queue
+moves on. Its offer adds `branch`, `base` and `instructions` (Teeny's own
+`brain/agents/builder-self.md`), with rules of its own. `done` with `ok` needs
+a change in the clone. `ship` takes these steps:
+
+1. The guard reads the pull request's title (the summary's first line) and
+   body (the summary, the tests, the checks).
+2. It commits the branch as Teeny.
+3. `frozen.check` runs against `origin/main`. A frozen path fails the job at
+   once, with `paths`.
+4. `gh`'s `push_branch` sends only a `teeny/*` branch, never `main`, with the
+   secret scan on what the branch adds.
+5. `open_pr` opens the pull request into `main`.
+
+The job is then `shipped` with `pr_url`, and the mind gets a `builder`
+stimulus (`pull_request`, or `ship_refused` when it gives up). Under
+`DRY_RUN` it answers `would_push`/`would_open_pr`. Nothing merges.
 
 ## `tasks`: the browser operator's queue
 

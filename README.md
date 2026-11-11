@@ -330,8 +330,9 @@ These are gitignored and created at run time:
 - `state/`: what the hands keep. `hands.db` holds the ledgers, caches, holds,
   pacing, the inbox and the queues. Beside it: `locks/`, `core.url` (where the
   core answers), `tick/` and `reflect/` (the mind's runs), `journal/`, `diary/`,
-  `workbench/` (what the builder builds), `browser/` (the browser's profile
-  and downloads) and `media/` (what a post may attach).
+  `workbench/` (what the builder builds; `workbench/brain/` is Teeny's own
+  clone of this repository, with its git directory in `self/`), `browser/`
+  (the browser's profile and downloads) and `media/` (what a post may attach).
 - `.openhuman/`: the core's config, written by the core.
 - `brain/storage.db`: all of the core's state (sessions, cron jobs and runs,
   encrypted secrets) in one SQLite file, so `sqlite3` can read it.

@@ -26,12 +26,15 @@ services:
       # A non-passwd uid has no home; the core wants one.
       HOME: /tmp
       CALENDAR_TZ: ${CALENDAR_TZ:-UTC}
-    # The ladder is the box's shared container, published on the docker0
-    # address. CortexDB is this project's own service below, reached by its
-    # name on the compose network: CORTEX_API_URL=http://cortexdb:3141 in
-    # secrets/spine.env.
-    extra_hosts:
-      - "${LADDER:-ladder}:host-gateway"
+    # The spine lives in CortexDB's network namespace, so it reaches its
+    # memory at http://127.0.0.1:3141 (CORTEX_API_URL in secrets/spine.env):
+    # the core sends a credential over plain http only to a loopback address,
+    # and CortexDB binds loopback only, so nothing else on the compose
+    # network can reach it. The two share /etc/hosts too, so the ladder's
+    # host entry is on the cortexdb service. Recreate the spine whenever
+    # cortexdb is recreated (`up -d` does; a bare `docker restart cortexdb`
+    # leaves the spine without a network).
+    network_mode: "service:cortexdb"
     depends_on:
       cortexdb:
         condition: service_healthy
@@ -48,7 +51,7 @@ services:
   # Its own store in the cortexdb-data volume; no published port, only the
   # spine talks to it. Its models are Surplus Intelligence's (one account,
   # one key: SURPLUS_API_KEY), written into secrets/cortex.env with the
-  # store's own CORTEX_API_KEY (deploy/cortex.env.example says how).
+  # model keys (deploy/cortex.env.example says how).
   #
   # The embedding pair (model and dims) is pinned on the first memory and
   # cannot change after it without re-embedding everything stored.
@@ -59,8 +62,10 @@ services:
       - path: ../secrets/cortex.env
         required: false
     environment:
-      CORTEX_V1_API_ADDR: 0.0.0.0:3141
-      CORTEX_BIND_ALL: "1"
+      # Loopback only, inside the namespace it shares with the spine (above):
+      # no other container reaches it, so it needs no key of its own.
+      CORTEX_V1_API_ADDR: 127.0.0.1:3141
+      CORTEX_INSECURE_NO_AUTH: "1"
       CORTEX_CHANNEL: docker
       CORTEX_LLM_URL: https://api.surplusintelligence.ai/v1
       CORTEX_LLM_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
@@ -86,6 +91,9 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 5
+    # The spine's host entries live here: it shares this namespace.
+    extra_hosts:
+      - "${LADDER:-ladder}:host-gateway"
     volumes:
       - cortexdb-data:/data
 
