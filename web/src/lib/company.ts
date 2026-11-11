@@ -70,7 +70,7 @@ export interface BrainSnapshot {
   steps: BrainStep[]
 }
 
-export const BRAIN_REPO = process.env.BRAIN_REPO ?? 'teenydroid/brain'
+export const BRAIN_REPO = process.env.BRAIN_REPO ?? 'teenydroid/diary'
 export const BRAIN_REPO_URL = `https://github.com/${BRAIN_REPO}`
 export const OPENCOMPANY_URL = 'https://github.com/tinyhumansai/opencompany'
 

@@ -40,7 +40,7 @@ it, each revalidated every 60s and marked live: `/mind` (the journal:
 `src/lib/mind.ts`), `/ledger` (every model call and the running token count:
 `src/lib/ledger.ts`) and `/brain` (the roster, the workflows and the latest
 runs of the OpenCompany company: `src/lib/company.ts`). Unset or unreachable,
-every page says so and shows nothing: there is no sample data anywhere. `BRAIN_REPO` (default `teenydroid/brain`) is read from the
+every page says so and shows nothing: there is no sample data anywhere. `BRAIN_REPO` (default `teenydroid/diary`) is read from the
 public GitHub API for the commits shown on `/brain`; `GITHUB_TOKEN` is optional
 and only raises the rate limit.
 
