@@ -115,7 +115,8 @@ class DoneTest(Scratch):
         return queue.next_task()["task"]
 
     def test_each_outcome(self):
-        for outcome in queue.OUTCOMES:
+        # needs_code is not an end: CodeTest covers it.
+        for outcome in [o for o in queue.OUTCOMES if o != "needs_code"]:
             with self.subTest(outcome=outcome):
                 task = self.claimed()
                 out = queue.done({"task_id": task["task_id"], "outcome": outcome, "notes": "n"})
