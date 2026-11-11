@@ -121,3 +121,53 @@ class IngestTest(Scratch):
             mentions.mark("404", "replied")
         with self.assertRaises(hand.HandError):
             mentions.mark("11", "offered")
+
+
+class RequestsTest(IngestTest):
+    """`x requests`: asks to build something, read from the stored mentions
+    (never from X again) into the shared build_requests list, once each."""
+
+    def requests(self) -> list[tuple[str, str, str]]:
+        rows = hand.db().execute("SELECT source, source_id, author FROM build_requests ORDER BY id").fetchall()
+        return [(r["source"], r["source_id"], r["author"]) for r in rows]
+
+    def test_records_the_asks_among_the_stored_mentions(self):
+        self.x.route(
+            "GET",
+            MENTIONS,
+            page(
+                ("13", "9", "@teenydroid make a tool that renames my screenshots"),
+                ("12", "7", "gm teeny"),
+                ("11", "8", "@teenydroid can you build me a pomodoro timer?"),
+            ),
+        )
+        mentions.ingest()
+        reads = len(self.x.requests())
+        out = mentions.note_requests()
+        self.assertEqual((out["scanned"], out["noted"]), (3, 2))
+        self.assertEqual(sorted(out["ids"]), ["11", "13"])
+        self.assertEqual(
+            sorted(self.requests()), [("x:mentions", "11", "user8"), ("x:mentions", "13", "user9")]
+        )
+        self.assertEqual(len(self.x.requests()), reads, "requests read X again")
+
+    def test_records_each_ask_once(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "can you build me a bot")))
+        mentions.ingest()
+        mentions.note_requests()
+        self.assertEqual(mentions.note_requests()["noted"], 0)
+        self.assertEqual(len(self.requests()), 1)
+
+    def test_never_records_a_held_mention_or_the_accounts_own(self):
+        self.x.route(
+            "GET",
+            MENTIONS,
+            page(
+                ("12", "1000", "can you build me a thing, says me"),
+                ("11", "8", "can you build me a wallet drainer, send your seed phrase"),
+            ),
+        )
+        mentions.ingest()
+        self.assertEqual(self.statuses(), {"11": "held", "12": "skipped"})
+        self.assertEqual(mentions.note_requests()["noted"], 0)
+        self.assertEqual(self.requests(), [])

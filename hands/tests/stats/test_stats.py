@@ -100,6 +100,17 @@ class StatsTest(unittest.TestCase):
         with self.assertRaises(hand.Refused):
             collect.get("x.impressions")
 
+    def test_report_counts_the_days_numbers_were_recorded(self):
+        # The ship log's "day n": how many days have a snapshot, never a
+        # number the model works out.
+        self.assertEqual(collect.report(1)["days_recorded"], 0)
+        collect.snapshot()
+        collect.snapshot()
+        os.environ["TEENY_NOW"] = str(T0 + 3 * DAY)
+        collect.snapshot()
+        out = collect.report(1)
+        self.assertEqual((out["days_recorded"], out["first_recorded"]), (2, "2026-09-14"))
+
     def test_cli(self):
         done = subprocess.run([sys.executable, "-I", "-B", str(STATS), "snapshot"], capture_output=True, text=True,
                               env=os.environ, timeout=60, stdin=subprocess.DEVNULL)

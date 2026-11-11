@@ -44,7 +44,12 @@ hands read them from `secrets/teeny.env` themselves.
   `hands/x post` returned `dry_run: true`.
 - **Playbooks:** `bin/act` runs a playbook from `brain/playbooks/` (inputs from
   hand read verbs, a draft from the tool-less `act` agent, the action through
-  a hand). `morning` and `mentions` are scheduled but switched off.
+  a hand). The scheduled ones are listed under [Playbooks](#playbooks); the
+  `mentions` playbook is scheduled but switched off.
+- **Build requests:** asks to build something are noticed in mentions
+  (`hands/x requests`, run by `bin/mentions` after each ingest) and in mail,
+  and kept in one list. `hands/requests` lists them, and the daily
+  `pick-request` playbook picks one at a time for the builder.
 - **Mentions:** `bin/mentions` (the pinned `mentions-inbound` job, every 5
   minutes) reads Teeny's mentions timeline with `hands/x ingest` and offers
   each one to OpenHuman's inbound event queue. The core debounces them into
@@ -151,6 +156,13 @@ echo '{"message_id":"<id>","body":"thanks!"}' | hands/mail reply
 hands/mail requests                                   # build requests noticed in mail
 bin/mail                                              # read mail, offer it, send what was drafted
 
+hands/x requests                                      # build requests in the stored mentions (bin/mentions runs it)
+hands/requests list --status pending                  # what people asked Teeny to build
+hands/requests get 4                                  # one request and its ledger
+echo '{"id":4,"reason":"small and useful"}' | hands/requests pick   # the one to build next (one at a time)
+echo '{"id":5,"reason":"needs a password"}' | hands/requests skip
+hands/requests reset 4 --note 'builder crashed'       # back to pending (operator)
+
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
 hands/stats report --days 7                           # latest values and their change
 hands/stats get x.followers                           # one number a post may quote
@@ -174,6 +186,32 @@ A brain job runs `bin/heartbeat` or `bin/act <playbook>`. No job may run more
 often than every 5 minutes, there can be at most 24 jobs, and `bin/act` can run
 at most 400 times a day. The jobs in `evals/cron.pinned.toml` are always added.
 These rules live in `bin/lib/cron_policy.py`.
+
+## Playbooks
+
+Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
+its one output, run by a job in `brain/cron.toml` (times in India time). Own
+posts on X are at least three hours apart, so the posting gap in `hands/x`
+(`POST_MIN_GAP_HOURS`, 3) never refuses one that is on time. Most of them skip
+on a quiet day.
+
+| Playbook | When | Reads | Does |
+|---|---|---|---|
+| `morning` | 07:00 | the lab's recent posts | the morning post |
+| `humans` | 10:30 Mon, Wed, Fri | nothing | "things i don't understand about humans" |
+| `milestone` | 13:30 | `stats report --days 7` | a post when a round number was crossed, quoting only the recorded number |
+| `pr-merged` | 16:30 | `gh activity --days 1` | a post when somebody else's project merged a pull request |
+| `shipped` | 19:30 | `gh activity --days 1` | what shipped today, and what broke |
+| `shiplog` | 22:30 | `gh activity --days 1`, `stats report --days 1` | the nightly "day n" ship log; numbers only from the inputs |
+| `roast` | hourly 09:45-22:45 | X search `@teenydroid roast` | replies (5 a day) only to people who asked for their own code to be roasted |
+| `pick-request` | 09:00 | `requests list` | `hands/requests pick`: the next build request, one at a time |
+| `moltbook-daily` | 12:00 | `moltbook home`, `moltbook feed --sort hot` | `hands/moltbook post`: one useful post for agents |
+| `moltbook-helpdesk` | every 2 hours 08:15-22:15 | `moltbook feed --sort new`, `moltbook home` | `hands/moltbook comment` (5 a day) on questions and mentions |
+| `moltbook-digest` | Sunday 18:00 | `moltbook feed --sort top`, `--sort hot` | `hands/moltbook post`: the best of the week, crediting authors |
+| `mentions` | off | X search for mentions | replies (the pinned `mentions-inbound` job answers mentions today) |
+
+`mail` is not a cron playbook: it is the prompt the core's `teeny-mail` agent
+drafts with for `bin/mail`.
 
 ## Configure it
 

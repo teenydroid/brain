@@ -172,9 +172,15 @@ def report(days: int) -> Json:
             if before is not None:
                 item.update({"was": _value(before["value"]), "since": before["date"], "delta": _value(row["value"] - before["value"])})
             metrics.append(item)
+        recorded = conn.execute("SELECT count(DISTINCT date) AS n, min(date) AS first FROM stats").fetchone()
     finally:
         conn.close()
-    return {"days": days, "metrics": metrics}
+    # How many days have a snapshot, and the first: the ship log's day
+    # number comes from here, never from a model counting.
+    out: Json = {"days": days, "metrics": metrics, "days_recorded": recorded["n"]}
+    if recorded["first"]:
+        out["first_recorded"] = recorded["first"]
+    return out
 
 
 def get(name: str) -> Json:
