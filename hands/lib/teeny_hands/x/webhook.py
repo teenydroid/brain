@@ -144,6 +144,8 @@ class Receiver:
 
     def handle(self, method: str, url: str, headers: Mapping[str, str], body: bytes) -> tuple[int, Json]:
         parsed = urlparse(url)
+        if parsed.path == "/health" and method == "GET":
+            return 200, {"ok": True}
         if parsed.path not in PATHS:
             return 404, {"error": "not found"}
         if method == "GET":

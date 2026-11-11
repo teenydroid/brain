@@ -51,11 +51,10 @@ services:
     environment:
       HOME: /tmp
     entrypoint: ["/srv/teeny/bin/x-webhook"]
-    # The image's own check probes the core on 7788, which this container
-    # never runs; it is alive when the receiver answers at all (a GET
-    # without a crc_token is a 400, still an answer).
+    # Its own check: the image's default one asks the core on 7788, which
+    # this container does not run.
     healthcheck:
-      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:3110/webhooks/x"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3110/health"]
       interval: 30s
       timeout: 5s
       retries: 3
