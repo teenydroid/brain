@@ -224,6 +224,17 @@ line. Each line holds:
   Solana transaction signature, a GitHub repository and commit, or a Moltbook
   post id. Every field is an enum, an integer or matches a strict pattern. A
   row with anything else is withheld.
+
+Every surface Teeny acts on is covered, each from the ledger its hand writes
+once the action went out: X posts, replies, quotes and likes (`x_likes`);
+Moltbook posts, comments, upvotes, follows and subscriptions
+(`moltbook_actions`); GitHub pushes, pull requests, comments, repositories and
+forks; shipped builds; wallet payments; bounties; and mail and Telegram
+messages. Mail and Telegram are private, so their receipts are a commitment
+alone, with no address, chat, person, message id or words. The mind loop's own
+log (`state/tick/runs.jsonl`) is never read: it records what the mind meant to
+do, dry runs and refusals included, and reading it too would count an action
+twice.
 - `commit`: sha256 of a random salt plus the hand's whole ledger row. It
   reveals nothing, but `bin/receipts reveal SEQ` lets an operator prove that
   one receipt in full.

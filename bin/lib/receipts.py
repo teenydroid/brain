@@ -12,17 +12,28 @@ append-only ledger. Every action a hand recorded as done becomes one line of
 
 - `ref` holds only identifiers anyone can check somewhere else: an X post id,
   a Solana transaction signature, a GitHub repository and commit, a Moltbook
-  post id. Each field is an enum, an integer or matches a strict pattern; a
+  post id, agent or submolt. Each field is an enum, an integer or matches a strict pattern; a
   row with anything else is withheld, never published, and counted in the
   run's output.
 - `commit` is sha256(salt || the hand's whole ledger row), with a 32-byte
   random salt kept in hands.db (`receipts_issued`). It reveals nothing, but
   binds the receipt to the full private record: `reveal SEQ` prints the salt
   and the record so an operator can choose to prove one receipt in full.
-  Actions with nothing public to point at (mail sent) are a commitment alone.
+  Actions with nothing public to point at are a commitment alone: mail and
+  Telegram messages, which are private, so no address, chat, person, chat
+  kind, message id or word of them is published.
 - `prev` chains every line to the one before it, and `head.json` names the
   last line's seq and hash, so a rewritten or deleted receipt breaks the
   chain. `verify.py` in the repository checks it with no dependencies.
+
+Every surface is covered, each from the ledger its hand writes once the
+action went out (never under DRY_RUN, never when refused or held): x_posts and
+x_likes; moltbook_posts and moltbook_comments (live statuses) and
+moltbook_actions (upvotes, follows, subscriptions); gh_actions; shipped
+build_jobs; paid wallet_payments; bounties; mail_sent; telegram_sent. The mind
+loop's state/tick/runs.jsonl is never read: it is what the mind meant to do,
+dry runs and refusals included, and every action it took that went out is
+already in a ledger, so reading it too would count one twice.
 
 Nothing here is free text. No post text, titles, summaries, diary prose,
 prompts, logs, mentions or anybody else's words are ever written, so nothing
