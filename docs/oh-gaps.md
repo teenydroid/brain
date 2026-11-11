@@ -18,7 +18,7 @@ much Teeny-side code they'd remove.
 | G8 ([#8102](https://github.com/tinyhumansai/openhuman/issues/8102)) | **The Telegram channel's allowlist isn't persisted after pairing** (#8102). | Not used (see G3). | Fix #8102. |
 | G9 ([#8124](https://github.com/tinyhumansai/openhuman/issues/8124)) | **`beforeSubmitPrompt` doesn't fire on `agent_chat`.** It runs only on the web-chat path (`$C/web_chat/ops/start_chat.rs:313`), so a hook can't screen text that a script sends to an agent. | `bin/job` calls `hands/guard inbound` before every draft. | Fire `beforeSubmitPrompt` for every turn entry point (`agent_chat`, channels, cron). |
 | G10 ([#8125](https://github.com/tinyhumansai/openhuman/issues/8125)) | **No proven way for a hand to file a labelled capture into memory.** The Rust bot stores mentions, replies and posts with labels, a key and a person, and recalls by label, through the embed-only `Memory::store`/`search` (#7486). From a script there's only RPC: `memory_learn` and `memory_brain_ingest`. | `hands/record` uses `memory_learn` and checks recall quality in the shadow run. | Expose labelled `memory.store` and `memory.search` over RPC (the #7486 facade). |
-| G11 | **A serve host drops every configured MCP server's tools when TinySecurity is on.** `mcp::registry::tools_safe_for_agent` scans each remote tool definition through TinySecurity using `CoreContext::current_embedder_config()`, which only an embedding host (the desktop app) sets; under `openhuman-core serve` (a `HostKind::Cli` context) it is `None`, the scan counts as `scan.unavailable`, and every tool is dropped (measured on `1864c68c52`: `[mcp] dropped a remote tool that tripped the input-validation scan server="hands" ... reason=scan.unavailable`). | The builder and the browser operator take and finish their work through desk files under `state/workbench/desk/` that a cron job settles with the hand (`architecture.md` §6a), instead of `hands/mcp`. | Fall back to the loaded config (`ctx.load_config()`, as `prompt_injection::enforce_prompt_input_with_config` takes it) when no embedder config is scoped. |
+| G11 (resolved, [#8654](https://github.com/tinyhumansai/openhuman/pull/8654)) | **A serve host drops every configured MCP server's tools when TinySecurity is on.** `mcp::registry::tools_safe_for_agent` scans each remote tool definition through TinySecurity using `CoreContext::current_embedder_config()`, which only an embedding host (the desktop app) sets; under `openhuman-core serve` (a `HostKind::Cli` context) it is `None`, the scan counts as `scan.unavailable`, and every tool is dropped (measured on `1864c68c52`: `[mcp] dropped a remote tool that tripped the input-validation scan server="hands" ... reason=scan.unavailable`). | The builder and the browser operator take and finish their work through desk files under `state/workbench/desk/` that a cron job settles with the hand (`architecture.md` §6a), instead of `hands/mcp`. | Landed in tinyhumansai/openhuman#8654: MCP tool scanning falls back to the loaded config when no embedder config is scoped, so a serve host keeps its MCP tools. |
 
 ## Landed upstream
 
@@ -38,6 +38,11 @@ much Teeny-side code they'd remove.
   shared by every core in a workspace. The spine builds the `web3` domain
   with tinywallet linked in (`spine/Cargo.toml`); the policy itself belongs
   to the wallet hand.
+
+- **MCP tool scanning on a serve host** (openhuman#8654, gap G11). The scan
+  no longer drops every configured MCP server's tools under `openhuman-core
+  serve`. The desk-file handoff stays as the builder's and the browser
+  operator's path for now; `hands/mcp` is no longer blocked on the core.
 
 ## Deliberately not asked for
 

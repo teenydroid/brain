@@ -1,6 +1,0 @@
-    Updating crates.io index
-    Updating git repository `https://github.com/senamakel/tinybus`
-    Updating git repository `https://github.com/senamakel/tinystoragedrivers`
-error: cannot update the lock file /Users/enamakel/work/personal/teeny/worktrees/teeny-builder-browser/Cargo.lock because --locked was passed to prevent this
-help: to generate the lock file without accessing the network, remove the --locked flag and use --offline instead.
-EXIT 101
