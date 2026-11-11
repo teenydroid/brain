@@ -102,6 +102,8 @@ Json = dict[str, Any]
 X_ID = re.compile(r"\d{1,25}")
 MOLTBOOK_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 SUBMOLT = re.compile(r"[a-z0-9_-]{1,40}")
+#: A Moltbook agent name as the moltbook hand ledgers it (lowercased).
+AGENT = re.compile(r"[a-z0-9_-]{1,40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}")
 SHA = re.compile(r"[0-9a-f]{7,40}")
 SOLANA_SIG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{64,90}")
@@ -177,12 +179,16 @@ def _key(kind: str, ref: Json) -> str | None:
     """The dedupe key a public receipt carries in itself, so a receipt that
     reached the remote is never issued twice even if hands.db lost its row."""
     pick = {
-        "x.post": "id", "x.reply": "id", "x.quote": "id",
+        "x.post": "id", "x.reply": "id", "x.quote": "id", "x.like": "id",
         "moltbook.post": "id", "moltbook.comment": "id",
+        "moltbook.follow": "agent", "moltbook.subscribe": "submolt",
         "wallet.paid": "signature", "bounty.opened": "id", "bounty.picked": "id",
     }.get(kind)
     if pick and pick in ref:
         return f"{kind}:{ref[pick]}"
+    if kind == "moltbook.upvote" and len(ref) == 1:
+        [(field, value)] = ref.items()
+        return f"{kind}:{field}:{value}"
     if kind in ("github.push", "build.shipped") and "sha" in ref:
         return f"{kind}:{ref['repo']}@{ref['sha']}"
     if kind in ("github.create-repo", "github.fork") and "repo" in ref:
@@ -223,6 +229,9 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
 
         add(kind, r["created_at"], r, x_ref)
 
+    for r in _rows(conn, "SELECT * FROM x_likes ORDER BY liked_at, post_id"):
+        add("x.like", r["liked_at"], r, lambda r=r: {"id": _match(X_ID, r["post_id"])})
+
     marks = ",".join("?" * len(MOLTBOOK_LIVE))
     for r in _rows(conn, f"SELECT * FROM moltbook_posts WHERE status IN ({marks}) ORDER BY at, id", MOLTBOOK_LIVE):
         add("moltbook.post", r["at"], r,
@@ -230,6 +239,21 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
     for r in _rows(conn, f"SELECT * FROM moltbook_comments WHERE status IN ({marks}) ORDER BY at, id", MOLTBOOK_LIVE):
         add("moltbook.comment", r["at"], r,
             lambda r=r: {"id": _match(MOLTBOOK_ID, r["comment_id"]), "post": _match(MOLTBOOK_ID, r["post_id"])})
+    # Upvotes, follows and subscriptions: the hand ledgers one only after
+    # Moltbook took it, never under DRY_RUN.
+    simple: dict[str, tuple[str, str, re.Pattern[str]]] = {
+        "upvote-post": ("moltbook.upvote", "post", MOLTBOOK_ID),
+        "upvote-comment": ("moltbook.upvote", "comment", MOLTBOOK_ID),
+        "follow": ("moltbook.follow", "agent", AGENT),
+        "subscribe": ("moltbook.subscribe", "submolt", SUBMOLT),
+    }
+    for r in _rows(conn, "SELECT * FROM moltbook_actions ORDER BY at, id"):
+        if r["verb"] not in simple:
+            kind = f"moltbook.{r['verb']}"
+            withheld[kind] = withheld.get(kind, 0) + 1
+            continue
+        kind, field, pattern = simple[r["verb"]]
+        add(kind, r["at"], r, lambda r=r, f=field, p=pattern: {f: _match(p, r["target"])})
 
     # A repository Teeny made private stays out entirely: its name, its pushes
     # and the builds shipped to it.
@@ -287,6 +311,11 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
         # Who Teeny mailed and what about stays private: the receipt is a
         # commitment alone, keyed by the ledger row.
         add("mail.sent", r["at"], r, lambda: {}, key=f"mail.sent:{r['id']}")
+
+    for r in _rows(conn, "SELECT * FROM telegram_sent ORDER BY at, id"):
+        # Telegram the same way: no chat, person, message id or chat kind,
+        # only that one message went out.
+        add("telegram.sent", r["at"], r, lambda: {}, key=f"telegram.sent:{r['id']}")
 
     return actions, withheld
 

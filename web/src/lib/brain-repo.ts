@@ -312,7 +312,7 @@ export interface Receipt {
   seq: number
   at: string
   kind: string
-  /** Where anyone can check it; undefined for a commitment-only receipt (mail). */
+  /** Where anyone can check it; undefined for a commitment-only receipt (mail, Telegram). */
   url?: string
 }
 
@@ -326,6 +326,7 @@ export interface Diary {
 
 const X_ID = /^\d{1,25}$/
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const MOLTBOOK_NAME = /^[a-z0-9_-]{1,40}$/
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/
 const SHA = /^[0-9a-f]{7,40}$/
 const SOLANA_SIG = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/
@@ -344,7 +345,8 @@ export function receiptUrl(kind: string, ref: Record<string, unknown>): string |
   switch (kind) {
     case 'x.post':
     case 'x.reply':
-    case 'x.quote': {
+    case 'x.quote':
+    case 'x.like': {
       const id = s('id', X_ID)
       return id && `https://x.com/i/status/${id}`
     }
@@ -357,9 +359,18 @@ export function receiptUrl(kind: string, ref: Record<string, unknown>): string |
       const id = s('id', SAFE_ID)
       return id && `https://www.moltbook.com/post/${id}`
     }
-    case 'moltbook.comment': {
+    case 'moltbook.comment':
+    case 'moltbook.upvote': {
       const post = s('post', SAFE_ID)
       return post && `https://www.moltbook.com/post/${post}`
+    }
+    case 'moltbook.follow': {
+      const agent = s('agent', MOLTBOOK_NAME)
+      return agent && `https://www.moltbook.com/u/${agent}`
+    }
+    case 'moltbook.subscribe': {
+      const submolt = s('submolt', MOLTBOOK_NAME)
+      return submolt && `https://www.moltbook.com/m/${submolt}`
     }
     case 'wallet.paid': {
       const sig = s('signature', SOLANA_SIG)
