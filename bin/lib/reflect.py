@@ -88,14 +88,16 @@ def _beats(since: float) -> list[Json]:
             at = dt.datetime.strptime(beat["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
         except (ValueError, KeyError, TypeError):
             continue
-        if at >= since and beat.get("ok") and not beat.get("idle"):
+        if at > since and beat.get("ok") and not beat.get("idle"):
             out.append({"at": beat["at"], "thought": beat.get("thought", ""),
                         "did": [f"{r.get('do')}: {r.get('status')}" for r in beat.get("results", [])]})
     return out[-MAX_BEATS:]
 
 
 def render(since: float) -> str:
-    notes = stimuli.notes(since=since)["notes"]
+    # Strictly after: a note from the second the last reflection ran was
+    # already in it.
+    notes = [n for n in stimuli.notes(since=since)["notes"] if n["at"] > since]
     waiting = stimuli.follow_ups()["follow_ups"]
     beats = _beats(since)
     page = prompts._read(BRAIN / "MEMORY.md") or "(empty)"
