@@ -44,8 +44,8 @@ describe("solscanUrl and rpcUrl", () => {
 
 describe("the RPC answers", () => {
   it("getBalance: lamports, or nothing", () => {
-    expect(parseLamports({ context: { slot: 1 }, value: 1_500_000_000 })).toBe(1_500_000_000n)
-    expect(parseLamports({ value: 0 })).toBe(0n)
+    expect(parseLamports({ context: { slot: 1 }, value: 1_500_000_000 })).toBe(BigInt(1_500_000_000))
+    expect(parseLamports({ value: 0 })).toBe(BigInt(0))
     expect(parseLamports({ value: -1 })).toBeUndefined()
     expect(parseLamports({ value: "12" })).toBeUndefined()
     expect(parseLamports(undefined)).toBeUndefined()
@@ -53,17 +53,17 @@ describe("the RPC answers", () => {
 
   it("getTokenAccountsByOwner: the raw amounts summed, no account is a real zero, a malformed one is nothing", () => {
     const account = (amount: unknown) => ({ account: { data: { parsed: { info: { tokenAmount: { amount, decimals: 6 } } } } } })
-    expect(parseTokenAmount({ value: [account("2500000"), account("500000")] })).toBe(3_000_000n)
-    expect(parseTokenAmount({ value: [] })).toBe(0n)
+    expect(parseTokenAmount({ value: [account("2500000"), account("500000")] })).toBe(BigInt(3_000_000))
+    expect(parseTokenAmount({ value: [] })).toBe(BigInt(0))
     expect(parseTokenAmount({ value: [account("12abc")] })).toBeUndefined()
     expect(parseTokenAmount({ value: "x" })).toBeUndefined()
   })
 
   it("formatUnits shows a raw amount in whole units, trimmed", () => {
-    expect(formatUnits(1_500_000_000n, 9)).toBe("1.5")
-    expect(formatUnits(123_456_789n, 9)).toBe("0.1235")
-    expect(formatUnits(0n, 9)).toBe("0")
-    expect(formatUnits(12_345_670_000n, 6)).toBe("12,345.67")
+    expect(formatUnits(BigInt(1_500_000_000), 9)).toBe("1.5")
+    expect(formatUnits(BigInt(123_456_789), 9)).toBe("0.1235")
+    expect(formatUnits(BigInt(0), 9)).toBe("0")
+    expect(formatUnits(BigInt(12_345_670_000), 6)).toBe("12,345.67")
   })
 })
 

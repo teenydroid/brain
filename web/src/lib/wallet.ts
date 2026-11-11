@@ -74,7 +74,7 @@ export function parseLamports(result: unknown): bigint | undefined {
 export function parseTokenAmount(result: unknown): bigint | undefined {
   const value = (result as { value?: unknown } | undefined)?.value
   if (!Array.isArray(value)) return undefined
-  let total = 0n
+  let total = BigInt(0)
   for (const entry of value) {
     const amount = entry?.account?.data?.parsed?.info?.tokenAmount?.amount
     if (typeof amount !== 'string' || !/^\d{1,30}$/.test(amount)) return undefined
@@ -85,11 +85,11 @@ export function parseTokenAmount(result: unknown): bigint | undefined {
 
 const grouped = new Intl.NumberFormat('en-US')
 
-/** A raw amount in whole units, at most four decimals, trailing zeros dropped: 1500000000n, 9 -> "1.5". */
+/** A raw amount in whole units, at most four decimals, trailing zeros dropped: BigInt(1500000000), 9 -> "1.5". */
 export function formatUnits(raw: bigint, decimals: number, places = 4): string {
-  const scale = 10n ** BigInt(decimals)
-  const step = 10n ** BigInt(Math.max(decimals - places, 0))
-  const rounded = ((raw + step / 2n) / step) * step
+  const scale = BigInt(10) ** BigInt(decimals)
+  const step = BigInt(10) ** BigInt(Math.max(decimals - places, 0))
+  const rounded = ((raw + step / BigInt(2)) / step) * step
   const whole = rounded / scale
   const fraction = (rounded % scale).toString().padStart(decimals, '0').slice(0, places).replace(/0+$/, '')
   return grouped.format(whole) + (fraction ? `.${fraction}` : '')
