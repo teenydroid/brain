@@ -53,7 +53,7 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
         brain = self.root / "brain"
         for path in (self.root / "secrets", brain / "storage.db", brain / "agents", brain / "playbooks",
-                     brain / "cron.toml", Path.home() / ".ssh"):
+                     brain / "cron.toml", brain / "MEMORY.md", brain / "agent", Path.home() / ".ssh"):
             self.assertIn(str(path), autonomy["forbidden_paths"])
         # TinySecurity refuses the whole policy over one relative entry.
         self.assertTrue(all(Path(p).is_absolute() for p in autonomy["forbidden_paths"]))

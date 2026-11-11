@@ -46,7 +46,7 @@ DEFAULT_FORBIDDEN = (
 #: forbidden paths, so these and `~` are resolved here.
 BRAIN_FORBIDDEN = (
     "storage.db", "storage.db-wal", "storage.db-shm", "agents", "playbooks", "skills", "narrative", "assets",
-    "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md",
+    "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md", "MEMORY.md", "agent",
 )
 
 CHROME_CANDIDATES = (
