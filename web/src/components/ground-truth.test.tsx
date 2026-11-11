@@ -13,9 +13,15 @@ import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
 import type { Wallet } from "@/lib/wallet"
 
-/** The visible text of some markup, tags dropped. */
+/** The visible text of some markup, tags dropped and character references decoded. */
 function text(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
 }
 
 const LIVE: Receipts = {
