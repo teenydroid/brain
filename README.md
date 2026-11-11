@@ -35,8 +35,11 @@ make the hands smaller.
   with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). X search is not used:
   it is billed per post and too expensive.
-- **Remembers.** Each night `bin/reflect` rewrites `brain/MEMORY.md`, the page
-  in every prompt, and writes a diary entry to `state/diary/<date>.md`.
+- **Remembers.** Every beat that thinks (every awake one) is journaled to
+  `state/journal/<date>.md` and the core's memory. At 14:00 `bin/reflect
+  --light` rewrites `brain/MEMORY.md`, the page in every prompt, from the
+  day so far; each night `bin/reflect` rewrites it again and writes a diary
+  entry to `state/diary/<date>.md`.
 - **Builds and browses.** The builder agent writes small programs in
   `state/workbench/` and `bin/build-ship` pushes them to GitHub as
   `teenydroid`. The browser operator does one task at a time on the allowed
@@ -120,6 +123,7 @@ bin/act morning                    # run one playbook now (DRY_RUN still applies
 bin/act --check morning            # does it parse?
 bin/tick                           # one beat of the mind: take the inbox, carry out the intents
 bin/reflect                        # rewrite MEMORY.md and write today's diary entry
+bin/reflect --light                # rewrite MEMORY.md from the day so far, no diary
 bin/mentions                       # read mentions into the inbox
 bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
@@ -324,7 +328,7 @@ These are gitignored and created at run time:
 - `secrets/`: the env files, the core token and the master key.
 - `state/`: what the hands keep. `hands.db` holds the ledgers, caches, holds,
   pacing, the inbox and the queues. Beside it: `locks/`, `core.url` (where the
-  core answers), `tick/` and `reflect/` (the mind's runs), `diary/`,
+  core answers), `tick/` and `reflect/` (the mind's runs), `journal/`, `diary/`,
   `workbench/` (what the builder builds), `browser/` (the browser's profile
   and downloads) and `media/` (what a post may attach).
 - `.openhuman/`: the core's config, written by the core.
