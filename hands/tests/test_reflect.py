@@ -147,7 +147,7 @@ class ReflectTest(unittest.TestCase):
     def test_a_diary_written_after_midnight_is_filed_under_the_day_it_looks_back_on(self):
         # The pinned job runs at 02:00 Kolkata: the entry is about the day
         # that just ended, not the one that started two hours ago.
-        os.environ.update(CALENDAR_TZ="Asia/Kolkata", TEENY_NOW=str(1_789_421_400.0))  # 2026-09-15T02:00+05:30
+        os.environ.update(CALENDAR_TZ="Asia/Kolkata", TEENY_NOW=str(1_789_417_800.0))  # 2026-09-15T02:00+05:30
         self.answer({"memory": NEW_MEMORY, "diary": "a long monday."})
         self.reflect()
         filed = sorted(p.name for p in (self.root / "state" / "diary").glob("*.md"))

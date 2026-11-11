@@ -14,7 +14,8 @@ a night this rewrites it, from inside the day:
    still in context) for the whole new page and a diary entry, as JSON.
 3. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one
    (titled, at most prompts.MEMORY_MAX_CHARS), writes the diary to
-   state/diary/<date>.md and teaches it to the core's memory, then rebuilds
+   state/diary/<date>.md (the day it looks back on: before 06:00 that is
+   yesterday) and teaches it to the core's memory, then rebuilds
    the prompts so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
@@ -68,6 +69,16 @@ def _state(*parts: str) -> Path:
 
 def _clock() -> dt.datetime:
     return dt.datetime.fromtimestamp(hand.now(), ZoneInfo(os.environ.get("CALENDAR_TZ") or DEFAULT_TZ))
+
+
+#: How far after midnight a reflection still looks back on the day before.
+#: The pinned job runs at 02:00, after the quiet hours start.
+DAY_ENDS_AFTER_MIDNIGHT = dt.timedelta(hours=6)
+
+
+def _day_of(now: dt.datetime) -> dt.date:
+    """The day an entry written at `now` is about."""
+    return (now - DAY_ENDS_AFTER_MIDNIGHT).date()
 
 
 def _since() -> float:
@@ -178,8 +189,9 @@ def reflect() -> Json:
     os.replace(tmp, page)
     learned = None
     if diary:
-        (_state("diary") / f"{now:%Y-%m-%d}.md").write_text(f"# {now:%A %d %B %Y}\n\n{diary}\n", encoding="utf-8")
-        learned = _learn(f"diary, {now:%Y-%m-%d}: {diary}")
+        day = _day_of(now)
+        (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(f"# {day:%A %d %B %Y}\n\n{diary}\n", encoding="utf-8")
+        learned = _learn(f"diary, {day:%Y-%m-%d}: {diary}")
     rebuilt = [p.name for p in prompts.build(BRAIN)]
     (_state("reflect") / "last.at").write_text(f"{hand.now():.0f}\n")
     return {"ok": True, "memory_chars": len(memory), "diary": bool(diary), "learned": learned, "prompts": rebuilt}
