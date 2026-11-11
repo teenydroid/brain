@@ -4,8 +4,9 @@
 #
 #   bin/tick
 #
-# The pinned `tick` cron job runs it every 2 minutes. A beat with nothing in
-# the inbox makes no model call.
+# The pinned `tick` cron job runs it every 5 minutes. Every awake beat asks
+# the model (an empty inbox is a quiet moment); a beat in the quiet hours
+# only gathers.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

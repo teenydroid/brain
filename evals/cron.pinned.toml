@@ -23,7 +23,8 @@ command = "bin/mail"
 # back to it (at most every 10 minutes), then takes everything the inbound
 # jobs above gathered as one batch on the one teeny:mind thread and carries
 # out the intents it answers with through the hands. Two minutes after each
-# ingest. A beat with an empty inbox makes no model call.
+# ingest. Every awake beat thinks (an empty inbox is a quiet moment); a beat
+# in the quiet hours only gathers and makes no model call.
 [jobs.tick]
 schedule = "2-59/5 * * * *"
 command = "bin/tick"
@@ -36,6 +37,15 @@ command = "bin/tick"
 schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/reflect"
+
+# Teeny's midday pause (bin/reflect --light): the same rewrite of MEMORY.md
+# from what the day has brought so far, so the afternoon's prompts carry the
+# morning. No diary; it keeps its own stamp, so the night's reflection still
+# looks back on the whole day.
+[jobs.reflect-midday]
+schedule = "0 14 * * *"
+tz = "Asia/Kolkata"
+command = "bin/reflect --light"
 
 # Teeny's public receipts (bin/receipts): every action a hand recorded as done
 # since the last run, appended to the hash-chained ledger in teenydroid/diary
