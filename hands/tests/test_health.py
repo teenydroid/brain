@@ -244,6 +244,109 @@ class HealthTest(unittest.TestCase):
     def test_no_storage_yet_is_no_cron_errors(self):
         self.assertEqual(health.check()["cron_errors"], {})
 
+    # --- jobs stuck behind their schedule ----------------------------------------------
+    # 2026-11-11: the box rebooted mid-run; the dead runs' claims held three
+    # jobs' slots and their next_run stayed in the past for 75 minutes.
+
+    def storage(self, jobs, leases=()) -> None:
+        """The core's storage.db with cron jobs `(id, name, next run in seconds
+        from T0, enabled)` and occurrence leases on their next run `(job id,
+        seconds since the holder last renewed it)`."""
+        storage = self.root / "brain" / "storage.db"
+        storage.parent.mkdir(exist_ok=True)
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        next_ms = {}
+        for job_id, name, offset, enabled in jobs:
+            next_ms[job_id] = int((T0 + offset) * 1000)
+            body = {"name": name, "enabled": enabled, "next_run_ms": next_ms[job_id], "expression": "*/5 * * * *",
+                    "schedule": {"kind": "cron", "expr": "*/5 * * * *", "tz": "UTC"}}
+            db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job_id, json.dumps(body)))
+        for job_id, renewed_ago in leases:
+            renewed = int((T0 - renewed_ago) * 1000)
+            body = {"holder": "token", "epoch": 1, "expires_ms": renewed + 7_200_000}
+            db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                       (f"cron/{job_id}%2F{next_ms[job_id]}", renewed, json.dumps(body)))
+        db.commit()
+        db.close()
+
+    def cron_updates(self) -> list[dict]:
+        return [c["params"] for c in self.core.calls if c["method"] == "openhuman.cron_update"]
+
+    def test_a_job_stuck_behind_its_schedule_is_rearmed_and_raises_the_alarm(self):
+        self.storage([("j1", "teeny.mail-inbound", -4500, True), ("j2", "teeny.tick", 120, True)],
+                     leases=[("j1", 4480)])
+        self.core.replies = [ALIVE, result({})]
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual(out["stale_crons"], [{"name": "teeny.mail-inbound", "next_run": "2026-11-11T10:45:00Z"}])
+        self.assertEqual(self.cron_updates(), [{"job_id": "j1", "patch": {
+            "schedule": {"kind": "cron", "expr": "*/5 * * * *", "tz": "UTC"}}}])
+        self.assertEqual(out["rearmed"], ["teeny.mail-inbound"])
+        self.assertEqual(out["cron_alarm"], "raised")
+        (alarm,) = self.inbox()
+        self.assertEqual((alarm["surface"], alarm["kind"]), ("health", "alarm"))
+        self.assertIn("teeny.mail-inbound", alarm["text"])
+        self.assertIn("re-armed", alarm["text"])
+        (opened,) = self.gh.requests("POST", ISSUES)
+        self.assertIn("teeny.mail-inbound", opened.json()["body"])
+        self.assertEqual(self.state()["cron_alarm"]["issue"], 41)
+
+    def test_a_job_whose_run_is_still_going_is_not_stuck(self):
+        # Its next run is twenty minutes past, but the run holding that slot
+        # renewed its claim seconds ago: it is running, not stuck.
+        self.storage([("j1", "teeny.builder", -1200, True)], leases=[("j1", 20)])
+        out = health.check()
+        self.assertEqual((out["stale_crons"], out["rearmed"], out["cron_alarm"]), ([], [], None))
+        self.assertEqual(self.cron_updates(), [])
+        self.assertEqual(self.inbox(), [])
+
+    def test_a_job_a_little_late_or_disabled_is_not_stuck(self):
+        self.storage([("j1", "teeny.heartbeat", -300, True), ("j2", "teeny.paused", -7200, False)])
+        out = health.check()
+        self.assertEqual((out["stale_crons"], out["cron_alarm"]), ([], None))
+        self.assertEqual(self.cron_updates(), [])
+
+    def test_a_stuck_job_of_the_core_raises_the_alarm_but_is_not_rearmed(self):
+        self.storage([("s1", "memory_background", -4500, True)])
+        out = health.check()
+        self.assertEqual([s["name"] for s in out["stale_crons"]], ["memory_background"])
+        self.assertEqual((out["rearmed"], out["cron_alarm"]), ([], "raised"))
+        self.assertEqual(self.cron_updates(), [])
+
+    def test_a_rearm_the_core_refused_is_reported(self):
+        self.storage([("j1", "teeny.health", -4500, True)])
+        self.core.replies = [ALIVE, {"jsonrpc": "2.0", "id": 1, "error": {"message": "Cron job 'j1' not found"}}]
+        out = health.check()
+        self.assertEqual(out["rearmed"], [])
+        self.assertIn("not found", out["rearm_errors"]["teeny.health"])
+        self.assertEqual(out["cron_alarm"], "raised")
+
+    def test_the_cron_alarm_clears_once_every_job_is_current(self):
+        self.storage([("j1", "teeny.mail-inbound", -4500, True)])
+        self.core.replies = [ALIVE, result({})]
+        self.assertEqual(health.check()["cron_alarm"], "raised")
+        self.at(QUARTER)
+        self.assertEqual(health.check()["cron_alarm"], "open")
+        self.assertEqual(len(self.gh.requests("POST", ISSUES)), 1)
+        self.storage([("j1", "teeny.mail-inbound", QUARTER + 60, True)])
+        self.at(2 * QUARTER)
+        out = health.check()
+        self.assertEqual(out["cron_alarm"], "cleared")
+        alarm, back = self.inbox()
+        self.assertEqual((back["kind"], back["ref"]), ("recovered", alarm["ref"]))
+        self.assertEqual(self.gh.requests("PATCH", f"{ISSUES}/41")[0].json()["state"], "closed")
+        self.assertIsNone(self.state()["cron_alarm"])
+
+    def test_a_stuck_job_is_watched_while_the_model_is_down(self):
+        self.storage([("j1", "teeny.mail-inbound", -4500, True)])
+        self.core.replies = [DEAD, result({})]
+        out = health.check()
+        self.assertFalse(out["healthy"])
+        self.assertEqual((out["rearmed"], out["cron_alarm"]), (["teeny.mail-inbound"], "raised"))
+
     # --- the re-screen -----------------------------------------------------------------------
 
     def outage_holds(self) -> tuple[int, int]:

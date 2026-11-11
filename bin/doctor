@@ -4,7 +4,8 @@
 #   bin/doctor                 the checks a boot needs (bin/spine runs these)
 #   bin/doctor --root DIR      the same, on another checkout (a candidate brain)
 #   bin/doctor --live          also the running core: /health, cron in step
-#                              with brain/cron.toml, the heartbeat fresh
+#                              with brain/cron.toml, every enabled job's next
+#                              run current, the heartbeat fresh
 #   bin/doctor --full          also the hands' unit tests
 #
 # Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
@@ -84,6 +85,26 @@ cron_in_step() {
     return 1
   fi
   echo "the core runs exactly brain/cron.toml"
+}
+# Every enabled job's next run is ahead, or only just behind: one far behind is
+# a job the scheduler has stopped running. On 2026-11-11 three jobs sat at a
+# next_run from before a reboot for 75 minutes and nothing said so
+# (bin/seed-cron re-arms such a job at boot; bin/health watches between).
+STALE_NEXT_RUN_MINUTES=10
+cron_current() {
+  local listed late
+  listed="$(oh cron_list)" || return 1
+  late="$(jq -r --argjson limit "$((STALE_NEXT_RUN_MINUTES * 60))" '
+    def epoch: try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) catch null;
+    [ .[] | select(.enabled != false and .next_run != null)
+      | (.next_run | epoch) as $t | select($t != null and $t < now - $limit)
+      | "\(.name // .id) (next_run \(.next_run), \((now - $t) / 60 | floor) min ago)" ] | join(", ")' <<<"$listed")" ||
+    return 1
+  if [ -n "$late" ]; then
+    echo "stuck: $late"
+    return 1
+  fi
+  echo "no enabled job is more than $STALE_NEXT_RUN_MINUTES minutes behind"
 }
 
 # --- the brain -----------------------------------------------------------------
@@ -236,6 +257,7 @@ if [ "$live" = 1 ]; then
   if curl -fsS -m 5 -o /dev/null "$OH_URL/health" 2>/dev/null; then
     note "core /health" ok "$OH_URL"
     run "cron in step" cron_in_step
+    run "cron next runs are current" cron_current
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
