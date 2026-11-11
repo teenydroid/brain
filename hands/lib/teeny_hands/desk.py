@@ -13,6 +13,11 @@ A report the hand refuses is kept beside it as <name>-done.rejected.json
 with the reason, and the reason is put on the next offer, so the agent sees
 why and the desk never loops on it.
 
+A report left while the desk offered nothing (its job or task was null)
+that names no job or task either only says there was nothing to do: it is
+removed and noted in the desk's result as `discarded`, never refused, never
+put on the next offer and never told to the mind.
+
 Either way the outcome goes into Teeny's mind's inbox (teeny_hands.stimuli)
 as a `builder` or `operator` report: the mind asked for the work, so it
 hears how it went.
@@ -29,6 +34,9 @@ from . import hand
 
 #: The desk's name -> who reports, as the mind's inbox names them.
 REPORTERS = {"build": "builder", "task": "operator"}
+#: The desk's name -> the key its offer puts the work under; the report
+#: names it as `<key>_id`.
+OFFERED = {"build": "job", "task": "task"}
 
 
 def folder() -> Path:
@@ -56,7 +64,11 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     rejected_path = desk / f"{name}-done.rejected.json"
     settled: dict[str, Any] | None = None
     rejected: str | None = None
-    if report_path.exists():
+    discarded: str | None = None
+    if report_path.exists() and _nothing_to_report(name, offer_path, report_path):
+        report_path.unlink()
+        discarded = f"{report_path.name} named no {OFFERED[name]} and none was offered"
+    elif report_path.exists():
         try:
             report = json.loads(report_path.read_text())
             settled = dict(settle(report))
@@ -73,8 +85,25 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     if rejected:
         offer["last_report_rejected"] = rejected
     _write(offer_path, offer)
-    return {"settled": settled, "rejected": rejected, "offer": _relative(offer_path),
+    return {"settled": settled, "rejected": rejected, "discarded": discarded, "offer": _relative(offer_path),
             "offered": offer.get("job", offer.get("task"))}
+
+
+def _nothing_to_report(name: str, offer_path: Path, report_path: Path) -> bool:
+    """True when the desk last offered no work and the report names none:
+    the agent ran idle and wrote about it. Anything unreadable is not this
+    case; it goes to the hand's `done` and is refused there as before."""
+    key = OFFERED.get(name)
+    if key is None:
+        return False
+    try:
+        offer = json.loads(offer_path.read_text())
+        report = json.loads(report_path.read_text())
+    except (OSError, ValueError):
+        return False
+    if not isinstance(offer, dict) or not isinstance(report, dict):
+        return False
+    return key in offer and offer[key] is None and report.get(f"{key}_id") is None
 
 
 def _tell_the_mind(name: str, settled: Mapping[str, Any] | None, rejected: str | None) -> None:
