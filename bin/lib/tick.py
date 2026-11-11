@@ -504,11 +504,12 @@ def _beat() -> Json:
     asleep = rhythm.night_gate(waiting)
     if asleep:
         return _idle("asleep", raised, gathered, **asleep)
+    came_in = len(waiting)  # before the mind's own moment is added
     if not waiting and (rhythm.wander(_run_hand) or rhythm.quiet()):
         waiting = stimuli.pending()
     if not waiting:
         return _idle("idle", raised, gathered)
-    woke = rhythm.woke(len(waiting))
+    woke = rhythm.woke(came_in)
     batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
     tick, items = batch["tick"], batch["stimuli"]
     if not items:

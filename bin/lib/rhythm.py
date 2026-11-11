@@ -166,8 +166,10 @@ def header(woke: Mapping[str, Any] | None = None) -> list[str]:
     state = load()
     e = energy(state)
     lines = []
-    if woke:
+    if woke and woke["waiting"]:
         lines.append(f"You just woke up. {woke['waiting']} thing(s) came in overnight.")
+    elif woke:
+        lines.append("You just woke up. Nothing came in overnight.")
     bits = [f"energy {e}/100 ({state['actions_today']} action(s) today)"]
     if state.get("mood"):
         bits.append(f"mood: {state['mood']}")
