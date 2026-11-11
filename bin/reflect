@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Teeny's end of day: rewrite MEMORY.md from the day, on the teeny:mind
+# thread, and keep a diary entry (bin/lib/reflect.py; docs/architecture.md,
+# 4a). The pinned `reflect` job runs it once a night.
+#
+#   bin/reflect
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 jq
+exec python3 "$TEENY_ROOT/bin/lib/reflect.py"
