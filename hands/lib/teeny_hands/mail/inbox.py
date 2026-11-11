@@ -118,6 +118,8 @@ def ingest(max_results: int = 20, offer: bool = True, api: RestApi | None = None
                 status, note = "skipped", "own message"
             else:
                 message = reads.fetch(mid, api)
+                if client.is_automated(message):
+                    status, note = "skipped", "automated sender"
             sender = message.get("from")
             subject = message.get("subject") or ""
             body = client.body_text(message)
