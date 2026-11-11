@@ -120,7 +120,7 @@ in `gh_actions` (which also counts the daily cap); reads in `gh_cache`.
 
 The container's uid has no passwd entry and HOME is /tmp, so a bare `git
 commit` there cannot tell who it is. Every git run in the hands (hands/gh's
-`push`, bin/diary) goes through `teeny_hands/git.py`, which:
+`push`, bin/receipts) goes through `teeny_hands/git.py`, which:
 
 - commits as **Teeny <teeny@agentmail.to>**, or `GIT_NAME` / `GIT_EMAIL` from
   secrets/teeny.env (never the process environment), set as GIT_AUTHOR_* and
