@@ -16,6 +16,10 @@ guard and before DRY_RUN; nothing else in the hand posts.
   `REPLY_MIN_INTERVAL_MS..=REPLY_MAX_INTERVAL_MS`, because a fixed gap is its
   own signature. In-memory in the Rust; persisted here, and refused with the
   wait rather than slept through.
+- Links cost money: X bills a post whose text carries a URL $0.20 against
+  $0.015 without (docs.x.com, pricing), so posts and replies with a link are
+  capped at `X_LINK_POSTS_MAX_PER_DAY` a UTC day (1 by default; 0 forbids
+  them). A bare domain X would turn into a link counts.
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
@@ -146,6 +150,39 @@ def record_media(
         "INSERT OR REPLACE INTO x_media (media_id, source, mime, bytes, dry_run, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (media_id, source, mime, size, 1 if dry_run else 0, hand.now()),
     )
+
+
+# --- links -----------------------------------------------------------------------------------
+
+
+def has_link(text: str) -> bool:
+    """Whether X would see a URL in the text (and bill the post as one)."""
+    from ..guard.links import find_links
+
+    return bool(find_links(text))
+
+
+def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
+    """A post or reply with a link, only while today's link posts are under
+    the cap. Run under the posting or replying lock, before X is called."""
+    if not has_link(text):
+        return
+    cap = int(number_setting("X_LINK_POSTS_MAX_PER_DAY", 1, 0, 50))
+    now = hand.now()
+    day_start = now - (now % 86400.0)
+    sent = sum(
+        1
+        for row in conn.execute("SELECT text FROM x_posts WHERE created_at >= ?", (day_start,)).fetchall()
+        if has_link(row["text"])
+    )
+    if sent >= cap:
+        raise hand.Refused(
+            f"a post with a link costs $0.20 on X (without one, $0.015); {sent} of today's {cap} already went out. "
+            "Nothing was published; post it without the link.",
+            rule="links",
+            sent_today=sent,
+            cap=cap,
+        )
 
 
 # --- the gap between own posts -----------------------------------------------------------------
