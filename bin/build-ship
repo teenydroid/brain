@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# The builder's desk and shipping (evals/cron.pinned.toml, build-ship):
+# `hands/build desk` collects the report the builder left in
+# state/workbench/desk/build-done.json and lays out its next job in
+# state/workbench/desk/build.json; then `hands/build ship` pushes every job
+# the builder reported ok to
+# GITHUB_USER/<repo> through hands/gh (the guard, the owner rule, the secret
+# scan, DRY_RUN), creating the repository when it is missing, and marks the
+# build request it answered shipped. Nothing to ship is a quiet success.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+# The desk's answer goes to the log (stderr); stdout is the ship's. A desk
+# that fails (a broken report is kept aside, not fatal) must not stop
+# what is already finished from shipping.
+"$hands/build" desk </dev/null >&2 || log "the builder's desk failed; shipping what is done anyway"
+exec "$hands/build" ship </dev/null

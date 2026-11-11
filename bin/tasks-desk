@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# The browser operator's desk (evals/cron.pinned.toml, tasks-desk):
+# `hands/tasks desk` collects the report the operator left in
+# state/workbench/desk/task-done.json and lays out its next task in
+# state/workbench/desk/task.json, for the next operator run.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/tasks" desk </dev/null

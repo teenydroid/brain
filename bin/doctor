@@ -80,7 +80,7 @@ cron_in_step() {
   local plan
   plan="$("$TEENY_ROOT/bin/seed-cron" --dry-run 2>&1)" || { echo "$plan"; return 1; }
   if ! grep -q "dry run: 0 change" <<<"$plan"; then
-    grep -E "^\[seed-cron\] (add|update|remove)" <<<"$plan" | head -3
+    grep -E "^\[seed-cron\] (add|update|replace|remove)" <<<"$plan" | head -3
     return 1
   fi
   echo "the core runs exactly brain/cron.toml"
@@ -106,7 +106,7 @@ if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$roo
     checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
-  done < <(jq -r '.[] | .command | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
+  done < <(jq -r '.[] | (.command // "") | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
 else
   note "cron.toml" fail "$jobs"
 fi
@@ -118,20 +118,11 @@ for path in "$brain"/playbooks/*.md; do
   run "playbook $book" python3 "$TEENY_ROOT/bin/lib/playbook.py" "$brain" "$book" "$root/hands"
 done
 
-# --- agents: each definition parses; the drafting agent has no tools -------------
+# --- agents: each definition parses; the drafting agents have no tools, and only
+# the scheduled agents (builder, operator) act from cron, with named tools -----
 for path in "$brain"/agents/*.toml; do
   [ -e "$path" ] || continue
-  run "agent $(basename "$path")" python3 -c '
-import sys, tomllib
-with open(sys.argv[1], "rb") as fh:
-    doc = tomllib.load(fh)
-for key in ("id", "when_to_use"):
-    if not isinstance(doc.get(key), str) or not doc[key].strip():
-        sys.exit(f"needs {key}")
-if doc["id"] in ("act", "judge", "teeny-mentions", "teeny-mail") and (doc.get("tools") or {}).get("named") != []:
-    sys.exit("the " + doc["id"] + " agent must have no tools ([tools] named = [])")
-print("id " + doc["id"])
-' "$path"
+  run "agent $(basename "$path")" python3 "$TEENY_ROOT/bin/lib/agent_check.py" "$path"
 done
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"
@@ -139,6 +130,16 @@ fi
 if [ ! -s "$brain/agents/judge.toml" ]; then
   note "agent judge.toml" fail "missing: bin/eval judges with it"
 fi
+
+# --- the browser's allowed websites: a reviewed list that parses -------------------
+run "browser-allow.txt" python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from teeny_hands import websites
+hosts = websites.load(Path(sys.argv[2]))
+print(f"{len(hosts)} host(s)")
+' "$root/hands/lib" "$root"
 
 # --- invariants: the brain still says what Teeny is (evals/invariants.md) ----------
 if [ -s "$root/evals/invariants.md" ]; then

@@ -37,8 +37,11 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
-# itself, and a draft must not reach the guard's own admin verbs.
-NOT_OUTPUTS = ("guard",)
+# itself, and a draft must not reach the guard's own admin verbs; the
+# builder's queue belongs to the builder and bin/build-ship, not to a
+# playbook's draft (a playbook may still queue a browser task with
+# hand:tasks add).
+NOT_OUTPUTS = ("guard", "build")
 # Hands that hold money: a draft reaches them only through the verbs named
 # here (none for the wallet: a model never drafts a payment), and an input
 # runs only their read verbs.

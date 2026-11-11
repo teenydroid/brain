@@ -15,8 +15,10 @@ path = "src/main.rs"
 # product feature set minus `os-keyring`: the spine keeps secrets in the file
 # store under a master key file, never an OS keychain, which a container does
 # not have (docs/architecture.md, "Keyring"). Desktop-only features (voice,
-# whatsapp-web, wallet) stay off. `inbound-queues` is the durable event intake
-# X mentions are offered to (`openhuman.inbound_offer`).
+# whatsapp-web) stay off. `inbound-queues` is the durable event intake X
+# mentions are offered to (`openhuman.inbound_offer`). `web3` is the wallet
+# domain (`[wallet_policy]`, the wallet tools) that the tinywallet module
+# serves.
 openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-features = false, features = [
     "http-client",
     "server",
@@ -30,8 +32,32 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "file-logging",
     "modules",
     "jev",
-    "tinymemes",
+    "web3",
+    # Upstream's product set has it, and at this pin the core does not
+    # compile without it (`modules::tinyflows` names its flow-scope import).
+    "legacy-import",
+    # The encrypted file keyring (OPENHUMAN_KEYRING_BACKEND=file) the spine
+    # keeps every secret in; since this pin it is its own gate, and without it
+    # the file backend fails closed at the first secret.
+    "secret-file",
+    # TinySecurity, which since this pin decides every path a file tool may
+    # touch (`workspace_only`, the forbidden paths, the workbench grant) and
+    # encrypts what the keyring stores. Without it those fail closed with
+    # "not built into this host".
+    "security-module",
     "storage-sqlite",
     "inbound-queues",
+] }
+# The two modules the spine serves from its own executable instead of a
+# downloaded release: TinyComputer (the `browser` tool) and tinywallet (the
+# `web3` domain). Linked, each is the exact `vendor/openhuman` gitlink the core
+# was built against (no contract mismatch, no download at boot), and
+# tinywallet's confidential calls reach it attested as host code.
+# `bin/lib/core_config.py` sets `[modules] overrides` to `source = "linked"`
+# for exactly these two; every other module still loads from its pinned,
+# digest-checked release.
+openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-modules-linked", default-features = false, features = [
+    "tinycomputer",
+    "tinywallet",
 ] }
 libc = "0.2"

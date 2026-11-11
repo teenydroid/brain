@@ -10,7 +10,7 @@
 # fails `cargo metadata` outright); Cargo.lock started as OpenHuman's own.
 #
 # Except the entries the spine's graph never uses (tinyagents-live,
-# tinychannels, tinyflows, tinystoragedrivers-mongodb and -s3 at this pin): Cargo records
+# tinychannels, tinystoragedrivers-testkit at this pin): Cargo records
 # an unused patch in Cargo.lock in an order that differs between macOS and
 # Linux, so the image's `--locked` build fails on a lock written on a Mac.
 # Drop any entry `cargo metadata` warns "was not used in the crate graph".
@@ -27,7 +27,6 @@ publish = false
 
 [patch."https://github.com/tinyhumansai/tinytools"]
 tinytools = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools" }
-tinytools-std = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools-std" }
 tinytools-agent = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates/tinytools-agent" }
 
 [patch."https://github.com/tinyhumansai/tinybus"]
@@ -35,15 +34,36 @@ tinybus = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus" }
 tinybus-macros = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-macros" }
 tinybus-module = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-module" }
 
+[patch."https://github.com/senamakel/tinybus"]
+tinybus = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus" }
+tinybus-macros = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-macros" }
+tinybus-module = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-module" }
+
 [patch."https://github.com/tinyhumansai/tinystoragedrivers"]
 tinystoragedrivers = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers" }
+tinystoragedrivers-api = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-api" }
+tinystoragedrivers-blob = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-blob" }
 tinystoragedrivers-bus = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-bus" }
 tinystoragedrivers-busproxy = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-busproxy" }
-tinystoragedrivers-client = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-client" }
-tinystoragedrivers-core = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-core" }
-tinystoragedrivers-file = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-file" }
+tinystoragedrivers-connect = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-connect" }
+tinystoragedrivers-document = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-document" }
+tinystoragedrivers-kv = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-kv" }
+tinystoragedrivers-queue = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-queue" }
 tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
-tinystoragedrivers-sqlite = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-sqlite" }
+tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
+
+[patch."https://github.com/senamakel/tinystoragedrivers"]
+tinystoragedrivers = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers" }
+tinystoragedrivers-api = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-api" }
+tinystoragedrivers-blob = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-blob" }
+tinystoragedrivers-bus = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-bus" }
+tinystoragedrivers-busproxy = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-busproxy" }
+tinystoragedrivers-connect = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-connect" }
+tinystoragedrivers-document = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-document" }
+tinystoragedrivers-kv = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-kv" }
+tinystoragedrivers-queue = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-queue" }
+tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
+tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
 [patch."https://github.com/tinyhumansai/tinyinference"]
 tinyinference-decisions = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
@@ -67,6 +87,7 @@ tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinfe
 tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
 tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
 tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
+tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
 tiny-artifacts = { path = "vendor/openhuman/vendor/tiny-artifacts/crates/tiny-artifacts" }
 
 [profile.release]

@@ -1,0 +1,27 @@
+# The websites Teeny's browser may open, one host per line. bin/spine writes
+# this list into the core's config at every boot as
+# `[http_request] allowed_domains`, which the browser and OpenHuman's own
+# `http_request` tool share, and hands/tasks refuses a task whose start_url
+# is not on it.
+#
+# Reviewed by the operator, never by Teeny: it lives in deploy/, outside the
+# brain Teeny edits. A host matches itself and its subdomains. No wildcards
+# ("*" would let the browser go anywhere; OpenHuman strips it anyway).
+
+# Teeny's own accounts and the work it does there
+github.com
+api.github.com
+moltbook.com
+www.moltbook.com
+agentmail.to
+
+# Reading the chain (never transacting: money moves only through hands/wallet)
+solscan.io
+
+# Documentation the builder and the operator look things up in
+docs.rs
+pypi.org
+npmjs.com
+www.npmjs.com
+developer.mozilla.org
+docs.python.org

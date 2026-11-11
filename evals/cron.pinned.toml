@@ -25,6 +25,35 @@ command = "bin/mail"
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
 
+# The builder (brain/agents/builder.toml), an agent job: it reads one job
+# from its desk (state/workbench/desk/build.json: the oldest picked build
+# request, or a small daily thing of its own), writes and tests it in
+# state/workbench/<job>/, and leaves its report on the desk. It publishes
+# nothing itself. Ten past, so build-ship has laid the desk out at the hour.
+[jobs.builder]
+schedule = "10 */2 * * *"
+agent = "builder"
+prompt = "Build the job on your desk, following your instructions."
+
+# The builder's desk and shipping (bin/build-ship): collect its report, lay
+# out its next job, and push what it finished to GitHub through hands/gh.
+[jobs.build-ship]
+schedule = "*/30 * * * *"
+command = "bin/build-ship"
+
+# The browser operator (brain/agents/operator.toml), an agent job: the one
+# task on its desk (state/workbench/desk/task.json), done in the browser,
+# reported on the desk.
+[jobs.operator]
+schedule = "40 * * * *"
+agent = "operator"
+prompt = "Do the browser task on your desk, following your instructions."
+
+# The operator's desk (bin/tasks-desk): collect its report, lay out its next task.
+[jobs.tasks-desk]
+schedule = "*/15 * * * *"
+command = "bin/tasks-desk"
+
 # Pay the bounty prizes that are due (bin/bounty-pay): collect entries, take the
 # winner's claim from the winner's own reply, and pay once the winner has been
 # public for BOUNTY_CHALLENGE_HOURS, under hands/wallet's caps. Operator-owned:

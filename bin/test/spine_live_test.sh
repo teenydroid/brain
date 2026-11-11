@@ -71,6 +71,9 @@ class Model(BaseHTTPRequestHandler):
             log.write(self.path + "\n")
         # What the model was actually asked: the last user message it received.
         users = [m for m in body.get("messages", []) if m.get("role") == "user"]
+        # Every request whole, for checks on what an agent was offered.
+        with open(sys.argv[4], "a") as log:
+            log.write(json.dumps(body) + "\n")
         with open(sys.argv[3], "a") as log:
             log.write(json.dumps(users[-1].get("content") if users else None) + "\n")
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
@@ -105,7 +108,7 @@ class Model(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Model).serve_forever()
 PY
-python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" &
+python3 -I "$scratch/model.py" "$model_port" "$scratch/model-calls.log" "$scratch/model-asked.log" "$scratch/model-bodies.jsonl" &
 model_pid=$!
 
 # --- a scratch copy of the checkout, laid out as on the box ---------------------
@@ -117,6 +120,8 @@ mkdir -p "$root/brain" "$root/secrets"
 cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
+mkdir -p "$root/deploy"
+cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
 cat >"$root/secrets/spine.env" <<ENV
@@ -253,6 +258,58 @@ check "the judge agent's turn offers the model no tools" grep -q 'visible=0 ' <<
 if [ "$(jq -r '.pairs[0].notes[0]' "$evals/out/report.json" 2>/dev/null)" != "the stub judged it" ]; then
   { tail -n 5 "$scratch/eval.log"; cat "$evals/base/drafts.jsonl" "$evals/out/judged.jsonl" 2>/dev/null; } >&2
 fi
+
+# --- the scheduled agents: seeded as agent jobs, run as CronActions ------------
+jobs_json="$("$root/bin/oh" cron_list 2>/dev/null || echo '[]')"
+builder_id="$(jq -r '[.[] | select(.name == "teeny.builder")][0].id // empty' <<<"$jobs_json")"
+check "seeds the builder as an agent job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.builder")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent builder"
+check "seeds the operator as an agent job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.operator")][0] | "\(.job_type) \(.agent_id)"' <<<"$jobs_json")" = "agent operator"
+check "seeds build-ship as a shell job" \
+  test "$(jq -r '[.[] | select(.name == "teeny.build-ship")][0].job_type' <<<"$jobs_json")" = shell
+check "the core kept the cron shell timeout" python3 -c 'import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+assert cfg["cron"]["shell_timeout_secs"] == 1800, cfg.get("cron")
+assert cfg["autonomy"]["enabled"] and cfg["autonomy"]["workspace_only"]
+assert cfg["browser"]["unattended_actions"]' "$root/.openhuman/config.toml"
+# The builder's desk, laid out the way bin/build-ship does it every 30 minutes
+# (DRY_RUN is on: nothing ships).
+"$root/bin/build-ship" >"$scratch/build-ship.log" 2>&1 || true
+check "bin/build-ship lays the builder's desk out" \
+  test "$(jq -r .job.kind "$root/state/workbench/desk/build.json" 2>/dev/null)" = daily
+# One builder run now, against the stub model (which answers without calling
+# a tool): the core builds the builder from brain/agents/ with its named tools
+# and runs it with the scheduled-actions opt-in.
+builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | tail -n 1; }
+if [ -n "$builder_id" ]; then
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    grep -q 'tool spec filter:' <<<"$(agent_tools builder)" && [ -n "$(builder_request)" ] && break
+    sleep 1
+  done
+fi
+check "the core loaded the builder agent from brain/agents/" grep -q 'building session agent id=builder ' "$scratch/spine.log"
+check "the builder run opted into scheduled actions" grep -q 'agent opted into scheduled actions' "$scratch/spine.log"
+offered() { agent_tools "$1" | sed 's/.*names=\[//; s/\].*//' | tr ',' '\n' | tr -d ' '; }
+check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder)"
+check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
+check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
+check "the builder is told where its desk is" grep -q 'state/workbench/desk/build.json' <<<"$(builder_request)"
+printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
+# And one operator run: the browser and its desk's two file tools, no shell.
+operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
+if [ -n "$operator_id" ]; then
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    grep -q 'tool spec filter:' <<<"$(agent_tools operator)" && break
+    sleep 1
+  done
+fi
+check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
+check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
+check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
+printf 'info the operator was offered: %s\n' "$(offered operator | tr '\n' ' ')"
 
 registered_window() {
   python3 -c 'import sys, tomllib

@@ -3,8 +3,9 @@
 //! It is what upstream's `openhuman-core` binary is (`crates/openhuman-cli`):
 //! the shared host entry [`openhuman_rpc::host::cli`] does everything, so
 //! `teeny-spine serve`, `teeny-spine cron list` and the rest behave exactly
-//! as the upstream binary does. Teeny adds no behaviour here; what Teeny does
-//! lives in `brain/` and `bin/`. `bin/spine` runs it.
+//! as the upstream binary does. Teeny adds no behaviour here beyond linking
+//! two modules in (TinyComputer and tinywallet); what Teeny does lives in
+//! `brain/` and `bin/`. `bin/spine` runs it.
 
 use openhuman_rpc::embed::process;
 
@@ -14,6 +15,11 @@ fn main() {
     // Before anything logs, as upstream's binary does. Not fatal: the
     // dispatcher loads it again and reports a failure itself.
     let _ = process::load_dotenv_for_cli();
+
+    // TinyComputer and tinywallet, linked into this executable (spine/Cargo.toml).
+    // Registering serves nothing by itself: the core loads a module from here
+    // only where the config's `[modules] overrides` says `source = "linked"`.
+    openhuman_modules_linked::install();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(err) = openhuman_rpc::host::cli(&args) {

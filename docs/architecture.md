@@ -72,6 +72,15 @@ draft, and operator-written scripts act.** In concrete terms:
 This needs no change to OpenHuman's security model. The few upstream changes
 that would make it nicer are listed in `oh-gaps.md`.
 
+**The one exception: the scheduled agents.** Two jobs need a model in the
+loop that acts: the builder writes and tests code, and the browser operator
+clicks through websites. OpenHuman lets exactly that, per agent: a cron job
+that targets an agent whose definition sets `scheduled_actions = true` and
+names its tools explicitly runs as a `CronActions` turn and may use those
+tools without a person's approval (§6a). Nothing else is lifted, and nothing
+public talks to these agents: their work comes from queues the hands keep,
+and what they make leaves only through a hand.
+
 ## 2. Spine
 
 One process, `openhuman-core serve`, running as a non-root uid in the
@@ -88,16 +97,16 @@ container. Configuration:
 | Keyring | **File store**: `OPENHUMAN_KEYRING_BACKEND=file` and `OPENHUMAN_KEYRING_MASTER_KEY_FILE=/srv/teeny/secrets/openhuman.key` (64 hex characters, mode 0400, outside `brain/`). Every secret OpenHuman holds (the CortexDB key, the model key) is a row in `storage.db` (`coll = 'secrets'`, encrypted `enc2:` ciphertext) under that key. Measured: the core logs "master key loaded from OPENHUMAN_KEYRING_MASTER_KEY_FILE", and the CortexDB key survives a restart. Without the variable it looks for a host source and then a brain key file. Unset, the backend is `memory`. Back up `storage.db` and the key file together. | `$C/security/secret_storage/store.rs:189-197`, `encrypted_file_backend.rs:31-35` |
 | Persona | `brain/SOUL.md` and `IDENTITY.md`, read every turn | `$C/prompts/workspace_files.rs` |
 | Agents | Custom agents with `tool_allowlist`, a system prompt and a model. The core loads `brain/agents/*.toml` itself at boot (`$C/agent_registry/host_definition.rs`); nothing seeds them | `$C/agent_registry/types.rs:76` |
-| Shell limits | `[autonomy] enabled = true`, `allowed_commands = ["hands/…"]`, `workspace_only = true`, `max_actions_per_hour` | `$C/config/schema/autonomy.rs:31-44` |
+| Shell limits | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` the one trusted root (read and write). `full` keeps the cron shell jobs (`bin/<job>`) running as before; what an agent may do is bounded by its named tools, the workspace scoping and the hands. Written every boot by `bin/lib/core_sections/automation.py` (§6a) | `$C/config/schema/autonomy.rs` |
 | Hooks | `brain/hooks.json`: `beforeShellExecution` runs `hands/policy shell` for the operator's shell. Inbound screening is **not** a hook: `beforeSubmitPrompt` fires only on the web-chat path (`$C/web_chat/ops/start_chat.rs:313`), not on `agent_chat`, so `bin/job` calls `hands/guard inbound` itself before every draft | `vendor/tinyagents/crates/tinyagents-hooks/src/command/types.rs` |
-| Browser | `[browser] enabled`, `headless`, `chrome_path`, `profile_mode = "persistent"` with the profile under `brain/.browser/` (gitignored), and x.com in the allowed domains. The module is TinyComputer, from the `tinyhumansai/tinydesktop` repo. Reads only. | `$C/config/schema/tools/browser.rs:49,96` |
+| Browser | `[browser] enabled`, `headless`, `chrome_path` (Chromium in the image), `profile_mode = "persistent"` with the profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer is linked into `teeny-spine` (`spine/Cargo.toml`, `[modules] overrides` with `source = "linked"`), as is tinywallet for the `web3` domain | `$C/config/schema/tools/browser.rs`, OpenHuman `docs/gitbooks/en/developing/tinycomputer-docker.md` |
 | Telegram | See §6. The channel is not enabled until gap G3 lands. | |
 | Errors | `OPENHUMAN_CORE_SENTRY_DSN` | |
 | Traces | `[observability.agent_tracing]` writes NDJSON to `brain/.traces/` (gap G5) | |
 
 Not used: desktop control (macOS and Windows only), flows, Composio, and
 OpenHuman's own `http_request` (it can't keep a secret out of the model's
-view). MCP is used for exactly one server, `hands/mcp` (§5).
+view). MCP is not used yet: `hands/mcp` (§5) is unblocked since gap G11 was fixed upstream (openhuman#8654) but not built.
 
 ## 3. Hands
 
@@ -240,11 +249,11 @@ and `bin/spine` will not boot a checkout the doctor fails. See
   Treat the table as **read-only**: writes go through `cron_add`, `cron_update`
   and `cron_remove`, because rows carry claim generations and an admission
   record (`cron.admission`).
-- **The 120-second wall.** Shell jobs are killed at 120s
-  (`$C/cron/scheduler/shell_job.rs:9`, gap G1). `bin/job` re-executes itself
-  under `setsid` and returns immediately. The detached run takes a per-job
-  `flock`, which gives single-flight, and records its own start, finish and
-  exit status in `hands.db`. That record is what `bin/crons` joins on.
+- **The shell-job timeout.** OpenHuman kills a shell job after
+  `[cron] shell_timeout_secs` (default 120 s). `bin/spine` sets it to 1800
+  (`bin/lib/core_sections/automation.py`), so a job that drafts several turns
+  runs to the end in the foreground and cron records its real outcome (gap
+  G1, now closed).
 - **No retries.** Every posting job is `retries = 0`, the same as today
   (`crates/teeny/src/schedule.rs:382`).
 - **Telegram** uses a 1-minute poll in bash, not OpenHuman's channel. The
@@ -252,6 +261,67 @@ and `bin/spine` will not boot a checkout the doctor fails. See
   filter, house style or dry run (the Rust bot notes the same thing in
   `crates/teeny/src/telegram/mod.rs:8-17`), and no hook can rewrite or block
   it (gap G3). Shell jobs are exempt from the 5-minute minimum interval.
+
+## 6a. Scheduled agents: the builder and the browser operator
+
+Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
+`bin/lib/cron_policy.py`):
+
+| Agent | Job | Takes work from | Tools | Leaves through |
+|---|---|---|---|---|
+| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
+| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `40 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
+
+**How a run may act.** Each definition sets `scheduled_actions = true` and
+names its tools (never the wildcard). A cron job naming that agent in
+`agent_id` then runs as `TrustedAutomation { CronActions }`: the root run's
+tools go without a person's approval; a sub-agent it spawns stays read-only.
+Still in force: the autonomy tier and `workspace_only` (§2), TinySecurity's
+floor and command analysis, the agent's `sandbox_mode`, the allowed
+websites, and the browser's checkpoint before any payment, which ends a
+task as `needs_human` whatever `unattended_actions` says. `bin/doctor` and
+`bin/lib/cron_policy.py` refuse a definition that loses the opt-in or its
+named tools, gives the builder the browser or a wallet tool, or gives the
+operator the shell or file writes; the drafting agents (`act`, `judge`,
+`teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
+
+**How they reach the hands: a desk, not a call.** The core's workspace is
+`brain/` and its action directory is the checkout, so `workspace_only`
+alone would let a file tool reach `brain/` and nothing of `state/`.
+`bin/spine` therefore grants exactly `state/workbench/` as a trusted root
+(read and write) and forbids Teeny's brain files (agents, playbooks, cron,
+storage) and `secrets/`. The agents call no hand. A cron shell job runs the
+hand's `desk` verb: it collects the report the agent left in
+`state/workbench/desk/<name>-done.json`, passes it to the hand's own `done`
+(every rule applies; a refused report is set aside with the reason, which
+the next offer carries), then writes the next job or task to
+`state/workbench/desk/<name>.json`. The agent reads one file and writes one.
+This was the simplest safe choice, and the one that works at this pin:
+- the operator has no shell, so a shell wrapper could not serve it;
+- the builder's shell runs sandboxed (`sandbox_mode = "sandboxed"`: TinyBox's
+  namespace jail, a private mount tree and no network); a shell that could
+  run `hands/build` could also run `hands/gh push`;
+- the file tools are ones both agents need anyway, scoped by OpenHuman's
+  own path policy to the workbench;
+- the hand that acts on a report runs outside any model turn;
+- MCP (`hands/mcp`, the plan in §5) would be the cleaner call. A serve host
+  used to drop every configured MCP server's tools when TinySecurity was on
+  (gap G11, fixed in openhuman#8654), so it is possible now but not built.
+
+**Configuration.** `bin/lib/core_config.py` runs every boot (after the
+inbound sources) and writes each module in `bin/lib/core_sections/` into
+the core's config, each table replaced whole. `automation.py` owns `[cron]`
+(`shell_timeout_secs = 1800`), `[autonomy]`, `[browser]`, `[http_request]`
+(`allowed_domains` from `deploy/browser-allow.txt`), `[modules]` (the two
+linked modules). Another concern, the
+wallet's `[wallet_policy]`, is another module beside it.
+
+**What the builder may not do.** It has no token and no network in its
+shell; it publishes nothing. `hands/build ship` runs from cron, outside any
+model turn, and pushes only the job's folder through hands/gh: the guard on
+the commit message and description, the owner rule, the workbench rule and
+the secret scan. A refused push is retried twice more, then the job fails
+and its request is marked `failed`.
 
 ## 7. Two walkthroughs
 

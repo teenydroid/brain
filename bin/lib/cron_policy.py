@@ -4,8 +4,9 @@ model.
 
     python3 bin/lib/cron_policy.py CRON_TOML PINNED_TOML [DEFAULT_TZ]
 
-Prints [{name, expr, tz, command, enabled}] on success; exits non-zero with
-the reason on the first rule a file breaks.
+Prints [{name, kind, expr, tz, command, agent, prompt, enabled}] on success
+(kind "shell" with a command, or "agent" with an agent and a prompt); exits
+non-zero with the reason on the first rule a file breaks.
 
 Teeny owns cron.toml and may add, remove or reschedule any job in it, its
 heartbeat included (docs/architecture.md, "Evolution"). What it may not do is
@@ -18,7 +19,13 @@ written here, in code it cannot edit:
 - at most MAX_JOBS jobs in all, and at most MAX_ACT_RUNS_PER_DAY runs of
   bin/act a day across every job;
 - the pinned jobs (PINNED_TOML, frozen with the evals) are always merged in,
-  and a brain job may not take one of their names.
+  and a brain job may not take one of their names;
+- an agent job (`agent = "..."` and `prompt = "..."` instead of `command`)
+  runs one of AGENT_JOB_AGENTS, whose definition in the brain's agents/
+  sets `scheduled_actions = true` and names its tools explicitly: OpenHuman
+  lets such a run act without a person's approval (docs/architecture.md,
+  "Scheduled agents"), so only the agents written for it may be scheduled,
+  and at most MAX_AGENT_RUNS_PER_DAY agent runs a day across every job.
 """
 
 from __future__ import annotations
@@ -33,6 +40,11 @@ MIN_GAP_MINUTES = 5
 MAX_JOBS = 24
 MAX_ACT_RUNS_PER_DAY = 400
 BRAIN_COMMANDS = ("bin/heartbeat", "bin/act")
+#: The agents a cron job may run. Each acts unattended, so each is written
+#: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
+AGENT_JOB_AGENTS = ("builder", "operator")
+MAX_AGENT_RUNS_PER_DAY = 48
+MAX_PROMPT_CHARS = 4000
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -83,7 +95,56 @@ def min_gap(minutes: list[int]) -> int:
     return min(gaps)
 
 
-def _jobs(path: Path, default_tz: str, pinned: bool) -> list[dict]:
+def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
+    command = str(job.get("command", "")).strip()
+    # Operator scripts only: what cron runs has no model in the loop, so
+    # it must be something reviewed in this repository.
+    if not re.fullmatch(r"bin/[A-Za-z0-9._/-]+( .*)?", command) or ".." in command.split()[0]:
+        raise PolicyError(f"{where}: command must run a script under bin/, got {command!r}")
+    argv = command.split()
+    if not pinned:
+        if argv[0] not in BRAIN_COMMANDS:
+            raise PolicyError(f"{where}: a brain job runs {' or '.join(BRAIN_COMMANDS)}, got {argv[0]!r}")
+        if argv[0] == "bin/act":
+            if len(argv) != 2 or not PLAYBOOK_NAME.fullmatch(argv[1]):
+                raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
+            if not (path.parent / "playbooks" / f"{argv[1]}.md").is_file():
+                raise PolicyError(f"{where}: no playbook {argv[1]!r} in {path.parent / 'playbooks'}")
+    return command
+
+
+def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
+    """An agent job's agent and prompt, after the rules: an agent written to
+    act unattended, defined in the brain the core boots, with a prompt."""
+    agent = job.get("agent")
+    prompt = job.get("prompt")
+    if not isinstance(agent, str) or not isinstance(prompt, str):
+        raise PolicyError(f"{where}: an agent job needs both agent and prompt, as strings")
+    if agent not in AGENT_JOB_AGENTS:
+        raise PolicyError(f"{where}: agent {agent!r} may not run from cron (only {', '.join(AGENT_JOB_AGENTS)})")
+    prompt = prompt.strip()
+    if not prompt or len(prompt) > MAX_PROMPT_CHARS:
+        raise PolicyError(f"{where}: prompt must be 1..{MAX_PROMPT_CHARS} characters")
+    definition = brain / "agents" / f"{agent}.toml"
+    try:
+        with open(definition, "rb") as fh:
+            doc = tomllib.load(fh)
+    except FileNotFoundError:
+        raise PolicyError(f"{where}: no agent {agent!r} in {brain / 'agents'}") from None
+    except tomllib.TOMLDecodeError as exc:
+        raise PolicyError(f"{where}: {definition} does not parse: {exc}") from None
+    if doc.get("id") != agent:
+        raise PolicyError(f"{where}: {definition} has id {doc.get('id')!r}, not {agent!r}")
+    if doc.get("scheduled_actions") is not True:
+        raise PolicyError(f"{where}: agent {agent!r} does not set scheduled_actions = true, so a cron run could not act")
+    named = (doc.get("tools") or {}).get("named")
+    if not isinstance(named, list) or not named or not all(isinstance(t, str) and t and t != "*" for t in named):
+        raise PolicyError(f"{where}: agent {agent!r} must name its tools explicitly ([tools] named = [...])")
+    return agent, prompt
+
+
+def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) -> list[dict]:
+    brain = brain or path.parent
     with open(path, "rb") as fh:
         doc = tomllib.load(fh)
     unknown = set(doc) - {"tz", "jobs"}
@@ -95,7 +156,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool) -> list[dict]:
         where = f"{path}: jobs.{name}"
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise PolicyError(f"{where}: name must be lowercase letters, digits and dashes")
-        extra = set(job) - {"schedule", "command", "tz", "enabled"}
+        extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled"}
         if extra:
             raise PolicyError(f"{where}: unknown keys: {', '.join(sorted(extra))}")
         expr = str(job.get("schedule", "")).strip()
@@ -104,28 +165,25 @@ def _jobs(path: Path, default_tz: str, pinned: bool) -> list[dict]:
         minutes = fire_minutes(expr, where)
         if min_gap(minutes) < MIN_GAP_MINUTES:
             raise PolicyError(f"{where}: {expr!r} fires more often than every {MIN_GAP_MINUTES} minutes")
-        command = str(job.get("command", "")).strip()
-        # Operator scripts only: what cron runs has no model in the loop, so
-        # it must be something reviewed in this repository.
-        if not re.fullmatch(r"bin/[A-Za-z0-9._/-]+( .*)?", command) or ".." in command.split()[0]:
-            raise PolicyError(f"{where}: command must run a script under bin/, got {command!r}")
-        argv = command.split()
-        if not pinned:
-            if argv[0] not in BRAIN_COMMANDS:
-                raise PolicyError(f"{where}: a brain job runs {' or '.join(BRAIN_COMMANDS)}, got {argv[0]!r}")
-            if argv[0] == "bin/act":
-                if len(argv) != 2 or not PLAYBOOK_NAME.fullmatch(argv[1]):
-                    raise PolicyError(f"{where}: bin/act takes one playbook name, got {command!r}")
-                if not (path.parent / "playbooks" / f"{argv[1]}.md").is_file():
-                    raise PolicyError(f"{where}: no playbook {argv[1]!r} in {path.parent / 'playbooks'}")
+        if "agent" in job or "prompt" in job:
+            if "command" in job:
+                raise PolicyError(f"{where}: a job runs a command or an agent, not both")
+            agent, prompt = _agent_job(job, brain, where)
+            command = None
+        else:
+            agent = prompt = None
+            command = _command(job, path, pinned, where)
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
         out.append({
             "name": f"teeny.{name}",
+            "kind": "shell" if command is not None else "agent",
             "expr": expr,
             "tz": job.get("tz") or tz,
             "command": command,
+            "agent": agent,
+            "prompt": prompt,
             "enabled": enabled,
             "runs_per_day": len(minutes),
         })
@@ -135,16 +193,22 @@ def _jobs(path: Path, default_tz: str, pinned: bool) -> list[dict]:
 def load(cron_toml: Path, pinned_toml: Path | None, default_tz: str = "") -> list[dict]:
     default_tz = default_tz or "UTC"
     jobs = _jobs(cron_toml, default_tz, pinned=False)
-    pinned = _jobs(pinned_toml, default_tz, pinned=True) if pinned_toml and pinned_toml.is_file() else []
+    pinned = (_jobs(pinned_toml, default_tz, pinned=True, brain=cron_toml.parent)
+              if pinned_toml and pinned_toml.is_file() else [])
     taken = {j["name"] for j in pinned} & {j["name"] for j in jobs}
     if taken:
         raise PolicyError(f"{cron_toml}: {', '.join(sorted(taken))} is pinned in {pinned_toml} and cannot be redefined")
     jobs += pinned
     if len(jobs) > MAX_JOBS:
         raise PolicyError(f"{cron_toml}: {len(jobs)} jobs; the most is {MAX_JOBS}")
-    act_runs = sum(j["runs_per_day"] for j in jobs if j["enabled"] and j["command"].startswith("bin/act "))
+    act_runs = sum(j["runs_per_day"] for j in jobs
+                   if j["enabled"] and j["kind"] == "shell" and j["command"].startswith("bin/act "))
     if act_runs > MAX_ACT_RUNS_PER_DAY:
         raise PolicyError(f"{cron_toml}: bin/act would run up to {act_runs} times a day; the most is {MAX_ACT_RUNS_PER_DAY}")
+    agent_runs = sum(j["runs_per_day"] for j in jobs if j["enabled"] and j["kind"] == "agent")
+    if agent_runs > MAX_AGENT_RUNS_PER_DAY:
+        raise PolicyError(
+            f"{cron_toml}: agent jobs would run up to {agent_runs} times a day; the most is {MAX_AGENT_RUNS_PER_DAY}")
     for j in jobs:
         del j["runs_per_day"]
     return jobs
