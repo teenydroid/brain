@@ -338,6 +338,11 @@ export function LedgerEmpty({ source }: { source: "live" | "unavailable" }) {
   )
 }
 
+/** A tab's count, only when the feed answered: an unreachable feed has no count, not a count of zero. */
+function countOf(source: "live" | "unavailable", rows: unknown[]): string {
+  return source === "live" ? ` · ${rows.length}` : ""
+}
+
 export function Ledger({ ledger, mind }: { ledger: LedgerFeed; mind: MindFeed }) {
   const calls = ledger.entries
   const mascot = calls.filter((e) => e.lane === "mascot")
@@ -350,10 +355,10 @@ export function Ledger({ ledger, mind }: { ledger: LedgerFeed; mind: MindFeed })
 
       <Tabs defaultValue="calls">
         <TabsList variant="line" className="mb-6 flex-wrap">
-          <TabsTrigger value="calls">Calls · {calls.length}</TabsTrigger>
-          <TabsTrigger value="mascot">The account · {mascot.length}</TabsTrigger>
-          <TabsTrigger value="brain">The brain · {brain.length}</TabsTrigger>
-          <TabsTrigger value="turns">Turns · {turns.length}</TabsTrigger>
+          <TabsTrigger value="calls">Calls{countOf(ledger.source, calls)}</TabsTrigger>
+          <TabsTrigger value="mascot">The account{countOf(ledger.source, mascot)}</TabsTrigger>
+          <TabsTrigger value="brain">The brain{countOf(ledger.source, brain)}</TabsTrigger>
+          <TabsTrigger value="turns">Turns{countOf(mind.source, turns)}</TabsTrigger>
           <TabsTrigger value="lessons">Lessons · {LESSONS.length}</TabsTrigger>
         </TabsList>
         <TabsContent value="calls"><Calls entries={calls} source={ledger.source} /></TabsContent>

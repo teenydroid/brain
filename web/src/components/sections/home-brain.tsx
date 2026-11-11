@@ -3,17 +3,19 @@ import { ArrowRight } from "lucide-react"
 import { DiaryCard, RepoCard } from "@/components/sections/brain"
 import { Button } from "@/components/ui/button"
 import { Container } from "@/components/section"
-import type { BrainAnatomy, Diary, RepoInfo } from "@/lib/brain-repo"
+import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
+import type { Receipts } from "@/lib/receipts"
 
-/** The brain on the front page: what it is made of, its repository and its diary. */
-export function HomeBrain({ anatomy, repo, diary }: { anatomy: BrainAnatomy; repo: RepoInfo; diary: Diary }) {
+/** The brain on the front page: what it is made of, its repository and its receipts. */
+export function HomeBrain({ anatomy, repo, receipts }: { anatomy: BrainAnatomy; repo: RepoInfo; receipts: Receipts }) {
   const live = anatomy.source === "live"
   const counts = live
     ? [
         { label: "agents", value: anatomy.agents.length },
         { label: "playbooks", value: anatomy.playbooks.length },
         { label: "hands", value: anatomy.hands.length },
-        { label: "jobs running", value: anatomy.jobs.filter((job) => job.enabled).length },
+        // What cron.toml schedules; whether the box is up to run it is not in the repository.
+        { label: "jobs scheduled", value: anatomy.jobs.filter((job) => job.enabled).length },
       ]
     : []
   return (
@@ -45,7 +47,7 @@ export function HomeBrain({ anatomy, repo, diary }: { anatomy: BrainAnatomy; rep
         ) : null}
         <div className="grid gap-6 lg:grid-cols-2">
           <RepoCard repo={repo} compact />
-          <DiaryCard diary={diary} compact />
+          <DiaryCard receipts={receipts} compact />
         </div>
       </Container>
     </section>

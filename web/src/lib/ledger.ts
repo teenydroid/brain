@@ -1,12 +1,12 @@
 /**
  * The inference ledger: one row per model call, and the running token count.
  *
- * The bot writes a row for every call any of its surfaces makes and folds the
- * brain's samples in beside them (`src/ledger/` in the repo). Each row is what
+ * Served at GET /ledger by Teeny's previous runtime (MIND_API_URL), which no
+ * longer runs; the current spine serves no such API. Each row is what
  * the model was shown short of the system prompt, what it reasoned, what came
  * back, and what it cost. The prompt is committed to by digest and never
- * served. Nothing here is invented: when the bot cannot be reached the page
- * says so and shows nothing.
+ * served. Nothing here is invented: when the bot cannot be reached there are
+ * no totals at all (never zeros) and the page says so or leaves the widget out.
  */
 
 import { readApi } from './api'
@@ -62,10 +62,11 @@ export interface Totals {
 }
 
 export interface LedgerFeed {
-  /** `unavailable` when the bot could not be reached; the rest is then empty. */
+  /** `unavailable` when the bot could not be reached: no totals, no rows. */
   source: 'live' | 'unavailable'
   generatedAt: string
-  totals: Totals
+  /** Undefined when unavailable: an unknown count is not a count of zero. */
+  totals?: Totals
   entries: Inference[]
 }
 
@@ -84,13 +85,6 @@ export const LANES: Lane[] = ['mascot', 'brain']
 
 export function zeroTokens(): Tokens {
   return { input: 0, output: 0, reasoning: 0, cached: 0, total: 0 }
-}
-
-export function emptyTotals(): Totals {
-  return {
-    lanes: { mascot: { calls: 0, tokens: zeroTokens() }, brain: { calls: 0, tokens: zeroTokens() } },
-    sources: {},
-  }
 }
 
 /** Every token in every lane, as one figure. */
@@ -134,17 +128,19 @@ export async function loadLedger(options: { limit?: number; lane?: Lane } = {}):
   const feed = await readApi<LedgerFeed>(`/ledger?${query}`, {
     check: (body) => Array.isArray((body as LedgerFeed).entries) && Boolean((body as LedgerFeed).totals),
   })
-  if (!feed) return { source: 'unavailable', generatedAt: new Date().toISOString(), totals: emptyTotals(), entries: [] }
+  if (!feed) return { source: 'unavailable', generatedAt: new Date().toISOString(), entries: [] }
   return { ...feed, source: 'live' }
 }
 
-/** The totals alone, never cached: what the counter polls. */
-export async function loadTotals(): Promise<{ source: 'live' | 'unavailable'; totals: Totals }> {
+export type TotalsReading = { source: 'live'; totals: Totals } | { source: 'unavailable'; totals?: undefined }
+
+/** The totals alone, never cached: what the counter polls. Unreachable, there is no figure at all. */
+export async function loadTotals(): Promise<TotalsReading> {
   const feed = await readApi<LedgerFeed>('/ledger?limit=1', {
     revalidate: 0,
     check: (body) => Boolean((body as LedgerFeed).totals),
   })
-  return feed ? { source: 'live', totals: feed.totals } : { source: 'unavailable', totals: emptyTotals() }
+  return feed?.totals ? { source: 'live', totals: feed.totals } : { source: 'unavailable' }
 }
 
 export function formatTokens(n: number): string {

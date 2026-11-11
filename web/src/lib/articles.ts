@@ -17,7 +17,8 @@ export interface ArticleSummary {
   publishedAt?: string
   postId?: string
   cover?: string
-  wordCount: number
+  /** Undefined when the bot did not say. */
+  wordCount?: number
 }
 
 export interface ArticleImage {
@@ -55,7 +56,11 @@ export async function loadArticle(slug: string): Promise<Article | undefined> {
     revalidate: 300,
     check: (value) => typeof (value as { markdown?: unknown }).markdown === 'string',
   })
-  if (!body) return undefined
+  return body ? toArticle(body) : undefined
+}
+
+/** One article as the bot serves it at /articles/<slug>. */
+export function toArticle(body: Record<string, unknown>): Article {
   const cover = body.cover as ArticleImage | undefined
   return {
     slug: String(body.slug),
@@ -66,7 +71,7 @@ export async function loadArticle(slug: string): Promise<Article | undefined> {
     ...(typeof body.publishedAt === 'string' ? { publishedAt: body.publishedAt } : {}),
     ...(typeof body.postId === 'string' ? { postId: body.postId } : {}),
     ...(cover ? { cover: cover.file, coverImage: cover } : {}),
-    wordCount: Number(body.wordCount) || 0,
+    ...(typeof body.wordCount === 'number' && body.wordCount > 0 ? { wordCount: body.wordCount } : {}),
     ...(typeof body.engine === 'string' ? { engine: body.engine } : {}),
     markdown: String(body.markdown),
     images: Array.isArray(body.images) ? (body.images as ArticleImage[]) : [],
