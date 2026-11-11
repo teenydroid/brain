@@ -20,7 +20,9 @@ class SurfacesTest(support.Scratch):
 
     def test_limits_per_surface_and_field(self):
         self.assertEqual(field_limit("x", "text"), 280)
-        self.assertEqual(field_limit("telegram", "text"), 280)
+        # Telegram's own message limit; a surface with none named has X's.
+        self.assertEqual(field_limit("telegram", "text"), 4096)
+        self.assertEqual(field_limit("task", "text"), 280)
         self.assertEqual((field_limit("moltbook", "title"), field_limit("moltbook", "body")), (300, 10000))
         self.assertEqual((field_limit("github", "title"), field_limit("github", "body")), (256, 20000))
         self.assertEqual((field_limit("mail", "subject"), field_limit("mail", "body")), (200, 10000))
