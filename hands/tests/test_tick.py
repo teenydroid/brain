@@ -664,6 +664,10 @@ class TickTest(unittest.TestCase):
         self.assertEqual(out["kind"], "started")
         self.assertLess(took, 2.0)
         self.assertEqual(self.chats(), [])
+        # A beat waiting out its jitter already holds its slot.
+        self.wait_for(self.tick_lock_held, timeout=10)
+        second, _ = self.detach()
+        self.assertEqual(second["kind"], "busy")
 
     def test_a_beat_still_running_makes_the_next_cron_call_busy(self):
         os.environ["FAKE_TURN_SLEEP"] = "4"
