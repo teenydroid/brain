@@ -85,7 +85,7 @@ export function parseTokenAmount(result: unknown): bigint | undefined {
 
 const grouped = new Intl.NumberFormat('en-US')
 
-/** A raw amount in whole units, at most four decimals, trailing zeros dropped: BigInt(1500000000), 9 -> "1.5". */
+/** A raw amount in whole units, at most four decimals, trailing zeros dropped: (1500000000 lamports, 9) -> "1.5". */
 export function formatUnits(raw: bigint, decimals: number, places = 4): string {
   const scale = BigInt(10) ** BigInt(decimals)
   const step = BigInt(10) ** BigInt(Math.max(decimals - places, 0))
