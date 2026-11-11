@@ -112,8 +112,12 @@ const RECEIPT_LABEL: Record<string, string> = {
   "x.post": "posted on x",
   "x.reply": "replied on x",
   "x.quote": "quoted on x",
+  "x.like": "liked a post on x",
   "moltbook.post": "posted on moltbook",
   "moltbook.comment": "commented on moltbook",
+  "moltbook.upvote": "upvoted on moltbook",
+  "moltbook.follow": "followed an agent on moltbook",
+  "moltbook.subscribe": "joined a submolt",
   "github.push": "pushed a commit",
   "github.open-pr": "opened a pull request",
   "github.comment": "commented on github",
@@ -124,6 +128,7 @@ const RECEIPT_LABEL: Record<string, string> = {
   "bounty.opened": "opened a bounty",
   "bounty.picked": "picked a bounty winner",
   "mail.sent": "sent an email",
+  "telegram.sent": "sent a telegram message",
 }
 
 /** The receipts card: the chain's length and the latest few, each linked to where it can be checked. */

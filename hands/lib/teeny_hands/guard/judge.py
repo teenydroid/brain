@@ -152,6 +152,16 @@ def _answer(reply: Any) -> Any:
         return json.loads(text)
     except ValueError:
         pass
+    # glm-5.3-flash through the core sometimes loses exactly the opening
+    # `{"reason` of the object the rubric asks for (reason first). Put it
+    # back and read it only if what results is one whole JSON object; `read`
+    # still holds it to the verdict's shape, so nothing here turns into a pass
+    # that the model did not give.
+    if text.startswith('": '):
+        try:
+            return json.loads('{"reason' + text)
+        except ValueError:
+            pass
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
         try:

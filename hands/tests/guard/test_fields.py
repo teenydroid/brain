@@ -132,6 +132,19 @@ class FieldsJudgeTest(support.WithCore):
         self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "hate"))
         self.assertEqual(len(holds.list_holds()), 1)
 
+    def test_operator_text_can_go_without_the_judge_but_not_without_the_lexicon(self):
+        # The judge's model is down: every judged draft is held, and an
+        # operator script's fixed sentences still go out.
+        dead = {"jsonrpc": "2.0", "id": 1, "error": {"message": "local-openai returned HTTP 401 (invalid_api_key)"}}
+        core = self.core(dead)
+        self.assertEqual(check_fields({"title": "t", "body": "b"}, surface="github").kind, "hold")
+        asked = len(core.calls)
+        verdict = check_fields({"title": "t", "body": "b"}, surface="github", judge=False)
+        self.assertEqual((verdict.kind, verdict.fields), ("allow", {"title": "t", "body": "b"}))
+        self.assertEqual(len(core.calls), asked)
+        verdict = check_fields({"title": "t", "body": "this is fucking great"}, surface="github", judge=False)
+        self.assertEqual((verdict.kind, verdict.category), ("hold", "profanity"))
+
 
 class AllowlistTest(support.Scratch):
     def test_act_links_are_on_the_built_in_list(self):

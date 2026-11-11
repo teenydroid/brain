@@ -38,7 +38,7 @@ report they leave beside it.
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post and it is too expensive. |
 | `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. |
 | `upload` | A | Media upload of a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `like` | A | Like a mention (skipped under `DRY_RUN`). |
+| `like` | A | Like a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Delete an own post. Previews unless `--confirm`. |
 
 ### The webhook
@@ -111,6 +111,8 @@ surface `github`) first, and what goes out is the guard's rewrite.
 | `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch, the disclosure footer is appended (`—` / "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."), and it is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
 | `comment` | A | `{repo, number, body}`. |
 | `fork` | A | `{repo}`, somebody else's. |
+| `open-issue` | A | `{repo, title, body}`, on an own repo only (`owner`). |
+| `close-issue` | A | `{repo, number, comment?}`, on an own repo only: the comment first, then the issue closed as completed. |
 
 Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
 with no write anywhere: GitHub, git or the ledger. Done actions are recorded
@@ -336,7 +338,9 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
 - the builder's and operator's desks: their reports;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
-  Teeny's own follow-ups as they come due.
+  Teeny's own follow-ups as they come due;
+- `bin/health`: `health · alarm` when the model has failed two checks in a
+  row, and `health · recovered` when it answers again.
 
 `TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
 instead, the old per-surface agents.
@@ -412,7 +416,7 @@ hands/gh's own actions.
 |---|---|---|
 | `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. A claim older than 6 hours is failed as abandoned (and its request marked `failed`) before anything is handed out. |
 | `done` | A | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
-| `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. Then claims: `next`, written to `build.json` with `report_to` and `report_shape`. |
+| `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. A report left while `build.json` offered no job (`job: null`) that names no `job_id` only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then claims: `next`, written to `build.json` with `report_to` and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
 | `ship` | J | Every `ok` job, oldest first: creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). Then the job is `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
@@ -436,7 +440,7 @@ Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, email?, mail_codes?}, rules}`, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
 | `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?}`. `code_from` (a domain) goes with `needs_code` only. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
-| `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done`, then writes `next` to `task.json`. |
+| `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 
 `needs_human` is how a task ends wherever only a person may go on: the
@@ -569,7 +573,7 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_pacing`, `x_media`, `x_cache` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
 | `guard` | `guard_holds`, `guard_approved_links` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` |

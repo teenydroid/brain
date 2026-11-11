@@ -259,6 +259,7 @@ check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/std
 check "and the mind's tick is pinned beside it" grep -q 'teeny.tick' "$scratch/stderr"
 check "and its nightly reflection" grep -q 'teeny.reflect' "$scratch/stderr"
 check "and its midday one" grep -q 'teeny.reflect-midday' "$scratch/stderr"
+check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

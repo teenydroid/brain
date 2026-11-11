@@ -30,7 +30,7 @@
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
 them), `failed`, and the no-ops `asleep`, `busy` and `idle`, which are also
-`idle: true` so the reflection and the diary pass over them. Each beat that
+`idle: true` so the reflection passes over them. Each beat that
 thought is also an entry in Teeny's private journal,
 state/journal/<local date>.md, and in the core's memory (journal()).
 """
@@ -489,7 +489,7 @@ def listen() -> Json | None:
 
 def _idle(kind: str, raised: int, gathered: Mapping[str, Any], **more: Any) -> Json:
     """A beat that asks no model: logged all the same, marked `idle` so the
-    reflection and the diary pass over it."""
+    reflection passes over it."""
     line = {"ok": True, "kind": kind, **more, "idle": True, "raised": raised}
     _record(line)
     return {**line, **gathered}

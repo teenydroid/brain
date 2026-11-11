@@ -99,3 +99,12 @@ command = "bin/tasks-desk"
 [jobs.bounty-pay]
 schedule = "23 * * * *"
 command = "bin/bounty-pay"
+
+# Whether Teeny's model answers at all (bin/health): one tiny question through
+# the core; two failures in a row raise one alarm (a `health` stimulus and one
+# issue on teenydroid/brain), closed again when it answers. Operator-owned:
+# on 2026-11-11 a revoked key left Teeny without a model for seven hours and
+# nothing said so; the brain does not get to switch off its own watcher.
+[jobs.health]
+schedule = "*/15 * * * *"
+command = "bin/health"

@@ -225,7 +225,7 @@ class TickTest(unittest.TestCase):
         kinds = [r.get("kind") for r in self.runs()]
         self.assertEqual(kinds, ["quiet", "beat", "failed", "busy", "asleep"])
         asleep, busy = self.runs()[-1], self.runs()[-2]
-        # The no-ops keep `idle`, which the reflection and the diary skip.
+        # The no-ops keep `idle`, which the reflection skips.
         self.assertTrue(asleep["asleep"] and asleep["idle"])
         self.assertTrue(busy["idle"])
         self.assertEqual(asleep["waiting"], 1)

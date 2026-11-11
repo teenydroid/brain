@@ -276,3 +276,82 @@ class CommentAndForkTest(Scratch):
         self.assertEqual(actions.fork({"repo": "a/b"})["repo"]["full_name"], "teenydroid/b")
         with self.assertRaises(hand.Refused):
             actions.fork({"repo": "teenydroid/b"})
+
+
+class IssueTest(Scratch):
+    def setUp(self):
+        super().setUp()
+        self.opened = self.gh.route("POST", "/repos/teenydroid/brain/issues",
+                                    {"number": 41, "html_url": "https://github.com/teenydroid/brain/issues/41"}, status=201)
+        self.gh.route("POST", "/repos/teenydroid/brain/issues/41/comments", {"id": 5, "html_url": "c"}, status=201)
+        self.closed = self.gh.route("PATCH", "/repos/teenydroid/brain/issues/41",
+                                    {"number": 41, "state": "closed", "html_url": "u"})
+
+    def test_opens_an_issue_on_an_own_repo_through_the_guard(self):
+        out = actions.open_issue({"repo": "teenydroid/brain", "title": "the model — is down", "body": "since noon."})
+        self.assertEqual((out["opened_issue"], out["number"]), ("teenydroid/brain", 41))
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/issues")[0].json(),
+                         {"title": "the model, is down", "body": "since noon."})
+        self.assertEqual([(r["verb"], r["ref"]) for r in ledger()], [("open-issue", "41")])
+
+    def test_opens_issues_on_own_repos_only(self):
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "a/b", "title": "t", "body": "b"})
+        self.assertEqual(caught.exception.detail["rule"], "owner")
+        self.assertEqual(self.gh.seen, [])
+
+    def test_open_issue_dry_run_writes_nothing(self):
+        self.configure(DRY_RUN="1", GITHUB_TOKEN=None)
+        out = actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "b"})
+        self.assertEqual((out["dry_run"], out["would_open_issue"]), (True, "teenydroid/brain"))
+        self.assertEqual(self.gh.seen, [])
+        self.assertEqual(ledger(), [])
+
+    def test_a_held_issue_opens_nothing(self):
+        with self.assertRaises(hand.Refused) as caught:
+            actions.open_issue({"repo": "teenydroid/brain", "title": "t", "body": "this is fucking great"})
+        self.assertEqual(caught.exception.reason, "held")
+        self.assertEqual(self.gh.seen, [])
+
+    def test_an_operator_script_may_open_and_close_without_the_judge(self):
+        # The judge on and no core to ask: it fails closed, so a judged
+        # issue is held, and an unjudged one (the health alarm's) goes.
+        self.configure(SAFETY_JUDGE="1")
+        issue = {"repo": "teenydroid/brain", "title": "t", "body": "b"}
+        with self.assertRaises(hand.Refused):
+            actions.open_issue(issue)
+        self.assertEqual(actions.open_issue(issue, judge=False)["number"], 41)
+        with self.assertRaises(hand.Refused):
+            actions.close_issue({"repo": "teenydroid/brain", "number": 41, "comment": "c"})
+        actions.close_issue({"repo": "teenydroid/brain", "number": 41, "comment": "c"}, judge=False)
+        self.assertEqual(len(self.gh.requests("PATCH", "/repos/teenydroid/brain/issues/41")), 1)
+
+    def test_closes_an_own_issue_with_a_last_comment(self):
+        out = actions.close_issue({"repo": "teenydroid/brain", "number": 41, "comment": "back — all good."})
+        self.assertEqual((out["closed_issue"], out["number"]), ("teenydroid/brain", 41))
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/issues/41/comments")[0].json(),
+                         {"body": "back, all good."})
+        self.assertEqual(self.gh.requests("PATCH", "/repos/teenydroid/brain/issues/41")[0].json(),
+                         {"state": "closed", "state_reason": "completed"})
+        self.assertEqual([r["verb"] for r in ledger()], ["comment", "close-issue"])
+
+    def test_closes_without_a_comment(self):
+        actions.close_issue({"repo": "teenydroid/brain", "number": 41})
+        self.assertEqual(self.gh.requests("POST"), [])
+        self.assertEqual(len(self.gh.requests("PATCH", "/repos/teenydroid/brain/issues/41")), 1)
+
+    def test_closes_issues_on_own_repos_only_and_previews_under_dry_run(self):
+        with self.assertRaises(hand.Refused):
+            actions.close_issue({"repo": "a/b", "number": 1})
+        self.configure(DRY_RUN="1")
+        out = actions.close_issue({"repo": "teenydroid/brain", "number": 41, "comment": "ok"})
+        self.assertEqual((out["dry_run"], out["would_close_issue"], out["comment"]), (True, "teenydroid/brain", "ok"))
+        self.assertEqual(self.gh.seen, [])
+
+    def test_issue_bodies(self):
+        for body in (None, {}, {"repo": "teenydroid/brain", "title": "t"}, {"repo": "teenydroid/brain", "title": "t", "body": "b", "labels": []}):
+            with self.assertRaises(hand.HandError, msg=body):
+                actions.open_issue(body)
+        for body in ({"repo": "teenydroid/brain"}, {"repo": "teenydroid/brain", "number": 0}, {"repo": "teenydroid/brain", "number": 1, "comment": 5}):
+            with self.assertRaises(hand.HandError, msg=body):
+                actions.close_issue(body)

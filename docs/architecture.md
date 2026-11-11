@@ -203,8 +203,8 @@ is one line in `state/tick/runs.jsonl` with a `kind`:
 | `busy` | the last beat still holds the lock | no |
 | `idle` | nothing to take (rare: the inbox emptied under it) | no |
 
-The last three are also `idle: true`, which the reflection and the diary
-pass over. After each beat that thought, `bin/tick` writes a journal entry
+The last three are also `idle: true`, which the reflection passes over
+(`bin/receipts` never reads this log). After each beat that thought, `bin/tick` writes a journal entry
 (Teeny's local time, the thought, its own `journal` lines, and what it did
 as `do on target: status`; never the words sent or received) to
 `state/journal/<local date>.md` and to the core's memory (`memory_learn`,
@@ -282,7 +282,11 @@ Every scheduled job is in one of two files:
   minutes), `tick` (`bin/tick`, every 5 minutes, two minutes after each
   ingest), `reflect` (`bin/reflect`, 02:00 IST), `reflect-midday`
   (`bin/reflect --light`, 14:00 IST), `stats-snapshot`,
-  `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`.
+  `builder`, `build-ship`, `operator`, `tasks-desk`, `bounty-pay` and
+  `health` (`bin/health`, every 15 minutes: asks the model one short
+  question through the core; two failures in a row raise one alarm, a
+  `health` stimulus and one issue on teenydroid/brain, closed when it
+  answers again).
 - **`brain/cron.toml`**, Teeny's own: the heartbeat, `morning`, `brief`, and
   the playbooks that are kept but off (`enabled = false`).
 
@@ -458,7 +462,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
   ledger of Teeny's actions at `receipts/YYYY/MM/YYYY-MM-DD.jsonl`, with the
   head in `head.json`. Each line is checkable references (X post ids, Solana
   signatures, GitHub commits, Moltbook ids), a salted commitment to the
-  private ledger row, and the previous line's hash. It never holds text,
+  private ledger row, and the previous line's hash. Every surface is covered,
+  likes, upvotes, follows and subscriptions included; mail and Telegram
+  messages are a commitment alone, with nothing to say who or where. It never holds text,
   logs or the diary entry, so nothing the model read can reach it.
   `bin/receipts` (`bin/lib/receipts.py`, the daily `[jobs.receipts]`) builds
   it from the hands' ledgers with no model in the loop, refuses a published

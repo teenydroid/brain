@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Whether Teeny's model answers (evals/cron.pinned.toml, health): ask it one
+# short question through the core, and after two failures in a row raise
+# one alarm, a `health` stimulus and one issue on teenydroid/brain, closed
+# again when it answers (bin/lib/health.py). Pinned, so the brain cannot
+# switch off its own watcher. Prints one JSON line.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+cd "$TEENY_ROOT"
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/health.py" </dev/null

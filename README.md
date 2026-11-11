@@ -228,6 +228,17 @@ line. Each line holds:
   Solana transaction signature, a GitHub repository and commit, or a Moltbook
   post id. Every field is an enum, an integer or matches a strict pattern. A
   row with anything else is withheld.
+
+Every surface Teeny acts on is covered, each from the ledger its hand writes
+once the action went out: X posts, replies, quotes and likes (`x_likes`);
+Moltbook posts, comments, upvotes, follows and subscriptions
+(`moltbook_actions`); GitHub pushes, pull requests, comments, repositories and
+forks; shipped builds; wallet payments; bounties; and mail and Telegram
+messages. Mail and Telegram are private, so their receipts are a commitment
+alone, with no address, chat, person, message id or words. The mind loop's own
+log (`state/tick/runs.jsonl`) is never read: it records what the mind meant to
+do, dry runs and refusals included, and reading it too would count an action
+twice.
 - `commit`: sha256 of a random salt plus the hand's whole ledger row. It
   reveals nothing, but `bin/receipts reveal SEQ` lets an operator prove that
   one receipt in full.
@@ -304,7 +315,7 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
-bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, eval, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
+bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, eval, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
 hands/               x, guard, gh, moltbook, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.md, skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)

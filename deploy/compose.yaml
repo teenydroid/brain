@@ -26,17 +26,68 @@ services:
       # A non-passwd uid has no home; the core wants one.
       HOME: /tmp
       CALENDAR_TZ: ${CALENDAR_TZ:-UTC}
-    # The ladder and CortexDB are the box's shared containers, published on
-    # the docker0 address.
+    # The ladder is the box's shared container, published on the docker0
+    # address. CortexDB is this project's own service below, reached by its
+    # name on the compose network: CORTEX_API_URL=http://cortexdb:3141 in
+    # secrets/spine.env.
     extra_hosts:
       - "${LADDER:-ladder}:host-gateway"
-      - "cortexdb:host-gateway"
+    depends_on:
+      cortexdb:
+        condition: service_healthy
+        required: false
     volumes:
       - ..:/srv/teeny
     # Chromium (the browser operator) wants more shared memory than Docker's
     # 64 MB default. Its profile and downloads live in state/browser/, in
     # the mounted checkout, so a logged-in session survives a restart.
     shm_size: 1gb
+
+  # Teeny's long-term memory: the core's memory engine (bin/spine points it
+  # here with `memory_engine_set` when secrets/spine.env has CORTEX_API_URL).
+  # Its own store in the cortexdb-data volume; no published port, only the
+  # spine talks to it. Its models are Surplus Intelligence's (one account,
+  # one key: SURPLUS_API_KEY), written into secrets/cortex.env with the
+  # store's own CORTEX_API_KEY (deploy/cortex.env.example says how).
+  #
+  # The embedding pair (model and dims) is pinned on the first memory and
+  # cannot change after it without re-embedding everything stored.
+  cortexdb:
+    image: cortexdb/cortexdb:v0.10.4
+    restart: unless-stopped
+    env_file:
+      - path: ../secrets/cortex.env
+        required: false
+    environment:
+      CORTEX_V1_API_ADDR: 0.0.0.0:3141
+      CORTEX_BIND_ALL: "1"
+      CORTEX_CHANNEL: docker
+      CORTEX_LLM_URL: https://api.surplusintelligence.ai/v1
+      CORTEX_LLM_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_ENRICHMENT_URL: https://api.surplusintelligence.ai/v1
+      CORTEX_ENRICHMENT_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_ENRICHMENT_DELAY_SECONDS: "0"
+      CORTEX_ANSWER_URL: https://api.surplusintelligence.ai/v1
+      CORTEX_ANSWER_PROVIDER: openai
+      CORTEX_ANSWER_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_VERIFIER_URL: https://api.surplusintelligence.ai/v1
+      CORTEX_VERIFIER_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_EMBEDDING_URL: https://api.surplusintelligence.ai/v1
+      CORTEX_EMBEDDING_MODEL: venice-embed-1
+      CORTEX_EMBEDDING_DIMS: "1024"
+      CORTEX_EMBEDDING_HTTP_TIMEOUT_SECS: "30"
+      CORTEX_LLM_MAX_IN_FLIGHT: "16"
+      CORTEX_V1_LAYERS_AUTO: "1"
+      CORTEX_FACT_VALIDITY_FILTER: "1"
+      RUST_LOG: cortexdb=info,cortex_api=info,cortex_embedding=warn
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3141/v1/admin/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    volumes:
+      - cortexdb-data:/data
 
   # X's webhook (bin/x-webhook): mentions, replies and quotes pushed by X as
   # they happen, so nothing is searched or billed per post. The vhost routes
@@ -76,3 +127,6 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"
+
+volumes:
+  cortexdb-data:
