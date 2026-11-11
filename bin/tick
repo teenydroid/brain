@@ -2,13 +2,21 @@
 # One beat of Teeny's mind: drain the inbox into the teeny:mind thread and
 # carry out what it decides (bin/lib/tick.py; docs/architecture.md, 4a).
 #
-#   bin/tick
+#   bin/tick            # one beat, in the foreground; prints its record
+#   bin/tick --detach   # start the beat in the background and return at once
 #
-# The pinned `tick` cron job runs it every 5 minutes. Every awake beat asks
-# the model (an empty inbox is a quiet moment); a beat in the quiet hours
-# only gathers.
+# The pinned `tick` cron job runs `bin/tick --detach` every 5 minutes: a beat
+# (its jitter, the guard, a model turn, the hands) can outlast the 300 s the
+# core gives any cron shell call (docs/oh-gaps.md, G12). The detached beat
+# logs to state/tick/beat.log and records itself in state/tick/runs.jsonl;
+# while one is still running the call prints `"kind": "busy"` and starts
+# nothing (bin/lib/detach.py). Every awake beat asks the model (an empty
+# inbox is a quiet moment); a beat in the quiet hours only gathers.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need python3 jq
+if [ "${1:-}" = --detach ]; then
+  exec python3 "$TEENY_ROOT/bin/lib/detach.py" --log tick/beat.log --lock tick -- "$TEENY_ROOT/bin/tick"
+fi
 exec python3 "$TEENY_ROOT/bin/lib/tick.py"
