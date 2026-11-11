@@ -6,9 +6,10 @@ contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail`, `stats`, `requests`, `build`, `tasks`, `wallet` and `bounty` are built (`hands/guard`,
+`mail`, `stats`, `requests`, `build`, `tasks`, `wallet`, `bounty` and `slopcash` are built (`hands/guard`,
 `hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
 `hands/requests`, `hands/build`, `hands/tasks`, `hands/wallet`, `hands/bounty`,
+`hands/slopcash`,
 code in `hands/lib/teeny_hands/`,
 tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
@@ -183,6 +184,40 @@ Moltbook, the ledger or the failure count. The content id is recorded the
 moment Moltbook returns it, before the challenge is answered. Tables:
 `moltbook_posts`, `moltbook_comments`, `moltbook_actions`,
 `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`.
+
+## `slopcash`: Teeny's project on slop.cash
+
+slop.cash pays open-source contributors for accepted pull requests on the
+projects registered there. Teeny's project (`SLOPCASH_PROJECT`, default
+`teeny-s-brain`, on `teenydroid/brain`) is its job listing: headline,
+description and `contribution` (approved scope, required tests, ...).
+Contributors open pull requests against the repository and Slopbot
+(`slopdotcash[bot]`) reviews each one in a comment. The hand holds no key:
+slop.cash has none by design. Reads are public; `GITHUB_TOKEN` is optional,
+only raises GitHub's read rate limit, and is sent only to `api.github.com`.
+Posting a review comment on GitHub stays with `hands/gh comment`.
+
+| Verb | | Does |
+|---|---|---|
+| `project [ID]` | R | Status, authority state and reason, `why_paused` and `next_step` (for `missing-repository-proof`: install the Slopbot GitHub App on the repository only, then `check --confirm`), reward and funding, revision (1 min). |
+| `job [ID]` | R | The listing as posted: name, eyebrow, headline, description, `approvedScope`, `requiredTests`, `contributionGuide`, `supportedTasks`, the whole `contribution`, the repository and branch (1 min). |
+| `jobs [--steward LOGIN]` | R | Every registered project LOGIN (`GITHUB_USER`, teenydroid) stewards: id, status, headline (5 min). |
+| `revisions [ID]` | R | The project's revision history, newest first, without the manifests (5 min). |
+| `submissions [--state open\|closed\|all] [--max N] [--repo R]` | R | Pull requests on the project's repositories: number, title, author, dates, draft, merged, head sha, whether the body carries the "Made via @slopdotcash" footer, and Slopbot's latest comment (headline, body clipped to 1500) (2 min). |
+| `submission NUMBER [--repo R]` | R | One pull request: files (path, status, additions, deletions), the head's checks (statuses and check runs, one `state`), every Slopbot comment, the body (clipped), and the gate facts: `total_changed_lines`, `touched_paths` (rename sources included) (2 min). |
+| `post-job --file PATH [--reason R] [--confirm]` | O | Edits the listing. PATH is a JSON object of the fields to change: `name`, `eyebrow`, `headline`, `description`, `links` (replaced whole), `contribution` (merged over the current one). Owner-restricted fields (steward, authority, terms, status, listingTier, repositories, skill, reviewSkill) are refused locally (`owner_field_restricted`), anything else not the listing too (`not_editable`). Without `--confirm`, or under `DRY_RUN`, a preview: each field before and after, and whether it pauses the project and queues a rescan (a changed `contribution` does), with no sign-in. Confirmed: sign in, read the manifest and revision, PUT the whole manifest with only those fields changed against `expectedRevision`. A `409 stale_revision` is an error: run it again. |
+| `check [--scan] [--confirm]` | O | Signs in and runs slop.cash's setup checks (`requestScan` with `--scan`); they activate the project when they pass. Prints the state, the checks and the one next action. Without `--confirm`, or under `DRY_RUN`, says what it would do. |
+| `setup` | O | Signs in and lists the account's projects and stored applications. |
+
+**Signing in.** Each operator verb signs in itself, in process: the hand starts
+a flow at `SLOPCASH_IDENTITY_BASE`, prints only the GitHub authorization link
+on stderr, polls no faster than asked until the operator has signed in (as the
+steward) or `SLOPCASH_SIGNIN_TIMEOUT_SECONDS` (300) pass, then joins slop.cash
+for its hour-long `__Host-slop_points` cookie, sent with slop.cash's Origin on
+every write. The flow id, the poll capability, the assertion and the session
+token stay in process memory: never in argv, the environment, a file, stdout,
+a log or an error. That is why these verbs are the operator's and never an
+agent's. Reads are cached in `slopcash_cache`.
 
 ## `mail`: the only holder of the AgentMail key
 
@@ -493,6 +528,7 @@ persisted, which is a deliberate fix.
 | `gh_actions` (the GitHub ledger and the external-PR cap), `gh_cache` | — |
 | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` | — |
 | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` | — |
+| `slopcash_cache` | — |
 | `build_requests` (asks to build something, from any channel), `build_request_events` (who moved which request, and why) | — |
 | `build_jobs` (the builder's queue, what shipped where) | — |
 | `browser_tasks` (the browser operator's queue and outcomes) | — |
