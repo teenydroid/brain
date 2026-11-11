@@ -166,6 +166,10 @@ check "a habit nudges at most max_per_day times a day" test "$(jq -r .skipped <<
 printf '+++\ndescription = "x"\noutput = "hand:mail reply"\nsurface = "mail"\nnudge = true\n+++\ngo\n' >"$brain/playbooks/bad-habit.md"
 check "refuses a nudge for an output the mind cannot carry out" bash -c "! '$act' --check bad-habit >/dev/null 2>&1"
 rm -f "$brain/playbooks/gm-habit.md" "$brain/playbooks/bad-habit.md" "$scratch/hands/stimuli"
+# Back to one morning post taken today, for the budget checks below.
+reset
+answer '{"action": "post", "text": "gm tiny humans"}'
+run morning >/dev/null
 
 # --- the daily budget ------------------------------------------------------------
 : >"$FAKE_CALLS"; : >"$FAKE_HANDS"
