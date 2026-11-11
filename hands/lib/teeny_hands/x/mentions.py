@@ -30,7 +30,6 @@ from .. import hand
 from . import cache, open_db
 from . import posting_rules as rules
 from .client import XApi, number_setting
-from .model import SearchOptions
 from .model import Json
 
 #: The source the core is configured to coalesce (`[inbound.sources."x:mentions"]`).
@@ -144,48 +143,6 @@ def _set_cursor(conn, name: str, since_id: str | None, now: float) -> None:
     )
 
 
-#: How far back the account's own posts are swept for replies, and how often
-#: one conversation is read again (each read is a billed search).
-SWEEP_HOURS = 48
-SWEEP_EVERY_MINUTES = 15
-
-
-def _sweep_replies(conn, x: XApi, me: Mapping[str, Any], counts: dict[str, int], now: float) -> tuple[int, str | None]:
-    """X's mentions timeline leaves some replies out (2026-11-11: four of nine
-    replies to the gm never came back from /mentions; a conversation search
-    found every one). So the replies under the account's own recent posts are
-    read too, each conversation from its own cursor and at most every
-    X_REPLY_SWEEP_MINUTES. Only posts answering the account are queued, not
-    people talking to each other under it. A failed search is reported and
-    leaves the mentions as they are."""
-    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'x_posts'").fetchone():
-        return 0, None
-    every = int(number_setting("X_REPLY_SWEEP_MINUTES", SWEEP_EVERY_MINUTES, 5, 1440)) * 60
-    own = conn.execute(
-        "SELECT id FROM x_posts WHERE kind = 'post' AND created_at >= ? ORDER BY created_at DESC LIMIT 10",
-        (now - SWEEP_HOURS * 3600,),
-    ).fetchall()
-    swept = 0
-    for row in own:
-        name = f"replies:{row['id']}"
-        cursor = conn.execute("SELECT since_id, at FROM x_cursor WHERE name = ?", (name,)).fetchone()
-        if cursor and now - float(cursor["at"]) < every:
-            continue
-        options = SearchOptions(max_results=50, since_id=(cursor["since_id"] or None) if cursor else None)
-        try:
-            page = x.search_page(f"conversation_id:{row['id']} -from:{me['username']}", options)
-        except hand.HandError as exc:
-            return swept, f"reply sweep of {row['id']} failed: {exc}"
-        swept += 1
-        found = page["posts"]
-        for post in sorted(found, key=lambda p: int(p["id"])):
-            if post.get("inReplyToUserId") == me["id"]:
-                _store(conn, me, post, counts, now)
-        newest = page.get("newestId") or (max((p["id"] for p in found), key=int) if found else None)
-        _set_cursor(conn, name, newest or (cursor["since_id"] if cursor else None), now)
-    return swept, None
-
-
 def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None) -> Mapping[str, Any]:
     """Reads new mentions into the queue and offers every pending one. Safe to
     run at any time and twice at once (a lock), and it never answers anyone."""
@@ -208,7 +165,6 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
         if newest:
             _set_cursor(conn, "mentions", newest, now)
-        swept, sweep_error = _sweep_replies(conn, x, me, counts, now)
 
         offered, failed = 0, None
         if offer:
@@ -226,10 +182,6 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
                 offered += 1
         new = {status: n for status, n in counts.items() if n}
         result: dict[str, Any] = {"read": len(posts), "new": new, "offered": offered, "cursor": newest or since_id}
-        if swept:
-            result["swept"] = swept
-        if sweep_error:
-            result["sweep_error"] = sweep_error
         if failed:
             _warn(f"offer failed, left pending: {failed}")
             result["offer_error"] = failed
