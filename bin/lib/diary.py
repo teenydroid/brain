@@ -21,8 +21,10 @@ Under DRY_RUN (the default) the pages are written to state/diary-preview/ and
 nothing touches git. Live, the repository is cloned to state/diary-repo/ (and
 fast-forwarded on later runs), the pages are written there and committed, and
 the commit is pushed with DIARY_GITHUB_TOKEN (or GITHUB_TOKEN). The token is
-handed to git through a credential helper that reads it from the environment,
-so it never appears in a URL, in .git/config or in argv.
+handed to git through askpass and that one command's environment
+(teeny_hands.git), so it never appears in a URL, in .git/config or in argv.
+Every git run ignores the box's git config and hooks and commits as Teeny
+<teeny@agentmail.to> (or GIT_NAME / GIT_EMAIL).
 
 Before anything is committed the staged diff is checked for every value in
 secrets/*.env that is 12 characters or longer, and for the usual shapes of a
@@ -41,7 +43,6 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -50,7 +51,7 @@ from zoneinfo import ZoneInfo
 CODE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 
-from teeny_hands import hand  # noqa: E402
+from teeny_hands import git, hand  # noqa: E402
 
 DEFAULT_TZ = "Asia/Kolkata"
 DEFAULT_REPO = "teenydroid/diary"
@@ -272,25 +273,11 @@ def check_secrets(diff: str) -> None:
 
 # --- git ------------------------------------------------------------------------------------------------
 
-#: Reads the token from the environment at the moment git asks; nothing is
-#: written down.
-CREDENTIAL_HELPER = "!f() { test \"$1\" = get && echo username=x-access-token && echo \"password=$TEENY_DIARY_TOKEN\"; }; f"
-
-
 def _git(repo: Path | None, *args: str, token: str | None = None) -> str:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    cmd = ["git"]
-    if token:
-        env["TEENY_DIARY_TOKEN"] = token
-        cmd += ["-c", "credential.helper=", "-c", f"credential.helper={CREDENTIAL_HELPER}"]
-    if repo is not None:
-        cmd += ["-C", str(repo)]
-    done = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env, timeout=90)
-    if done.returncode != 0:
-        # git's message names the remote and the failing step; the token is
-        # never in it (it only lives in the helper's environment).
-        raise hand.HandError(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()[-400:]}")
-    return done.stdout
+    # Sealed off from the box and committing as Teeny (teeny_hands.git); the
+    # token reaches git through askpass and this one command's environment.
+    # git's message names the remote and the failing step, never the token.
+    return git.text(repo, *args, token=token, timeout=90)
 
 
 def _checkout(token: str) -> Path:
@@ -308,8 +295,6 @@ def _checkout(token: str) -> Path:
         # rebases cleanly on top.
         _git(repo, "checkout", "-q", branch)
         _git(repo, "rebase", "-q", f"origin/{branch}")
-    _git(repo, "config", "user.name", hand.setting("DIARY_GIT_NAME") or "Teeny")
-    _git(repo, "config", "user.email", hand.setting("DIARY_GIT_EMAIL") or "tiny@tinyhumans.ai")
     return repo
 
 

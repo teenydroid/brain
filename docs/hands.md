@@ -107,7 +107,7 @@ surface `github`) first, and what goes out is the guard's rewrite.
 | `contributing OWNER/REPO` | R | Reads `AI_POLICY.md`, `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` (root, `.github/`, `docs/`) and says whether the project forbids AI-, LLM- or bot-made contributions: `{forbids_ai, verdict: forbids\|allows\|silent, files, evidence}`. A keyword-and-phrase heuristic, conservative: a ban forbids, a clear welcome allows, a mention it cannot read forbids, silence is not a ban (a day). |
 | `activity [--days N]` | R | Teeny's own pull requests opened and merged and its commits over the last N days (default 7), for the ship log (10 minutes). |
 | `create-repo` | A | `{name, description?, private?}`. Under `GITHUB_USER` only, and only when the token is that account's. The description is screened. |
-| `push` | A | `{workdir, repo, branch, message}`. Commits everything git would add in a folder under `state/workbench/` (symlinks resolved) as `GITHUB_USER` (noreply address) and pushes `HEAD` to `branch` on an own repo. Never forces, ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when the files or the history hold a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`) or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block). The token reaches git only through the environment of that one command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
+| `push` | A | `{workdir, repo, branch, message}`. Commits everything git would add in a folder under `state/workbench/` (symlinks resolved) as Teeny (`GIT_NAME` / `GIT_EMAIL`, default `teeny@agentmail.to`; see "git") and pushes `HEAD` to `branch` on an own repo. Never forces, ignores the box's git config, runs no hooks. Refused with `findings` (`{path, rule}`, never the secret) when the files or the history hold a secret path (`.env*`, `secrets/`, `state/`, `*.pem`, `id_*`, `*.key`) or a token (`ghp_`, `github_pat_`, `sk-`, `xox`, `AKIA`, a private key block). The token reaches git only through the environment of that one command and an askpass helper that holds no secret; it is never in the URL, a config file or a log. |
 | `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch, the disclosure footer is appended (`—` / "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."), and it is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
 | `comment` | A | `{repo, number, body}`. |
 | `fork` | A | `{repo}`, somebody else's. |
@@ -115,6 +115,31 @@ surface `github`) first, and what goes out is the guard's rewrite.
 Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
 with no write anywhere: GitHub, git or the ledger. Done actions are recorded
 in `gh_actions` (which also counts the daily cap); reads in `gh_cache`.
+
+## `git`: how every git command is set up
+
+The container's uid has no passwd entry and HOME is /tmp, so a bare `git
+commit` there cannot tell who it is. Every git run in the hands (hands/gh's
+`push`, bin/diary) goes through `teeny_hands/git.py`, which:
+
+- commits as **Teeny <teeny@agentmail.to>**, or `GIT_NAME` / `GIT_EMAIL` from
+  secrets/teeny.env (never the process environment), set as GIT_AUTHOR_* and
+  GIT_COMMITTER_*;
+- reads no system or global config (HOME is state/), runs no hooks, signs
+  nothing, uses no credential helper and never prompts;
+- takes a token only for the one command that needs it, through askpass and
+  that command's environment, and redacts it from any error.
+
+The image also writes the same identity, `init.defaultBranch main` and
+`safe.directory /srv/teeny` to /etc/gitconfig, for git run by hand inside
+the container.
+
+| Verb | Kind | What |
+|---|---|---|
+| `check` | R | Commits in a scratch repository under state/ (removed again) and reports git's `version` and the `name` / `email` it committed as. bin/doctor runs it. |
+| `whoami` | R | The identity in effect. |
+
+Holds no token.
 
 ## `moltbook`: the only holder of the Moltbook key
 

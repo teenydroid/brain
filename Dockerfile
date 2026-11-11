@@ -61,6 +61,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl jq sqlite3 python3 git \
       chromium fonts-liberation bubblewrap \
  && rm -rf /var/lib/apt/lists/*
+# git for whoever runs it in the container without the hands (an operator's
+# `exec`, a job's shell): the uid has no passwd entry and HOME is /tmp, so
+# without this `git commit` cannot work out who it is, and a checkout owned
+# by another uid is refused as unsafe. The hands ignore this file and set
+# the same identity themselves (hands/lib/teeny_hands/git.py; GIT_NAME and
+# GIT_EMAIL in secrets/teeny.env move both). `hands/git check` proves it.
+RUN git config --system user.name "Teeny" \
+ && git config --system user.email "teeny@agentmail.to" \
+ && git config --system init.defaultBranch main \
+ && git config --system safe.directory /srv/teeny \
+ && git config --system --add safe.directory '/srv/teeny/*' \
+ && git config --system advice.detachedHead false
 COPY --from=builder /teeny-spine /usr/local/bin/teeny-spine
 COPY --from=modules /bundled-modules /opt/openhuman/bundled-modules
 ENV OPENHUMAN_BUNDLED_MODULES=/opt/openhuman/bundled-modules \
