@@ -22,7 +22,7 @@ memory_block = { max_tokens = 1500 }
 # file (those, then "# your world": CONTEXT.md, the lore, the arcs) into
 # brain/agent/prompts/teeny-mentions.md at every boot (bin/lib/prompts.py).
 [system_prompt]
-file = "teeny-mentions.md"
+file = { path = "teeny-mentions.md" }
 
 [tools]
 named = []
