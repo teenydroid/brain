@@ -62,7 +62,8 @@ FAKE
 cat >"$scratch/hands/queue" <<'FAKE'
 #!/usr/bin/env bash
 printf 'queue %s\n' "$*" >>"$FAKE_HANDS"
-printf '%s\n' "${FAKE_QUEUE:-{\"brief\": null}}"
+default='{"brief": null}'
+printf '%s\n' "${FAKE_QUEUE-$default}"
 FAKE
 chmod +x "$scratch/fake-oh" "$scratch/hands/"*
 
