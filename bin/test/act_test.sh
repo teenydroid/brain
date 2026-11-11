@@ -33,6 +33,8 @@ in="$(cat)"
 printf 'x %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   search) echo '{"ok": true, "posts": [{"id": "111", "text": "gm @teenydroid, what are you building?"}]}' ;;
+  upload) [ -n "${FAKE_UPLOAD_FAIL:-}" ] && { echo '{"ok": false, "error": "X answered 500"}'; exit 1; }
+    echo '{"ok": true, "media_id": "1234567890"}' ;;
   *) echo '{"ok": true, "dry_run": true}'; exit "${FAKE_X_EXIT:-0}" ;;
 esac
 FAKE
@@ -58,6 +60,18 @@ in="$(cat)"
 printf 'lab %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
 echo '{"ok": true}'
 FAKE
+# The media hands: log what they were asked and answer an asset (or a dry
+# run, or a failure).
+for kind in image video; do
+cat >"$scratch/hands/$kind" <<FAKE
+#!/usr/bin/env bash
+in="\$(cat)"
+printf '$kind %s stdin=%s\n' "\$*" "\$in" >>"\$FAKE_HANDS"
+[ -n "\${FAKE_MEDIA_FAIL:-}" ] && { echo '{"ok": false, "refused": "today'"'"'s 8 image(s) are made"}'; exit 2; }
+[ -n "\${FAKE_MEDIA_DRY:-}" ] && { echo '{"ok": true, "dry_run": true, "prompt": "x"}'; exit 0; }
+echo '{"ok": true, "asset": {"id": 7, "path": "state/media/$kind-7.png", "cost_usd": 0.016}}'
+FAKE
+done
 # A queue: `next` answers $FAKE_QUEUE (default: nothing queued).
 cat >"$scratch/hands/queue" <<'FAKE'
 #!/usr/bin/env bash
@@ -145,6 +159,58 @@ done
 printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
+
+# --- media: a picture of Teeny on a post ---------------------------------------------
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
+answer '{"action": "post", "text": "gm", "image": "waking up at the desk"}'
+out="$(run pic)"
+check "tells the model it may add a picture" grep -q 'character sheet' <<<"$(jq -r .message "$FAKE_CALLS")"
+check "puts the picture's description past the guard" grep -q '^guard check stdin={"text":"waking up at the desk","surface":"x"}' "$FAKE_HANDS"
+check "makes the picture from the guard's words" grep -q '^image generate stdin={"prompt":"waking up at the desk\[g\]"}' "$FAKE_HANDS"
+check "uploads the file it made" grep -q '^x upload --file state/media/image-7.png ' "$FAKE_HANDS"
+check "and posts with it attached" grep -q '^x post DRY_RUN= stdin={"text":"gm","media_ids":\["1234567890"\]}' "$FAKE_HANDS"
+check "says what it attached" test "$(jq -r '.actions[0].media.media_id' <<<"$out")" = 1234567890
+reset
+out="$(FAKE_MEDIA_FAIL=1 run pic)"
+check "a picture it could not make leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+check "and says why" test "$(jq -r '.actions[0].media.skipped' <<<"$out")" = "not made"
+check "and the post still went out" test "$(jq -r '.actions[0].status' <<<"$out")" = done
+reset
+out="$(FAKE_UPLOAD_FAIL=1 run pic)"
+check "an upload that failed leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+reset
+out="$(FAKE_MEDIA_DRY=1 run pic)"
+check "a rehearsal makes no picture and uploads nothing" test "$(hand_calls x)" = 1
+check "and says it was a dry run" test "$(jq -r '.actions[0].media.dry_run' <<<"$out")" = true
+reset
+answer '{"action": "post", "text": "gm", "image": "a BAD scene"}'
+out="$(run pic)"
+check "a description the guard holds makes no picture" test "$(hand_calls image)" = 0
+check "and the post goes out without one" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+reset
+answer '{"action": "post", "text": "gm", "video": "waves"}'
+out="$(run pic)"
+check "a video the playbook does not allow is not made" test "$(hand_calls video)" = 0
+reset
+book plain post 1
+answer '{"action": "post", "text": "gm", "image": "waking up"}'
+run plain >/dev/null
+check "a playbook without media never makes a picture" test "$(hand_calls image)" = 0
+check "and never tells the model it may" bash -c "! grep -q 'character sheet' <<<\"\$(jq -r .message '$FAKE_CALLS')\""
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab post"\nmedia = ["image", "video"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
+answer '{"action": "hand", "text": "gm", "video": "waves", "image": "at the desk"}'
+run pic >/dev/null
+check "a video gets its first frame's description too" grep -q '^video generate stdin={"prompt":"waves\[g\]","image_prompt":"at the desk\[g\]"}' "$FAKE_HANDS"
+check "a hand: output gets the media ids and not the descriptions" grep -q '^lab post stdin={"text":"gm\[g\]","media_ids":\["1234567890"\]}' "$FAKE_HANDS"
+printf '+++\ndescription = "test"\noutput = "reply"\nmedia = ["image"]\n+++\nx\n' >"$brain/playbooks/pic.md"
+check "refuses media on a reply" bash -c "! '$act' --check pic >/dev/null 2>&1"
+printf '+++\ndescription = "test"\noutput = "post"\nmedia = ["gif"]\n+++\nx\n' >"$brain/playbooks/pic.md"
+check "refuses a media kind it does not know" bash -c "! '$act' --check pic >/dev/null 2>&1"
+printf '+++\ndescription = "test"\noutput = "hand:image generate"\n+++\nx\n' >"$brain/playbooks/pic.md"
+check "the media hands are never a playbook's output" bash -c "! '$act' --check pic >/dev/null 2>&1"
+rm -f "$brain/playbooks/pic.md" "$brain/playbooks/plain.md"
 
 # --- a rule refusing is not an action taken ---------------------------------------------
 reset
