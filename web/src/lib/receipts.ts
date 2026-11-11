@@ -117,22 +117,86 @@ export function parseReceipts(text: string): Receipt[] {
   return out.reverse()
 }
 
+const DAY_FILE = /^(\d{4})\/(\d{2})\/(\d{4})-(\d{2})-\d{2}\.jsonl$/
+
+/** The day files from a listing of receipts/, as repository paths, newest first. */
 export function receiptFiles(tree: string[]): string[] {
-  void tree
-  return []
+  return tree
+    .filter((path) => {
+      const match = DAY_FILE.exec(path)
+      return Boolean(match && match[1] === match[3] && match[2] === match[4])
+    })
+    .sort()
+    .reverse()
+    .map((path) => `receipts/${path}`)
 }
 
 export interface Assembled {
+  /** How many receipts the chain holds: head.json's seq, or the newest seq read if that is higher. */
   head: number
+  /** The newest few, newest first. */
   latest: Receipt[]
+  /** Receipts per kind over every file read, biggest first. */
   tally: Array<{ kind: string; count: number }>
+  /** What the tally covers: since when, how many, and whether that reaches the first receipt. */
   window?: { from: string; count: number; complete: boolean }
 }
 
+/** The chain head plus the text of the newest day files (newest first), as the site shows them. */
 export function assemble(head: number, files: string[], latest: number): Assembled {
-  void files
-  void latest
-  return { head, latest: [], tally: [] }
+  const receipts = files.flatMap((text) => parseReceipts(text))
+  if (!receipts.length) return { head, latest: [], tally: [] }
+  const counts = new Map<string, number>()
+  for (const r of receipts) counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1)
+  const tally = [...counts.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind))
+  const oldest = receipts[receipts.length - 1]
+  return {
+    head: Math.max(head, receipts[0].seq),
+    latest: receipts.slice(0, latest),
+    tally,
+    window: { from: oldest.at, count: receipts.length, complete: oldest.seq === 1 },
+  }
 }
 
-export { listTree, readRaw, REVALIDATE }
+export interface Receipts extends Assembled {
+  /** `unavailable` when GitHub did not answer for head.json: then there is no count at all. */
+  source: 'live' | 'unavailable'
+  url: string
+}
+
+/**
+ * The receipts as published: head.json for the count, the receipts/ listing
+ * for the day files, and the newest `days` of those files for the latest few
+ * and the tally. No head.json yet is a chain of zero; a head that cannot be
+ * read is unavailable, never zero.
+ */
+export async function loadReceipts(options: { latest?: number; days?: number } = {}): Promise<Receipts> {
+  const url = `${DIARY_REPO_URL}/tree/main/receipts`
+  const unavailable: Receipts = { source: 'unavailable', url, head: 0, latest: [], tally: [] }
+  const headRead = await readRaw(DIARY_REPO, 'head.json', REVALIDATE)
+  if (headRead.status === 'unavailable') return unavailable
+  let head = 0
+  if (headRead.status === 'ok') {
+    try {
+      const parsed = JSON.parse(headRead.text) as { seq?: unknown }
+      if (typeof parsed?.seq !== 'number' || !Number.isSafeInteger(parsed.seq) || parsed.seq < 0) return unavailable
+      head = parsed.seq
+    } catch {
+      return unavailable
+    }
+  }
+  if (!head) return { source: 'live', url, head, latest: [], tally: [] }
+  const listing = await listTree(DIARY_REPO, 'receipts', REVALIDATE)
+  const paths = listing.status === 'ok' ? receiptFiles(listing.paths).slice(0, options.days ?? 14) : []
+  const texts = await Promise.all(paths.map(async (path) => {
+    const read = await readRaw(DIARY_REPO, path, REVALIDATE)
+    return read.status === 'ok' ? read.text : ''
+  }))
+  // A file in the middle that failed to read would make the tally lie about
+  // its window, so the tally stops at the first gap.
+  const gap = texts.indexOf('')
+  const read = gap === -1 ? texts : texts.slice(0, gap)
+  return { source: 'live', url, ...assemble(head, read, options.latest ?? 5) }
+}
