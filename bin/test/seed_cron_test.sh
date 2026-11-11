@@ -192,6 +192,13 @@ seed
 check "keeps the pinned jobs when the brain drops every job of its own" test -n "$(job_field teeny.watch .id)"
 check "and removes the brain's heartbeat when the brain drops it" test -z "$(job_field teeny.heartbeat .id)"
 refuses "refuses a brain job that takes a pinned job's name" $'[jobs.watch]\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"'
+# The cap is on the brain's own jobs: the operator's pinned ones (the mind's
+# tick, the inbound jobs) never crowd Teeny out of its 24.
+full=""
+for i in $(seq 1 24); do full+=$'[jobs.j'"$i"$']\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\n'; done
+reset
+printf '%s' "$full" >"$toml"
+if seed >/dev/null; then pass "the pinned jobs do not count against the brain's 24"; else fail "the pinned jobs do not count against the brain's 24: $(cat "$scratch/stderr")"; fi
 : >"$pinned"
 
 # --- agent jobs: an agent written to act on a schedule, with a prompt ------------
@@ -249,6 +256,7 @@ check "--check says the file is valid" grep -q 'is valid' "$scratch/stderr"
 reset
 "$seed" --dry-run --file "$here/../../brain/cron.toml" --pinned "$here/../../evals/cron.pinned.toml" 2>"$scratch/stderr"
 check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
+check "and the mind's tick is pinned beside it" grep -q 'teeny.tick' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
