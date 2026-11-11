@@ -158,8 +158,9 @@ class SubmissionsTest(Scratch):
 
     def test_the_token_never_goes_to_a_github_base_that_is_not_githubs(self):
         self.configure(GITHUB_TOKEN=GITHUB_TOKEN, GITHUB_API_BASE="https://ghproxy.example")
-        api = reads.client.github()
-        self.assertFalse(api.sends_key)
+        self.assertIsNone(reads.client.github_token())
+        self.configure(GITHUB_TOKEN=GITHUB_TOKEN, GITHUB_API_BASE="https://api.github.com")
+        self.assertEqual(reads.client.github_token(), GITHUB_TOKEN)
 
 
 class SubmissionTest(Scratch):
