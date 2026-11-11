@@ -283,7 +283,7 @@ def _infra_params() -> tuple[str, str]:
 
 def infra_holds(before: str, limit: int, inbound_keys: dict[str, str]) -> list[dict[str, Any]]:
     """Pending holds the judge made only because it could not answer, written
-    before `before`, at most `limit`: the account's own drafts (any direction
+    before `before`, with words in them, at most `limit`: the account's own drafts (any direction
     but inbound), and inbound messages on a surface in `inbound_keys` whose
     context names the item (`inbound_keys[surface]`) to return. Never asked
     about first, then the longest ago; oldest first within each."""
@@ -296,7 +296,8 @@ def infra_holds(before: str, limit: int, inbound_keys: dict[str, str]) -> list[d
         params += [surface, f"$.{key}"]
     with _store() as conn:
         rows = conn.execute(
-            f"SELECT * FROM guard_holds WHERE status = 'pending' AND {_INFRA} AND at < ?"
+            # Blank text is never asked about: the guard passes it unjudged.
+            f"SELECT * FROM guard_holds WHERE status = 'pending' AND {_INFRA} AND at < ? AND trim(text, char(32, 9, 10, 13)) != ''"
             f" AND (direction != 'inbound' OR {where})"
             " ORDER BY rescreened_at IS NOT NULL, rescreened_at, at, id LIMIT ?",
             (*_infra_params(), before, *params, max(1, limit)),

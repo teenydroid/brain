@@ -226,6 +226,15 @@ class InboundTest(RescreenBase):
         self.assertIn("already", holds.get(again["id"])["effect"])
         self.assertEqual(holds.get(first["id"])["status"], "cleared")
 
+    def test_a_blank_text_is_never_released_without_the_judge(self):
+        # The guard passes blank text without asking the judge; a re-screen
+        # releases nothing it has not heard a fresh `clean` for.
+        holds.record(direction="inbound", kind="message", context={"surface": "x", "post_id": "9"},
+                     category="unknown", reason="the judge could not be reached: x", by="judge", text=" \n\t ")
+        self.judge_says(CLEAN)
+        self.assertEqual(self.run_at(LATER)["checked"], 0)
+        self.assertEqual(self.core.calls, [])
+
     def test_nothing_is_asked_when_the_judge_is_off(self):
         held = self.held_mention()
         self.configure(SAFETY_JUDGE="0")
