@@ -15,6 +15,12 @@ this module before and around every beat.
   energy left, at most every IDLE_EVERY_SECS, gives the mind a look at the
   world instead (Moltbook's hot posts, read only) as a `world · idle`
   stimulus. It may comment, note a thought, or let it pass.
+- **A quiet moment.** Any other awake beat with nothing in the inbox gets a
+  `self · quiet` stimulus (`quiet`): nothing came in, what are you up to?
+  With what the mind can act on: when it last did something out in the
+  world, the notes it kept today, the follow-ups waiting, and, when energy
+  is low, that resting is fine. So every awake beat is a real turn; only
+  night beats skip the model.
 - **Jitter.** Each beat starts up to TEENY_TICK_JITTER_SECS late, so Teeny
   does not answer on the minute like a cron job.
 
@@ -27,6 +33,7 @@ import datetime as dt
 import json
 import os
 import random
+import secrets
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
@@ -124,7 +131,19 @@ def spent(actions: int) -> None:
         return
     state = load()
     state["actions_today"] = int(state.get("actions_today", 0)) + actions
+    state["last_action_at"] = hand.now()
     save(state)
+
+
+def ago(at: float) -> str:
+    secs = max(0, int(hand.now() - at))
+    if secs < 90:
+        return "just now"
+    if secs < 5400:
+        return f"{secs // 60} min ago"
+    if secs < 172800:
+        return f"{secs // 3600} h ago"
+    return f"{secs // 86400} days ago"
 
 
 def feel(intent: Mapping[str, Any]) -> Json:
@@ -220,6 +239,38 @@ def wander(run_hand: Callable[[str, list[str], Any], tuple[int, Json]]) -> bool:
     lines += [f"- {p['title']} (by {p['author']}, post_id {p['post_id']})" for p in seen]
     lines.append("Look, comment on one, note a thought, or let it pass.")
     return stimuli.add("world", "idle", f"moltbook-hot:{int(hand.now())}", "\n".join(lines), payload={"posts": seen})
+
+
+def quiet() -> bool:
+    """An awake beat with nothing to answer and nothing seen: a moment to
+    itself, as a `self · quiet` stimulus, so the beat still thinks. Its ref
+    is new every beat, so the inbox's dedupe never swallows it. True when
+    it was added."""
+    state = load()
+    e = energy(state)
+    lines = ["Nothing new came in. What are you up to right now? Think, keep track of yourself, or do one small thing."]
+    last = float(state.get("last_action_at", 0) or 0)
+    if state["actions_today"] and last:
+        lines.append(f"Your last action out in the world was {ago(last)} ({state['actions_today']} action(s) today).")
+    elif last:
+        lines.append(f"Nothing out in the world yet today; your last action was {ago(last)}.")
+    else:
+        lines.append("Nothing out in the world yet today.")
+    midnight = local().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    kept = len(stimuli.notes(since=midnight)["notes"])
+    if kept:
+        lines.append(f"You kept {kept} note(s) today.")
+    waiting = stimuli.follow_ups()["follow_ups"]
+    if waiting:
+        lines.append(f"{len(waiting)} follow-up(s) waiting; the next: {waiting[0]['about'][:200]}.")
+    else:
+        lines.append("No follow-ups waiting.")
+    if e < IDLE_MIN_ENERGY:
+        lines.append("You are low on energy. Resting is fine: a thought and a `journal` line or a `feel` is a full beat.")
+    else:
+        lines.append("Saying nothing to anyone is fine; leave yourself a trace (`journal`, `remember`, `feel` or `follow_up`).")
+    payload = {"energy": e, "actions_today": state["actions_today"], "follow_ups": len(waiting), "notes_today": kept}
+    return stimuli.add("self", "quiet", f"{int(hand.now())}:{secrets.token_hex(3)}", "\n".join(lines), payload=payload)
 
 
 def jitter() -> float:
