@@ -133,10 +133,9 @@ class SyncTest(SelfScratch):
 INSTRUCTIONS = "# the builder, on a self job\nchange only what is yours.\n"
 
 
-class SelfJobTest(SelfScratch):
-    """A self change comes in as a build request from Teeny itself, is picked
-    like any other, and becomes a job whose workdir is the clone, on a fresh
-    teeny/<slug> branch."""
+class SelfJobScratch(SelfScratch):
+    """Teeny's instructions for a self job in the live brain, and a way to
+    queue one."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -149,6 +148,12 @@ class SelfJobTest(SelfScratch):
         rid = jobs.propose_self({"text": text})["id"]
         build_requests.pick({"id": rid, "reason": "it reads flat"})
         return rid
+
+
+class SelfJobTest(SelfJobScratch):
+    """A self change comes in as a build request from Teeny itself, is picked
+    like any other, and becomes a job whose workdir is the clone, on a fresh
+    teeny/<slug> branch."""
 
     def test_a_proposal_is_a_pending_request_from_teeny_itself(self):
         from teeny_hands import requests as build_requests
@@ -227,3 +232,121 @@ class SelfJobTest(SelfScratch):
         self.assertEqual(kept, "a draft that went nowhere\n")
         self.assertEqual(self.clone_git("log", "-1", "--format=%an", job["branch"]).strip(), "Teeny")
         self.assertEqual(out["branches"], [{"branch": job["branch"], "ahead": 1, "behind": 1, "pushed": False}])
+
+
+PR_URL = "https://github.com/teenydroid/brain/pull/7"
+
+
+class SelfShipTest(SelfJobScratch):
+    """bin/build-ship's `hands/build ship` on a self job: the frozen-path
+    check against origin/main, then the branch pushed and a pull request
+    opened as teenydroid, through hands/gh. Never a merge."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.me()
+        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 7, "html_url": PR_URL}, status=201)
+
+    def built(self, files, summary="a briefer soul\nthe old one rambled", tests=None):
+        rid = self.queue()
+        job = jobs.next_job()["job"]
+        for rel, text in files.items():
+            target = self.tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": summary,
+                   "tests": tests or ["python3 -m unittest discover -s hands/tests -t hands/tests: 900 passed"]})
+        return rid, job
+
+    def request_row(self, rid):
+        from teeny_hands import requests as build_requests
+
+        return build_requests.get(rid)["request"]
+
+    def told(self):
+        from teeny_hands import stimuli
+
+        return [s for s in stimuli.take(max_items=20, max_chars=50_000)["stimuli"] if s["surface"] == "builder"]
+
+    def assert_nothing_merged(self, main_before):
+        self.assertEqual(self.origin_ref("main"), main_before)
+        self.assertEqual([s.path for s in self.gh.seen if "merge" in s.path or s.method == "PUT"], [])
+
+    def test_an_allowed_brain_change_is_pushed_and_a_pull_request_opened(self):
+        main_before = self.origin_ref("main")
+        rid, job = self.built({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        out = jobs.ship()
+        self.assertEqual(len(out["shipped"]), 1, out)
+        shipped = out["shipped"][0]
+        self.assertEqual((shipped["branch"], shipped["pr_url"]), (job["branch"], PR_URL))
+        # The branch is on origin, committed as Teeny with the summary's first line.
+        head = self.origin_ref(job["branch"])
+        self.assertEqual(head, shipped["commit"])
+        log = git("--git-dir", str(self.origin), "log", "-1", "--format=%an <%ae>|%s", job["branch"]).strip()
+        self.assertEqual(log, "Teeny <teeny@agentmail.to>|a briefer soul")
+        # One pull request, from the branch into main, saying what it is and what ran.
+        sent = self.gh.requests("POST", "/repos/teenydroid/brain/pulls")
+        self.assertEqual(len(sent), 1)
+        pr = sent[0].json()
+        self.assertEqual((pr["head"], pr["base"], pr["title"]), (job["branch"], "main", "a briefer soul"))
+        self.assertIn("the old one rambled", pr["body"])
+        self.assertIn("900 passed", pr["body"])
+        self.assertIn("frozen", pr["body"])
+        # Recorded on the job and the request, and told to the mind.
+        row = jobs.listing("shipped")["jobs"][0]
+        self.assertEqual((row["id"], row["pr_url"]), (job["job_id"], PR_URL))
+        self.assertEqual(row["commit_url"], f"https://github.com/teenydroid/brain/commit/{head}")
+        self.assertEqual((self.request_row(rid)["status"], self.request_row(rid)["note"]), ("shipped", PR_URL))
+        told = self.told()
+        self.assertEqual([s["kind"] for s in told][-1], "pull_request")
+        self.assertIn(PR_URL, told[-1]["text"])
+        self.assert_nothing_merged(main_before)
+        self.assertEqual(jobs.ship()["results"], [])
+
+    def test_after_shipping_the_next_sync_returns_to_main_and_says_how_far_behind_the_branch_is(self):
+        rid, job = self.built({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        jobs.ship()
+        new = self.upstream({"brain/NEW.md": "merged while the PR is open\n"}, "meanwhile")
+        out = selfclone.sync()
+        self.assertEqual((out["state"], out["branch"], out["head"], out["parked"]), ("synced", "main", new, job["branch"]))
+        self.assertEqual(out["branches"], [{"branch": job["branch"], "ahead": 1, "behind": 1, "pushed": True}])
+
+    def test_a_change_touching_bin_is_refused_naming_the_path(self):
+        main_before = self.origin_ref("main")
+        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n", "bin/tool": "#!/bin/sh\necho loosened\n"})
+        out = jobs.ship()
+        self.assertEqual(out["shipped"], [])
+        result = out["results"][0]
+        self.assertIn("bin/tool", result["error"])
+        self.assertEqual(result["detail"]["paths"], ["bin/tool"])
+        self.assertTrue(result["gave_up"])  # a frozen path is not retried
+        self.assertIsNone(self.origin_ref(job["branch"]))
+        self.assertEqual(self.gh.seen, [])
+        row = jobs.listing("failed")["jobs"][0]
+        self.assertIn("bin/tool", row["ship_error"])
+        self.assertEqual(self.request_row(rid)["status"], "failed")
+        told = self.told()
+        self.assertEqual(told[-1]["kind"], "ship_refused")
+        self.assertIn("bin/tool", told[-1]["text"])
+        self.assert_nothing_merged(main_before)
+
+    def test_dry_run_pushes_nothing_and_opens_nothing(self):
+        self.configure(DRY_RUN="1")
+        rid, job = self.built({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        out = jobs.ship()
+        result = out["results"][0]
+        self.assertTrue(out["dry_run"])
+        self.assertEqual((result["would_push"], result["would_open_pr"], result["branch"]),
+                         ("teenydroid/brain", "teenydroid/brain", job["branch"]))
+        self.assertEqual(out["shipped"], [])
+        self.assertIsNone(self.origin_ref(job["branch"]))
+        self.assertEqual(self.gh.seen, [])
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
+        self.assertEqual(self.request_row(rid)["status"], "picked")
+
+    def test_a_held_pull_request_pushes_nothing(self):
+        rid, job = self.built({"brain/SOUL.md": "# soul\nbrief\n"}, summary="this is fucking great")
+        out = jobs.ship()
+        self.assertEqual(out["results"][0]["error"], "held")
+        self.assertIsNone(self.origin_ref(job["branch"]))
+        self.assertEqual(self.gh.requests("POST", "/repos/teenydroid/brain/pulls"), [])

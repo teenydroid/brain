@@ -233,3 +233,94 @@ def base_of(branch: str) -> str | None:
 def has_changes() -> bool:
     """The checked-out branch differs from origin/main: edits, or commits."""
     return dirty() or int(_out("rev-list", "--count", f"{ORIGIN_BASE}..HEAD")) > 0
+
+
+# --- shipping a self job ----------------------------------------------------------------------
+
+#: The frozen-path check (bin/lib/frozen.py), the operator's copy beside this
+#: code: never the clone's, which the change being checked could have edited.
+FROZEN_PY = Path(__file__).resolve().parents[4] / "bin" / "lib" / "frozen.py"
+
+
+def _frozen():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("teeny_frozen", FROZEN_PY)
+    if spec is None or spec.loader is None:
+        raise hand.HandError(f"the frozen-path check is missing ({FROZEN_PY})")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def frozen_paths(branch: str) -> list[str]:
+    """Every frozen path BRANCH touches against origin/main, with the list as
+    of origin/main (frozen.check). A check that cannot run refuses."""
+    frozen = _frozen()
+    try:
+        hits = frozen.check(gitdir(), ORIGIN_BASE, f"refs/heads/{branch}")
+    except frozen.FrozenError as exc:
+        raise hand.Refused(f"the frozen-path check could not run: {exc}", rule="frozen_check") from None
+    return sorted({hit.path for hit in hits})
+
+
+def _tests_lines(tests: Any) -> list[str]:
+    if isinstance(tests, list):
+        return [str(t) for t in tests]
+    return [str(tests)] if tests else []
+
+
+def pr_text(job: Json) -> tuple[str, str]:
+    """The pull request's title (the summary's first line) and body."""
+    summary = (job.get("summary") or job["slug"]).strip()
+    title = summary.splitlines()[0].strip()[:100] or job["slug"]
+    lines = [summary, "", "**Tests** (run offline by Teeny's builder, in its clone)", ""]
+    lines += [f"- {t}" for t in _tests_lines(job.get("tests"))] or ["- none reported"]
+    lines += [
+        "",
+        "**Checks**",
+        "",
+        f"- frozen paths (evals/frozen.txt as of {BASE}): none touched",
+        f"- asked for: {job['text'][:500]}",
+        f"- build job {job['id']}. Teeny never merges its own pull requests.",
+    ]
+    return title, "\n".join(lines)
+
+
+def ship(job: Json, gh: Any = None) -> Json:
+    """Ships a self job: its branch committed as Teeny, checked for frozen
+    paths against origin/main, pushed (hands/gh push_branch) and opened as a
+    pull request into main (hands/gh open_pr). The guard reads the title and
+    body before anything is committed or pushed. Never merges."""
+    from ..gh import actions
+    from ..gh.client import GitHubApi
+
+    branch = BRANCH_PREFIX + job["slug"]
+    full = repo()
+    with hand.lock("self-clone"):
+        fetch()
+        on = current_branch()
+        if on != branch:
+            raise hand.HandError(f"the clone is on {on}, not {branch}")
+        title, body = pr_text(job)
+        fields = actions.guarded({"title": title, "body": body}, "pr", {"repo": full, "head": branch})
+        if dirty():
+            _git("add", "-A")
+            _git("commit", "-q", "-m", fields["title"])
+        if not has_changes():
+            raise hand.Refused("the branch changes nothing", rule="empty")
+        paths = frozen_paths(branch)
+        if paths:
+            raise hand.Refused(f"it touches frozen path(s): {', '.join(paths)} (evals/frozen.txt)", rule="frozen",
+                               paths=paths)
+        if gh is None and not hand.dry_run():
+            gh = GitHubApi.from_settings()
+        pushed = actions.push_branch(gitdir(), full, branch, ORIGIN_BASE, gh=gh)
+        opened = actions.open_pr({"repo": full, "head": branch, "base": BASE, "title": fields["title"],
+                                  "body": fields["body"]}, gh=gh)
+    if pushed.get("dry_run"):
+        return {"job_id": job["id"], "dry_run": True, "branch": branch, "would_push": pushed["would_push"],
+                "would_open_pr": opened.get("would_open_pr"), "title": fields["title"]}
+    return {"job_id": job["id"], "repo": full, "branch": branch, "commit": pushed["commit"],
+            "pr_url": opened.get("html_url"), "number": opened.get("number"),
+            "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}

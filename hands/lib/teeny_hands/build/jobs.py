@@ -430,9 +430,23 @@ def _ship_one(job: Json, gh: Any) -> Json:
             "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}
 
 
+def _tell_the_mind(kind: str, job: Json, text: str, payload: Mapping[str, Any]) -> None:
+    """How a self job's shipping ended, into the mind's inbox. A side
+    channel: failing to write it never fails the ship."""
+    from .. import stimuli
+
+    try:
+        stimuli.add("builder", kind, f"build:{job['id']}", text, payload=dict(payload))
+    except (hand.HandError, OSError, ValueError) as exc:
+        print(f"build: could not tell the mind about job {job['id']}: {exc}", file=__import__("sys").stderr)
+
+
 def ship(gh: Any = None) -> Json:
     """Every ok job not yet shipped, oldest first. A refusal or an error is
-    kept on the job and retried next run, up to MAX_SHIP_ATTEMPTS."""
+    kept on the job and retried next run, up to MAX_SHIP_ATTEMPTS; a self
+    job touching a frozen path is failed at once (retrying cannot help). A
+    self job opens a pull request on Teeny's own repository
+    (selfclone.ship), and the mind hears how it ended."""
     conn = db()
     try:
         jobs = [_row(r) for r in conn.execute("SELECT * FROM build_jobs WHERE status = 'ok' ORDER BY id").fetchall()]
@@ -442,12 +456,14 @@ def ship(gh: Any = None) -> Json:
     with hand.lock("build-ship"):
         for job in jobs:
             assert job is not None
+            is_self = job["kind"] == "self"
             try:
-                result = _ship_one(job, gh)
+                result = selfclone.ship(job, gh) if is_self else _ship_one(job, gh)
             except (hand.Refused, hand.HandError) as exc:
                 reason = exc.reason if isinstance(exc, hand.Refused) else str(exc)
                 attempts = int(job.get("ship_attempts") or 0) + 1
-                give_up = attempts >= MAX_SHIP_ATTEMPTS
+                frozen = isinstance(exc, hand.Refused) and exc.detail.get("rule") == "frozen"
+                give_up = attempts >= MAX_SHIP_ATTEMPTS or frozen
                 conn = db()
                 try:
                     with hand.transaction(conn):
@@ -461,6 +477,9 @@ def ship(gh: Any = None) -> Json:
                     conn.close()
                 results.append({"job_id": job["id"], "error": reason, "attempts": attempts, "gave_up": give_up,
                                 **({"detail": exc.detail} if isinstance(exc, hand.Refused) and exc.detail else {})})
+                if is_self and give_up:
+                    _tell_the_mind("ship_refused", job, f"your change to yourself (job {job['id']}) was not "
+                                   f"shipped: {reason}", {"job_id": job["id"], "reason": reason})
                 continue
             if not result.get("dry_run"):
                 conn = db()
@@ -468,13 +487,17 @@ def ship(gh: Any = None) -> Json:
                     with hand.transaction(conn):
                         conn.execute(
                             "UPDATE build_jobs SET status = 'shipped', shipped_at = ?, repo_url = ?, commit_url = ?,"
-                            " ship_error = NULL WHERE id = ?",
-                            (hand.now(), result["repo_url"], result["commit_url"], job["id"]),
+                            " pr_url = ?, ship_error = NULL WHERE id = ?",
+                            (hand.now(), result["repo_url"], result["commit_url"], result.get("pr_url"), job["id"]),
                         )
                         if job.get("request_id") is not None:
-                            _mark_request(conn, job["request_id"], "shipped", result["repo_url"])
+                            _mark_request(conn, job["request_id"], "shipped", result.get("pr_url") or result["repo_url"])
                 finally:
                     conn.close()
+                if is_self:
+                    _tell_the_mind("pull_request", job, f"your change to yourself (job {job['id']}) is a pull request "
+                                   f"now: {result.get('pr_url')}. The operator merges it or closes it.",
+                                   {"job_id": job["id"], "pr_url": result.get("pr_url"), "branch": result["branch"]})
             results.append(result)
     return {"shipped": [r for r in results if "commit" in r], "results": results,
             "dry_run": hand.dry_run()}
