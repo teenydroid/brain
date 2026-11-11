@@ -62,10 +62,11 @@ export interface Totals {
 }
 
 export interface LedgerFeed {
-  /** `unavailable` when the bot could not be reached; the rest is then empty. */
+  /** `unavailable` when the bot could not be reached: no totals, no rows. */
   source: 'live' | 'unavailable'
   generatedAt: string
-  totals: Totals
+  /** Undefined when unavailable: an unknown count is not a count of zero. */
+  totals?: Totals
   entries: Inference[]
 }
 
@@ -134,17 +135,19 @@ export async function loadLedger(options: { limit?: number; lane?: Lane } = {}):
   const feed = await readApi<LedgerFeed>(`/ledger?${query}`, {
     check: (body) => Array.isArray((body as LedgerFeed).entries) && Boolean((body as LedgerFeed).totals),
   })
-  if (!feed) return { source: 'unavailable', generatedAt: new Date().toISOString(), totals: emptyTotals(), entries: [] }
+  if (!feed) return { source: 'unavailable', generatedAt: new Date().toISOString(), entries: [] }
   return { ...feed, source: 'live' }
 }
 
-/** The totals alone, never cached: what the counter polls. */
-export async function loadTotals(): Promise<{ source: 'live' | 'unavailable'; totals: Totals }> {
+export type TotalsReading = { source: 'live'; totals: Totals } | { source: 'unavailable'; totals?: undefined }
+
+/** The totals alone, never cached: what the counter polls. Unreachable, there is no figure at all. */
+export async function loadTotals(): Promise<TotalsReading> {
   const feed = await readApi<LedgerFeed>('/ledger?limit=1', {
     revalidate: 0,
     check: (body) => Boolean((body as LedgerFeed).totals),
   })
-  return feed ? { source: 'live', totals: feed.totals } : { source: 'unavailable', totals: emptyTotals() }
+  return feed?.totals ? { source: 'live', totals: feed.totals } : { source: 'unavailable' }
 }
 
 export function formatTokens(n: number): string {

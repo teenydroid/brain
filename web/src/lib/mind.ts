@@ -6,7 +6,7 @@
  */
 
 import { readApi } from './api'
-import { emptyTotals, type Totals } from './ledger'
+import type { Totals } from './ledger'
 
 export type Trigger = 'mention' | 'chart' | 'morning' | 'moon' | 'calendar' | 'task' | 'narrative' | 'article' | 'quote' | 'lore'
 export type Tone = 'friendly' | 'neutral' | 'negative' | 'hostile' | 'confused'
@@ -57,7 +57,7 @@ export interface MindFeed {
     model: string
     queue: { pending: number; done: number; failed: number }
   }
-  /** The running token count, when the bot has a ledger. */
+  /** The running token count, when the bot has a ledger; undefined when unknown, never zeros. */
   totals?: Totals
   reflections: Reflection[]
 }
@@ -126,9 +126,8 @@ export async function loadMind(): Promise<MindFeed> {
       source: 'unavailable',
       generatedAt: new Date().toISOString(),
       status: { mode: 'langgraph', dryRun: false, model: '—', queue: { pending: 0, done: 0, failed: 0 } },
-      totals: emptyTotals(),
       reflections: [],
     }
   }
-  return { ...feed, source: 'live', totals: feed.totals ?? emptyTotals() }
+  return { ...feed, source: 'live' }
 }
