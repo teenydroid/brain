@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Teeny's public receipts: a hash-chained, append-only ledger of what it did,
+# as checkable references and salted commitments, never logs or text
+# (bin/lib/receipts.py). Pushed to teenydroid/diary by the pinned `receipts`
+# job. Under DRY_RUN the chain goes to state/receipts-preview/ instead.
+#
+#   bin/receipts [--preview DIR]
+#   bin/receipts reveal SEQ
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 git
+exec python3 "$TEENY_ROOT/bin/lib/receipts.py" "$@"

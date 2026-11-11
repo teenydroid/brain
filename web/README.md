@@ -39,8 +39,9 @@ playbooks from `brain/playbooks/*.md` front matter, the jobs from
 `brain/cron.toml` and `evals/cron.pinned.toml`, the hands from `hands/*`, and
 the last few commits (`src/lib/brain-repo.ts`). The web image is built from
 `web/` alone, so those files are fetched, not read from disk, and cached for
-an hour. The diary, `DIARY_REPO` (default `teenydroid/diary`), is listed from
-its `days/README.md`; without one only the link is shown. If GitHub is
+an hour. The receipts, `DIARY_REPO` (default `teenydroid/diary`), are read from
+its `head.json` and the last week of `receipts/` files, each linked to where
+it can be checked; without a head only the link is shown. If GitHub is
 unreachable the page says so and lists nothing. `GITHUB_TOKEN` is optional and
 only raises the rate limit.
 
