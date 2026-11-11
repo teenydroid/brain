@@ -74,6 +74,21 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("secret goal list", text)
         self.assertNotIn("the producer reads all of it", text)
 
+    def test_memory_md_rides_last_in_every_speaking_prompt(self):
+        (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n- @ana asked for a cli; said i'd look friday.\n")
+        text = self.built()
+        self.assertIn("## what you keep in mind (MEMORY.md)", text)
+        self.assertIn("### people", text)
+        self.assertIn("said i'd look friday", text)
+        # The most changeable part last, after the stable world.
+        self.assertGreater(text.index("MEMORY.md"), text.index("mint my own currency"))
+
+    def test_an_overlong_memory_is_cut_and_says_so(self):
+        (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))
+        text = self.built()
+        self.assertIn("the rest was cut", text)
+        self.assertLess(text.count("x"), prompts.MEMORY_MAX_CHARS + 100)
+
     def test_an_unchanged_brain_leaves_the_file_untouched(self):
         self.built()
         target = self.brain / "agent" / "prompts" / "act.md"

@@ -7,8 +7,9 @@ Teeny knows about its world sits beside them and used to reach no drafting
 turn at all: CONTEXT.md (the wallet, the token, the rules, what it is doing
 now) and the parts of narrative/LORE.md written for Teeny to read (the
 premise, the cast, the running bits), plus narrative/ARCS.md (how far each
-goal has got). A playbook asking for "one running bit from the lore" drafted
-blind.
+goal has got), and brain/MEMORY.md, the notes Teeny keeps for itself: who
+people are, what it promised, what it is in the middle of. A playbook asking
+for "one running bit from the lore" drafted blind.
 
 Each speaking agent keeps its own instructions in brain/agents/<id>.md and
 points its definition at the built file (`[system_prompt] file = "<id>.md"`).
@@ -32,6 +33,9 @@ from pathlib import Path
 
 #: The agents that speak as Teeny, whose prompt carries the world.
 SPEAKING = ("act", "teeny-mentions", "teeny-mail")
+#: MEMORY.md beyond this is cut (with a note saying so): it rides in every
+#: prompt, and the nightly reflection is meant to keep it short.
+MEMORY_MAX_CHARS = 12_000
 #: The LORE.md sections Teeny itself reads (the rest is the producer's).
 LORE_SECTIONS = ("cast", "running bits")
 
@@ -88,6 +92,15 @@ def world(brain: Path) -> str:
         # One level down, under this section's own heading.
         arcs = re.sub(r"^(#{2,5}) ", r"#\1 ", arcs, flags=re.M)
         parts.append("## how far each goal has got (narrative/ARCS.md)\n\n" + arcs)
+    memory = _read(brain / "MEMORY.md")
+    if memory:
+        memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
+        if len(memory) > MEMORY_MAX_CHARS:
+            memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
+        memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
+        # Last: it changes most often, and everything before it stays a
+        # stable prefix for the provider's cache.
+        parts.append("## what you keep in mind (MEMORY.md)\n\n" + memory)
     if not parts:
         return ""
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)
