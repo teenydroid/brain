@@ -107,13 +107,16 @@ class IngestTest(Scratch):
             inbox.mark("<m1@x>", "offered")
 
 
-class MindInboxTest(IngestTest):
+class MindInboxTest(Scratch):
     """By default mail goes to Teeny's mind (the stimuli inbox bin/tick
     drains), not to the core's queue."""
 
-    def setUp(self):
-        super().setUp()
-        self.configure(TEENY_INBOX=None)
+    setUp = IngestTest.setUp
+
+    def configure(self, **overrides):
+        # IngestTest pins TEENY_INBOX=core; here it stays unset, the default.
+        overrides.pop("TEENY_INBOX", None)
+        super().configure(**overrides)
 
     def test_mail_goes_to_the_minds_inbox_not_the_core(self):
         from teeny_hands import stimuli
