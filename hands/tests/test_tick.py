@@ -176,7 +176,7 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("self · quiet", self.chats()[0]["message"])
 
     def test_the_quiet_moment_says_what_the_mind_can_act_on(self):
-        stimuli.follow_up(T0 + 3600, "did ana ship?")
+        stimuli.follow_up(T0 + 10 * 3600, "did ana ship?")
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{"do": "like_x", "id": "1"}]}, {"thought": "", "intents": []})
         self.tick()
@@ -186,8 +186,7 @@ class TickTest(unittest.TestCase):
         quiet = self.chats()[1]["message"]
         self.assertIn("Your last action out in the world was 3 h ago", quiet)
         self.assertIn("1 action(s) today", quiet)
-        self.assertIn("did ana ship?", quiet)  # raised and due in this beat, not quiet... see below
-        self.assertIn("1 follow-up(s) waiting; the next: write to bob", quiet)
+        self.assertIn("2 follow-up(s) waiting; the next: write to bob", quiet)
 
     def test_a_tired_teeny_is_told_resting_is_a_full_answer(self):
         state = self.root / "state"
