@@ -13,6 +13,9 @@ argv}], prompt} or exits non-zero with what is wrong.
     surface = "x"              # where a hand: output's text goes, for the guard
                                # (its surfaces: x, github, moltbook, mail, ...)
     max_per_day = 1            # actions taken a day, 1-100; skips are free
+    media = ["image"]          # optional, for post and hand: outputs: what a
+                               # draft may ask to attach, "image" and/or
+                               # "video" (hands/image, hands/video); default none
     [[inputs]]
     name = "mentions"
     run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
@@ -45,7 +48,9 @@ SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # builder's queue belongs to the builder and bin/build-ship, not to a
 # playbook's draft (a playbook may still queue a browser task with
 # hand:tasks add).
-NOT_OUTPUTS = ("guard", "build")
+NOT_OUTPUTS = ("guard", "build", "image", "video")
+#: What a draft may ask a post to carry (`media`), made by the hand of that name.
+MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
 # here (none for the wallet: a model never drafts a payment), and an input
 # runs only their read verbs.
@@ -106,7 +111,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if not prompt:
         raise PlaybookError(f"{path}: the prompt is empty")
 
-    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs"}
+    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -160,9 +165,16 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             }
         )
 
+    media = meta.get("media", [])
+    if not isinstance(media, list) or not all(m in MEDIA_KINDS for m in media) or len(set(media)) != len(media):
+        raise PlaybookError(f"{path}: media is a list of {', '.join(MEDIA_KINDS)}")
+    if media and not (output == "post" or output.startswith("hand:")):
+        raise PlaybookError(f"{path}: media goes with a post or a hand: output only")
+
     return {
         "name": name,
         "description": description.strip(),
+        "media": media,
         "output": output,
         "surface": surface,
         "max_per_day": max_per_day,
