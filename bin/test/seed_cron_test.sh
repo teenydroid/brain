@@ -33,7 +33,11 @@ case "$method" in
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
-    jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch else . end)' <<<"$jobs" >"$FAKE_JOBS"
+    # A patched schedule moves the job's next run to its next slot, as the
+    # core's does; here that is simply an hour from now.
+    jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch +
+        (if $p.patch | has("schedule") then {next_run: (now + 3600 | todate)} else {} end) else . end)' \
+      <<<"$jobs" >"$FAKE_JOBS"
     echo '{}' ;;
   cron_remove)
     jq -c --argjson p "$params" 'map(select(.id != $p.job_id))' <<<"$jobs" >"$FAKE_JOBS"
@@ -244,6 +248,56 @@ printf '' >"$toml"
 seed
 check "a pinned agent job reads its agent from the brain" test "$(job_field teeny.pinned-builder .agent_id)" = builder
 : >"$pinned"
+
+# --- a job whose next run passed while the box was down is re-armed --------------
+# 2026-11-11: the box rebooted mid-run and three jobs kept a next_run in the
+# past for over an hour (the dead run's claim held their slot). Seeding at
+# boot patches the same schedule back, which moves next_run to the next slot.
+ago() { jq -rn --argjson s "$1" 'now - $s | floor | todate'; }
+stale_jobs() { # one job per NAME:NEXT_RUN_SECONDS_AGO:ENABLED, all on */5
+  local spec name secs enabled
+  reset
+  for spec in "$@"; do
+    IFS=: read -r name secs enabled <<<"$spec"
+    jq -c --arg n "$name" --arg t "$(ago "$secs")" --argjson e "$enabled" '. + [{id: ("id-" + $n), name: $n,
+      job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: "*/5 * * * *", tz: "UTC"},
+      enabled: $e, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+  done
+  : >"$FAKE_CALLS"
+}
+printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n[jobs.late]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n[jobs.soon]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n[jobs.off]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\nenabled = false\n' >"$toml"
+stale_jobs teeny.heartbeat:-120:true teeny.late:4500:true teeny.soon:60:true teeny.off:4500:false
+jq -c '. + [{id: "sys-2", name: "memory_digest", job_type: "flow", command: "system:digest",
+  schedule: {kind: "cron", expr: "0 * * * *"}, enabled: true, next_run: "2026-01-01T00:00:00Z"}]' \
+  "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+late_was="$(job_field teeny.late .next_run)"
+seed
+check "re-arms an enabled job whose next run is long past" \
+  grep -qF "[seed-cron] rearm teeny.late (next_run was $late_was)" "$scratch/stderr"
+check "by patching the same schedule back" \
+  grep -qF 'cron_update {"job_id":"id-teeny.late","patch":{"schedule":{"kind":"cron","expr":"*/5 * * * *","tz":"UTC"}}}' "$FAKE_CALLS"
+check "which moves its next run to the future" \
+  test "$(jq -r '.[] | select(.name == "teeny.late") | .next_run | fromdateiso8601 > now' "$FAKE_JOBS")" = true
+check "re-arms only that job" test "$(calls cron_update)" = 1
+check "leaves a job a minute late alone (the grace)" bash -c "! grep -q 'rearm teeny.soon' '$scratch/stderr'"
+check "leaves a disabled job alone" bash -c "! grep -q 'rearm teeny.off' '$scratch/stderr'"
+check "leaves the core's own jobs alone" bash -c "! grep -q 'rearm memory_digest' '$scratch/stderr'"
+check "does not count a re-arm as a change to the schedule" grep -q '0 change(s) applied' "$scratch/stderr"
+: >"$FAKE_CALLS"
+seed
+check "a re-armed job is not re-armed again" test "$(calls cron_update)" = 0
+
+stale_jobs teeny.heartbeat:4500:true teeny.late:0:true teeny.soon:0:true teeny.off:0:false
+seed --dry-run
+check "--dry-run reports a re-arm" grep -q 'rearm teeny.heartbeat (next_run was' "$scratch/stderr"
+check "--dry-run does not re-arm" test "$(calls cron_update)" = 0
+
+# A job seeding changes anyway gets its schedule (and a fresh next run) from the update.
+stale_jobs teeny.heartbeat:4500:true teeny.late:0:true teeny.soon:0:true teeny.off:0:false
+jq -c 'map(if .name == "teeny.heartbeat" then .command = "bin/old" else . end)' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+seed
+check "an updated job is not re-armed on top" test "$(calls cron_update)" = 1
+check "and is updated" grep -q '^\[seed-cron\] update  teeny.heartbeat' "$scratch/stderr"
 
 # --- --check validates without asking the core anything --------------------------
 reset

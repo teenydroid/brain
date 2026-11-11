@@ -187,6 +187,50 @@ chmod 600 "$root/secrets/openhuman.key"
 printf 'this is not a database, it is %0500d' 0 >"$root/brain/storage.db"
 fails "fails a storage.db that is not a database" "storage.db"
 
+# --- --live: the running core's cron is still moving -----------------------------------------
+# A stand-in core: /health is a file curl can read, and cron_list answers from
+# $FAKE_JOBS. 2026-11-11: three jobs kept a next_run 75 minutes in the past
+# after a reboot, and nothing said so.
+mkdir -p "$scratch/core"
+: >"$scratch/core/health"
+cat >"$scratch/fake-oh" <<'FAKE'
+#!/usr/bin/env bash
+[ "$1" = cron_list ] || { echo "unexpected method $1" >&2; exit 1; }
+cat "$FAKE_JOBS"
+FAKE
+chmod +x "$scratch/fake-oh"
+live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
+  local spec name secs enabled jobs='[]'
+  for spec in "$@"; do
+    IFS=: read -r name secs enabled <<<"$spec"
+    jobs="$(jq -c --arg n "$name" --argjson s "$secs" --argjson e "$enabled" '. + [{id: ("id-" + $n), name: $n,
+      job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: "*/5 * * * *", tz: "UTC"},
+      enabled: $e, next_run: (now - $s | floor | todate)}]' <<<"$jobs")"
+  done
+  printf '%s\n' "$jobs" >"$scratch/jobs.json"
+}
+live_doctor() {
+  FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
+    "$root/bin/doctor" --live >"$scratch/report.json" 2>"$scratch/doctor.log"
+}
+fresh
+live_jobs teeny.mail-inbound:4500:true teeny.health:4600:true teeny.tick:30:true teeny.late:300:true \
+  teeny.paused:7200:false memory_background:-600:true
+if live_doctor; then
+  fail "--live fails when an enabled job's next run is long past (the doctor passed)"
+else
+  check "--live fails when an enabled job's next run is long past" \
+    grep -q '^FAIL cron next runs are current: ' "$scratch/doctor.log"
+fi
+check "and names the stuck jobs" grep -q '^FAIL cron next runs are current: .*teeny.mail-inbound.*teeny.health' "$scratch/doctor.log"
+check "but not a job five minutes behind" bash -c "! grep '^FAIL cron next runs' '$scratch/doctor.log' | grep -q teeny.late"
+check "nor a disabled one" bash -c "! grep '^FAIL cron next runs' '$scratch/doctor.log' | grep -q teeny.paused"
+check "and records it in the report" \
+  test "$(jq -r '.checks[] | select(.check == "cron next runs are current") | .status' "$root/state/doctor.json")" = fail
+live_jobs teeny.mail-inbound:-100:true teeny.tick:30:true teeny.late:300:true teeny.paused:7200:false
+live_doctor || true
+check "--live passes current next runs" grep -q '^ok   cron next runs are current' "$scratch/doctor.log"
+
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'
 #!/usr/bin/env bash
