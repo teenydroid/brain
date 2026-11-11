@@ -1,7 +1,9 @@
 """hands/build: the builder's work queue (docs/hands.md, "build").
 
-  jobs   the `build_jobs` table: claim, finish, list, and ship to GitHub
-  cli    the verbs
+  jobs       the `build_jobs` table: claim, finish, list, and ship to GitHub
+  selfclone  Teeny's own clone of GITHUB_USER/brain: synced from origin/main,
+             edited by a `self` job, shipped as a pull request (never merged)
+  cli        the verbs
 
 The builder agent (brain/agents/builder.toml) never calls a hand and holds
 no token: it reads its job from state/workbench/desk/build.json and leaves

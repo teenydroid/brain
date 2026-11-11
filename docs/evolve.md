@@ -6,7 +6,8 @@ brain can't edit.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (gating every boot), `bin/eval` with the frozen tasks, judge and invariants,
-and the frozen-path check (`bin/frozen-check`). Not built: the loop itself
+the frozen-path check (`bin/frozen-check`), and Teeny's own clone, which
+proposes changes as pull requests. Not built: the loop itself
 (`bin/evolve`, the lab spine, promotion and rollback). The sections marked
 "not built" are its spec.
 
@@ -46,6 +47,38 @@ bin/frozen-check --files P...  a list of paths, no git
 Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
+
+## Teeny's own clone (built)
+
+The first step toward a human-gated `bin/evolve`: Teeny keeps a working copy
+of its own repository and proposes changes to itself as pull requests that
+the operator merges or closes.
+
+- **The clone.** `state/workbench/brain/` holds the working tree, where the
+  builder's file tools reach. Its git directory, `state/self/brain.git`, is
+  out of their reach, and every git command names both paths, so nothing the
+  builder writes can redirect a push or its token.
+- **Kept current.** The pinned `build-ship` job (every 30 minutes) runs
+  `hands/build self-sync` first. It fetches `main` and `teeny/*` and
+  fast-forwards a clean `main` to `origin/main`. It never touches unshipped
+  work (edits, or a branch whose job is still open). It parks a branch whose
+  pull request is open or whose job failed, and reports how far behind it
+  is. `state/self/sync.json` says when it last ran and at which commit.
+- **A self job.** `hands/build self` records a change Teeny proposes to
+  itself as a build request, picked like any other. The builder gets it on
+  its desk with `brain/agents/builder-self.md` (its own instructions, the
+  table above) and edits the clone on `teeny/<slug>`, started from a freshly
+  pulled main. It runs the tests that need no network and never commits.
+- **Shipping.** `hands/build ship` takes these steps:
+  1. The guard reads the pull request's text.
+  2. The branch is committed as Teeny.
+  3. `frozen.check(clone, origin/main, branch)` runs. A frozen path refuses
+     the change, names the path and fails the job.
+  4. The branch is pushed as `teenydroid` (only `teeny/*`, never `main`).
+  5. A ready pull request is opened into `main`.
+
+  CI's `frozen` job checks it again. `DRY_RUN` pushes nothing. Nothing merges:
+  the operator does.
 
 ## Lore is the objective
 
