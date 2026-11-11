@@ -240,7 +240,7 @@ class XApi:
         if since_id:
             params.append(("since_id", since_id))
         params += _post_query()
-        response = self.call("GET", f"/2/users/{percent_encode(user_id)}/mentions", params)
+        response = self.call("GET", f"/2/users/{percent_encode(user_id)}/mentions", params, user=True)
         meta = response.get("meta") if isinstance(response.get("meta"), Mapping) else {}
         return {
             "posts": model.to_posts(response.get("data"), response.get("includes")),
