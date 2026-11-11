@@ -25,6 +25,9 @@ jobs:
       # OpenHuman and its nested vendors, all public over https.
       - name: Fetch vendor/openhuman
         run: git submodule update --init --recursive --depth 1 --jobs 8 vendor/openhuman
+      # The image's modules stage copies OpenHuman scripts piecemeal; their
+      # imports must come along (this job has vendor/openhuman checked out).
+      - run: bin/test/dockerfile_test.sh
       # OpenHuman links X11, xdo, evdev and ALSA on Linux.
       - name: Install system headers
         run: |
