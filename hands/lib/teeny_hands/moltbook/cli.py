@@ -32,7 +32,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, reads, rules
+from . import actions, client, inbox, reads, rules
 
 
 def _bounded(low: int, high: int, what: str):
