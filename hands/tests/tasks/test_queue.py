@@ -242,6 +242,52 @@ class DeskTest(Scratch):
         self.assertEqual(json.loads(self.desk("task.json").read_text())["last_report_rejected"], "unknown task")
         self.assertEqual(queue.listing("claimed")["tasks"][0]["id"], tid)
 
+    def idle_report(self):
+        self.desk("task-done.json").write_text(json.dumps({
+            "task_id": None, "outcome": "ok", "notes": "No task is waiting. No browser work performed.",
+            "screenshots": []}))
+
+    def test_a_nothing_to_do_report_while_no_task_waits_is_discarded_quietly(self):
+        from teeny_hands import stimuli
+
+        queue.desk()
+        self.assertIsNone(json.loads(self.desk("task.json").read_text())["task"])
+        self.idle_report()
+        out = queue.desk()
+        self.assertEqual((out["settled"], out["rejected"]), (None, None))
+        self.assertFalse(self.desk("task-done.json").exists())
+        self.assertFalse(self.desk("task-done.rejected.json").exists())
+        self.assertFalse(self.desk("task-done.rejected.reason.json").exists())
+        self.assertNotIn("last_report_rejected", json.loads(self.desk("task.json").read_text()))
+        self.assertEqual(stimuli.take(max_items=10, max_chars=10_000)["stimuli"], [])
+
+    def test_a_task_queued_after_an_idle_run_is_offered_without_a_rejection(self):
+        from teeny_hands import stimuli
+
+        queue.desk()
+        tid = self.add()["task_id"]
+        self.idle_report()
+        queue.desk()
+        offer = json.loads(self.desk("task.json").read_text())
+        self.assertEqual(offer["task"]["task_id"], tid)
+        self.assertNotIn("last_report_rejected", offer)
+        self.assertEqual(stimuli.take(max_items=10, max_chars=10_000)["stimuli"], [])
+
+    def test_a_report_without_a_task_id_while_a_task_is_claimed_is_still_rejected(self):
+        from teeny_hands import stimuli
+
+        tid = self.add()["task_id"]
+        queue.desk()
+        self.idle_report()
+        out = queue.desk()
+        self.assertIn('"task_id" must be the number', out["rejected"])
+        self.assertTrue(self.desk("task-done.rejected.json").exists())
+        offer = json.loads(self.desk("task.json").read_text())
+        self.assertEqual(offer["task"]["task_id"], tid)
+        self.assertIn('"task_id" must be the number', offer["last_report_rejected"])
+        [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual((told["surface"], told["kind"]), ("operator", "report_rejected"))
+
 
 class CodeTest(Scratch):
     """A site that mails Teeny a one-time code: the operator ends its run with
