@@ -92,6 +92,9 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--type", default="all", choices=reads.SEARCH_TYPES)
     search.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     verb("profile", lambda a, _: reads.profile(a.name), "another agent's profile").add_argument("name", metavar="NAME")
+    scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
+    scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
