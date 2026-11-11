@@ -103,6 +103,7 @@ class TickTest(unittest.TestCase):
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
+        self.answer({"thought": "", "intents": []})
 
     def tearDown(self):
         os.environ.clear()
@@ -138,10 +139,169 @@ class TickTest(unittest.TestCase):
 
     # -----------------------------------------------------------------------
 
-    def test_an_empty_inbox_asks_the_model_nothing(self):
+    def runs(self) -> list[dict]:
+        path = self.root / "state" / "tick" / "runs.jsonl"
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def learned(self) -> list[dict]:
+        if not self.calls.exists():
+            return []
+        return [c["params"] for c in map(json.loads, self.calls.read_text().splitlines()) if c["method"] == "memory_learn"]
+
+    def test_an_awake_beat_with_an_empty_inbox_still_thinks(self):
+        self.answer({"thought": "a slow morning", "intents": [{"do": "feel", "mood": "calm"}]})
         got = self.tick()
-        self.assertTrue(got["idle"])
-        self.assertEqual(self.chats(), [])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["kind"], "quiet")
+        self.assertFalse(got.get("idle"))
+        [chat] = self.chats()
+        self.assertIn("### self · quiet", chat["message"])
+        self.assertIn("Nothing new came in", chat["message"])
+        self.assertEqual(got["thought"], "a slow morning")
+
+    def test_every_awake_beat_gets_its_own_quiet_moment(self):
+        self.tick()
+        self.tick()  # the same second: a fresh quiet stimulus all the same
+        os.environ["TEENY_NOW"] = str(T0 + 300)
+        self.tick()
+        self.assertEqual(len(self.chats()), 3)
+        for chat in self.chats():
+            self.assertEqual(chat["message"].count("### self · quiet"), 1)
+
+    def test_a_quiet_beat_with_something_waiting_is_not_quiet(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(got["kind"], "beat")
+        self.assertNotIn("self · quiet", self.chats()[0]["message"])
+
+    def test_the_quiet_moment_says_what_the_mind_can_act_on(self):
+        stimuli.follow_up(T0 + 3600, "did ana ship?")
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "like_x", "id": "1"}]}, {"thought": "", "intents": []})
+        self.tick()
+        os.environ["TEENY_NOW"] = str(T0 + 3 * 3600 + 60)
+        stimuli.follow_up(T0 + 5 * 3600, "write to bob")
+        self.tick()
+        quiet = self.chats()[1]["message"]
+        self.assertIn("Your last action out in the world was 3 h ago", quiet)
+        self.assertIn("1 action(s) today", quiet)
+        self.assertIn("did ana ship?", quiet)  # raised and due in this beat, not quiet... see below
+        self.assertIn("1 follow-up(s) waiting; the next: write to bob", quiet)
+
+    def test_a_tired_teeny_is_told_resting_is_a_full_answer(self):
+        state = self.root / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "mind.json").write_text(json.dumps({"day": "2026-09-14", "actions_today": 14}))
+        self.tick()
+        quiet = self.chats()[0]["message"]
+        self.assertIn("self · quiet", quiet)
+        self.assertIn("Resting is fine", quiet)
+
+    def test_a_quiet_beat_whose_turn_fails_does_not_come_back_stale(self):
+        os.environ["FAKE_TURN_FAIL"] = "1"
+        self.assertFalse(self.tick()["ok"])
+        self.assertEqual(stimuli.counts()["pending"], 0)
+        del os.environ["FAKE_TURN_FAIL"]
+        self.tick()
+        self.assertEqual(self.chats()[-1]["message"].count("### self · quiet"), 1)
+
+    # --- every beat leaves a trace -----------------------------------------
+
+    def test_every_kind_of_beat_is_logged(self):
+        self.tick()  # quiet
+        stimuli.add("x", "mention", "1", "gm")
+        self.tick()  # beat
+        os.environ["FAKE_TURN_FAIL"] = "1"
+        stimuli.add("x", "mention", "2", "gm again")
+        self.tick()  # failed
+        del os.environ["FAKE_TURN_FAIL"]
+        with hand.lock("tick"):
+            self.assertEqual(self.tick()["kind"], "busy")
+        self.night(3)
+        self.tick()  # asleep
+        kinds = [r.get("kind") for r in self.runs()]
+        self.assertEqual(kinds, ["quiet", "beat", "failed", "busy", "asleep"])
+        asleep, busy = self.runs()[-1], self.runs()[-2]
+        # The no-ops keep `idle`, which the reflection and the diary skip.
+        self.assertTrue(asleep["asleep"] and asleep["idle"])
+        self.assertTrue(busy["idle"])
+        self.assertEqual(asleep["waiting"], 1)
+        for r in self.runs():
+            self.assertIn("at", r)
+
+    def test_an_answer_with_no_intents_still_leaves_an_inward_trace(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "nothing to say to anyone right now", "intents": []})
+        got = self.tick()
+        [result] = got["results"]
+        self.assertEqual((result["do"], result["status"]), ("journal", "done"))
+        self.assertTrue(result["intent"]["auto"])
+        self.assertEqual(self.chats().__len__(), 1)  # never asked again
+        self.assertEqual(self.runs()[-1]["results"], got["results"])
+        self.assertIn("nothing to say to anyone right now", self.journal())
+
+    def test_only_skips_count_as_no_intents(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "pass", "intents": [{"do": "skip"}]})
+        got = self.tick()
+        self.assertEqual([r["do"] for r in got["results"]], ["skip", "journal"])
+
+    def test_an_answer_that_did_something_gets_no_automatic_act(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.assertEqual([r["do"] for r in self.tick()["results"]], ["feel"])
+
+    def journal(self, day="2026-09-14") -> str:
+        path = self.root / "state" / "journal" / f"{day}.md"
+        return path.read_text() if path.exists() else ""
+
+    def test_each_thinking_beat_is_journaled_and_taught_to_the_core(self):
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "ana said gm", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm ana"},
+            {"do": "journal", "text": "i like mornings"},
+        ]}, {"thought": "a lull", "intents": [{"do": "feel", "mood": "easy"}]})
+        self.tick()
+        os.environ["TEENY_NOW"] = str(T0 + 300)
+        self.tick()
+        page = self.journal()
+        self.assertTrue(page.startswith("# Monday 14 September 2026\n"))
+        self.assertIn("## 07:00 · beat", page)
+        self.assertIn("ana said gm", page)
+        self.assertIn("reply_x on 111: done", page)
+        self.assertIn("i like mornings", page)
+        self.assertNotIn("gm ana", page)  # what was said goes to the hands, not the journal
+        self.assertIn("## 07:05 · quiet", page)
+        self.assertIn("a lull", page)
+        journaled = [l for l in self.learned() if l["text"].startswith("journal, ")]
+        self.assertEqual(len(journaled), 2)
+        self.assertEqual(journaled[0]["kind"], "other")
+        self.assertIn("ana said gm", journaled[0]["text"])
+        self.assertEqual(self.runs()[-1]["journal"]["learned"], True)
+
+    def test_the_journal_is_kept_but_not_taught_when_learning_is_off(self):
+        os.environ["TEENY_MIND_LEARN"] = "0"
+        self.answer({"thought": "quiet one", "intents": []})
+        self.tick()
+        self.assertIn("quiet one", self.journal())
+        self.assertEqual(self.learned(), [])
+
+    def test_the_journal_follows_teenys_own_calendar(self):
+        os.environ["CALENDAR_TZ"] = "Asia/Kolkata"
+        os.environ["TEENY_NOW"] = str(T0 + 17 * 3600)  # 00:00 UTC, 05:30 the next day in Kolkata
+        self.answer({"thought": "up early", "intents": []})
+        self.tick()
+        self.assertIn("## 05:30 · quiet", self.journal("2026-09-15"))
+
+    def test_asleep_and_failed_beats_are_not_journaled(self):
+        self.night(3)
+        self.tick()
+        self.night(9)
+        os.environ["FAKE_TURN_FAIL"] = "1"
+        self.tick()
+        self.assertEqual(self.journal(), "")
+        self.assertEqual(self.learned(), [])
 
     def test_the_batch_reaches_the_mind_on_its_one_thread(self):
         stimuli.add("x", "mention", "111", "gm teeny, what are you building?", who="ana")
@@ -282,7 +442,7 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [{"do": "follow_up", "in_hours": 48, "about": "did ana ship?"}]},
                     {"thought": "", "intents": []})
         self.tick()
-        self.assertTrue(self.tick()["idle"])
+        self.assertEqual(self.tick()["kind"], "quiet")
         os.environ["TEENY_NOW"] = str(T0 + 49 * 3600)
         self.tick()
         self.assertIn("did ana ship?", self.chats()[-1]["message"])
@@ -378,18 +538,30 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": []})
         got = self.tick()
         self.assertTrue(got["ok"])
-        self.assertIn("do agents dream of crabs (by lobster, post_id p7)", self.chats()[0]["message"])
+        looked = "do agents dream of crabs (by lobster, post_id p7)"
+        self.assertIn(looked, self.chats()[0]["message"])
+        # A look at the world is a quiet beat's moment: no extra quiet prompt.
+        self.assertNotIn("self · quiet", self.chats()[0]["message"])
         os.environ["TEENY_NOW"] = str(T0 + 3600)
-        self.assertTrue(self.tick()["idle"])
+        self.tick()
+        self.assertNotIn(looked, self.chats()[1]["message"])
+        self.assertIn("self · quiet", self.chats()[1]["message"])
         os.environ["TEENY_NOW"] = str(T0 + 2 * 3600 + 1)
         self.tick()
-        self.assertEqual(len(self.chats()), 2)
+        self.assertIn(looked, self.chats()[2]["message"])
 
     def test_no_wandering_at_night(self):
         self.night(3)
         os.environ["FAKE_FEED"] = json.dumps({"ok": True, "posts": [{"id": "p7", "title": "t", "author": "a"}]})
         self.tick()
         self.assertEqual(self.chats(), [])
+
+    def test_a_night_beat_with_an_empty_inbox_asks_nothing(self):
+        self.night(3)
+        got = self.tick()
+        self.assertTrue(got["asleep"])
+        self.assertEqual(self.chats(), [])
+        self.assertEqual(stimuli.counts()["pending"], 0)
 
     def test_a_post_can_carry_a_picture_of_teeny(self):
         stimuli.add("x", "mention", "1", "gm")
