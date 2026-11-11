@@ -66,3 +66,5 @@ warning: unused imports: `event_session_id_for` and `key_for`
    Compiling openhuman-modules-linked v0.64.20 (/Users/enamakel/work/personal/teeny/worktrees/teeny-builder-browser/vendor/openhuman/crates/openhuman-modules-linked)
 warning: `openhuman` (lib) generated 3 warnings (run `cargo fix --lib -p openhuman` to apply 3 suggestions)
    Compiling teeny-spine v0.1.0 (/Users/enamakel/work/personal/teeny/worktrees/teeny-builder-browser/spine)
+    Finished `release` profile [optimized + debuginfo] target(s) in 11m 18s
+EXIT 0
