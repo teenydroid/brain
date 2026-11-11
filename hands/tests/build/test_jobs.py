@@ -268,6 +268,34 @@ class DeskTest(Scratch):
         self.desk("build-done.json").write_text("{not json")
         self.assertIsNotNone(jobs.desk()["rejected"])
 
+    def idle_report(self):
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": None, "status": "ok", "summary": "nothing to build", "tests": "none"}))
+
+    def test_a_nothing_to_do_report_while_no_job_waits_is_discarded_quietly(self):
+        from teeny_hands import stimuli
+
+        daily = jobs.next_job()["job"]
+        jobs.done({"job_id": daily["job_id"], "status": "failed", "summary": "no idea", "tests": "none ran"})
+        jobs.desk()
+        self.assertIsNone(json.loads(self.desk("build.json").read_text())["job"])
+        self.idle_report()
+        out = jobs.desk()
+        self.assertEqual((out["settled"], out["rejected"]), (None, None))
+        self.assertFalse(self.desk("build-done.json").exists())
+        self.assertFalse(self.desk("build-done.rejected.json").exists())
+        self.assertNotIn("last_report_rejected", json.loads(self.desk("build.json").read_text()))
+        self.assertEqual(stimuli.take(max_items=10, max_chars=10_000)["stimuli"], [])
+
+    def test_a_report_without_a_job_id_while_a_job_is_claimed_is_still_rejected(self):
+        request("build me a coin flipper")
+        jobs.desk()
+        self.idle_report()
+        out = jobs.desk()
+        self.assertIn('"job_id" must be the number', out["rejected"])
+        self.assertIn('"job_id" must be the number',
+                      json.loads(self.desk("build.json").read_text())["last_report_rejected"])
+
     def test_bin_build_ship_runs_the_desk_then_ships(self):
         self.configure(DRY_RUN="1")
         script = Path(__file__).resolve().parents[3] / "bin" / "build-ship"
