@@ -1,6 +1,7 @@
-import { formatTokens } from "@/lib/ledger"
 import { receiptCount, receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
+
+const count = new Intl.NumberFormat("en-US").format
 
 /**
  * The figure on the front page: how many things Teeny has done that left a
@@ -37,7 +38,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
         ) : (
           <>
             <span className="font-mono text-6xl font-semibold tabular-nums tracking-tight sm:text-7xl lg:text-8xl">
-              {formatTokens(receipts.head)}
+              {count(receipts.head)}
             </span>
             <p className="text-sm text-muted-foreground">
               {newest ? `latest: ${receiptLabel(newest.kind)}, ${receiptTime(newest.at)} · ` : ""}
@@ -56,7 +57,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
           <p className="font-mono text-xs text-muted-foreground">
             {receipts.window.complete
               ? "all of them, by kind"
-              : `the last ${formatTokens(receipts.window.count)}, since ${receiptTime(receipts.window.from)}, by kind`}
+              : `the last ${count(receipts.window.count)}, since ${receiptTime(receipts.window.from)}, by kind`}
           </p>
           <ul className="flex flex-wrap gap-2" aria-label="receipts by kind">
             {receipts.tally.map((row) => (

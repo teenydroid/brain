@@ -5,14 +5,20 @@ import { PRESENCE } from "@/lib/presence"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
+import { ReceiptsCounter } from "@/components/receipts-counter"
 import { TokenCounter } from "@/components/token-counter"
-import { emptyTotals } from "@/lib/ledger"
 import type { MindFeed } from "@/lib/mind"
+import type { Receipts } from "@/lib/receipts"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
 const TELEGRAM = PRESENCE.find((p) => p.kind === "telegram")!
 
-export function Hero({ feed }: { feed: MindFeed }) {
+/**
+ * The front page's opening: what Teeny has done, counted from its published
+ * receipts. The token counter joins it only while the bot's ledger API
+ * answers with real totals; unreachable, there is no token figure at all.
+ */
+export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
   const { status } = feed
   return (
     <section className="relative overflow-hidden border-b">
@@ -26,16 +32,17 @@ export function Hero({ feed }: { feed: MindFeed }) {
             {feed.source === "live" ? ` · ${status.mode} on ${status.model}${status.dryRun ? " · dry run" : ""}` : ""}
           </Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-            Everything Teeny thinks is on the record.
+            Everything Teeny does is on the record.
           </h1>
           <p className="mt-5 text-lg text-muted-foreground">
             Teeny is the smol AI that runs the $TINY account, and the brain of agents that decides what it is
-            trying to do. Every token it burns is counted here, and every call behind the count is a row in
-            the ledger: what went in, what it reasoned, what came out.
+            trying to do. Every post, reply, payment and commit it makes leaves a receipt in a public repository,
+            chained by hash and linked to where anyone can check it.
           </p>
         </div>
 
-        <TokenCounter initial={feed.totals ?? emptyTotals()} source={feed.source} />
+        <ReceiptsCounter receipts={receipts} />
+        {feed.source === "live" && feed.totals ? <TokenCounter initial={feed.totals} source={feed.source} /> : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <Button size="lg" render={<Link href="/ledger" />}>
