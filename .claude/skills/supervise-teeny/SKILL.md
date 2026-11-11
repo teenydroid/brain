@@ -30,9 +30,9 @@ Run anything inside the spine with
 ## Cadence
 
 - Self-pace with `/loop` (no interval). Every **15 min** while Teeny is awake
-  or anything is pending; **25-30 min** in its quiet hours (Asia/Kolkata
-  night, roughly 17:00-01:30 UTC; `tick` reports `"asleep": true`) when
-  nothing is pending.
+  or anything is pending; **25-30 min** in its quiet hours
+  (`TEENY_QUIET_HOURS`, default 01:00-07:00 Asia/Kolkata = 19:30-01:30 UTC;
+  `tick` reports `"asleep": true`) when nothing is pending.
 - Arm a `Monitor` for CI on PRs you are driving instead of polling.
 - When the box reboots, `/tmp` is wiped: the scratchpad goes with it. This
   skill's `watch.sh` lives in the repo for that reason.
