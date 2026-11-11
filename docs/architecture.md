@@ -183,16 +183,49 @@ and the rest). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
-returns when due. `TEENY_INBOX=core` restores the old per-surface path.
+returns when due. `journal` writes a line in Teeny's private journal.
+`TEENY_INBOX=core` restores the old per-surface path.
+
+**Every beat leaves a trace.** An awake beat always thinks: with an empty
+inbox it gets a look at the world or a quiet moment (Rhythm, below). Every
+answer ends with at least one intent, outward or inward. Silence toward
+others is fine; silence inward is not. An answer with no intents (or only
+`skip`) gets an automatic `{"do": "journal", "intent": {"auto": true}}`:
+the thought is the beat's act, and the mind is not asked again. Every beat
+is one line in `state/tick/runs.jsonl` with a `kind`:
+
+| `kind` | When | Model call |
+|---|---|---|
+| `beat` | a batch with something from outside in it | yes |
+| `quiet` | only the mind's own moment (`self · quiet`, `world · idle`) | yes |
+| `failed` | the turn failed or the answer was not usable twice (`ok: false`) | yes |
+| `asleep` | the quiet hours; `asleep: true`, `waiting: N` | no |
+| `busy` | the last beat still holds the lock | no |
+| `idle` | nothing to take (rare: the inbox emptied under it) | no |
+
+The last three are also `idle: true`, which the reflection and the diary
+pass over. After each beat that thought, `bin/tick` writes a journal entry
+(Teeny's local time, the thought, its own `journal` lines, and what it did
+as `do on target: status`; never the words sent or received) to
+`state/journal/<local date>.md` and to the core's memory (`memory_learn`,
+kind `other`; not when `TEENY_MIND_LEARN=0`).
 
 **Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
 `bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
 to rewrite `MEMORY.md`. It works from what the mind chose to remember
-(`mind_notes`), what it thought and did each beat (`state/tick/runs.jsonl`),
-the follow-ups still waiting, and the page as it stands. The old page is
-kept in `state/reflect/`, and the diary entry goes to `state/diary/<date>.md`
-and to the core's memory. The prompts are rebuilt, so the next beat reads the
-new page. An unusable answer changes nothing.
+(`mind_notes`), what it thought and did each beat that thought, quiet ones
+included (`state/tick/runs.jsonl`), the follow-ups still waiting, and the
+page as it stands. The old page is kept in `state/reflect/`, and the diary
+entry goes to `state/diary/<date>.md` and to the core's memory. The prompts
+are rebuilt, so the next beat reads the new page. An unusable answer changes
+nothing.
+
+At midday (the pinned `reflect-midday` job, 14:00 IST) `bin/reflect --light`
+does the same for the page alone, so the afternoon's prompts carry the
+morning: no diary, nothing taught to the core. It reviews what came since
+the later of the last night and the last midday, and stamps
+`state/reflect/light.at`. Only the night moves `state/reflect/last.at`, so
+the night still looks back on the whole day.
 
 **Rhythm** (`bin/lib/rhythm.py`):
 
@@ -207,6 +240,13 @@ new page. An unusable answer changes nothing.
 - **Idle curiosity.** A beat with an empty inbox, awake and with energy left,
   at most every 2 hours, gets a read-only look at Moltbook's hot page
   (`world · idle`).
+- **A quiet moment.** Any other awake beat with an empty inbox gets a
+  `self · quiet` stimulus, new every beat: "Nothing new came in. What are you
+  up to right now?", with when it last acted out in the world, the notes it
+  kept today, the follow-ups waiting (and the next one), and, below 40
+  energy, that resting is fine. So every awake beat is a model turn (about
+  216 a day at a beat every 5 minutes outside the quiet hours). A quiet
+  moment whose turn fails is let go, not put back.
 - **Jitter.** Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) late.
 - **Habits.** A playbook with `nudge = true` is not drafted by `bin/act`. Its
   prompt and inputs go to the mind as a `nudge` stimulus, and the mind
@@ -240,7 +280,8 @@ Every scheduled job is in one of two files:
 - **`evals/cron.pinned.toml`**, frozen, always merged in: `mentions-inbound`
   (`bin/mentions`, every 5 minutes), `mail-inbound` (`bin/mail`, every 5
   minutes), `tick` (`bin/tick`, every 5 minutes, two minutes after each
-  ingest), `reflect` (`bin/reflect`, 02:00 IST), `stats-snapshot`,
+  ingest), `reflect` (`bin/reflect`, 02:00 IST), `reflect-midday`
+  (`bin/reflect --light`, 14:00 IST), `stats-snapshot`,
   `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`.
 - **`brain/cron.toml`**, Teeny's own: the heartbeat, `morning`, `brief`, and
   the playbooks that are kept but off (`enabled = false`).

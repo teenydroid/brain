@@ -3,9 +3,12 @@
     python3 bin/lib/tick.py
 
 1. Browses Moltbook for comments said to Teeny (at most every ten
-   minutes; X and mail have their own ingest jobs), raises the follow-ups
-   now due, then takes a batch from the inbox
-   (teeny_hands.stimuli). Nothing pending: nothing to think about, exit.
+   minutes; X and mail have their own ingest jobs), reads Telegram, raises
+   the follow-ups now due, then takes a batch from the inbox
+   (teeny_hands.stimuli). At night it stops there (rhythm.night_gate).
+   Awake with nothing pending, the batch is a moment to itself: a look at
+   the world (rhythm.wander) or a quiet prompt (rhythm.quiet), so every
+   awake beat thinks.
 2. Renders it as one message, "since you last looked", with the time and
    the answer's shape, and sends it to the `teeny` agent on one long thread
    (TEENY_MIND_THREAD, default `teeny:mind`) through bin/ask. The core
@@ -13,17 +16,23 @@
    100k tokens.
 3. Reads the answer: a `thought` and `intents`. Each intent goes to the one
    hand verb it names (ROUTES), never anywhere else; every acting hand keeps
-   its own guard, caps and DRY_RUN. `remember` and `follow_up` are Teeny's
-   own state: a note in `mind_notes` (and CortexDB, when memory is on), a
-   reminder in `follow_ups`.
+   its own guard, caps and DRY_RUN. `remember`, `follow_up`, `feel` and
+   `journal` are Teeny's own state: a note in `mind_notes` (and CortexDB,
+   when memory is on), a reminder in `follow_ups`, a mood, a journal line.
+   An answer with no intents (or only `skip`) still acts inward: the tick
+   records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
    next beat starts by learning how its last answer landed.
 5. The batch is settled before any intent is carried out, so a beat that
    dies halfway never answers the same thing twice. A failed turn, or an
    answer that is not usable JSON twice, puts the batch back instead.
 
-Every beat is one line in state/tick/runs.jsonl: the batch, the thought, the
-intents and what came of them.
+Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
+`quiet` (it thought: the batch, the thought, the intents and what came of
+them), `failed`, and the no-ops `asleep`, `busy` and `idle`, which are also
+`idle: true` so the reflection and the diary pass over them. Each beat that
+thought is also an entry in Teeny's private journal,
+state/journal/<local date>.md, and in the core's memory (journal()).
 """
 
 from __future__ import annotations
