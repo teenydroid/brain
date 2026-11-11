@@ -5,9 +5,10 @@ is driven by its lore, judged by a model, and fenced by rules in code the
 brain can't edit.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
-(gating every boot), and `bin/eval` with the frozen tasks, judge and
-invariants. Not built: the loop itself (`bin/evolve`, the lab spine,
-promotion and rollback). The sections marked "not built" are its spec.
+(gating every boot), `bin/eval` with the frozen tasks, judge and invariants,
+and the frozen-path check (`bin/frozen-check`). Not built: the loop itself
+(`bin/evolve`, the lab spine, promotion and rollback). The sections marked
+"not built" are its spec.
 
 ## What Teeny may change
 
@@ -15,9 +16,32 @@ promotion and rollback). The sections marked "not built" are its spec.
 |---|---|
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, and the existing `hands/lib/teeny_hands/**` |
-| `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with |
-| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py` | |
+| `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`) |
+| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+
+### The frozen-path check (built)
+
+`evals/frozen.txt` is the list, one glob per line, and the one place it lives:
+change the table above and that file together. `bin/lib/frozen.py` checks a
+diff against it, and `bin/frozen-check` runs it:
+
+```
+bin/frozen-check BASE HEAD     every path changed from their merge base
+bin/frozen-check BASE          the working tree (staged, unstaged, untracked)
+bin/frozen-check --files P...  a list of paths, no git
+```
+
+- An edit, an addition, a deletion and a rename (in or out) all count, and
+  every frozen path touched is named. Exit 1 refuses, 2 is an error (a bad
+  ref, no list), which also refuses.
+- The list is read as of BASE, so a candidate can't drop a line from it and
+  cross that line in the same diff.
+- CI runs it (`.github/workflows/check.yml`, the `frozen` job) on every pull
+  request opened by `teenydroid` or from a `gen/<n>` branch, with the
+  checker and list taken from the base. The operator's PRs skip it.
+- `bin/evolve` calls `frozen.check(root, base)` on the lab worktree before it
+  commits a generation: a non-empty answer, or a `FrozenError`, rejects it.
 
 Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
@@ -181,7 +205,7 @@ The judge inherits the core's model. Pinning a different one is
    - The lab spine is a second core over the worktree, with its own storage
      and `DRY_RUN=1` forced. The live spine never runs candidate code.
 3. **Gate** (code, not prompt). Reject the candidate if any of these hold:
-   - it touches a frozen path
+   - it touches a frozen path (`bin/lib/frozen.py`, built)
    - `seed-cron --check` fails
    - `bin/doctor --root` fails
    - a SOUL, CONTEXT or LORE diff breaks `evals/invariants.md` ($TINY never

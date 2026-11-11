@@ -283,10 +283,10 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
-bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, eval, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
+bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, eval, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
 hands/               x, guard, gh, moltbook, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.md, skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
-evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml)
+evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, the nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, evolve, upstream gaps
