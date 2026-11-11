@@ -97,8 +97,8 @@ class ReflectTest(unittest.TestCase):
     def answer(self, value):
         self.answer_file.write_text(value if isinstance(value, str) else json.dumps(value))
 
-    def reflect(self) -> dict:
-        proc = subprocess.run([str(REPO / "bin" / "reflect")], capture_output=True, text=True, env=os.environ)
+    def reflect(self, *args) -> dict:
+        proc = subprocess.run([str(REPO / "bin" / "reflect"), *args], capture_output=True, text=True, env=os.environ)
         self.assertTrue(proc.stdout.strip(), proc.stderr)
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -183,6 +183,76 @@ class ReflectTest(unittest.TestCase):
         self.answer({"memory": "## people\n\n- ana\n", "diary": "d"})
         self.reflect()
         self.assertTrue((self.brain / "MEMORY.md").read_text().startswith("# MEMORY.md\n"))
+
+
+    def beats(self, *lines):
+        tick_log = self.root / "state" / "tick" / "runs.jsonl"
+        tick_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(tick_log, "a") as fh:
+            for line in lines:
+                fh.write(json.dumps(line) + "\n")
+
+    def test_a_quiet_beat_that_thought_is_reviewed_and_the_no_ops_are_not(self):
+        self.beats(
+            {"at": "2026-09-14T05:00:00Z", "ok": True, "kind": "asleep", "asleep": True, "idle": True, "waiting": 2},
+            {"at": "2026-09-14T05:05:00Z", "ok": True, "kind": "busy", "idle": True},
+            {"at": "2026-09-14T06:00:00Z", "ok": True, "kind": "quiet", "thought": "tidying my thoughts about crabs",
+             "results": [{"do": "journal", "status": "done", "intent": {"text": "crabs are a lot"}}]},
+        )
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("tidying my thoughts about crabs", message)
+        self.assertIn("journal: crabs are a lot", message)
+        self.assertNotIn("05:00:00Z", message)
+        self.assertNotIn("05:05:00Z", message)
+
+    # --- midday: bin/reflect --light ---------------------------------------
+
+    def test_midday_rewrites_the_page_and_writes_no_diary(self):
+        stimuli.note("builds a cli for crabs", who="ana")
+        self.answer({"memory": NEW_MEMORY, "diary": "should not be kept"})
+        got = self.reflect("--light")
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(got["light"])
+        self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
+        self.assertIn("builds a cli for crabs", (self.brain / "agent" / "prompts" / "teeny.md").read_text())
+        self.assertEqual(list((self.root / "state" / "reflect").glob("MEMORY-*.md")).__len__(), 1)
+        self.assertFalse((self.root / "state" / "diary").exists())
+        message = self.chats()[0]["message"]
+        self.assertIn("# midday", message)
+        self.assertIn("builds a cli for crabs", message)
+        self.assertNotIn('"diary"', message)
+        self.assertFalse(any(c["method"] == "memory_learn" for c in map(json.loads, self.calls.read_text().splitlines())))
+
+    def test_the_night_still_looks_back_on_the_whole_day_after_midday(self):
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()  # last night
+        os.environ["TEENY_NOW"] = str(T0 + 3600)
+        stimuli.note("a morning note", who="ana")
+        os.environ["TEENY_NOW"] = str(T0 + 2 * 3600)
+        self.reflect("--light")
+        os.environ["TEENY_NOW"] = str(T0 + 3 * 3600)
+        stimuli.note("an afternoon note", who="bob")
+        os.environ["TEENY_NOW"] = str(T0 + 4 * 3600)
+        self.reflect("--light")
+        os.environ["TEENY_NOW"] = str(T0 + 5 * 3600)
+        self.reflect()
+        first_light, second_light, night = (c["message"] for c in self.chats()[1:])
+        self.assertIn("a morning note", first_light)
+        # A second midday picks up where the first left off ...
+        self.assertIn("an afternoon note", second_light)
+        self.assertNotIn("a morning note", second_light)
+        # ... and the night, whose window only the night moves, sees it all.
+        self.assertIn("a morning note", night)
+        self.assertIn("an afternoon note", night)
+        self.assertTrue((self.root / "state" / "diary" / "2026-09-14.md").exists())
+
+    def test_a_failed_midday_changes_nothing(self):
+        before = (self.brain / "MEMORY.md").read_text()
+        self.answer("not json")
+        self.assertFalse(self.reflect("--light")["ok"])
+        self.assertEqual((self.brain / "MEMORY.md").read_text(), before)
 
 
 if __name__ == "__main__":
