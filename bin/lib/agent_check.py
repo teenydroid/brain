@@ -8,6 +8,7 @@ needs; exits non-zero with the reason otherwise:
 - every agent has an id and a when_to_use;
 - the drafting agents (NO_TOOLS) have no tools at all and never act on a
   schedule: they read text strangers wrote;
+- the drafting agents run at exactly NO_TOOLS_MAX_ITERATIONS (see there);
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
@@ -24,6 +25,15 @@ import tomllib
 from pathlib import Path
 
 NO_TOOLS = ("teeny", "act", "judge", "teeny-mentions", "teeny-mail")
+#: A drafting agent's turn is one model call: with no tools it cannot loop.
+#: But the vendored harness pauses a session turn when it reaches
+#: max_iterations even after a final answer (the CapPauser in
+#: tinyagents-runtime turn_driver/driver.rs, drained as Paused by
+#: settle_natural_finish in tinyagents-harness agent_loop/turn_control.rs),
+#: so at 1 every turn is recorded as failed though its answer comes back.
+#: The second iteration only absorbs that pause (or an output-retry nudge).
+#: Drop to 1 once the harness stops pausing a finished turn.
+NO_TOOLS_MAX_ITERATIONS = 2
 #: Never in a scheduled agent: money, connectors, and any MCP server.
 NEVER = ("wallet", "web3", "x402", "composio", "mcp")
 #: agent -> (tools it must have, tool name prefixes it must not have)
@@ -52,6 +62,9 @@ def check(path: Path) -> str:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
         if scheduled:
             raise SystemExit(f"the {agent} agent must not set scheduled_actions")
+        if doc.get("max_iterations") != NO_TOOLS_MAX_ITERATIONS:
+            raise SystemExit(f"the {agent} agent must set max_iterations = {NO_TOOLS_MAX_ITERATIONS} "
+                             "(1 trips the harness's cap pause on every turn; more is a loop it has no tools for)")
         return agent
     if agent not in SCHEDULED:
         if scheduled:

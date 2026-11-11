@@ -186,6 +186,19 @@ teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
 `TEENY_INBOX=core` restores the old per-surface path.
 
+**The cron call does not wait for the beat.** The job runs `bin/tick
+--detach`: `bin/lib/detach.py` starts the beat in its own session (stdout
+and stderr to `state/tick/beat.log`, moved to `beat.log.1` past 1 MB) and
+returns `{"kind": "started", "pid": ...}` at once. A beat (up to 60 s of
+jitter, the guard's checks, a model turn of minutes, then the hands) can
+outlast the 300 s the core gives any cron shell call, whatever
+`shell_timeout_secs` says (gap G12); a call that timed out was retried while
+the beat ran on, and its result never reached cron history. The beat takes
+the `tick` lock first and spends its jitter holding it, so a call while one
+is still running (or waiting) answers `{"kind": "busy"}` and starts nothing;
+the beat's own record is its line in `state/tick/runs.jsonl`. `bin/tick`
+without `--detach` runs one beat in the foreground and prints it.
+
 **Every beat leaves a trace.** An awake beat always thinks: with an empty
 inbox it gets a look at the world or a quiet moment (Rhythm, below). Every
 answer ends with at least one intent, outward or inward. Silence toward
@@ -218,7 +231,10 @@ included (`state/tick/runs.jsonl`), the follow-ups still waiting, and the
 page as it stands. The old page is kept in `state/reflect/`, and the diary
 entry goes to `state/diary/<date>.md` and to the core's memory. The prompts
 are rebuilt, so the next beat reads the new page. An unusable answer changes
-nothing.
+nothing. Like the beat, the pinned jobs run it detached (`bin/reflect
+--detach`, log in `state/reflect/reflect.log`) under a `reflect` lock: one
+long turn can outlast the core's 300 s, and a second reflection never starts
+while one is running.
 
 At midday (the pinned `reflect-midday` job, 14:00 IST) `bin/reflect --light`
 does the same for the page alone, so the afternoon's prompts carry the
@@ -273,15 +289,23 @@ can run it holds the core token, so it is the operator's way in and is never
 wired to anything public. `bin/doctor` and `bin/lib/agent_check.py` refuse a
 drafting agent that gains a tool.
 
+The tool-less agents run at `max_iterations = 2`, though their turn is one
+model call and cannot loop: the vendored harness pauses a session turn when
+it reaches the cap even after a final answer, so at 1 every turn came back
+"paused before completion" and was recorded as failed (gap G13). The second
+iteration only absorbs that pause. `agent_check.py` holds them to exactly 2
+(`NO_TOOLS_MAX_ITERATIONS`).
+
 ## 6. Triggers
 
 Every scheduled job is in one of two files:
 
 - **`evals/cron.pinned.toml`**, frozen, always merged in: `mentions-inbound`
   (`bin/mentions`, every 5 minutes), `mail-inbound` (`bin/mail`, every 5
-  minutes), `tick` (`bin/tick`, every 5 minutes, two minutes after each
-  ingest), `reflect` (`bin/reflect`, 02:00 IST), `reflect-midday`
-  (`bin/reflect --light`, 14:00 IST), `stats-snapshot`,
+  minutes), `tick` (`bin/tick --detach`, every 5 minutes, two minutes after
+  each ingest), `reflect` (`bin/reflect --detach`, 02:00 IST),
+  `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST),
+  `stats-snapshot`,
   `builder`, `build-ship`, `operator`, `tasks-desk`, `bounty-pay` and
   `health` (`bin/health`, every 15 minutes: asks the model one short
   question through the core; two failures in a row raise one alarm, a
@@ -328,7 +352,15 @@ doctor fails. See [`evolve.md`](evolve.md).
 - **The shell-job timeout.** OpenHuman kills a shell job after
   `[cron] shell_timeout_secs` (default 120 s). `bin/spine` sets it to 1800
   (`bin/lib/core_sections/automation.py`), so a job that drafts several turns
-  runs to the end and cron records its real outcome.
+  runs to the end and cron records its real outcome. But the core runs each
+  shell job as one TinyBox module call with its own fixed 300 s timeout
+  (gap G12), so that is the real ceiling: a job that can pass it runs
+  detached (`bin/tick --detach`, `bin/reflect --detach`; §4a) and keeps its
+  own record. The other pinned shell jobs stay in the foreground, where cron
+  sees their outcome and retries a failure: `bin/receipts` (one push, each
+  git call capped at 90 s, under its own lock), `bin/build-ship` (normally
+  one finished job; each git call capped at 120 s, under the `build-ship`
+  lock), `bin/tasks-desk` (local files only), and the inbound jobs.
 
 ## 6a. Scheduled agents: the builder and the browser operator
 

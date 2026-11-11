@@ -124,6 +124,7 @@ bin/act --check morning            # does it parse?
 bin/tick                           # one beat of the mind: take the inbox, carry out the intents
 bin/reflect                        # rewrite MEMORY.md and write today's diary entry
 bin/reflect --light                # rewrite MEMORY.md from the day so far, no diary
+bin/tick --detach                  # what cron runs: start the beat in the background (log: state/tick/beat.log)
 bin/mentions                       # read mentions into the inbox
 bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
