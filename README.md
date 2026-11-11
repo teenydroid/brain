@@ -35,8 +35,11 @@ make the hands smaller.
   with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). X search is not used:
   it is billed per post and too expensive.
-- **Remembers.** Each night `bin/reflect` rewrites `brain/MEMORY.md`, the page
-  in every prompt, and writes a diary entry to `state/diary/<date>.md`.
+- **Remembers.** Every beat that thinks (every awake one) is journaled to
+  `state/journal/<date>.md` and the core's memory. At 14:00 `bin/reflect
+  --light` rewrites `brain/MEMORY.md`, the page in every prompt, from the
+  day so far; each night `bin/reflect` rewrites it again and writes a diary
+  entry to `state/diary/<date>.md`.
 - **Builds and browses.** The builder agent writes small programs in
   `state/workbench/` and `bin/build-ship` pushes them to GitHub as
   `teenydroid`. The browser operator does one task at a time on the allowed
@@ -120,6 +123,8 @@ bin/act morning                    # run one playbook now (DRY_RUN still applies
 bin/act --check morning            # does it parse?
 bin/tick                           # one beat of the mind: take the inbox, carry out the intents
 bin/reflect                        # rewrite MEMORY.md and write today's diary entry
+bin/reflect --light                # rewrite MEMORY.md from the day so far, no diary
+bin/tick --detach                  # what cron runs: start the beat in the background (log: state/tick/beat.log)
 bin/mentions                       # read mentions into the inbox
 bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
@@ -224,6 +229,17 @@ line. Each line holds:
   Solana transaction signature, a GitHub repository and commit, or a Moltbook
   post id. Every field is an enum, an integer or matches a strict pattern. A
   row with anything else is withheld.
+
+Every surface Teeny acts on is covered, each from the ledger its hand writes
+once the action went out: X posts, replies, quotes and likes (`x_likes`);
+Moltbook posts, comments, upvotes, follows and subscriptions
+(`moltbook_actions`); GitHub pushes, pull requests, comments, repositories and
+forks; shipped builds; wallet payments; bounties; and mail and Telegram
+messages. Mail and Telegram are private, so their receipts are a commitment
+alone, with no address, chat, person, message id or words. The mind loop's own
+log (`state/tick/runs.jsonl`) is never read: it records what the mind meant to
+do, dry runs and refusals included, and reading it too would count an action
+twice.
 - `commit`: sha256 of a random salt plus the hand's whole ledger row. It
   reveals nothing, but `bin/receipts reveal SEQ` lets an operator prove that
   one receipt in full.
@@ -313,7 +329,7 @@ These are gitignored and created at run time:
 - `secrets/`: the env files, the core token and the master key.
 - `state/`: what the hands keep. `hands.db` holds the ledgers, caches, holds,
   pacing, the inbox and the queues. Beside it: `locks/`, `core.url` (where the
-  core answers), `tick/` and `reflect/` (the mind's runs), `diary/`,
+  core answers), `tick/` and `reflect/` (the mind's runs), `journal/`, `diary/`,
   `workbench/` (what the builder builds; `workbench/brain/` is Teeny's own
   clone of this repository, with its git directory in `self/`), `browser/`
   (the browser's profile and downloads) and `media/` (what a post may attach).
@@ -356,3 +372,12 @@ plus shellcheck and the landing page's lint and build.
    `--locked` build.
 3. Run `cargo build --release -p teeny-spine`.
 4. Run the live test against the new binary.
+
+## License
+
+GPL-3.0-only. The full text is in [`LICENSE`](LICENSE). It covers everything in
+this repository: the spine (`spine/`; the workspace `Cargo.toml` declares
+`GPL-3.0-only`), the hands (`hands/`), the scripts (`bin/`), the brain
+(`brain/`), the evals (`evals/`), the deploy files (`deploy/`) and the landing
+page (`web/`, `package.json` says the same). `vendor/openhuman` is a git
+submodule with its own license, also GPL-3.0.

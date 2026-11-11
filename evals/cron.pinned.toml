@@ -23,19 +23,35 @@ command = "bin/mail"
 # back to it (at most every 10 minutes), then takes everything the inbound
 # jobs above gathered as one batch on the one teeny:mind thread and carries
 # out the intents it answers with through the hands. Two minutes after each
-# ingest. A beat with an empty inbox makes no model call.
+# ingest. Every awake beat thinks (an empty inbox is a quiet moment); a beat
+# in the quiet hours only gathers and makes no model call. --detach: the beat
+# runs in the background and the call returns at once, because a beat can
+# outlast the 300 s the core gives any cron shell call (docs/oh-gaps.md, G12);
+# the beat records itself in state/tick/runs.jsonl, and a call while one is
+# still running says `busy` and starts nothing.
 [jobs.tick]
 schedule = "2-59/5 * * * *"
-command = "bin/tick"
+command = "bin/tick --detach"
 
 # Teeny's end of day (bin/reflect): on the teeny:mind thread, with the day
 # still in context, it rewrites MEMORY.md (the page in every prompt) from
 # what it chose to remember and what it did, and keeps a diary entry. After
-# the quiet hours start, before the morning.
+# the quiet hours start, before the morning. Detached like tick: one long
+# model turn can outlast the core's 300 s; its result is in
+# state/reflect/reflect.log.
 [jobs.reflect]
 schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
-command = "bin/reflect"
+command = "bin/reflect --detach"
+
+# Teeny's midday pause (bin/reflect --light): the same rewrite of MEMORY.md
+# from what the day has brought so far, so the afternoon's prompts carry the
+# morning. No diary; it keeps its own stamp, so the night's reflection still
+# looks back on the whole day. Detached, like the night.
+[jobs.reflect-midday]
+schedule = "0 14 * * *"
+tz = "Asia/Kolkata"
+command = "bin/reflect --light --detach"
 
 # Teeny's public receipts (bin/receipts): every action a hand recorded as done
 # since the last run, appended to the hash-chained ledger in teenydroid/diary

@@ -1,11 +1,12 @@
 # Deploying Teeny
 
-`deploy/compose.yaml` runs three services over the checkout, which is mounted
+`deploy/compose.yaml` runs four services over the checkout, which is mounted
 at `/srv/teeny`:
 
 | Service | What | Port |
 |---|---|---|
 | `spine` | `teeny-spine` serving over the checkout. The core, its cron and every job. | none; reach it with `exec` |
+| `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `gpt-6-luna`, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine finds it through `CORTEX_API_URL=http://cortexdb:3141` in `secrets/spine.env`. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
 

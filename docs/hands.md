@@ -38,7 +38,7 @@ report they leave beside it.
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post and it is too expensive. |
 | `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. |
 | `upload` | A | Media upload of a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `like` | A | Like a mention (skipped under `DRY_RUN`). |
+| `like` | A | Like a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Delete an own post. Previews unless `--confirm`. |
 
 ### The webhook
@@ -596,7 +596,7 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_pacing`, `x_media`, `x_cache` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
 | `guard` | `guard_holds`, `guard_approved_links` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` |

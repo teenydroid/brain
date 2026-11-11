@@ -161,6 +161,19 @@ check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-s
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/lib/agent_check.py'"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
+# A drafting agent's turn is one model call, but the harness pauses a session
+# turn at max_iterations even after a final answer: at 1 every turn is
+# recorded as failed. 2 absorbs that pause; more is a loop it cannot use.
+fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 1/' "$root/brain/agents/teeny.toml"
+fails "fails a drafting agent at max_iterations = 1 (the cap pause fails every turn)" "agent teeny.toml"
+fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 8/' "$root/brain/agents/judge.toml"
+fails "fails a drafting agent given more iterations than it can use" "agent judge.toml"
+fresh; perl -ni -e 'print unless /^max_iterations/' "$root/brain/agents/act.toml"
+fails "fails a drafting agent that leaves max_iterations to the default" "agent act.toml"
+for a in teeny act judge teeny-mentions teeny-mail; do
+  check "the $a agent says why it runs at max_iterations = 2" \
+    bash -c "grep -q '^max_iterations = 2$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
+done
 
 # --- storage and secrets ------------------------------------------------------------------
 fresh; sqlite3 "$root/brain/storage.db" 'create table t (x); insert into t values (1);'
