@@ -19,7 +19,9 @@ fast-forward, and then leaves the working tree in one of these states:
 
   cloned    there was no clone, so one is made at origin/main
   synced    main was checked out with nothing uncommitted, and now matches
-            origin/main
+            origin/main. A teeny/<slug> branch whose self job shipped or
+            failed is parked first: anything left uncommitted on it is
+            committed to it (as Teeny), and main is checked out (`parked`)
   dirty     main has uncommitted edits: left as they are
   diverged  main has commits origin/main lacks: left as they are
   busy      another branch is checked out (a teeny/<slug> with unshipped
@@ -137,6 +139,20 @@ def _branches() -> list[Json]:
     return out
 
 
+def _finished(branch: str) -> bool:
+    """The branch's self job shipped or failed: nothing on it is in progress."""
+    from . import jobs
+
+    return jobs.self_status(branch) in ("shipped", "failed")
+
+
+def _park(branch: str) -> None:
+    if dirty():
+        _git("add", "-A")
+        _git("commit", "-q", "-m", f"teeny: keep what {branch} left uncommitted")
+    _git("checkout", "-q", BASE)
+
+
 def _write_record(record: Json) -> None:
     path = record_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +177,10 @@ def _sync_locked() -> Json:
         local = _rev(f"refs/heads/{BASE}")
         if local is None or (local != origin and _is_ancestor(local, origin)):
             _git("update-ref", f"refs/heads/{BASE}", origin, *([local] if local else []))
+    parked = None
+    if state is None and branch and branch.startswith(BRANCH_PREFIX) and _finished(branch):
+        _park(branch)
+        parked, branch = branch, BASE
     if state is None:
         if branch != BASE:
             state = "busy"
@@ -179,6 +199,7 @@ def _sync_locked() -> Json:
         "branch": current_branch(),
         "state": state,
         "branches": _branches(),
+        **({"parked": parked} if parked else {}),
     }
     _write_record(record)
     return record
@@ -188,3 +209,27 @@ def sync() -> Json:
     """Fetches, fast-forwards what may be fast-forwarded, records it."""
     with hand.lock("self-clone"):
         return _sync_locked()
+
+
+def start(branch: str) -> str:
+    """Syncs, then starts BRANCH from the fresh origin/main for a self job.
+    Refused while the clone is not free: anything but a clean main."""
+    with hand.lock("self-clone"):
+        record = _sync_locked()
+        if record["state"] not in ("cloned", "synced"):
+            raise hand.Refused(f"the clone is not free ({record['state']} on {record['branch']})", rule="busy")
+        _git("checkout", "-q", "-b", branch, ORIGIN_BASE)
+        return record["commit"]
+
+
+def base_of(branch: str) -> str | None:
+    """Where BRANCH left origin/main."""
+    done = _git("merge-base", ORIGIN_BASE, f"refs/heads/{branch}", check=False)
+    if done.returncode != 0:
+        return None
+    return done.stdout.decode().strip() or None
+
+
+def has_changes() -> bool:
+    """The checked-out branch differs from origin/main: edits, or commits."""
+    return dirty() or int(_out("rev-list", "--count", f"{ORIGIN_BASE}..HEAD")) > 0

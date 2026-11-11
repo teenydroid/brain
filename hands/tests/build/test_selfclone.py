@@ -13,7 +13,7 @@ from pathlib import Path
 
 from gh.support import T0, Scratch, git
 from teeny_hands import hand
-from teeny_hands.build import selfclone
+from teeny_hands.build import jobs, selfclone
 
 CHECKOUT = Path(__file__).resolve().parents[3]
 BUILD_SHIP = CHECKOUT / "bin" / "build-ship"
@@ -128,3 +128,102 @@ class SyncTest(SelfScratch):
         with self.assertRaises(hand.Refused):
             selfclone.sync()
         self.assertEqual((self.tree / "notes.txt").read_text(), "somebody else's\n")
+
+
+INSTRUCTIONS = "# the builder, on a self job\nchange only what is yours.\n"
+
+
+class SelfJobTest(SelfScratch):
+    """A self change comes in as a build request from Teeny itself, is picked
+    like any other, and becomes a job whose workdir is the clone, on a fresh
+    teeny/<slug> branch."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.root / "brain" / "agents").mkdir(parents=True)
+        (self.root / "brain" / "agents" / "builder-self.md").write_text(INSTRUCTIONS)
+
+    def queue(self, text="tighten the morning post playbook") -> int:
+        from teeny_hands import requests as build_requests
+
+        rid = jobs.propose_self({"text": text})["id"]
+        build_requests.pick({"id": rid, "reason": "it reads flat"})
+        return rid
+
+    def test_a_proposal_is_a_pending_request_from_teeny_itself(self):
+        from teeny_hands import requests as build_requests
+
+        out = jobs.propose_self({"text": "say gm less often"})
+        row = build_requests.get(out["id"])["request"]
+        self.assertEqual((row["source"], row["author"], row["status"], row["text"]),
+                         ("self", "teenydroid", "pending", "say gm less often"))
+        for bad in (None, {}, {"text": ""}, {"text": "x", "extra": 1}):
+            with self.subTest(body=bad), self.assertRaises(hand.HandError):
+                jobs.propose_self(bad)
+
+    def test_a_picked_self_request_starts_a_branch_from_a_freshly_pulled_main(self):
+        selfclone.sync()
+        fresh = self.upstream({"brain/NEW.md": "merged since the last sync\n"}, "since")
+        rid = self.queue()
+        out = jobs.next_job()["job"]
+        slug = f"self-{rid}-tighten-the-morning-post-playbook"
+        self.assertEqual((out["kind"], out["workdir"], out["repo"]), ("self", "state/workbench/brain", "brain"))
+        self.assertEqual((out["branch"], out["base"]), (f"teeny/{slug}", fresh))
+        self.assertEqual(out["instructions"], INSTRUCTIONS)
+        self.assertEqual(self.clone_git("symbolic-ref", "--short", "HEAD").strip(), f"teeny/{slug}")
+        self.assertEqual(self.clone_git("rev-parse", "HEAD").strip(), fresh)
+        self.assertTrue((self.tree / "brain" / "NEW.md").exists())
+
+    def test_the_desk_hands_the_builder_the_rules_for_its_own_repository(self):
+        self.queue()
+        jobs.desk()
+        offer = json.loads((self.root / "state" / "workbench" / "desk" / "build.json").read_text())
+        self.assertEqual(offer["job"]["kind"], "self")
+        self.assertIn("frozen", offer["rules"])
+        self.assertIn("Never commit", offer["rules"])
+
+    def test_a_self_request_waits_while_the_clone_is_not_free(self):
+        selfclone.sync()
+        (self.tree / "brain" / "SOUL.md").write_text("an edit nobody shipped\n")
+        rid = self.queue()
+        out = jobs.next_job()
+        self.assertEqual(out["job"]["kind"], "daily")
+        self.assertIn("dirty", out["waiting"])
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "an edit nobody shipped\n")
+        from teeny_hands import requests as build_requests
+
+        self.assertEqual(build_requests.get(rid)["request"]["status"], "picked")
+
+    def test_ok_needs_a_change_in_the_clone(self):
+        self.queue()
+        job = jobs.next_job()["job"]
+        with self.assertRaises(hand.Refused):
+            jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "nothing", "tests": "none"})
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nsmall, kind, brief\n")
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "briefer soul", "tests": "1 passed",
+                   "repo": "not-this"})
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["repo"], "brain")  # a self job ships to the brain only
+
+    def test_the_builders_work_in_progress_is_left_alone(self):
+        self.queue()
+        job = jobs.next_job()["job"]
+        (self.tree / "brain" / "SOUL.md").write_text("half done\n")
+        self.upstream({"brain/NEW.md": "new\n"}, "new")
+        out = selfclone.sync()
+        self.assertEqual((out["state"], out["branch"]), ("busy", job["branch"]))
+        self.assertEqual((self.tree / "brain" / "SOUL.md").read_text(), "half done\n")
+
+    def test_a_failed_self_job_is_parked_on_its_branch_and_main_checked_out(self):
+        self.queue()
+        job = jobs.next_job()["job"]
+        (self.tree / "brain" / "SOUL.md").write_text("a draft that went nowhere\n")
+        jobs.done({"job_id": job["job_id"], "status": "failed", "summary": "could not make it work", "tests": "none"})
+        new = self.upstream({"brain/NEW.md": "new\n"}, "new")
+        out = selfclone.sync()
+        self.assertEqual((out["state"], out["branch"], out["head"]), ("synced", "main", new))
+        self.assertEqual(out["parked"], job["branch"])
+        # Nothing was thrown away: the draft is a commit on its branch, as Teeny.
+        kept = self.clone_git("show", f"{job['branch']}:brain/SOUL.md")
+        self.assertEqual(kept, "a draft that went nowhere\n")
+        self.assertEqual(self.clone_git("log", "-1", "--format=%an", job["branch"]).strip(), "Teeny")
+        self.assertEqual(out["branches"], [{"branch": job["branch"], "ahead": 1, "behind": 1, "pushed": False}])
