@@ -245,7 +245,7 @@ export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; 
             Read from <code className="font-mono text-sm">brain/agents/*.toml</code>. Most of them only draft, as JSON, with no
             tools at all; a hand takes whatever action follows.
             {live && anatomy.agents.some((agent) => agent.scheduledActions)
-              ? ` ${anatomy.agents.filter((agent) => agent.scheduledActions).length} may act on a schedule, under the core\'s sandbox and named tools.`
+              ? ` ${anatomy.agents.filter((agent) => agent.scheduledActions).length} may act on a schedule, under the core's sandbox and named tools.`
               : ""}
           </p>
           {live ? null : <Unavailable />}
