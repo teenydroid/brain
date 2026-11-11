@@ -88,6 +88,8 @@ class TickTest(unittest.TestCase):
             FAKE_HANDS=str(self.hands_log),
             FAKE_ANSWER=str(self.answer_file),
             CALENDAR_TZ="UTC",
+            TEENY_TICK_JITTER_SECS="0",
+            TEENY_QUIET_HOURS="off",
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN"):
             os.environ.pop(key, None)
@@ -117,7 +119,7 @@ class TickTest(unittest.TestCase):
             return []
         # What the intents did: not the surfaces' bookkeeping (mark) or the
         # beat's own read-only browse of Moltbook (inbox).
-        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"])]
+        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"], ["feed"])]
 
     def marks(self) -> list[dict]:
         if not self.hands_log.exists():
