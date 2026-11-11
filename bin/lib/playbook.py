@@ -4,7 +4,7 @@ check every playbook a cron names); never by a model.
 
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
-Prints {name, description, output, surface, max_per_day, inputs: [{name,
+Prints {name, nudge, description, output, surface, max_per_day, inputs: [{name,
 argv}], prompt} or exits non-zero with what is wrong.
 
     +++
@@ -16,6 +16,11 @@ argv}], prompt} or exits non-zero with what is wrong.
     media = ["image"]          # optional, for post and hand: outputs: what a
                                # draft may ask to attach, "image" and/or
                                # "video" (hands/image, hands/video); default none
+    nudge = true               # optional, for post, reply, like and none: the
+                               # playbook is a habit, not an order. bin/act
+                               # nudges Teeny's mind (the stimuli inbox) with
+                               # the prompt and inputs, and the mind decides
+                               # on its next beat; default false (bin/act drafts)
     [[inputs]]
     name = "mentions"
     run = "hands/x mentions --status offered"
@@ -111,7 +116,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if not prompt:
         raise PlaybookError(f"{path}: the prompt is empty")
 
-    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media"}
+    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media", "nudge"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -171,8 +176,15 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if media and not (output == "post" or output.startswith("hand:")):
         raise PlaybookError(f"{path}: media goes with a post or a hand: output only")
 
+    nudge = meta.get("nudge", False)
+    if not isinstance(nudge, bool):
+        raise PlaybookError(f"{path}: nudge is true or false")
+    if nudge and output not in NUDGE_OUTPUTS:
+        raise PlaybookError(f"{path}: a nudge goes to the mind, which can only {', '.join(NUDGE_OUTPUTS)}; not {output!r}")
+
     return {
         "name": name,
+        "nudge": nudge,
         "description": description.strip(),
         "media": media,
         "output": output,
@@ -181,6 +193,11 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         "inputs": parsed,
         "prompt": prompt,
     }
+
+
+#: What a nudged playbook may ask of the mind: the outputs bin/tick's
+#: intents cover (post_x, reply_x, like_x, or just a thought).
+NUDGE_OUTPUTS = ("post", "reply", "like", "none")
 
 
 def main(argv: list[str]) -> int:

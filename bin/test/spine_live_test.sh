@@ -277,6 +277,8 @@ check "and the first draft in it" grep -q 'hello from a playbook' <<<"$(act_requ
 # The mind: two beats of bin/tick on the one teeny:mind thread, the second
 # carrying the first.
 mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | tail -n 1; }
+# Awake whatever the wall clock says, and on the minute.
+export TEENY_QUIET_HOURS=off TEENY_TICK_JITTER_SECS=0
 (cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
 ticked="$("$root/bin/tick" 2>"$scratch/tick.log" || true)"
 check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"

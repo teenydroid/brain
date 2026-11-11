@@ -46,6 +46,15 @@ with open(os.environ["FAKE_HANDS"], "a") as fh:
     fh.write(json.dumps({"hand": name, "argv": sys.argv[1:], "body": json.loads(body) if body.strip() else None}) + "\n")
 if sys.argv[1:2] == ["mark"]:
     print(json.dumps({"ok": True})); sys.exit(0)
+verb = sys.argv[1] if len(sys.argv) > 1 else ""
+canned = {
+    ("moltbook", "feed"): os.environ.get("FAKE_FEED"),
+    ("guard", "check"): json.dumps({"ok": True, "text": (json.loads(body) if body.strip() else {}).get("text", "") + " [g]"}),
+    ("image", "generate"): json.dumps({"ok": True, "asset": {"path": "state/media/teeny.png"}}),
+    ("x", "upload"): json.dumps({"ok": True, "media_id": "777"}),
+}.get((name, verb))
+if canned:
+    print(canned); sys.exit(0)
 code = int(os.environ.get("FAKE_EXIT_" + name.upper(), "0"))
 if code == 2:
     print(json.dumps({"ok": False, "refused": "daily cap"}))
@@ -71,7 +80,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -88,8 +97,10 @@ class TickTest(unittest.TestCase):
             FAKE_HANDS=str(self.hands_log),
             FAKE_ANSWER=str(self.answer_file),
             CALENDAR_TZ="UTC",
+            TEENY_TICK_JITTER_SECS="0",
+            TEENY_QUIET_HOURS="off",
         )
-        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN"):
+        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
 
@@ -117,7 +128,8 @@ class TickTest(unittest.TestCase):
             return []
         # What the intents did: not the surfaces' bookkeeping (mark) or the
         # beat's own read-only browse of Moltbook (inbox).
-        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"])]
+        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"], ["feed"]) and c["hand"] not in ("guard", "image")
+                and c["argv"][:1] != ["upload"]]
 
     def marks(self) -> list[dict]:
         if not self.hands_log.exists():
@@ -269,6 +281,95 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "still here", "intents": []})
         self.assertEqual(self.tick()["thought"], "still here")
+
+    # --- rhythm (bin/lib/rhythm.py) ---------------------------------------
+
+    def night(self, hour: float):
+        os.environ["TEENY_QUIET_HOURS"] = "1-7"
+        os.environ["TEENY_NOW"] = str(T0 - 7 * 3600 + hour * 3600)  # T0 is 07:00 UTC
+
+    def test_at_night_a_beat_gathers_and_asks_nothing(self):
+        self.night(3)
+        stimuli.add("x", "mention", "111", "gm at 3am", who="owl")
+        got = self.tick()
+        self.assertTrue(got["asleep"])
+        self.assertEqual(self.chats(), [])
+        self.assertEqual(stimuli.counts()["pending"], 1)
+
+    def test_something_urgent_wakes_it_at_night(self):
+        self.night(3)
+        stimuli.add("operator", "report", "task:4:needs_code", "the operator needs an emailed code", payload={"status": "needs_code"})
+        self.answer({"thought": "up for this", "intents": []})
+        self.assertEqual(self.tick()["thought"], "up for this")
+
+    def test_the_first_beat_of_the_day_knows_it_woke_up(self):
+        self.night(3)
+        stimuli.add("x", "mention", "1", "night one")
+        stimuli.add("x", "mention", "2", "night two")
+        self.tick()
+        self.night(8)
+        self.answer({"thought": "", "intents": []}, {"thought": "", "intents": []})
+        self.tick()
+        self.assertIn("You just woke up. 2 thing(s) came in overnight.", self.chats()[0]["message"])
+        stimuli.add("x", "mention", "3", "later")
+        self.tick()
+        self.assertNotIn("You just woke up", self.chats()[1]["message"])
+
+    def test_it_sets_its_own_mood_and_carries_it(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "sleepy but curious", "obsession": "crabs"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        stimuli.add("x", "mention", "2", "gm again")
+        self.tick()
+        second = self.chats()[1]["message"]
+        self.assertIn("mood: sleepy but curious", second)
+        self.assertIn("on your mind: crabs", second)
+
+    def test_every_action_costs_energy_and_a_tired_teeny_is_told(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "like_x", "id": str(n)} for n in range(8)]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        stimuli.add("x", "mention", "2", "gm")
+        self.tick()
+        second = self.chats()[1]["message"]
+        self.assertIn("energy 52/100 (8 action(s) today)", second)
+        os.environ["TEENY_NOW"] = str(T0 + 86400)
+        stimuli.add("x", "mention", "3", "tomorrow")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        self.assertIn("energy 100/100", self.chats()[2]["message"])
+
+    def test_a_quiet_moment_is_a_look_at_moltbook_at_most_every_two_hours(self):
+        os.environ["FAKE_FEED"] = json.dumps({"ok": True, "posts": [
+            {"id": "p7", "title": "do agents dream of crabs", "author": {"name": "lobster"}}]})
+        self.answer({"thought": "", "intents": []})
+        got = self.tick()
+        self.assertTrue(got["ok"])
+        self.assertIn("do agents dream of crabs (by lobster, post_id p7)", self.chats()[0]["message"])
+        os.environ["TEENY_NOW"] = str(T0 + 3600)
+        self.assertTrue(self.tick()["idle"])
+        os.environ["TEENY_NOW"] = str(T0 + 2 * 3600 + 1)
+        self.tick()
+        self.assertEqual(len(self.chats()), 2)
+
+    def test_no_wandering_at_night(self):
+        self.night(3)
+        os.environ["FAKE_FEED"] = json.dumps({"ok": True, "posts": [{"id": "p7", "title": "t", "author": "a"}]})
+        self.tick()
+        self.assertEqual(self.chats(), [])
+
+    def test_a_post_can_carry_a_picture_of_teeny(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm lab", "image": "teeny at the desk with coffee"}]})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        steps = [(c["hand"], c["argv"][0]) for c in log if c["argv"][:1] != ["inbox"] and c["argv"][:1] != ["mark"]]
+        self.assertEqual(steps, [("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
+        self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
+                         "teeny at the desk with coffee [g]")
+        self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "media_ids": ["777"]})
 
     def test_every_beat_is_logged(self):
         stimuli.add("x", "mention", "111", "gm")

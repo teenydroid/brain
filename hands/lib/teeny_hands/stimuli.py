@@ -179,6 +179,13 @@ def release(tick: str) -> int:
     return _finish(tick, "pending")
 
 
+def pending(max_items: int = 200) -> list[Json]:
+    """What is waiting, oldest first, without taking it."""
+    conn = db()
+    rows = conn.execute("SELECT * FROM stimuli WHERE status = 'pending' ORDER BY at, rowid LIMIT ?", (max_items,)).fetchall()
+    return [_row(r) for r in rows]
+
+
 def counts() -> dict[str, int]:
     conn = db()
     got = dict(conn.execute("SELECT status, COUNT(*) FROM stimuli GROUP BY status").fetchall())
