@@ -40,9 +40,9 @@ class LikeTest(Scratch):
         self.assertEqual(self.x.requests(), [])
         self.assertEqual(likes(), [])
 
-    def test_a_like_x_refused_is_not_ledgered(self):
+    def test_a_like_x_rejected_is_not_ledgered(self):
         self.liked.status = 403
-        with self.assertRaises(Exception):
+        with self.assertRaises(hand.HandError):
             publish.like("77")
         self.assertEqual(likes(), [])
 
