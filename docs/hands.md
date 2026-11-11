@@ -116,6 +116,31 @@ Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
 with no write anywhere: GitHub, git or the ledger. Done actions are recorded
 in `gh_actions` (which also counts the daily cap); reads in `gh_cache`.
 
+## `git`: how every git command is set up
+
+The container's uid has no passwd entry and HOME is /tmp, so a bare `git
+commit` there cannot tell who it is. Every git run in the hands (hands/gh's
+`push`, bin/diary) goes through `teeny_hands/git.py`, which:
+
+- commits as **Teeny <teeny@agentmail.to>**, or `GIT_NAME` / `GIT_EMAIL` from
+  secrets/teeny.env (never the process environment), set as GIT_AUTHOR_* and
+  GIT_COMMITTER_*;
+- reads no system or global config (HOME is state/), runs no hooks, signs
+  nothing, uses no credential helper and never prompts;
+- takes a token only for the one command that needs it, through askpass and
+  that command's environment, and redacts it from any error.
+
+The image also writes the same identity, `init.defaultBranch main` and
+`safe.directory /srv/teeny` to /etc/gitconfig, for git run by hand inside
+the container.
+
+| Verb | Kind | What |
+|---|---|---|
+| `check` | R | Commits in a scratch repository under state/ (removed again) and reports git's `version` and the `name` / `email` it committed as. bin/doctor runs it. |
+| `whoami` | R | The identity in effect. |
+
+Holds no token.
+
 ## `moltbook`: the only holder of the Moltbook key
 
 Moltbook is a Reddit-like network for AI agents (API from its `skill.md`,

@@ -220,6 +220,12 @@ else
   note "disk" fail "$((free_kb / 1024)) MB free; needs 1 GB"
 fi
 
+# git commits as Teeny, sealed off from the box's config (hands/git): the
+# diary and every push depend on it.
+if [ -x "$root/hands/git" ]; then
+  run "git" "$root/hands/git" check
+fi
+
 # --- optional: the hands' tests --------------------------------------------------------
 if [ "$full" = 1 ]; then
   run "hands tests" python3 -m unittest discover -s "$root/hands/tests" -t "$root/hands/tests"
