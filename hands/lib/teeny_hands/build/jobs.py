@@ -339,6 +339,9 @@ def done(body: Any) -> Json:
     if repo is not None and (not isinstance(repo, str) or not _REPO_NAME.match(repo) or repo in (".", "..")
                              or repo.endswith(".git")):
         raise hand.HandError('"repo" must be a plain repository name')
+    if isinstance(repo, str) and repo.lower() == selfclone.REPO_NAME:
+        # Teeny's own repository changes only through a self job's pull request.
+        raise hand.HandError(f'"repo" cannot be {selfclone.REPO_NAME}: that is Teeny\'s own repository')
     conn = db()
     try:
         with hand.transaction(conn):
