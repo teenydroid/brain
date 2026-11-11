@@ -85,6 +85,8 @@ fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/act.t
 fails "fails an act agent that was given a tool" "agent act.toml"
 fresh; rm "$root/brain/agents/act.toml"
 fails "fails without the act agent" "agent act.toml"
+fresh; rm "$root/brain/agents/act.md"
+fails "fails an act agent whose prompt file has no instructions beside it" "agent act.toml"
 # An agent job has no command: the playbook scan must step over it, not stop at it.
 fresh; printf '[jobs.aaa]\nschedule = "0 */2 * * *"\nagent = "builder"\nprompt = "build"\n[jobs.morning]\nschedule = "0 7 * * *"\ncommand = "bin/act morning"\n' >"$root/brain/cron.toml"
 doctor || true
