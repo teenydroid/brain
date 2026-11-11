@@ -4,15 +4,10 @@ Teeny edits its own brain, adds its own hands, and keeps what wins. The loop
 is driven by its lore, judged by a model, and fenced by rules in code the
 brain can't edit.
 
-**Status:**
-- **Built:** `bin/act` and playbooks, the cron rules and pinned jobs,
-  `bin/doctor` (gating every boot), and `bin/eval` with the frozen tasks,
-  judge and invariants.
-- **To come, in this order:**
-  1. the lab spine
-  2. `bin/evolve`
-  3. promotion, restart and rollback
-  4. the first real generation
+Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
+(gating every boot), and `bin/eval` with the frozen tasks, judge and
+invariants. Not built: the loop itself (`bin/evolve`, the lab spine,
+promotion and rollback). The sections marked "not built" are its spec.
 
 ## What Teeny may change
 
@@ -71,14 +66,16 @@ A playbook (`brain/playbooks/<name>.md`) is a prompt with TOML front matter:
 
 ```
 +++
-description = "answer the people who mentioned @teenydroid"
-output = "reply"           # post | reply | like | none | "hand:<name> <verb>"
-max_per_day = 40
+description = "a post when a round number was crossed"
+output = "post"            # post | reply | like | none | "hand:<name> <verb>"
+max_per_day = 1
+media = ["image"]          # optional: the draft may add an "image" or "video"
 [[inputs]]
-name = "mentions"
-run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
+name = "stats"
+run = "hands/stats report --days 7"
+required = true            # optional: skip without a model turn when it is empty
 +++
-Answer the mentions in the inputs that deserve an answer. ...
+Write one post when a number in the inputs crossed a round value. ...
 ```
 
 An input only ever runs a hand. The output is a hand verb that applies its own
@@ -166,7 +163,7 @@ bin/eval compare A B OUT  each pair judged twice by the `judge` agent: A shown
 The judge inherits the core's model. Pinning a different one is
 `model = "<name>"` in `brain/agents/judge.toml`, which only a human can edit.
 
-## The loop (to come): one generation of `bin/evolve`
+## The loop (not built): one generation of `bin/evolve`
 
 1. **Observe.** Collect `state/evolve/<gen>/evidence.json` from:
    - trace spans (`[observability.agent_tracing]`)
@@ -224,8 +221,8 @@ The judge inherits the core's model. Pinning a different one is
 
 **Budgets** live in `secrets/evolve.env`: generations a day (default 1),
 tokens per generation, a wall-clock cap, and `EVOLVE=0` as the kill switch.
-`bin/evolve` detaches under `setsid`, because shell cron is killed at 120s
-(gap G1).
+A cron shell job may run 30 minutes (`[cron] shell_timeout_secs`); a longer
+generation detaches.
 
 ## Risks
 
