@@ -36,6 +36,12 @@ MAX_JUDGED_LENGTH = 6_000
 # waits on it, so a stuck model is a hold, not a hang.
 JUDGE_TIMEOUT = 60.0
 
+# How a failure to judge reads, on the hold it makes: an unreachable core or
+# model (the error follows the colon), or an answer that could not be read.
+# The re-screen (rescreen.py) asks about these holds again, and only these.
+UNREACHABLE = "the judge could not be reached"
+UNREADABLE = "the judge answered in an unreadable shape"
+
 CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity")
 
 
@@ -209,8 +215,8 @@ def judge(text: str, direction: str) -> JudgeVerdict:
         try:
             reply = hand.core("inference_agent_chat_simple", params, timeout=JUDGE_TIMEOUT)
         except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
-            return _fail_closed(f"the judge could not be reached: {error}")
+            return _fail_closed(f"{UNREACHABLE}: {error}")
         verdict = read(_answer(reply))
         if verdict is not None:
             return verdict
-    return _fail_closed("the judge answered in an unreadable shape")
+    return _fail_closed(UNREADABLE)

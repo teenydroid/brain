@@ -88,3 +88,17 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json
     if errors:
         out["errors"] = errors
     return out
+
+
+def release_held(context: Mapping[str, Any], text: str) -> bool:
+    """A comment the guard held, into the inbox as `scan` would have added it,
+    once the guard's re-screen found it clean. False when the inbox already
+    has it (a later scan let it through, or a second hold of it cleared)."""
+    post_id = str(context["post_id"])
+    own = rules.db().execute(
+        f"SELECT 1 FROM moltbook_posts WHERE post_id = ? AND status IN ({','.join('?' * len(rules.COUNTED))})",
+        (post_id, *rules.COUNTED),
+    ).fetchone()
+    payload: Json = {"post_id": post_id, "on_own_post": own is not None}
+    return stimuli.add("moltbook", "comment", str(context["comment_id"]), text, who=context.get("author") or None,
+                       payload=payload)
