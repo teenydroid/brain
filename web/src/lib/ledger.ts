@@ -1,8 +1,8 @@
 /**
  * The inference ledger: one row per model call, and the running token count.
  *
- * The bot writes a row for every call any of its surfaces makes and folds the
- * brain's samples in beside them (`src/ledger/` in the repo). Each row is what
+ * Served at GET /ledger by Teeny's previous runtime (MIND_API_URL), which no
+ * longer runs; the current spine serves no such API. Each row is what
  * the model was shown short of the system prompt, what it reasoned, what came
  * back, and what it cost. The prompt is committed to by digest and never
  * served. Nothing here is invented: when the bot cannot be reached there are
