@@ -249,9 +249,21 @@ def reflect(light: bool = False) -> Json:
     return {"ok": True, "memory_chars": len(memory), "diary": bool(diary), "learned": learned, "prompts": rebuilt}
 
 
+def reflect_once(light: bool = False) -> Json:
+    """reflect() under the reflect lock: a reflection still running (a
+    detached one from cron, or one by hand) means this one does nothing."""
+    try:
+        with hand.lock("reflect", timeout=5):
+            return reflect(light)
+    except hand.HandError as exc:
+        if "lock" in str(exc):
+            return {"ok": True, "kind": "busy", "skipped": "another reflection is still running"}
+        raise
+
+
 if __name__ == "__main__":
     try:
-        result = reflect(light="--light" in sys.argv[1:])
+        result = reflect_once(light="--light" in sys.argv[1:])
     except (hand.HandError, OSError, ValueError) as exc:
         result = {"ok": False, "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False))

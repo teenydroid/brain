@@ -641,6 +641,12 @@ class TickTest(unittest.TestCase):
             fcntl.flock(fh, fcntl.LOCK_UN)
             return False
 
+    def test_the_pinned_tick_runs_detached(self):
+        import tomllib
+
+        jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
+        self.assertEqual(jobs["tick"]["command"], "bin/tick --detach")
+
     def test_the_cron_call_returns_at_once_and_the_beat_carries_on(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "took my time", "intents": [{"do": "like_x", "id": "1"}]})

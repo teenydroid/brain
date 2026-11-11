@@ -6,10 +6,13 @@ would wreck the page changes nothing."""
 
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -87,8 +90,14 @@ class ReflectTest(unittest.TestCase):
         for key in ("FAKE_TURN_FAIL", "TEENY_MIND_THREAD"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
+        self.detached: list[int] = []
 
     def tearDown(self):
+        for pid in self.detached:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         os.environ.clear()
         os.environ.update(self._env)
         hand._ENV_CACHE = None
@@ -253,6 +262,63 @@ class ReflectTest(unittest.TestCase):
         self.answer("not json")
         self.assertFalse(self.reflect("--light")["ok"])
         self.assertEqual((self.brain / "MEMORY.md").read_text(), before)
+
+
+    # --- the cron call: bin/reflect --detach -------------------------------
+    # A reflection is one long model turn, which can outlast the 300 s the
+    # core gives a cron shell call (docs/oh-gaps.md G12): the pinned jobs
+    # start it in the background and return.
+
+    def detach(self, *args) -> dict:
+        started = time.monotonic()
+        proc = subprocess.run([str(REPO / "bin" / "reflect"), *args], capture_output=True, text=True,
+                              env=os.environ, timeout=60)
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        if isinstance(out.get("pid"), int):
+            self.detached.append(out["pid"])
+        return out
+
+    def wait_for(self, what, timeout: float = 30.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            got = what()
+            if got:
+                return got
+            time.sleep(0.1)
+        self.fail("timed out waiting")
+
+    def test_the_pinned_reflections_run_detached(self):
+        jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
+        self.assertEqual(jobs["reflect"]["command"], "bin/reflect --detach")
+        self.assertEqual(jobs["reflect-midday"]["command"], "bin/reflect --light --detach")
+
+    def test_the_cron_call_starts_the_night_and_returns(self):
+        stimuli.note("builds a cli for crabs", who="ana")
+        self.answer({"memory": NEW_MEMORY, "diary": "a good day."})
+        out = self.detach("--detach")
+        self.assertEqual((out["ok"], out["kind"], out["log"]), (True, "started", "state/reflect/reflect.log"))
+        log = self.root / "state" / "reflect" / "reflect.log"
+        self.wait_for(lambda: log.exists() and '"ok": true' in log.read_text())
+        self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
+        self.assertTrue((self.root / "state" / "diary" / "2026-09-14.md").exists())
+
+    def test_the_cron_call_keeps_midday_light(self):
+        self.answer({"memory": NEW_MEMORY, "diary": "should not be kept"})
+        self.assertEqual(self.detach("--light", "--detach")["kind"], "started")
+        self.wait_for(lambda: (self.root / "state" / "reflect" / "light.at").exists())
+        self.assertFalse((self.root / "state" / "diary").exists())
+        self.assertIn("# midday", self.chats()[0]["message"])
+
+    def test_a_reflection_still_running_is_not_started_twice(self):
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        with hand.lock("reflect"):
+            out = self.detach("--detach")
+            self.assertEqual((out["ok"], out["kind"]), (True, "busy"))
+            got = self.reflect()  # by hand, too
+            self.assertEqual((got["ok"], got["kind"]), (True, "busy"))
+        self.assertEqual(self.chats(), [])
 
 
 if __name__ == "__main__":
