@@ -142,6 +142,31 @@ reset
 answer '{"action": "post", "text": "gm tiny humans"}'
 run morning >/dev/null
 
+# --- a habit, not an order: nudge = true -----------------------------------------
+cat >"$scratch/hands/stimuli" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'stimuli %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+echo '{"ok": true, "added": true}'
+FAKE
+chmod +x "$scratch/hands/stimuli"
+printf '+++\ndescription = "the gm habit"\noutput = "post"\nmax_per_day = 1\nnudge = true\nmedia = ["image"]\n[[inputs]]\nname = "feed"\nrun = "hands/x search gm"\n+++\nsay gm if you feel like it\n' >"$brain/playbooks/gm-habit.md"
+reset
+out="$(run gm-habit)"
+check "a nudged playbook asks the model nothing itself" test ! -s "$FAKE_CALLS"
+check "and says it nudged" test "$(jq -r .nudged <<<"$out")" = true
+nudge="$(grep '^stimuli add' "$FAKE_HANDS" | sed 's/^stimuli add stdin=//')"
+check "it nudges the mind's inbox as a habit" test "$(jq -r '.surface + " " + .kind' <<<"$nudge")" = "nudge gm-habit"
+check "with the prompt" grep -q 'say gm if you feel like it' <<<"$(jq -r .text <<<"$nudge")"
+check "and what the hands read, as data" grep -q 'what are you building' <<<"$(jq -r .text <<<"$nudge")"
+check "and that a post may carry a picture" grep -q 'may carry an "image"' <<<"$(jq -r .text <<<"$nudge")"
+check "and posts nothing itself" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
+out="$(run gm-habit)"
+check "a habit nudges at most max_per_day times a day" test "$(jq -r .skipped <<<"$out")" = "daily budget spent"
+printf '+++\ndescription = "x"\noutput = "hand:mail reply"\nsurface = "mail"\nnudge = true\n+++\ngo\n' >"$brain/playbooks/bad-habit.md"
+check "refuses a nudge for an output the mind cannot carry out" bash -c "! '$act' --check bad-habit >/dev/null 2>&1"
+rm -f "$brain/playbooks/gm-habit.md" "$brain/playbooks/bad-habit.md" "$scratch/hands/stimuli"
+
 # --- the daily budget ------------------------------------------------------------
 : >"$FAKE_CALLS"; : >"$FAKE_HANDS"
 out="$(run morning)"
