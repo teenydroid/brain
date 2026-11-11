@@ -93,6 +93,11 @@ draft '{"text": "gm tiny humans, %TASK% done quietly"}'
 "$eval_bin" run "$runs/base" >"$scratch/out" 2>/dev/null
 check "drafts every task twice by default" test "$(wc -l <"$runs/base/drafts.jsonl" | tr -d ' ')" = $((tasks * 2))
 check "drafts as the act agent" test "$(jq -r .agent_id "$FAKE_CALLS" | sort -u)" = act
+# A turn with no thread resumes the agent's newest transcript, which is the
+# live teeny:act thread now: each draft gets a thread of its own, so a run
+# never sees Teeny's real day or another draft.
+check "drafts each sample on a fresh thread of its own" test "$(jq -r .thread_id "$FAKE_CALLS" | grep -c '^eval:')" = "$((tasks * 2))"
+check "and no two drafts share one" test "$(jq -r .thread_id "$FAKE_CALLS" | sort -u | wc -l | tr -d ' ')" = "$((tasks * 2))"
 check "a plain draft passes every hard check" test "$(jq -r .ok "$scratch/out")" = "$((tasks * 2))"
 "$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/two" >/dev/null 2>&1
 check "--only and --samples pick what is drafted" test "$(jq -r .task "$runs/two/drafts.jsonl" | tr '\n' ' ')" = "morning-post reply-fud "
