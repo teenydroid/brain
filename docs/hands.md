@@ -1,25 +1,17 @@
 # Hands
 
-The only code Teeny owns. The `crates/...` paths cited below are the Rust
-bot at `55c2c75`, the code each hand replaces. See [`architecture.md`](architecture.md) §3 for the
+The only code Teeny owns. See [`architecture.md`](architecture.md) §3 for the
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
-**Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail`, `stats`, `requests`, `build`, `tasks`, `wallet`, `bounty` and `slopcash` are built (`hands/guard`,
-`hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
-`hands/requests`, `hands/build`, `hands/tasks`, `hands/wallet`, `hands/bounty`,
-`hands/slopcash`,
-code in `hands/lib/teeny_hands/`,
-tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
-the queue itself is the core's inbound event queue, which coalesces mentions
-into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
-claim or lease here. `article`, `auth` and the other hands are still to
-come. Rows below say which.
+The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
+`requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`
+and `bounty`. Each is an executable in `hands/`, with its code in
+`hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are Python 3.11 standard library, with no
-dependencies. Python is already in the image for `bin/seed-cron`, and OAuth 1.0a
-signing, transactional SQLite and a guarded fetch are not jobs for bash. Each
+dependencies. OAuth 1.0a signing, transactional SQLite and webhook
+signatures are not jobs for bash. Each
 executable is a three-line shim that runs `python3 -I`, so no `PYTHONPATH` or
 planted module can change what it loads. The shared contract (outcomes, exit
 codes, secrets, dry run, state, the core client) is
@@ -27,7 +19,8 @@ codes, secrets, dry run, state, the core client) is
 `python3 -m unittest discover -s hands/tests -t hands/tests`.
 
 **R** marks a read verb. **A** marks an acting verb, which only `bin/`
-scripts, playbooks and the operator (the person) call. **J** marks a job
+scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
+operator (the person) call. **O** marks an operator-only verb. **J** marks a job
 verb: it says nothing to anyone but writes state and calls the core, so like
 an acting verb it is never given to a model. The scheduled agents (the
 builder and the browser operator) call no hand at all: a `desk` job verb
@@ -38,23 +31,15 @@ report they leave beside it.
 
 | Verb | | Does |
 |---|---|---|
-| `ingest [--max N] [--no-offer]` | J | Read the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest and a hold is `held`. Every `pending` row is offered to the core (`openhuman.inbound_offer`, source `x:mentions`) and marked `offered`; a failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
+| `ingest [--max N] [--no-offer]` | J | Read the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest and a hold is `held`. Every `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`; a failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
-| `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). |
-| `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. *The reply budget lanes come with `cadence`.* |
-| `upload` | A | Media upload. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `article` | A | *Not built yet.* Publish an article (guard and the 48h article interval). |
+| `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post and it is too expensive. |
+| `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. |
+| `upload` | A | Media upload of a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Like a mention (skipped under `DRY_RUN`). |
 | `unsay` | A | Delete an own post. Previews unless `--confirm`. |
-| `auth` | A | *Not built yet.* The three-legged OAuth flow (today's `teeny auth-x`). Operator only, interactive. |
-
-Replaces: `crates/teeny-x/*`, `teeny-agent/src/tools/{x,post}.rs`,
-`teeny/src/{mentions,stream}.rs`, `teeny/src/http/webhooks.rs`,
-`teeny-store/src/mentions.rs`, `teeny-store` x-cache. The webhook and activity
-stream are dropped in favour of polling, because there's no HTTP server to
-receive them. Bring them back only if a 5-minute poll proves too slow.
 
 ### The webhook
 
@@ -66,7 +51,7 @@ through the X Activity API to `post.mention.create`, `post.reply.create` and
 any delivery whose `x-twitter-webhooks-signature` is not the HMAC-SHA256 of the
 body under `X_API_SECRET`, and queues each post about the account by somebody
 else into `x_mentions` exactly as `ingest` does (screened, unique on post id),
-for the next `ingest` to offer. Nothing is searched or billed per post, and it
+for the next `ingest` to offer. This is how mentions arrive. Nothing is searched or billed per post, and it
 catches replies X's mentions timeline leaves out (2026-11-11: four of nine
 replies to the gm never came back from `/mentions`).
 
@@ -76,7 +61,7 @@ replies to the gm never came back from `/mentions`).
 |---|---|---|
 | `check` | R | Run, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
 | `check --fields title,body` | R | The same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field)`. |
-| `inbound` | R | Screens third-party text before a model sees it. `bin/job` calls it before every draft. |
+| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `bounty entries`. |
 | `style` | R | House style: strip leading @handles, replace dashes, straighten quotes, drop NFA/DYOR. |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft: it atomically moves `pending` to `releasing`, publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context, with the posting rules and `DRY_RUN` but without asking the guard again, since the operator's approval is the decision it deferred), marks it `approved` with where it went, and on failure goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
 
@@ -85,7 +70,7 @@ cut; `max_emoji` overrides the cap):
 
 | Surface | Fields and limits | Emoji per field |
 |---|---|---|
-| `x` (and every surface not below: `telegram`, `narrative`, ...) | `text` 280 | `MAX_EMOJI_PER_POST` (1) |
+| `x` (and any surface not below) | `text` 280 | `MAX_EMOJI_PER_POST` (1) |
 | `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
 | `moltbook` | `title` 300, `body` 10000 | 3 |
 | `mail` | `subject` 200, `body` 10000 | 3 |
@@ -95,11 +80,9 @@ On a long-form surface, `text` is the body, and a leading `@handle` is kept
 `github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to` and
 `solscan.io`.
 
-**One deliberate change from the Rust.** The old screen collapsed every
-repeated letter, so the term `xxx` read as `x+` and held a lone "x" as sexual,
-and `kkk` held a lone "k". On X that meant "x.com" and "on X". A term made of
-one repeated letter now keeps its count (`x{3,}`), as a doubled vowel already
-did. `xxx`, `XXXX` and `kkk` are still held. This is pinned in
+**Repeated letters.** The screen collapses repeated letters, except in a
+term made of one repeated letter, which keeps its count (`x{3,}`). Otherwise
+`xxx` would read as `x+` and hold "x.com" and "on X". `xxx`, `XXXX` and `kkk` are still held. This is pinned in
 `hands/tests/guard/test_screen.py`.
 
 The judge runs through the core (`inference_agent_chat_simple`), so the model
@@ -107,7 +90,6 @@ key stays in the core's encrypted store. It fails closed: an unreachable core
 or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
 lexicon and the links.
 
-Replaces `crates/teeny-safety/*` and `teeny/src/http/{safety,release}.rs`.
 Holds are written best-effort and never turn into a publish.
 
 ## `gh`: the only holder of the GitHub token
@@ -245,7 +227,7 @@ free plan: 100 e-mails a day). Subjects and bodies go through `check_fields`
 | `whoami` | R | `/auth/me` and whether its inbox scope `matches` `AGENTMAIL_INBOX`. |
 | `list [--unread] [--max N] [--label L]`, `get ID`, `thread ID` | R | Recent mail (1 min), a message (10 min), a thread (2 min). |
 | `codes [--since-minutes N] [--from-domain D]` | R | Verification codes (4 to 8 capitals and digits with a digit, near "code", "verify", "OTP", "sign in", ...; a year is not a code) and verification links from mail received in the last N minutes (30). A link is returned only when the guard's link allowlist passes it; the others are counted as `withheld_links`, never shown. Always fresh. |
-| `ingest [--max N] [--no-offer]` | J | New mail since the `mail_cursor` timestamp into `mail_messages`, unique on message id. Teeny's own sent mail is `skipped`; `guard inbound` (surface `mail`) screens the rest, and a hold, or an Agent Armor `review`, is `held`. A pending message that asks Teeny to build something ("build me", "can you make", "could you build", ...) is also recorded in `build_requests`. Every `pending` row is offered to the core (`openhuman.inbound_offer`, source `mail:inbox`, key the thread, event id the message id) and marked `offered`; a failed offer stays `pending`. |
+| `ingest [--max N] [--no-offer]` | J | New mail since the `mail_cursor` timestamp into `mail_messages`, unique on message id. Teeny's own sent mail is `skipped`; `guard inbound` (surface `mail`) screens the rest, and a hold, or an Agent Armor `review`, is `held`. A pending message that asks Teeny to build something ("build me", "can you make", "could you build", ...) is also recorded in `build_requests`. Every `pending` row is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core (`openhuman.inbound_offer`, source `mail:inbox`, key the thread, event id the message id), and marked `offered`; a failed offer stays `pending`. |
 | `queue [--status S]`, `mark ID --status S [--note T]`, `requests [--status S]` | J | The intake (statuses as `x_mentions`), what became of a message, the build requests. |
 | `reply` | A | `{message_id, body}`. Only to a message in the inbox (a reply stays in its thread: `no_thread`), never Teeny's own (`own`), never one the guard held (`held`), once per message (`replied`, with `reply_id`). |
 | `send` | A | `{to, subject, body}`; `to` is an address or up to 5. Only to addresses in `contacts` (`contacts`): Teeny never cold-mails. |
@@ -261,7 +243,8 @@ used by `x requests` the same way, and picked from with `hands/requests`),
 `mail_cache`.
 
 `bin/mail` (the pinned `mail-inbound` job, every 5 minutes) runs `hands/mail
-ingest`, then `bin/inbound-consume --source mail:inbox`: the core drafts each
+ingest`, then `bin/inbound-consume --source mail:inbox`. By default the mind
+answers mail (`reply_mail` intents). With `TEENY_INBOX=core` the core drafts each
 thread with the tool-less `teeny-mail` agent (prompt: `brain/playbooks/mail.md`,
 written into the core's config by `bin/lib/inbound_config.py`), and each
 reply goes through `hands/mail reply` and is marked.
@@ -534,93 +517,38 @@ address are typed. It prints the line to paste into `brain/CONTEXT.md`.
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
-## `cadence`: when Teeny may post
-
-| Verb | | Does |
-|---|---|---|
-| `claim <job>` | A | The 20h re-run guard, recorded at the decision, so a failed run counts. Calendar items get 1h. Also checks the gap and hot hold. |
-| `slot <afternoon\|evening>` | A | Pick from the three-day rota, falling back when the owner doesn't post. |
-| `gap` | R | Whether an own post may go now (3h, 20-minute tolerance, hot hold). Replies are exempt. |
-| `budget <post>` | R | Reply-lane counts: Auto 10 per own post, Smart 10 per post published in the last day, Called uncapped, 7-day window, hot spill. |
-| `media` | A | The daily media budget: 20 images, 3 videos (UTC). |
-| `heat` | A | Sample own-post metrics and set or clear the hot hold. |
-
-Replaces `crates/teeny-cadence/*` and `teeny-jobs/src/{heat,slot}.rs`. The 20h
-guard, the pacing and the media budget are **in-memory today**. Here they are
-persisted, which is a deliberate fix.
-
-## The rest
-
-| Hand | Verbs | Replaces |
-|---|---|---|
-| `market` | R: `price`, `pools`, `holders`, `global`, `ta`, `leaderboard` (rate-limited) | `crates/teeny-market/*`, `teeny-agent/src/tools/market.rs` |
-| `chart` | A: `render` (spec JSON → PNG, chart and moon SVG themes) | `teeny-media` chart, moon SVG, `tools/chart.rs` |
-| `media` | R: `gif`, `look` (vision through the guarded fetch); A: `gen image\|video` (under `cadence media`) | `crates/teeny-media/*` |
-| `web` | R: `search`, `read`, `similar`, `answer` (Exa), `news` | `teeny-agent/src/{exa,tools/web}.rs` |
-| `record` | A: `log` (journal, handles redacted for the public feed), `brief`, `health`, `export` | `teeny-jobs/src/journal_glue.rs`, `teeny/src/http/feeds.rs`, `reflections` |
-| `telegram` | A: `poll` (debounced, ordered per chat), `send` (after `guard check`, honours `TELEGRAM_DRY_RUN`; the token is never logged, since it sits in the URL path) | `crates/teeny/src/telegram/*`, `teeny-jobs/src/chat` |
-| `policy` | `shell`: the `beforeShellExecution` hook. Refuses anything but `hands/*` with known verbs. | `teeny-agent/src/posture.rs` DENY list |
-| `mcp` | A stdio MCP server exposing only the **R** verbs above, each `ReadOnly` with no external effect (unblocked by [`oh-gaps.md`](oh-gaps.md) G11, not built yet) | `teeny-agent/src/tools/*` registration |
-
-**The guarded fetch** (`media look`, `web read`) inherits
-`crates/teeny-media/src/fetch.rs`:
-- public https only, with the URL re-checked on every redirect (at most 3);
-- names resolved by the hand, refusing private, loopback, link-local and
-  CGNAT addresses, with the vetted IP pinned;
-- no proxy, a 20s timeout and a 10MB cap;
-- a generic error back to the model.
-
 ## `state/hands.db`
 
-| Table | From (Mongo / file) |
+One SQLite file, WAL, beside the checkout's other run-time state. Each hand
+creates its own tables:
+
+| Hand | Tables |
 |---|---|
-| `x_mentions`, `x_cursor` (the intake; the queue proper is the core's) | `mentions` |
-| `own_posts` (ledger, heat samples, hot hold) | `own_posts` |
-| `holds`, `approved_hosts` | `holds`, `holds_links` |
-| `x_cache` | `x-cache` |
-| `gh_actions` (the GitHub ledger and the external-PR cap), `gh_cache` | — |
-| `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` | — |
-| `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` | — |
-| `slopcash_cache` | — |
-| `build_requests` (asks to build something, from any channel), `build_request_events` (who moved which request, and why) | — |
-| `build_jobs` (the builder's queue, what shipped where) | — |
-| `browser_tasks` (the browser operator's queue and outcomes) | — |
-| `stats` (one row per day per metric) | — |
-| `wallet_payments`, `bills`, `vendors` (the wallet's ledger and the operator's lists) | — |
-| `bounties`, `bounty_entries` | — |
-| `people` | `people` |
-| `media` (minted ids) | in-process today |
-| `guards` (20h, calendar, article interval, pacing, media budget) | in-memory today |
-| `runs` (`bin/job` start, finish, exit) | — |
-| `cursor` (`since_id`, `last_polled_at`) | `data/state.json` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_pacing`, `x_media`, `x_cache` |
+| `guard` | `guard_holds`, `guard_approved_links` |
+| `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
+| `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` |
+| `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
+| `slopcash` | `slopcash_cache` |
+| `requests` | `build_requests`, `build_request_events` |
+| `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
+| `brief` | `briefs` |
+| `image`, `video` | `media_assets` |
+| `build` | `build_jobs` |
+| `tasks` | `browser_tasks` |
+| `stats` | `stats` |
+| `wallet` | `wallet_payments`, `bills`, `vendors` |
+| `bounty` | `bounties`, `bounty_entries` |
 
-Dropped:
-- `inferences` and `inferences_totals`. OpenHuman's traces cover them.
-- `telegram_transcript`. Telegram history becomes `record/` plus memory.
+## Rules the tests pin
 
-`bin/migrate-mongo` copies the five live collections once, at cutover.
-
-## Invariants every hand port must keep
-
-Each port brings over the tests of the code it replaces. These are the ones a
-port is not done without:
-
-1. **The gap and the posting lock** (`teeny-cadence/src/cadence.rs:33,203-230`).
-   `flock` plus a transaction, with the gap re-checked inside the lock.
-2. **The 20h guard is marked at the decision** (`teeny-cadence/src/guard.rs`).
-3. **The reply budget lanes** (`teeny-cadence/src/budget.rs`).
-4. **The claim and lease, and the reply id recorded first**
-   (`teeny-store/src/mentions.rs:196-209,462`, `teeny-jobs/src/reply/job.rs:464`).
-5. **The atomic hold claim and release** (`teeny-store/src/holds.rs:546-572`).
-6. **Dry run.** No X write, like, ledger row or memory capture
-   (`teeny-x/src/publisher.rs`, `reply/job.rs:219`, `tools/post.rs:206`).
-7. **Gate order and fail-closed judge**: links → lexicon → judge
-   (`teeny-safety/src/gate.rs`, `judge.rs:161`).
-8. **Refuse, don't fix, over 280 or over the emoji cap**
-   (`teeny-safety/src/gate.rs:377`).
-9. **Attachments by minted id or Giphy id only, never both**
-   (`teeny-agent/src/tools/post.rs:393`).
-10. **The guarded fetch** (`teeny-media/src/fetch.rs`).
-11. **Secrets are never logged**, including the Telegram token in URLs
-    (`teeny/src/telegram/api.rs:118-122`).
-12. **No retries on posting jobs** (`teeny/src/schedule.rs:382`).
+1. **The gap and the posting lock.** A lock plus a transaction, with the gap
+   re-checked inside the lock.
+2. **The post or reply id is recorded first**, and a ledger write that fails
+   after a post is never retried.
+3. **The atomic hold claim and release.**
+4. **Dry run.** No write anywhere outside: no X post, like, push, payment or ledger row.
+5. **Gate order and a fail-closed judge**: links, then lexicon, then judge.
+6. **Refuse, don't fix,** over the length limit or the emoji cap.
+7. **Attachments by minted id or Giphy id only, never both, never a URL.**
+8. **Secrets are never logged**, and never reach a model.
