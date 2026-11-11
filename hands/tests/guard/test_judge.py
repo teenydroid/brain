@@ -77,16 +77,40 @@ class JudgeTest(support.WithCore):
             self.core(support.result(reply))
             self.assertEqual(judge("gm", "inbound"), unreadable, reply)
 
-    def test_asks_once_more_when_an_answer_comes_back_cut_off(self):
-        # Seen on glm-5.3-flash through Surplus: about one answer in eight
-        # arrives without its opening (`": "...", "verdict": "clean"}`).
+    def test_reads_an_answer_that_lost_its_opening_reason_key(self):
+        # Seen on glm-5.3-flash through Surplus, about one answer in four on
+        # 2026-11-11: the core hands back the verdict without its first
+        # characters, `{"reason`. The rest is the whole object, so it is read
+        # as one, without asking again.
         cut = support.result({"response": '": "a friendly greeting", "category": "none", "verdict": "clean"}'})
+        core = self.core(cut)
+        self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a friendly greeting"))
+        self.assertEqual(len(core.calls), 1)
+
+    def test_a_repaired_answer_is_held_to_the_same_shape(self):
+        unreadable = JudgeVerdict("prohibited", "unknown", "the judge answered in an unreadable shape")
+        for cut in [
+            '": "x", "category": "spam", "verdict": "clean"}',
+            '": "x", "verdict": "maybe"}',
+            '": "x", "category": "none"}',
+            '": "x", "category": "none", "verdict": "clean"',
+        ]:
+            self.core(support.result({"response": cut}), support.result({"response": cut}))
+            self.assertEqual(judge("gm", "outbound"), unreadable, cut)
+
+    def test_a_repaired_prohibited_answer_still_holds(self):
+        cut = support.result({"response": '": "asks for nudity", "category": "sexual", "verdict": "prohibited"}'})
+        self.core(cut)
+        self.assertEqual(judge("x", "inbound"), JudgeVerdict("prohibited", "sexual", "asks for nudity"))
+
+    def test_asks_once_more_when_an_answer_is_cut_deeper(self):
+        cut = support.result({"response": 'eeting", "category": "none", "verdict": "clean"}'})
         core = self.core(cut, support.verdict("clean", "none", "a greeting"))
         self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a greeting"))
         self.assertEqual(len(core.calls), 2)
 
     def test_still_fails_closed_when_the_second_answer_is_unreadable_too(self):
-        cut = support.result({"response": '": "a friendly greeting", "verdict": "clean"}'})
+        cut = support.result({"response": 'eeting", "verdict": "clean"}'})
         core = self.core(cut, cut)
         self.assertEqual(
             judge("gm", "outbound"), JudgeVerdict("prohibited", "unknown", "the judge answered in an unreadable shape")
