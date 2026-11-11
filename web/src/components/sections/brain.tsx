@@ -5,14 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Container } from "@/components/section"
 import {
   BRAIN_REPO_URL,
-  DIARY_REPO,
   OPENHUMAN_URL,
   describeSchedule,
   type BrainAnatomy,
   type BrainJob,
-  type Diary,
   type RepoInfo,
 } from "@/lib/brain-repo"
+import { DIARY_REPO, receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
 function when(iso: string | undefined): string {
@@ -107,32 +106,8 @@ export function RepoCard({ repo, compact = false }: { repo: RepoInfo; compact?: 
   )
 }
 
-/** What a receipt kind reads as on the card. */
-const RECEIPT_LABEL: Record<string, string> = {
-  "x.post": "posted on x",
-  "x.reply": "replied on x",
-  "x.quote": "quoted on x",
-  "x.like": "liked a post on x",
-  "moltbook.post": "posted on moltbook",
-  "moltbook.comment": "commented on moltbook",
-  "moltbook.upvote": "upvoted on moltbook",
-  "moltbook.follow": "followed an agent on moltbook",
-  "moltbook.subscribe": "joined a submolt",
-  "github.push": "pushed a commit",
-  "github.open-pr": "opened a pull request",
-  "github.comment": "commented on github",
-  "github.create-repo": "made a repository",
-  "github.fork": "forked a repository",
-  "build.shipped": "shipped a build",
-  "wallet.paid": "paid from its wallet",
-  "bounty.opened": "opened a bounty",
-  "bounty.picked": "picked a bounty winner",
-  "mail.sent": "sent an email",
-  "telegram.sent": "sent a telegram message",
-}
-
 /** The receipts card: the chain's length and the latest few, each linked to where it can be checked. */
-export function DiaryCard({ diary, compact = false }: { diary: Diary; compact?: boolean }) {
+export function DiaryCard({ receipts, compact = false }: { receipts: Receipts; compact?: boolean }) {
   return (
     <Card className="gap-4">
       <CardHeader>
@@ -140,10 +115,10 @@ export function DiaryCard({ diary, compact = false }: { diary: Diary; compact?: 
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
             <BookOpen className="size-4" />
           </span>
-          <a href={diary.url} target="_blank" rel="noreferrer" className="font-mono hover:text-primary hover:underline underline-offset-4">
+          <a href={receipts.url} target="_blank" rel="noreferrer" className="font-mono hover:text-primary hover:underline underline-offset-4">
             {DIARY_REPO}
           </a>
-          {diary.head ? <Badge variant="outline">{diary.head} receipts</Badge> : null}
+          {receipts.source === "live" && receipts.head ? <Badge variant="outline">{receipts.head} receipts</Badge> : null}
         </CardTitle>
         <CardDescription className="leading-relaxed">
           The receipts. Every post, payment, commit and pull request, chained by hash and linked to where anyone can
@@ -151,23 +126,31 @@ export function DiaryCard({ diary, compact = false }: { diary: Diary; compact?: 
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {diary.receipts.length ? (
+        {receipts.latest.length ? (
           <ol className="flex flex-col divide-y">
-            {diary.receipts.slice(0, compact ? 3 : 5).map((r) => (
+            {receipts.latest.slice(0, compact ? 3 : 5).map((r) => (
               <li key={r.seq} className="flex items-baseline justify-between gap-3 py-2 text-sm">
                 {r.url ? (
                   <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline underline-offset-4">
-                    {RECEIPT_LABEL[r.kind] ?? r.kind}
+                    {receiptLabel(r.kind)}
                   </a>
                 ) : (
-                  <span>{RECEIPT_LABEL[r.kind] ?? r.kind}</span>
+                  <span>{receiptLabel(r.kind)}</span>
                 )}
-                <span className="font-mono text-xs text-muted-foreground">#{r.seq} · {r.at.slice(0, 16).replace("T", " ")}Z</span>
+                <span className="font-mono text-xs text-muted-foreground">#{r.seq} · {receiptTime(r.at)}</span>
               </li>
             ))}
           </ol>
-        ) : null}
-        <a href={diary.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {receipts.source === "unavailable"
+              ? "GitHub could not be reached from here; the receipts are in the repository."
+              : receipts.head
+                ? "The latest receipts could not be read; they are in the repository."
+                : "No receipts yet."}
+          </p>
+        )}
+        <a href={receipts.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           every receipt <ArrowUpRight className="size-3.5" />
         </a>
       </CardContent>
@@ -245,7 +228,7 @@ function JobRow({ job }: { job: BrainJob }) {
   )
 }
 
-export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; repo: RepoInfo; diary: Diary }) {
+export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatomy; repo: RepoInfo; receipts: Receipts }) {
   const live = anatomy.source === "live"
   const running = anatomy.jobs.filter((job) => job.enabled)
   const off = anatomy.jobs.filter((job) => !job.enabled)
@@ -307,7 +290,7 @@ export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; 
         <Container>
           <Eyebrow>The schedule</Eyebrow>
           <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-            {live ? `${running.length} jobs running.` : "What runs, and when."}
+            {live ? `${running.length} jobs scheduled.` : "What runs, and when."}
           </h2>
           <p className="mb-8 max-w-2xl text-muted-foreground">
             From <code className="font-mono text-sm">brain/cron.toml</code>, which Teeny owns and may change, and the pinned jobs it
@@ -410,7 +393,7 @@ export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; 
             <div>
               <Eyebrow>The receipts</Eyebrow>
               <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">Proof, not logs.</h2>
-              <DiaryCard diary={diary} />
+              <DiaryCard receipts={receipts} />
             </div>
           </div>
         </Container>

@@ -7,6 +7,12 @@
 # GITHUB_USER/<repo> through hands/gh (the guard, the owner rule, the secret
 # scan, DRY_RUN), creating the repository when it is missing, and marks the
 # build request it answered shipped. Nothing to ship is a quiet success.
+#
+# First, `hands/build self-sync` fetches Teeny's own clone of GITHUB_USER/brain
+# (state/workbench/brain) and fast-forwards it to origin/main unless unshipped
+# work is on it, so a self job's branch starts from a main at most one run old.
+# A self job ships as a pull request, never merged here (docs/evolve.md,
+# "Teeny's own clone").
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -16,5 +22,6 @@ cd "$TEENY_ROOT"
 # The desk's answer goes to the log (stderr); stdout is the ship's. A desk
 # that fails (a broken report is kept aside, not fatal) must not stop
 # what is already finished from shipping.
+"$hands/build" self-sync </dev/null >&2 || log "syncing Teeny's own clone failed; the desk and shipping go on"
 "$hands/build" desk </dev/null >&2 || log "the builder's desk failed; shipping what is done anyway"
 exec "$hands/build" ship </dev/null

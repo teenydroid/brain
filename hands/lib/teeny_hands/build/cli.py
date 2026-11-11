@@ -9,7 +9,13 @@ desk files.
                               with `done`, then write its next job to state/workbench/desk/build.json
   R  jobs [--status S] [--limit N]   the jobs, newest first
   J  ship                     push every ok job to GITHUB_USER/<repo> through hands/gh
-                              (create the repository when missing); DRY_RUN applies
+                              (create the repository when missing); a self job's branch
+                              to GITHUB_USER/brain as a pull request; DRY_RUN applies
+  A  self                     stdin {text}: a change Teeny proposes to itself, a pending
+                              build request (source self) picked like any other
+  J  self-sync                fetch Teeny's own clone (state/workbench/brain) and fast-forward
+                              it to origin/main when nothing unshipped is on it; recorded in
+                              state/self/sync.json
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import jobs
+from . import jobs, selfclone
 
 
 def _limit(value: str) -> int:
@@ -44,6 +50,9 @@ def parser() -> argparse.ArgumentParser:
     listing.add_argument("--limit", type=_limit, default=50)
     verb("desk", lambda a, _: jobs.desk(), "settle the builder's report and lay out its next job")
     verb("ship", lambda a, _: jobs.ship(), "push finished jobs to GitHub")
+    verb("self", lambda a, body: jobs.propose_self(body), "propose a change to Teeny itself (JSON on stdin)",
+         body=True)
+    verb("self-sync", lambda a, _: selfclone.sync(), "sync Teeny's own clone with origin/main")
     return root
 
 

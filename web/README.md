@@ -13,7 +13,7 @@ One route per part of the mind, each with its own scene behind the hero:
 
 | Route | What | Scene |
 | --- | --- | --- |
-| `/` | the token counter; the brain at a glance, its repository and diary; the last few calls | a brain: points on a sphere, linked to their neighbours, neurons firing |
+| `/` | what Teeny has done, counted from its receipts; the brain at a glance, its repository and receipts | a brain: points on a sphere, linked to their neighbours, neurons firing |
 | `/ledger` | every model call: input, thinking, output, cost, digest | a stream of thoughts flowing past a few that settled |
 | `/brain` | what Teeny runs on: the core, the hands, the agents, the schedule, the playbooks, the repository and the diary | rings of tools orbiting a core |
 | `/soul` | who it is | one warm, soft, restless blob |
@@ -26,38 +26,46 @@ read from it. Scenes live in `src/components/scene/scenes/` and honour
 `prefers-reduced-motion` by standing still.
 
 ```sh
-npm install
-npm run dev      # http://localhost:3000
+npm ci
+npm run dev        # http://localhost:3000
+npm test           # vitest: the data mapping in src/lib and the sections that show numbers
+npm run lint
+npm run typecheck  # next typegen, then tsc
 npm run build
 ```
 
-## The brain and the diary
+## Where every number comes from
 
-`/brain` reads the brain from its public repository, `BRAIN_REPO` (default
-`teenydroid/brain`), on GitHub: the agents from `brain/agents/*.toml`, the
-playbooks from `brain/playbooks/*.md` front matter, the jobs from
-`brain/cron.toml` and `evals/cron.pinned.toml`, the hands from `hands/*`, and
-the last few commits (`src/lib/brain-repo.ts`). The web image is built from
-`web/` alone, so those files are fetched, not read from disk, and cached for
-an hour. The receipts, `DIARY_REPO` (default `teenydroid/diary`), are read from
-its `head.json` and the last week of `receipts/` files, each linked to where
-it can be checked; without a head only the link is shown. If GitHub is
-unreachable the page says so and lists nothing. `GITHUB_TOKEN` is optional and
-only raises the rate limit.
+The rule: a number on the page is a count of something anyone can check, read
+server-side at render time and cached (ISR). When its source cannot be read,
+the widget says so or is left out; it never shows a default, a zero or a
+sample in its place.
 
-## The feeds
+| Widget | Where | Source | Cache | When the source is down |
+| --- | --- | --- | --- | --- |
+| Receipts counter (the big figure), "latest", count by kind | `/` hero, `src/components/receipts-counter.tsx` | `DIARY_REPO` (default `teenydroid/diary`): `head.json`'s `seq` is the figure; the newest 14 day files under `receipts/` (listed with the git trees API) give the latest and the tally, which says whether it covers every receipt or only those since a date (`src/lib/receipts.ts`) | 10 min | "could not be read", no figure. No `head.json` yet reads as "no receipts yet" |
+| Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/`, `/brain` | same | 10 min | says GitHub could not be reached, links the repository |
+| Agents, playbooks, hands, jobs scheduled (counts and lists) | `/`, `/brain` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
+| Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
+| Token counter (tokens, calls, by source) | `/` hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
+| Last few calls | `/`, only while live | `MIND_API_URL` `/ledger` | 60 s | section left out |
+| Ledger: calls, turns and their tab counts | `/ledger` | `MIND_API_URL` `/ledger` and `/mind` | 60 s | a notice, empty lists, tabs without counts |
+| Articles, word counts | `/articles` | `MIND_API_URL` `/articles` (`src/lib/articles.ts`) | 5 min | "not reachable", no list; a missing word count is not shown |
 
-The other live parts read a JSON API at `MIND_API_URL` (`src/lib/api.ts`),
-each revalidated every 60s: `/mind` (`src/lib/mind.ts`), `/ledger`
-(`src/lib/ledger.ts`) and `/articles` (`src/lib/articles.ts`). The front-page
-counter polls `/api/pulse`, a route in this app that reads the same API.
-Unset or unreachable, every page says so and shows nothing: there is no
-sample data.
+`GITHUB_TOKEN` is optional and only raises the GitHub rate limit. The web
+image is built from `web/` alone, so the brain's files are fetched, never read
+from disk.
 
-That API was served by Teeny's previous runtime, which no longer runs, and
-the current spine does not serve it, so today these feeds show their empty
-state.
+`MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
+and the current spine does not serve it. It is unset in `deploy/compose.yaml`,
+so today the token widgets are not on the page and `/ledger` and `/articles`
+show their unavailable state. Nothing on the site reads Teeny's wallet balance
+or its follower numbers: the wallet's Solana address and the `stats` snapshot
+(`hands/stats`) are not published anywhere the site can read. What the wallet
+paid is public all the same, as `wallet.paid` receipts.
 
 `NEXT_PUBLIC_GA_ID` turns on analytics. Everything static on the page
 (`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`, `README.md` and
-the published tool list.
+the published tool list. The `/tools` list (and its count) and the lessons on
+`/ledger` still describe the previous runtime's tools and incidents; the
+current hands are listed, from the repository, on `/brain`.

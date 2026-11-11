@@ -40,8 +40,12 @@ LIST_MAX = 500
 # rejected, or back at pending when the release failed. One left there means
 # the process stopped mid-way, and the hold is not offered again, because
 # the post may be out. `released` is not written by this hand; it is kept
-# open for hands/x to mark a published hold, should it choose to.
-STATUSES = ("pending", "releasing", "approved", "rejected", "released")
+# open for hands/x to mark a published hold, should it choose to. `cleared`
+# and `expired` are the re-screen's (rescreen.py): a hold the judge only made
+# because it could not answer, asked again and found clean (the inbound item
+# went back to its queue), or a draft of the account's own from such an
+# outage, never sent late.
+STATUSES = ("pending", "releasing", "approved", "rejected", "released", "cleared", "expired")
 DECISIONS = ("approved", "rejected")
 
 # What was held. `message` is somebody else's text on the way in; `draft`
@@ -100,21 +104,43 @@ CREATE TABLE IF NOT EXISTS guard_approved_links (
 );
 """
 
+# Columns added after the table first shipped, ALTERed into a table that
+# predates them: when the re-screen last asked about a hold, and what came of
+# it (rescreen.py's OUTCOMES).
+_ADDED_COLUMNS = (("rescreened_at", "TEXT"), ("rescreen", "TEXT"))
+
 
 @contextlib.contextmanager
 def _store() -> Iterator[sqlite3.Connection]:
     conn = hand.db()
     try:
         conn.executescript(_SCHEMA)
+        _add_columns(conn)
         yield conn
     finally:
         conn.close()
 
 
-def _iso_now() -> str:
-    """Now, as the TypeScript service stamped holds (and TEENY_NOW pins it)."""
-    at = datetime.datetime.fromtimestamp(hand.now(), datetime.timezone.utc)
+def _add_columns(conn: sqlite3.Connection) -> None:
+    have = {row[1] for row in conn.execute("PRAGMA table_info(guard_holds)")}
+    for name, kind in _ADDED_COLUMNS:
+        if name not in have:
+            try:
+                conn.execute(f"ALTER TABLE guard_holds ADD COLUMN {name} {kind}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):
+                    raise
+
+
+def iso(seconds: float) -> str:
+    """A moment as holds are stamped: the TypeScript service's format."""
+    at = datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc)
     return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
+
+
+def _iso_now() -> str:
+    """Now, as holds are stamped (and TEENY_NOW pins it)."""
+    return iso(hand.now())
 
 
 def _one_of(name: str, value: Any, allowed: tuple[str, ...]) -> str:
@@ -141,6 +167,8 @@ def _hold(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "decided_at": row["decided_at"],
         "note": row["note"],
         "effect": row["effect"],
+        "rescreened_at": row["rescreened_at"],
+        "rescreen": row["rescreen"],
     }
 
 
@@ -239,6 +267,84 @@ def unclaim_release(hold_id: int, error: str) -> dict[str, Any] | None:
     """Puts a claimed hold back to pending after its release failed, with
     the failure as its effect. None when it was not claimed."""
     return _move(hold_id, "releasing", "pending", f"release failed, still pending: {error}")
+
+
+# --- the re-screen (rescreen.py) ---------------------------------------------------
+
+# The judge's own words when it failed rather than judged (judge.py).
+_INFRA = "held_by = 'judge' AND category = 'unknown' AND (reason LIKE ? OR reason = ?)"
+
+
+def _infra_params() -> tuple[str, str]:
+    from .judge import UNREACHABLE, UNREADABLE
+
+    return (UNREACHABLE + "%", UNREADABLE)
+
+
+def infra_holds(before: str, limit: int, inbound_keys: dict[str, str]) -> list[dict[str, Any]]:
+    """Pending holds the judge made only because it could not answer, written
+    before `before`, with words in them, at most `limit`: the account's own drafts (any direction
+    but inbound), and inbound messages on a surface in `inbound_keys` whose
+    context names the item (`inbound_keys[surface]`) to return. Never asked
+    about first, then the longest ago; oldest first within each."""
+    places = " OR ".join(
+        "(json_extract(context, '$.surface') = ? AND json_extract(context, ?) IS NOT NULL)" for _ in inbound_keys
+    )
+    where = f"(direction = 'inbound' AND kind = 'message' AND ({places}))" if inbound_keys else "0"
+    params: list[Any] = []
+    for surface, key in inbound_keys.items():
+        params += [surface, f"$.{key}"]
+    with _store() as conn:
+        rows = conn.execute(
+            # Blank text is never asked about: the guard passes it unjudged.
+            f"SELECT * FROM guard_holds WHERE status = 'pending' AND {_INFRA} AND at < ? AND trim(text, char(32, 9, 10, 13)) != ''"
+            f" AND (direction != 'inbound' OR {where})"
+            " ORDER BY rescreened_at IS NOT NULL, rescreened_at, at, id LIMIT ?",
+            (*_infra_params(), before, *params, max(1, limit)),
+        )
+        return [_hold(row) for row in rows]  # type: ignore[misc]
+
+
+def _rescreen_update(hold_id: int, sets: str, params: tuple[Any, ...], status: str = "pending") -> dict[str, Any] | None:
+    """One guarded write of a re-screen's outcome: only to a hold still at
+    `status` and still an infra hold, so an operator's decision taken while
+    the judge was asked always wins. None when it no longer is."""
+    with _store() as conn, hand.transaction(conn):
+        moved = conn.execute(
+            f"UPDATE guard_holds SET {sets}, rescreened_at = ? WHERE id = ? AND status = ? AND {_INFRA}",
+            (*params, _iso_now(), hold_id, status, *_infra_params()),
+        )
+        return _select(conn, hold_id) if moved.rowcount else None
+
+
+def note_rescreen(hold_id: int, outcome: str) -> dict[str, Any] | None:
+    """The judge still failed: the hold stays as it is, asked about again later."""
+    return _rescreen_update(hold_id, "rescreen = ?", (outcome,))
+
+
+def reclassify(hold_id: int, category: str, reason: str, by: str) -> dict[str, Any] | None:
+    """A real verdict, asked again: the hold keeps holding, now for its reason."""
+    return _rescreen_update(
+        hold_id, "rescreen = 'prohibited', category = ?, reason = ?, held_by = ?", (category, reason, by)
+    )
+
+
+def expire(hold_id: int, effect: str) -> dict[str, Any] | None:
+    """A draft held only by the judge failing: closed, never to be sent."""
+    return _rescreen_update(
+        hold_id, "rescreen = 'expired', status = 'expired', decided_at = ?, effect = ?", (_iso_now(), effect)
+    )
+
+
+def clear(hold_id: int, effect: str) -> dict[str, Any] | None:
+    """A claimed hold (`claim_release`) the judge found clean on asking again,
+    its item returned (`effect` says where)."""
+    return _rescreen_update(
+        hold_id,
+        "rescreen = 'cleared', status = 'cleared', decided_at = ?, effect = ?, note = COALESCE(note, ?)",
+        (_iso_now(), effect, "re-screened: the judge found it clean"),
+        status="releasing",
+    )
 
 
 def counts() -> dict[str, int]:

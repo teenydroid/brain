@@ -257,5 +257,18 @@ def mark(post_id: str, status: str, note: str | None = None) -> Mapping[str, Any
     return {"id": post_id, "status": status}
 
 
+def release_held(post_id: str, hold_id: int) -> bool:
+    """Puts a mention the guard held back to `pending`, for the next ingest to
+    offer, once the guard's re-screen found it clean. Only a row held by that
+    very hold moves; False when there is none (answered, skipped, gone, or
+    held for another reason)."""
+    conn = _db()
+    changed = conn.execute(
+        "UPDATE x_mentions SET status = 'pending', note = ?, updated_at = ? WHERE id = ? AND status = 'held' AND hold_id = ?",
+        ("released: the guard re-screened it clean", hand.now(), post_id, hold_id),
+    ).rowcount
+    return changed == 1
+
+
 def _warn(message: str) -> None:
     print(f"hands/x: {message}", file=sys.stderr)

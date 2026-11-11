@@ -125,8 +125,10 @@ services:
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try
-  # to take it. `--profile web up -d` once that container is gone. Without a
-  # feed to read, the page shows its labelled samples.
+  # to take it. `--profile web up -d` once that container is gone. Every
+  # number on the page is read from GitHub (teenydroid/brain and the receipts
+  # in teenydroid/diary); there is no sample data, and MIND_API_URL (the old
+  # runtime's token ledger) is unset, so the token widgets stay out.
   web:
     profiles: [web]
     image: teeny-web:current
