@@ -140,7 +140,9 @@ AGENT = re.compile(r"[a-z0-9_-]{1,40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}")
 SHA = re.compile(r"[0-9a-f]{7,40}")
 SOLANA_SIG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{64,90}")
-CLUSTERS = ("mainnet-beta", "devnet", "testnet")
+#: The clusters a payment may name: exactly what the wallet hand records
+#: (WALLET_CLUSTER as it is, `mainnet` or `devnet`), so none is dropped.
+CLUSTERS = wallet_caps.CLUSTERS
 ASSETS = ("SOL", "USDC")
 PURPOSES = ("bounty", "vendor")
 MAX_INT = 2**63 - 1

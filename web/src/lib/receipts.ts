@@ -28,6 +28,12 @@ const MOLTBOOK_NAME = /^[a-z0-9_-]{1,40}$/
 const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/
 const SHA = /^[0-9a-f]{7,40}$/
 const SOLANA_SIG = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/
+/** Solscan's query for each cluster a payment receipt may name. */
+const SOLSCAN_CLUSTER = new Map([
+  ['mainnet', ''],
+  ['mainnet-beta', ''],
+  ['devnet', '?cluster=devnet'],
+])
 
 /** The public link for one receipt's ref. Every field is checked again here: the repository is public input. */
 export function receiptUrl(kind: string, ref: Record<string, unknown>): string | undefined {
@@ -71,9 +77,11 @@ export function receiptUrl(kind: string, ref: Record<string, unknown>): string |
       return submolt && `https://www.moltbook.com/m/${submolt}`
     }
     case 'wallet.paid': {
+      // The wallet hand records `mainnet` (Solana calls it `mainnet-beta`) or
+      // `devnet`; Solscan wants no cluster for mainnet. Any other is no link.
       const sig = s('signature', SOLANA_SIG)
-      const cluster = ref.cluster === 'devnet' || ref.cluster === 'testnet' ? `?cluster=${ref.cluster}` : ''
-      return sig && `https://solscan.io/tx/${sig}${cluster}`
+      const cluster = SOLSCAN_CLUSTER.get(String(ref.cluster))
+      return sig && cluster !== undefined ? `https://solscan.io/tx/${sig}${cluster}` : undefined
     }
     case 'github.push':
     case 'build.shipped': {

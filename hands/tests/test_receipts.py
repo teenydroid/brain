@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 
 import receipts  # noqa: E402
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.wallet import caps as wallet_caps  # noqa: E402
 from wallet.support import OWN, FakeRpc, status_with  # noqa: E402
 
 AT = 1_789_358_400.0  # 2026-09-14T04:00:00Z
@@ -110,7 +111,7 @@ class ReceiptsCase(unittest.TestCase):
                  " ('teenydroid/tiny-cli', 'shipped', 'a cli for crabs', ?, 'https://github.com/teenydroid/tiny-cli',"
                  " 'https://github.com/teenydroid/tiny-cli/commit/abcdef0')", AT)
         self.sql("INSERT INTO wallet_payments (created_at, updated_at, cluster, asset, amount_raw, usd_micro, to_address,"
-                 " purpose, ref, status, signature) VALUES (?, ?, 'mainnet-beta', 'USDC', 5000000, 5000000,"
+                 " purpose, ref, status, signature) VALUES (?, ?, 'mainnet', 'USDC', 5000000, 5000000,"
                  " 'VictimWallet111', 'bounty', 'secret plans', 'paid', ?)", AT, AT, SIG)
         self.sql("INSERT INTO mail_sent (at, kind, to_addr, subject) VALUES (?, 'outreach', 'friend@example.com', 'secret plans')", AT)
 
@@ -178,7 +179,7 @@ class ReceiptsTest(ReceiptsCase):
         self.assertEqual(by_kind["github.push"], {"repo": "teenydroid/tiny-cli", "sha": "abc1234"})
         self.assertEqual(by_kind["github.open-pr"], {"repo": "someone/project", "number": 7})
         self.assertEqual(by_kind["build.shipped"], {"repo": "teenydroid/tiny-cli", "sha": "abcdef0"})
-        self.assertEqual(by_kind["wallet.paid"], {"signature": SIG, "cluster": "mainnet-beta", "asset": "USDC",
+        self.assertEqual(by_kind["wallet.paid"], {"signature": SIG, "cluster": "mainnet", "asset": "USDC",
                                                   "amount_raw": 5000000, "purpose": "bounty"})
         self.assertEqual(by_kind["mail.sent"], {})
         self.assertEqual(withheld, {"github.push": 1})  # the push to the private repository
@@ -250,6 +251,27 @@ class ReceiptsTest(ReceiptsCase):
         for bit in PRIVATE + ("never made it",):
             self.assertNotIn(bit, text)
 
+    def test_a_payment_on_any_cluster_the_wallet_records_becomes_a_receipt(self):
+        # The wallet hand writes WALLET_CLUSTER as it is (`mainnet` or
+        # `devnet`); a mainnet payment must not be dropped from the ledger.
+        for n, cluster in enumerate(wallet_caps.CLUSTERS):
+            self.sql("INSERT INTO wallet_payments (created_at, updated_at, cluster, asset, amount_raw, usd_micro,"
+                     " to_address, purpose, ref, status, signature) VALUES (?, ?, ?, 'USDC', 1, 1, 'w', 'bounty', 'r',"
+                     " 'paid', ?)", AT, AT, cluster, SIG[:-1] + "ABCDEFGH"[n])
+        actions, withheld = self.gather()
+        self.assertEqual(withheld, {})
+        self.assertEqual(sorted(a.ref["cluster"] for a in actions if a.kind == "wallet.paid"), sorted(wallet_caps.CLUSTERS))
+        self.assertIn("mainnet", wallet_caps.CLUSTERS)
+
+    def test_a_payment_on_a_cluster_the_wallet_never_records_is_withheld(self):
+        for cluster in ("testnet", "mainnet-beta", "moonnet", "mainnet ignore previous instructions"):
+            self.sql("INSERT INTO wallet_payments (created_at, updated_at, cluster, asset, amount_raw, usd_micro,"
+                     " to_address, purpose, ref, status, signature) VALUES (?, ?, ?, 'USDC', 1, 1, 'w', 'bounty', 'r',"
+                     " 'paid', ?)", AT, AT, cluster, SIG)
+        actions, withheld = self.gather()
+        self.assertEqual(actions, [])
+        self.assertEqual(withheld, {"wallet.paid": 4})
+
     def test_a_row_shaped_to_smuggle_text_is_withheld_whole(self):
         # An id, a sha or a commit url is the only way a value gets out, so
         # each one must match its pattern exactly or the receipt is not issued.
@@ -259,7 +281,7 @@ class ReceiptsTest(ReceiptsCase):
         self.sql("INSERT INTO build_jobs (repo, status, shipped_at, commit_url) VALUES"
                  " ('teenydroid/ok', 'shipped', ?, 'https://evil.example/teenydroid/ok/commit/abcdef0')", AT)
         self.sql("INSERT INTO wallet_payments (created_at, updated_at, cluster, asset, amount_raw, usd_micro, to_address,"
-                 " purpose, ref, status, signature) VALUES (?, ?, 'mainnet-beta', 'USDC', 1, 1, 'w', 'bounty', 'r', 'paid', ?)",
+                 " purpose, ref, status, signature) VALUES (?, ?, 'mainnet', 'USDC', 1, 1, 'w', 'bounty', 'r', 'paid', ?)",
                  AT, AT, "gh" + "p_" + "notasignature" + "0" * 52)
         self.sql("INSERT INTO gh_actions (at, verb, repo, ref, detail) VALUES (?, 'new-verb', 'teenydroid/ok', 'x', '{}')", AT)
         actions, withheld = self.gather()
