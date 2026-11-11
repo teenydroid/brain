@@ -8,7 +8,9 @@ timestamp stored), oldest first. Each new message becomes a row in
   pending  stored, not yet offered (or the offer failed; the next run retries)
   held     the inbound guard held it, or AgentMail's Agent Armor said review;
            nothing answers it
-  skipped  never offered: Teeny's own sent mail
+  skipped  never offered: Teeny's own sent mail, or automated mail (a noreply
+           sender, a bounce, an Auto-Submitted header), which nobody would
+           read a reply to; `codes` and `list` still read it
   offered  in the core's queue (`openhuman.inbound_offer`, source mail:inbox,
            keyed on the thread, so a thread's messages are drafted together)
   drafted  a draft came back and went through `hands/mail reply` under DRY_RUN
