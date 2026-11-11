@@ -1,6 +1,6 @@
 """One beat of Teeny's mind (docs/architecture.md, "One mind").
 
-    python3 bin/lib/tick.py [--dry]
+    python3 bin/lib/tick.py
 
 1. Raises the follow-ups now due, then takes a batch from the inbox
    (teeny_hands.stimuli). Nothing pending: nothing to think about, exit.
@@ -36,11 +36,8 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(os.environ.get("TEENY_ROOT") or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "hands" / "lib"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from teeny_hands import hand, stimuli  # noqa: E402
-
-import answer as answers  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
 MAX_INTENTS = 8
@@ -234,19 +231,11 @@ def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     stored = stimuli.note(note, who=who, tick=tick)
     learned: Any = None
     if os.environ.get("TEENY_MIND_LEARN", "1") != "0":
-        text = f"about {who}: {note}" if who else note
-        proc = subprocess.run(
-            [str(ROOT / "bin" / "oh"), "memory_learn", json.dumps({"text": text, "kind": "fact", "confidence": 0.7})],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ, "TEENY_ROOT": str(ROOT)},
-        ) if not os.environ.get("TEENY_OH") else subprocess.run(
-            [os.environ["TEENY_OH"], "memory_learn", json.dumps({"text": text, "kind": "fact", "confidence": 0.7})],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        # Into the core's memory too (CortexDB when it is on), so recall can
+        # bring it back long after MEMORY.md has let it go.
+        oh = os.environ.get("TEENY_OH") or str(ROOT / "bin" / "oh")
+        params = {"text": f"about {who}: {note}" if who else note, "kind": "fact", "confidence": 0.7}
+        proc = subprocess.run([oh, "memory_learn", json.dumps(params)], capture_output=True, text=True, timeout=60)
         learned = proc.returncode == 0
     return {"ok": True, "noted": stored["id"], "learned": learned}
 
@@ -338,7 +327,17 @@ def _record(line: Mapping[str, Any]) -> None:
 
 
 def beat() -> Json:
-    with hand.lock("tick", timeout=5):
+    try:
+        with hand.lock("tick", timeout=5):
+            return _beat()
+    except hand.HandError as exc:
+        if "lock" in str(exc):
+            return {"ok": True, "skipped": "another beat is still thinking"}
+        raise
+
+
+def _beat() -> Json:
+    if True:
         raised = stimuli.raise_due()
         batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
         tick, items = batch["tick"], batch["stimuli"]

@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS follow_ups (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS follow_ups_due ON follow_ups (status, due_at);
+CREATE TABLE IF NOT EXISTS mind_notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    note       TEXT NOT NULL,
+    who        TEXT,
+    tick       TEXT,
+    at         REAL NOT NULL
+);
 """
 
 Json = dict[str, Any]
@@ -224,3 +231,33 @@ def follow_ups(status: str = "pending") -> Json:
         "SELECT id, due_at, about, ref, status FROM follow_ups WHERE status = ? ORDER BY due_at", (status,)
     ).fetchall()
     return {"follow_ups": [dict(r) for r in rows]}
+
+
+# --- notes ------------------------------------------------------------------------------
+
+
+def note(text: str, who: str | None = None, tick: str | None = None) -> Json:
+    """Something Teeny chose to remember. The nightly reflection folds the
+    day's notes into MEMORY.md; recall keeps them after that."""
+    if not isinstance(text, str) or not text.strip():
+        raise hand.HandError("a note needs text")
+    conn = db()
+    with hand.transaction(conn):
+        cur = conn.execute(
+            "INSERT INTO mind_notes (note, who, tick, at) VALUES (?,?,?,?)", (_clip(text), who, tick, hand.now())
+        )
+    return {"id": cur.lastrowid}
+
+
+def notes(since: float = 0.0, who: str | None = None, max_items: int = 200) -> Json:
+    conn = db()
+    if who:
+        rows = conn.execute(
+            "SELECT id, note, who, at FROM mind_notes WHERE at >= ? AND who = ? COLLATE NOCASE ORDER BY at LIMIT ?",
+            (since, who, max_items),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, note, who, at FROM mind_notes WHERE at >= ? ORDER BY at LIMIT ?", (since, max_items)
+        ).fetchall()
+    return {"notes": [dict(r) for r in rows]}
