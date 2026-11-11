@@ -508,6 +508,15 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertNotIn("You just woke up", self.chats()[1]["message"])
 
+    def test_waking_to_an_empty_inbox_says_nothing_came_in(self):
+        self.night(3)
+        self.tick()
+        self.night(8)
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("You just woke up. Nothing came in overnight.", message)
+        self.assertIn("self · quiet", message)
+
     def test_it_sets_its_own_mood_and_carries_it(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{"do": "feel", "mood": "sleepy but curious", "obsession": "crabs"}]},
