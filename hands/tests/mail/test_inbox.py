@@ -14,19 +14,24 @@ from teeny_hands import requests as build_requests
 from teeny_hands.mail import inbox
 
 
-class IngestTest(Scratch):
+class IngestBase(Scratch):
+    #: Where an offer goes: these cases pin the core's queue; MindInboxTest
+    #: leaves it unset, the default (Teeny's mind).
+    INBOX: str | None = "core"
+
     def setUp(self):
         super().setUp()
         self.core = FakeCore(result({"disposition": "accepted"}))
         self.addCleanup(self.core.close)
         os.environ["OPENHUMAN_CORE_URL"] = self.core.url
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
-        # These cases pin the core's queue; MindInboxTest covers the default.
-        self.configure(TEENY_INBOX="core")
+        self.configure(TEENY_INBOX=self.INBOX)
 
     def statuses(self) -> dict[str, str]:
         return {r["message_id"]: r["status"] for r in hand.db().execute("SELECT message_id, status FROM mail_messages")}
 
+
+class IngestTest(IngestBase):
     def test_new_mail_is_screened_offered_and_noted(self):
         self.inbox(
             message("<m1@x>", text="gm teeny, love the repo", stamp="2026-09-14T06:00:00Z"),
@@ -107,16 +112,11 @@ class IngestTest(Scratch):
             inbox.mark("<m1@x>", "offered")
 
 
-class MindInboxTest(Scratch):
+class MindInboxTest(IngestBase):
     """By default mail goes to Teeny's mind (the stimuli inbox bin/tick
     drains), not to the core's queue."""
 
-    setUp = IngestTest.setUp
-
-    def configure(self, **overrides):
-        # IngestTest pins TEENY_INBOX=core; here it stays unset, the default.
-        overrides.pop("TEENY_INBOX", None)
-        super().configure(**overrides)
+    INBOX = None
 
     def test_mail_goes_to_the_minds_inbox_not_the_core(self):
         from teeny_hands import stimuli

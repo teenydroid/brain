@@ -23,7 +23,11 @@ def page(*posts: tuple[str, str, str], newest: str | None = None) -> dict:
     return {"data": data, "includes": {"users": users}, "meta": meta}
 
 
-class IngestTest(Scratch):
+class IngestBase(Scratch):
+    #: Where an offer goes: these cases pin the core's queue; MindInboxTest
+    #: leaves it unset, the default (Teeny's mind).
+    INBOX: str | None = "core"
+
     def setUp(self):
         super().setUp()
         self.at(T0)
@@ -32,8 +36,7 @@ class IngestTest(Scratch):
         self.addCleanup(self.core.close)
         os.environ["OPENHUMAN_CORE_URL"] = self.core.url
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
-        # These cases pin the core's queue; MindInboxTest covers the default.
-        self.configure(TEENY_INBOX="core")
+        self.configure(TEENY_INBOX=self.INBOX)
         self.screened: list[str] = []
         self.real_screen = mentions._screen
         mentions._screen = self.screen
@@ -49,6 +52,8 @@ class IngestTest(Scratch):
         rows = hand.db().execute("SELECT id, status FROM x_mentions").fetchall()
         return {r["id"]: r["status"] for r in rows}
 
+
+class IngestTest(IngestBase):
     def test_new_mentions_are_queued_and_offered_in_order(self):
         self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny"), ("11", "8", "wen moon")))
         out = mentions.ingest()
@@ -196,18 +201,11 @@ class CostTest(IngestTest):
         self.assertEqual(self.x.requests("GET", "/2/tweets/11"), [])
 
 
-class MindInboxTest(Scratch):
+class MindInboxTest(IngestBase):
     """By default a mention goes to Teeny's mind (the stimuli inbox bin/tick
     drains), not to the core's queue."""
 
-    setUp = IngestTest.setUp
-    screen = IngestTest.screen
-    statuses = IngestTest.statuses
-
-    def configure(self, **overrides):
-        # IngestTest pins TEENY_INBOX=core; here it stays unset, the default.
-        overrides.pop("TEENY_INBOX", None)
-        super().configure(**overrides)
+    INBOX = None
 
     def test_a_mention_goes_to_the_minds_inbox_not_the_core(self):
         from teeny_hands import stimuli
