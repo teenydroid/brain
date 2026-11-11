@@ -48,12 +48,30 @@ ever staged, the staged diff still goes through the secret gate (every value
 in secrets/*.env of 12 characters or more, and the usual key shapes), and a
 push that fails resets the checkout to the remote so the next run rebuilds.
 
+Two more files ride the same push, so the public site has numbers it can
+check rather than defaults:
+
+    stats/latest.json, stats/YYYY-MM-DD.json   the newest `stats` snapshot
+      {"date": "2026-11-12", "github": {"public_repos": 4, "stars": 9},
+       "moltbook": {"karma": 77}, "x": {"followers": 120, "posts": 301}}
+    wallet.json                                the wallet's public address
+      {"address": "<base58 Solana public key>", "cluster": "mainnet"}
+
+The stats are the rows of the newest snapshot date (hands/stats writes them
+from what X, Moltbook and GitHub report), only for the sources and metrics in
+STATS_ALLOWED, and only whole numbers from 0 to 2**53 - 1; any other row is
+dropped. The address is what the core's wallet_status reports for Solana,
+only if it is a base58 public key; nothing else of the wallet is read. A
+snapshot with nothing allowed in it, or a core that does not answer, leaves
+the files already published as they are. Live, a run with no new receipts
+still pushes when either file changed, and nothing at all when neither did.
+
 Under DRY_RUN (the default) a fresh chain is written to state/receipts-preview/
 and nothing touches git or hands.db. Live, the repository is cloned to
 state/receipts-repo/ and pushed with RECEIPTS_GITHUB_TOKEN (or
 DIARY_GITHUB_TOKEN, or GITHUB_TOKEN) through askpass (teeny_hands.git).
 
-Prints one JSON object: {"ok", "dry_run", "issued", "withheld", "pushed", ...}.
+Prints one JSON object: {"ok", "dry_run", "issued", "withheld", "stats", "wallet", "pushed", ...}.
 """
 
 from __future__ import annotations
@@ -62,6 +80,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 import secrets as rng
 import shutil
@@ -74,11 +93,14 @@ CODE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import git, hand  # noqa: E402
+from teeny_hands.wallet import caps as wallet_caps, pay as wallet_pay, solana  # noqa: E402
 
 DEFAULT_REPO = "teenydroid/diary"
 GENESIS = "0" * 64
 HEAD_FILE = "head.json"
 RECEIPTS_DIR = "receipts"
+STATS_DIR = "stats"
+WALLET_FILE = "wallet.json"
 #: Moltbook statuses that mean the post or comment is up.
 MOLTBOOK_LIVE = ("posted", "verified")
 
@@ -331,6 +353,80 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
     return actions, withheld
 
 
+# --- the numbers: the latest stats snapshot and the wallet's address -----------------------------------
+
+#: What may be published from the stats table: each source and its metrics.
+STATS_ALLOWED: dict[str, tuple[str, ...]] = {
+    "x": ("followers", "following", "posts"),
+    "moltbook": ("karma", "followers", "following", "posts", "comments"),
+    "github": ("followers", "public_repos", "stars"),
+}
+#: The largest whole number a JSON reader holds exactly.
+MAX_COUNT = 2**53 - 1
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+DATE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
+SOLANA_ADDRESS = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
+#: How long the core gets to name the wallet before the run goes on without it.
+CORE_TIMEOUT = 30.0
+
+
+def _count(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or not float(value).is_integer() or not 0 <= value <= MAX_COUNT:
+        return None
+    return int(value)
+
+
+def public_stats(conn: sqlite3.Connection) -> Json | None:
+    """The newest snapshot's allowed metrics as whole numbers, with its date; None when nothing is allowed."""
+    rows = _rows(conn, "SELECT max(date) AS date FROM stats WHERE date GLOB ?", (DATE_GLOB,))
+    date = rows[0]["date"] if rows else None
+    if not isinstance(date, str) or not DATE.fullmatch(date):
+        return None
+    try:
+        dt.date.fromisoformat(date)
+    except ValueError:
+        return None
+    sources: dict[str, dict[str, int]] = {}
+    for r in _rows(conn, "SELECT source, metric, value FROM stats WHERE date = ? ORDER BY source, metric", (date,)):
+        number = _count(r["value"])
+        if r["metric"] in STATS_ALLOWED.get(r["source"], ()) and number is not None:
+            sources.setdefault(r["source"], {})[r["metric"]] = number
+    return {"date": date, **sources} if sources else None
+
+
+def public_wallet(core: Callable[[str, Json], Any], env: Any) -> Json | None:
+    """The wallet's public address and cluster; None when the core does not name a valid one."""
+    try:
+        cluster = wallet_caps.cluster(env)
+        address = wallet_pay.own_address(core)
+    except (hand.HandError, wallet_caps.CapsError, ValueError):
+        return None
+    if not SOLANA_ADDRESS.fullmatch(address) or not solana.is_address(address):
+        return None
+    return {"address": address, "cluster": cluster}
+
+
+def _core(method: str, params: Json) -> Any:
+    return hand.core(method, params, timeout=CORE_TIMEOUT)
+
+
+def write_numbers(root: Path, stats: Json | None, wallet: Json | None) -> list[str]:
+    """Writes the files there is something for; returns the paths, relative to root."""
+    files: dict[str, Json] = {}
+    if stats:
+        files[f"{STATS_DIR}/latest.json"] = stats
+        files[f"{STATS_DIR}/{stats['date']}.json"] = stats
+    if wallet:
+        files[WALLET_FILE] = wallet
+    for name, value in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(canonical(value) + "\n", encoding="ascii")
+    return list(files)
+
+
 def _as_int(value: Any) -> int | None:
     try:
         return int(str(value))
@@ -478,7 +574,7 @@ def _issued_db() -> sqlite3.Connection:
     return hand.open_db(ISSUED_SCHEMA)
 
 
-def publish(actions: list[Action]) -> Json:
+def publish(actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
     token = hand.setting("RECEIPTS_GITHUB_TOKEN") or hand.setting("DIARY_GITHUB_TOKEN") or hand.setting("GITHUB_TOKEN")
     if not token:
         raise hand.HandError("no token: set RECEIPTS_GITHUB_TOKEN (or GITHUB_TOKEN) in secrets/teeny.env")
@@ -492,38 +588,43 @@ def publish(actions: list[Action]) -> Json:
         finally:
             conn.close()
         fresh = [a for a in actions if a.key and a.key not in published]
-        if not fresh:
+        issued = append(repo, fresh, seq, prev, _iso(hand.now())[:10]) if fresh else []
+        write_numbers(repo, stats, wallet)
+        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE) if (repo / p).exists()]
+        if paths:
+            _git(repo, "add", "--", *paths)
+        if not _git(repo, "diff", "--cached", "--name-only").strip():
             return {"issued": 0, "head": seq, "pushed": 0}
-        today = _iso(hand.now())[:10]
-        issued = append(repo, fresh, seq, prev, today)
-        _git(repo, "add", "--", RECEIPTS_DIR, HEAD_FILE)
         try:
             check_secrets(_git(repo, "diff", "--cached", "--unified=0"))
         except hand.Refused as why:
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the receipts carry a secret, nothing committed", why=why.reason) from None
-        _git(repo, "commit", "-q", "-m", f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}")
+        message = f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}" if issued else "receipts: stats and wallet"
+        _git(repo, "commit", "-q", "-m", message)
         try:
             _git(repo, "push", "-q", "origin", f"HEAD:{branch}", token=token)
         except hand.HandError:
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise
-        conn = _issued_db()
-        try:
-            with hand.transaction(conn):
-                conn.executemany(
-                    "INSERT OR REPLACE INTO receipts_issued (key, seq, kind, salt, record, at)"
-                    " VALUES (:key, :seq, :kind, :salt, :record, :at)", issued)
-        finally:
-            conn.close()
-    return {"issued": len(issued), "head": issued[-1]["seq"], "pushed": 1}
+        if issued:
+            conn = _issued_db()
+            try:
+                with hand.transaction(conn):
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO receipts_issued (key, seq, kind, salt, record, at)"
+                        " VALUES (:key, :seq, :kind, :salt, :record, :at)", issued)
+            finally:
+                conn.close()
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1}
 
 
-def preview(root: Path, actions: list[Action]) -> Json:
+def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)
     issued = append(root, [a for a in actions if a.key], 0, GENESIS, _iso(hand.now())[:10])
+    write_numbers(root, stats, wallet)
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0}
 
 
@@ -555,14 +656,17 @@ def main(argv: list[str]) -> int:
         conn = hand.db()
         try:
             actions, withheld = gather(conn)
+            stats = public_stats(conn)
         finally:
             conn.close()
+        wallet = public_wallet(_core, hand.secrets())
+        numbers = {"stats": stats["date"] if stats else None, "wallet": wallet is not None}
         if args.preview or hand.dry_run():
             root = Path(args.preview) if args.preview else hand.state_dir() / "receipts-preview"
-            hand.emit({"ok": True, "dry_run": True, "preview": str(root), "withheld": withheld, "pushed": 0,
-                       **preview(root, actions)})
+            hand.emit({"ok": True, "dry_run": True, "preview": str(root), "withheld": withheld, **numbers, "pushed": 0,
+                       **preview(root, actions, stats, wallet)})
             return 0
-        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **publish(actions)})
+        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **numbers, **publish(actions, stats, wallet)})
         return 0
     except hand.Refused as refused:
         hand.emit({"ok": False, "refused": refused.reason, **refused.detail})
