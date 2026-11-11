@@ -33,13 +33,16 @@ X_API_BASE = "https://api.x.com"
 
 #: The post fields every read asks for. The counters ride along on the same
 #: request: a field, not a post, so nothing extra is billed.
-POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics"
+#: `in_reply_to_user_id` is asked for as a field, not an expansion: X bills
+#: every user object a response carries ($0.010 each), and expanding it would
+#: send the account's own user back with every reply it reads.
+POST_FIELDS = "created_at,conversation_id,text,attachments,public_metrics,in_reply_to_user_id"
 #: Photos carry `url`; videos and GIFs only a preview frame.
 MEDIA_FIELDS = "media_key,type,url,preview_image_url,alt_text"
 USER_FIELDS = "username"
 #: What a lookup by handle asks for about the account.
 USER_LOOKUP_FIELDS = "created_at,description,public_metrics,verified"
-EXPANSIONS = "author_id,in_reply_to_user_id,attachments.media_keys"
+EXPANSIONS = "author_id,attachments.media_keys"
 
 #: How long one call may take. A post that times out may still have gone
 #: out, which is why the reply path treats a transport error as "in doubt".
@@ -227,21 +230,31 @@ class XApi:
     def mentions_page(self, user_id: str, since_id: str | None = None, max_results: int = 20) -> Json:
         """The newest page of posts that mention the account, after
         `since_id` when given. Replies to the account's posts are mentions
-        too, so this is also how it reads its replies."""
+        too, so this is also how it reads its replies.
+
+        Signed as the account, never on the app bearer: X bills the account's
+        own timelines read with its own user token as "owned reads", $0.001 a
+        post instead of $0.005 (docs.x.com, pricing). The id must be the
+        authenticated account's."""
         params = [("max_results", str(min(max(max_results, 5), 100)))]
         if since_id:
             params.append(("since_id", since_id))
         params += _post_query()
-        response = self.call("GET", f"/2/users/{percent_encode(user_id)}/mentions", params)
+        response = self.call("GET", f"/2/users/{percent_encode(user_id)}/mentions", params, user=True)
         meta = response.get("meta") if isinstance(response.get("meta"), Mapping) else {}
         return {
             "posts": model.to_posts(response.get("data"), response.get("includes")),
             "newestId": meta.get("newest_id"),
         }
 
-    def get_conversation(self, conversation_id: str, max_results: int | None = None) -> list[Json]:
-        """Replies under a post, found through its conversation id; 25 unless told."""
-        options = SearchOptions(max_results=max_results if max_results is not None else 25)
+    def get_conversation(
+        self, conversation_id: str, max_results: int | None = None, since_id: str | None = None
+    ) -> list[Json]:
+        """Replies under a post, found through its conversation id; 25 unless
+        told. `since_id` reads only the replies newer than one already seen:
+        a search bills every post it returns, so a re-read pays only for what
+        is new."""
+        options = SearchOptions(max_results=max_results if max_results is not None else 25, since_id=since_id)
         return self.search_posts(f"conversation_id:{conversation_id}", options)
 
     def identity(self) -> Json:

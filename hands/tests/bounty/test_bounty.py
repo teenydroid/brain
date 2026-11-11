@@ -147,6 +147,16 @@ class BountyTest(Scratch):
         self.assertEqual(late, {"alice": 0, "bob": 0, "carol": 1})
         self.assertEqual(actions.entries(bounty_id)["added"], {})  # nothing twice
 
+    def test_a_later_collection_reads_only_replies_newer_than_the_last_entry(self):
+        # pay-due collects hourly and X bills every post a search returns:
+        # the second read must not pay for the first read's replies again.
+        bounty_id = self.open_and_announce()
+        self.collect_entries(bounty_id)
+        actions.entries(bounty_id)
+        first, second = self.web.requests("GET", "/2/tweets/search/recent")[:2]
+        self.assertNotIn("since_id", first.query)
+        self.assertEqual(second.query["since_id"], "1104")
+
     def test_moltbook_comments_are_entries_too(self):
         bounty_id = self.open_and_announce(channels=["x", "moltbook"])
         actions.link(bounty_id, None, "mb-1")

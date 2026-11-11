@@ -172,3 +172,23 @@ class RequestsTest(IngestTest):
         self.assertEqual(mentions.note_requests()["noted"], 0)
         self.assertEqual(self.requests(), [])
 
+
+
+class CostTest(IngestTest):
+    """What reading mentions costs: X bills the account's own mentions read
+    with its own user token as owned reads ($0.001 a post, not $0.005), and a
+    mention already read is never paid for again before it is answered."""
+
+    def test_the_mentions_timeline_is_read_signed_as_the_account(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))
+        mentions.ingest()
+        seen = self.x.requests("GET", MENTIONS)[0]
+        self.assertTrue(seen.is_oauth(), "read on the app bearer: billed at the full post rate")
+
+    def test_replying_to_an_ingested_mention_does_not_read_it_again(self):
+        self.x.route("GET", MENTIONS, page(("11", "8", "@teenydroid wen moon")))
+        mentions.ingest()
+        from teeny_hands.x import cache
+
+        self.assertEqual(cache.reads().get_post("11")["text"], "@teenydroid wen moon")
+        self.assertEqual(self.x.requests("GET", "/2/tweets/11"), [])
