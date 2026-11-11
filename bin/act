@@ -192,6 +192,7 @@ case "$output" in hand:*) expected=hand ;; none) expected=note ;; esac
 while IFS= read -r item; do
   action="$(jq -r .action <<<"$item")"
   result=""
+  media_note=null
   status=0
   if [ "$action" = skip ]; then
     results="$(jq -c --argjson i "$item" '. + [{action: "skip", reason: ($i.reason // null)}]' <<<"$results")"
@@ -280,8 +281,9 @@ while IFS= read -r item; do
   if [ "$status" = 0 ]; then
     echo $(($(taken) + 1)) >"$count_file"
   fi
-  results="$(jq -c --arg a "$action" --argjson s "$status" --argjson r "$result" \
-    '. + [{action: $a, status: (if $s == 0 then "done" elif $s == 2 then "refused" else "error" end), result: $r}]' <<<"$results")"
+  results="$(jq -c --arg a "$action" --argjson s "$status" --argjson r "$result" --argjson m "${media_note:-null}" \
+    '. + [{action: $a, status: (if $s == 0 then "done" elif $s == 2 then "refused" else "error" end), result: $r}
+      + (if $m == null then {} else {media: $m} end)]' <<<"$results")"
 done < <(jq -c '.[]' <<<"$items")
 
 record "$(jq -cn --arg p "$name" --argjson r "$results" --argjson left "$((max_per_day - $(taken)))" \
