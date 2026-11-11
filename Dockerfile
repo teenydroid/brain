@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # exactly the ones that commit pins (vendor/openhuman/Dockerfile does the same).
 FROM node:24-bookworm-slim AS modules
 WORKDIR /repo
-COPY vendor/openhuman/scripts/lib/module-pins.mjs scripts/lib/module-pins.mjs
+COPY vendor/openhuman/scripts/lib/module-pins.mjs vendor/openhuman/scripts/lib/git-env.mjs scripts/lib/
 COPY vendor/openhuman/scripts/ci/self-hosted/test-module-assets.mjs scripts/ci/self-hosted/test-module-assets.mjs
 COPY vendor/openhuman/scripts/release/stage-modules.mjs scripts/release/stage-modules.mjs
 COPY vendor/openhuman/crates/openhuman-core/src/modules/registry.rs crates/openhuman-core/src/modules/registry.rs
