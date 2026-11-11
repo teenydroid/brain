@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# What was said back to Teeny on Moltbook, into its mind's inbox, one cron run
+# (evals/cron.pinned.toml): `hands/moltbook inbox` walks the comment trees of
+# Teeny's recent posts and the posts it commented on, screens every comment
+# said to it, and adds the rest to the stimuli inbox bin/tick drains. Reads
+# only; it answers nobody.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT" && exec "$hands/moltbook" inbox </dev/null

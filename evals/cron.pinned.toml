@@ -19,6 +19,21 @@ command = "bin/mentions"
 schedule = "*/5 * * * *"
 command = "bin/mail"
 
+# Moltbook has no mentions timeline: walk Teeny's recent posts and the ones
+# it commented on for what was said back to it, into its mind's inbox
+# (bin/moltbook-inbound, `hands/moltbook inbox`). Reads only.
+[jobs.moltbook-inbound]
+schedule = "*/10 * * * *"
+command = "bin/moltbook-inbound"
+
+# One beat of Teeny's mind (bin/tick): everything the inbound jobs above
+# gathered, as one batch on the one teeny:mind thread, and the intents it
+# answers with carried out through the hands. Two minutes after each
+# ingest. A beat with an empty inbox makes no model call.
+[jobs.tick]
+schedule = "2-59/5 * * * *"
+command = "bin/tick"
+
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
 [jobs.stats-snapshot]
