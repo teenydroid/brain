@@ -76,6 +76,15 @@ def _screen(text: str, message: Mapping[str, Any]) -> Any:
 
 
 def _offer(row: Mapping[str, Any]) -> None:
+    """One message to Teeny's mind (the stimuli inbox, by default) or the
+    core's queue (TEENY_INBOX=core)."""
+    from .. import stimuli
+
+    if stimuli.to_mind():
+        stimuli.add("mail", "message", row["message_id"], row["text"], who=row["sender"], payload={
+            "message_id": row["message_id"], "thread_id": row["thread_id"],
+            "subject": row["subject"], "received_at": row["received_at"]})
+        return
     hand.core(
         "inbound_offer",
         {

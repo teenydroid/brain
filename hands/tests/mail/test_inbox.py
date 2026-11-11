@@ -21,6 +21,8 @@ class IngestTest(Scratch):
         self.addCleanup(self.core.close)
         os.environ["OPENHUMAN_CORE_URL"] = self.core.url
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
+        # These cases pin the core's queue; MindInboxTest covers the default.
+        self.configure(TEENY_INBOX="core")
 
     def statuses(self) -> dict[str, str]:
         return {r["message_id"]: r["status"] for r in hand.db().execute("SELECT message_id, status FROM mail_messages")}

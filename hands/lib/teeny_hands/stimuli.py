@@ -81,6 +81,13 @@ def db():
     return hand.open_db(SCHEMA)
 
 
+def to_mind() -> bool:
+    """Whether surfaces feed this inbox (TEENY_INBOX=mind, the default) or
+    the core's inbound queue and its per-surface agents (TEENY_INBOX=core,
+    the old path, kept while the mind is new)."""
+    return (hand.setting("TEENY_INBOX", "mind") or "mind").strip().lower() != "core"
+
+
 def _clip(text: str) -> str:
     text = text.strip()
     return text if len(text) <= MAX_TEXT_CHARS else text[:MAX_TEXT_CHARS].rstrip() + " [...cut]"

@@ -32,6 +32,8 @@ class IngestTest(Scratch):
         self.addCleanup(self.core.close)
         os.environ["OPENHUMAN_CORE_URL"] = self.core.url
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
+        # These cases pin the core's queue; MindInboxTest covers the default.
+        self.configure(TEENY_INBOX="core")
         self.screened: list[str] = []
         self.real_screen = mentions._screen
         mentions._screen = self.screen

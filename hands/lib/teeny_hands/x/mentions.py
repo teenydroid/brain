@@ -9,7 +9,9 @@ Each new one becomes a row in `x_mentions`, unique on its post id:
   held     the inbound guard held it, or the core's prompt-injection guard
            kept it out of the drafting turn; nothing answers it
   skipped  never offered: the account's own post, or already answered
-  offered  in the core's queue (`openhuman.inbound_offer`, source x:mentions)
+  offered  handed on: to Teeny's mind (the stimuli inbox, bin/tick) or, with
+           TEENY_INBOX=core, the core's queue (`openhuman.inbound_offer`,
+           source x:mentions)
   drafted  a draft came back and went through `hands/x reply` under DRY_RUN
   replied  answered on X
   refused  `hands/x reply` refused the draft (a rule or the guard)
@@ -80,7 +82,17 @@ def _screen(post: Json) -> Any:
 
 
 def _offer(post: Json) -> None:
-    """One mention into the core's queue. A duplicate is the core's to drop."""
+    """One mention to whoever answers: Teeny's mind (the stimuli inbox, by
+    default) or the core's queue (TEENY_INBOX=core). A duplicate is dropped
+    either way."""
+    from .. import stimuli
+
+    if stimuli.to_mind():
+        payload = {k: v for k, v in (("conversation_id", post.get("conversationId")),
+                                     ("in_reply_to", post.get("inReplyToId")),
+                                     ("created_at", post.get("createdAt"))) if v}
+        stimuli.add("x", "mention", post["id"], post["text"], who=post.get("authorUsername"), payload=payload)
+        return
     hand.core(
         "inbound_offer",
         {
