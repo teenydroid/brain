@@ -175,7 +175,7 @@ reset
 out="$(FAKE_MEDIA_FAIL=1 run pic)"
 check "a picture it could not make leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
 check "and says why" test "$(jq -r '.actions[0].media.skipped' <<<"$out")" = "not made"
-check "and the post still went out" test "$(jq -r '.actions[0].status' <<<"$out")" = done
+check "and the post still went out" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 reset
 out="$(FAKE_UPLOAD_FAIL=1 run pic)"
 check "an upload that failed leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
