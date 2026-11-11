@@ -98,10 +98,11 @@ while IFS= read -r input; do
   inputs="$(jq -c --arg k "$input_name" --arg v "${got:0:20000}" \
     '. + {($k): ($v | (try fromjson catch .))}' <<<"$inputs")"
   # A required input that came back empty (null, [], {}, "", or an object of
-  # only those) means there is nothing to draft: skip before the model turn.
+  # only those, besides the "ok" every hand adds) means there is nothing to
+  # draft: skip before the model turn.
   if [ "$(jq -r .required <<<"$input")" = true ] &&
     jq -e --arg k "$input_name" '.[$k] | def blank: . == null or . == "" or . == [] or . == {};
-      blank or (type == "object" and ([.[] | blank] | all))' <<<"$inputs" >/dev/null; then
+      blank or (type == "object" and ([to_entries[] | select(.key != "ok") | .value | blank] | all))' <<<"$inputs" >/dev/null; then
     record "$(jq -cn --arg p "$name" --arg i "$input_name" '{ok: true, playbook: $p, skipped: "\($i) is empty"}')"
     exit 0
   fi

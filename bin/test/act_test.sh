@@ -62,7 +62,9 @@ FAKE
 cat >"$scratch/hands/queue" <<'FAKE'
 #!/usr/bin/env bash
 printf 'queue %s\n' "$*" >>"$FAKE_HANDS"
-default='{"brief": null}'
+# Every hand adds "ok": true to what it prints (hand.run), so the default
+# looks like hands/brief next with nothing queued.
+default='{"brief": null, "ok": true}'
 printf '%s\n' "${FAKE_QUEUE-$default}"
 FAKE
 chmod +x "$scratch/fake-oh" "$scratch/hands/"*
@@ -135,7 +137,7 @@ out="$(FAKE_QUEUE='{"brief": {"id": 1, "text": "the release"}}' run told)"
 check "drafts when the required input has something in it" test -s "$FAKE_CALLS"
 check "and acts on the draft" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 reset
-for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}'; do
+for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "brief": null}'; do
   : >"$FAKE_CALLS"
   FAKE_QUEUE="$empty" run told >/dev/null
   check "treats $empty as empty" test ! -s "$FAKE_CALLS"

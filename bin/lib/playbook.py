@@ -19,6 +19,7 @@ argv}], prompt} or exits non-zero with what is wrong.
     required = true            # optional: an empty result skips the run
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those
+                               # (an "ok" key aside)
     +++
     the prompt: what to read in the inputs and what to draft.
 
