@@ -66,4 +66,6 @@ paid is public all the same, as `wallet.paid` receipts.
 
 `NEXT_PUBLIC_GA_ID` turns on analytics. Everything static on the page
 (`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`, `README.md` and
-the published tool list.
+the published tool list. The `/tools` list (and its count) and the lessons on
+`/ledger` still describe the previous runtime's tools and incidents; the
+current hands are listed, from the repository, on `/brain`.
