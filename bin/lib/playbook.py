@@ -111,7 +111,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if not prompt:
         raise PlaybookError(f"{path}: the prompt is empty")
 
-    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media"}
+    extra = set(meta) - {"description", "output", "surface", "max_per_day", "inputs", "media", "nudge"}
     if extra:
         raise PlaybookError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     description = meta.get("description")
@@ -171,8 +171,15 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     if media and not (output == "post" or output.startswith("hand:")):
         raise PlaybookError(f"{path}: media goes with a post or a hand: output only")
 
+    nudge = meta.get("nudge", False)
+    if not isinstance(nudge, bool):
+        raise PlaybookError(f"{path}: nudge is true or false")
+    if nudge and output not in NUDGE_OUTPUTS:
+        raise PlaybookError(f"{path}: a nudge goes to the mind, which can only {', '.join(NUDGE_OUTPUTS)}; not {output!r}")
+
     return {
         "name": name,
+        "nudge": nudge,
         "description": description.strip(),
         "media": media,
         "output": output,
@@ -181,6 +188,11 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         "inputs": parsed,
         "prompt": prompt,
     }
+
+
+#: What a nudged playbook may ask of the mind: the outputs bin/tick's
+#: intents cover (post_x, reply_x, like_x, or just a thought).
+NUDGE_OUTPUTS = ("post", "reply", "like", "none")
 
 
 def main(argv: list[str]) -> int:
