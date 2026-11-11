@@ -48,7 +48,7 @@ def _clip(text: Any, limit: int) -> str:
 
 
 def _get(path: str) -> Any:
-    return client.site().call("GET", path)
+    return client.site().call("GET", path, auth=False)
 
 
 # --- the project ------------------------------------------------------------------------
@@ -207,7 +207,8 @@ def revisions(pid: str | None) -> Json:
 
 
 def _project_repos(pid: str, only: str | None) -> list[str]:
-    repos = [r["repo"] for r in _repositories(_cached_project(pid)["project"])]
+    # A repository reaches a GitHub path only once it reads as OWNER/REPO.
+    repos = [client.repo(r["repo"]) for r in _repositories(_cached_project(pid)["project"])]
     if only is None:
         if not repos:
             raise hand.HandError(f"project {pid} lists no repository")
@@ -324,6 +325,14 @@ def _files(repo: str, number: int) -> tuple[list[Json], bool]:
     return files, True
 
 
+def _changed_lines(pr: Mapping[str, Any], files: list[Json]) -> int:
+    """GitHub's own count (complete past the file pages), else the files'."""
+    added, deleted = pr.get("additions"), pr.get("deletions")
+    if isinstance(added, int) and isinstance(deleted, int):
+        return added + deleted
+    return sum(f["additions"] + f["deletions"] for f in files)
+
+
 def submission(number: int, repo: str | None) -> Json:
     if not isinstance(number, int) or number < 1:
         raise hand.HandError("NUMBER is a pull request number")
@@ -348,7 +357,7 @@ def submission(number: int, repo: str | None) -> Json:
             "changed_files": pr.get("changed_files", len(files)),
             "additions": pr.get("additions"),
             "deletions": pr.get("deletions"),
-            "total_changed_lines": sum(f["additions"] + f["deletions"] for f in files),
+            "total_changed_lines": _changed_lines(pr, files),
             "touched_paths": sorted(paths),
             "checks": _checks(name, out["head_sha"]) if out["head_sha"] else {"state": "none"},
             "slopbot": _slopbot_comments(name, number),
