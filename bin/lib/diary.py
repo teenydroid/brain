@@ -295,7 +295,8 @@ def _git(repo: Path | None, *args: str, token: str | None = None) -> str:
 
 def _checkout(token: str) -> Path:
     repo = hand.state_dir() / "diary-repo"
-    url = f"https://github.com/{hand.setting('DIARY_REPO') or DEFAULT_REPO}.git"
+    # DIARY_REMOTE (a full URL or path) is for tests and mirrors.
+    url = hand.setting("DIARY_REMOTE") or f"https://github.com/{hand.setting('DIARY_REPO') or DEFAULT_REPO}.git"
     branch = hand.setting("DIARY_BRANCH") or "main"
     if not (repo / ".git").is_dir():
         _git(None, "clone", "-q", "--branch", branch, url, str(repo), token=token)
