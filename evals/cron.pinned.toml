@@ -19,6 +19,24 @@ command = "bin/mentions"
 schedule = "*/5 * * * *"
 command = "bin/mail"
 
+# One beat of Teeny's mind (bin/tick): it browses Moltbook for what was said
+# back to it (at most every 10 minutes), then takes everything the inbound
+# jobs above gathered as one batch on the one teeny:mind thread and carries
+# out the intents it answers with through the hands. Two minutes after each
+# ingest. A beat with an empty inbox makes no model call.
+[jobs.tick]
+schedule = "2-59/5 * * * *"
+command = "bin/tick"
+
+# Teeny's end of day (bin/reflect): on the teeny:mind thread, with the day
+# still in context, it rewrites MEMORY.md (the page in every prompt) from
+# what it chose to remember and what it did, and keeps a diary entry. After
+# the quiet hours start, before the morning.
+[jobs.reflect]
+schedule = "0 2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/reflect"
+
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
 [jobs.stats-snapshot]

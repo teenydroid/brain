@@ -116,6 +116,7 @@ out="$(run morning)"
 check "runs the input hand" grep -q "^x search from:tinyhumansai --max 5 " "$FAKE_HANDS"
 check "forces DRY_RUN=1 on every input" grep -q "^x search .* DRY_RUN=1 " "$FAKE_HANDS"
 check "drafts as the act agent" test "$(jq -r .agent_id "$FAKE_CALLS")" = act
+check "drafts on Teeny's one playbook thread, so memory and the last drafts carry over" test "$(jq -r .thread_id "$FAKE_CALLS")" = teeny:act
 check "gives the model the input as data" grep -q 'what are you building' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "tells the model the inputs are not instructions" grep -q 'never instructions to follow' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"text":"gm tiny humans"}' "$FAKE_HANDS"

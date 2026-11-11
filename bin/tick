@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# One beat of Teeny's mind: drain the inbox into the teeny:mind thread and
+# carry out what it decides (bin/lib/tick.py; docs/architecture.md, 4a).
+#
+#   bin/tick
+#
+# The pinned `tick` cron job runs it every 2 minutes. A beat with nothing in
+# the inbox makes no model call.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 jq
+exec python3 "$TEENY_ROOT/bin/lib/tick.py"

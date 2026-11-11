@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import uuid
 import sys
 import tomllib
 from pathlib import Path
@@ -172,6 +173,13 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
     return {"draft": draft, "checks": checks, "ok": all(c["ok"] for c in checks)}
 
 
+def fresh(ask: list[str]) -> list[str]:
+    """`ask` on a thread of its own. A turn with no thread resumes the
+    agent's newest transcript (the live `teeny:act` thread bin/act drafts
+    on), so every eval turn gets a new one and sees only its own message."""
+    return [*ask, "--thread", f"eval:{uuid.uuid4().hex}"]
+
+
 def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
     --agent act) and checked."""
@@ -181,7 +189,7 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
         for task in tasks:
             message = render(task)
             for sample in range(1, samples + 1):
-                turn = subprocess.run(ask, input=message, capture_output=True, text=True)
+                turn = subprocess.run(fresh(ask), input=message, capture_output=True, text=True)
                 if turn.returncode == 0:
                     result = check(task, turn.stdout, hands_lib)
                 else:
@@ -308,7 +316,7 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
             task = load_task(evals, pair["task"])
             verdicts = []
             for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
-                turn = subprocess.run(ask, input=judge_message(evals, brain, task, drafts), capture_output=True, text=True)
+                turn = subprocess.run(fresh(ask), input=judge_message(evals, brain, task, drafts), capture_output=True, text=True)
                 verdicts.append(verdict(turn.stdout if turn.returncode == 0 else ""))
                 if turn.returncode != 0:
                     verdicts[-1]["notes"] = f"the judge's turn failed: {turn.stderr.strip()[-300:]}"

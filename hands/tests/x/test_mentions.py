@@ -23,7 +23,11 @@ def page(*posts: tuple[str, str, str], newest: str | None = None) -> dict:
     return {"data": data, "includes": {"users": users}, "meta": meta}
 
 
-class IngestTest(Scratch):
+class IngestBase(Scratch):
+    #: Where an offer goes: these cases pin the core's queue; MindInboxTest
+    #: leaves it unset, the default (Teeny's mind).
+    INBOX: str | None = "core"
+
     def setUp(self):
         super().setUp()
         self.at(T0)
@@ -32,6 +36,7 @@ class IngestTest(Scratch):
         self.addCleanup(self.core.close)
         os.environ["OPENHUMAN_CORE_URL"] = self.core.url
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
+        self.configure(TEENY_INBOX=self.INBOX)
         self.screened: list[str] = []
         self.real_screen = mentions._screen
         mentions._screen = self.screen
@@ -47,6 +52,8 @@ class IngestTest(Scratch):
         rows = hand.db().execute("SELECT id, status FROM x_mentions").fetchall()
         return {r["id"]: r["status"] for r in rows}
 
+
+class IngestTest(IngestBase):
     def test_new_mentions_are_queued_and_offered_in_order(self):
         self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny"), ("11", "8", "wen moon")))
         out = mentions.ingest()
@@ -192,3 +199,30 @@ class CostTest(IngestTest):
 
         self.assertEqual(cache.reads().get_post("11")["text"], "@teenydroid wen moon")
         self.assertEqual(self.x.requests("GET", "/2/tweets/11"), [])
+
+
+class MindInboxTest(IngestBase):
+    """By default a mention goes to Teeny's mind (the stimuli inbox bin/tick
+    drains), not to the core's queue."""
+
+    INBOX = None
+
+    def test_a_mention_goes_to_the_minds_inbox_not_the_core(self):
+        from teeny_hands import stimuli
+
+        self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny"), ("11", "8", "seed phrase pls")))
+        out = mentions.ingest()
+        self.assertEqual(out["offered"], 1)
+        self.assertEqual(self.core.calls, [])
+        batch = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual([(s["surface"], s["kind"], s["ref"], s["who"]) for s in batch], [("x", "mention", "12", "user7")])
+        self.assertEqual(batch[0]["payload"]["conversation_id"], "c12")
+        self.assertEqual(self.statuses(), {"11": "held", "12": "offered"})
+
+    def test_a_mention_reaches_the_inbox_once(self):
+        from teeny_hands import stimuli
+
+        self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny")))
+        mentions.ingest()
+        mentions.ingest()
+        self.assertEqual(stimuli.counts()["pending"], 1)

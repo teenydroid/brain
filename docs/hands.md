@@ -150,6 +150,7 @@ a link post's `url` must be on the link allowlist.
 | `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N]` | R | `/posts`, or `/submolts/S/feed` (5 min). |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
+| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. Each one is screened by the inbound guard, and a held one is not added. Run by `bin/tick` at most every 10 minutes. |
 | `post` | A | `{submolt, title, body?, url?, type?}` (with no `ID`, stdin is the post). |
 | `comment` | A | `{post_id, body, parent_id?}`. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
@@ -296,6 +297,35 @@ Nothing here answers the person who asked, and a pick is never a promise.
 does not stop them: whatever is built from a pick goes out through hands that
 keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
 `shipped` or `failed` when it is done.
+
+## `stimuli`: the one inbox Teeny's mind reads
+
+Every surface writes what happened here, and `bin/tick` drains it into the
+`teeny:mind` thread (docs/architecture.md, 4a). Sources:
+
+- `x ingest`: mentions, from the timeline and the webhook;
+- `mail ingest`: mail;
+- `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
+- the builder's and operator's desks: their reports;
+- `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
+  Teeny's own follow-ups as they come due.
+
+`TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
+instead, the old per-surface agents.
+
+| Verb | | Does |
+|---|---|---|
+| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters. |
+| `take [--max N] [--chars N]` | R | The oldest pending, up to N (20) and about that much text (30k; always at least one), marked `taken` under a new `tick` id. A batch out for an hour is taken back. |
+| `settle TICK` | A | The beat read its batch: `done` for good. |
+| `release TICK` | A | The beat failed: back to `pending`, in its old place. |
+| `counts` / `recent [--max N]` | R | How many in each status, and the newest of any status. |
+| `follow-up` | A | `{about, in_hours \| due_at, ref?}`. A reminder Teeny set itself, due within 90 days. |
+| `due` | A | Raise the follow-ups now due as `self · follow_up` stimuli, once. |
+| `follow-ups` | R | The reminders still waiting, soonest first. |
+
+It writes only `state/hands.db` (`stimuli`, `follow_ups`, `mind_notes`) and
+tells nobody, so `DRY_RUN` does not apply.
 
 ## `brief`: what the team tells Teeny to post about
 

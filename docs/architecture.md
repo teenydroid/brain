@@ -173,6 +173,65 @@ driven by the goals in `narrative/LORE.md` and tracked in
 merged only if it wins, behind rules in code the brain cannot edit. The spec
 is [`evolve.md`](evolve.md).
 
+### 4a. Context and memory: what a turn knows
+
+A turn that speaks as Teeny (`act`, `teeny-mentions`, `teeny-mail`) is
+handed four things beyond the message:
+
+- **Its prompt.** The agent's instructions (`brain/agents/<id>.md`) and then
+  "# your world": `CONTEXT.md`, the parts of `narrative/LORE.md` Teeny reads
+  (the premise, the cast, the running bits; never `## latent`, which is the
+  producer's), `narrative/ARCS.md`, and last `MEMORY.md`. `bin/spine` builds
+  it into `brain/agent/prompts/<id>.md` at every boot (`bin/lib/prompts.py`).
+  The agents set `refresh_prompt_on_resume`, so a rebuilt prompt reaches a
+  thread already under way.
+- **`MEMORY.md`.** Teeny's own page of things to keep in mind (people,
+  promises, what it is in the middle of, what it decided), capped at 12k
+  characters. It is the persistence that survives anything; no agent's file
+  tool can write it (`BRAIN_FORBIDDEN`).
+- **Its thread.** `bin/act` drafts every playbook on one thread,
+  `teeny:act`, so a draft sees the drafts before it, and the core recalls
+  memory before the turn and logs it after (both are skipped on a turn with
+  no thread). The evals draft each sample on a fresh `eval:<uuid>` thread
+  and stay blind to it.
+- **Recall and the memory block.** `[memory.recall] budget_tokens = 3000`
+  before each turn, and a 1500-token `memory_block` at each new generation.
+
+A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
+`bin/lib/core_sections/context.py`): the core seals the generation and opens
+the next with a free-form summary of it and the last 20k tokens verbatim.
+The sealed generation stays on disk.
+
+**One mind.** Every surface writes to one inbox (`hands/stimuli`):
+
+- X mentions (`hands/x ingest`, the webhook);
+- mail (`hands/mail ingest`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
+  10 minutes (`hands/moltbook inbox`);
+- the builder's and operator's reports (their desks).
+
+The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
+it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
+agent answers with a `thought` and JSON intents (`reply_x`,
+`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
+and the rest). Each intent goes only to the hand verb it names, and that
+hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
+as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
+teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+returns when due. `TEENY_INBOX=core` restores the old per-surface path.
+
+**Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
+`bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
+to rewrite `MEMORY.md`. It works from what the mind chose to remember
+(`mind_notes`), what it thought and did each beat (`state/tick/runs.jsonl`),
+the follow-ups still waiting, and the page as it stands. The old page is
+kept in `state/reflect/`, and the diary entry goes to `state/diary/<date>.md`
+and to the core's memory. The prompts are rebuilt, so the next beat reads the
+new page. An unusable answer changes nothing.
+
+Next (planned): playbooks become nudges into the inbox that the mind may
+decline, and a day/night rhythm with mood and energy.
+
 ## 5. Roster
 
 This keeps the current posture (`crates/teeny-agent/src/posture.rs`) and

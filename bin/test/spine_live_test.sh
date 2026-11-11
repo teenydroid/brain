@@ -95,6 +95,12 @@ class Model(BaseHTTPRequestHandler):
         # bin/eval: a draft for a task, and the judge comparing two.
         elif isinstance(last, str) and "# eval: " in last:
             answer = json.dumps({"text": "gm from an eval"})
+        # bin/tick: a beat of the mind; the thought names the beat it saw.
+        elif isinstance(last, str) and "# since you last looked" in last:
+            answer = json.dumps({"thought": "the stub thought about it", "intents": []})
+        # bin/reflect: the end of the day rewrites MEMORY.md.
+        elif isinstance(last, str) and "# end of the day" in last:
+            answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
         if body.get("stream"):
@@ -133,7 +139,8 @@ cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
 cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$root/brain/"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/MEMORY.md" "$root/brain/"
+printf '\n- the live test planted this: the blue crayon is under the kettle.\n' >>"$root/brain/MEMORY.md"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -235,6 +242,7 @@ cat >"$root/brain/playbooks/hello.md" <<'MD'
 +++
 description = "say hello, for the live test"
 output = "none"
+max_per_day = 5
 +++
 Say hello.
 MD
@@ -250,6 +258,42 @@ agent_tools() { # ID: what the core offered that agent's first turn
 check "the core loaded the act agent from brain/agents/" grep -q 'building session agent id=act ' "$scratch/spine.log"
 check "the act agent's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools act)"
 check "bin/act records the run" test -s "$root/state/act/hello/runs.jsonl"
+# Context and memory (docs/architecture.md, 4a): the act turn's system
+# prompt carries Teeny's world and MEMORY.md, the config folds at 100k, and
+# a second playbook run on the teeny:act thread sees the first exchange.
+act_request() { grep '# playbook: hello' "$scratch/model-bodies.jsonl" | tail -n 1; }
+act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .content | if type == "string" then . else tojson end] | join("\n")'; }
+check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
+check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
+check "and MEMORY.md" grep -q 'the blue crayon is under the kettle' <<<"$(act_system)"
+if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
+config_toml="$root/.openhuman/config.toml"
+check "the core's config folds a thread at 100k tokens" \
+  python3 -c 'import sys, tomllib; c = tomllib.load(open(sys.argv[1], "rb"))["context"]; sys.exit(c["compaction_trigger_tokens"] != 100000 or c["compaction_strategy"] != "summary")' "$config_toml"
+"$root/bin/act" hello >/dev/null 2>>"$scratch/act.log" || true
+check "a second run on the teeny:act thread sees the first exchange" \
+  test "$(act_request | jq '[.messages[] | select(.role == "user") | .content | tostring | select(contains("# playbook: hello"))] | length')" -ge 2
+check "and the first draft in it" grep -q 'hello from a playbook' <<<"$(act_request | jq -c '[.messages[] | select(.role == "assistant")]')"
+# The mind: two beats of bin/tick on the one teeny:mind thread, the second
+# carrying the first.
+mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | tail -n 1; }
+(cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
+ticked="$("$root/bin/tick" 2>"$scratch/tick.log" || true)"
+check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"
+check "the core loaded the mind from brain/agents/" grep -q 'building session agent id=teeny ' "$scratch/spine.log"
+check "the mind's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools teeny)"
+check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "system") | .content | tostring] | join("\n")')"
+(cd "$root" && printf '{"surface": "moltbook", "kind": "comment", "ref": "live2", "text": "second thing", "who": "crab"}' | hands/stimuli add >/dev/null)
+"$root/bin/tick" >/dev/null 2>>"$scratch/tick.log" || true
+check "a second beat on teeny:mind remembers the first" \
+  grep -q 'gm teeny from the live test' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "user") | .content | tostring] | join("\n")')"
+reflected="$("$root/bin/reflect" 2>"$scratch/reflect.log" || true)"
+check "bin/reflect rewrites MEMORY.md from the mind thread" grep -q 'said gm in the live test' "$root/brain/MEMORY.md"
+check "and the mind's next prompt carries the new page" grep -q 'said gm in the live test' "$root/brain/agent/prompts/teeny.md"
+[ "$(jq -r .ok <<<"$reflected" 2>/dev/null)" = true ] || { echo "bin/reflect said: $reflected"; tail -n 5 "$scratch/reflect.log"; } >&2
+if [ "$(jq -r .thought <<<"$ticked" 2>/dev/null)" != "the stub thought about it" ]; then
+  { echo "bin/tick said: $ticked"; tail -n 5 "$scratch/tick.log"; } >&2
+fi
 if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
   { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
 fi
