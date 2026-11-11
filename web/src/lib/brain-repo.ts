@@ -1,43 +1,27 @@
 /**
  * The brain: Teeny as it runs today, read from its public repository
- * (teenydroid/brain) on GitHub, and its receipts (teenydroid/diary).
+ * (teenydroid/brain) on GitHub.
  *
  * Teeny is a stock OpenHuman core (spine/, vendor/openhuman), small programs
  * that hold every outside capability (hands/), and the files the core reads
  * (brain/: SOUL.md, CONTEXT.md, MEMORY.md, narrative/, agents/, playbooks/
- * and cron.toml). The web image is built from web/ alone, so those files are
+ * and cron.toml). The receipts (teenydroid/diary) are read in receipts.ts. The web image is built from web/ alone, so those files are
  * not on disk here: the page lists them from GitHub, revalidated hourly.
  *
  * Nothing here is invented: when GitHub cannot be reached the page says so
  * and lists nothing; the links still point at the repositories.
  */
 
+import { BRANCH, githubHeaders, listTree, raw as rawFile } from './github'
+
 export const BRAIN_REPO = process.env.BRAIN_REPO ?? 'teenydroid/brain'
 export const BRAIN_REPO_URL = `https://github.com/${BRAIN_REPO}`
-export const DIARY_REPO = process.env.DIARY_REPO ?? 'teenydroid/diary'
-export const DIARY_REPO_URL = `https://github.com/${DIARY_REPO}`
 export const OPENHUMAN_URL = 'https://github.com/tinyhumansai/openhuman'
 
-const BRANCH = 'main'
 const REVALIDATE = 3600
 
-function githubHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { accept: 'application/vnd.github+json' }
-  if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`
-  return headers
-}
-
-/** One file from a public repository, or undefined on anything but a 200. */
-async function raw(repo: string, path: string, revalidate = REVALIDATE): Promise<string | undefined> {
-  try {
-    const response = await fetch(`https://raw.githubusercontent.com/${repo}/${BRANCH}/${path}`, {
-      next: { revalidate },
-      signal: AbortSignal.timeout(6_000),
-    })
-    return response.ok ? await response.text() : undefined
-  } catch {
-    return undefined
-  }
+function raw(repo: string, path: string): Promise<string | undefined> {
+  return rawFile(repo, path, REVALIDATE)
 }
 
 /* ------------------------------------------------------------------------ */
@@ -182,18 +166,8 @@ export interface BrainAnatomy {
 const EMPTY: BrainAnatomy = { source: 'unavailable', agents: [], playbooks: [], jobs: [], hands: [] }
 
 async function listPaths(): Promise<string[] | undefined> {
-  try {
-    const response = await fetch(`https://api.github.com/repos/${BRAIN_REPO}/git/trees/${BRANCH}?recursive=1`, {
-      headers: githubHeaders(),
-      next: { revalidate: REVALIDATE },
-      signal: AbortSignal.timeout(8_000),
-    })
-    if (!response.ok) return undefined
-    const body = (await response.json()) as { tree?: Array<{ path: string; type: string }> }
-    return body.tree?.map((entry) => entry.path)
-  } catch {
-    return undefined
-  }
+  const listing = await listTree(BRAIN_REPO, '', REVALIDATE)
+  return listing.status === 'ok' ? listing.paths : undefined
 }
 
 function jobsFrom(doc: TomlDoc | undefined, pinned: boolean, playbooks: Map<string, BrainPlaybook>): BrainJob[] {
