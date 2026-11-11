@@ -23,7 +23,7 @@ export const PAGES: PageMeta[] = [
     label: 'Brain',
     eyebrow: 'Brain',
     title: 'The part that decides what it is trying to do',
-    lede: 'An OpenCompany company of four agents whose whole state is a public git repository. They revise their own definition, and every run is committed back where anyone can read it.',
+    lede: 'A stock OpenHuman core, a handful of small programs that hold every key, and a brain made of plain files: who it is, what it remembers, its playbooks and its schedule. All of it is public, and so is the diary it keeps.',
     scene: 'orbit',
   },
   {
