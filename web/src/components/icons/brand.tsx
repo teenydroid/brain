@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react"
-import { Code2, Users, Wallet } from "lucide-react"
+import { Code2, Users } from "lucide-react"
 import type { PresenceKind } from "@/lib/presence"
 
 type IconProps = ComponentProps<"svg">
@@ -34,10 +34,6 @@ export function FomoIcon(props: IconProps) {
   return <Users aria-hidden="true" {...props} />
 }
 
-export function WalletIcon(props: IconProps) {
-  return <Wallet aria-hidden="true" {...props} />
-}
-
 export function CodeIcon(props: IconProps) {
   return <Code2 aria-hidden="true" {...props} />
 }
@@ -46,7 +42,6 @@ const BY_KIND: Record<PresenceKind, (props: IconProps) => React.JSX.Element> = {
   x: XIcon,
   telegram: TelegramIcon,
   fomo: FomoIcon,
-  wallet: WalletIcon,
   github: GitHubIcon,
 }
 
