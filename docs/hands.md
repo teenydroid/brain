@@ -92,6 +92,30 @@ lexicon and the links.
 
 Holds are written best-effort and never turn into a publish.
 
+**Re-screening.** A hold the judge made only because it failed (its reason
+starts `the judge could not be reached` or is `the judge answered in an
+unreadable shape`, category `unknown`) is not a verdict, and an outage
+should not silence the people who wrote in during it. The pinned
+`bin/health` job, right after the model has answered its probe, asks again
+about at most ten such holds, oldest first and none younger than two
+minutes (`teeny_hands.guard.rescreen`):
+
+- An inbound X mention, Moltbook comment or mail is screened again through
+  the guard's own inbound path (the lexicon, then the judge, the stored
+  text). Only a fresh `clean` releases it: the `x_mentions` or
+  `mail_messages` row held by that hold goes back to `pending` for the next
+  ingest to offer, a comment goes into the `stimuli` inbox, and the hold is
+  `cleared`. A real verdict is written on the hold (its category and
+  reason), which keeps holding. Another failure leaves it for the next run.
+- A draft of Teeny's own is `expired`, never sent late; Teeny drafts afresh.
+
+A hold from a real verdict (the lexicon, the links, the judge naming a
+reason) or one an operator has decided is never touched, and re-screening
+never releases a verdict. With `SAFETY_JUDGE=0` it asks nothing. Each hold
+records `rescreened_at` and `rescreen` (`cleared`, `prohibited`,
+`unreachable`, `unreadable`, `expired`, `release_failed`); `bin/health`
+prints the counts as `rescreen`.
+
 ## `gh`: the only holder of the GitHub token
 
 Teeny codes in public as `GITHUB_USER` (default `teenydroid`). Every word it

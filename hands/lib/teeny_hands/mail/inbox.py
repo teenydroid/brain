@@ -186,6 +186,19 @@ def ingest(max_results: int = 20, offer: bool = True, api: RestApi | None = None
         return result
 
 
+def release_held(message_id: str, hold_id: int) -> bool:
+    """Puts a message the guard held back to `pending`, for the next ingest to
+    offer, once the guard's re-screen found it clean. Only a row held by that
+    very hold moves (never one Agent Armor held); False when there is none."""
+    conn = db()
+    changed = conn.execute(
+        "UPDATE mail_messages SET status = 'pending', note = ?, updated_at = ?"
+        " WHERE message_id = ? AND status = 'held' AND hold_id = ?",
+        ("released: the guard re-screened it clean", hand.now(), message_id, hold_id),
+    ).rowcount
+    return changed == 1
+
+
 def queue(status: str | None = None, limit: int = 50) -> Mapping[str, Any]:
     conn = db()
     query = "SELECT message_id, thread_id, sender, subject, status, note, hold_id FROM mail_messages"

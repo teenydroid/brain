@@ -244,6 +244,47 @@ class HealthTest(unittest.TestCase):
     def test_no_storage_yet_is_no_cron_errors(self):
         self.assertEqual(health.check()["cron_errors"], {})
 
+    # --- the re-screen -----------------------------------------------------------------------
+
+    def outage_holds(self) -> tuple[int, int]:
+        """An inbound mention and an own draft the judge held while it was
+        down, ten minutes before T0."""
+        self.at(-600)
+        down = "the judge could not be reached: openhuman.inference_agent_chat_simple: core unreachable"
+        mention = holds.record(direction="inbound", kind="message", context={"surface": "x", "post_id": "11"},
+                               category="unknown", reason=down, by="judge", text="gm teeny")
+        draft = holds.record(direction="outbound", kind="draft", context={"surface": "x"}, category="unknown",
+                             reason="the judge answered in an unreadable shape", by="judge", text="gm frens")
+        self.at(0)
+        return mention["id"], draft["id"]
+
+    def test_a_healthy_check_rescreens_what_the_outage_held(self):
+        mention, draft = self.outage_holds()
+        self.core.replies = [ALIVE, result({"response": json.dumps({"reason": "a greeting", "verdict": "clean"})})]
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual({k: out["rescreen"][k] for k in ("checked", "cleared", "expired", "prohibited")},
+                         {"checked": 2, "cleared": 1, "expired": 1, "prohibited": 0})
+        self.assertEqual((holds.get(mention)["status"], holds.get(draft)["status"]), ("cleared", "expired"))
+        # The probe, then the judge on the one inbound hold.
+        self.assertEqual(len(self.core.calls), 2)
+
+    def test_no_rescreen_runs_when_the_probe_failed(self):
+        mention, draft = self.outage_holds()
+        (out,) = self.outage(1)
+        self.assertIsNone(out["rescreen"])
+        self.assertEqual(len(self.core.calls), 1)
+        for hold_id in (mention, draft):
+            self.assertEqual((holds.get(hold_id)["status"], holds.get(hold_id)["rescreened_at"]), ("pending", None))
+
+    def test_a_broken_rescreen_does_not_break_the_check(self):
+        self.outage_holds()
+        (self.root / "state" / "hands.db").unlink()
+        (self.root / "state" / "hands.db").mkdir()
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertIn("rescreen_error", out)
+
     # --- the command ------------------------------------------------------------------------
 
     def test_bin_health_prints_one_json_line(self):

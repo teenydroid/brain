@@ -23,8 +23,14 @@ Every run:
    is open nothing more is filed; an issue that could not be opened is
    tried again on the next run. The first answer after that closes both: a
    `health · recovered` stimulus, a last comment, the issue closed.
-4. Prints one JSON line: `ok` (the check ran), `healthy` (the model
-   answered), and what it did.
+4. When the model answered, re-screens the guard holds an outage made
+   (teeny_hands.guard.rescreen): at most ten, oldest first, none younger
+   than two minutes. A held message the judge now finds clean goes back to
+   its queue; a real verdict stays held; a held draft of Teeny's own expires
+   and is never sent. A failed probe skips it: the judge is that model.
+5. Prints one JSON line: `ok` (the check ran), `healthy` (the model
+   answered), what it did, and `rescreen`, the re-screen's counts (null
+   when it did not run).
 
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
@@ -50,6 +56,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.gh import actions as gh  # noqa: E402
+from teeny_hands.guard import rescreen  # noqa: E402
 
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
@@ -294,6 +301,15 @@ def _clear(state: Json, alarm: Json, now: float, holds: int, errors: Mapping[str
 # --- the check ------------------------------------------------------------------------------------
 
 
+def _rescreen() -> Json:
+    """The re-screen's counts; a re-screen that broke is reported, and the
+    health check still answers."""
+    try:
+        return {"rescreen": rescreen.run()}
+    except Exception as error:  # noqa: BLE001 - the watcher must not fall over its own errand
+        return {"rescreen": None, "rescreen_error": scrub(f"{type(error).__name__}: {error}")}
+
+
 def check() -> Json:
     with hand.lock("health"):
         now = hand.now()
@@ -302,13 +318,14 @@ def check() -> Json:
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
-                     "alarm": None, "issue": None}
+                     "alarm": None, "issue": None, "rescreen": None}
         alarm = state.get("alarm")
         if error is None:
             if alarm:
                 out.update(_clear(state, alarm, now, holds, errors))
                 out.update(alarm="cleared", issue=alarm.get("issue"))
             state.update(failures=0, first_failed_at=None, last_ok_at=now, last_error=None, alarm=None)
+            out.update(_rescreen())
         else:
             state.update(failures=int(state.get("failures") or 0) + 1, last_failed_at=now, last_error=error)
             state["first_failed_at"] = state.get("first_failed_at") or now
