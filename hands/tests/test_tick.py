@@ -239,7 +239,7 @@ class TickTest(unittest.TestCase):
         [result] = got["results"]
         self.assertEqual((result["do"], result["status"]), ("journal", "done"))
         self.assertTrue(result["intent"]["auto"])
-        self.assertEqual(self.chats().__len__(), 1)  # never asked again
+        self.assertEqual(len(self.chats()), 1)  # never asked again
         self.assertEqual(self.runs()[-1]["results"], got["results"])
         self.assertIn("nothing to say to anyone right now", self.journal())
 
@@ -274,7 +274,7 @@ class TickTest(unittest.TestCase):
         self.assertIn("reply_x on 111: done", page)
         self.assertIn("i like mornings", page)
         self.assertNotIn("gm ana", page)  # what was said goes to the hands, not the journal
-        self.assertIn("## 07:05 · quiet", page)
+        self.assertIn("## 07:05 · beat", page)  # it reads how the reply landed
         self.assertIn("a lull", page)
         journaled = [l for l in self.learned() if l["text"].startswith("journal, ")]
         self.assertEqual(len(journaled), 2)
