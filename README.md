@@ -64,6 +64,18 @@ hands read them from `secrets/teeny.env` themselves.
   through `bin/mail`, the pinned `mail-inbound` job, and replies within a
   thread; new mail only to contacts) and `hands/stats` (daily numbers from X,
   Moltbook and GitHub, the pinned `stats-snapshot` job) are built and tested.
+- **Wallet and bounties:** Teeny has its own Solana wallet, held by the core
+  (`bin/wallet-setup`, once). `hands/wallet pay` pays bounty winners and
+  allowlisted vendors under hard caps it checks itself and writes into the
+  core's spend policy at every boot (`bin/lib/wallet_config.py`), reads SOL
+  and USDC balances, keeps the ledger and works out what keeping Teeny
+  running costs. `hands/bounty` opens bounties, collects entries from X and
+  Moltbook, picks and announces a winner after the deadline, takes the
+  winner's address from the winner's own reply, and `bin/bounty-pay` (the
+  pinned `bounty-pay` job, hourly) pays it after a challenge window. Every
+  payment gets a receipt post (`wallet-receipt`). Devnet until
+  `WALLET_CLUSTER=mainnet`; the playbooks' jobs are switched off. It needs a
+  spine built with OpenHuman's wallet (the `web3` feature).
 - **Doctor:** `bin/doctor` checks the brain, the crons, the playbooks, the
   invariants, the guard, the storage and the secrets. `bin/spine` won't boot a
   checkout it fails.
@@ -166,6 +178,24 @@ hands/requests reset 4 --note 'builder crashed'       # back to pending (operato
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
 hands/stats report --days 7                           # latest values and their change
 hands/stats get x.followers                           # one number a post may quote
+
+bin/wallet-setup                                      # once, at a terminal: the core makes Teeny's wallet; the phrase is shown once
+hands/wallet address                                  # Teeny's Solana address
+hands/wallet balance                                  # SOL and USDC, raw and display
+hands/wallet caps                                     # the caps every payment is held to
+hands/wallet vendors add hosting ADDRESS --note 'the box'      # the only addresses a vendor payment may go to
+hands/wallet bills add server --usd 30 --period month          # fixed bills, for the cost of living
+echo '{"to":"ADDRESS","amount_usdc":"12","purpose":"vendor","ref":"inv-7"}' | hands/wallet pay   # every rule, then DRY_RUN or the core
+hands/wallet ledger                                   # payments, and the core's spend ledger
+hands/wallet receipt 3                                # one payment, with its Solscan link
+hands/wallet costs --days 30                          # models, x402 and bills: what staying alive cost
+
+echo '{"title":"best tiny meme","rules":"reply with it","prize_usdc":"25","deadline":"2026-12-01T00:00:00Z","channels":["x"]}' | hands/bounty open
+bin/act bounty-open                                   # announce it (the post carries "bounty #N")
+hands/bounty get 1                                    # entries, winner, claim, when it is payable
+hands/bounty announcements                            # what the bounty playbooks owe a post for
+bin/act bounty-winner                                 # after the deadline: pick and announce the winner
+bin/bounty-pay                                        # collect, take the claim, pay what is due (hourly, pinned)
 ```
 
 Every hand prints one JSON object. The exit code is `0` when it's done, `2`
@@ -240,6 +270,11 @@ can't override it, though `DRY_RUN=1` in the environment can force a rehearsal):
 | `GIPHY_API_KEY` | GIFs for posts. |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). |
 | `GH_MAX_EXTERNAL_PRS_PER_DAY` | Pull requests to other people's projects a UTC day (2). |
+| `WALLET_CLUSTER` | `devnet` (the default) or `mainnet`. Given to the core as `OPENHUMAN_SOLANA_CLUSTER`. |
+| `WALLET_MAX_PER_TX_USD`, `WALLET_MAX_PER_DAY_USD`, `WALLET_MAX_PER_RECIPIENT_WEEK_USD` | The wallet's hard caps, in dollars: per payment, per rolling 24 hours, per recipient per rolling 7 days. The doctor refuses wallet keys without them. |
+| `WALLET_SOL_USD` | What one SOL counts as against the caps. No price feed: set it at or above the market price. |
+| `SOLANA_RPC_URL` | Solana JSON-RPC for the USDC balance, and the core's Solana endpoint. Default: the cluster's public one. |
+| `BOUNTY_CHALLENGE_HOURS` | How long a winner is public before the prize goes out (12). |
 
 The spine writes these itself on first boot: `secrets/core.token` (the RPC
 bearer) and `secrets/openhuman.key` (the master key for every secret the core

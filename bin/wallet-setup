@@ -1,0 +1,152 @@
+#!/usr/bin/env -S python3 -I
+"""Give Teeny its own wallet: once, by the operator, at a terminal.
+
+    bin/wallet-setup            make the wallet (refused when one exists)
+    bin/wallet-setup --force    replace it, after typing a confirmation
+
+Everything happens in the running core (docs/hands.md, "wallet"): it
+generates a 24-word recovery phrase, derives the accounts, encrypts the
+phrase under its own key and stores it. The phrase passes through this
+process in memory only, inside the JSON-RPC bodies to the core on
+127.0.0.1. It is never an argument, never in the environment, never
+written to a file or a log.
+
+Once the core has stored the wallet, the phrase is shown ONE time, on the
+controlling terminal itself (/dev/tty, not stdout, so a redirect or a
+captured log never holds it), with a warning to write it down offline.
+After Enter the screen and its scrollback are cleared. Without a terminal
+this refuses before generating anything.
+
+Then it prints the line to paste into brain/CONTEXT.md, with the address.
+
+Replacing a wallet strands whatever the old one holds unless its phrase was
+kept, so --force asks you to type the first 8 characters of the current
+address.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "hands", "lib"))
+
+from teeny_hands import hand  # noqa: E402
+from teeny_hands.wallet import caps, solana  # noqa: E402
+
+WORDS = 24
+
+
+def solana_address(status: object) -> str | None:
+    if not isinstance(status, dict):
+        return None
+    for account in status.get("accounts") or []:
+        if isinstance(account, dict) and account.get("chain") == "solana" and solana.is_address(account.get("address")):
+            return account["address"]
+    return None
+
+
+def main(argv: list[str]) -> int:
+    force = argv == ["--force"]
+    if argv and not force:
+        print("usage: bin/wallet-setup [--force]", file=sys.stderr)
+        return 2
+    try:
+        tty_in = open("/dev/tty", "r")
+        tty = open("/dev/tty", "w")
+    except OSError:
+        print("wallet-setup: needs a terminal (the recovery phrase is shown only there); refusing", file=sys.stderr)
+        return 1
+
+    def say(text: str = "") -> None:
+        tty.write(text + "\n")
+        tty.flush()
+
+    try:
+        status = hand.core("wallet_status", {})
+    except hand.HandError as exc:
+        print(f"wallet-setup: {exc}", file=sys.stderr)
+        return 1
+    existing = solana_address(status) if isinstance(status, dict) and status.get("configured") else None
+    if isinstance(status, dict) and status.get("configured"):
+        if not force:
+            print(f"wallet-setup: Teeny already has a wallet ({existing or 'no Solana account'}); refusing. "
+                  "--force replaces it, and strands what it holds unless you kept its phrase.", file=sys.stderr)
+            return 1
+        expect = (existing or "REPLACE")[:8]
+        say(f"This REPLACES the wallet {existing}. Funds in it are lost unless you have its recovery phrase.")
+        tty.write(f"Type {expect} to go on: ")
+        tty.flush()
+        if tty_in.readline().strip() != expect:
+            print("wallet-setup: not confirmed; nothing changed", file=sys.stderr)
+            return 1
+
+    phrase = None
+    try:
+        generated = hand.core("wallet_generate_mnemonic", {"wordCount": WORDS})
+        phrase = generated.get("phrase") if isinstance(generated, dict) else None
+        if not isinstance(phrase, str) or len(phrase.split()) != WORDS:
+            print("wallet-setup: the core did not generate a recovery phrase", file=sys.stderr)
+            return 1
+        material = hand.core("wallet_derive_recovery_material", {"phrase": phrase})
+        accounts = material.get("accounts") if isinstance(material, dict) else None
+        if not isinstance(accounts, list) or not solana_address({"accounts": accounts}):
+            print("wallet-setup: the core derived no Solana account", file=sys.stderr)
+            return 1
+        encrypted = hand.core("encrypt_secret", {"plaintext": phrase})
+        if isinstance(encrypted, dict):
+            encrypted = encrypted.get("result")
+        if not isinstance(encrypted, str) or not encrypted.strip():
+            print("wallet-setup: the core could not encrypt the phrase", file=sys.stderr)
+            return 1
+        params = {
+            "consentGranted": True,
+            "source": "generated",
+            "mnemonicWordCount": WORDS,
+            "encryptedMnemonic": encrypted.strip(),
+            "accounts": [{k: a.get(k) for k in ("chain", "address", "derivationPath")} for a in accounts if isinstance(a, dict)],
+        }
+        if force:
+            params["force"] = True
+        stored = hand.core("wallet_setup", params)
+        address = solana_address(stored) or solana_address({"accounts": accounts})
+
+        say()
+        say("=" * 72)
+        say("  TEENY'S RECOVERY PHRASE. It is shown this once and stored nowhere else.")
+        say("  Write it on paper, offline. Never photograph it, paste it or type it")
+        say("  into anything. Anyone who has it owns the wallet.")
+        say("=" * 72)
+        say()
+        words = phrase.split()
+        for row in range(0, WORDS, 4):
+            say("   " + "".join(f"{i + 1:>2}. {w:<12}" for i, w in enumerate(words[row:row + 4], start=row)))
+        say()
+        tty.write("Press Enter once it is written down. The screen is cleared after. ")
+        tty.flush()
+        tty_in.readline()
+        tty.write("\033[3J\033[2J\033[H")
+        tty.flush()
+    except hand.HandError as exc:
+        print(f"wallet-setup: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        phrase = None
+        tty.close()
+        tty_in.close()
+
+    try:
+        cluster = caps.cluster(hand.secrets())
+    except caps.CapsError:
+        cluster = "devnet"
+    print(f"Teeny's wallet is set up: {address} ({cluster}: {solana.explorer_account(address, cluster)})")
+    print("Paste this line into brain/CONTEXT.md, in place of the wallet placeholder:")
+    print()
+    print(f"Your own wallet (Solana): `{address}`")
+    print()
+    print("Then set the WALLET_* caps in secrets/teeny.env (deploy/teeny.env.example) and restart the spine.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -95,6 +95,24 @@ fails "fails without the guard" "guard screen"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 
+# --- the wallet: keys without sane caps never boot -------------------------------------
+fresh
+check "passes with no wallet keys" doctor
+check "and says the wallet cannot move anything" grep -q '^ok   wallet caps: no wallet keys set' "$scratch/doctor.log"
+wallet_env() { mkdir -p "$root/secrets"; printf '%s\n' "$@" >"$root/secrets/teeny.env"; }
+caps_ok=(WALLET_MAX_PER_TX_USD=50 WALLET_MAX_PER_DAY_USD=100 WALLET_MAX_PER_RECIPIENT_WEEK_USD=60 WALLET_SOL_USD=200)
+fresh; wallet_env WALLET_CLUSTER=devnet "${caps_ok[@]}"
+check "passes a wallet with sane caps" doctor
+check "and says what the caps are" grep -qF "ok   wallet caps: devnet: \$50.00 a payment" "$scratch/doctor.log"
+fresh; wallet_env WALLET_CLUSTER=devnet
+fails "fails wallet keys without caps" "wallet caps"
+fresh; wallet_env WALLET_MAX_PER_TX_USD=0 WALLET_MAX_PER_DAY_USD=100 WALLET_MAX_PER_RECIPIENT_WEEK_USD=60 WALLET_SOL_USD=200
+fails "fails a zero cap" "wallet caps"
+fresh; wallet_env WALLET_MAX_PER_TX_USD=50 WALLET_MAX_PER_DAY_USD=1000000 WALLET_MAX_PER_RECIPIENT_WEEK_USD=60 WALLET_SOL_USD=200
+fails "fails an absurd cap" "wallet caps"
+fresh; wallet_env "${caps_ok[@]}" WALLET_CLUSTER=testnet
+fails "fails an unknown cluster" "wallet caps"
+
 # --- pre-spine leftovers warn, never fail --------------------------------------------
 fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"; : >"$root/workspace/storage.db"
 check "passes with pre-spine leftovers" doctor
@@ -134,6 +152,35 @@ else
 fi
 check "and never starts the core" test ! -s "$scratch/core.log"
 check "and leaves the reason in state/doctor.json" test "$(jq -r '.checks[] | select(.status == "fail") | .check' "$root/state/doctor.json")" = cron.toml
+
+# --- bin/spine hands the core the wallet policy and the cluster ----------------------------
+cat >"$scratch/env-core" <<'FAKE'
+#!/usr/bin/env bash
+printf 'cluster=%s rpc=%s override=%s\n' "${OPENHUMAN_SOLANA_CLUSTER:-}" "${OPENHUMAN_WALLET_RPC_SOLANA:-}" \
+  "${OPENHUMAN_WALLET_POLICY_ASSETS:-unset}" >>"$FAKE_CORE_LOG"
+exit 0
+FAKE
+chmod +x "$scratch/env-core"
+fresh
+wallet_env WALLET_CLUSTER=mainnet "${caps_ok[@]}" SOLANA_RPC_URL=https://rpc.example/key
+: >"$scratch/core.log"
+FAKE_CORE_LOG="$scratch/core.log" OPENHUMAN_CORE_BIN="$scratch/env-core" OPENHUMAN_CORE_PORT=1 SPINE_BOOT_SECS=2 \
+  OPENHUMAN_WALLET_POLICY_ASSETS='[{"chain":"solana","symbol":"SOL"}]' "$root/bin/spine" >"$scratch/spine.log" 2>&1 || true
+check "bin/spine gives the core the cluster and the RPC, and drops policy overrides" \
+  grep -qx 'cluster=mainnet rpc=https://rpc.example/key override=unset' "$scratch/core.log"
+check "and writes a capped policy that applies to RPC executes" \
+  grep -q '^apply_to_interactive = true$' "$root/.openhuman/config.toml"
+check "with USDC's mainnet mint pinned" \
+  grep -q '^token_address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"$' "$root/.openhuman/config.toml"
+fresh
+wallet_env WALLET_CLUSTER=devnet
+: >"$scratch/core.log"
+if FAKE_CORE_LOG="$scratch/core.log" OPENHUMAN_CORE_BIN="$scratch/env-core" OPENHUMAN_CORE_PORT=1 \
+  "$root/bin/spine" >"$scratch/spine.log" 2>&1; then
+  fail "bin/spine refuses wallet keys without caps"
+else
+  check "bin/spine refuses wallet keys without caps" test ! -s "$scratch/core.log"
+fi
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

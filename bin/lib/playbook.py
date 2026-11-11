@@ -39,6 +39,14 @@ SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
 # itself, and a draft must not reach the guard's own admin verbs.
 NOT_OUTPUTS = ("guard",)
+# Hands that hold money: a draft reaches them only through the verbs named
+# here (none for the wallet: a model never drafts a payment), and an input
+# runs only their read verbs.
+MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
+MONEY_READS = {
+    "wallet": ("address", "balance", "ledger", "costs", "receipt", "receipts", "caps"),
+    "bounty": ("list", "get", "announcements"),
+}
 MAX_INPUTS = 8
 
 
@@ -66,6 +74,9 @@ def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
         raise PlaybookError(f"{where}: an input runs a hand (hands/<name> ...), got {run!r}")
     if hands_dir is not None and not (hands_dir / argv[0].split("/", 1)[1]).is_file():
         raise PlaybookError(f"{where}: no hand {argv[0]!r}")
+    reads = MONEY_READS.get(argv[0].split("/", 1)[1])
+    if reads is not None and (len(argv) < 2 or argv[1] not in reads):
+        raise PlaybookError(f"{where}: an input runs only a read verb of {argv[0]} ({', '.join(reads)})")
     return argv
 
 
@@ -104,6 +115,9 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             raise PlaybookError(f"{path}: output hand:<name> <verb>, got {output!r}")
         if argv[0] in NOT_OUTPUTS:
             raise PlaybookError(f"{path}: hands/{argv[0]} cannot be an output")
+        if argv[0] in MONEY_OUTPUTS and argv[1] not in MONEY_OUTPUTS[argv[0]]:
+            allowed = ", ".join(MONEY_OUTPUTS[argv[0]]) or "nothing"
+            raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
         if hands_dir is not None and not (hands_dir / argv[0]).is_file():
             raise PlaybookError(f"{path}: no hand hands/{argv[0]}")
     elif output not in SIMPLE_OUTPUTS:

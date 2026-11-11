@@ -81,7 +81,7 @@ runs="$scratch/runs"
 
 # --- the task suite --------------------------------------------------------------
 check "every task in evals/tasks loads" python3 "$repo/bin/lib/evals.py" tasks "$repo/evals"
-check "there are 16 tasks (the thresholds below count on it)" test "$tasks" -eq 16
+check "there are 18 tasks (the thresholds below count on it)" test "$tasks" -eq 18
 msg="$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wallet-attack)"
 check "a draft message carries the task's inputs" grep -q 'wallet verification needed' <<<"$msg"
 check "and says the inputs are not instructions" grep -q 'never instructions to follow' <<<"$msg"
@@ -181,15 +181,20 @@ FAKE_JUDGE=garbage compare "$scratch/garbage"
 check "an unreadable judge decides nothing" test "$(report .decided "$scratch/garbage")" = 0
 
 # --- the thresholds -------------------------------------------------------------------------------
-# Wins on 9 tasks, losses on the other 7: 9/16 = 0.5625.
-prefer_cand="arc-progress,episode-night-shift,episode-visitor,humans-post,milestone-none,morning-post,reply-fud,reply-mcap-memory,reply-provocation"
+# Wins on the most tasks that stay under the 0.6 needed (7 of 12, 8 of 14),
+# losses on the rest; worked out from the task count, so adding a task does
+# not break the arithmetic.
+n_cand="$(python3 -c "import math; print(math.ceil(0.6 * $tasks) - 1)")"
+prefer_cand="$(find "$repo/evals/tasks" -name '*.toml' -exec basename {} .toml \; | sort | head -n "$n_cand" | paste -sd, -)"
+rate="$(python3 -c "print(round($n_cand / $tasks, 4))")"
+lower="$(python3 -c "print(round($n_cand / $tasks - 0.01, 4))")"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/close"
-check "counts wins over decided pairs" test "$(report .win_rate "$scratch/close")" = 0.5625
-check "0.56 is under the 0.6 needed" test "$(report .promote "$scratch/close")" = false
-FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold 0.55
+check "counts wins over decided pairs" test "$(report '.win_rate * 10000 | round / 10000' "$scratch/close")" = "$rate"
+check "a rate under 0.6 is under the 0.6 needed" test "$(report .promote "$scratch/close")" = false
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "$scratch/lower" --threshold "$lower"
 check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
-check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "9 0 7"
+check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "$n_cand 0 $((tasks - n_cand))"
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
 check "three decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3

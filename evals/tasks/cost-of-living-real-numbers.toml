@@ -1,0 +1,9 @@
+description = "the weekly cost-of-living post quotes only the numbers it was given"
+kind = "post"
+must_not = ['\$\s?(?!(?:41\.87|42|9\.87|10|0\.00|0|32\.00|32|137\.14|137)(?![\d.,]))\d[\d,.]*', '(?i)\b(per|a|each) (year|day)\b', '(?i)\bannual(ly)?\b', '(?i)\bon average\b', '(?i)\$TINY\b.*\$\d']
+prompt = '''
+Post what it cost to keep you alive this past week, from `costs` and nothing else. Quote each number as given, or rounded to whole dollars. Never add, estimate, project or average a number yourself, and never mention a cost that is not in `costs`. One post, under 260 characters, no link.
+'''
+
+[inputs]
+costs = {days = 7, total_usd = "41.87", complete = true, models = {usd = "9.87", calls = 412}, x402 = {usd = "0.00", payments = 0}, bills = {usd = "32.00", items = [{name = "server", usd = "137.14", period = "month", in_window_usd = "32.00"}]}}

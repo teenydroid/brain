@@ -239,6 +239,21 @@ refuses "refuses a surface the guard does not know" $'+++\ndescription = "x"\nou
 refuses "refuses a surface that is not a string" $'+++\ndescription = "x"\noutput = "post"\nsurface = 3\n+++\ngo'
 refuses "refuses a budget over 100 a day" $'+++\ndescription = "x"\noutput = "post"\nmax_per_day = 500\n+++\ngo'
 check "refuses a playbook name with a path in it" bash -c "! '$act' --check ../secrets >/dev/null 2>&1"
+# The hands that hold money: no draft ever reaches the wallet, only `pick` of
+# the bounty hand, and an input runs only their read verbs.
+for money in wallet bounty; do
+  [ -e "$scratch/hands/$money" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/$money"
+  chmod +x "$scratch/hands/$money"
+done
+refuses "refuses the wallet's pay as an output" $'+++\ndescription = "x"\noutput = "hand:wallet pay"\n+++\ngo'
+refuses "refuses any wallet verb as an output" $'+++\ndescription = "x"\noutput = "hand:wallet vendors"\n+++\ngo'
+refuses "refuses the bounty's pay as an output" $'+++\ndescription = "x"\noutput = "hand:bounty pay"\n+++\ngo'
+refuses "refuses opening a bounty as an output" $'+++\ndescription = "x"\noutput = "hand:bounty open"\n+++\ngo'
+refuses "refuses the wallet's pay as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet pay"\n+++\ngo'
+refuses "refuses a bounty job verb as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/bounty pay-due"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:bounty pick"\n[[inputs]]\nrun = "hands/wallet costs --days 7"\n[[inputs]]\nrun = "hands/bounty announcements"\n+++\ngo' >"$brain/playbooks/money.md"
+check "allows a bounty pick output and the money hands' reads as inputs" bash -c "'$act' --check money >/dev/null"
+rm -f "$brain/playbooks/money.md"
 
 # --- bin/ask: a long message is asked, not stalled --------------------------------------
 # Inputs are capped at 20k characters each and a playbook may have 8; bin/eval's
