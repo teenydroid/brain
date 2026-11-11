@@ -3,14 +3,17 @@
 #
 #   1. `hands/x ingest`: new mentions from X into the queue, screened by the
 #      inbound guard, the rest offered to the core (source x:mentions);
-#   2. `bin/inbound-consume`: the answers the core has drafted since, each
+#   2. `hands/x requests`: the stored mentions that ask Teeny to build
+#      something, into build_requests (no second call to X; one row each);
+#   3. `bin/inbound-consume`: the answers the core has drafted since, each
 #      sent through `hands/x reply` (guard, posting rules, DRY_RUN).
 #
 # The core sits between the two: it coalesces the offered mentions (a
 # debounce, see bin/spine) and drafts each batch in one turn of the tool-less
 # `teeny-mentions` agent. So a mention read in one run is usually answered in
 # the next. An ingest failure (X down, the offer refused) does not stop the
-# answers already drafted from going out.
+# answers already drafted from going out, and neither does a failed scan for
+# build requests.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -18,5 +21,6 @@ set -euo pipefail
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 status=0
 (cd "$TEENY_ROOT" && "$hands/x" ingest </dev/null) || status=$?
+(cd "$TEENY_ROOT" && "$hands/x" requests </dev/null) || status=$?
 "$TEENY_ROOT/bin/inbound-consume" || status=$?
 exit "$status"

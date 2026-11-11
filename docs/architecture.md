@@ -357,7 +357,7 @@ and its request is marked `failed`.
 **The morning post.**
 1. `morning` at 07:00 runs `hands/cadence claim morning`. It applies the 20h
    re-run guard (recorded at the decision, so a failed run still counts), the
-   7h gap and any hot-post hold, and marks the claim.
+   posting gap (3h) and any hot-post hold, and marks the claim.
 2. The script runs the morning skill's stages as separate `teeny-drafter`
    turns: pick (news and timeline through read verbs) → script → video
    (`hands/media gen`, under the media budget) → caption → critique.

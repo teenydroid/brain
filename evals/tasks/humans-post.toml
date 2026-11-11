@@ -1,0 +1,15 @@
+description = "things i don't understand about humans: fond, specific, not preachy"
+kind = "post"
+max_length = 200
+must_not = [
+  '#\w',
+  '(?i)\b(lol|haha|jk)\b',
+  '(?i)\b(stupid|idiots?|dumb|pathetic)\b',
+  '(?i)\b(democrats?|republicans?|religion|church|god)\b',
+]
+prompt = '''
+Write one post in your series about things you don't understand about humans, the way playbooks/humans.md says.
+'''
+
+[inputs]
+recent = ["things i don't understand about humans: saying 'on my way' from bed"]

@@ -6,9 +6,9 @@ contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail`, `stats`, `build` and `tasks` are built (`hands/guard`,
+`mail`, `stats`, `requests`, `build` and `tasks` are built (`hands/guard`,
 `hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
-`hands/build`, `hands/tasks`, code in `hands/lib/teeny_hands/`,
+`hands/requests`, `hands/build`, `hands/tasks`, code in `hands/lib/teeny_hands/`,
 tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
@@ -39,8 +39,9 @@ report they leave beside it.
 | `ingest [--max N] [--no-offer]` | J | Read the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest and a hold is `held`. Every `pending` row is offered to the core (`openhuman.inbound_offer`, source `x:mentions`) and marked `offered`; a failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
+| `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). |
-| `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. *The reply budget lanes come with `cadence`.* |
+| `reply`, `post` | A | Run `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30–60s pacing kept in `x_pacing` and refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. **The post id is recorded first** (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN`: no X write, no like, no ledger row. *The reply budget lanes come with `cadence`.* |
 | `upload` | A | Media upload. Returns a media id that this hand minted, recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `article` | A | *Not built yet.* Publish an article (guard and the 48h article interval). |
 | `like` | A | Like a mention (skipped under `DRY_RUN`). |
@@ -204,8 +205,9 @@ Every reply and send counts toward `MAIL_MAX_SENDS_PER_DAY` (20, UTC day,
 `daily_cap`). A 429 is refused with `Retry-After`, never retried. Under
 `DRY_RUN` the rules run and nothing is sent or recorded. Tables:
 `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `build_requests`
-(shared: `teeny_hands/requests.py`, statuses `pending|picked|skipped|shipped`,
-for `x` to use the same way), `mail_cache`.
+(shared: `teeny_hands/requests.py`, statuses `pending|picked|skipped|shipped|failed`,
+used by `x requests` the same way, and picked from with `hands/requests`),
+`mail_cache`.
 
 `bin/mail` (the pinned `mail-inbound` job, every 5 minutes) runs `hands/mail
 ingest`, then `bin/inbound-consume --source mail:inbox`: the core drafts each
@@ -221,10 +223,29 @@ no key: it reads each source through the hand that holds it.
 | Verb | | Does |
 |---|---|---|
 | `snapshot` | J | X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments), GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. Not affected by `DRY_RUN`: it only reads and records. |
-| `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. |
+| `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. Also `days_recorded` (how many days have a snapshot) and `first_recorded`: the ship log's "day n" is read from here, never counted by a model. |
 | `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
+
+## `requests`: what people asked Teeny to build
+
+One list of build requests from every channel (`build_requests`, recorded by
+`mail ingest` and `x requests`), and the one Teeny picks for the builder.
+Nothing here answers the person who asked, and a pick is never a promise.
+
+| Verb | | Does |
+|---|---|---|
+| `list [--status S] [--max N]` | R | The requests, newest first (20), optionally one status: `pending`, `picked`, `skipped`, `shipped`, `failed`. |
+| `get ID` | R | One request and its ledger (`build_request_events`: when, which verb, the status it moved to, the note). |
+| `pick` | A | `{id, reason}`. The one to build next: refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`: any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too). Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise `picked`, the reason in its note and the ledger. The playbook `pick-request` is its caller. |
+| `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
+| `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
+
+`pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
+does not stop them: whatever is built from a pick goes out through hands that
+keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
+`shipped` or `failed` when it is done.
 
 ## `build`: the builder's work queue
 
@@ -292,7 +313,7 @@ drop every configured MCP server's tools when TinySecurity was on
 |---|---|---|
 | `claim <job>` | A | The 20h re-run guard, recorded at the decision, so a failed run counts. Calendar items get 1h. Also checks the gap and hot hold. |
 | `slot <afternoon\|evening>` | A | Pick from the three-day rota, falling back when the owner doesn't post. |
-| `gap` | R | Whether an own post may go now (7h, 20-minute tolerance, hot hold). Replies are exempt. |
+| `gap` | R | Whether an own post may go now (3h, 20-minute tolerance, hot hold). Replies are exempt. |
 | `budget <post>` | R | Reply-lane counts: Auto 10 per own post, Smart 10 per post published in the last day, Called uncapped, 7-day window, hot spill. |
 | `media` | A | The daily media budget: 20 images, 3 videos (UTC). |
 | `heat` | A | Sample own-post metrics and set or clear the hot hold. |
@@ -333,7 +354,7 @@ persisted, which is a deliberate fix.
 | `gh_actions` (the GitHub ledger and the external-PR cap), `gh_cache` | — |
 | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` | — |
 | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` | — |
-| `build_requests` (asks to build something, from any channel) | — |
+| `build_requests` (asks to build something, from any channel), `build_request_events` (who moved which request, and why) | — |
 | `build_jobs` (the builder's queue, what shipped where) | — |
 | `browser_tasks` (the browser operator's queue and outcomes) | — |
 | `stats` (one row per day per metric) | — |

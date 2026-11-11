@@ -29,7 +29,9 @@ fresh() {
   mkdir -p "$root/deploy"
   cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
   mkdir -p "$root/hands"
-  cp -R "$repo/hands/lib" "$repo/hands/x" "$repo/hands/guard" "$repo/hands/mail" "$root/hands/"
+  # Every hand a playbook may name, and their library; not the tests.
+  cp -R "$repo/hands/lib" "$root/hands/"
+  find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
   cp "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }

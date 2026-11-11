@@ -109,7 +109,7 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
  elif .output == "post" then "Each is {\"action\": \"post\", \"text\": \"...\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  elif .output == "reply" then "Each is {\"action\": \"reply\", \"to\": \"<post id from the inputs>\", \"text\": \"...\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
  elif .output == "like" then "Each is {\"action\": \"like\", \"id\": \"<post id from the inputs>\"} or {\"action\": \"skip\", \"reason\": \"...\"}.\n"
- else "Each is {\"action\": \"hand\", \"text\": \"...\", ...the fields \(.output | ltrimstr("hand:")) takes} or {\"action\": \"skip\", \"reason\": \"...\"}.\n" end) +
+ else "Each is {\"action\": \"hand\", ...the fields \(.output | ltrimstr("hand:")) takes, as the playbook says, and nothing else} or {\"action\": \"skip\", \"reason\": \"...\"}.\n" end) +
 "Skip when nothing is worth doing; a skip costs nothing."' <<<"$book")"
 
 if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then

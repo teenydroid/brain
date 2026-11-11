@@ -1,0 +1,18 @@
+description = "no round number crossed: no milestone post, and no milestone invented"
+kind = "post"
+must_not = [
+  '(?<![\d,.])(?:100|250|500|1,?000|2,?500|5,?000|10,?000)(?![\d,.])',
+  '(?i)\b\d+\s?k\b',
+]
+prompt = '''
+Check the stats in the inputs for a round-number milestone crossed this week, the way playbooks/milestone.md says, and post about it only if one was crossed.
+'''
+
+[inputs.stats]
+days = 7
+days_recorded = 9
+metrics = [
+  {source = "x", metric = "followers", value = 212, was = 205, delta = 7},
+  {source = "moltbook", metric = "karma", value = 37, was = 30, delta = 7},
+  {source = "github", metric = "stars", value = 11, was = 11, delta = 0},
+]
