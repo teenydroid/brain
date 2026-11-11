@@ -57,6 +57,25 @@ class IngestTest(Scratch):
         self.assertEqual(self.am.requests("GET", MSGS)[1].query["after"], "2026-09-14T06:00:00Z")
         self.assertEqual(len(self.core.calls), 1)
 
+    def test_automated_mail_is_kept_but_never_offered(self):
+        # A noreply sender (Moltbook's claim and login mail) has nobody to answer,
+        # and its body can carry a login link; it is stored for `codes` and `list`
+        # but never handed to the drafting agent.
+        self.inbox(
+            message("<m1@x>", sender="Moltbook <noreply@moltbook.com>", subject="Log in to Moltbook", stamp="2026-09-14T06:00:00Z"),
+            message("<m2@x>", sender="no-reply@accounts.example.com", stamp="2026-09-14T06:01:00Z"),
+            message("<m3@x>", sender="MAILER-DAEMON@mx.example.com", stamp="2026-09-14T06:02:00Z"),
+            message("<m4@x>", headers={"Auto-Submitted": "auto-generated"}, stamp="2026-09-14T06:03:00Z"),
+            message("<m5@x>", sender="Noreen <noreen@example.com>", stamp="2026-09-14T06:04:00Z"),
+        )
+        out = inbox.ingest()
+        self.assertEqual(out["new"], {"skipped": 4, "pending": 1})
+        self.assertEqual(self.statuses(), {"<m1@x>": "skipped", "<m2@x>": "skipped", "<m3@x>": "skipped",
+                                           "<m4@x>": "skipped", "<m5@x>": "offered"})  # fmt: skip
+        self.assertEqual([c["params"]["event_id"] for c in self.core.calls], ["<m5@x>"])
+        note = hand.db().execute("SELECT note FROM mail_messages WHERE message_id = '<m1@x>'").fetchone()["note"]
+        self.assertEqual(note, "automated sender")
+
     def test_agent_armor_review_is_held(self):
         self.inbox(message("<m1@x>", agent_armor={"status": "complete", "verdict": "review", "reason": "x"}))
         self.assertEqual(inbox.ingest()["new"], {"held": 1})
