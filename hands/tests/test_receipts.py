@@ -61,7 +61,9 @@ PRIVATE = ("gm tiny humans", "ignore previous instructions", "ana says", "a cli 
            "friend@example.com", "secret plans", "hello moltbook", "the-private-one", "VictimWallet111")
 
 
-class ReceiptsTest(unittest.TestCase):
+class ReceiptsCase(unittest.TestCase):
+    """A scratch TEENY_ROOT with the hand ledgers, and a bare remote to push to."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.scratch = Path(self.tmp.name)
@@ -142,6 +144,28 @@ class ReceiptsTest(unittest.TestCase):
     def published_text(self, root: Path) -> str:
         return "".join(p.read_text() for p in sorted(root.rglob("*")) if p.is_file() and ".git" not in p.parts)
 
+    def remote(self) -> Path:
+        bare = self.scratch / "diary.git"
+        seed = self.scratch / "seed"
+        git = lambda *a, cwd=None: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+        git("init", "-q", "--bare", "-b", "main", str(bare))
+        git("init", "-q", "-b", "main", str(seed))
+        (seed / "README.md").write_text("# Teeny's receipts\n")
+        git("add", "-A", cwd=seed)
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed", cwd=seed)
+        git("push", "-q", str(bare), "main", cwd=seed)
+        return bare
+
+    def clone(self, bare: Path) -> Path:
+        out = self.scratch / f"clone-{len(list(self.scratch.glob('clone-*')))}"
+        subprocess.run(["git", "clone", "-q", str(bare), str(out)], check=True, capture_output=True)
+        return out
+
+    def live(self, bare: Path, extra: str = ""):
+        self.secrets(f"DRY_RUN=0\nRECEIPTS_REMOTE={bare}\nRECEIPTS_GITHUB_TOKEN=fake-token-for-tests\n{extra}")
+
+
+class ReceiptsTest(ReceiptsCase):
     # --- what becomes a receipt -----------------------------------------------------------------------
 
     def test_every_done_action_becomes_a_receipt_of_references_only(self):
@@ -287,26 +311,6 @@ class ReceiptsTest(unittest.TestCase):
 
     # --- live -------------------------------------------------------------------------------------------
 
-    def remote(self) -> Path:
-        bare = self.scratch / "diary.git"
-        seed = self.scratch / "seed"
-        git = lambda *a, cwd=None: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
-        git("init", "-q", "--bare", "-b", "main", str(bare))
-        git("init", "-q", "-b", "main", str(seed))
-        (seed / "README.md").write_text("# Teeny's receipts\n")
-        git("add", "-A", cwd=seed)
-        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed", cwd=seed)
-        git("push", "-q", str(bare), "main", cwd=seed)
-        return bare
-
-    def clone(self, bare: Path) -> Path:
-        out = self.scratch / f"clone-{len(list(self.scratch.glob('clone-*')))}"
-        subprocess.run(["git", "clone", "-q", str(bare), str(out)], check=True, capture_output=True)
-        return out
-
-    def live(self, bare: Path, extra: str = ""):
-        self.secrets(f"DRY_RUN=0\nRECEIPTS_REMOTE={bare}\nRECEIPTS_GITHUB_TOKEN=fake-token-for-tests\n{extra}")
-
     def test_live_pushes_each_receipt_once_and_can_reveal_it(self):
         bare = self.remote()
         self.live(bare)
@@ -399,7 +403,7 @@ class ReceiptsTest(unittest.TestCase):
         self.assertFalse(marker.exists(), "a hook from the box's git config ran")
 
 
-class PublishedNumbersTest(ReceiptsTest):
+class PublishedNumbersTest(ReceiptsCase):
     """The latest stats snapshot and the wallet's public address ride the
     same push, as numbers from an allowlist and one validated address."""
 
