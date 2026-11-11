@@ -58,6 +58,8 @@ command = "bin/reflect --light --detach"
 # as checkable references and salted commitments (no logs, no text). Half an
 # hour after reflect. Needs RECEIPTS_GITHUB_TOKEN (or DIARY_GITHUB_TOKEN, or
 # GITHUB_TOKEN) with push to that repository; under DRY_RUN it only previews.
+# The same push carries the newest stats snapshot (stats/latest.json) and the
+# wallet's public address (wallet.json), for the website.
 [jobs.receipts]
 schedule = "30 2 * * *"
 tz = "Asia/Kolkata"

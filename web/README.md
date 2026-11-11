@@ -13,7 +13,7 @@ One route per part of the mind, each with its own scene behind the hero:
 
 | Route | What | Scene |
 | --- | --- | --- |
-| `/` | what Teeny has done, counted from its receipts; the brain at a glance, its repository and receipts | a brain: points on a sphere, linked to their neighbours, neurons firing |
+| `/` | what Teeny has done, counted from its receipts; its follower numbers and wallet; the brain at a glance, its repository and receipts | a brain: points on a sphere, linked to their neighbours, neurons firing |
 | `/ledger` | every model call: input, thinking, output, cost, digest | a stream of thoughts flowing past a few that settled |
 | `/brain` | what Teeny runs on: the core, the hands, the agents, the schedule, the playbooks, the repository and the diary | rings of tools orbiting a core |
 | `/soul` | who it is | one warm, soft, restless blob |
@@ -46,23 +46,25 @@ sample in its place.
 | Receipts counter (the big figure), "latest", count by kind | `/` hero, `src/components/receipts-counter.tsx` | `DIARY_REPO` (default `teenydroid/diary`): `head.json`'s `seq` is the figure; the newest 14 day files under `receipts/` (listed with the git trees API) give the latest and the tally, which says whether it covers every receipt or only those since a date (`src/lib/receipts.ts`) | 10 min | "could not be read", no figure. No `head.json` yet reads as "no receipts yet" |
 | Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/`, `/brain` | same | 10 min | says GitHub could not be reached, links the repository |
 | Agents, playbooks, hands, jobs scheduled (counts and lists) | `/`, `/brain` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
+| The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
+| The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32–44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
 | Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
 | Token counter (tokens, calls, by source) | `/` hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 | Last few calls | `/`, only while live | `MIND_API_URL` `/ledger` | 60 s | section left out |
 | Ledger: calls, turns and their tab counts | `/ledger` | `MIND_API_URL` `/ledger` and `/mind` | 60 s | a notice, empty lists, tabs without counts |
 | Articles, word counts | `/articles` | `MIND_API_URL` `/articles` (`src/lib/articles.ts`) | 5 min | "not reachable", no list; a missing word count is not shown |
 
-`GITHUB_TOKEN` is optional and only raises the GitHub rate limit. The web
+`GITHUB_TOKEN` is optional and only raises the GitHub rate limit; `SOLANA_RPC_URL` is optional too. The web
 image is built from `web/` alone, so the brain's files are fetched, never read
 from disk.
 
 `MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
 and the current spine does not serve it. It is unset in `deploy/compose.yaml`,
 so today the token widgets are not on the page and `/ledger` and `/articles`
-show their unavailable state. Nothing on the site reads Teeny's wallet balance
-or its follower numbers: the wallet's Solana address and the `stats` snapshot
-(`hands/stats`) are not published anywhere the site can read. What the wallet
-paid is public all the same, as `wallet.paid` receipts.
+show their unavailable state. Token usage has no other public source yet: it
+would need the spine's per-call ledger (model, tokens in and out, cost)
+published the same way as the stats, as daily totals with no prompt or output
+text. What the wallet paid is public as `wallet.paid` receipts.
 
 `NEXT_PUBLIC_GA_ID` turns on analytics. Everything static on the page
 (`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`, `README.md` and
