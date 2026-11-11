@@ -67,6 +67,37 @@ class CoreConfigTest(unittest.TestCase):
                          [{"id": "tinycomputer", "source": "linked"}, {"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
 
+    def test_context_compacts_at_100k_with_a_free_form_summary(self):
+        doc = self.written()
+        context = doc["context"]
+        self.assertEqual(context["compaction_trigger_tokens"], 100_000)
+        # task_state is a coding checkpoint (files, test command); Teeny's
+        # thread is a life, so it folds into a free-form summary.
+        self.assertEqual(context["compaction_strategy"], "summary")
+        self.assertTrue(context["autocompact_enabled"])
+        self.assertEqual(context["keep_recent_tokens"], 20_000)
+        self.assertLess(context["keep_recent_tokens"], context["compaction_trigger_tokens"])
+
+    def test_the_trigger_can_be_moved_from_the_environment(self):
+        os.environ["TEENY_COMPACTION_TRIGGER_TOKENS"] = "64000"
+        self.assertEqual(self.written()["context"]["compaction_trigger_tokens"], 64_000)
+        os.environ["TEENY_COMPACTION_TRIGGER_TOKENS"] = "lots"
+        self.config.write_text("")
+        with self.assertRaises(ValueError):
+            core_config.write(self.config, self.root)
+
+    def test_recall_gets_more_room_than_the_core_default(self):
+        recall = self.written()["memory"]["recall"]
+        self.assertTrue(recall["enabled"])
+        self.assertGreaterEqual(recall["budget_tokens"], 3000)
+
+    def test_owning_recall_keeps_the_cores_memory_engine(self):
+        before = '[memory]\nengine = "cortexdb"\n\n[memory.engines.cortexdb]\nendpoint = "http://c"\n\n[memory.recall]\nbudget_tokens = 1\n'
+        doc = self.written(before)
+        self.assertEqual(doc["memory"]["engine"], "cortexdb")
+        self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
+        self.assertGreaterEqual(doc["memory"]["recall"]["budget_tokens"], 3000)
+
     def test_chrome_path_comes_from_the_environment_when_given(self):
         os.environ["TEENY_CHROME_PATH"] = "/opt/chrome/chrome"
         self.assertEqual(self.written()["browser"]["chrome_path"], "/opt/chrome/chrome")
