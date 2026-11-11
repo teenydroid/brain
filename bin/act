@@ -131,8 +131,15 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
 # A draft that is not usable JSON is asked for once more: some models
 # (glm-5.3-flash through Surplus, about one answer in eight) come back with
 # the opening of the JSON cut off. A second unusable draft is an error.
+#
+# Every playbook drafts on one thread (TEENY_ACT_THREAD, default teeny:act).
+# Without a thread the core neither recalls memory before the turn nor logs
+# it after, and each draft started blank; on one thread the morning post
+# knows what the briefs said, and the core folds the thread at 100k tokens
+# (bin/lib/core_sections/context.py).
+thread="${TEENY_ACT_THREAD:-teeny:act}"
 for attempt in 1 2; do
-  if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act 2>"$dir/ask.err")"; then
+  if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act --thread "$thread" 2>"$dir/ask.err")"; then
     record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
     exit 1
   fi
