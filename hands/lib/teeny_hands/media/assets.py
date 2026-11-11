@@ -1,17 +1,20 @@
 """Images and videos Teeny makes for its posts, bought on Surplus.
 
-  hands/image generate {prompt}                 one still, saved to state/media/
+  hands/image generate {prompt}                 one still of Teeny, saved to state/media/
   hands/video generate {prompt, image_prompt?}  a still, then animated
 
 Both write a `media_assets` row (what was asked, which model made it, what it
 cost, the file) and return the path, which `hands/x upload --file` takes. They
 publish nothing: a post attaches a file only through hands/x.
 
-The cheapest models that still look right go first, the rest are fallbacks,
+Every image is an edit of Teeny's character sheet (brain/assets/
+teeny-reference.png, MEDIA_REFERENCE): the prompt says what Teeny is doing and
+where, the sheet keeps Teeny looking like Teeny. The cheapest models that still
+keep Teeny on model go first, the rest are fallbacks,
 tried in order when a seller can't take the job (MEDIA_IMAGE_MODELS,
-MEDIA_VIDEO_MODELS). A video is always image-to-video: a fraction-of-a-cent
-still animated, which costs a fifth of the cheapest text-to-video that looks
-as good.
+MEDIA_VIDEO_MODELS). A video is always image-to-video: one of those stills,
+animated, so Teeny stays on model in motion too, at a fraction of what a
+text-to-video costs.
 
 The caps are code, in secrets/teeny.env (defaults in brackets):
   MEDIA_IMAGE_MAX_PER_DAY [8]   MEDIA_VIDEO_MAX_PER_DAY [2]
@@ -24,7 +27,6 @@ default) answers what would be generated and spends nothing.
 from __future__ import annotations
 
 import base64
-import json
 import time
 from pathlib import Path
 from typing import Any
@@ -51,9 +53,16 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at);
 """
 
-IMAGE_MODELS = "flux.2-klein-4b,venice-z-image-turbo"
+IMAGE_MODELS = "muse-image-edit,firered-image-edit,nano-banana-2-lite-edit"
 VIDEO_MODELS = "longcat-distilled-image-to-video,pixverse-c1-image-to-video,seedance-1-5-pro-image-to-video"
-IMAGE_SIZE = "1024x1024"
+#: Every image starts from Teeny's character sheet, so Teeny stays on model:
+#: the images are edits of it, never free text-to-image.
+REFERENCE = "brain/assets/teeny-reference.png"
+CHARACTER = (
+    "The yellow character from the reference sheet is Teeny. Keep Teeny exactly as in the reference: the same "
+    "yellow rounded body, the ball on top, the small arms, black eyes and pink cheeks, soft 3D render. "
+    "One Teeny, no text, no labels, no character sheet."
+)
 MAX_PROMPT = 1500
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 VIDEO_MAX_BYTES = 200 * 1024 * 1024
@@ -101,14 +110,6 @@ def _spent_today(conn) -> int:
         (hand.day_start(),),
     ).fetchone()
     return int(row["spent"])
-
-
-def _count_today(conn, kind: str) -> int:
-    return conn.execute(
-        "SELECT COUNT(*) AS n FROM media_assets WHERE kind = ? AND status != 'failed' AND created_at >= ? AND source_id IS NULL OR"
-        " (kind = ? AND status != 'failed' AND created_at >= ? AND kind = 'video')",
-        (kind, hand.day_start(), kind, hand.day_start()),
-    ).fetchone()["n"]
 
 
 def _check_caps(conn, kind: str, extra_micro: int) -> None:
@@ -161,8 +162,7 @@ def _image_estimate(api: Surplus, model: str) -> int:
     best = min(offers, key=lambda o: o["media_unit_price"])
     price = float(best["media_unit_price"])
     if best.get("media_unit") == "megapixel":
-        w, h = (int(x) for x in IMAGE_SIZE.split("x"))
-        return int(round(price * w * h / 1e6))
+        return int(round(price * 2))  # an edit comes back around 2 MP
     return int(round(price))
 
 
@@ -197,15 +197,20 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
     if source_of:
         with hand.transaction(conn):
             conn.execute("UPDATE media_assets SET error = ? WHERE id = ?", (f"start frame for a {source_of}", asset_id))
+    reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
+    if not reference_path.is_file():
+        _finish(conn, asset_id, status="failed", error=f"no reference image at {reference_path.name}")
+        raise hand.HandError(f"Teeny's reference image is missing ({REFERENCE})")
+    reference = _data_uri(reference_path)
     tried: list[str] = []
     for model in _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS):
         estimate = _image_estimate(api, model)
         try:
             answer = api.call(
                 "POST",
-                "/v1/images/generations",
-                {"model": model, "prompt": prompt, "n": 1, "size": IMAGE_SIZE, "response_format": "b64_json"},
-                timeout=180,
+                "/v1/images/edits",
+                {"model": model, "prompt": f"{CHARACTER} {prompt}", "image": reference, "response_format": "b64_json"},
+                timeout=240,
             )
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
@@ -386,5 +391,3 @@ def get(asset_id: int) -> Json:
         conn.close()
 
 
-def dumps(obj: Any) -> str:
-    return json.dumps(obj)
