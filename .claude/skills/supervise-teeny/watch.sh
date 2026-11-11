@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Teeny supervision snapshot. Read-only. Usage: watch.sh [since, default 20m]
+# Teeny supervision snapshot. Read-only: docker logs/ps, bin/crons, and
+# state/hands.db opened with mode=ro. Never prints secrets.
+# Usage: watch.sh [since, default 20m]   (TEENY_DEPLOY overrides the box checkout)
 SINCE=${1:-20m}
-T=/home/ubuntu/teeny
+T=${TEENY_DEPLOY:-/home/ubuntu/teeny}
 cd "$T/deploy" || exit 1
 echo "== $(date -u +%FT%TZ)  containers"
 docker ps --filter name=teeny-spine --format '{{.Names}} {{.Status}}'
