@@ -4,7 +4,7 @@ check every playbook a cron names); never by a model.
 
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
-Prints {name, description, output, surface, max_per_day, inputs: [{name,
+Prints {name, nudge, description, output, surface, max_per_day, inputs: [{name,
 argv}], prompt} or exits non-zero with what is wrong.
 
     +++
@@ -16,6 +16,11 @@ argv}], prompt} or exits non-zero with what is wrong.
     media = ["image"]          # optional, for post and hand: outputs: what a
                                # draft may ask to attach, "image" and/or
                                # "video" (hands/image, hands/video); default none
+    nudge = true               # optional, for post, reply, like and none: the
+                               # playbook is a habit, not an order. bin/act
+                               # nudges Teeny's mind (the stimuli inbox) with
+                               # the prompt and inputs, and the mind decides
+                               # on its next beat; default false (bin/act drafts)
     [[inputs]]
     name = "mentions"
     run = "hands/x mentions --status offered"
