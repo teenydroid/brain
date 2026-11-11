@@ -413,9 +413,13 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
 - The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
   `teeny.enamakel.com`: `/api/webhooks/x` to the webhook, everything else to
   the landing page.
-- **The diary.** `teenydroid/diary` is Teeny's public diary, one page per day
-  at `days/YYYY/MM/YYYY-MM-DD.md`: the night's entry from `bin/reflect`
-  (`state/diary/<date>.md`), plus Teeny's own X posts and replies, Moltbook
-  posts and finished build jobs that day. `bin/diary` (`bin/lib/diary.py`,
-  the daily `[jobs.diary]`) renders and pushes it with a `GITHUB_TOKEN` from
-  `secrets/teeny.env` that can push there. It is a dry run by default.
+- **The receipts.** `teenydroid/diary` is a hash-chained, append-only
+  ledger of Teeny's actions at `receipts/YYYY/MM/YYYY-MM-DD.jsonl`, with the
+  head in `head.json`. Each line is checkable references (X post ids, Solana
+  signatures, GitHub commits, Moltbook ids), a salted commitment to the
+  private ledger row, and the previous line's hash. It never holds text,
+  logs or the diary entry, so nothing the model read can reach it.
+  `bin/receipts` (`bin/lib/receipts.py`, the daily `[jobs.receipts]`) builds
+  it from the hands' ledgers with no model in the loop, refuses a published
+  chain that does not verify, and pushes after the secret gate. It is a dry
+  run by default.
