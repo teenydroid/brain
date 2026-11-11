@@ -98,6 +98,9 @@ class Model(BaseHTTPRequestHandler):
         # bin/tick: a beat of the mind; the thought names the beat it saw.
         elif isinstance(last, str) and "# since you last looked" in last:
             answer = json.dumps({"thought": "the stub thought about it", "intents": []})
+        # bin/reflect: the end of the day rewrites MEMORY.md.
+        elif isinstance(last, str) and "# end of the day" in last:
+            answer = json.dumps({"memory": "# MEMORY.md\n\n## people\n\n- ana: said gm in the live test.\n", "diary": "a stub day."})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
         if body.get("stream"):
@@ -284,6 +287,10 @@ check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(min
 "$root/bin/tick" >/dev/null 2>>"$scratch/tick.log" || true
 check "a second beat on teeny:mind remembers the first" \
   grep -q 'gm teeny from the live test' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "user") | .content | tostring] | join("\n")')"
+reflected="$("$root/bin/reflect" 2>"$scratch/reflect.log" || true)"
+check "bin/reflect rewrites MEMORY.md from the mind thread" grep -q 'said gm in the live test' "$root/brain/MEMORY.md"
+check "and the mind's next prompt carries the new page" grep -q 'said gm in the live test' "$root/brain/agent/prompts/teeny.md"
+[ "$(jq -r .ok <<<"$reflected" 2>/dev/null)" = true ] || { echo "bin/reflect said: $reflected"; tail -n 5 "$scratch/reflect.log"; } >&2
 if [ "$(jq -r .thought <<<"$ticked" 2>/dev/null)" != "the stub thought about it" ]; then
   { echo "bin/tick said: $ticked"; tail -n 5 "$scratch/tick.log"; } >&2
 fi
