@@ -23,6 +23,12 @@ cat >"$scratch/fake-oh" <<'FAKE'
 set -euo pipefail
 printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
+# $FAKE_FIRST, when the file is there, answers the first call only.
+if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
+  jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
+  rm -f "$FAKE_FIRST"
+  exit 0
+fi
 jq -cn --rawfile a "$FAKE_ANSWER" '{response: $a}'
 FAKE
 # The hands: each logs "<hand> <args> DRY_RUN=<v> stdin=<json>" and answers.
@@ -116,6 +122,20 @@ check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"t
 check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY_RUN=1' '$FAKE_HANDS'"
 check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
+
+# --- a draft that came back cut off is asked for once more ---------------------------
+reset
+printf '%s' '": "post", "text": "gm"}' >"$scratch/first.txt"
+answer '{"action": "post", "text": "gm again"}'
+out="$(FAKE_FIRST="$scratch/first.txt" run morning)"
+check "asks again when the draft is not usable JSON" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
+check "and acts on the second draft" grep -q '^x post DRY_RUN= stdin={"text":"gm again"}' "$FAKE_HANDS"
+reset
+answer '": "post", "text": "gm"}'
+out="$(run morning)" || true
+check "asks only once more" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
+check "then records the unusable draft as an error" grep -q 'not usable JSON' <<<"$out"
+check "and posts nothing" test "$(hand_calls x)" = 1
 
 # --- the daily budget ------------------------------------------------------------
 : >"$FAKE_CALLS"; : >"$FAKE_HANDS"
