@@ -136,6 +136,10 @@ out="$(run morning)" || true
 check "asks only once more" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
 check "then records the unusable draft as an error" grep -q 'not usable JSON' <<<"$out"
 check "and posts nothing" test "$(hand_calls x)" = 1
+# Back to one morning post taken today, which the budget checks below expect.
+reset
+answer '{"action": "post", "text": "gm tiny humans"}'
+run morning >/dev/null
 
 # --- the daily budget ------------------------------------------------------------
 : >"$FAKE_CALLS"; : >"$FAKE_HANDS"
