@@ -44,9 +44,9 @@ it, and it reads only the ledgers hands write after an action succeeded.
 Live, before appending, the published chain is verified from the first line;
 a chain that does not verify (someone else pushed, or history was edited)
 refuses the run rather than build on it. Only `receipts/`, `head.json`,
-`stats/` and `wallet.json` are ever staged, the staged diff still goes through the secret gate (every value
-in secrets/*.env of 12 characters or more, and the usual key shapes), and a
-push that fails resets the checkout to the remote so the next run rebuilds.
+`stats/` and `wallet.json` are ever staged, the staged diff still goes through
+the secret gate (every value in secrets/*.env of 12 characters or more, and
+the usual key shapes), and a push that fails resets the checkout to the remote so the next run rebuilds.
 
 Two more files ride the same push, so the public site has numbers it can
 check rather than defaults:
