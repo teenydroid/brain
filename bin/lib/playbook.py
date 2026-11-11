@@ -16,6 +16,9 @@ argv}], prompt} or exits non-zero with what is wrong.
     [[inputs]]
     name = "mentions"
     run = "hands/x search '@teenydroid -from:teenydroid' --max 10"
+    required = true            # optional: an empty result skips the run
+                               # before the draft (no model turn); empty is
+                               # null, [], {}, "" or an object of only those
     +++
     the prompt: what to read in the inputs and what to draft.
 
@@ -141,12 +144,20 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     parsed = []
     for i, entry in enumerate(inputs):
         where = f"{path}: inputs[{i}]"
-        if not isinstance(entry, dict) or set(entry) - {"name", "run"} or not isinstance(entry.get("run"), str):
-            raise PlaybookError(f"{where}: an input is {{name, run}}")
+        if not isinstance(entry, dict) or set(entry) - {"name", "run", "required"} or not isinstance(entry.get("run"), str):
+            raise PlaybookError(f"{where}: an input is {{name, run, required?}}")
+        if not isinstance(entry.get("required", False), bool):
+            raise PlaybookError(f"{where}: required is true or false")
         input_name = entry.get("name", f"input-{i}")
         if not isinstance(input_name, str) or not NAME.fullmatch(input_name):
             raise PlaybookError(f"{where}: name must be lowercase letters, digits and dashes")
-        parsed.append({"name": input_name, "argv": _hand_argv(entry["run"], where, hands_dir)})
+        parsed.append(
+            {
+                "name": input_name,
+                "argv": _hand_argv(entry["run"], where, hands_dir),
+                "required": entry.get("required", False),
+            }
+        )
 
     return {
         "name": name,
