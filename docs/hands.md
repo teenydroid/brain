@@ -274,6 +274,26 @@ thread with the tool-less `teeny-mail` agent (prompt: `brain/playbooks/mail.md`,
 written into the core's config by `bin/lib/inbound_config.py`), and each
 reply goes through `hands/mail reply` and is marked.
 
+## `telegram`: the only holder of the Telegram bot token
+
+Teeny on Telegram is a bot (Bot API; a user account would need a phone
+number and breaks Telegram's rules for automation). Add it to a group and,
+with privacy mode off in @BotFather, it reads the whole room; DM it and it
+answers like a person. There is no job of its own: every beat of bin/tick
+runs `ingest` when `TELEGRAM_BOT_TOKEN` is set, so a DM is answered within
+a beat or two. The mind answers with `say_telegram`.
+
+| Verb | Kind | What |
+|---|---|---|
+| `whoami` | R | The bot's id and username, whether it reads all group messages (privacy mode off), and the owners. |
+| `ingest [--max N]` | J | New updates from a cursor (`telegram_cursor`), each text message a row in `telegram_messages`, screened by the inbound guard. An owner's DM (`TELEGRAM_OWNERS`) becomes a `telegram · dm` stimulus marked `owner`, which wakes Teeny at night; a stranger's DM only with `TELEGRAM_OPEN_DMS=1`. A group message that names the bot, replies to Teeny or says "teeny" is a `telegram · mention`; the rest of a group's new talk is one `telegram · chatter` stimulus per chat. Bots, groups outside `TELEGRAM_CHATS` and held messages reach nobody. |
+| `chats` | R | The chats Teeny is in or was written to from. |
+| `queue [--status S]` | J | The intake and what became of each message. |
+| `send` | A | `{chat_id, text, reply_to?}`. Only into a chat Teeny has seen (never cold; a stranger's DM only with DMs open; a group only inside `TELEGRAM_CHATS` when set). `reply_to` must be a message Teeny read there and the guard did not hold. Guarded (surface `telegram`, 4096 characters), at most `TELEGRAM_MAX_SENDS_PER_DAY` (60) a day and `TELEGRAM_MAX_PER_CHAT_HOUR` (8) per chat an hour. Shows "typing…" first. Under `DRY_RUN`: `would_send`, nothing written. |
+
+The token is in every Bot API URL, so it never leaves `telegram/client.py`;
+errors carry Telegram's description, never a URL.
+
 ## `stats`: real numbers only
 
 A post may quote a number only if it came from a `stats` row. The hand holds

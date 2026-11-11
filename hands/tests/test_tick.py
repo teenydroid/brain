@@ -80,7 +80,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -128,7 +128,7 @@ class TickTest(unittest.TestCase):
             return []
         # What the intents did: not the surfaces' bookkeeping (mark) or the
         # beat's own read-only browse of Moltbook (inbox).
-        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"], ["feed"]) and c["hand"] not in ("guard", "image")
+        return [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["argv"][:1] not in (["mark"], ["inbox"], ["feed"], ["ingest"]) and c["hand"] not in ("guard", "image")
                 and c["argv"][:1] != ["upload"]]
 
     def marks(self) -> list[dict]:
@@ -185,6 +185,29 @@ class TickTest(unittest.TestCase):
         # The surfaces' own queues hear what became of what was answered.
         self.assertIn(("x", ["mark", "111", "--status", "replied"]),
                       [(m["hand"], m["argv"][:4]) for m in self.marks()])
+
+    def test_say_telegram_goes_to_the_telegram_hand(self):
+        stimuli.add("telegram", "dm", "42:7", "@steve in a DM:\nhey teeny", who="@steve")
+        self.answer({"thought": "steve!", "intents": [
+            {"do": "say_telegram", "chat_id": 42, "reply_to": 7, "text": "hey steve"},
+            {"do": "say_telegram", "chat_id": -100123, "text": "gm group"},
+        ]})
+        self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            ("telegram", ["send"], {"chat_id": "42", "reply_to": "7", "text": "hey steve"}),
+            ("telegram", ["send"], {"chat_id": "-100123", "text": "gm group"}),
+        ])
+
+    def test_a_beat_reads_telegram_only_when_a_bot_token_is_set(self):
+        self.tick()
+        ingests = lambda: [c for c in map(json.loads, self.hands_log.read_text().splitlines())
+                           if c["hand"] == "telegram" and c["argv"] == ["ingest"]] if self.hands_log.exists() else []
+        self.assertEqual(ingests(), [])
+        (self.root / "secrets" / "teeny.env").write_text("TELEGRAM_BOT_TOKEN=123:abc\n")
+        hand._ENV_CACHE = None
+        self.tick()
+        self.assertEqual(len(ingests()), 1)
 
     def test_an_unknown_or_malformed_intent_is_refused_and_reaches_no_hand(self):
         stimuli.add("x", "mention", "1", "gm")
@@ -301,6 +324,14 @@ class TickTest(unittest.TestCase):
         stimuli.add("operator", "report", "task:4:needs_code", "the operator needs an emailed code", payload={"status": "needs_code"})
         self.answer({"thought": "up for this", "intents": []})
         self.assertEqual(self.tick()["thought"], "up for this")
+
+    def test_an_owner_on_telegram_wakes_it_at_night_and_a_stranger_does_not(self):
+        self.night(3)
+        stimuli.add("telegram", "mention", "-1:5", "someone in a group at 3am", payload={"chat_id": -1})
+        self.assertTrue(self.tick()["asleep"])
+        stimuli.add("telegram", "dm", "42:7", "@steve in a DM: you up?", payload={"chat_id": 42, "owner": True})
+        self.answer({"thought": "for steve, always", "intents": []})
+        self.assertEqual(self.tick()["thought"], "for steve, always")
 
     def test_the_first_beat_of_the_day_knows_it_woke_up(self):
         self.night(3)

@@ -79,8 +79,10 @@ def is_night(at: float | None = None) -> bool:
 
 
 def urgent(s: Mapping[str, Any]) -> bool:
-    status = (s.get("payload") or {}).get("status")
-    return (s.get("surface"), status) in URGENT
+    payload = s.get("payload") or {}
+    if s.get("surface") == "telegram" and payload.get("owner"):
+        return True  # its makers, in a DM: always worth waking for
+    return (s.get("surface"), payload.get("status")) in URGENT
 
 
 # --- the mind's own state ---------------------------------------------------------------

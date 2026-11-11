@@ -111,6 +111,13 @@ def _reply_mail(i):
     return "mail", ["reply"], {"message_id": _id(i, "message_id"), "body": _text(i)}
 
 
+def _say_telegram(i):
+    body = {"chat_id": _id(i, "chat_id"), "text": _text(i)}
+    if i.get("reply_to") not in (None, ""):
+        body["reply_to"] = _id(i, "reply_to")
+    return "telegram", ["send"], body
+
+
 def _comment_gh(i):
     number = i.get("number")
     if not isinstance(number, int):
@@ -125,6 +132,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "comment_moltbook": _comment_moltbook,
     "upvote_moltbook": _upvote_moltbook,
     "reply_mail": _reply_mail,
+    "say_telegram": _say_telegram,
     "comment_gh": _comment_gh,
 }
 OWN = ("remember", "follow_up", "feel", "skip")
@@ -142,6 +150,7 @@ Each intent is one of:
 - {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
 - {"do": "reply_mail", "message_id": "<id>", "text": "..."}
+- {"do": "say_telegram", "chat_id": <chat id>, "reply_to": <message id, to answer one, optional>, "text": "..."}
 - {"do": "comment_gh", "repo": "owner/name", "number": <issue or pr number>, "text": "..."}
 - {"do": "remember", "note": "...", "who": "<handle, when it is about someone>"}
 - {"do": "follow_up", "in_hours": <1 to 2160>, "about": "...", "ref": "<what it is about, optional>"}
@@ -403,22 +412,36 @@ def browse() -> Json | None:
     return out if code == 0 else {"ok": False, **out}
 
 
+def listen() -> Json | None:
+    """Telegram has no job of its own: every beat reads what came in
+    (`hands/telegram ingest`) when a bot token is set, so a DM is answered
+    within a beat or two, like a person checking their phone."""
+    if not hand.setting("TELEGRAM_BOT_TOKEN"):
+        return None
+    try:
+        code, out = _run_hand("telegram", ["ingest"], None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+    return out if code == 0 else {"ok": False, **out}
+
+
 def _beat() -> Json:
     browsed = browse()
+    heard = listen()
     raised = stimuli.raise_due()
     waiting = stimuli.pending()
     asleep = rhythm.night_gate(waiting)
     if asleep:
-        return {**asleep, "raised": raised, "moltbook": browsed}
+        return {**asleep, "raised": raised, "moltbook": browsed, "telegram": heard}
     if not waiting and rhythm.wander(_run_hand):
         waiting = stimuli.pending()
     if not waiting:
-        return {"ok": True, "idle": True, "raised": raised, "moltbook": browsed}
+        return {"ok": True, "idle": True, "raised": raised, "moltbook": browsed, "telegram": heard}
     woke = rhythm.woke(len(waiting))
     batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
-        return {"ok": True, "idle": True, "raised": raised, "moltbook": browsed}
+        return {"ok": True, "idle": True, "raised": raised, "moltbook": browsed, "telegram": heard}
     message = render(items, woke)
     thought, intents, last_error = "", None, ""
     for attempt in (1, 2):
