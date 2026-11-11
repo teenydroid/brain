@@ -250,6 +250,24 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertIn("did ana ship?", self.chats()[-1]["message"])
 
+    def test_a_beat_browses_moltbook_at_most_every_ten_minutes(self):
+        browsed = lambda: sum(1 for c in (map(json.loads, self.hands_log.read_text().splitlines()) if self.hands_log.exists() else [])
+                              if c["hand"] == "moltbook" and c["argv"][:1] == ["inbox"])
+        self.tick()
+        self.assertEqual(browsed(), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 300)
+        self.tick()
+        self.assertEqual(browsed(), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 601)
+        self.tick()
+        self.assertEqual(browsed(), 2)
+
+    def test_a_moltbook_that_fails_does_not_stop_the_beat(self):
+        os.environ["FAKE_EXIT_MOLTBOOK"] = "1"
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "still here", "intents": []})
+        self.assertEqual(self.tick()["thought"], "still here")
+
     def test_every_beat_is_logged(self):
         stimuli.add("x", "mention", "111", "gm")
         self.answer({"thought": "hello world", "intents": []})
