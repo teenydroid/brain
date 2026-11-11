@@ -238,7 +238,7 @@ class ReplySweepTest(IngestTest):
         self.x.route("GET", MENTIONS, page())
         out = mentions.ingest()
         self.assertEqual(self.x.requests("GET", SEARCH), [])
-        self.assertEqual(out["swept"], 0)
+        self.assertNotIn("swept", out)
 
     def test_people_talking_to_each_other_under_the_post_are_left_alone(self):
         self.own_post("500")

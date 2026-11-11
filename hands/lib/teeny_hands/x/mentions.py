@@ -100,6 +100,91 @@ def _offer(post: Json) -> None:
     )
 
 
+def _store(conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[str, int], now: float) -> None:
+    """One post into the queue, once: screened, or skipped when it is the
+    account's own or already answered."""
+    if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post["id"],)).fetchone():
+        return
+    status, note, hold_id = "pending", None, None
+    if post.get("authorId") == me["id"]:
+        status, note = "skipped", "own post"
+    elif conn.execute("SELECT 1 FROM x_replies WHERE in_reply_to = ? AND reply_id IS NOT NULL", (post["id"],)).fetchone():
+        status, note = "skipped", "already answered"
+    else:
+        verdict = _screen(post)
+        if verdict.kind != "allow":
+            status, note, hold_id = "held", verdict.reason, verdict.hold_id
+    conn.execute(
+        "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
+        " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            post["id"],
+            post.get("authorId"),
+            post.get("authorUsername"),
+            post.get("conversationId"),
+            post.get("createdAt"),
+            post["text"],
+            json.dumps(post, ensure_ascii=False),
+            status,
+            note,
+            hold_id,
+            now,
+            now,
+        ),
+    )
+    counts[status] += 1
+
+
+def _set_cursor(conn, name: str, since_id: str | None, now: float) -> None:
+    conn.execute(
+        "INSERT INTO x_cursor (name, since_id, at) VALUES (?, ?, ?)"
+        " ON CONFLICT(name) DO UPDATE SET since_id = excluded.since_id, at = excluded.at",
+        (name, since_id or "", now),
+    )
+
+
+#: How far back the account's own posts are swept for replies, and how often
+#: one conversation is read again (each read is a billed search).
+SWEEP_HOURS = 48
+SWEEP_EVERY_MINUTES = 15
+
+
+def _sweep_replies(conn, x: XApi, me: Mapping[str, Any], counts: dict[str, int], now: float) -> tuple[int, str | None]:
+    """X's mentions timeline leaves some replies out (2026-11-11: four of nine
+    replies to the gm never came back from /mentions; a conversation search
+    found every one). So the replies under the account's own recent posts are
+    read too, each conversation from its own cursor and at most every
+    X_REPLY_SWEEP_MINUTES. Only posts answering the account are queued, not
+    people talking to each other under it. A failed search is reported and
+    leaves the mentions as they are."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'x_posts'").fetchone():
+        return 0, None
+    every = int(number_setting("X_REPLY_SWEEP_MINUTES", SWEEP_EVERY_MINUTES, 5, 1440)) * 60
+    own = conn.execute(
+        "SELECT id FROM x_posts WHERE kind = 'post' AND created_at >= ? ORDER BY created_at DESC LIMIT 10",
+        (now - SWEEP_HOURS * 3600,),
+    ).fetchall()
+    swept = 0
+    for row in own:
+        name = f"replies:{row['id']}"
+        cursor = conn.execute("SELECT since_id, at FROM x_cursor WHERE name = ?", (name,)).fetchone()
+        if cursor and now - float(cursor["at"]) < every:
+            continue
+        options = SearchOptions(max_results=50, since_id=(cursor["since_id"] or None) if cursor else None)
+        try:
+            page = x.search_page(f"conversation_id:{row['id']} -from:{me['username']}", options)
+        except hand.HandError as exc:
+            return swept, f"reply sweep of {row['id']} failed: {exc}"
+        swept += 1
+        found = page["posts"]
+        for post in sorted(found, key=lambda p: int(p["id"])):
+            if post.get("inReplyToUserId") == me["id"]:
+                _store(conn, me, post, counts, now)
+        newest = page.get("newestId") or (max((p["id"] for p in found), key=int) if found else None)
+        _set_cursor(conn, name, newest or (cursor["since_id"] if cursor else None), now)
+    return swept, None
+
+
 def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None) -> Mapping[str, Any]:
     """Reads new mentions into the queue and offers every pending one. Safe to
     run at any time and twice at once (a lock), and it never answers anyone."""
@@ -116,47 +201,13 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         counts = {status: 0 for status in STATUSES}
         now = hand.now()
         for post in sorted(posts, key=lambda p: int(p["id"])):
-            if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post["id"],)).fetchone():
-                continue
-            status, note, hold_id = "pending", None, None
-            if post.get("authorId") == me["id"]:
-                status, note = "skipped", "own post"
-            elif conn.execute(
-                "SELECT 1 FROM x_replies WHERE in_reply_to = ? AND reply_id IS NOT NULL", (post["id"],)
-            ).fetchone():
-                status, note = "skipped", "already answered"
-            else:
-                verdict = _screen(post)
-                if verdict.kind != "allow":
-                    status, note, hold_id = "held", verdict.reason, verdict.hold_id
-            conn.execute(
-                "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
-                " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    post["id"],
-                    post.get("authorId"),
-                    post.get("authorUsername"),
-                    post.get("conversationId"),
-                    post.get("createdAt"),
-                    post["text"],
-                    json.dumps(post, ensure_ascii=False),
-                    status,
-                    note,
-                    hold_id,
-                    now,
-                    now,
-                ),
-            )
-            counts[status] += 1
+            _store(conn, me, post, counts, now)
         # Every post the page brought back is stored, so the cursor can move:
         # a failed offer is retried from the row, not by reading X again.
         newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
         if newest:
-            conn.execute(
-                "INSERT INTO x_cursor (name, since_id, at) VALUES ('mentions', ?, ?)"
-                " ON CONFLICT(name) DO UPDATE SET since_id = excluded.since_id, at = excluded.at",
-                (newest, now),
-            )
+            _set_cursor(conn, "mentions", newest, now)
+        swept, sweep_error = _sweep_replies(conn, x, me, counts, now)
 
         offered, failed = 0, None
         if offer:
@@ -174,6 +225,10 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
                 offered += 1
         new = {status: n for status, n in counts.items() if n}
         result: dict[str, Any] = {"read": len(posts), "new": new, "offered": offered, "cursor": newest or since_id}
+        if swept:
+            result["swept"] = swept
+        if sweep_error:
+            result["sweep_error"] = sweep_error
         if failed:
             _warn(f"offer failed, left pending: {failed}")
             result["offer_error"] = failed
