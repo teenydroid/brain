@@ -191,11 +191,16 @@ def judge(text: str, direction: str) -> JudgeVerdict:
     model = hand.setting("SAFETY_JUDGE_MODEL")
     if model:
         params["model_override"] = model
-    try:
-        reply = hand.core("inference_agent_chat_simple", params, timeout=JUDGE_TIMEOUT)
-    except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
-        return _fail_closed(f"the judge could not be reached: {error}")
-    verdict = read(_answer(reply))
-    if verdict is None:
-        return _fail_closed("the judge answered in an unreadable shape")
-    return verdict
+    # An unreadable answer is asked once more before it holds: some models
+    # (glm-5.3-flash through Surplus, about one answer in eight) come back
+    # with the opening of the JSON cut off. A second unreadable answer, or
+    # any failure to ask, still holds; nothing here ever turns into a pass.
+    for _ in range(2):
+        try:
+            reply = hand.core("inference_agent_chat_simple", params, timeout=JUDGE_TIMEOUT)
+        except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
+            return _fail_closed(f"the judge could not be reached: {error}")
+        verdict = read(_answer(reply))
+        if verdict is not None:
+            return verdict
+    return _fail_closed("the judge answered in an unreadable shape")
