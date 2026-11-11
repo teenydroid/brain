@@ -6,9 +6,10 @@ contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
 **Status.** `guard`, the outbound and read half of `x`, `gh`, `moltbook`,
-`mail`, `stats`, `requests`, `build` and `tasks` are built (`hands/guard`,
+`mail`, `stats`, `requests`, `build`, `tasks`, `wallet` and `bounty` are built (`hands/guard`,
 `hands/x`, `hands/gh`, `hands/moltbook`, `hands/mail`, `hands/stats`,
-`hands/requests`, `hands/build`, `hands/tasks`, code in `hands/lib/teeny_hands/`,
+`hands/requests`, `hands/build`, `hands/tasks`, `hands/wallet`, `hands/bounty`,
+code in `hands/lib/teeny_hands/`,
 tests in `hands/tests/`). So is mention intake (`x ingest`, `x mentions`, `x mark`):
 the queue itself is the core's inbound event queue, which coalesces mentions
 into one drafting turn (docs/architecture.md, §7), so there is no `x queue`
@@ -307,6 +308,101 @@ OpenHuman's MCP would be the other way in, but a serve host used to
 drop every configured MCP server's tools when TinySecurity was on
 ([`oh-gaps.md`](oh-gaps.md), G11, fixed in openhuman#8654).
 
+## `wallet`: Teeny's own Solana wallet
+
+The keys never leave the core. OpenHuman (the `web3` build) holds the
+encrypted recovery phrase and signs; this hand decides whether a payment may
+go out, asks the core to prepare and execute it, and keeps the ledger. Code:
+`teeny_hands/wallet/` (`caps.py` is shared with `bin/lib/wallet_config.py`
+and `bin/doctor`).
+
+| Verb | | Does |
+|---|---|---|
+| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page. |
+| `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. The core's token balances come in a later release. |
+| `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
+| `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
+| `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. |
+| `receipts [--max N]` | R | Paid payments whose signature no X post of Teeny's carries yet: what the `wallet-receipt` playbook owes. |
+| `caps` | R | The caps it pays under. |
+| `pay` | A | `{to, amount_usdc \| amount_sol, purpose: bounty\|vendor, ref}`. The rules below, then the core. |
+| `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
+| `vendors add NAME ADDRESS [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to. |
+
+**`pay`'s rules**, every one before the core hears of the payment, each
+refused with its `rule`: only those fields (`fields`); never $TINY, named as
+a mint, an asset or the recipient (`tiny`); SOL or the cluster's pinned USDC
+mint and nothing else (`asset`); exactly one amount above zero within the
+asset's decimals (`amount`); a purpose and a ref; a valid base58 address
+that is not a mint (`address`); the caps set and sane (`caps`); at most
+`WALLET_MAX_PER_TX_USD` (`per_tx`); never Teeny's own address
+(`own_address`); for a bounty, the winner public for
+`BOUNTY_CHALLENGE_HOURS`, this the address the winner claimed, the amount
+exactly the prize, never paid before (`bounty`, `challenge_window`,
+`claimed_address`, `prize`), read from the bounty's rows, not the bounty
+hand's word; for a vendor, the address in `vendors` (`vendor`); this purpose
+and ref never paid or tried (`duplicate`); the last 24 hours within
+`WALLET_MAX_PER_DAY_USD` (`per_day`) and this address's last 7 days within
+`WALLET_MAX_PER_RECIPIENT_WEEK_USD` (`per_recipient_week`), SOL and USDC
+counted together in dollars; and never more than half the wallet's balance
+of that asset (`half_balance`).
+
+**Dollars without a price feed.** USDC counts one for one. SOL counts at the
+fixed `WALLET_SOL_USD` the operator sets, rounded up, and should be set at or
+above the market price, so a SOL payment counts for at least what it is worth
+and the caps bind early. The core's caps are the same dollars in each
+asset's atomic units, rounded down.
+
+**Then the core**, under the `wallet-pay` lock: the ledger row is written
+`pending` first, then `wallet_prepare_transfer` (a quote that must match the
+payment exactly, or nothing is executed: `quote`), then
+`wallet_execute_prepared {quoteId, confirmed: true}`. A signature makes the
+row `paid`. The core's own policy refusing (`WALLET_POLICY_REFUSED:`) is
+`refused` (`core_policy`); a failed prepare is `failed`; anything else after
+the execute was sent (a timeout, a 5xx, no signature) is `in_doubt`, which
+counts against every cap and is **never retried**: a person reads the core's
+ledger and the chain. Under `DRY_RUN` the answer is `would_pay` with every
+rule it evaluated (`checks`), no ledger row, and no core call that moves
+funds. Tables: `wallet_payments`, `bills`, `vendors`.
+
+**Defence in depth.** `bin/lib/wallet_config.py` writes the core's
+`[wallet_policy]` at every boot: `apply_to_interactive = true` (an execute
+over JSON-RPC is "interactive" to the core and uncapped without it),
+`automation_enabled = true` only with sane caps, and SOL and USDC (mint
+pinned) capped at the same dollars. It exports `OPENHUMAN_SOLANA_CLUSTER`
+(devnet until `WALLET_CLUSTER=mainnet`) and `OPENHUMAN_WALLET_RPC_SOLANA`
+(from `SOLANA_RPC_URL`), and unsets the `OPENHUMAN_WALLET_POLICY_*`
+overrides. With no usable caps the policy lists no asset, and the core
+refuses every capped execute. `bin/doctor` refuses to boot a checkout whose
+`WALLET_*` keys are set with a cap missing, zero or over its ceiling.
+
+No model reaches `pay`: `bin/lib/playbook.py` refuses any wallet verb as a
+playbook output and lets an input run only the read verbs.
+
+`bin/wallet-setup` (operator, once, at a terminal) has the core generate a
+24-word phrase, derive the accounts, encrypt the phrase (`encrypt_secret`)
+and store it (`wallet_setup`). The phrase is shown once on `/dev/tty`, never
+stdout, a file or a log, and the screen is cleared after. It refuses when a
+wallet exists, unless `--force` and the first 8 characters of the current
+address are typed. It prints the line to paste into `brain/CONTEXT.md`.
+
+## `bounty`: bounties Teeny opens, judges and pays
+
+| Verb | | Does |
+|---|---|---|
+| `open` | O | `{title, rules, prize_usdc, deadline, channels: [x, moltbook]}`. The prize at most `WALLET_MAX_PER_TX_USD`, the deadline 1 hour to 60 days away. Returns the bounty with its tag, `bounty #N`, which every post about it carries. |
+| `list [--status S]`, `get ID` | R | Bounties (statuses `open`, `picked`, `claimed`, `paid`, `in_doubt`), one with its entry counts and winner. |
+| `announcements` | R | What the playbooks owe a post for: `open` (no tagged post yet), `to_pick` (past the deadline, with the entries that are neither late nor held), `paid` (a prize whose signature no post carries yet). |
+| `entries ID` | J | Links the bounty's posts (Teeny's earliest X post carrying the tag; a Moltbook post whose title carries it), collects the replies to the X post and to the winner's announcement (the x hand's client) and the comments on the Moltbook post (the moltbook hand's reads), screened by `guard inbound` (`held`), after the deadline `late`, Teeny's own left out. Then notices the claim: the first reply by the winning account, after the pick, carrying exactly one valid address. |
+| `pick` | A | `{bounty_id, entry_id, reasons, text}`, after the deadline, an entry neither late, held nor Teeny's. `text` is the announcement, which must carry the tag; it goes out through the x hand's `post` (guard, posting rules, `DRY_RUN`), and only once it is out is the winner recorded, with `public_at` the moment it went out. The one bounty verb a playbook may output. |
+| `claim` | J | `{bounty_id, address, source_id}`: a collected reply by the winning account, on the winning entry's channel, that carries the address. Set once. |
+| `pay ID` | J | Once claimed and public for `BOUNTY_CHALLENGE_HOURS` (12): the wallet's `pay` with purpose `bounty`, which checks it all again. In doubt is marked `in_doubt` and never retried. |
+| `pay-due` | J | Every bounty past its deadline: `entries`, then `pay` when claimed. `bin/bounty-pay`, the pinned `bounty-pay` job (hourly). |
+| `link ID [--x POST] [--moltbook POST]` | O | Names the bounty's posts by hand. |
+
+Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
+(announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
+
 ## `cadence`: when Teeny may post
 
 | Verb | | Does |
@@ -358,6 +454,8 @@ persisted, which is a deliberate fix.
 | `build_jobs` (the builder's queue, what shipped where) | — |
 | `browser_tasks` (the browser operator's queue and outcomes) | — |
 | `stats` (one row per day per metric) | — |
+| `wallet_payments`, `bills`, `vendors` (the wallet's ledger and the operator's lists) | — |
+| `bounties`, `bounty_entries` | — |
 | `people` | `people` |
 | `media` (minted ids) | in-process today |
 | `guards` (20h, calendar, article interval, pacing, media budget) | in-memory today |

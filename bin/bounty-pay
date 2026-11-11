@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pay the bounty prizes that are due (evals/cron.pinned.toml, bounty-pay,
+# hourly): `hands/bounty pay-due` collects the entries of every bounty past
+# its deadline, takes the winner's claim from the winner's own reply, and
+# pays each prize whose winner has been public for BOUNTY_CHALLENGE_HOURS,
+# through hands/wallet's caps. DRY_RUN applies; a payment in doubt is never
+# retried.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/bounty" pay-due </dev/null

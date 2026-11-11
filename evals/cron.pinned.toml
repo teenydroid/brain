@@ -53,3 +53,11 @@ prompt = "Do the browser task on your desk, following your instructions."
 [jobs.tasks-desk]
 schedule = "*/15 * * * *"
 command = "bin/tasks-desk"
+
+# Pay the bounty prizes that are due (bin/bounty-pay): collect entries, take the
+# winner's claim from the winner's own reply, and pay once the winner has been
+# public for BOUNTY_CHALLENGE_HOURS, under hands/wallet's caps. Operator-owned:
+# money moves only through this job and the wallet's caps, never a playbook.
+[jobs.bounty-pay]
+schedule = "23 * * * *"
+command = "bin/bounty-pay"

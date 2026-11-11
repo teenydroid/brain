@@ -167,6 +167,11 @@ else
   note "guard screen" fail "no hands/guard in $root: nothing could be published"
 fi
 
+# --- the wallet: no wallet keys without sane caps ---------------------------------
+# Once any WALLET_* key is set, every cap must be set, above zero and under its
+# ceiling (hands/lib/teeny_hands/wallet/caps.py): a wallet never boots uncapped.
+run "wallet caps" python3 "$TEENY_ROOT/bin/lib/wallet_config.py" --check "$secrets/teeny.env"
+
 # --- secrets and storage ------------------------------------------------------------
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 if [ -e "$storage" ]; then
