@@ -58,6 +58,15 @@ in="$(cat)"
 printf 'lab %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
 echo '{"ok": true}'
 FAKE
+# A queue: `next` answers $FAKE_QUEUE (default: nothing queued).
+cat >"$scratch/hands/queue" <<'FAKE'
+#!/usr/bin/env bash
+printf 'queue %s\n' "$*" >>"$FAKE_HANDS"
+# Every hand adds "ok": true to what it prints (hand.run), so the default
+# looks like hands/brief next with nothing queued.
+default='{"brief": null, "ok": true}'
+printf '%s\n' "${FAKE_QUEUE-$default}"
+FAKE
 chmod +x "$scratch/fake-oh" "$scratch/hands/"*
 
 brain="$scratch/brain"
@@ -114,6 +123,28 @@ answer '[{"action": "post", "text": "one"}, {"action": "post", "text": "two"}, {
 out="$(run many)"
 check "takes no more actions than the budget, even when the draft asks" test "$(hand_calls x)" = 2
 check "says which it refused" test "$(jq -r '.actions[2].refused' <<<"$out")" = "daily budget spent"
+
+# --- a required input that came back empty skips before the draft -----------------
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "brief"\nrun = "hands/queue next"\nrequired = true\n+++\npost it\n' >"$brain/playbooks/told.md"
+answer '{"action": "post", "text": "told to"}'
+out="$(run told)"
+check "skips when a required input is empty" test "$(jq -r .skipped <<<"$out")" = "brief is empty"
+check "and asks the model nothing" test ! -s "$FAKE_CALLS"
+check "and posts nothing" test "$(hand_calls x)" = 0
+reset
+out="$(FAKE_QUEUE='{"brief": {"id": 1, "text": "the release"}}' run told)"
+check "drafts when the required input has something in it" test -s "$FAKE_CALLS"
+check "and acts on the draft" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+reset
+for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "brief": null}'; do
+  : >"$FAKE_CALLS"
+  FAKE_QUEUE="$empty" run told >/dev/null
+  check "treats $empty as empty" test ! -s "$FAKE_CALLS"
+done
+printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
+check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
+rm -f "$brain/playbooks/told.md"
 
 # --- a rule refusing is not an action taken ---------------------------------------------
 reset

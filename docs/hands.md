@@ -248,6 +248,23 @@ does not stop them: whatever is built from a pick goes out through hands that
 keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
 `shipped` or `failed` when it is done.
 
+## `brief`: what the team tells Teeny to post about
+
+Teeny posts on X twice a day: the morning gm and one post about whatever the
+team queued here (`briefs`). The playbook `brief` reads `next` every 15
+minutes, skips without a model turn when nothing is queued (its input is
+`required`), and answers through `post`.
+
+| Verb | | Does |
+|---|---|---|
+| `add TEXT` | O | Queue a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. |
+| `next` | R | The oldest open brief, `{brief: {id, text}}`, or `{brief: null}`. |
+| `list [--max N]` | R | The briefs, newest first (20), with status `open`, `posted` or `cancelled`. |
+| `post` | A | `{id, text}`: Teeny's draft of brief `id`, already through the guard (bin/act). Sends `{text}` to `hands/x post`, which keeps its own rules, pacing and `DRY_RUN`. The brief is marked `posted` (with the post id) only when X took the post; a dry run leaves it `open`, a refusal from hands/x is a refusal here (exit 2) and an error an error, and either way the brief stays `open` for the next run. Refused when the brief is not `open`. |
+| `cancel ID` | O | Drop an open brief. |
+
+From the box: `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.
+
 ## `build`: the builder's work queue
 
 The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
