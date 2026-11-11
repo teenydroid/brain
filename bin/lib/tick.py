@@ -42,6 +42,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
@@ -441,9 +442,12 @@ def _record(line: Mapping[str, Any]) -> None:
         fh.write(json.dumps({"at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **line}, ensure_ascii=False) + "\n")
 
 
-def beat() -> Json:
+def beat(pause: float = 0.0) -> Json:
+    """One beat under the tick lock. `pause` (the jitter) is spent holding
+    it, so a cron call while a beat waits finds the beat already running."""
     try:
         with hand.lock("tick", timeout=5):
+            time.sleep(pause)
             return _beat()
     except hand.HandError as exc:
         if "lock" in str(exc):
@@ -563,11 +567,8 @@ def _beat() -> Json:
 
 
 if __name__ == "__main__":
-    import time
-
-    time.sleep(rhythm.jitter())
     try:
-        result = beat()
+        result = beat(rhythm.jitter())
     except hand.HandError as exc:
         result = {"ok": False, "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False))
