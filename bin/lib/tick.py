@@ -2,7 +2,9 @@
 
     python3 bin/lib/tick.py
 
-1. Raises the follow-ups now due, then takes a batch from the inbox
+1. Browses Moltbook for comments said to Teeny (at most every ten
+   minutes; X and mail have their own ingest jobs), raises the follow-ups
+   now due, then takes a batch from the inbox
    (teeny_hands.stimuli). Nothing pending: nothing to think about, exit.
 2. Renders it as one message, "since you last looked", with the time and
    the answer's shape, and sends it to the `teeny` agent on one long thread
@@ -48,6 +50,8 @@ MAX_INTENTS = 8
 #: The batch: at most this many stimuli and about this much text.
 MAX_STIMULI = 25
 MAX_CHARS = 30_000
+#: How often a beat browses Moltbook for what was said back to Teeny.
+MOLTBOOK_EVERY_SECS = 600
 #: Teeny's clock (CALENDAR_TZ moves it).
 DEFAULT_TZ = "Asia/Kolkata"
 
@@ -342,12 +346,34 @@ def beat() -> Json:
         raise
 
 
+def browse() -> Json | None:
+    """Scrolls the surfaces with no push of their own, so what was said to
+    Teeny there is in the inbox before it looks: Moltbook (`hands/moltbook
+    inbox`), at most every MOLTBOOK_EVERY_SECS. X and mail have their own
+    ingest jobs. A surface that fails is noted and skipped; the beat goes on."""
+    stamp = hand.state_dir() / "tick" / "moltbook.at"
+    try:
+        last = float(stamp.read_text().strip())
+    except (OSError, ValueError):
+        last = 0.0
+    if hand.now() - last < MOLTBOOK_EVERY_SECS:
+        return None
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(f"{hand.now():.0f}\n")
+    try:
+        code, out = _run_hand("moltbook", ["inbox"], None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+    return out if code == 0 else {"ok": False, **out}
+
+
 def _beat() -> Json:
+    browsed = browse()
     raised = stimuli.raise_due()
     batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
-        return {"ok": True, "idle": True, "raised": raised}
+        return {"ok": True, "idle": True, "raised": raised, "moltbook": browsed}
     message = render(items)
     thought, intents, last_error = "", None, ""
     for attempt in (1, 2):
