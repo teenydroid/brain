@@ -170,6 +170,35 @@ class DiaryTest(unittest.TestCase):
         code, again = self.run_diary()
         self.assertEqual((code, again["pushed"], again["changed"]), (0, 0, []), again)
 
+    def test_live_ignores_the_boxs_git_config_and_hooks(self):
+        # The image's or the operator's git config (a hook path, commit
+        # signing with no key) must not reach the diary's commit.
+        hooks = self.scratch / "hooks"
+        hooks.mkdir()
+        marker = self.scratch / "hook-ran"
+        (hooks / "pre-commit").write_text(f"#!/bin/sh\ntouch {marker}\n")
+        (hooks / "pre-commit").chmod(0o755)
+        box = self.scratch / "box.gitconfig"
+        box.write_text(f"[core]\n\thooksPath = {hooks}\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = /nonexistent\n")
+        os.environ["GIT_CONFIG_GLOBAL"] = str(box)
+        bare = self.remote()
+        self.secrets(f"DRY_RUN=0\nDIARY_REMOTE={bare}\nDIARY_GITHUB_TOKEN=fake-token-for-tests\n")
+        self.seed_monday()
+        code, out = self.run_diary()
+        self.assertEqual((code, out["ok"], out["pushed"]), (0, True, 1), out)
+        self.assertFalse(marker.exists(), "a hook from the box's git config ran")
+
+    def test_live_commits_as_the_configured_git_identity(self):
+        bare = self.remote()
+        self.secrets(f"DRY_RUN=0\nDIARY_REMOTE={bare}\nDIARY_GITHUB_TOKEN=fake-token-for-tests\n"
+                     "GIT_NAME=Teeny Droid\nGIT_EMAIL=teeny@example.com\n")
+        self.seed_monday()
+        code, out = self.run_diary()
+        self.assertEqual((code, out["ok"]), (0, True), out)
+        who = subprocess.run(["git", "--git-dir", str(bare), "log", "-1", "--format=%an <%ae>|%cn <%ce>", "main"],
+                             capture_output=True, text=True).stdout.strip()
+        self.assertEqual(who, "Teeny Droid <teeny@example.com>|Teeny Droid <teeny@example.com>")
+
     def test_live_needs_a_token(self):
         self.secrets(f"DRY_RUN=0\nDIARY_REMOTE={self.remote()}\n")
         code, out = self.run_diary()
