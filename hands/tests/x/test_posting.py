@@ -300,3 +300,47 @@ if __name__ == "__main__":
     import unittest
 
     unittest.main()
+
+
+class LinkBudgetTest(Posting):
+    """X bills a post carrying a URL $0.20 against $0.015 without, so link
+    posts and replies are capped per UTC day."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0"}
+
+    def record_link_post(self, post_id: str, at: float, kind: str = "post") -> None:
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, post_id, kind, "shipped it: github.com/teenydroid/thing", created_at=at)
+
+    def test_one_link_post_a_day_by_default_then_refused_without_calling_x(self):
+        publish.post({"text": "shipped: github.com/teenydroid/thing"})
+        self.record_link_post("101", T0)
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "and https://teeny.enamakel.com too"})
+        self.assertEqual(caught.exception.detail["rule"], "links")
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_without_a_link_is_never_counted_or_refused(self):
+        self.record_link_post("101", T0)
+        publish.post({"text": "gm tiny humans, v1.2 is out"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_the_cap_resets_at_midnight_utc(self):
+        self.record_link_post("101", T0)
+        self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
+        publish.post({"text": "new day: github.com/teenydroid/next"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_zero_forbids_link_posts(self):
+        self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "look: github.com/teenydroid"})
+        self.assertEqual(self.posted(), [])
+
+    def test_a_link_reply_counts_against_the_same_cap(self):
+        self.record_link_post("101", T0, kind="reply")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "www.example.com"})
+        self.assertEqual(caught.exception.detail["rule"], "links")
