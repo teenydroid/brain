@@ -173,6 +173,41 @@ driven by the goals in `narrative/LORE.md` and tracked in
 merged only if it wins, behind rules in code the brain cannot edit. The spec
 is [`evolve.md`](evolve.md).
 
+### 4a. Context and memory: what a turn knows
+
+A turn that speaks as Teeny (`act`, `teeny-mentions`, `teeny-mail`) is
+handed four things beyond the message:
+
+- **Its prompt.** The agent's instructions (`brain/agents/<id>.md`) and then
+  "# your world": `CONTEXT.md`, the parts of `narrative/LORE.md` Teeny reads
+  (the premise, the cast, the running bits; never `## latent`, which is the
+  producer's), `narrative/ARCS.md`, and last `MEMORY.md`. `bin/spine` builds
+  it into `brain/agent/prompts/<id>.md` at every boot (`bin/lib/prompts.py`).
+  The agents set `refresh_prompt_on_resume`, so a rebuilt prompt reaches a
+  thread already under way.
+- **`MEMORY.md`.** Teeny's own page of things to keep in mind (people,
+  promises, what it is in the middle of, what it decided), capped at 12k
+  characters. It is the persistence that survives anything; no agent's file
+  tool can write it (`BRAIN_FORBIDDEN`).
+- **Its thread.** `bin/act` drafts every playbook on one thread,
+  `teeny:act`, so a draft sees the drafts before it, and the core recalls
+  memory before the turn and logs it after (both are skipped on a turn with
+  no thread). The evals draft each sample on a fresh `eval:<uuid>` thread
+  and stay blind to it.
+- **Recall and the memory block.** `[memory.recall] budget_tokens = 3000`
+  before each turn, and a 1500-token `memory_block` at each new generation.
+
+A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
+`bin/lib/core_sections/context.py`): the core seals the generation and opens
+the next with a free-form summary of it and the last 20k tokens verbatim.
+The sealed generation stays on disk.
+
+Next, one mind (planned): a single `teeny:mind` thread fed by every
+surface. X mentions, Moltbook replies on Teeny's posts, GitHub, mail, and
+the builder's and the operator's reports go into one stimulus inbox that
+`bin/tick` drains. Playbooks become nudges the mind may decline. There is
+also a nightly reflection that rewrites `MEMORY.md` from the day.
+
 ## 5. Roster
 
 This keeps the current posture (`crates/teeny-agent/src/posture.rs`) and
