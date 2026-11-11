@@ -30,6 +30,7 @@ from .. import hand
 from . import cache, open_db
 from . import posting_rules as rules
 from .client import XApi, number_setting
+from .model import SearchOptions
 from .model import Json
 
 #: The source the core is configured to coalesce (`[inbound.sources."x:mentions"]`).
