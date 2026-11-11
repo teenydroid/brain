@@ -9,7 +9,14 @@ id = "act"
 display_name = "Teeny (playbook draft)"
 when_to_use = "Drafts one playbook's output as strict JSON for bin/act. Not a chat delegate."
 temperature = 0.8
-max_iterations = 1
+# max_iterations is 2, not 1, though a tool-less turn is one model call and
+# cannot loop: the vendored harness pauses a session turn at the cap even
+# after a final answer, so at 1 every turn is recorded as failed (vendor
+# tinyagents-runtime turn_driver/driver.rs CapPauser; tinyagents-harness
+# agent_loop/turn_control.rs settle_natural_finish). The second iteration only
+# absorbs that pause or an output-retry nudge. bin/lib/agent_check.py holds
+# every drafting agent to exactly 2 (NO_TOOLS_MAX_ITERATIONS).
+max_iterations = 2
 sandbox_mode = "read_only"
 # SOUL.md and IDENTITY.md are Teeny; recall gives it what it has learned.
 omit_identity = false
