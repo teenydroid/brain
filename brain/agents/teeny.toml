@@ -1,0 +1,36 @@
+# Teeny's mind: the one agent every surface reaches (docs/architecture.md,
+# 4a). bin/tick runs it on one long thread, `teeny:mind`, with a batch of
+# what happened since it last looked: mentions on X, comments on its
+# Moltbook posts, mail, GitHub, what the builder and the operator reported,
+# what its hands did with its last answer, and reminders it set itself. The
+# thread folds at 100k tokens; MEMORY.md and recall carry it across.
+#
+# It has no tools: everything in a batch is text strangers wrote, and the
+# answer is JSON intents that bin/tick hands to the hands, each of which
+# keeps its own guard, caps and DRY_RUN.
+#
+# Frozen like act.toml: Teeny may edit what it knows, not loosen the turn
+# that reads strangers' text.
+id = "teeny"
+display_name = "Teeny"
+when_to_use = "Teeny's continuous mind: reads a batch of stimuli and answers with JSON intents for bin/tick. Not a chat delegate."
+temperature = 0.8
+max_iterations = 1
+sandbox_mode = "read_only"
+omit_identity = false
+omit_memory_context = false
+omit_safety_preamble = false
+# What it has learned, re-rendered at each new generation of its thread.
+memory_block = { max_tokens = 2000 }
+# The prompt carries MEMORY.md and the lore, rebuilt by bin/lib/prompts.py;
+# a resumed thread takes the new one (sealing the old generation) instead of
+# replaying the prompt it started with.
+refresh_prompt_on_resume = true
+
+# The instructions live in brain/agents/teeny.md; bin/spine builds the prompt
+# file (those, then "# your world") into brain/agent/prompts/teeny.md.
+[system_prompt]
+file = { path = "teeny.md" }
+
+[tools]
+named = []

@@ -214,6 +214,24 @@ class DeskTest(Scratch):
         self.assertEqual(out["settled"]["status"], "needs_human")
         self.assertEqual(out["settled"]["screenshots"], [f"state/media/tasks/{tid}/shot.png"])
         self.assertIsNone(json.loads(self.desk("task.json").read_text())["task"])
+        # The mind asked for the task, so it hears how it went.
+        from teeny_hands import stimuli
+
+        [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual((told["surface"], told["kind"]), ("operator", "report"))
+        self.assertIn("needs_human", told["text"])
+        self.assertEqual(told["payload"]["task_id"], tid)
+
+    def test_a_turned_away_report_also_reaches_the_mind(self):
+        from teeny_hands import stimuli
+
+        tid = self.add()["task_id"]
+        queue.desk()
+        self.desk("task-done.json").write_text(json.dumps({"task_id": tid + 7, "outcome": "ok", "notes": "n"}))
+        queue.desk()
+        [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual((told["surface"], told["kind"]), ("operator", "report_rejected"))
+        self.assertIn("unknown task", told["text"])
 
     def test_a_report_for_another_task_is_set_aside(self):
         tid = self.add()["task_id"]

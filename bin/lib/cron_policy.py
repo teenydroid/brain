@@ -16,8 +16,8 @@ written here, in code it cannot edit:
   is a file in the brain's playbooks/; anything new it wants to do is a
   playbook over a hand, never a new script for cron to run;
 - no job fires more often than every MIN_GAP_MINUTES;
-- at most MAX_JOBS jobs in all, and at most MAX_ACT_RUNS_PER_DAY runs of
-  bin/act a day across every job;
+- at most MAX_JOBS jobs of the brain's own (the pinned ones do not count),
+  and at most MAX_ACT_RUNS_PER_DAY runs of bin/act a day across every job;
 - the pinned jobs (PINNED_TOML, frozen with the evals) are always merged in,
   and a brain job may not take one of their names;
 - an agent job (`agent = "..."` and `prompt = "..."` instead of `command`)
@@ -198,9 +198,11 @@ def load(cron_toml: Path, pinned_toml: Path | None, default_tz: str = "") -> lis
     taken = {j["name"] for j in pinned} & {j["name"] for j in jobs}
     if taken:
         raise PolicyError(f"{cron_toml}: {', '.join(sorted(taken))} is pinned in {pinned_toml} and cannot be redefined")
-    jobs += pinned
+    # The cap keeps the brain from flooding cron; the pinned jobs are the
+    # operator's and do not take room from it.
     if len(jobs) > MAX_JOBS:
         raise PolicyError(f"{cron_toml}: {len(jobs)} jobs; the most is {MAX_JOBS}")
+    jobs += pinned
     act_runs = sum(j["runs_per_day"] for j in jobs
                    if j["enabled"] and j["kind"] == "shell" and j["command"].startswith("bin/act "))
     if act_runs > MAX_ACT_RUNS_PER_DAY:

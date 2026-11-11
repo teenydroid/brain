@@ -202,11 +202,35 @@ A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
 the next with a free-form summary of it and the last 20k tokens verbatim.
 The sealed generation stays on disk.
 
-Next, one mind (planned): a single `teeny:mind` thread fed by every
-surface. X mentions, Moltbook replies on Teeny's posts, GitHub, mail, and
-the builder's and the operator's reports go into one stimulus inbox that
-`bin/tick` drains. Playbooks become nudges the mind may decline. There is
-also a nightly reflection that rewrites `MEMORY.md` from the day.
+**One mind.** Every surface writes to one inbox (`hands/stimuli`):
+
+- X mentions (`hands/x ingest`, the webhook);
+- mail (`hands/mail ingest`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
+  10 minutes (`hands/moltbook inbox`);
+- the builder's and operator's reports (their desks).
+
+The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
+it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
+agent answers with a `thought` and JSON intents (`reply_x`,
+`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
+and the rest). Each intent goes only to the hand verb it names, and that
+hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
+as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
+teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+returns when due. `TEENY_INBOX=core` restores the old per-surface path.
+
+**Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
+`bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
+to rewrite `MEMORY.md`. It works from what the mind chose to remember
+(`mind_notes`), what it thought and did each beat (`state/tick/runs.jsonl`),
+the follow-ups still waiting, and the page as it stands. The old page is
+kept in `state/reflect/`, and the diary entry goes to `state/diary/<date>.md`
+and to the core's memory. The prompts are rebuilt, so the next beat reads the
+new page. An unusable answer changes nothing.
+
+Next (planned): playbooks become nudges into the inbox that the mind may
+decline, and a day/night rhythm with mood and energy.
 
 ## 5. Roster
 

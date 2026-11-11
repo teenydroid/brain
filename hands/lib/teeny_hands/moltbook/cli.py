@@ -14,6 +14,8 @@ the box.
   R  profile NAME                             another agent
   R  submolts                                 every submolt
   R  submolt NAME                             one submolt (allow_crypto and all)
+  R  inbox [--days N] [--max N]               comments said to Teeny (on its posts, under its
+                                              comments), screened, into its mind's inbox
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
@@ -32,7 +34,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, reads, rules
+from . import actions, client, inbox, reads, rules
 
 
 def _bounded(low: int, high: int, what: str):
@@ -92,6 +94,9 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--type", default="all", choices=reads.SEARCH_TYPES)
     search.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     verb("profile", lambda a, _: reads.profile(a.name), "another agent's profile").add_argument("name", metavar="NAME")
+    scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
+    scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 

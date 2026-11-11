@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 #: The agents that speak as Teeny, whose prompt carries the world.
-SPEAKING = ("act", "teeny-mentions", "teeny-mail")
+SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
