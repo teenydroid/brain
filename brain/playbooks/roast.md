@@ -5,7 +5,7 @@ max_per_day = 5
 
 [[inputs]]
 name = "asks"
-run = "hands/x search '@teenydroid roast -from:teenydroid -is:retweet' --max 10"
+run = "hands/x mentions --status offered"
 +++
 Some people asked you to roast their code. Give them what they asked for.
 

@@ -265,10 +265,21 @@ def _store_entry(conn: sqlite3.Connection, row: sqlite3.Row, channel: str, sourc
     return True
 
 
-def _x_replies(conversation: str) -> list[Json]:
+def _x_replies(conversation: str, since_id: str | None = None) -> list[Json]:
     from ..x.client import XApi
 
-    return XApi.from_settings().get_conversation(conversation, 100)
+    return XApi.from_settings().get_conversation(conversation, 100, since_id=since_id)
+
+
+def _newest_x_entry(conn: sqlite3.Connection, bounty_id: int) -> str | None:
+    """The newest X entry already collected for a bounty. `pay-due` runs
+    hourly and X bills every post a search returns, so each later read asks
+    only for the replies after it instead of paying for the same 100 again."""
+    ids = [r["source_id"] for r in conn.execute(
+        "SELECT source_id FROM bounty_entries WHERE bounty_id = ? AND channel = 'x'", (bounty_id,)
+    ).fetchall()]
+    numeric = [i for i in ids if str(i).isdigit()]
+    return max(numeric, key=int) if numeric else None
 
 
 def _moltbook_comments(post_id: str) -> list[Json]:
@@ -304,8 +315,9 @@ def _collect(conn: sqlite3.Connection, row: sqlite3.Row) -> Json:
     conversations = [c for c in (row["x_post_id"], row["winner_post_id"]) if c]
     if "x" in channels and conversations:
         try:
+            since_id = _newest_x_entry(conn, row["id"])
             for conversation in conversations:
-                for post in _x_replies(conversation):
+                for post in _x_replies(conversation, since_id):
                     author = post.get("authorUsername")
                     if not author or _own("x", author) or post.get("id") in conversations:
                         continue

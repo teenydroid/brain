@@ -115,7 +115,8 @@ class DoneTest(Scratch):
         return queue.next_task()["task"]
 
     def test_each_outcome(self):
-        for outcome in queue.OUTCOMES:
+        # needs_code is not an end: CodeTest covers it.
+        for outcome in [o for o in queue.OUTCOMES if o != "needs_code"]:
             with self.subTest(outcome=outcome):
                 task = self.claimed()
                 out = queue.done({"task_id": task["task_id"], "outcome": outcome, "notes": "n"})
@@ -222,3 +223,93 @@ class DeskTest(Scratch):
         self.assertEqual(out["rejected"], "unknown task")
         self.assertEqual(json.loads(self.desk("task.json").read_text())["last_report_rejected"], "unknown task")
         self.assertEqual(queue.listing("claimed")["tasks"][0]["id"], tid)
+
+
+class CodeTest(Scratch):
+    """A site that mails Teeny a one-time code: the operator ends its run with
+    needs_code, and the next offer carries what arrived in Teeny's inbox."""
+
+    def setUp(self):
+        super().setUp()
+        self.asked: list[tuple[int, str]] = []
+        self.inbox: list[dict] = []
+        self._real = queue._mail_codes
+
+        def fake(minutes, domain):
+            self.asked.append((minutes, domain))
+            return {"found": list(self.inbox), "withheld_links": 0}
+
+        queue._mail_codes = fake
+        self.addCleanup(setattr, queue, "_mail_codes", self._real)
+        self.add()
+        self.task = queue.next_task()["task"]["task_id"]
+
+    def ask(self, **more):
+        body = {"task_id": self.task, "outcome": "needs_code", "notes": "it mailed me a code", "code_from": "moltbook.com",
+                **more}
+        return queue.done(body)
+
+    def at(self, seconds):
+        os.environ["TEENY_NOW"] = str(T0 + seconds)
+
+    def test_the_code_comes_back_on_the_next_offer(self):
+        self.assertEqual(self.ask()["status"], "pending")
+        self.inbox = [{"from": "noreply@moltbook.com", "subject": "Your code", "codes": ["482913"], "links": []}]
+        self.at(60)
+        offer = queue.next_task()
+        self.assertEqual(offer["task"]["task_id"], self.task)
+        self.assertTrue(offer["task"]["resumed"])
+        self.assertEqual(offer["task"]["mail_codes"][0]["codes"], ["482913"])
+        self.assertEqual(self.asked[-1][1], "moltbook.com")
+        self.assertIn("needs_code", offer["rules"])
+
+    def test_no_code_yet_leaves_it_waiting_then_hands_it_to_a_person(self):
+        self.ask()
+        self.at(60)
+        self.assertEqual(queue.next_task()["task"], None)
+        self.assertEqual(queue.listing()["tasks"][0]["status"], "pending")
+        self.at(queue.CODE_WAIT_SECONDS + 1)
+        queue.next_task()
+        row = queue.listing()["tasks"][0]
+        self.assertEqual(row["status"], "needs_human")
+        self.assertIn("no code", row["notes"])
+
+    def test_a_task_waits_for_a_code_twice_at_most(self):
+        for _ in range(2):
+            self.ask()
+            self.inbox = [{"from": "noreply@moltbook.com", "codes": ["111222"], "links": []}]
+            queue.next_task()
+        with self.assertRaises(hand.Refused):
+            self.ask()
+
+    def test_needs_code_names_a_domain(self):
+        with self.assertRaises(hand.HandError):
+            self.ask(code_from="not a domain")
+        with self.assertRaises(hand.HandError):
+            queue.done({"task_id": self.task, "outcome": "needs_code", "notes": "x"})
+        with self.assertRaises(hand.HandError):
+            queue.done({"task_id": self.task, "outcome": "ok", "notes": "x", "code_from": "moltbook.com"})
+
+    def test_mail_that_cannot_be_read_goes_to_a_person(self):
+        def broken(minutes, domain):
+            raise hand.HandError("AGENTMAIL_API_KEY is not set")
+
+        queue._mail_codes = broken
+        self.ask()
+        self.at(60)
+        queue.next_task()
+        row = queue.listing()["tasks"][0]
+        self.assertEqual(row["status"], "needs_human")
+        self.assertIn("AGENTMAIL_API_KEY", row["notes"])
+
+    def test_an_existing_table_gains_the_code_columns(self):
+        conn = hand.db()
+        conn.execute("DROP TABLE browser_tasks")
+        conn.execute("CREATE TABLE browser_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, goal TEXT NOT NULL,"
+                     " start_url TEXT NOT NULL, done_when TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', source TEXT,"
+                     " attempts INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, claimed_at REAL, finished_at REAL,"
+                     " notes TEXT, screenshots TEXT)")
+        conn.commit()
+        conn.close()
+        cols = {r[1] for r in queue.db().execute("PRAGMA table_info(browser_tasks)")}
+        self.assertTrue({"code_from", "code_asked_at", "code_waits"} <= cols)

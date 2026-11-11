@@ -100,6 +100,49 @@ def _offer(post: Json) -> None:
     )
 
 
+def _store(conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[str, int], now: float) -> None:
+    """One post into the queue, once: screened, or skipped when it is the
+    account's own or already answered."""
+    if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post["id"],)).fetchone():
+        return
+    status, note, hold_id = "pending", None, None
+    if post.get("authorId") == me["id"]:
+        status, note = "skipped", "own post"
+    elif conn.execute("SELECT 1 FROM x_replies WHERE in_reply_to = ? AND reply_id IS NOT NULL", (post["id"],)).fetchone():
+        status, note = "skipped", "already answered"
+    else:
+        verdict = _screen(post)
+        if verdict.kind != "allow":
+            status, note, hold_id = "held", verdict.reason, verdict.hold_id
+    conn.execute(
+        "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
+        " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            post["id"],
+            post.get("authorId"),
+            post.get("authorUsername"),
+            post.get("conversationId"),
+            post.get("createdAt"),
+            post["text"],
+            json.dumps(post, ensure_ascii=False),
+            status,
+            note,
+            hold_id,
+            now,
+            now,
+        ),
+    )
+    counts[status] += 1
+
+
+def _set_cursor(conn, name: str, since_id: str | None, now: float) -> None:
+    conn.execute(
+        "INSERT INTO x_cursor (name, since_id, at) VALUES (?, ?, ?)"
+        " ON CONFLICT(name) DO UPDATE SET since_id = excluded.since_id, at = excluded.at",
+        (name, since_id or "", now),
+    )
+
+
 def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None) -> Mapping[str, Any]:
     """Reads new mentions into the queue and offers every pending one. Safe to
     run at any time and twice at once (a lock), and it never answers anyone."""
@@ -112,51 +155,17 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         since_id = row["since_id"] if row else None
         page = x.mentions_page(me["id"], since_id=since_id, max_results=wanted)
         posts = page["posts"]
+        cache.remember(posts)
 
         counts = {status: 0 for status in STATUSES}
         now = hand.now()
         for post in sorted(posts, key=lambda p: int(p["id"])):
-            if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post["id"],)).fetchone():
-                continue
-            status, note, hold_id = "pending", None, None
-            if post.get("authorId") == me["id"]:
-                status, note = "skipped", "own post"
-            elif conn.execute(
-                "SELECT 1 FROM x_replies WHERE in_reply_to = ? AND reply_id IS NOT NULL", (post["id"],)
-            ).fetchone():
-                status, note = "skipped", "already answered"
-            else:
-                verdict = _screen(post)
-                if verdict.kind != "allow":
-                    status, note, hold_id = "held", verdict.reason, verdict.hold_id
-            conn.execute(
-                "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
-                " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    post["id"],
-                    post.get("authorId"),
-                    post.get("authorUsername"),
-                    post.get("conversationId"),
-                    post.get("createdAt"),
-                    post["text"],
-                    json.dumps(post, ensure_ascii=False),
-                    status,
-                    note,
-                    hold_id,
-                    now,
-                    now,
-                ),
-            )
-            counts[status] += 1
+            _store(conn, me, post, counts, now)
         # Every post the page brought back is stored, so the cursor can move:
         # a failed offer is retried from the row, not by reading X again.
         newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
         if newest:
-            conn.execute(
-                "INSERT INTO x_cursor (name, since_id, at) VALUES ('mentions', ?, ?)"
-                " ON CONFLICT(name) DO UPDATE SET since_id = excluded.since_id, at = excluded.at",
-                (newest, now),
-            )
+            _set_cursor(conn, "mentions", newest, now)
 
         offered, failed = 0, None
         if offer:

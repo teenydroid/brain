@@ -56,6 +56,20 @@ Replaces: `crates/teeny-x/*`, `teeny-agent/src/tools/{x,post}.rs`,
 stream are dropped in favour of polling, because there's no HTTP server to
 receive them. Bring them back only if a 5-minute poll proves too slow.
 
+### The webhook
+
+X also pushes mentions, replies and quotes to the account's webhook,
+`https://teeny.enamakel.com/api/webhooks/x` (registered with X, subscribed
+through the X Activity API to `post.mention.create`, `post.reply.create` and
+`post.quote.create` for the account). `bin/x-webhook`, the `xhook` service in
+`deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge, refuses
+any delivery whose `x-twitter-webhooks-signature` is not the HMAC-SHA256 of the
+body under `X_API_SECRET`, and queues each post about the account by somebody
+else into `x_mentions` exactly as `ingest` does (screened, unique on post id),
+for the next `ingest` to offer. Nothing is searched or billed per post, and it
+catches replies X's mentions timeline leaves out (2026-11-11: four of nine
+replies to the gm never came back from `/mentions`).
+
 ## `guard`: the content filter
 
 | Verb | | Does |
@@ -362,8 +376,8 @@ Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
 | Verb | | Does |
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed}, rules}`, or `{task: null}`. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human, notes, screenshots?}`. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, email?, mail_codes?}, rules}`, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?}`. `code_from` (a domain) goes with `needs_code` only. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done`, then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 
@@ -372,6 +386,15 @@ browser's checkpoint before any payment (which OpenHuman keeps whatever the
 unattended settings say), a login Teeny has no account for, a CAPTCHA,
 anything that asks for money or a secret. Money moves only through
 `hands/wallet`, never the browser. `browser_tasks`: one row per task.
+
+`needs_code` is for a site that mails Teeny a one-time code or a verification
+link. The task goes back to `pending` with `code_from`; the next `next` reads
+Teeny's inbox (`hands/mail codes`, mail from that domain since the task asked)
+and, once something has come, offers the task again, resumed, with
+`mail_codes` (`[{from, subject, codes, links}]`; links only when the guard's
+link allowlist passes them). Until then the task waits; after 15 minutes
+without a code, or when the inbox cannot be read, it ends `needs_human`. A
+task waits for a code twice at most (`rule: code_waits`).
 
 ## Why a desk, and not a hand the agent calls
 
