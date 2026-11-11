@@ -15,16 +15,14 @@ import re
 import subprocess
 from pathlib import Path
 
-from .. import hand
+from .. import git, hand
 from . import secretscan
 
 #: Where pushes go. `GITHUB_GIT_BASE` moves it (the tests' local remotes).
 GITHUB_GIT_BASE = "https://github.com"
-ASKPASS = Path(__file__).resolve().parent / "askpass"
 #: Files larger than this are not read for secrets; they are refused instead,
 #: because a push this hand cannot read is a push it cannot vouch for.
 MAX_SCAN_BYTES = 2 * 1024 * 1024
-TIMEOUT_SECONDS = 120.0
 
 _BRANCH = re.compile(r"^(?!-)(?!/)(?!.*\.\.)(?!.*//)(?!.*@\{)(?!.*\.lock$)(?!.*/$)[A-Za-z0-9._/-]{1,200}$")
 
@@ -57,33 +55,10 @@ def branch(value: object) -> str:
     return value
 
 
-def _env(token: str | None = None, user: str | None = None) -> dict[str, str]:
-    env = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": str(hand.state_dir()),
-        "LANG": "C",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_SYSTEM": os.devnull,
-        "GIT_TERMINAL_PROMPT": "0",
-    }
-    if token is not None:
-        env.update({"GIT_ASKPASS": str(ASKPASS), "TEENY_GH_ASKPASS_TOKEN": token, "TEENY_GH_ASKPASS_USER": user or ""})
-    return env
-
-
 def _git(cwd: Path, *args: str, token: str | None = None, user: str | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    argv = ["git", "-c", "credential.helper=", "-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false", *args]
-    done = subprocess.run(
-        argv, cwd=cwd, env=_env(token, user), capture_output=True, timeout=TIMEOUT_SECONDS, stdin=subprocess.DEVNULL
-    )
-    if check and done.returncode != 0:
-        detail = done.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
-        message = detail[0][:300]
-        if token:
-            message = message.replace(token, "***")
-        raise hand.HandError(f"git {args[0]} failed: {message}")
-    return done
+    # Sealed off from the box (teeny_hands.git); commits as `user`, the
+    # GitHub login, unless GIT_NAME / GIT_EMAIL say otherwise.
+    return git.run(cwd, *args, token=token, user=user, login=user, check=check)
 
 
 def is_repo(path: Path) -> bool:
@@ -147,23 +122,14 @@ def remote_url(owner: str, name: str) -> str:
 
 
 def commit_and_push(path: Path, owner: str, name: str, ref: str, message: str, token: str, user: str) -> str:
-    """Commits whatever is there (as `user`, with the noreply address) and
+    """Commits whatever is there (as git.identity(user): the login and its
+    noreply address unless GIT_NAME / GIT_EMAIL are set) and
     pushes HEAD to `ref` on owner/name. Never forces. Returns the commit."""
     if not is_repo(path):
         _git(path, "init", "-q", "-b", ref)
     _git(path, "add", "-A")
     if _git(path, "status", "--porcelain").stdout.strip():
-        _git(
-            path,
-            "-c",
-            f"user.name={user}",
-            "-c",
-            f"user.email={user}@users.noreply.github.com",
-            "commit",
-            "-q",
-            "-m",
-            message,
-        )
+        _git(path, "commit", "-q", "-m", message, user=user)
     if not _has_head(path):
         raise hand.Refused("there is nothing to push: the folder is empty", rule="empty")
     sha = _git(path, "rev-parse", "HEAD").stdout.decode().strip()
