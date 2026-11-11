@@ -110,6 +110,7 @@ class PromptsTest(unittest.TestCase):
             self.assertEqual(doc["system_prompt"], {"file": {"path": f"{agent}.md"}}, agent)
             self.assertTrue((REPO / "brain" / "agents" / f"{agent}.md").read_text().strip(), agent)
             self.assertEqual(doc["memory_block"], {"max_tokens": 1500}, agent)
+            self.assertIs(doc["refresh_prompt_on_resume"], True, agent)
 
     def test_the_real_brain_builds(self):
         with tempfile.TemporaryDirectory() as out:

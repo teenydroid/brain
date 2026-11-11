@@ -18,6 +18,10 @@ omit_memory_context = false
 omit_safety_preamble = false
 # What it has learned, re-rendered at each new generation of its thread.
 memory_block = { max_tokens = 1500 }
+# The prompt carries MEMORY.md and the lore, rebuilt by bin/lib/prompts.py;
+# a resumed thread takes the new one (sealing the old generation) instead of
+# replaying the prompt it started with.
+refresh_prompt_on_resume = true
 
 # The instructions live in brain/agents/teeny-mail.md; bin/spine builds the prompt
 # file (those, then "# your world": CONTEXT.md, the lore, the arcs) into
