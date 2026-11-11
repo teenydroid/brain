@@ -180,8 +180,8 @@ class DiaryTest(unittest.TestCase):
         (hooks / "pre-commit").chmod(0o755)
         box = self.scratch / "box.gitconfig"
         box.write_text(f"[core]\n\thooksPath = {hooks}\n[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = /nonexistent\n")
-        os.environ["GIT_CONFIG_GLOBAL"] = str(box)
         bare = self.remote()
+        os.environ["GIT_CONFIG_GLOBAL"] = str(box)
         self.secrets(f"DRY_RUN=0\nDIARY_REMOTE={bare}\nDIARY_GITHUB_TOKEN=fake-token-for-tests\n")
         self.seed_monday()
         code, out = self.run_diary()
