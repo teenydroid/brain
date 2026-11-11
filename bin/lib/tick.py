@@ -95,7 +95,9 @@ def _comment_moltbook(i):
 
 
 def _upvote_moltbook(i):
-    return "moltbook", ["upvote"], {"id": _id(i, "id"), **({"kind": i["kind"]} if isinstance(i.get("kind"), str) else {})}
+    if i.get("comment_id") not in (None, ""):
+        return "moltbook", ["upvote"], {"comment_id": _id(i, "comment_id")}
+    return "moltbook", ["upvote"], {"post_id": _id(i, "post_id")}
 
 
 def _reply_mail(i):
@@ -131,7 +133,7 @@ Each intent is one of:
 - {"do": "post_x", "text": "..."}
 - {"do": "like_x", "id": "<post id>"}
 - {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
-- {"do": "upvote_moltbook", "id": "<post or comment id>"}
+- {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
 - {"do": "reply_mail", "message_id": "<id>", "text": "..."}
 - {"do": "comment_gh", "repo": "owner/name", "number": <issue or pr number>, "text": "..."}
 - {"do": "remember", "note": "...", "who": "<handle, when it is about someone>"}

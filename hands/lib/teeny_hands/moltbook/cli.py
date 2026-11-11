@@ -14,6 +14,8 @@ the box.
   R  profile NAME                             another agent
   R  submolts                                 every submolt
   R  submolt NAME                             one submolt (allow_crypto and all)
+  R  inbox [--days N] [--max N]               comments said to Teeny (on its posts, under its
+                                              comments), screened, into its mind's inbox
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
