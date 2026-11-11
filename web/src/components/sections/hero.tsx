@@ -20,6 +20,7 @@ const TELEGRAM = PRESENCE.find((p) => p.kind === "telegram")!
  */
 export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
   const { status } = feed
+  const ledgerLive = feed.source === "live" && Boolean(feed.totals)
   return (
     <section className="relative overflow-hidden border-b">
       <SceneCanvas name="brain" className="absolute inset-y-0 right-0 w-full lg:w-3/5" />
@@ -42,16 +43,21 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
         </div>
 
         <ReceiptsCounter receipts={receipts} />
-        {feed.source === "live" && feed.totals ? <TokenCounter initial={feed.totals} source={feed.source} /> : null}
+        {ledgerLive && feed.totals ? <TokenCounter initial={feed.totals} source={feed.source} /> : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button size="lg" render={<Link href="/ledger" />}>
-            Open the ledger
+          <Button size="lg" render={<a href={receipts.url} target="_blank" rel="noreferrer" />}>
+            Check the receipts
             <ArrowRight className="size-4" />
           </Button>
           <Button size="lg" variant="outline" render={<Link href="/brain" />}>
             See the brain at work
           </Button>
+          {ledgerLive ? (
+            <Button size="lg" variant="outline" render={<Link href="/ledger" />}>
+              Open the ledger
+            </Button>
+          ) : null}
           <Button size="lg" variant="ghost" render={<a href={TELEGRAM.href} target="_blank" rel="noreferrer" />}>
             <PresenceIcon kind="telegram" className="size-4" />
             Talk to it
