@@ -35,8 +35,11 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
-ROOT = Path(os.environ.get("TEENY_ROOT") or Path(__file__).resolve().parents[2])
-sys.path.insert(0, str(ROOT / "hands" / "lib"))
+#: This checkout's code (bin/, hands/lib), and the root it runs over
+#: (state/, secrets/), which the tests move with TEENY_ROOT.
+CODE = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("TEENY_ROOT") or CODE)
+sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import hand, stimuli  # noqa: E402
 
@@ -52,7 +55,7 @@ Json = dict[str, Any]
 
 
 def _hands_dir() -> Path:
-    return Path(os.environ.get("TEENY_HANDS") or ROOT / "hands")
+    return Path(os.environ.get("TEENY_HANDS") or CODE / "hands")
 
 
 def _text(intent: Mapping[str, Any], key: str = "text") -> str:
@@ -234,7 +237,7 @@ def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     if os.environ.get("TEENY_MIND_LEARN", "1") != "0":
         # Into the core's memory too (CortexDB when it is on), so recall can
         # bring it back long after MEMORY.md has let it go.
-        oh = os.environ.get("TEENY_OH") or str(ROOT / "bin" / "oh")
+        oh = os.environ.get("TEENY_OH") or str(CODE / "bin" / "oh")
         params = {"text": f"about {who}: {note}" if who else note, "kind": "fact", "confidence": 0.7}
         proc = subprocess.run([oh, "memory_learn", json.dumps(params)], capture_output=True, text=True, timeout=60)
         learned = proc.returncode == 0
@@ -309,7 +312,7 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
 def ask(message: str) -> str:
     thread = os.environ.get("TEENY_MIND_THREAD") or "teeny:mind"
     proc = subprocess.run(
-        [str(ROOT / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
+        [str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
         input=message,
         capture_output=True,
         text=True,
