@@ -25,6 +25,15 @@
 #
 # A job that changes kind (shell to agent or back) is removed and added
 # again: the core cannot change a job's type in place.
+#
+# An enabled job whose next run is already more than REARM_GRACE_SECS in the
+# past is re-armed: its own schedule is patched back through `cron_update`,
+# which moves next_run to the next slot. On 2026-11-11 the box rebooted in the
+# middle of three runs; the dead process's claim on their slot outlived it
+# (the core holds a run's claim for two hours), so the scheduler skipped them
+# for over an hour after boot, and a restart did not help. Seeding runs at
+# every boot (bin/spine), so a job stuck that way runs again at its next slot;
+# the slot it missed is dropped, as cron drops any.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -34,6 +43,8 @@ file="$TEENY_BRAIN/cron.toml"
 pinned="$TEENY_ROOT/evals/cron.pinned.toml"
 dry_run=0
 check=0
+# A slot a minute or two past is one the scheduler is about to run.
+REARM_GRACE_SECS=120
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry_run=1 ;;
@@ -65,7 +76,7 @@ current="$(oh cron_list | jq -c '[.[] | select((.name // "") | startswith("teeny
    command: (if .job_type == "agent" then null else .command end),
    agent: (if .job_type == "agent" then .agent_id else null end),
    prompt: (if .job_type == "agent" then .prompt else null end),
-   enabled: (if .enabled == null then true else .enabled end)}]')"
+   enabled: (if .enabled == null then true else .enabled end), next_run: (.next_run // null)}]')"
 
 plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
   ($have | group_by(.name) | map({key: .[0].name, value: .}) | from_entries) as $byname
@@ -79,6 +90,17 @@ plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
   + [ $have | group_by(.name)[] as $g
       | if ([$want[].name] | index($g[0].name)) == null then $g[] | {op: "remove", id, job: .}
         else $g[1:][] | {op: "remove", id, job: .} end ]')"
+
+# The kept jobs whose next run is long past (an add or an update sets the
+# schedule, and with it next_run, anyway): [{id, name, next_run, job}].
+rearm="$(jq -cn --argjson plan "$plan" --argjson have "$current" --argjson grace "$REARM_GRACE_SECS" '
+  def epoch: try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) catch null;
+  [$plan[] | select(.op == "keep") | .job] as $kept
+  | [ $have | group_by(.name)[] | .[0] as $h
+      | ($kept[] | select(.name == $h.name)) as $w
+      | select($h.enabled and $h.next_run != null)
+      | select(($h.next_run | epoch) as $t | $t != null and $t < now - $grace)
+      | {id: $h.id, name: $h.name, next_run: $h.next_run, job: $w} ]')"
 
 schedule() { jq -c '{kind: "cron", expr: .expr, tz: .tz}' <<<"$1"; }
 # A shell job runs its command; an agent job runs its agent on its prompt, in
@@ -123,6 +145,13 @@ while IFS= read -r step; do
       ;;
   esac
 done < <(jq -c '.[]' <<<"$plan")
+
+while IFS= read -r stale; do
+  log "rearm $(jq -r .name <<<"$stale") (next_run was $(jq -r .next_run <<<"$stale"))"
+  [ "$dry_run" = 1 ] && continue
+  oh cron_update "$(jq -c --argjson s "$(schedule "$(jq -c .job <<<"$stale")")" \
+    '{job_id: .id, patch: {schedule: $s}}' <<<"$stale")" >/dev/null
+done < <(jq -c '.[]' <<<"$rearm")
 
 if [ "$dry_run" = 1 ]; then
   log "dry run: $changed change(s) not applied"
