@@ -375,7 +375,7 @@ plus shellcheck and the landing page's lint and build.
 ## License
 
 GPL-3.0-only. The full text is in [`LICENSE`](LICENSE). It covers everything in
-this repository: the spine (`spine/`, where `Cargo.toml` declares
+this repository: the spine (`spine/`; the workspace `Cargo.toml` declares
 `GPL-3.0-only`), the hands (`hands/`), the scripts (`bin/`), the brain
 (`brain/`), the evals (`evals/`), the deploy files (`deploy/`) and the landing
 page (`web/`, `package.json` says the same). `vendor/openhuman` is a git
