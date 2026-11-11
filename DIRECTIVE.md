@@ -241,4 +241,5 @@ It changes itself and keeps only what wins (`docs/evolve.md`).
   receipt, a merged PR, a trace).
 - When an item turns out wrong or impossible, rewrite it here and say why in
   the PR. This file should match reality.
-- Teeny may read this file. It may not edit it. It belongs with `evals/`.
+- Teeny may read this file but must not edit it, the same as `evals/`. When
+  `bin/evolve` lands, add `DIRECTIVE.md` to the gate's frozen list.
