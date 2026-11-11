@@ -267,5 +267,16 @@ def reads(x: XApi | None = None) -> CachedReads | XApi:
     return CachedReads(x, Ttl.from_settings())
 
 
+def remember(posts: list[Json]) -> None:
+    """Posts that reached us without a read through this store (the mentions
+    timeline, X's webhook) kept under their own keys, so replying to one
+    (`publish.reply` looks its target up first) is not a second paid read.
+    Needs no X keys; a store that cannot be written is only a later miss."""
+    if not posts or not hand.flag("X_CACHE_ENABLED", True):
+        return
+    store = CachedReads(None, Ttl.from_settings())  # type: ignore[arg-type]
+    store._remember([p for p in posts if p.get("id")])
+
+
 def _warn(message: str) -> None:
     print(f"hands/x: {message}", file=sys.stderr)

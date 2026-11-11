@@ -122,6 +122,7 @@ def queue_posts(posts: list[Json], me: Mapping[str, Any]) -> dict[str, int]:
     """Each post into `x_mentions` as the timeline's mentions go (screened,
     or skipped as own or answered), once; the next ingest offers them."""
     counts = {status: 0 for status in mentions.STATUSES}
+    cache.remember(posts)
     with hand.lock("x-ingest", timeout=60):
         conn = mentions._db()
         try:

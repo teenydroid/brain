@@ -155,6 +155,7 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         since_id = row["since_id"] if row else None
         page = x.mentions_page(me["id"], since_id=since_id, max_results=wanted)
         posts = page["posts"]
+        cache.remember(posts)
 
         counts = {status: 0 for status in STATUSES}
         now = hand.now()
