@@ -54,6 +54,17 @@ describe("receiptUrl", () => {
     expect(receiptUrl("wallet.paid", { signature: "short" })).toBeUndefined()
   })
 
+  it("links a payment to Solscan on the cluster it went out on, and an unknown cluster nowhere", () => {
+    const signature = "5".repeat(40) + "abcdefghijkmnopqrstuvwxyzABCDEFGH"
+    for (const cluster of ["mainnet", "mainnet-beta"]) {
+      expect(receiptUrl("wallet.paid", { signature, cluster })).toBe(`https://solscan.io/tx/${signature}`)
+    }
+    expect(receiptUrl("wallet.paid", { signature, cluster: "devnet" })).toBe(`https://solscan.io/tx/${signature}?cluster=devnet`)
+    for (const cluster of ["moonnet", undefined, "devnet&x=1", "toString"]) {
+      expect(receiptUrl("wallet.paid", { signature, cluster })).toBeUndefined()
+    }
+  })
+
   it("links a comment upvote nowhere, since its post is not in the receipt", () => {
     expect(receiptUrl("moltbook.upvote", { comment: "4cee8487-7368-4d0c-951e-cb583a10c2f9" })).toBeUndefined()
   })
