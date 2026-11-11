@@ -77,6 +77,27 @@ class JudgeTest(support.WithCore):
             self.core(support.result(reply))
             self.assertEqual(judge("gm", "inbound"), unreadable, reply)
 
+    def test_asks_once_more_when_an_answer_comes_back_cut_off(self):
+        # Seen on glm-5.3-flash through Surplus: about one answer in eight
+        # arrives without its opening (`": "...", "verdict": "clean"}`).
+        cut = support.result({"response": '": "a friendly greeting", "category": "none", "verdict": "clean"}'})
+        core = self.core(cut, support.verdict("clean", "none", "a greeting"))
+        self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a greeting"))
+        self.assertEqual(len(core.calls), 2)
+
+    def test_still_fails_closed_when_the_second_answer_is_unreadable_too(self):
+        cut = support.result({"response": '": "a friendly greeting", "verdict": "clean"}'})
+        core = self.core(cut, cut)
+        self.assertEqual(
+            judge("gm", "outbound"), JudgeVerdict("prohibited", "unknown", "the judge answered in an unreadable shape")
+        )
+        self.assertEqual(len(core.calls), 2)
+
+    def test_a_readable_answer_is_never_asked_twice(self):
+        core = self.core(support.verdict("prohibited", "sexual", "explicit"))
+        self.assertEqual(judge("x", "outbound").verdict, "prohibited")
+        self.assertEqual(len(core.calls), 1)
+
     def test_fails_closed_when_the_core_answers_with_an_error(self):
         self.core({"jsonrpc": "2.0", "id": 1, "error": {"code": -1, "message": "502 bad gateway"}})
         down = judge("gm", "inbound")
