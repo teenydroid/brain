@@ -74,12 +74,9 @@ MIN_SECRET = 12
 Json = dict[str, Any]
 
 
-class Refused(Exception):
-    """The secret gate said no."""
-
-
 def _tz() -> ZoneInfo:
-    return ZoneInfo(hand.setting("CALENDAR_TZ") or os.environ.get("CALENDAR_TZ") or DEFAULT_TZ)
+    # The same clock bin/reflect files its entries by.
+    return ZoneInfo(os.environ.get("CALENDAR_TZ") or DEFAULT_TZ)
 
 
 def _local(at: float) -> dt.datetime:
@@ -264,13 +261,13 @@ def secret_values() -> list[str]:
 
 
 def check_secrets(diff: str) -> None:
-    """Raises Refused if the diff carries a secret. Only added lines count."""
+    """Raises hand.Refused if the diff carries a secret. Only added lines count."""
     added = "\n".join(line[1:] for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
     if KEY_SHAPES.search(added):
-        raise Refused("something shaped like a key")
+        raise hand.Refused("something shaped like a key")
     for value in secret_values():
         if value in added:
-            raise Refused("a value from secrets/")
+            raise hand.Refused("a value from secrets/")
 
 
 # --- git ------------------------------------------------------------------------------------------------
@@ -292,7 +289,7 @@ def _git(repo: Path | None, *args: str, token: str | None = None) -> str:
     if done.returncode != 0:
         # git's message names the remote and the failing step; the token is
         # never in it (it only lives in the helper's environment).
-        raise hand.HandError("git failed", step=args[0], detail=(done.stderr or done.stdout).strip()[-400:])
+        raise hand.HandError(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()[-400:]}")
     return done.stdout
 
 
@@ -328,11 +325,11 @@ def publish(days: dict[str, Json]) -> Json:
         if changed:
             try:
                 check_secrets(_git(repo, "diff", "--cached", "--unified=0"))
-            except Refused as why:
+            except hand.Refused as why:
                 _git(repo, "reset", "-q")
                 _git(repo, "checkout", "-q", "--", ".")
                 _git(repo, "clean", "-qfd", "--", "days")
-                raise hand.HandError("refused: the diary carries a secret", why=str(why), files=changed) from None
+                raise hand.Refused("the diary carries a secret, nothing committed", why=why.reason, files=changed) from None
             stamp = _local(hand.now()).strftime("%Y-%m-%d")
             _git(repo, "commit", "-q", "-m", f"diary: {stamp}, {len(changed)} file(s)")
         ahead = int(_git(repo, "rev-list", "--count", f"origin/{branch}..HEAD").strip() or 0)
@@ -354,8 +351,11 @@ def main(argv: list[str]) -> int:
             return 0
         hand.emit({"ok": True, "dry_run": False, **publish(days)})
         return 0
+    except hand.Refused as refused:
+        hand.emit({"ok": False, "refused": refused.reason, **refused.detail})
+        return 2
     except hand.HandError as error:
-        hand.emit({"ok": False, "error": error.reason, **error.detail})
+        hand.emit({"ok": False, "error": str(error)})
         return 1
 
 
