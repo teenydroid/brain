@@ -116,6 +116,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
         rules.check_gap(conn)
+        rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, kind)
         x = x or XApi.from_settings()
@@ -172,6 +173,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)
         rules.check_pacing(conn)
+        rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, "reply", in_reply_to=to)
         if gif_id:
