@@ -56,6 +56,7 @@ LIMITS: dict[str, dict[str, int]] = {
     # A repo's description and a commit message are GitHub's too (hands/gh).
     "github": {"title": 256, "body": 20000, "description": 350, "message": 5000},
     "mail": {"subject": 200, "body": 10000},
+    "telegram": {"text": 4096},
 }
 
 # Where a title, a body or a subject is written rather than a post: the emoji
