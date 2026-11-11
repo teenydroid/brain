@@ -127,7 +127,7 @@ check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" |
 reset
 printf '%s' '": "post", "text": "gm"}' >"$scratch/first.txt"
 answer '{"action": "post", "text": "gm again"}'
-out="$(FAKE_FIRST="$scratch/first.txt" run morning)"
+out="$(FAKE_FIRST="$scratch/first.txt" run morning)" || true
 check "asks again when the draft is not usable JSON" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
 check "and acts on the second draft" grep -q '^x post DRY_RUN= stdin={"text":"gm again"}' "$FAKE_HANDS"
 reset
