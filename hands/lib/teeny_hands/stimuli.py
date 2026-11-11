@@ -3,9 +3,10 @@
 Every surface writes what happened here instead of each running its own
 scoped, amnesiac drafting turn: a mention on X, a comment on one of Teeny's
 Moltbook posts, a GitHub comment, mail, a builder or operator report, a
-playbook's nudge, what a hand did with Teeny's last answer, and a follow-up
-Teeny set itself. `bin/tick` drains a batch into the `teeny:mind` thread, so
-one conversation sees all of it in order.
+playbook's nudge, what a hand did with Teeny's last answer, a follow-up
+Teeny set itself, and the health check's alarm (bin/health). `bin/tick`
+drains a batch into the `teeny:mind` thread, so one conversation sees all
+of it in order.
 
 A stimulus is unique on (surface, kind, ref): adding the same event twice is
 a no-op, so a surface can re-scan freely.
@@ -31,7 +32,7 @@ from typing import Any, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world")
+SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health")
 STATUSES = ("pending", "taken", "done")
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000

@@ -48,6 +48,9 @@ class InboxTest(Scratch):
         self.assertFalse(stimuli.add("x", "mention", "111", "gm teeny again", who="ana"))
         self.assertEqual(stimuli.counts()["pending"], 1)
 
+    def test_the_health_check_is_a_surface(self):
+        self.assertTrue(stimuli.add("health", "alarm", "outage:1", "your model is not answering"))
+
     def test_one_ref_on_two_surfaces_is_two_events(self):
         stimuli.add("x", "mention", "7", "a")
         stimuli.add("moltbook", "comment", "7", "b")
