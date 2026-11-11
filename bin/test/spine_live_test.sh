@@ -95,6 +95,9 @@ class Model(BaseHTTPRequestHandler):
         # bin/eval: a draft for a task, and the judge comparing two.
         elif isinstance(last, str) and "# eval: " in last:
             answer = json.dumps({"text": "gm from an eval"})
+        # bin/tick: a beat of the mind; the thought names the beat it saw.
+        elif isinstance(last, str) and "# since you last looked" in last:
+            answer = json.dumps({"thought": "the stub thought about it", "intents": []})
         elif isinstance(last, str) and "# how to judge" in last:
             answer = json.dumps({"better": "tie", "breaks": {}, "notes": "the stub judged it"})
         if body.get("stream"):
@@ -268,6 +271,22 @@ check "the core's config folds a thread at 100k tokens" \
 check "a second run on the teeny:act thread sees the first exchange" \
   test "$(act_request | jq '[.messages[] | select(.role == "user") | .content | tostring | select(contains("# playbook: hello"))] | length')" -ge 2
 check "and the first draft in it" grep -q 'hello from a playbook' <<<"$(act_request | jq -c '[.messages[] | select(.role == "assistant")]')"
+# The mind: two beats of bin/tick on the one teeny:mind thread, the second
+# carrying the first.
+mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | tail -n 1; }
+(cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
+ticked="$("$root/bin/tick" 2>"$scratch/tick.log" || true)"
+check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"
+check "the core loaded the mind from brain/agents/" grep -q 'building session agent id=teeny ' "$scratch/spine.log"
+check "the mind's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools teeny)"
+check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "system") | .content | tostring] | join("\n")')"
+(cd "$root" && printf '{"surface": "moltbook", "kind": "comment", "ref": "live2", "text": "second thing", "who": "crab"}' | hands/stimuli add >/dev/null)
+"$root/bin/tick" >/dev/null 2>>"$scratch/tick.log" || true
+check "a second beat on teeny:mind remembers the first" \
+  grep -q 'gm teeny from the live test' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "user") | .content | tostring] | join("\n")')"
+if [ "$(jq -r .thought <<<"$ticked" 2>/dev/null)" != "the stub thought about it" ]; then
+  { echo "bin/tick said: $ticked"; tail -n 5 "$scratch/tick.log"; } >&2
+fi
 if [ "$(jq -r '.actions[0].result.noted' <<<"$acted" 2>/dev/null)" != "hello from a playbook" ]; then
   { echo "bin/act said: $acted"; tail -n 5 "$scratch/act.log"; tail -c 1500 "$root/state/act/hello/ask.err" 2>/dev/null; } >&2
 fi
