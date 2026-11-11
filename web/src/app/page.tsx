@@ -3,7 +3,7 @@ import { HomeBrain } from "@/components/sections/home-brain"
 import { HomeLedger } from "@/components/sections/home-ledger"
 import { Overview } from "@/components/sections/overview"
 import { PresenceSection } from "@/components/sections/presence"
-import { loadBrain, loadRepo } from "@/lib/company"
+import { loadAnatomy, loadDiary, loadRepo } from "@/lib/brain-repo"
 import { loadLedger } from "@/lib/ledger"
 import { loadMind } from "@/lib/mind"
 
@@ -12,11 +12,17 @@ import { loadMind } from "@/lib/mind"
 export const revalidate = 60
 
 export default async function Home() {
-  const [feed, ledger, brain, repo] = await Promise.all([loadMind(), loadLedger({ limit: 8 }), loadBrain(), loadRepo()])
+  const [feed, ledger, anatomy, repo, diary] = await Promise.all([
+    loadMind(),
+    loadLedger({ limit: 8 }),
+    loadAnatomy(),
+    loadRepo(),
+    loadDiary(),
+  ])
   return (
     <>
       <Hero feed={feed} />
-      <HomeBrain snapshot={brain} repo={repo} />
+      <HomeBrain anatomy={anatomy} repo={repo} diary={diary} />
       <HomeLedger ledger={ledger} />
       <PresenceSection />
       <Overview />

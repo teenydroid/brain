@@ -72,12 +72,12 @@ export interface LedgerFeed {
 /**
  * The two lanes the bot keeps: `mascot` is the account itself -- every reply,
  * chart, morning post, judge and critic call -- and `brain` is the
- * OpenCompany company that decides what the account is trying to do. The
+ * brain's own agents and scheduled playbooks. The
  * counter shows them as one figure; the ledger tells them apart by source.
  */
 export const LANE_META: Record<Lane, { name: string; blurb: string }> = {
   mascot: { name: 'the account', blurb: 'replies, charts, the morning post, the judge and the critic' },
-  brain: { name: 'the brain', blurb: 'the OpenCompany agents: scout, scribe, curator, orchestrator' },
+  brain: { name: 'the brain', blurb: 'the agents behind the playbooks and the scheduled jobs' },
 }
 
 export const LANES: Lane[] = ['mascot', 'brain']
