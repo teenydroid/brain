@@ -133,8 +133,11 @@ class Scratch(unittest.TestCase):
             "flowId": FLOW_ID, "authorizationUrl": AUTHORIZATION_URL, "pollCapability": POLL_CAPABILITY,
             "expiresAt": "2026-11-11T20:05:00.000Z", "pollAfterSeconds": poll_after,
         }, status=201)  # fmt: skip
-        # `when` runs under the fake's lock, so it reads `seen` directly.
-        polls = lambda: sum(1 for s in self.idp.seen if s.method == "POST" and s.path == "/v1/oauth/poll")  # noqa: E731
+        # `when` runs under the fake's lock, so it reads `seen` directly;
+        # polls are counted from now, so a second sign-in starts afresh.
+        count = lambda: sum(1 for s in self.idp.seen if s.method == "POST" and s.path == "/v1/oauth/poll")  # noqa: E731
+        before = count()
+        polls = lambda: count() - before  # noqa: E731
         self.idp.route("POST", "/v1/oauth/poll", {"error": "gone"}, status=410)
         self.idp.route("POST", "/v1/oauth/poll", {"status": "complete", "assertion": ASSERTION,
                        "assertionType": "SlopIdentity"}, when=lambda s: polls() == pending + 1)  # fmt: skip
