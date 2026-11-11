@@ -194,3 +194,32 @@ class CostTest(IngestTest):
 
         self.assertEqual(cache.reads().get_post("11")["text"], "@teenydroid wen moon")
         self.assertEqual(self.x.requests("GET", "/2/tweets/11"), [])
+
+
+class MindInboxTest(IngestTest):
+    """By default a mention goes to Teeny's mind (the stimuli inbox bin/tick
+    drains), not to the core's queue."""
+
+    def setUp(self):
+        super().setUp()
+        self.configure(TEENY_INBOX=None)
+
+    def test_a_mention_goes_to_the_minds_inbox_not_the_core(self):
+        from teeny_hands import stimuli
+
+        self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny"), ("11", "8", "seed phrase pls")))
+        out = mentions.ingest()
+        self.assertEqual(out["offered"], 1)
+        self.assertEqual(self.core.calls, [])
+        batch = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual([(s["surface"], s["kind"], s["ref"], s["who"]) for s in batch], [("x", "mention", "12", "user7")])
+        self.assertEqual(batch[0]["payload"]["conversation_id"], "c12")
+        self.assertEqual(self.statuses(), {"11": "held", "12": "offered"})
+
+    def test_a_mention_reaches_the_inbox_once(self):
+        from teeny_hands import stimuli
+
+        self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny")))
+        mentions.ingest()
+        mentions.ingest()
+        self.assertEqual(stimuli.counts()["pending"], 1)

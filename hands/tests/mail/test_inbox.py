@@ -107,6 +107,27 @@ class IngestTest(Scratch):
             inbox.mark("<m1@x>", "offered")
 
 
+class MindInboxTest(IngestTest):
+    """By default mail goes to Teeny's mind (the stimuli inbox bin/tick
+    drains), not to the core's queue."""
+
+    def setUp(self):
+        super().setUp()
+        self.configure(TEENY_INBOX=None)
+
+    def test_mail_goes_to_the_minds_inbox_not_the_core(self):
+        from teeny_hands import stimuli
+
+        self.inbox(message("<m1@x>", subject="idea", text="gm teeny, love the repo", thread="t-1", stamp="2026-09-14T06:00:00Z"))
+        out = inbox.ingest()
+        self.assertEqual(out["offered"], 1)
+        self.assertEqual(self.core.calls, [])
+        [got] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual((got["surface"], got["kind"], got["ref"]), ("mail", "message", "<m1@x>"))
+        self.assertEqual((got["payload"]["thread_id"], got["payload"]["subject"]), ("t-1", "idea"))
+        self.assertIn("love the repo", got["text"])
+
+
 class BuildRequestsTest(Scratch):
     def test_what_counts_as_an_ask(self):
         for text in ("build me a site", "Could you make a bot that tracks tides?", "can u build this", "feature request: dark mode",
