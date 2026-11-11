@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Teeny's public diary: build one page a day from the diary entry and the
+# ledgers, and push it to teenydroid/diary (bin/lib/diary.py). The pinned
+# `diary` job runs it after bin/reflect. Under DRY_RUN the pages go to
+# state/diary-preview/ instead.
+#
+#   bin/diary [--preview DIR]
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 git
+exec python3 "$TEENY_ROOT/bin/lib/diary.py" "$@"

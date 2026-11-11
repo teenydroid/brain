@@ -37,6 +37,15 @@ schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/reflect"
 
+# Teeny's public diary (bin/diary): the day's page, from the entry bin/reflect
+# just wrote and the ledgers of what it posted and shipped, pushed to
+# teenydroid/diary. Half an hour after reflect. Needs DIARY_GITHUB_TOKEN (or
+# GITHUB_TOKEN) with push to that repository; under DRY_RUN it only previews.
+[jobs.diary]
+schedule = "30 2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/diary"
+
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
 [jobs.stats-snapshot]

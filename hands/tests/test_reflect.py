@@ -144,6 +144,16 @@ class ReflectTest(unittest.TestCase):
         learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
         self.assertIn("ana is building something for crabs", learned[0]["text"])
 
+    def test_a_diary_written_after_midnight_is_filed_under_the_day_it_looks_back_on(self):
+        # The pinned job runs at 02:00 Kolkata: the entry is about the day
+        # that just ended, not the one that started two hours ago.
+        os.environ.update(CALENDAR_TZ="Asia/Kolkata", TEENY_NOW=str(1_789_417_800.0))  # 2026-09-15T02:00+05:30
+        self.answer({"memory": NEW_MEMORY, "diary": "a long monday."})
+        self.reflect()
+        filed = sorted(p.name for p in (self.root / "state" / "diary").glob("*.md"))
+        self.assertEqual(filed, ["2026-09-14.md"])
+        self.assertTrue((self.root / "state" / "diary" / "2026-09-14.md").read_text().startswith("# Monday 14 September 2026\n"))
+
     def test_a_page_too_long_or_empty_or_not_json_changes_nothing(self):
         before = (self.brain / "MEMORY.md").read_text()
         for bad in ({"memory": "x" * 20_000, "diary": "d"}, {"memory": "  ", "diary": "d"}, "i am tired", {"diary": "d"}):
