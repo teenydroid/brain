@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS x_replies (
     replied_at  REAL,
     note        TEXT
 );
+CREATE TABLE IF NOT EXISTS x_likes (
+    post_id  TEXT PRIMARY KEY,
+    liked_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS x_pacing (
     lane    TEXT PRIMARY KEY,
     last_at REAL NOT NULL,
@@ -234,6 +238,11 @@ def record_post(
         "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)), hand.now() if created_at is None else created_at),
     )
+
+
+def record_like(conn: sqlite3.Connection, post_id: str) -> None:
+    """The likes ledger: one row per post the account liked, the first time."""
+    conn.execute("INSERT OR IGNORE INTO x_likes (post_id, liked_at) VALUES (?, ?)", (post_id, hand.now()))
 
 
 # --- replies --------------------------------------------------------------------------------

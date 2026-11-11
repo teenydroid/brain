@@ -1,12 +1,19 @@
 """`like` and `unsay`: no guard (nothing is said), but DRY_RUN holds for both
-and unsay previews unless confirmed. Ported from the like/unsay cases of
+and unsay previews unless confirmed. A like that went out is written to the
+`x_likes` ledger, which bin/receipts reads. Ported from the like/unsay cases of
 crates/teeny-x/src/publisher_tests.rs and writes_tests.rs."""
 
 from __future__ import annotations
 
 from .support import Scratch, me
 from teeny_hands import hand
-from teeny_hands.x import publish
+from teeny_hands.x import posting_rules, publish
+
+
+def likes() -> list[dict]:
+    conn = hand.db()
+    posting_rules.ensure_schema(conn)
+    return [dict(r) for r in conn.execute("SELECT post_id, liked_at FROM x_likes")]
 
 
 class LikeTest(Scratch):
@@ -21,10 +28,23 @@ class LikeTest(Scratch):
         self.assertEqual(seen.json(), {"tweet_id": "77"})
         self.assertTrue(seen.is_oauth())
 
+    def test_a_like_that_went_out_is_ledgered_once(self):
+        self.at(1_789_358_400)
+        publish.like("77")
+        publish.like("77")
+        self.assertEqual(likes(), [{"post_id": "77", "liked_at": 1_789_358_400.0}])
+
     def test_a_dry_run_likes_nothing_and_asks_x_nothing(self):
         self.configure(DRY_RUN="1")
         self.assertEqual(publish.like("77"), {"dry_run": True, "would_like": "77"})
         self.assertEqual(self.x.requests(), [])
+        self.assertEqual(likes(), [])
+
+    def test_a_like_x_rejected_is_not_ledgered(self):
+        self.liked.status = 403
+        with self.assertRaises(hand.HandError):
+            publish.like("77")
+        self.assertEqual(likes(), [])
 
     def test_the_post_must_be_an_x_id(self):
         with self.assertRaises(hand.HandError):

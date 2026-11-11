@@ -421,7 +421,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
   ledger of Teeny's actions at `receipts/YYYY/MM/YYYY-MM-DD.jsonl`, with the
   head in `head.json`. Each line is checkable references (X post ids, Solana
   signatures, GitHub commits, Moltbook ids), a salted commitment to the
-  private ledger row, and the previous line's hash. It never holds text,
+  private ledger row, and the previous line's hash. Every surface is covered,
+  likes, upvotes, follows and subscriptions included; mail and Telegram
+  messages are a commitment alone, with nothing to say who or where. It never holds text,
   logs or the diary entry, so nothing the model read can reach it.
   `bin/receipts` (`bin/lib/receipts.py`, the daily `[jobs.receipts]`) builds
   it from the hands' ledgers with no model in the loop, refuses a published

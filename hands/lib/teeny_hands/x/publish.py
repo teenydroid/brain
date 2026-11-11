@@ -207,13 +207,19 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
 
 def like(post_id: str, x: XApi | None = None) -> Json:
     """Likes a post as the account. Nothing is said, so there is no guard;
-    under DRY_RUN nothing reaches X, not even "who am I"."""
+    under DRY_RUN nothing reaches X, not even "who am I". A like that went
+    out is written to `x_likes`."""
     if not rules.is_x_id(post_id):
         raise hand.HandError("the post to like must be a numeric X post id")
     if hand.dry_run():
         return {"dry_run": True, "would_like": post_id}
     x = x or XApi.from_settings()
     x.like_post(post_id, user_id=cache.reads(x).identity()["id"])
+    # The like is out: a ledger that cannot record it is logged, not raised.
+    try:
+        rules.record_like(_db(), post_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"hands/x: liked {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"liked": post_id}
 
 
