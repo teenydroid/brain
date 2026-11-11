@@ -107,7 +107,26 @@ export function RepoCard({ repo, compact = false }: { repo: RepoInfo; compact?: 
   )
 }
 
-/** The diary card: one page a day, the latest few when the index is there. */
+/** What a receipt kind reads as on the card. */
+const RECEIPT_LABEL: Record<string, string> = {
+  "x.post": "posted on x",
+  "x.reply": "replied on x",
+  "x.quote": "quoted on x",
+  "moltbook.post": "posted on moltbook",
+  "moltbook.comment": "commented on moltbook",
+  "github.push": "pushed a commit",
+  "github.open-pr": "opened a pull request",
+  "github.comment": "commented on github",
+  "github.create-repo": "made a repository",
+  "github.fork": "forked a repository",
+  "build.shipped": "shipped a build",
+  "wallet.paid": "paid from its wallet",
+  "bounty.opened": "opened a bounty",
+  "bounty.picked": "picked a bounty winner",
+  "mail.sent": "sent an email",
+}
+
+/** The receipts card: the chain's length and the latest few, each linked to where it can be checked. */
 export function DiaryCard({ diary, compact = false }: { diary: Diary; compact?: boolean }) {
   return (
     <Card className="gap-4">
@@ -119,26 +138,32 @@ export function DiaryCard({ diary, compact = false }: { diary: Diary; compact?: 
           <a href={diary.url} target="_blank" rel="noreferrer" className="font-mono hover:text-primary hover:underline underline-offset-4">
             {DIARY_REPO}
           </a>
+          {diary.head ? <Badge variant="outline">{diary.head} receipts</Badge> : null}
         </CardTitle>
         <CardDescription className="leading-relaxed">
-          The diary. One page a day: what it thought, what it posted, who it answered, what it said on Moltbook
-          and what it shipped, written at the end of each day.
+          The receipts. Every post, payment, commit and pull request, chained by hash and linked to where anyone can
+          check it. No logs and no text, so nothing it read can leak out through here.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {diary.days.length ? (
+        {diary.receipts.length ? (
           <ol className="flex flex-col divide-y">
-            {diary.days.slice(0, compact ? 3 : 5).map((day) => (
-              <li key={day.date} className="py-2 text-sm">
-                <a href={day.url} target="_blank" rel="noreferrer" className="font-mono hover:underline underline-offset-4">
-                  {day.date}
-                </a>
+            {diary.receipts.slice(0, compact ? 3 : 5).map((r) => (
+              <li key={r.seq} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline underline-offset-4">
+                    {RECEIPT_LABEL[r.kind] ?? r.kind}
+                  </a>
+                ) : (
+                  <span>{RECEIPT_LABEL[r.kind] ?? r.kind}</span>
+                )}
+                <span className="font-mono text-xs text-muted-foreground">#{r.seq} · {r.at.slice(0, 16).replace("T", " ")}Z</span>
               </li>
             ))}
           </ol>
         ) : null}
         <a href={diary.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          every day <ArrowUpRight className="size-3.5" />
+          every receipt <ArrowUpRight className="size-3.5" />
         </a>
       </CardContent>
     </Card>
@@ -378,8 +403,8 @@ export function BrainSection({ anatomy, repo, diary }: { anatomy: BrainAnatomy; 
               <RepoCard repo={repo} />
             </div>
             <div>
-              <Eyebrow>The diary</Eyebrow>
-              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">One page a day.</h2>
+              <Eyebrow>The receipts</Eyebrow>
+              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">Proof, not logs.</h2>
               <DiaryCard diary={diary} />
             </div>
           </div>

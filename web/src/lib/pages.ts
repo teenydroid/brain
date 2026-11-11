@@ -23,7 +23,7 @@ export const PAGES: PageMeta[] = [
     label: 'Brain',
     eyebrow: 'Brain',
     title: 'The part that decides what it is trying to do',
-    lede: 'A stock OpenHuman core, a handful of small programs that hold every key, and a brain made of plain files: who it is, what it remembers, its playbooks and its schedule. All of it is public, and so is the diary it keeps.',
+    lede: 'A stock OpenHuman core, a handful of small programs that hold every key, and a brain made of plain files: who it is, what it remembers, its playbooks and its schedule. All of it is public, and so are the receipts for everything it does.',
     scene: 'orbit',
   },
   {

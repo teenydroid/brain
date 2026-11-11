@@ -221,7 +221,7 @@ else
 fi
 
 # git commits as Teeny, sealed off from the box's config (hands/git): the
-# diary and every push depend on it.
+# receipts and every push depend on it.
 if [ -x "$root/hands/git" ]; then
   run "git" "$root/hands/git" check
 fi

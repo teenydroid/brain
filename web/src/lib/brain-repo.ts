@@ -1,6 +1,6 @@
 /**
  * The brain: Teeny as it runs today, read from its public repository
- * (teenydroid/brain) on GitHub, and its diary (teenydroid/diary).
+ * (teenydroid/brain) on GitHub, and its receipts (teenydroid/diary).
  *
  * Teeny is a stock OpenHuman core (spine/, vendor/openhuman), small programs
  * that hold every outside capability (hands/), and the files the core reads
@@ -308,34 +308,129 @@ export function describeSchedule(schedule: string, tz?: string): string {
 
 /* ------------------------------------------------------------------------ */
 
-export interface DiaryDay {
-  date: string
-  url: string
+export interface Receipt {
+  seq: number
+  at: string
+  kind: string
+  /** Where anyone can check it; undefined for a commitment-only receipt (mail). */
+  url?: string
 }
 
 export interface Diary {
   url: string
-  /** Newest first; empty when days/README.md is not there (yet) or unreachable. */
-  days: DiaryDay[]
+  /** The chain head's seq from head.json; undefined when there is none yet or GitHub is unreachable. */
+  head?: number
+  /** Newest first: the latest receipts from the last week's files. */
+  receipts: Receipt[]
+}
+
+const X_ID = /^\d{1,25}$/
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const REPO = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/
+const SHA = /^[0-9a-f]{7,40}$/
+const SOLANA_SIG = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/
+
+/** The public link for one receipt's ref. Every field is checked again here: the repository is public input. */
+export function receiptUrl(kind: string, ref: Record<string, unknown>): string | undefined {
+  const s = (key: string, pattern: RegExp) => {
+    const value = ref[key]
+    return typeof value === 'string' && pattern.test(value) ? value : undefined
+  }
+  const n = (key: string) => {
+    const value = ref[key]
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+  }
+  const repo = s('repo', REPO)
+  switch (kind) {
+    case 'x.post':
+    case 'x.reply':
+    case 'x.quote': {
+      const id = s('id', X_ID)
+      return id && `https://x.com/i/status/${id}`
+    }
+    case 'bounty.opened':
+    case 'bounty.picked': {
+      const id = s('x_post', X_ID)
+      return id && `https://x.com/i/status/${id}`
+    }
+    case 'moltbook.post': {
+      const id = s('id', SAFE_ID)
+      return id && `https://www.moltbook.com/post/${id}`
+    }
+    case 'moltbook.comment': {
+      const post = s('post', SAFE_ID)
+      return post && `https://www.moltbook.com/post/${post}`
+    }
+    case 'wallet.paid': {
+      const sig = s('signature', SOLANA_SIG)
+      const cluster = ref.cluster === 'devnet' || ref.cluster === 'testnet' ? `?cluster=${ref.cluster}` : ''
+      return sig && `https://solscan.io/tx/${sig}${cluster}`
+    }
+    case 'github.push':
+    case 'build.shipped': {
+      const sha = s('sha', SHA)
+      return repo && sha && `https://github.com/${repo}/commit/${sha}`
+    }
+    case 'github.open-pr': {
+      const number = n('number')
+      return repo && number ? `https://github.com/${repo}/pull/${number}` : undefined
+    }
+    case 'github.comment': {
+      const number = n('number')
+      const id = n('id')
+      return repo && number && id ? `https://github.com/${repo}/issues/${number}#issuecomment-${id}` : undefined
+    }
+    case 'github.create-repo':
+    case 'github.fork':
+      return repo && `https://github.com/${repo}`
+    default:
+      return undefined
+  }
+}
+
+/** One receipts file, newest receipt first; lines that are not well-formed receipts are skipped. */
+export function parseReceipts(text: string): Receipt[] {
+  const out: Receipt[] = []
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue
+    let entry: unknown
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!entry || typeof entry !== 'object') continue
+    const { seq, at, kind, ref } = entry as Record<string, unknown>
+    if (typeof seq !== 'number' || typeof at !== 'string' || typeof kind !== 'string' || !/^[a-z.-]{1,40}$/.test(kind)) continue
+    const url = ref && typeof ref === 'object' ? receiptUrl(kind, ref as Record<string, unknown>) : undefined
+    out.push({ seq, at, kind, url })
+  }
+  return out.reverse()
 }
 
 /**
- * Teeny's diary: one page a day at days/YYYY/MM/YYYY-MM-DD.md, indexed newest
- * first in days/README.md as `- [YYYY-MM-DD](YYYY/MM/YYYY-MM-DD.md)` lines.
- * No index means no days listed, only the link.
+ * Teeny's receipts: a hash-chained ledger at receipts/YYYY/MM/YYYY-MM-DD.jsonl
+ * (UTC days) with its head in head.json. Reads the last week's files, newest
+ * first. No head means nothing listed, only the link.
  */
 export async function loadDiary(limit = 5): Promise<Diary> {
-  const url = `${DIARY_REPO_URL}/tree/${BRANCH}/days`
-  const index = await raw(DIARY_REPO, 'days/README.md', 600)
-  if (!index) return { url, days: [] }
-  const days: DiaryDay[] = []
-  for (const match of index.matchAll(/^\s*[-*]\s*\[(\d{4}-\d{2}-\d{2})\]\(([^)\s]+\.md)\)/gm)) {
-    const path = match[2].replace(/^\.?\//, '')
-    if (path.includes('..') || /^[a-z]+:/i.test(path)) continue
-    days.push({ date: match[1], url: `${DIARY_REPO_URL}/blob/${BRANCH}/days/${path}` })
-    if (days.length >= limit) break
+  const url = `${DIARY_REPO_URL}/tree/${BRANCH}/receipts`
+  const headText = await raw(DIARY_REPO, 'head.json', 600)
+  let head: number | undefined
+  try {
+    const parsed = headText ? JSON.parse(headText) : undefined
+    head = typeof parsed?.seq === 'number' ? parsed.seq : undefined
+  } catch {
+    head = undefined
   }
-  return { url, days }
+  if (!head) return { url, head, receipts: [] }
+  const today = Date.now()
+  const dates = Array.from({ length: 7 }, (_, i) => new Date(today - i * 86_400_000).toISOString().slice(0, 10))
+  const files = await Promise.all(
+    dates.map((d) => raw(DIARY_REPO, `receipts/${d.slice(0, 4)}/${d.slice(5, 7)}/${d}.jsonl`, 600)),
+  )
+  const receipts = files.flatMap((text) => (text ? parseReceipts(text) : [])).slice(0, limit)
+  return { url, head, receipts }
 }
 
 /* ------------------------------------------------------------------------ */
