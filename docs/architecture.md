@@ -241,7 +241,11 @@ Every scheduled job is in one of two files:
   (`bin/mentions`, every 5 minutes), `mail-inbound` (`bin/mail`, every 5
   minutes), `tick` (`bin/tick`, every 5 minutes, two minutes after each
   ingest), `reflect` (`bin/reflect`, 02:00 IST), `stats-snapshot`,
-  `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`.
+  `builder`, `build-ship`, `operator`, `tasks-desk`, `bounty-pay` and
+  `health` (`bin/health`, every 15 minutes: asks the model one short
+  question through the core; two failures in a row raise one alarm, a
+  `health` stimulus and one issue on teenydroid/brain, closed when it
+  answers again).
 - **`brain/cron.toml`**, Teeny's own: the heartbeat, `morning`, `brief`, and
   the playbooks that are kept but off (`enabled = false`).
 

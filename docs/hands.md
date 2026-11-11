@@ -111,6 +111,8 @@ surface `github`) first, and what goes out is the guard's rewrite.
 | `open-pr` | A | `{repo, head, base, title, body}`. On somebody else's repo, `head` is Teeny's fork branch, the disclosure footer is appended (`—` / "opened by Teeny, an AI agent (github.com/teenydroid), operated by @senamakel. close it if it's not useful."), and it is refused (`rule`) when the day's `GH_MAX_EXTERNAL_PRS_PER_DAY` (2, UTC) are spent (`daily_cap`), when Teeny already has an open PR there (`open_pr`), or when `contributing` forbids AI (`contributing`). |
 | `comment` | A | `{repo, number, body}`. |
 | `fork` | A | `{repo}`, somebody else's. |
+| `open-issue` | A | `{repo, title, body}`, on an own repo only (`owner`). |
+| `close-issue` | A | `{repo, number, comment?}`, on an own repo only: the comment first, then the issue closed as completed. |
 
 Every acting verb under `DRY_RUN` answers `would_*` after every rule ran,
 with no write anywhere: GitHub, git or the ledger. Done actions are recorded
@@ -336,7 +338,9 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
 - the builder's and operator's desks: their reports;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
-  Teeny's own follow-ups as they come due.
+  Teeny's own follow-ups as they come due;
+- `bin/health`: `health · alarm` when the model has failed two checks in a
+  row, and `health · recovered` when it answers again.
 
 `TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
 instead, the old per-surface agents.

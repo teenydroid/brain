@@ -251,15 +251,15 @@ def _direction(surface: str | None) -> str:
     return {"narrative": NARRATIVE, "article": ARTICLE}.get(surface or "", OUTBOUND)
 
 
-def _screen_outbound(text: str, surface: str | None) -> tuple[LinkFilterResult, Held | None]:
-    """Links cut, then the lexicon and the judge on what is left: the text
-    with its links filtered, and why it is held (None when it is not). Writes
-    nothing; the caller records the hold."""
+def _screen_outbound(text: str, surface: str | None, judge: bool = True) -> tuple[LinkFilterResult, Held | None]:
+    """Links cut, then the lexicon and (unless `judge` is False) the judge on
+    what is left: the text with its links filtered, and why it is held (None
+    when it is not). Writes nothing; the caller records the hold."""
     links = filter_links(text, allowlist())
     cut = bool(links.removed)
     if cut:
         log.warning("safety: cut links from an outbound draft: %s", links.removed)
-    return links, _outbound_decision(links.text, cut, _direction(surface))
+    return links, _outbound_decision(links.text, cut, _direction(surface), judge)
 
 
 def gate_outbound(text: str, context: dict[str, Any] | None = None) -> OutboundResult:
@@ -301,7 +301,7 @@ def gate_outbound(text: str, context: dict[str, Any] | None = None) -> OutboundR
     return OutboundResult(held, links.text, fixes, hold_id)
 
 
-def _outbound_decision(cleaned: str, links_cut: bool, direction: str) -> Held | None:
+def _outbound_decision(cleaned: str, links_cut: bool, direction: str, judge: bool = True) -> Held | None:
     found = screen_text(cleaned, direction)
     if found is not None:
         log.warning("safety: outbound held by the screen (%s, %s)", found.category, found.term)
@@ -309,7 +309,7 @@ def _outbound_decision(cleaned: str, links_cut: bool, direction: str) -> Held | 
     # Nothing left to say once the links are gone is not a message to send.
     if links_cut and not any(c.isascii() and c.isalnum() for c in cleaned):
         return Held("links", "the draft was only a disallowed link", "links")
-    return _ask(cleaned, direction)
+    return _ask(cleaned, direction) if judge else None
 
 
 # --- what hands/x calls ------------------------------------------------------------
@@ -425,6 +425,7 @@ def check_fields(
     kind: str = "post",
     max_emoji: int | None = None,
     context: dict[str, Any] | None = None,
+    judge: bool = True,
 ) -> FieldsVerdict:
     """`check_outbound` for a draft of several fields, as GitHub, Moltbook
     and mail take them: every field gets the surface's hard limits (refused,
@@ -437,7 +438,14 @@ def check_fields(
 
     `fields` maps a field name the surface takes (`surface_fields`) to its
     text, in the order they are checked. `max_emoji` None is the surface's
-    default (`default_max_emoji`), applied to each field."""
+    default (`default_max_emoji`), applied to each field.
+
+    `judge=False` skips the model judge; the limits, the house style, the
+    links and the lexicon still run. It is for text a reviewed operator
+    script wrote from fixed sentences, never a model's or a stranger's
+    words, and only from Python: no verb on the command line sets it.
+    bin/lib/health.py uses it, because the alarm it files is about the
+    judge's own model not answering."""
     hold_context = _context(surface, context)
     if not fields:
         raise hand.HandError("check_fields needs at least one field")
@@ -474,7 +482,7 @@ def check_fields(
     removed: list[dict[str, str]] = []
     cut_in: str | None = None
     for name, value in styled.items():
-        links, held = _screen_outbound(value, surface)
+        links, held = _screen_outbound(value, surface, judge)
         if held is not None:
             hold_id = _record(
                 direction=OUTBOUND,

@@ -94,9 +94,10 @@ def _number(body: Mapping[str, Any], key: str) -> int:
 # --- the guard ---------------------------------------------------------------------------------
 
 
-def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any]) -> dict[str, str]:
-    """The guard's say on every field; the fields to publish when it allows."""
-    verdict = check_fields(dict(fields), surface="github", kind=kind, context=dict(context))
+def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any], judge: bool = True) -> dict[str, str]:
+    """The guard's say on every field; the fields to publish when it allows.
+    `judge=False` is `check_fields`'s: operator text only, never a verb's."""
+    verdict = check_fields(dict(fields), surface="github", kind=kind, context=dict(context), judge=judge)
     if verdict.kind == "allow" and isinstance(verdict.fields, dict) and set(verdict.fields) == set(fields):
         return dict(verdict.fields)
     if verdict.kind == "hold":
@@ -282,6 +283,47 @@ def comment(body: Any, gh: GitHubApi | None = None) -> Json:
     made = gh.comment(owner, name, number, text)
     _record("comment", repo, not is_own(owner), made.get("id"), number=number, url=made.get("html_url"))
     return {"commented": repo, "number": number, "html_url": made.get("html_url")}
+
+
+def _own_repo(value: Any, what: str) -> tuple[str, str, str]:
+    owner, name = split_repo(value)
+    repo = f"{owner}/{name}"
+    if not is_own(owner):
+        raise hand.Refused(f"Teeny {what} on its own repositories ({user()}/...) only, not {repo}", rule="owner")
+    return owner, name, repo
+
+
+def open_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
+    """`judge=False` is for an operator script's own fixed text (the health
+    alarm, bin/lib/health.py), never for anything the command line passes."""
+    body = _body(body, ("repo", "title", "body"))
+    owner, name, repo = _own_repo(body["repo"], "opens issues")
+    fields = guarded({"title": _string(body, "title"), "body": _string(body, "body")}, "issue", {"repo": repo}, judge)
+    if hand.dry_run():
+        return {"dry_run": True, "would_open_issue": repo, "title": fields["title"], "body": fields["body"]}
+    gh = gh or GitHubApi.from_settings()
+    opened = gh.open_issue(owner, name, fields["title"], fields["body"])
+    _record("open-issue", repo, False, opened.get("number"), url=opened.get("html_url"))
+    return {"opened_issue": repo, "number": opened.get("number"), "html_url": opened.get("html_url")}
+
+
+def close_issue(body: Any, gh: GitHubApi | None = None, *, judge: bool = True) -> Json:
+    """`judge=False` as in `open_issue`."""
+    body = _body(body, ("repo", "number"), ("comment",))
+    owner, name, repo = _own_repo(body["repo"], "closes issues")
+    number = _number(body, "number")
+    text = None
+    if "comment" in body:
+        text = guarded({"body": _string(body, "comment")}, "comment", {"repo": repo, "number": number}, judge)["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_close_issue": repo, "number": number, "comment": text}
+    gh = gh or GitHubApi.from_settings()
+    if text is not None:
+        made = gh.comment(owner, name, number, text)
+        _record("comment", repo, False, made.get("id"), number=number, url=made.get("html_url"))
+    closed = gh.close_issue(owner, name, number)
+    _record("close-issue", repo, False, number, url=closed.get("html_url"))
+    return {"closed_issue": repo, "number": number, "html_url": closed.get("html_url")}
 
 
 def fork(body: Any, gh: GitHubApi | None = None) -> Json:
