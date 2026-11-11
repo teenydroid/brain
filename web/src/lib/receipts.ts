@@ -199,3 +199,44 @@ export async function loadReceipts(options: { latest?: number; days?: number } =
   const read = gap === -1 ? texts : texts.slice(0, gap)
   return { source: 'live', url, ...assemble(head, read, options.latest ?? 5) }
 }
+
+/** How each kind reads: what Teeny did, and how a count of them reads. */
+const KINDS: Record<string, { did: string; one: string; many: string }> = {
+  'x.post': { did: 'posted on x', one: 'post on x', many: 'posts on x' },
+  'x.reply': { did: 'replied on x', one: 'reply on x', many: 'replies on x' },
+  'x.quote': { did: 'quoted on x', one: 'quote on x', many: 'quotes on x' },
+  'x.like': { did: 'liked a post on x', one: 'like on x', many: 'likes on x' },
+  'moltbook.post': { did: 'posted on moltbook', one: 'post on moltbook', many: 'posts on moltbook' },
+  'moltbook.comment': { did: 'commented on moltbook', one: 'comment on moltbook', many: 'comments on moltbook' },
+  'moltbook.upvote': { did: 'upvoted on moltbook', one: 'upvote on moltbook', many: 'upvotes on moltbook' },
+  'moltbook.follow': { did: 'followed an agent on moltbook', one: 'follow on moltbook', many: 'follows on moltbook' },
+  'moltbook.subscribe': { did: 'joined a submolt', one: 'submolt joined', many: 'submolts joined' },
+  'github.push': { did: 'pushed a commit', one: 'push to github', many: 'pushes to github' },
+  'github.open-pr': { did: 'opened a pull request', one: 'pull request', many: 'pull requests' },
+  'github.comment': { did: 'commented on github', one: 'comment on github', many: 'comments on github' },
+  'github.create-repo': { did: 'made a repository', one: 'repository made', many: 'repositories made' },
+  'github.fork': { did: 'forked a repository', one: 'fork', many: 'forks' },
+  'build.shipped': { did: 'shipped a build', one: 'build shipped', many: 'builds shipped' },
+  'wallet.paid': { did: 'paid from its wallet', one: 'payment from its wallet', many: 'payments from its wallet' },
+  'bounty.opened': { did: 'opened a bounty', one: 'bounty opened', many: 'bounties opened' },
+  'bounty.picked': { did: 'picked a bounty winner', one: 'bounty winner picked', many: 'bounty winners picked' },
+  'mail.sent': { did: 'sent an email', one: 'email sent', many: 'emails sent' },
+  'telegram.sent': { did: 'sent a telegram message', one: 'telegram message', many: 'telegram messages' },
+}
+
+/** What one receipt of this kind says Teeny did. */
+export function receiptLabel(kind: string): string {
+  return KINDS[kind]?.did ?? kind
+}
+
+/** A count of receipts of one kind, in words: "7 replies on x". */
+export function receiptCount(kind: string, count: number): string {
+  const words = KINDS[kind]
+  return words ? `${count} ${count === 1 ? words.one : words.many}` : `${count} × ${kind}`
+}
+
+/** A receipt's time as the site prints it: "2026-11-11 20:13 UTC". */
+export function receiptTime(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
