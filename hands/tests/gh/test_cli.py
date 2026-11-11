@@ -54,3 +54,10 @@ class CliTest(Scratch):
         self.gh.route("GET", "/user", {"message": "Bad credentials"}, status=401)
         code, out = self.run_gh("whoami")
         self.assertEqual((code, out["error"]), (1, "GitHub answered 401: Bad credentials"))
+
+    def test_the_issue_verbs(self):
+        self.configure(DRY_RUN="1")
+        code, out = self.run_gh("open-issue", body={"repo": "teenydroid/brain", "title": "t", "body": "b"})
+        self.assertEqual((code, out["would_open_issue"]), (0, "teenydroid/brain"))
+        code, out = self.run_gh("close-issue", body={"repo": "teenydroid/brain", "number": 3})
+        self.assertEqual((code, out["would_close_issue"], out["number"]), (0, "teenydroid/brain", 3))
