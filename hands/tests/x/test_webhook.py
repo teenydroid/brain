@@ -124,3 +124,11 @@ class WebhookTest(Scratch):
 
     def test_anything_else_is_not_found(self):
         self.assertEqual(self.receiver.handle("GET", "/health", {}, b"")[0], 404)
+
+    def test_replying_to_a_delivered_post_does_not_read_it_from_x(self):
+        self.post(event("post.reply.create", "612", "7", "@teenydroid gm"))
+        self.queued()
+        from teeny_hands.x import cache
+
+        stored = cache.CachedReads(None, cache.Ttl())._known_post("612")
+        self.assertEqual((stored["text"], stored["authorUsername"]), ("@teenydroid gm", "user7"))
