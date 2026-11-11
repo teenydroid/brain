@@ -12,7 +12,9 @@ needs; exits non-zero with the reason otherwise:
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
 - each scheduled agent has the tools its desk needs (it reads its work from
-  state/workbench/desk/ and writes its report there) and its role's own.
+  state/workbench/desk/ and writes its report there) and its role's own;
+- an agent whose prompt is a file has its instructions beside it
+  (brain/agents/<id>.md), which bin/lib/prompts.py builds the file from.
 """
 
 from __future__ import annotations
@@ -40,6 +42,11 @@ def check(path: Path) -> str:
     agent = doc["id"]
     named = (doc.get("tools") or {}).get("named")
     scheduled = doc.get("scheduled_actions", False)
+    source = doc.get("system_prompt")
+    if isinstance(source, dict) and "file" in source:
+        instructions = path.parent / f"{agent}.md"
+        if not instructions.is_file() or not instructions.read_text(encoding="utf-8").strip():
+            raise SystemExit(f"the {agent} agent's prompt is a file; its instructions belong in {instructions.name}")
     if agent in NO_TOOLS:
         if named != []:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
