@@ -259,11 +259,11 @@ def _summary(repo: str, pr: Mapping[str, Any]) -> Json:
     }
 
 
-def submissions(state: str, max_results: int) -> Json:
+def submissions(state: str, max_results: int, repo: str | None = None) -> Json:
     if state not in STATES:
         raise hand.HandError(f"--state is one of {', '.join(STATES)}")
     pid = client.project_id(None)
-    repos = _project_repos(pid, None)
+    repos = _project_repos(pid, repo)
 
     def fetch_all() -> list[Json]:
         found = []

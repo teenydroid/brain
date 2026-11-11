@@ -143,6 +143,12 @@ class SubmissionsTest(Scratch):
         query = self.gh.requests("GET", f"/repos/{REPO}/pulls")[0].query
         self.assertEqual((query["state"], query["per_page"]), ("all", "10"))
 
+    def test_repo_must_be_one_the_project_lists(self):
+        self.assertEqual(len(reads.submissions("all", 10, "TeenyDroid/Brain")["submissions"]), 2)
+        with self.assertRaises(hand.HandError):
+            reads.submissions("open", 5, "someone/else")
+        self.assertEqual(self.gh.requests("GET", "/repos/someone/else/pulls"), [])
+
     def test_max_caps_the_list(self):
         self.assertEqual([s["number"] for s in reads.submissions("open", 1)["submissions"]], [7])
 

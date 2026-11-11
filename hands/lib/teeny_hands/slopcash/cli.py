@@ -40,14 +40,6 @@ def _bounded(low: int, high: int, what: str):
     return parse
 
 
-def _submissions(args: argparse.Namespace, _: Any) -> Any:
-    out = reads.submissions(args.state, args.max)
-    if args.repo:
-        wanted = args.repo.lower()
-        out["submissions"] = [s for s in out["submissions"] if str(s.get("repo", "")).lower() == wanted]
-    return out
-
-
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="hands/slopcash", description="Teeny's project on slop.cash.")
     verbs = root.add_subparsers(dest="verb")
@@ -61,7 +53,7 @@ def parser() -> argparse.ArgumentParser:
     verb("job", lambda a, _: reads.job(a.id), "the listing as posted").add_argument("id", nargs="?", metavar="ID")
     verb("jobs", lambda a, _: reads.jobs(a.steward), "every project a steward has").add_argument("--steward", default=None)
     verb("revisions", lambda a, _: reads.revisions(a.id), "the revision history").add_argument("id", nargs="?", metavar="ID")
-    listing = verb("submissions", _submissions, "pull requests and Slopbot's reviews")
+    listing = verb("submissions", lambda a, _: reads.submissions(a.state, a.max, a.repo), "pull requests and Slopbot's reviews")
     listing.add_argument("--state", default="open", choices=reads.STATES)
     listing.add_argument("--max", type=_bounded(1, 100, "--max"), default=20)
     listing.add_argument("--repo", default=None)
