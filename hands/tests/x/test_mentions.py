@@ -171,3 +171,86 @@ class RequestsTest(IngestTest):
         self.assertEqual(self.statuses(), {"11": "held", "12": "skipped"})
         self.assertEqual(mentions.note_requests()["noted"], 0)
         self.assertEqual(self.requests(), [])
+
+
+SEARCH = "/2/tweets/search/recent"
+
+
+def replies(*posts: tuple[str, str, str], to: str = "1000", conversation: str = "500") -> dict:
+    """A search page of replies: (id, author id, text), all in `conversation`
+    and answering account `to`."""
+    data = [
+        {"id": i, "author_id": a, "text": t, "conversation_id": conversation, "in_reply_to_user_id": to}
+        for i, a, t in posts
+    ]
+    users = [{"id": a, "username": f"user{a}"} for _, a, _ in posts]
+    return {"data": data, "includes": {"users": users}, "meta": {"newest_id": posts[0][0] if posts else None}}
+
+
+class ReplySweepTest(IngestTest):
+    """X's mentions timeline leaves out some replies to the account's own
+    posts (seen 2026-11-11: four of nine replies to the gm never came back
+    from /mentions, while a conversation search found them). So ingest also
+    sweeps the replies under the account's recent posts."""
+
+    def own_post(self, post_id: str, age_hours: float = 1.0) -> None:
+        conn = hand.db()
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL,"
+            " in_reply_to TEXT, quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO x_posts (id, kind, text, created_at) VALUES (?, 'post', 'gm', ?)", (post_id, T0 - age_hours * 3600)
+        )
+
+    def test_replies_the_mentions_timeline_missed_are_queued(self):
+        self.own_post("500")
+        self.x.route("GET", MENTIONS, page(("512", "7", "@teenydroid nice")))
+        self.x.route("GET", SEARCH, replies(("511", "8", "@teenydroid welcome back"), ("512", "7", "@teenydroid nice")))
+        out = mentions.ingest()
+        self.assertEqual(self.statuses(), {"511": "offered", "512": "offered"})
+        self.assertEqual(out["swept"], 1)
+        (search,) = self.x.requests("GET", SEARCH)
+        self.assertEqual(search.query["query"], "conversation_id:500 -from:teenydroid")
+
+    def test_each_conversation_is_read_from_its_own_cursor(self):
+        self.own_post("500")
+        self.x.route("GET", MENTIONS, page())
+        self.x.route("GET", SEARCH, replies(("511", "8", "@teenydroid welcome back")))
+        mentions.ingest()
+        self.at(T0 + 16 * 60)
+        mentions.ingest()
+        first, second = self.x.requests("GET", SEARCH)
+        self.assertNotIn("since_id", first.query)
+        self.assertEqual(second.query["since_id"], "511")
+
+    def test_a_conversation_is_swept_at_most_every_fifteen_minutes(self):
+        self.own_post("500")
+        self.x.route("GET", MENTIONS, page())
+        self.x.route("GET", SEARCH, replies(("511", "8", "@teenydroid hi")))
+        mentions.ingest()
+        self.at(T0 + 5 * 60)
+        mentions.ingest()
+        self.assertEqual(len(self.x.requests("GET", SEARCH)), 1)
+
+    def test_only_recent_own_posts_are_swept(self):
+        self.own_post("400", age_hours=72)
+        self.x.route("GET", MENTIONS, page())
+        out = mentions.ingest()
+        self.assertEqual(self.x.requests("GET", SEARCH), [])
+        self.assertEqual(out["swept"], 0)
+
+    def test_people_talking_to_each_other_under_the_post_are_left_alone(self):
+        self.own_post("500")
+        self.x.route("GET", MENTIONS, page())
+        self.x.route("GET", SEARCH, replies(("511", "8", "@user9 lol same"), to="9"))
+        mentions.ingest()
+        self.assertEqual(self.statuses(), {})
+
+    def test_a_failed_sweep_does_not_stop_the_mentions(self):
+        self.own_post("500")
+        self.x.route("GET", MENTIONS, page(("12", "7", "gm teeny")))
+        self.x.route("GET", SEARCH, {"title": "Too Many Requests"}, status=429)
+        out = mentions.ingest()
+        self.assertEqual(self.statuses(), {"12": "offered"})
+        self.assertIn("sweep_error", out)
