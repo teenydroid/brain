@@ -5,7 +5,8 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
   post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
-  minutes drawing before they post), is refused. Posts an hour apart are the
+  minutes drawing before they post), is refused. Three hours by default:
+  brain/cron.toml spreads the day's own posts at least that far apart. Posts an hour apart are the
   repetitive-publishing shape the ranker demotes. Replies are never subject
   to it: they are conversations, not slots.
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
@@ -153,7 +154,7 @@ def record_media(
 def check_gap(conn: sqlite3.Connection) -> None:
     """Whether an own post may go out now. Run under the posting lock, so the
     answer still holds when the post is recorded."""
-    min_gap = number_setting("POST_MIN_GAP_HOURS", 7.0, 0.0, 48.0) * 3600.0
+    min_gap = number_setting("POST_MIN_GAP_HOURS", 3.0, 0.0, 48.0) * 3600.0
     tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
     last = conn.execute(
         "SELECT id, created_at FROM x_posts WHERE kind IN ('post', 'quote') ORDER BY created_at DESC LIMIT 1"

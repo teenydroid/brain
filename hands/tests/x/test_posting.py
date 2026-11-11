@@ -185,13 +185,13 @@ class GapTest(Posting):
         publish.post({"text": "chart"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_the_default_gap_is_seven_hours_less_twenty_minutes(self):
+    def test_the_default_gap_is_three_hours_less_twenty_minutes(self):
         self.configure(POST_MIN_GAP_HOURS=None)
         publish.post({"text": "gm"})
-        self.at(T0 + 7 * HOUR - 21 * MINUTE)
+        self.at(T0 + 3 * HOUR - 21 * MINUTE)
         with self.assertRaises(hand.Refused):
             publish.post({"text": "chart"})
-        self.at(T0 + 7 * HOUR - 19 * MINUTE)
+        self.at(T0 + 3 * HOUR - 19 * MINUTE)
         publish.post({"text": "chart"})
 
     def test_a_quote_is_an_own_post_and_keeps_the_gap(self):

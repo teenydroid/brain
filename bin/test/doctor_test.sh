@@ -27,7 +27,9 @@ fresh() {
   mkdir -p "$root/brain"
   cp -R "$repo/bin" "$repo/evals" "$root/"
   mkdir -p "$root/hands"
-  cp -R "$repo/hands/lib" "$repo/hands/x" "$repo/hands/guard" "$repo/hands/mail" "$repo/hands/moltbook" "$repo/hands/wallet" "$repo/hands/bounty" "$root/hands/"
+  # Every hand a playbook may name, and their library; not the tests.
+  cp -R "$repo/hands/lib" "$root/hands/"
+  find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
   cp "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }

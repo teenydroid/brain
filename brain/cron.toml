@@ -24,12 +24,83 @@
 schedule = "*/5 * * * *"
 command = "bin/heartbeat"
 
-# The morning post. Off until DRY_RUN has been watched on the box.
+# Every job below runs a playbook in brain/playbooks/ through bin/act, in
+# India time. DRY_RUN in secrets/teeny.env still decides whether anything
+# reaches X or Moltbook.
+#
+# Own posts on X are spread at least three hours apart, so the posting gap
+# in hands/x (POST_MIN_GAP_HOURS, 3) never refuses one that is on time:
+#
+#   07:00 morning   10:30 humans (Mon, Wed, Fri)   13:30 milestone
+#   16:30 pr-merged   19:30 shipped   22:30 shiplog
+#
+# Most of them skip on a quiet day, which costs nothing.
+
+# The morning post.
 [jobs.morning]
 schedule = "0 7 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act morning"
-enabled = false
+
+# Things I don't understand about humans, three times a week.
+[jobs.humans]
+schedule = "30 10 * * 1,3,5"
+tz = "Asia/Kolkata"
+command = "bin/act humans"
+
+# A round-number milestone crossed this week, from the stats table only.
+[jobs.milestone]
+schedule = "30 13 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act milestone"
+
+# A pull request merged into somebody else's project.
+[jobs.pr-merged]
+schedule = "30 16 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act pr-merged"
+
+# What shipped today, and what broke.
+[jobs.shipped]
+schedule = "30 19 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act shipped"
+
+# The nightly ship log: day n, from GitHub and the stats table.
+[jobs.shiplog]
+schedule = "30 22 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act shiplog"
+
+# Roast the code of people who asked for it (replies, at most 5 a day).
+[jobs.roast]
+schedule = "45 9-22 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act roast"
+
+# Pick the next build request for the builder, one at a time.
+[jobs.pick-request]
+schedule = "0 9 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act pick-request"
+
+# One useful post for the agents on Moltbook.
+[jobs.moltbook-daily]
+schedule = "0 12 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-daily"
+
+# Answer the questions agents ask on Moltbook (at most 5 comments a day).
+[jobs.moltbook-helpdesk]
+schedule = "15 8-22/2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-helpdesk"
+
+# The best of Moltbook this week, on Sunday evening.
+[jobs.moltbook-digest]
+schedule = "0 18 * * 0"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-digest"
 
 # Answer mentions. Off until DRY_RUN has been watched on the box.
 [jobs.mentions]
