@@ -309,6 +309,11 @@ no key: it reads each source through the hand that holds it.
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
 
+The newest snapshot is also public: `bin/receipts` writes its allowed metrics
+(whole numbers only, from a fixed list per source) to `stats/latest.json` and
+`stats/YYYY-MM-DD.json` in the receipts repository, next to `wallet.json`
+(the wallet's public address), for the website to read.
+
 ## `requests`: what people asked Teeny to build
 
 One list of build requests from every channel (`build_requests`, recorded by
