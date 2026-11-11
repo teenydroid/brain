@@ -4,6 +4,8 @@ remotes."""
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -165,6 +167,74 @@ class PushTest(Scratch):
         with self.assertRaises(hand.Refused) as caught:
             actions.push(self.body(message="this is fucking great"))
         self.assertEqual(caught.exception.reason, "held")
+
+
+class PushBranchTest(Scratch):
+    """A branch of a clone whose git directory lives under state/ (Teeny's
+    own clone, teeny_hands.build.selfclone), pushed for a pull request."""
+
+    def setUp(self):
+        super().setUp()
+        self.clone = self.root / "state" / "self" / "brain"
+        git("init", "-q", "-b", "main", str(self.clone))
+        self.commit({"README.md": "# brain\n", "fixture.py": "KEY = 'ghp_" + "f" * 36 + "'\n"}, "base")
+        git("-C", str(self.clone), "update-ref", "refs/remotes/origin/main", "HEAD")
+        git("-C", str(self.clone), "checkout", "-q", "-b", "teeny/briefer")
+        self.commit({"README.md": "# brain, briefer\n"}, "briefer")
+        self.remote_path = self.remote("teenydroid/brain")
+
+    def commit(self, files, message):
+        for rel, text in files.items():
+            (self.clone / rel).write_text(text)
+        git("-C", str(self.clone), "add", "-A")
+        git("-C", str(self.clone), "-c", "user.name=Teeny", "-c", "user.email=t@e", "commit", "-q", "-m", message)
+
+    def push(self, **more):
+        args = {"git_dir": self.clone / ".git", "repo": "teenydroid/brain", "branch": "teeny/briefer",
+                "since": "refs/remotes/origin/main", **more}
+        return actions.push_branch(**args)
+
+    def refused(self, rule, **more):
+        with self.assertRaises(hand.Refused) as caught:
+            self.push(**more)
+        self.assertEqual(caught.exception.detail.get("rule"), rule)
+        return caught.exception
+
+    def test_pushes_the_branch_and_records_it(self):
+        self.me()
+        out = self.push()
+        head = git("-C", str(self.clone), "rev-parse", "HEAD").strip()
+        self.assertEqual((out["pushed"], out["branch"], out["commit"]), ("teenydroid/brain", "teeny/briefer", head))
+        self.assertEqual(git("--git-dir", str(self.remote_path), "rev-parse", "teeny/briefer").strip(), head)
+        self.assertEqual([(r["verb"], r["ref"]) for r in ledger()], [("push", head)])
+
+    def test_only_a_teeny_branch_never_main(self):
+        git("-C", str(self.clone), "branch", "-q", "elsewhere")
+        for branch in ("main", "elsewhere"):
+            with self.subTest(branch=branch):
+                self.refused("branch", branch=branch)
+        self.assertEqual(self.gh.seen, [])
+
+    def test_only_to_an_own_repo_and_from_under_state(self):
+        self.refused("owner", repo="tinyhumansai/openhuman")
+        outside = Path(self.tmp.name) / "elsewhere"
+        outside.mkdir()
+        self.refused("git_dir", git_dir=outside)
+
+    def test_scans_what_the_branch_adds_not_what_main_already_has(self):
+        self.me()
+        self.push()  # the fixture on main is not this branch's to vouch for
+        self.commit({"config.py": "TOKEN = 'ghp_" + "b" * 36 + "'\n"}, "oops")
+        error = self.refused("secrets")
+        self.assertIn("config.py", [f["path"] for f in error.detail["findings"]])
+
+    def test_dry_run_pushes_nothing(self):
+        self.configure(DRY_RUN="1")
+        out = self.push()
+        self.assertEqual((out["dry_run"], out["would_push"], out["branch"]), (True, "teenydroid/brain", "teeny/briefer"))
+        self.assertIsNone(subprocess.run(["git", "--git-dir", str(self.remote_path), "rev-parse", "-q", "--verify",
+                                          "teeny/briefer"], capture_output=True, text=True).stdout.strip() or None)
+        self.assertEqual((self.gh.seen, ledger()), ([], []))
 
 
 class OpenPrTest(Scratch):

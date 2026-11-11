@@ -7,6 +7,8 @@ The rules:
 - Teeny creates and pushes to repositories it owns (`GITHUB_USER`) only, and
   pushes only from a folder under state/workbench/, and never anything that
   looks like a secret (`gitpush.scan`).
+- A branch of its own clone (`push_branch`) goes only to a teeny/* branch,
+  never main, so nothing Teeny pushes there is merged by pushing it.
 - A pull request to somebody else's repository carries DISCLOSURE, and is
   refused when that project's policy forbids AI contributions
   (`contributing`), when Teeny already has an open pull request there, or when
@@ -21,6 +23,7 @@ import json
 import re
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from .. import hand
@@ -43,6 +46,8 @@ DISCLOSURE = (
     " close it if it's not useful."
 )
 DEFAULT_MAX_EXTERNAL_PRS_PER_DAY = 2
+#: The only branches `push_branch` writes: a pull request's head, never main.
+PR_BRANCH_PREFIX = "teeny/"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS gh_actions (
@@ -208,6 +213,35 @@ def push(body: Any, gh: GitHubApi | None = None) -> Json:
     login = _own_identity(gh)
     with hand.lock(f"gh-push-{name.lower()}"):
         sha = gitpush.commit_and_push(path, owner, name, ref, message, hand.require("GITHUB_TOKEN"), login)
+    _record("push", repo, False, sha, branch=ref)
+    return {"pushed": repo, "branch": ref, "commit": sha}
+
+
+def push_branch(git_dir: str | Path, repo: str, branch: str, since: str, gh: GitHubApi | None = None) -> Json:
+    """Pushes BRANCH of the clone whose git directory is GIT_DIR (under
+    state/) to the same branch of an own repository, for a pull request. Only
+    a teeny/* branch, never forced, and refused when what it adds to SINCE
+    looks like a secret. In-process only (Teeny's own clone,
+    teeny_hands.build.selfclone): no verb takes a git directory."""
+    owner, name = split_repo(repo)
+    repo = f"{owner}/{name}"
+    if not is_own(owner):
+        raise hand.Refused(f"Teeny pushes only to its own repositories ({user()}/...), not {repo}", rule="owner")
+    ref = gitpush.branch(branch)
+    if not ref.startswith(PR_BRANCH_PREFIX):
+        raise hand.Refused(f"a clone's branch is pushed only as {PR_BRANCH_PREFIX}<name>, never {ref}", rule="branch")
+    path = Path(git_dir).resolve()
+    if hand.state_dir().resolve() not in path.parents:
+        raise hand.Refused("a clone's git directory lives under state/", rule="git_dir")
+    findings = gitpush.scan_branch(path, since, ref)
+    if findings:
+        raise hand.Refused("the push would publish what looks like a secret", rule="secrets", findings=findings)
+    if hand.dry_run():
+        return {"dry_run": True, "would_push": repo, "branch": ref, "commit": gitpush.head_of(path, ref)}
+    gh = gh or GitHubApi.from_settings()
+    login = _own_identity(gh)
+    with hand.lock(f"gh-push-{name.lower()}"):
+        sha = gitpush.push_ref(path, owner, name, ref, hand.require("GITHUB_TOKEN"), login)
     _record("push", repo, False, sha, branch=ref)
     return {"pushed": repo, "branch": ref, "commit": sha}
 

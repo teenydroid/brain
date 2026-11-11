@@ -133,3 +133,54 @@ def commit_and_push(path: Path, owner: str, name: str, ref: str, message: str, t
     sha = _git(path, "rev-parse", "HEAD").stdout.decode().strip()
     _git(path, "push", "-q", remote_url(owner, name), f"HEAD:refs/heads/{ref}", token=token, user=user)
     return sha
+
+
+# --- a branch of a clone (Teeny's own, teeny_hands.build.selfclone) ------------------------
+
+
+def _git_dir(git_dir: Path, *args: str, token: str | None = None, user: str | None = None,
+             check: bool = True) -> subprocess.CompletedProcess:
+    return git.run(git_dir, "--git-dir", str(git_dir), *args, token=token, user=user, check=check)
+
+
+def head_of(git_dir: Path, ref: str) -> str:
+    done = _git_dir(git_dir, "rev-parse", "--verify", "-q", f"refs/heads/{ref}^{{commit}}", check=False)
+    if done.returncode != 0:
+        raise hand.HandError(f"there is no branch {ref}")
+    return done.stdout.decode().strip()
+
+
+def _added_lines(patch: str) -> dict[str, str]:
+    """The lines a patch adds, by the file they went into."""
+    added: dict[str, list[str]] = {}
+    current = "(branch)"
+    for line in patch.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:]
+            current = target[2:] if target.startswith("b/") else target
+        elif line.startswith("+"):
+            added.setdefault(current, []).append(line[1:])
+    return {path: "\n".join(lines) for path, lines in added.items()}
+
+
+def scan_branch(git_dir: Path, since: str, ref: str) -> list[dict[str, str]]:
+    """Every finding in what pushing REF adds to SINCE: the paths it adds or
+    changes, and every line any of its commits adds (so a secret added and
+    removed again is still found: the history is published too). What SINCE
+    already has is not this push's to vouch for."""
+    head = f"refs/heads/{ref}"
+    names = _git_dir(git_dir, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=d",
+                     f"{since}...{head}").stdout.decode("utf-8", "replace")
+    patch = _git_dir(git_dir, "log", "-p", "--format=", "--unified=0", "--no-renames", f"{since}..{head}",
+                     "--").stdout.decode("utf-8", "replace")
+    findings = secretscan.scan(sorted({n for n in names.split("\0") if n}), _added_lines(patch))
+    return [item.as_dict() for item in findings]
+
+
+def push_ref(git_dir: Path, owner: str, name: str, ref: str, token: str, user: str) -> str:
+    """Pushes the branch REF to the same branch on owner/name. Never forces.
+    Returns the commit."""
+    sha = head_of(git_dir, ref)
+    _git_dir(git_dir, "push", "-q", remote_url(owner, name), f"refs/heads/{ref}:refs/heads/{ref}", token=token,
+             user=user)
+    return sha
