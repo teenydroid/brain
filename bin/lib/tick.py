@@ -337,43 +337,42 @@ def beat() -> Json:
 
 
 def _beat() -> Json:
-    if True:
-        raised = stimuli.raise_due()
-        batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
-        tick, items = batch["tick"], batch["stimuli"]
-        if not items:
-            return {"ok": True, "idle": True, "raised": raised}
-        message = render(items)
-        thought, intents, last_error = "", None, ""
-        for attempt in (1, 2):
-            try:
-                said = ask(message)
-            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                stimuli.release(tick)
-                out = {"ok": False, "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items)}
-                _record(out)
-                return out
-            try:
-                thought, intents = parse(said)
-                break
-            except ValueError as exc:
-                last_error = f"{exc}: {said[:300]}"
-        if intents is None:
+    raised = stimuli.raise_due()
+    batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
+    tick, items = batch["tick"], batch["stimuli"]
+    if not items:
+        return {"ok": True, "idle": True, "raised": raised}
+    message = render(items)
+    thought, intents, last_error = "", None, ""
+    for attempt in (1, 2):
+        try:
+            said = ask(message)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             stimuli.release(tick)
-            out = {"ok": False, "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items)}
+            out = {"ok": False, "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items)}
             _record(out)
             return out
-        results = carry_out(intents, tick)
-        stimuli.settle(tick)
-        out = {
-            "ok": True,
-            "tick": tick,
-            "stimuli": [{"surface": s["surface"], "kind": s["kind"], "ref": s["ref"]} for s in items],
-            "thought": thought,
-            "results": results,
-        }
+        try:
+            thought, intents = parse(said)
+            break
+        except ValueError as exc:
+            last_error = f"{exc}: {said[:300]}"
+    if intents is None:
+        stimuli.release(tick)
+        out = {"ok": False, "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items)}
         _record(out)
         return out
+    results = carry_out(intents, tick)
+    stimuli.settle(tick)
+    out = {
+        "ok": True,
+        "tick": tick,
+        "stimuli": [{"surface": s["surface"], "kind": s["kind"], "ref": s["ref"]} for s in items],
+        "thought": thought,
+        "results": results,
+    }
+    _record(out)
+    return out
 
 
 if __name__ == "__main__":
