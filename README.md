@@ -268,8 +268,10 @@ starts anywhere else.
 (`bin/lib/core_config.py` runs each module in `bin/lib/core_sections/`; each
 table is replaced whole): `[cron]` (a shell job may run 30 minutes),
 `[autonomy]`, `[browser]`, `[http_request]`, `[modules]` (TinyComputer and
-tinywallet from the spine's own executable), and `[context]` (when a thread
-folds). `bin/lib/wallet_config.py` writes `[wallet_policy]`.
+tinywallet from the spine's own executable), `[context]` (when a thread
+folds) and `[secrets]` (config secrets unencrypted, since a headless core has
+nobody to approve unlocking them). `bin/lib/wallet_config.py` writes
+`[wallet_policy]`.
 
 The spine writes these itself on first boot: `secrets/core.token` (the RPC
 bearer) and `secrets/openhuman.key` (the master key for every secret the core
