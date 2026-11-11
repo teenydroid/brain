@@ -35,3 +35,10 @@ target/
 __pycache__/
 *.pyc
 /brain/agent/
+
+# The core's file keyring (secrets, encrypted under secrets/openhuman.key)
+# and its lock, and stray build logs: never committed, even by a box-local
+# auto-commit.
+/brain/dev-keychain.json
+/brain/dev-keychain.json.lock
+/*.log
