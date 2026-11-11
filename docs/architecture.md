@@ -106,7 +106,7 @@ container. Configuration:
 
 Not used: desktop control (macOS and Windows only), flows, Composio, and
 OpenHuman's own `http_request` (it can't keep a secret out of the model's
-view). MCP is not used yet: `hands/mcp` (§5) waits on gap G11.
+view). MCP is not used yet: `hands/mcp` (§5) is unblocked since gap G11 was fixed upstream (openhuman#8654) but not built.
 
 ## 3. Hands
 
@@ -304,9 +304,9 @@ This was the simplest safe choice, and the one that works at this pin:
 - the file tools are ones both agents need anyway, scoped by OpenHuman's
   own path policy to the workbench;
 - the hand that acts on a report runs outside any model turn;
-- MCP (`hands/mcp`, the plan in §5) would be the cleaner call, but a serve
-  host drops every configured MCP server's tools when TinySecurity is on
-  (gap G11), so it waits.
+- MCP (`hands/mcp`, the plan in §5) would be the cleaner call. A serve host
+  used to drop every configured MCP server's tools when TinySecurity was on
+  (gap G11, fixed in openhuman#8654), so it is possible now but not built.
 
 **Configuration.** `bin/lib/core_config.py` runs every boot (after the
 inbound sources) and writes each module in `bin/lib/core_sections/` into
