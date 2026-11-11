@@ -52,7 +52,7 @@ class WebhookTest(Scratch):
     def queued(self) -> dict[str, str]:
         while not self.receiver.work.empty():
             webhook.queue_posts(self.receiver.work.get(), ME)
-        rows = hand.db().execute("SELECT id, status, author_username FROM x_mentions").fetchall()
+        rows = mentions._db().execute("SELECT id, status, author_username FROM x_mentions").fetchall()
         return {r["id"]: r["status"] for r in rows}
 
     def test_answers_the_crc_challenge(self):
