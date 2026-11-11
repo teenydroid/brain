@@ -13,6 +13,9 @@ What it promises, as hands/gh's client does:
 - A 429 is a `RestError` with `retry_after` (seconds) read from the
   `Retry-After` header or the body; the hand turns it into a refusal with the
   wait, and never retries a write itself.
+- A service that authenticates some other way (slop.cash's session cookie)
+  calls with `auth=False` and its own `headers`; `exchange` also hands back
+  the response headers (a `Set-Cookie`). Neither ever reaches a message.
 """
 
 from __future__ import annotations
@@ -100,27 +103,43 @@ class RestApi:
         query: Sequence[tuple[str, str]] = (),
         body: Any = None,
         auth: bool = True,
+        headers: Mapping[str, str] | None = None,
     ) -> Any:
         """One request; its JSON (an empty answer is {}). `auth` False sends
-        no key at all (Moltbook's registration)."""
+        no key at all (Moltbook's registration); `headers` are sent as well."""
+        return self.exchange(method, path, query, body, auth, headers)[0]
+
+    def exchange(
+        self,
+        method: str,
+        path: str,
+        query: Sequence[tuple[str, str]] = (),
+        body: Any = None,
+        auth: bool = True,
+        headers: Mapping[str, str] | None = None,
+    ) -> tuple[Any, Any]:
+        """`call`, and the response's headers (an `email.message.Message`)."""
         url = self._base + path
         if query:
             url += "?" + urllib.parse.urlencode(list(query))
-        headers = {"accept": "application/json", "user-agent": self._agent}
+        sent = {"accept": "application/json", "user-agent": self._agent}
+        sent.update({name.lower(): value for name, value in (headers or {}).items()})
         if auth:
             if not self._key:
                 raise hand.HandError(f"{self.name}: no API key")
-            headers["authorization"] = f"Bearer {self._key}"
+            sent["authorization"] = f"Bearer {self._key}"
         data = None
         if body is not None:
             data = json.dumps(body).encode()
-            headers["content-type"] = "application/json"
-        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            sent["content-type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=sent, method=method)
         failure: RestError | None = None
         text = b""
+        received: Any = None
         try:
             with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
                 text = response.read()
+                received = response.headers
         except urllib.error.HTTPError as exc:
             try:
                 error_body = exc.read()
@@ -142,11 +161,11 @@ class RestApi:
         if failure is not None:
             raise failure
         if not text:
-            return {}
+            return {}, received
         parsed = _parse(text)
         if parsed is None:
             raise RestError(f"{self.name} sent something unreadable")
-        return parsed
+        return parsed, received
 
 
 def quote(part: str) -> str:
