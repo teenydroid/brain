@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
   job_id      TEXT,
   path        TEXT,
   source_id   INTEGER REFERENCES media_assets (id),
+  purpose     TEXT NOT NULL DEFAULT 'post' CHECK (purpose IN ('post', 'video_frame')),
   cost_micro  INTEGER NOT NULL DEFAULT 0,
   estimated   INTEGER NOT NULL DEFAULT 1,
   error       TEXT,
@@ -116,7 +117,7 @@ def _check_caps(conn, kind: str, extra_micro: int) -> None:
     limit = hand.number(f"MEDIA_{kind.upper()}_MAX_PER_DAY", 8 if kind == "image" else 2, 0, 100)
     used = conn.execute(
         "SELECT COUNT(*) AS n FROM media_assets WHERE kind = ? AND status != 'failed' AND created_at >= ?"
-        + (" AND source_id IS NULL" if kind == "image" else ""),
+        + (" AND purpose = 'post'" if kind == "image" else ""),
         (kind, hand.day_start()),
     ).fetchone()["n"]
     if used >= limit:
@@ -166,11 +167,11 @@ def _image_estimate(api: Surplus, model: str) -> int:
     return int(round(price))
 
 
-def _insert(conn, kind: str, prompt: str, source_id: int | None = None) -> int:
+def _insert(conn, kind: str, prompt: str, source_id: int | None = None, purpose: str = "post") -> int:
     with hand.transaction(conn):
         return conn.execute(
-            "INSERT INTO media_assets (kind, status, prompt, source_id, created_at) VALUES (?, 'pending', ?, ?, ?)",
-            (kind, prompt, source_id, hand.now()),
+            "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, created_at) VALUES (?, 'pending', ?, ?, ?, ?)",
+            (kind, prompt, source_id, purpose, hand.now()),
         ).lastrowid
 
 
@@ -182,7 +183,7 @@ def _finish(conn, asset_id: int, **fields: Any) -> None:
 
 
 def _public(row) -> Json:
-    out = {k: row[k] for k in ("id", "kind", "status", "prompt", "model", "path", "error")}
+    out = {k: row[k] for k in ("id", "kind", "status", "purpose", "prompt", "model", "path", "error")}
     out["cost_usd"] = round(row["cost_micro"] / 1e6, 6)
     out["cost_estimated"] = bool(row["estimated"])
     if row["source_id"]:
@@ -193,10 +194,7 @@ def _public(row) -> Json:
 def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
     """One still: a pending row, each model in turn, the file. Caps checked
     before the first call; for a video's start frame the video's caps hold."""
-    asset_id = _insert(conn, "image", prompt, None)
-    if source_of:
-        with hand.transaction(conn):
-            conn.execute("UPDATE media_assets SET error = ? WHERE id = ?", (f"start frame for a {source_of}", asset_id))
+    asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post")
     reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
     if not reference_path.is_file():
         _finish(conn, asset_id, status="failed", error=f"no reference image at {reference_path.name}")
@@ -240,7 +238,6 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
             path=str(path.relative_to(hand.root())),
             cost_micro=estimate,
             estimated=1,
-            error=None if not source_of else f"start frame for a {source_of}",
         )
         return _public(conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone())
     _finish(conn, asset_id, status="failed", error="; ".join(tried)[:1000] or "no image model configured")
