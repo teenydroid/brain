@@ -64,6 +64,11 @@ describe("the hero", () => {
     expect(shown).not.toMatch(/tokens teeny has burned|last known figure|model calls/)
     expect(shown).toContain("7 replies on x")
   })
+
+  it("does not lead with the ledger while the ledger is unreachable", () => {
+    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    expect(html).not.toContain('href="/ledger"')
+  })
 })
 
 describe("the ledger page", () => {
