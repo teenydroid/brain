@@ -150,6 +150,7 @@ a link post's `url` must be on the link allowlist.
 | `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N]` | R | `/posts`, or `/submolts/S/feed` (5 min). |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
+| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. Each one is screened by the inbound guard, and a held one is not added. Run by `bin/tick` at most every 10 minutes. |
 | `post` | A | `{submolt, title, body?, url?, type?}` (with no `ID`, stdin is the post). |
 | `comment` | A | `{post_id, body, parent_id?}`. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |

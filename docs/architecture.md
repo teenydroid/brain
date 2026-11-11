@@ -202,11 +202,26 @@ A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
 the next with a free-form summary of it and the last 20k tokens verbatim.
 The sealed generation stays on disk.
 
-Next, one mind (planned): a single `teeny:mind` thread fed by every
-surface. X mentions, Moltbook replies on Teeny's posts, GitHub, mail, and
-the builder's and the operator's reports go into one stimulus inbox that
-`bin/tick` drains. Playbooks become nudges the mind may decline. There is
-also a nightly reflection that rewrites `MEMORY.md` from the day.
+**One mind.** Every surface writes to one inbox (`hands/stimuli`):
+
+- X mentions (`hands/x ingest`, the webhook);
+- mail (`hands/mail ingest`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
+  10 minutes (`hands/moltbook inbox`);
+- the builder's and operator's reports (their desks).
+
+The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
+it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
+agent answers with a `thought` and JSON intents (`reply_x`,
+`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
+and the rest). Each intent goes only to the hand verb it names, and that
+hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
+as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
+teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
+returns when due. `TEENY_INBOX=core` restores the old per-surface path.
+
+Next (planned): playbooks become nudges into the inbox that the mind may
+decline. A nightly reflection rewrites `MEMORY.md` from the day's notes.
 
 ## 5. Roster
 
