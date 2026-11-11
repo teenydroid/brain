@@ -236,6 +236,7 @@ cat >"$root/brain/playbooks/hello.md" <<'MD'
 +++
 description = "say hello, for the live test"
 output = "none"
+max_per_day = 5
 +++
 Say hello.
 MD
@@ -259,11 +260,10 @@ act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
 check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
 check "and MEMORY.md" grep -q 'the blue crayon is under the kettle' <<<"$(act_system)"
-check "but never the producer's latent reveals" bash -c '! grep -q "senamakel-is-asleep" <<<"$1"' _ "$(act_system)"
+if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
 config_toml="$root/.openhuman/config.toml"
 check "the core's config folds a thread at 100k tokens" \
   python3 -c 'import sys, tomllib; c = tomllib.load(open(sys.argv[1], "rb"))["context"]; sys.exit(c["compaction_trigger_tokens"] != 100000 or c["compaction_strategy"] != "summary")' "$config_toml"
-rm -f "$root/state/act/hello/day" 2>/dev/null || true
 "$root/bin/act" hello >/dev/null 2>>"$scratch/act.log" || true
 check "a second run on the teeny:act thread sees the first exchange" \
   test "$(act_request | jq '[.messages[] | select(.role == "user") | .content | tostring | select(contains("# playbook: hello"))] | length')" -ge 2
