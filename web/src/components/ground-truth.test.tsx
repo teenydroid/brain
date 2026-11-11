@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest"
 import { ReceiptsCounter } from "@/components/receipts-counter"
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
+import { HomeNumbers } from "@/components/sections/home-numbers"
 import { Ledger } from "@/components/sections/ledger"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import type { LedgerFeed } from "@/lib/ledger"
 import type { MindFeed } from "@/lib/mind"
 import { PRESENCE } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
+import type { Stats } from "@/lib/stats"
+import type { Wallet } from "@/lib/wallet"
 
 /** The visible text of some markup, tags dropped. */
 function text(html: string): string {
@@ -94,8 +97,67 @@ describe("the brain on the front page", () => {
   })
 })
 
+const OWN = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+const STATS: Stats = {
+  source: "live",
+  url: "https://github.com/teenydroid/diary/blob/main/stats/latest.json",
+  date: "2026-11-12",
+  stats: [
+    { source: "x", metric: "followers", value: 1234 },
+    { source: "moltbook", metric: "karma", value: 77 },
+    { source: "github", metric: "stars", value: 9 },
+  ],
+}
+const WALLET: Wallet = {
+  source: "live",
+  address: OWN,
+  cluster: "mainnet",
+  url: `https://solscan.io/account/${OWN}`,
+  sol: "2.5",
+  usdc: "7",
+}
+
+describe("the numbers on the front page", () => {
+  it("shows each published metric with the day it was read", () => {
+    const shown = text(renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={WALLET} />))
+    expect(shown).toContain("1,234")
+    expect(shown).toContain("followers on x")
+    expect(shown).toContain("karma on moltbook")
+    expect(shown).toContain("stars on github")
+    expect(shown).toContain("as of 2026-11-12")
+  })
+
+  it("shows no stat number when the snapshot is not published or cannot be read", () => {
+    for (const source of ["missing", "unavailable"] as const) {
+      const html = renderToStaticMarkup(<HomeNumbers stats={{ source, url: STATS.url }} wallet={{ source: "unpublished" }} />)
+      expect(text(html)).not.toMatch(/\d/)
+    }
+  })
+
+  it("links the wallet's address to Solscan and shows what it holds", () => {
+    const html = renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={WALLET} />)
+    expect(html).toContain(`href="https://solscan.io/account/${OWN}"`)
+    expect(text(html)).toContain(OWN)
+    expect(text(html)).toContain("2.5 SOL")
+    expect(text(html)).toContain("7 USDC")
+  })
+
+  it("says a balance is unavailable rather than showing zero when the RPC did not answer", () => {
+    const shown = text(renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={{ ...WALLET, sol: undefined, usdc: undefined }} />))
+    expect(shown).toMatch(/balance unavailable/i)
+    expect(shown).not.toMatch(/\b0 (SOL|USDC)/)
+  })
+
+  it("shows no address before one is published", () => {
+    for (const wallet of [{ source: "unpublished" }, { source: "unavailable" }] as const) {
+      const html = renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={wallet} />)
+      expect(html).not.toContain("solscan.io")
+    }
+  })
+})
+
 describe("where Teeny is", () => {
-  it("lists no wallet the wallet hand does not use (its Solana address is not published)", () => {
+  it("hardcodes no wallet: the address comes only from the published wallet.json", () => {
     expect(PRESENCE.map((p) => `${p.place} ${p.href}`).join(" ")).not.toMatch(/wallet|robinhood|0x[0-9a-fA-F]{40}/i)
   })
 
