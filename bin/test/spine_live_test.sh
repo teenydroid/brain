@@ -145,6 +145,8 @@ cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
 SPINE_MODEL=stub
+CORTEX_API_URL=http://127.0.0.1:$(free_port)
+CORTEX_API_KEY=stub-cortex-key
 ENV
 
 core_port="$(free_port)"
@@ -375,6 +377,11 @@ cfg = tomllib.load(open(sys.argv[1], "rb"))
 print(next((e.get("context_window") for e in cfg.get("model_registry", []) if e.get("id") == "stub"), None))' "$root/.openhuman/config.toml"
 }
 check "the model's window comes from the endpoint" test "$(registered_window)" = 128000
+
+# The CortexDB key goes into the core's credential store at boot. A core that
+# sent it to TinySecurity's interactive keyring waited out a prompt no one can
+# answer on a headless box (120 s) and refused it, so memory never came up.
+check "the core stores the cortexdb key at boot" grep -q '\[spine\] memory: cortexdb at' "$scratch/spine.log"
 
 # --- the keyring survives a restart ---------------------------------------------
 kill -TERM "$spine_pid"
