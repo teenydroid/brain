@@ -7,11 +7,10 @@ or the operator's git config (hooks, commit signing, credential helpers) has
 no business in what Teeny commits or pushes. So every git run in the hands
 goes through `run`:
 
-- **One identity**, from secrets/teeny.env: `GIT_NAME` and `GIT_EMAIL`. Without
-  them, a push as a GitHub login commits as that login with its noreply
-  address (so GitHub credits the account), and anything else as Teeny
-  <tiny@tinyhumans.ai>. Set as GIT_AUTHOR_* and GIT_COMMITTER_*, so no config
-  file and no passwd lookup is ever consulted.
+- **One identity**: Teeny <teeny@agentmail.to> (its own mailbox), or
+  `GIT_NAME` / `GIT_EMAIL` from secrets/teeny.env. The same for the diary
+  and every push. Set as GIT_AUTHOR_* and GIT_COMMITTER_*, so no config file
+  and no passwd lookup is ever consulted.
 - **No outside config**: no system or global file, HOME under state/, no
   credential helper, no hooks, no fsmonitor, no prompts.
 - **A token only when asked**, through GIT_ASKPASS (`gh/askpass`, which holds
@@ -33,24 +32,20 @@ from pathlib import Path
 from . import hand
 
 DEFAULT_NAME = "Teeny"
-DEFAULT_EMAIL = "tiny@tinyhumans.ai"
+DEFAULT_EMAIL = "teeny@agentmail.to"
 ASKPASS = Path(__file__).resolve().parent / "gh" / "askpass"
 TIMEOUT_SECONDS = 120.0
 
 
-def identity(login: str | None = None) -> tuple[str, str]:
+def identity() -> tuple[str, str]:
     """Who Teeny commits as. secrets/teeny.env wins; the environment never
     does (hand.setting), so a job cannot commit as somebody else."""
-    name, email = hand.setting("GIT_NAME"), hand.setting("GIT_EMAIL")
-    if login:
-        name = name or login
-        email = email or f"{login}@users.noreply.github.com"
-    return name or DEFAULT_NAME, email or DEFAULT_EMAIL
+    return hand.setting("GIT_NAME") or DEFAULT_NAME, hand.setting("GIT_EMAIL") or DEFAULT_EMAIL
 
 
-def env(token: str | None = None, user: str | None = None, login: str | None = None) -> dict[str, str]:
+def env(token: str | None = None, user: str | None = None) -> dict[str, str]:
     """The whole environment of a git run: nothing inherited but PATH."""
-    name, email = identity(login)
+    name, email = identity()
     out = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(hand.state_dir()),
@@ -71,13 +66,13 @@ def env(token: str | None = None, user: str | None = None, login: str | None = N
 
 
 def run(cwd: Path | None, *args: str, token: str | None = None, user: str | None = None,
-        login: str | None = None, check: bool = True, timeout: float = TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
+        check: bool = True, timeout: float = TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
     """One git command, sealed off from the box. Raises HandError (token
     redacted) when it fails and `check` is set."""
     argv = ["git", "-c", "credential.helper=", "-c", "core.hooksPath=" + os.devnull,
             "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args]
     try:
-        done = subprocess.run(argv, cwd=cwd, env=env(token, user, login), capture_output=True,
+        done = subprocess.run(argv, cwd=cwd, env=env(token, user), capture_output=True,
                               timeout=timeout, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
         raise hand.HandError("git is not installed") from None

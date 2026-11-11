@@ -51,17 +51,13 @@ class GitTest(unittest.TestCase):
         (self.root / "secrets" / "teeny.env").write_text(text)
         hand._ENV_CACHE = None
 
-    def test_the_identity_defaults_to_teeny(self):
-        self.assertEqual(git.identity(), ("Teeny", "tiny@tinyhumans.ai"))
-
-    def test_a_github_login_commits_with_its_noreply_address(self):
-        self.assertEqual(git.identity("teenydroid"), ("teenydroid", "teenydroid@users.noreply.github.com"))
+    def test_the_identity_defaults_to_teeny_and_its_mailbox(self):
+        self.assertEqual(git.identity(), ("Teeny", "teeny@agentmail.to"))
 
     def test_the_identity_from_secrets_wins_and_the_environment_does_not(self):
         os.environ.update(GIT_NAME="Env", GIT_EMAIL="env@example.com")
         self.secrets("GIT_NAME=Teeny Droid\nGIT_EMAIL=teeny@example.com\n")
         self.assertEqual(git.identity(), ("Teeny Droid", "teeny@example.com"))
-        self.assertEqual(git.identity("teenydroid"), ("Teeny Droid", "teeny@example.com"))
 
     def test_a_commit_ignores_the_box_config_and_its_hooks(self):
         work = self.scratch / "work"
@@ -71,7 +67,7 @@ class GitTest(unittest.TestCase):
         git.run(work, "add", "-A")
         git.run(work, "commit", "-q", "-m", "first")
         who = git.run(work, "log", "-1", "--format=%an <%ae>|%cn <%ce>").stdout.decode().strip()
-        self.assertEqual(who, "Teeny <tiny@tinyhumans.ai>|Teeny <tiny@tinyhumans.ai>")
+        self.assertEqual(who, "Teeny <teeny@agentmail.to>|Teeny <teeny@agentmail.to>")
         self.assertFalse(self.marker.exists())
 
     def test_home_is_under_state_so_nothing_is_read_from_or_left_in_the_users_home(self):
@@ -91,7 +87,7 @@ class GitTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
         self.assertTrue(out["ok"], out)
-        self.assertEqual((out["name"], out["email"]), ("Teeny", "tiny@tinyhumans.ai"))
+        self.assertEqual((out["name"], out["email"]), ("Teeny", "teeny@agentmail.to"))
         self.assertRegex(out["version"], r"^\d+\.\d+")
         self.assertFalse(self.marker.exists())
         self.assertEqual(list((self.root / "state").glob("git-check*")), [])

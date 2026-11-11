@@ -56,9 +56,8 @@ def branch(value: object) -> str:
 
 
 def _git(cwd: Path, *args: str, token: str | None = None, user: str | None = None, check: bool = True) -> subprocess.CompletedProcess:
-    # Sealed off from the box (teeny_hands.git); commits as `user`, the
-    # GitHub login, unless GIT_NAME / GIT_EMAIL say otherwise.
-    return git.run(cwd, *args, token=token, user=user, login=user, check=check)
+    # Sealed off from the box, and commits as Teeny (teeny_hands.git).
+    return git.run(cwd, *args, token=token, user=user, check=check)
 
 
 def is_repo(path: Path) -> bool:
@@ -122,14 +121,13 @@ def remote_url(owner: str, name: str) -> str:
 
 
 def commit_and_push(path: Path, owner: str, name: str, ref: str, message: str, token: str, user: str) -> str:
-    """Commits whatever is there (as git.identity(user): the login and its
-    noreply address unless GIT_NAME / GIT_EMAIL are set) and
+    """Commits whatever is there (as git.identity()) and
     pushes HEAD to `ref` on owner/name. Never forces. Returns the commit."""
     if not is_repo(path):
         _git(path, "init", "-q", "-b", ref)
     _git(path, "add", "-A")
     if _git(path, "status", "--porcelain").stdout.strip():
-        _git(path, "commit", "-q", "-m", message, user=user)
+        _git(path, "commit", "-q", "-m", message)
     if not _has_head(path):
         raise hand.Refused("there is nothing to push: the folder is empty", rule="empty")
     sha = _git(path, "rev-parse", "HEAD").stdout.decode().strip()

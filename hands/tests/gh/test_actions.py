@@ -75,7 +75,7 @@ class PushTest(Scratch):
         out = actions.push(self.body())
         self.assertEqual((out["pushed"], out["branch"]), ("teenydroid/hello", "main"))
         log = git("-C", str(remote), "log", "--format=%an <%ae>|%s", "main").strip()
-        self.assertEqual(log, "teenydroid <teenydroid@users.noreply.github.com>|first commit")
+        self.assertEqual(log, "Teeny <teeny@agentmail.to>|first commit")
         self.assertEqual(ledger()[0]["ref"], out["commit"])
         # The token is in no file the push left behind.
         for path in (self.root / "state").rglob("*"):
