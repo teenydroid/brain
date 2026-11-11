@@ -180,10 +180,13 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{"do": "like_x", "id": "1"}]}, {"thought": "", "intents": []})
         self.tick()
+        os.environ["TEENY_NOW"] = str(T0 + 60)
+        self.tick()  # how the like landed
         os.environ["TEENY_NOW"] = str(T0 + 3 * 3600 + 60)
         stimuli.follow_up(T0 + 5 * 3600, "write to bob")
         self.tick()
-        quiet = self.chats()[1]["message"]
+        quiet = self.chats()[2]["message"]
+        self.assertIn("self · quiet", quiet)
         self.assertIn("Your last action out in the world was 3 h ago", quiet)
         self.assertIn("1 action(s) today", quiet)
         self.assertIn("2 follow-up(s) waiting; the next: write to bob", quiet)
