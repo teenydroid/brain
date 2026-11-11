@@ -68,7 +68,15 @@ The body exists and boots by itself.
   `bin/seed-cron`. *Proof:* `bin/crons` shows next runs.
 - [x] Git identity and auth in one place (`hands/git`, #94). *Proof:*
   `hands/git check` passes on the box.
-- [ ] `DRY_RUN=0` on the box. *Proof:* a real post id in the X ledger.
+- [x] `DRY_RUN=0` on the box. *Proof:* a real post id in the X ledger
+  ([2120505677848174620](https://x.com/teenydroid/status/2120505677848174620),
+  2026-11-11). It went back to `1` for a few hours that evening while the
+  model was down, and has been `0` again since 19:35 UTC that day.
+- [ ] Notices when its own brain is dead: a pinned health check probes the
+  model every 15 minutes and raises an alarm (a stimulus and a GitHub issue)
+  after two failures in a row. On 2026-11-11 a revoked model key failed every
+  turn and every guard verdict for seven hours, and nothing said so.
+  *Proof:* an alarm issue opened and closed by Teeny around a real outage.
 - [ ] Tracing to Langfuse for every turn (gap G5), so we can watch it think.
   *Proof:* a day of `teeny:mind` beats visible as traces.
 - [ ] The spine survives a week with no restart by a human, and restarts
@@ -80,8 +88,8 @@ The body exists and boots by itself.
 It notices the world without being told to look.
 
 - [x] One inbox (`hands/stimuli`) fed by X webhook, AgentMail and Moltbook.
-- [ ] X reads work (the API account returns 402 today; top it up). *Proof:*
-  a real mention in `hands/x mentions`.
+- [x] X reads work. *Proof:* 24 real mentions in `x_mentions` on
+  2026-11-11, seven of them answered.
 - [ ] GitHub notifications as stimuli: issues, PR reviews, mentions and stars
   on Teeny's repos. *Proof:* a review comment on a Teeny PR shows up in the
   inbox and gets an answer.
@@ -107,7 +115,13 @@ It talks to people and keeps talking to them.
 - [ ] Answers mail live, and starts mail to known contacts
   (`hands/mail contacts`). *Proof:* a thread with a vendor it began.
 - [ ] Lives on Moltbook: daily post, helpdesk, digest, all on. *Proof:* a
-  week of Moltbook activity with no lockout.
+  week of Moltbook activity with no lockout. Claimed and introduced
+  (m/introductions, verified) on 2026-11-11; daily post and helpdesk back on
+  in #97; the digest follows after a clean week.
+- [ ] Grows an audience: followers on X, karma and followers on Moltbook,
+  followers and stars on GitHub, all counted by `bin/stats-snapshot`.
+  *Proof:* four weeks in a row where the total went up, with the posts that
+  moved it named in the diary.
 - [ ] Remembers people: a relationship record per regular (who they are, what
   they asked, what it promised). *Proof:* it follows up on a promise it made
   a week earlier, unprompted.
@@ -115,7 +129,8 @@ It talks to people and keeps talking to them.
   events, and episodes post on their own. *Proof:* an arc advanced by a
   real-world trigger, chronicled.
 - [ ] More channels: Telegram or Discord through a hand that runs the guard
-  (G3, G8). *Proof:* a conversation on a second chat platform.
+  (G3, G8). *Proof:* a conversation on a second chat platform. The Telegram
+  hand landed in #96; not yet proven live.
 
 ## Level 3: hands (doing real things)
 
@@ -207,8 +222,16 @@ It is the same Teeny tomorrow, and it knows what happened yesterday.
 It changes itself and keeps only what wins (`docs/evolve.md`).
 
 - [x] Playbooks, cron rules, doctor, frozen evals, judge and invariants.
-- [ ] `bin/evolve`: one generation picks a lore goal, writes a
-  `HYPOTHESIS.md`, edits the brain on a branch. *Proof:* a generation branch.
+- [ ] The frozen-path gate in code. Today the frozen list in
+  `docs/evolve.md` is only words. One list, one checker, run in CI on every
+  PR by `teenydroid` or from a `gen/*` branch, and called by `bin/evolve`
+  before it commits; `DIRECTIVE.md` is on the list. *Proof:* a `teenydroid`
+  PR touching `bin/` that CI refused.
+- [ ] `bin/evolve`, human-gated first: one generation picks a lore goal or a
+  failing eval, writes a `HYPOTHESIS.md`, edits only the brain on a
+  `gen/<n>` branch, runs `bin/eval compare` against production, and opens a
+  PR as `teenydroid` with the compare report in the body. The operator
+  merges or closes it. *Proof:* a generation PR with a compare report.
 - [ ] The lab spine: candidate brain booted beside production and evaluated
   with `bin/eval compare`. *Proof:* a compare report.
 - [ ] Promotion and rollback, pinned as `evolve` and `evolve-watch`.
@@ -241,5 +264,22 @@ It changes itself and keeps only what wins (`docs/evolve.md`).
   receipt, a merged PR, a trace).
 - When an item turns out wrong or impossible, rewrite it here and say why in
   the PR. This file should match reality.
-- Teeny may read this file but must not edit it, the same as `evals/`. When
-  `bin/evolve` lands, add `DIRECTIVE.md` to the gate's frozen list.
+- Teeny may read this file but must not edit it, the same as `evals/`. The
+  frozen-path gate (Level 5) carries `DIRECTIVE.md` on its list.
+
+## The road to self-evolution, in order
+
+1. **Stay alive and visible.** Model health alarm, Langfuse traces (G5), and
+   the doctor green on every boot. Teeny cannot improve what nobody, itself
+   included, can see.
+2. **Enforce the fences.** The frozen-path gate in CI and in code, before any
+   generation exists.
+3. **Human-gated generations.** `bin/evolve` opens a PR per generation with a
+   hypothesis and a `bin/eval compare` report; the operator merges. Each
+   merged one gets its chronicle page.
+4. **Lab spine.** Candidates boot beside production on the box and are
+   judged on live-shaped inputs, not only the frozen tasks.
+5. **Automatic promotion and rollback.** The gate merges a generation that
+   wins and passes the invariants; `evolve-watch` rolls back one that hurts
+   the live numbers. The operator only reads.
+6. **Ten generations with no human**, then the 30-day test above.

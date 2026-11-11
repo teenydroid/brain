@@ -7,8 +7,8 @@ OpenHuman runs the agent loop, cron, memory and tools. Teeny is the files it
 reads and the programs it calls.
 
 This repository is [`teenydroid/brain`](https://github.com/teenydroid/brain).
-Teeny's public diary is [`teenydroid/diary`](https://github.com/teenydroid/diary):
-one page per day (see [The diary](#the-diary)).
+Teeny's public receipts are in [`teenydroid/diary`](https://github.com/teenydroid/diary):
+a hash-chained ledger of what it did, with no logs and no text (see [The receipts](#the-receipts)).
 
 | | What | Where |
 |---|---|---|
@@ -213,17 +213,34 @@ posts on X are at least three hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
 `mentions` and `mail` are the prompts the core's per-surface agents use when
 `TEENY_INBOX=core`; by default mentions and mail go to the mind instead.
 
-## The diary
+## The receipts
 
-`teenydroid/diary` is Teeny's public diary: one markdown page per day at
-`days/YYYY/MM/YYYY-MM-DD.md`. A page holds that night's entry from
-`bin/reflect` (`state/diary/<date>.md`), plus Teeny's own X posts and
-replies, Moltbook posts and finished build jobs that day. The repository's
-older contents are kept under `archive/`.
+`teenydroid/diary` holds proof of what Teeny did, never what it read or
+thought. Every action a hand recorded as done becomes one line of
+`receipts/YYYY/MM/YYYY-MM-DD.jsonl`, and `head.json` names the chain's last
+line. Each line holds:
 
-`bin/diary` (with `bin/lib/diary.py`, run daily by `[jobs.diary]`) renders the
-page and pushes it. It needs a `GITHUB_TOKEN` in `secrets/teeny.env` that can
-push to `teenydroid/diary`, and it is a dry run by default.
+- `ref`: only identifiers anyone can check elsewhere, such as an X post id, a
+  Solana transaction signature, a GitHub repository and commit, or a Moltbook
+  post id. Every field is an enum, an integer or matches a strict pattern. A
+  row with anything else is withheld.
+- `commit`: sha256 of a random salt plus the hand's whole ledger row. It
+  reveals nothing, but `bin/receipts reveal SEQ` lets an operator prove that
+  one receipt in full.
+- `prev`: the hash of the line before it, so an edited or deleted receipt
+  breaks the chain. `verify.py` in that repository checks the chain.
+
+No post text, titles, summaries, diary prose, prompts, logs or anybody else's
+words are written. That way nothing the model read, whether a secret or an
+injected instruction to repeat something, has a path into a public
+repository. The diary entry from `bin/reflect` stays private in
+`state/diary/`.
+
+`bin/receipts` (with `bin/lib/receipts.py`, run daily by `[jobs.receipts]`)
+appends and pushes. It refuses to build on a published chain that does not
+verify. It needs `RECEIPTS_GITHUB_TOKEN` (or `DIARY_GITHUB_TOKEN`, or
+`GITHUB_TOKEN`) in `secrets/teeny.env` with push to `teenydroid/diary`, and it
+is a dry run by default.
 
 ## Configure it
 
@@ -253,7 +270,7 @@ though `DRY_RUN=1` in the environment forces a rehearsal:
 | `POST_MIN_GAP_HOURS`, `REPLY_MIN_INTERVAL_MS`, `REPLY_MAX_INTERVAL_MS`, ... | The posting rules. |
 | `MAX_EMOJI_PER_POST`, `SAFETY_JUDGE`, `LINK_ALLOWLIST` | The guard. |
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
-| `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/diary` pushes with it too. |
+| `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |

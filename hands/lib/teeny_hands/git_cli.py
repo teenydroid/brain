@@ -6,7 +6,7 @@ Teeny runs is set up (teeny_hands.git).
                 state/ that is removed again
   R  whoami     the identity Teeny commits as (GIT_NAME / GIT_EMAIL)
 
-Holds no token: pushes stay with hands/gh and bin/diary, which hand theirs to
+Holds no token: pushes stay with hands/gh and bin/receipts, which hand theirs to
 `git.run` for that one command.
 """
 
