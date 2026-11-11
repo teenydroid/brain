@@ -10,8 +10,8 @@ and `bounty`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are Python 3.11 standard library, with no
-dependencies. OAuth 1.0a
-signing, transactional SQLite and a guarded fetch are not jobs for bash. Each
+dependencies. OAuth 1.0a signing, transactional SQLite and webhook
+signatures are not jobs for bash. Each
 executable is a three-line shim that runs `python3 -I`, so no `PYTHONPATH` or
 planted module can change what it loads. The shared contract (outcomes, exit
 codes, secrets, dry run, state, the core client) is
@@ -19,7 +19,8 @@ codes, secrets, dry run, state, the core client) is
 `python3 -m unittest discover -s hands/tests -t hands/tests`.
 
 **R** marks a read verb. **A** marks an acting verb, which only `bin/`
-scripts, playbooks and the operator (the person) call. **J** marks a job
+scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
+operator (the person) call. **O** marks an operator-only verb. **J** marks a job
 verb: it says nothing to anyone but writes state and calls the core, so like
 an acting verb it is never given to a model. The scheduled agents (the
 builder and the browser operator) call no hand at all: a `desk` job verb
