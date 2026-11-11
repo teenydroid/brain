@@ -155,11 +155,19 @@ def record_media(
 # --- links -----------------------------------------------------------------------------------
 
 
+#: Anything X could turn into a link: a scheme, a www., or a bare
+#: "name.tld". Broader than X's own list of TLDs on purpose: over-counting
+#: only refuses a link post sooner, under-counting is a $0.20 surprise.
+#: (hands/x keeps its own pattern; it never imports the guard's.)
+_LINK = re.compile(
+    r"(?<![A-Za-z0-9_@.\-])(?:https?://|www\.|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,24}(?![A-Za-z0-9-]))",
+    re.IGNORECASE,
+)
+
+
 def has_link(text: str) -> bool:
     """Whether X would see a URL in the text (and bill the post as one)."""
-    from ..guard.links import find_links
-
-    return bool(find_links(text))
+    return bool(_LINK.search(text))
 
 
 def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
