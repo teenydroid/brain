@@ -130,7 +130,8 @@ class DoneTest(Scratch):
         good = {"job_id": job["job_id"], "status": "failed", "summary": "s", "tests": "t"}
         for bad in (None, [], {**good, "status": "done"}, {**good, "job_id": "1"}, {**good, "job_id": True},
                     {**good, "summary": ""}, {**good, "tests": []}, {**good, "tests": 3}, {**good, "extra": 1},
-                    {**good, "repo": "a/b"}, {**good, "repo": "x.git"}):
+                    {**good, "repo": "a/b"}, {**good, "repo": "x.git"}, {**good, "repo": "brain"},
+                    {**good, "repo": "Brain"}):
             with self.subTest(body=bad), self.assertRaises(hand.HandError):
                 jobs.done(bad)
 
