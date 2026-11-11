@@ -1,0 +1,76 @@
+# The frozen paths: what Teeny may never change (docs/evolve.md, "What Teeny
+# may change"; DIRECTIVE.md, "The fences that never move"). bin/lib/frozen.py
+# refuses any diff that edits, adds, deletes or renames a path matching one of
+# these, whoever wrote it. The operator changes anything; the check runs only
+# on Teeny's changes (its PRs in CI, and bin/evolve before it commits a
+# generation).
+#
+# This file is under evals/, so it freezes itself. The checker reads it as of
+# the base ref, never the candidate's copy: a candidate cannot drop a line and
+# get past it in the same diff.
+#
+# One glob per line, from the repository root. `*` and `?` stop at `/`; `**`
+# crosses directories. Every pattern also covers everything beneath what it
+# matches, so `hands/guard` is the script and `secrets/` is the directory.
+
+# What judges and measures Teeny: tasks, the judge rubric, invariants.md,
+# cron.pinned.toml, this list.
+evals/**
+
+# The operator's code and what builds and runs it.
+bin/**
+spine/**
+vendor/**
+deploy/**
+Cargo.*
+.github/
+secrets/
+
+# The fences themselves.
+DIRECTIVE.md
+
+# The tool-less agents bin/act drafts with and bin/eval judges with, and the
+# agent definitions that say "Frozen like act.toml": the posture of a turn
+# that reads strangers' text, or acts on a schedule. Their prompts (*.md) and
+# playbooks stay Teeny's.
+brain/agents/act.toml
+brain/agents/judge.toml
+brain/agents/teeny.toml
+brain/agents/teeny-mentions.toml
+brain/agents/teeny-mail.toml
+brain/agents/builder.toml
+brain/agents/operator.toml
+
+# Every public word goes through the guard, every X action through x.
+hands/guard
+hands/x
+
+# The existing hand library, one entry each. A new hand Teeny writes
+# (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
+# lands a hand that should be frozen too.
+hands/lib/teeny_hands/__init__.py
+hands/lib/teeny_hands/bounty/
+hands/lib/teeny_hands/briefs.py
+hands/lib/teeny_hands/build/
+hands/lib/teeny_hands/desk.py
+hands/lib/teeny_hands/gh/
+hands/lib/teeny_hands/git.py
+hands/lib/teeny_hands/git_cli.py
+hands/lib/teeny_hands/guard/
+hands/lib/teeny_hands/hand.py
+hands/lib/teeny_hands/mail/
+hands/lib/teeny_hands/media/
+hands/lib/teeny_hands/moltbook/
+hands/lib/teeny_hands/readcache.py
+hands/lib/teeny_hands/requests.py
+hands/lib/teeny_hands/requests_cli.py
+hands/lib/teeny_hands/rest.py
+hands/lib/teeny_hands/slopcash/
+hands/lib/teeny_hands/stats/
+hands/lib/teeny_hands/stimuli.py
+hands/lib/teeny_hands/stimuli_cli.py
+hands/lib/teeny_hands/tasks/
+hands/lib/teeny_hands/telegram/
+hands/lib/teeny_hands/wallet/
+hands/lib/teeny_hands/websites.py
+hands/lib/teeny_hands/x/

@@ -7,6 +7,9 @@
 # - scripts: shellcheck over bin/, the reconciliation tests, and the hands'
 #   unit tests on Python 3.11 (the image's version); none needs a core.
 # - web: the Next.js site.
+# - frozen: on Teeny's own pull requests only (opened by teenydroid, or a
+#   gen/<n> branch), refuse any change to a path in evals/frozen.txt
+#   (docs/evolve.md, "What Teeny may change"). The operator's PRs skip it.
 #
 # Nothing here deploys. There is no deploy-on-merge: the box runs
 # deploy/compose.yaml by hand (deploy/README.md).
@@ -54,13 +57,40 @@ jobs:
         with:
           python-version: "3.11"
       # shellcheck and sqlite3 ship on the runner image.
-      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/build-ship bin/tasks-desk bin/bounty-pay bin/tick bin/reflect bin/health bin/lib/*.sh bin/test/*.sh deploy/*.sh
+      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/build-ship bin/tasks-desk bin/bounty-pay bin/tick bin/reflect bin/health bin/lib/*.sh bin/test/*.sh deploy/*.sh
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
       - run: bin/test/doctor_test.sh
       - run: bin/test/eval_test.sh
       - run: bin/test/inbound_consume_test.sh
+      - run: bin/test/frozen_test.sh
       - run: python3 -m unittest discover -s hands/tests -t hands/tests -v
+
+  frozen:
+    if: >-
+      github.event_name == 'pull_request' &&
+      (github.event.pull_request.user.login == 'teenydroid' || startsWith(github.head_ref, 'gen/'))
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the check diffs the head from its merge base with main.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # The checker and its list are taken from the base, never the PR: a
+      # candidate that edits bin/lib/frozen.py or evals/frozen.txt cannot
+      # loosen the check that judges it (both are frozen besides). Two lines,
+      # not a pipe: the default shell has no pipefail, and a missing checker
+      # must fail the job, not run nothing.
+      - name: Refuse changes to frozen paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git show "$BASE:bin/lib/frozen.py" >"$RUNNER_TEMP/frozen.py"
+          python3 "$RUNNER_TEMP/frozen.py" --root . "$BASE" "$HEAD"
 
   web:
     runs-on: ubuntu-latest

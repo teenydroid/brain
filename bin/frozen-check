@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Refuse any change to a path frozen to Teeny (evals/frozen.txt; docs/evolve.md,
+# "What Teeny may change"). The evolve gate's first check.
+#
+#   bin/frozen-check [--root DIR] [--list FILE] BASE [HEAD]
+#   bin/frozen-check [--list FILE] --files PATH...
+#
+# BASE..HEAD is diffed from their merge base; without HEAD, the working tree
+# (staged, unstaged and untracked) is checked against BASE. The list is read as
+# of BASE. Exit 0: nothing frozen touched; 1: every frozen path touched is
+# named; 2: usage or git error. The work is bin/lib/frozen.py, which bin/evolve
+# calls directly (frozen.check).
+set -euo pipefail
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/frozen.py" "$@"
