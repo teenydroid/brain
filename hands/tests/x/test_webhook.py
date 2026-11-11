@@ -122,5 +122,8 @@ class WebhookTest(Scratch):
         text = hand.db().execute("SELECT text FROM x_mentions WHERE id = '609'").fetchone()["text"]
         self.assertEqual(text, "@teenydroid the full text")
 
+    def test_answers_its_health_check(self):
+        self.assertEqual(self.receiver.handle("GET", "/health", {}, b""), (200, {"ok": True}))
+
     def test_anything_else_is_not_found(self):
-        self.assertEqual(self.receiver.handle("GET", "/health", {}, b"")[0], 404)
+        self.assertEqual(self.receiver.handle("GET", "/elsewhere", {}, b"")[0], 404)

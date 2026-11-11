@@ -51,6 +51,13 @@ services:
     environment:
       HOME: /tmp
     entrypoint: ["/srv/teeny/bin/x-webhook"]
+    # Its own check: the image's default one asks the core on 7788, which
+    # this container does not run.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3110/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     ports:
       - "127.0.0.1:${XHOOK_PORT:-3110}:3110"
     volumes:
