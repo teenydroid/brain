@@ -310,7 +310,8 @@ Every scheduled job is in one of two files:
   `health` (`bin/health`, every 15 minutes: asks the model one short
   question through the core; two failures in a row raise one alarm, a
   `health` stimulus and one issue on teenydroid/brain, closed when it
-  answers again).
+  answers again; when it answers, it re-screens the guard holds an outage
+  made, docs/hands.md "Re-screening").
 - **`brain/cron.toml`**, Teeny's own: the heartbeat, `morning`, `brief`, and
   the playbooks that are kept but off (`enabled = false`).
 
