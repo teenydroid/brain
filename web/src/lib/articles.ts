@@ -17,7 +17,8 @@ export interface ArticleSummary {
   publishedAt?: string
   postId?: string
   cover?: string
-  wordCount: number
+  /** Undefined when the bot did not say. */
+  wordCount?: number
 }
 
 export interface ArticleImage {
@@ -70,7 +71,7 @@ export function toArticle(body: Record<string, unknown>): Article {
     ...(typeof body.publishedAt === 'string' ? { publishedAt: body.publishedAt } : {}),
     ...(typeof body.postId === 'string' ? { postId: body.postId } : {}),
     ...(cover ? { cover: cover.file, coverImage: cover } : {}),
-    wordCount: Number(body.wordCount) || 0,
+    ...(typeof body.wordCount === 'number' && body.wordCount > 0 ? { wordCount: body.wordCount } : {}),
     ...(typeof body.engine === 'string' ? { engine: body.engine } : {}),
     markdown: String(body.markdown),
     images: Array.isArray(body.images) ? (body.images as ArticleImage[]) : [],
