@@ -373,12 +373,12 @@ export function receiptUrl(kind: string, ref: Record<string, unknown>): string |
     }
     case 'github.open-pr': {
       const number = n('number')
-      return repo && number && `https://github.com/${repo}/pull/${number}`
+      return repo && number ? `https://github.com/${repo}/pull/${number}` : undefined
     }
     case 'github.comment': {
       const number = n('number')
       const id = n('id')
-      return repo && number && id && `https://github.com/${repo}/issues/${number}#issuecomment-${id}`
+      return repo && number && id ? `https://github.com/${repo}/issues/${number}#issuecomment-${id}` : undefined
     }
     case 'github.create-repo':
     case 'github.fork':
