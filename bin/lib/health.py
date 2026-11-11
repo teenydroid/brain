@@ -28,9 +28,19 @@ Every run:
    than two minutes. A held message the judge now finds clean goes back to
    its queue; a real verdict stays held; a held draft of Teeny's own expires
    and is never sent. A failed probe skips it: the judge is that model.
-5. Prints one JSON line: `ok` (the check ran), `healthy` (the model
-   answered), what it did, and `rescreen`, the re-screen's counts (null
-   when it did not run).
+5. Looks for cron jobs stuck behind their schedule (`stale_crons`): enabled,
+   a next run more than STALE_SECS in the past, and no run holding that
+   slot. On 2026-11-11 the box rebooted mid-run, the dead runs' claims held
+   three jobs' slots, and Teeny read no mail or mentions for 75 minutes.
+   Each of Teeny's own (`teeny.*`) is re-armed: its schedule is patched back
+   through the core (`cron_update`), which moves its next run to the next
+   slot, as bin/seed-cron does at boot. Any stuck job raises a second alarm
+   of the same kind (a `health · alarm` stimulus, one issue), cleared once
+   every job is current again. It is watched whether the model answers or
+   not.
+6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
+   answered), what it did, `rescreen`, the re-screen's counts (null when it
+   did not run), and `stale_crons`, `rearmed` and `cron_alarm`.
 
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
@@ -69,6 +79,12 @@ DEFAULT_REPO = "teenydroid/brain"
 #: The judge's own words when it fails closed (teeny_hands.guard.judge).
 JUDGE_UNREACHABLE = "the judge could not be reached%"
 MAX_ERROR_CHARS = 300
+#: How far behind its schedule an enabled cron job may fall before it counts
+#: as stuck (bin/doctor --live uses the same ten minutes).
+STALE_SECS = 600
+#: A run in flight renews the claim on its slot (the core's occurrence lease)
+#: every 30 s; a claim nobody renewed for this long is a gone process's.
+LEASE_FRESH_SECS = 120
 
 Json = dict[str, Any]
 
@@ -167,10 +183,99 @@ def cron_errors(since: float) -> dict[str, int]:
     return {str(name): int(count) for name, count in rows}
 
 
+def _lease_id(job_id: str, occurrence_ms: int) -> str:
+    """The id of the core's claim on one occurrence of a job: tinyflows'
+    `Key::of(["cron", Key::of([job_id, occurrence_ms])])`."""
+    def part(text: str) -> str:
+        return text.replace("%", "%25").replace("/", "%2F")
+    return "cron/" + part(part(job_id) + "/" + str(occurrence_ms))
+
+
+def _running(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_ms: int) -> bool:
+    """Whether a live run holds the job's slot: its claim is unreleased,
+    unexpired and was renewed lately."""
+    row = conn.execute("select updated_ms, body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
+                       (_lease_id(job_id, occurrence_ms),)).fetchone()
+    if row is None:
+        return False
+    try:
+        lease = json.loads(row[1])
+    except ValueError:
+        return False
+    return (isinstance(lease, dict) and not lease.get("released")
+            and int(lease.get("expires_ms") or 0) > now_ms
+            and int(row[0] or 0) >= now_ms - LEASE_FRESH_SECS * 1000)
+
+
+def _iso(ms: int) -> str:
+    return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def stale_crons(now: float) -> list[Json]:
+    """Enabled cron jobs whose next run is more than STALE_SECS past with no
+    live run holding it, by name: `{id, name, next_run, schedule}`. Read-only,
+    from the core's storage.db as `cron_errors` reads it."""
+    path = _storage()
+    if not path.is_file():
+        return []
+    now_ms = int(now * 1000)
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = conn.execute(
+                """
+                with jobs as materialized (
+                  select id, body from docs where coll = 'cron.jobs' and deleted = 0 and json_valid(body)
+                )
+                select id, coalesce(json_extract(body, '$.name'), id), json_extract(body, '$.next_run_ms'),
+                       json_extract(body, '$.schedule')
+                from jobs
+                where coalesce(json_extract(body, '$.enabled'), 1) != 0
+                  and json_extract(body, '$.next_run_ms') < ?
+                order by 2
+                """,
+                (now_ms - STALE_SECS * 1000,),
+            ).fetchall()
+            stale = [(job_id, name, int(next_ms), schedule) for job_id, name, next_ms, schedule in rows
+                     if not _running(conn, job_id, int(next_ms), now_ms)]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    out = []
+    for job_id, name, next_ms, schedule in stale:
+        try:
+            parsed = json.loads(schedule) if schedule else None
+        except ValueError:
+            parsed = None
+        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "schedule": parsed})
+    return out
+
+
+def rearm(stale: list[Json]) -> tuple[list[str], dict[str, str]]:
+    """Patches each stuck `teeny.*` cron job's own schedule back, which moves
+    its next run to the next slot (the core's own jobs are not Teeny's to
+    touch). The names re-armed, and what went wrong with the rest."""
+    rearmed: list[str] = []
+    errors: dict[str, str] = {}
+    for job in stale:
+        schedule = job["schedule"]
+        if not job["name"].startswith("teeny.") or not isinstance(schedule, dict) or schedule.get("kind") != "cron":
+            continue
+        try:
+            hand.core("cron_update", {"job_id": job["id"], "patch": {"schedule": schedule}})
+        except Exception as error:  # noqa: BLE001 - one job the core refused does not stop the rest
+            errors[job["name"]] = scrub(str(error) or type(error).__name__)
+            continue
+        print(f"[health] rearm {job['name']} (next_run was {job['next_run']})", file=sys.stderr)
+        rearmed.append(job["name"])
+    return rearmed, errors
+
+
 # --- state ------------------------------------------------------------------------------------
 
 FRESH: Json = {"failures": 0, "first_failed_at": None, "last_failed_at": None, "last_ok_at": None,
-               "last_error": None, "alarm": None}
+               "last_error": None, "alarm": None, "cron_alarm": None}
 
 
 def _path() -> Path:
@@ -233,12 +338,12 @@ def _issue(state: Mapping[str, Any], holds: int, errors: Mapping[str, int]) -> J
     }
 
 
-def _open_issue(alarm: Json, state: Mapping[str, Any], holds: int, errors: Mapping[str, int]) -> None:
+def _open_issue(alarm: Json, issue: Json) -> None:
     """Opens the alarm's issue, once; what happened goes on the alarm."""
     alarm["issue_error"] = None
     alarm["issue_dry_run"] = False
     try:
-        got = gh.open_issue(_issue(state, holds, errors), judge=False)
+        got = gh.open_issue(issue, judge=False)
     except hand.Refused as refused:
         alarm["issue_error"] = scrub(f"refused: {refused.reason}")
         return
@@ -262,7 +367,7 @@ def _issue_line(alarm: Mapping[str, Any]) -> str:
 def _raise(state: Json, now: float, holds: int, errors: Mapping[str, int]) -> Json:
     first = state["first_failed_at"]
     alarm: Json = {"ref": f"outage:{int(first)}", "opened_at": now, "issue": None}
-    _open_issue(alarm, state, holds, errors)
+    _open_issue(alarm, _issue(state, holds, errors))
     stimuli.add(
         "health", "alarm", alarm["ref"],
         f"health alarm: your model has not answered for {_span(now - first)} ({state['failures']} checks in a row"
@@ -275,17 +380,21 @@ def _raise(state: Json, now: float, holds: int, errors: Mapping[str, int]) -> Js
     return alarm
 
 
+def _close_issue(alarm: Mapping[str, Any], comment: str) -> Json:
+    """Closes the alarm's issue, if it opened one; `{issue_error}` when that failed."""
+    if not alarm.get("issue"):
+        return {}
+    try:
+        gh.close_issue({"repo": _repo(), "number": alarm["issue"], "comment": comment}, judge=False)
+    except (hand.Refused, hand.HandError) as error:
+        return {"issue_error": scrub(getattr(error, "reason", None) or str(error))}
+    return {}
+
+
 def _clear(state: Json, alarm: Json, now: float, holds: int, errors: Mapping[str, int]) -> Json:
     first = state["first_failed_at"] or alarm["opened_at"]
     down = f"about {_span(now - first)}, from {_when(first)} to {_when(now)}"
-    closed: Json = {}
-    if alarm.get("issue"):
-        try:
-            gh.close_issue({"repo": _repo(), "number": alarm["issue"],
-                            "comment": f"The model answers again. It was not answering for {down}. Closing."},
-                           judge=False)
-        except (hand.Refused, hand.HandError) as error:
-            closed["issue_error"] = scrub(getattr(error, "reason", None) or str(error))
+    closed = _close_issue(alarm, f"The model answers again. It was not answering for {down}. Closing.")
     issue = (f"the alarm issue {_repo()}#{alarm['issue']} was closed." if alarm.get("issue") and not closed
              else "")
     stimuli.add(
@@ -296,6 +405,77 @@ def _clear(state: Json, alarm: Json, now: float, holds: int, errors: Mapping[str
         payload={"first_failed_at": first, "recovered_at": now, "issue": alarm.get("issue")},
     )
     return closed
+
+
+# --- stuck cron jobs ----------------------------------------------------------------------------
+
+
+def _stuck(stale: list[Json]) -> str:
+    return ", ".join(f"{job['name']} (next run was {job['next_run']})" for job in stale)
+
+
+def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str]) -> str:
+    done = (f"re-armed: {', '.join(rearmed)}; they run again at their next slot." if rearmed
+            else "none was re-armed.")
+    failed = "".join(f" could not re-arm {name}: {why}." for name, why in rearm_errors.items())
+    return done + failed
+
+
+def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str]) -> Json:
+    since = min(job["next_run"] for job in stale)
+    return {
+        "repo": _repo(),
+        "title": f"Teeny's cron jobs stopped running (since {since})",
+        "body": (
+            f"The pinned health check (bin/health) found enabled cron jobs whose next run is more than"
+            f" {STALE_SECS // 60} minutes in the past with no run holding their slot: the core's scheduler is"
+            " not running them.\n\n"
+            f"- stuck: {_stuck(stale)}\n"
+            f"- {_rearm_line(rearmed, rearm_errors)}\n\n"
+            "A job is re-armed by patching its own schedule back through the core (`cron_update`), which moves"
+            " its next run to the next slot; bin/seed-cron does the same at every boot. Look for a claim the"
+            " core never released (a run cut off by a restart) with `bin/crons`.\n\n"
+            "This issue is closed by the same check once every enabled job is current again."
+        ),
+    }
+
+
+def _watch_crons(state: Json, now: float) -> Json:
+    """Finds and re-arms stuck cron jobs, and raises, keeps or clears their
+    alarm. What goes on the check's line."""
+    stale = stale_crons(now)
+    rearmed, rearm_errors = rearm(stale)
+    out: Json = {"stale_crons": [{"name": job["name"], "next_run": job["next_run"]} for job in stale],
+                 "rearmed": rearmed, "cron_alarm": None}
+    if rearm_errors:
+        out["rearm_errors"] = rearm_errors
+    alarm = state.get("cron_alarm")
+    if stale and alarm:
+        if not alarm.get("issue"):
+            _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+        out["cron_alarm"] = "open"
+    elif stale:
+        alarm = {"ref": f"cron:{int(now)}", "opened_at": now, "issue": None}
+        _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+        stimuli.add(
+            "health", "alarm", alarm["ref"],
+            f"health alarm: these cron jobs stopped running: {_stuck(stale)}."
+            f" {_rearm_line(rearmed, rearm_errors)} {_issue_line(alarm)}",
+            payload={"stale_crons": out["stale_crons"], "rearmed": rearmed, "rearm_errors": rearm_errors,
+                     "issue": alarm["issue"]},
+        )
+        out["cron_alarm"] = "raised"
+    elif alarm:
+        out.update(_close_issue(alarm, "Every enabled cron job is on schedule again. Closing."))
+        closed = " the alarm issue was closed." if alarm.get("issue") and "issue_error" not in out else ""
+        stimuli.add("health", "recovered", alarm["ref"], f"health: every cron job runs on schedule again.{closed}",
+                    payload={"opened_at": alarm["opened_at"], "recovered_at": now, "issue": alarm.get("issue")})
+        out["cron_alarm"] = "cleared"
+        alarm = None
+    state["cron_alarm"] = alarm
+    if alarm:
+        out.update(cron_issue=alarm.get("issue"), cron_issue_error=alarm.get("issue_error"))
+    return out
 
 
 # --- the check ------------------------------------------------------------------------------------
@@ -333,7 +513,7 @@ def check() -> Json:
             if state["failures"] >= FAILURES_TO_ALARM:
                 if alarm:
                     if not alarm.get("issue"):
-                        _open_issue(alarm, state, holds, errors)
+                        _open_issue(alarm, _issue(state, holds, errors))
                     out["alarm"] = "open"
                 else:
                     alarm = _raise(state, now, holds, errors)
@@ -342,6 +522,7 @@ def check() -> Json:
                 out.update(issue=alarm.get("issue"), issue_error=alarm.get("issue_error"),
                            issue_dry_run=alarm.get("issue_dry_run"))
         out["failures"] = state["failures"]
+        out.update(_watch_crons(state, now))
         save(state)
         return out
 

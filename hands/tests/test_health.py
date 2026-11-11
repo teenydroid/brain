@@ -278,7 +278,6 @@ class HealthTest(unittest.TestCase):
     def test_a_job_stuck_behind_its_schedule_is_rearmed_and_raises_the_alarm(self):
         self.storage([("j1", "teeny.mail-inbound", -4500, True), ("j2", "teeny.tick", 120, True)],
                      leases=[("j1", 4480)])
-        self.core.replies = [ALIVE, result({})]
         out = health.check()
         self.assertTrue(out["healthy"])
         self.assertEqual(out["stale_crons"], [{"name": "teeny.mail-inbound", "next_run": "2026-11-11T10:45:00Z"}])
@@ -326,12 +325,11 @@ class HealthTest(unittest.TestCase):
 
     def test_the_cron_alarm_clears_once_every_job_is_current(self):
         self.storage([("j1", "teeny.mail-inbound", -4500, True)])
-        self.core.replies = [ALIVE, result({})]
         self.assertEqual(health.check()["cron_alarm"], "raised")
         self.at(QUARTER)
         self.assertEqual(health.check()["cron_alarm"], "open")
         self.assertEqual(len(self.gh.requests("POST", ISSUES)), 1)
-        self.storage([("j1", "teeny.mail-inbound", QUARTER + 60, True)])
+        self.storage([("j1", "teeny.mail-inbound", 2 * QUARTER + 60, True)])
         self.at(2 * QUARTER)
         out = health.check()
         self.assertEqual(out["cron_alarm"], "cleared")
