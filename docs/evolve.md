@@ -14,8 +14,8 @@ and the frozen-path check (`bin/frozen-check`). Not built: the loop itself
 
 | Teeny's to change | Frozen (the gate refuses any diff touching it) |
 |---|---|
-| `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
-| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, and the existing `hands/lib/teeny_hands/**` |
+| `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/`, `Dockerfile`, `.dockerignore`, `.gitmodules`, `rust-toolchain.toml` |
+| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x` and their tests (`hands/tests/guard/`, `hands/tests/x/`), and the existing `hands/lib/teeny_hands/**` |
 | `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |

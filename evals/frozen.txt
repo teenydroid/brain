@@ -25,6 +25,10 @@ deploy/**
 Cargo.*
 .github/
 secrets/
+Dockerfile
+.dockerignore
+.gitmodules
+rust-toolchain.toml
 
 # The fences themselves.
 DIRECTIVE.md
@@ -44,6 +48,10 @@ brain/agents/operator.toml
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# and the tests that pin what they do: a candidate that rewrites them could
+# loosen the guard's behaviour and keep CI green.
+hands/tests/guard/
+hands/tests/x/
 
 # The existing hand library, one entry each. A new hand Teeny writes
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
