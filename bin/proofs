@@ -7,6 +7,8 @@
 # object, or a table with --text.
 #
 #   bin/proofs [--text] [--only ID ...]
+#   bin/proofs --ladder [--text]   the autonomy ladder: each capability's level
+#                                  and what the next one still needs (G2)
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
