@@ -69,8 +69,11 @@ worse posts, but it can't loosen what gets out.
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
-requests already pending. It proposes the one change that would help most
-through `hand:build self`, the only `hands/build` verb a draft may reach
+requests already pending, plus its world score (`hands/world report` and
+`history`) and the archive of its shipped self changes. It proposes the one
+change that would help most, as a delta edit (one bullet in one file), and
+names the W component it moves, by how much, and the flywheel step it turns.
+It goes through `hand:build self`, the only `hands/build` verb a draft may reach
 (`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
 build request with source `self`. `pick-request` (09:20 and 15:20) picks it
 like any other, the builder makes it in the clone below at its next run, and

@@ -266,8 +266,8 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 2. Built: operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
 3. Built: operator: `hands/wallet tiny`, a read-only $TINY balance
 4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
-5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
-6. A weekly `growth` playbook: the public growth diary
+5. Built: `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only (the archive is `hands/build jobs --status shipped`, read for `kind` `self`, beside `hands/world history --days 30`, because the frozen build hand has no `--kind` filter)
+6. Built: a weekly `growth` playbook: the public growth diary (`brain/playbooks/growth.md`, Sundays 19:00 IST, off until watched in rehearsal)
 7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`)
 
 **Phase B**
@@ -288,5 +288,5 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
 17. Operator: a public "convince Teeny to sell" game hand with a capped pot
 
-Phase A, items 5 and 6 are Teeny's to build through `self-improve` today.
+Phase A, items 5 and 6 were Teeny's to build through `self-improve`; the operator landed them alongside `hands/world`.
 Everything marked operator waits on a human PR, as the fences require.
