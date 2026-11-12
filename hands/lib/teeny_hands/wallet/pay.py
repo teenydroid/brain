@@ -2,7 +2,7 @@
 
     {"to": ADDRESS, "amount_usdc": "25" | "amount_sol": "0.1" | "amount_eth": "0.01",
      "chain": "solana" (the default) | "base" | "arbitrum" | "ethereum" | "optimism",
-     "purpose": "bounty" | "vendor" | "refund", "ref": "..."}
+     "purpose": "bounty" | "vendor" | "refund" | "bill", "ref": "..."}
 
 One recovery phrase signs on every chain (chains.py): SOL and USDC on
 Solana, ETH and USDC on the EVM networks (mainnet only).
@@ -16,7 +16,7 @@ refused with its `rule`:
   chain, cluster    a chain the wallet knows; an EVM one only on mainnet
   asset             the chain's native asset or USDC, nothing else
   amount            exactly one amount, above zero, within the asset's decimals
-  purpose, ref      bounty, vendor or refund, with a reference
+  purpose, ref      bounty, vendor, refund or bill, with a reference
   address           a valid address for the chain that is not a token
   caps              the caps in secrets/teeny.env are set and sane (caps.py)
   per_tx            at most WALLET_MAX_PER_TX_USD
@@ -31,6 +31,11 @@ refused with its `rule`:
   refund_amount     within evals/prices.toml's per-refund and per-day limits
   refund_max        (REQUEST_REFUNDS=1, else `off`). Only the pinned
   refund_day        paid-requests job pays one
+  bill              bill: a server invoice that is due (vps/bills.py), to the
+  bill_address      address and chain on it, its exact amount in USDC, that
+  bill_amount       address still an allowlisted vendor, within
+  bill_max          evals/prices.toml's bill limits (VPS_PAY_BILLS=1, else
+  bill_month        `off`). Only the pinned pay-bills job pays one
   duplicate         this purpose and ref has never been paid or tried
   per_day           the last 24 hours stay within WALLET_MAX_PER_DAY_USD
   per_recipient_week  this address's last 7 days stay within
@@ -60,7 +65,7 @@ from ..bounty import store as bounty_store
 from . import caps, chains, solana, store
 
 POLICY_REFUSED = "WALLET_POLICY_REFUSED:"
-PURPOSES = ("bounty", "vendor", "refund")
+PURPOSES = ("bounty", "vendor", "refund", "bill")
 FIELDS = {"to", "amount_usdc", "amount_sol", "amount_eth", "chain", "purpose", "ref", "asset", "mint"}
 AMOUNTS = {"amount_usdc": "USDC", "amount_sol": "SOL", "amount_eth": "ETH"}
 
@@ -146,7 +151,7 @@ def parse(body: Any, cluster: str) -> Payment:
     raw = amount_raw(body[amounts[0]], asset)
     purpose = body.get("purpose")
     if purpose not in PURPOSES:
-        raise hand.Refused("purpose is bounty, vendor or refund", rule="purpose")
+        raise hand.Refused("purpose is bounty, vendor, refund or bill", rule="purpose")
     ref = body.get("ref")
     if not isinstance(ref, (str, int)) or isinstance(ref, bool) or not str(ref).strip() or len(str(ref)) > 100:
         raise hand.Refused("ref names what the payment is for (a bounty id, an invoice)", rule="ref")
@@ -237,6 +242,12 @@ def _rules(conn: Any, p: Payment, c: caps.Caps, usd: int, own: str, checks: list
     if p.purpose == "bounty":
         context = bounty_store.payable(conn, p.ref, p.to, p.asset, p.raw)
         _check(checks, "bounty", f"bounty {p.ref}: winner public over {bounty_store.challenge_hours()}h, claimed with this address, the prize")
+    elif p.purpose == "bill":
+        # The server's invoice (vps/bills.py, docs/roadmap.md S5).
+        from ..vps import bills
+
+        context = bills.payable(conn, p.ref, p.to, p.chain, p.asset, p.raw)
+        _check(checks, "bill", f"{context['provider']} invoice {context['invoice']}: its address, its amount, within the bill limits")
     elif p.purpose == "refund":
         # A paid build request Teeny could not build (sales.py, docs/roadmap.md S3).
         from . import sales

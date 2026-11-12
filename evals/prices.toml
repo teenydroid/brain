@@ -18,3 +18,10 @@ stats_endpoint_usdc = "0.01"
 max_per_refund_usd = "50"
 # The most refunded in any 24 hours, together.
 max_per_day_usd = "50"
+
+[bills]
+# Teeny's own server invoices, paid from its wallet (hands/vps pay-due; S5).
+# The most one invoice may be, and every bill in 30 days together. Above
+# either, a person pays it.
+max_per_bill_usd = "50"
+max_per_month_usd = "100"

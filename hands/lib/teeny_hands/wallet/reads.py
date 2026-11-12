@@ -216,6 +216,10 @@ def receipt(payment_id: int) -> Json:
             bounty = conn.execute("SELECT title FROM bounties WHERE id = ?", (int(row["ref"]),)).fetchone()
             if bounty is not None:
                 out["for"] = f"the prize for bounty #{row['ref']}: {bounty['title']}"
+        elif row["purpose"] == "bill":
+            out["for"] = f"Teeny's own server: {str(row['ref']).removeprefix('vps:').replace(':', ' invoice ', 1)}"
+        elif row["purpose"] == "refund":
+            out["for"] = "a refund of a paid build request Teeny did not build"
         elif row["purpose"] == "vendor":
             vendor = store.vendor_by_address(conn, row["to_address"], row.get("chain") or chains.SOLANA)
             out["for"] = f"{vendor['name'] if vendor else 'a vendor'} ({row['ref']})"
