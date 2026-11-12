@@ -29,7 +29,7 @@ name = "archive"
 run = "hands/build jobs --status shipped --limit 30"
 
 [[inputs]]
-name = "world_history"
+name = "world-history"
 run = "hands/world history --days 30"
 +++
 Propose one change to yourself, the one that would help you most today. The builder makes it in your own clone and opens it as a pull request, and the operator merges it or closes it.
@@ -44,14 +44,14 @@ Also look at what your lore asks of you that you can't do yet.
 Then look at how you are growing:
 - `world`: your world score W and its growth score J over the last 7 days, computed by frozen code. Read its `reading` lines first. The component with the smallest `contribution`, or one with a `note` saying it has no data, is usually where the most is left.
 - `archive`: your past self changes. They are the jobs of `kind` `self`; ignore the other kinds. Each has its `summary` and its `pr_url`. Don't propose again what is already there, merged or closed.
-- `world_history`: W day by day for 30 days, so you can see what moved in the days after each of those changes shipped (`shipped_at`).
+- `world-history`: W day by day for 30 days, so you can see what moved in the days after each of those changes shipped (`shipped_at`).
 
 Pick the single change that fixes the most for the least. It must be one of:
 - an agent prompt (`brain/agents/*.md`) or a playbook (`brain/playbooks/*.md`) that answers better, skips the right things, or stops repeating itself;
 - a skill (`brain/skills/**`), or a job in `brain/cron.toml`;
 - a new hand (`hands/<name>`, `hands/lib/teeny_hands/<name>/` and its tests) for something you keep needing and can't do.
 
-Never propose a change to anything frozen. That covers `bin/`, `spine/`, `vendor/`, `deploy/`, `evals/`, `.github/`, `DIRECTIVE.md`, the agent definitions (`*.toml`), `hands/guard`, `hands/x` and the existing hand library. The OpenHuman core is the operator's: if the fix belongs there, skip and say so. Nothing touching wallets, keys, money or the guard.
+Never propose a change to anything frozen. That covers `bin/`, `spine/`, `vendor/`, `deploy/`, `evals/`, `.github/`, `DIRECTIVE.md`, the agent definitions (`*.toml`), `hands/guard`, `hands/x`, `hands/world` (the scorer) and the existing hand library. The OpenHuman core is the operator's: if the fix belongs there, skip and say so. Nothing touching wallets, keys, money or the guard.
 
 Skip only when one of your own changes is still in flight: a `self` request in `pending`, or a job of kind `self` in `builds` that is not finished (`failed` and `shipped` are finished). One at a time.
 
