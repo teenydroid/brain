@@ -216,7 +216,6 @@ def read_page(text: str) -> Page:
             current = [line.strip()]
     close()
     page.preamble = "\n".join(preamble).strip()
-    page.sections = [s for s in page.sections if s.items or s.name]
     for section in page.sections:
         section.items = [i for i in section.items if i.text]
     return page
