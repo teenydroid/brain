@@ -8,6 +8,11 @@
   R  receipt ID                    one payment (or buy-N, one $TINY buy): amount, purpose, signature, Solscan
   R  receipts [--max N]            paid payments and buys no X post has carried the signature of yet
   R  caps                          the caps it pays under
+  J  inflows scan                  record every deposit since the last scan (accounts.py), read only
+  R  inflows list [--max N]        the inflow ledger, newest first
+  O  inflows tag SIG --category C [--note T] [--ref R]   say what a deposit was (team, tip, sale, bounty)
+  R  accounts [--days N]           profit and loss over N days (7): costs against what it earned, team money apart
+  J  accounts close                freeze last week's page, Mondays (bin/accounts); bin/receipts publishes it
   R  conversions [--max N]         the swaps and bridges, newest first
   R  x402 log [--max N]            the paid HTTP requests, newest first
   A  pay                           {to, amount_usdc | amount_sol | amount_eth, chain?, purpose, ref} (pay.py)
@@ -33,7 +38,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import buy, convert, pay, reads, x402
+from . import accounts, buy, convert, pay, reads, x402
 
 
 def _bounded(low: int, high: int, what: str):
@@ -68,6 +73,18 @@ def parser() -> argparse.ArgumentParser:
     verb("swap", lambda a, body: convert.convert("swap", body), "swap on one chain, to Teeny's own address (deBridge)", body=True)
     verb("bridge", lambda a, body: convert.convert("bridge", body), "bridge to Teeny's own address on another chain (deBridge DLN)", body=True)
     verb("conversions", lambda a, _: convert.conversions(a.max), "swaps and bridges, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
+
+    flows = verbs.add_parser("inflows", help="the inflow ledger: deposits to Teeny's wallet").add_subparsers(dest="inflows_verb")
+    verb("scan", lambda a, _: accounts.scan(), "record new deposits (read only; the pinned job)", under=flows)
+    verb("list", lambda a, _: accounts.inflows(a.max), "the ledger, newest first", under=flows).add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
+    tagged = verb("tag", lambda a, _: accounts.tag(a.signature, a.category, a.note, a.ref), "say what one deposit was (operator)", under=flows)
+    tagged.add_argument("signature", metavar="SIGNATURE")
+    tagged.add_argument("--category", required=True, choices=accounts.TAGS)
+    tagged.add_argument("--note")
+    tagged.add_argument("--ref")
+    book = verb("accounts", lambda a, _: accounts.close() if a.what == "close" else accounts.page(a.days), "profit and loss; `close` freezes last week's page")
+    book.add_argument("what", nargs="?", choices=("close",))
+    book.add_argument("--days", type=_bounded(1, 366, "--days"), default=7)
 
     paid = verbs.add_parser("x402", help="HTTP requests that pay for themselves (x402)").add_subparsers(dest="x402_verb")
     verb("fetch", lambda a, body: x402.fetch(body), "one request that may pay, under the caps", body=True, under=paid)
