@@ -75,11 +75,10 @@ class CharterTest(unittest.TestCase):
         for fid, row in fences().items():
             self.assertTrue(row["lives"], f"{fid}: names no code")
             for path in row["lives"]:
-                glob = path.rstrip("*").rstrip("/") if "*" in path else path
                 if "*" in path:
                     self.assertTrue(list(REPO.glob(path)), f"{fid}: {path} matches nothing")
                 else:
-                    self.assertTrue((REPO / glob).exists(), f"{fid}: {path} does not exist")
+                    self.assertTrue((REPO / path).exists(), f"{fid}: {path} does not exist")
 
     def test_every_fence_is_pinned_by_a_test_that_exists(self):
         for fid, row in fences().items():
@@ -96,7 +95,7 @@ class CharterTest(unittest.TestCase):
     def test_the_charter_and_its_short_version_are_frozen(self):
         patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
         for path in ("docs/governance.md", "brain/CHARTER.md"):
-            self.assertTrue(frozen.matches(path, patterns), path)
+            self.assertIsNotNone(frozen.frozen_pattern(path, patterns), path)
 
     def test_the_short_version_is_anchored_in_the_invariants(self):
         invariants = (REPO / "evals" / "invariants.md").read_text()
