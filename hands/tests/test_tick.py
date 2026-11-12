@@ -550,6 +550,36 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(len(self.x_replies()), 3)
 
+    def test_a_deferred_reply_refused_for_another_reason_next_beat_says_why(self):
+        replied = {"refused": "already replied to post 111 (reply 9); a post gets one reply", "rule": "replied"}
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600), replied])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "refused")
+        message = self.chats()[-1]["message"]
+        self.assertIn("your reply_x on 111: refused: already replied to post 111", message)
+        self.assertNotIn("held by the pacing", message)
+
+    def test_a_deferred_reply_still_goes_out_in_the_quiet_hours(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(600)])
+        self.night(0.9)
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "late one"},
+        ]})
+        self.tick()
+        self.night(1.1)
+        got = self.tick()  # decided while awake: sent, though the beat only gathers
+        self.assertTrue(got["asleep"])
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        self.assertEqual(self.x_replies()[-1], ("222", "late one"))
+        self.assertEqual(len(self.chats()), 1)
+
     def test_what_the_hands_did_comes_back_next_beat(self):
         os.environ["FAKE_EXIT_X"] = "2"
         stimuli.add("x", "mention", "111", "gm")
