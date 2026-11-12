@@ -152,6 +152,17 @@ check "passes EVOLVE=1 with self-edit at L4" doctor
 check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
 fresh; rm "$root/evals/autonomy.toml"
 fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
+# A model change (roadmap G8): recorded at boot, the levels on it drop, a switch
+# above the dropped level warns (never fails the boot), and the issue is prepared.
+fresh; mkdir -p "$root/secrets" "$root/docs"; cp "$repo/docs/governance.md" "$root/docs/"
+printf 'SPINE_MODEL=model-a\n' >"$root/secrets/spine.env"; printf 'EVOLVE=1\n' >"$root/secrets/evolve.env"
+check "records the model behind each role" doctor
+check "and says nothing changed the first time" grep -q '^ok   model: .*no change' "$scratch/doctor.log"
+printf 'SPINE_MODEL=model-b\n' >"$root/secrets/spine.env"
+check "a model change still boots" doctor
+check "and warns that it changed" grep -q '^warn model: changed: .*model-a -> model-b' "$scratch/doctor.log"
+check "and warns that EVOLVE=1 is above self-edit's dropped level" grep -q '^warn autonomy ladder: EVOLVE=1 .*dropped to L3' "$scratch/doctor.log"
+check "and prepares the issue" grep -q 'self-edit: L4 -> L3' "$root/secrets/autonomy/issue-pending.json"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 
