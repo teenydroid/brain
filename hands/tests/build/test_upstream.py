@@ -293,4 +293,3 @@ class CliTest(UpstreamScratch):
         self.assertEqual(code, 2, out)
 
 
-del T0  # imported for the clock; the scratch sets it
