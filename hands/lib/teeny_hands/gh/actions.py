@@ -328,8 +328,9 @@ def comment(body: Any, gh: GitHubApi | None = None) -> Json:
     repo = f"{owner}/{name}"
     number = _number(body, "number")
     context: Json = {"repo": repo, "number": number}
-    if not is_own(owner):
-        # Read even under DRY_RUN, so a rehearsal is held the same.
+    if not is_own(owner) and not hand.dry_run():
+        # A rehearsal asks GitHub nothing, so it cannot tell a rejection;
+        # a live comment always can.
         gh = gh or GitHubApi.from_settings()
         rejected = rejection(owner, name, number, gh)
         if rejected is not None:
