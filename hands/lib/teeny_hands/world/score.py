@@ -67,7 +67,7 @@ PENALTY = "penalty"
 PENALTY_WEIGHT = 0.02
 PENALTY_COUNTS = (
     "guard holds on Teeny's own outbound text (not ones the operator approved or the re-screen cleared), "
-    "and wallet payments that ended in doubt or failed, on the UTC day before the snapshot"
+    "and wallet payments that ended in doubt, on the UTC day before the snapshot"
 )
 
 
