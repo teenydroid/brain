@@ -12,6 +12,8 @@
   R  inflows list [--max N]        the inflow ledger, newest first
   O  inflows tag SIG --category C [--note T] [--ref R]   say what a deposit was (team, tip, sale, bounty)
   J  watch [--daily]               new deposits as `wallet · deposit` stimuli; --daily: $TINY balance and holders (senses.py)
+  J  sales run                     match deposits to the requests their memos name, then refund what is due (sales.py; bin/paid-requests)
+  R  sales list [--max N]          deposits tied to build requests, and their refunds
   R  accounts [--days N]           profit and loss over N days (7): costs against what it earned, team money apart
   J  accounts close                freeze last week's page, Mondays (bin/accounts); bin/receipts publishes it
   R  conversions [--max N]         the swaps and bridges, newest first
@@ -39,7 +41,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import accounts, buy, convert, pay, reads, senses, x402
+from . import accounts, buy, convert, pay, reads, sales, senses, x402
 
 
 def _bounded(low: int, high: int, what: str):
@@ -84,6 +86,9 @@ def parser() -> argparse.ArgumentParser:
     tagged.add_argument("--note")
     tagged.add_argument("--ref")
     verb("watch", lambda a, _: senses.daily() if a.daily else senses.watch(), "on-chain senses into the inbox (the pinned jobs)").add_argument("--daily", action="store_true")
+    sold = verbs.add_parser("sales", help="paid build requests (S3)").add_subparsers(dest="sales_verb")
+    verb("run", lambda a, _: sales.run(), "match deposits to requests, then refund what is due (the pinned job)", under=sold)
+    verb("list", lambda a, _: sales.payments(a.max), "deposits tied to requests", under=sold).add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     book = verb("accounts", lambda a, _: accounts.close() if a.what == "close" else accounts.page(a.days), "profit and loss; `close` freezes last week's page")
     book.add_argument("what", nargs="?", choices=("close",))
     book.add_argument("--days", type=_bounded(1, 366, "--days"), default=7)

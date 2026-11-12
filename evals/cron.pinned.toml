@@ -240,3 +240,13 @@ command = "bin/wallet-watch daily"
 schedule = "45 0 * * *"
 tz = "UTC"
 command = "bin/health runway"
+
+# Paid build requests (bin/paid-requests; docs/roadmap.md, S3): deposits whose
+# memo names a request, at the frozen price (evals/prices.toml), put that
+# request first; a paid request Teeny did not build is refunded to its sender
+# under the wallet's caps and the refund limits, once, never retried in
+# doubt. OFF unless PAID_REQUESTS=1 (matching) and REQUEST_REFUNDS=1
+# (refunds) in secrets/teeny.env. Operator-owned: money moves only here.
+[jobs.paid-requests]
+schedule = "11-59/15 * * * *"
+command = "bin/paid-requests"

@@ -424,8 +424,10 @@ def page(days: int = 7) -> Json:
         listed.append({"signature": row["signature"], "at": _iso(float(row["at"])), "asset": row["asset"],
                        "amount_raw": str(row["amount_raw"]), "usd": _dollars(cents) if row["asset"] == "USDC" else None,
                        "category": row["category"]})
-    income_total = sum(income.values())
     paid = parts["paid_out"]
+    # A refund gives a sale back: it comes off the income, not the costs.
+    income["refunds"] = -_cents(paid["refund"]["micro"]) if "refund" in paid else 0
+    income_total = sum(income.values())
     return {
         "from": _iso(since), "to": _iso(until), "days": days,
         "costs": {**{k: _dollars(v) for k, v in lines.items()}, "total": _dollars(cost_total)},

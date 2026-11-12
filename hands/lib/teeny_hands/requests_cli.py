@@ -7,6 +7,7 @@ picks for the builder.
   A  pick  {id, reason}            the one to build next; one at a time
   A  skip  {id, reason}            not doing it
   O  reset ID [--note T]           back to pending, whatever it was
+  R  prices                        what a paid build request costs (evals/prices.toml)
 
 `pick` and `skip` write only state/hands.db and tell nobody, so DRY_RUN does
 not stop them; whatever is built from a pick goes out through hands that keep
@@ -48,6 +49,12 @@ def parser() -> argparse.ArgumentParser:
     )
     verb("pick", lambda a, body: requests.pick(body), "pick a pending request to build (JSON on stdin)", body=True)
     verb("skip", lambda a, body: requests.skip(body), "skip a pending request (JSON on stdin)", body=True)
+    def price_list(a, _):
+        from .wallet import sales
+
+        return sales.price_list()
+
+    verb("prices", price_list, "what a paid build request costs, and how to pay")
     resetting = verb("reset", lambda a, _: requests.reset(a.id, a.note), "put a request back to pending (operator)")
     resetting.add_argument("id", type=_bounded(1, 2**62, "ID"), metavar="ID")
     resetting.add_argument("--note", default=None)

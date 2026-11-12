@@ -71,7 +71,7 @@ too (docs/roadmap.md, S1), one file each, written once and never rewritten:
 
     accounts/2026-W46.json   {"week", "from", "to", "costs": {"models",
       "server", "tools", "total"}, "income": {"tip", "sale", "bounty",
-      "total"}, "net", "team", "unclassified", "paid_out", "tiny_bought",
+      "refunds", "total"}, "net", "team", "unclassified", "paid_out", "tiny_bought",
       "sol_received_lamports", "inflows": [{"signature", "at", "asset",
       "amount_raw", "usd", "category"}], "not_counted", "team_known", ...}
 
@@ -158,7 +158,7 @@ SOLANA_SIG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{64,90}")
 #: (WALLET_CLUSTER as it is, `mainnet` or `devnet`), so none is dropped.
 CLUSTERS = wallet_caps.CLUSTERS
 ASSETS = ("SOL", "USDC")
-PURPOSES = ("bounty", "vendor")
+PURPOSES = ("bounty", "vendor", "refund", "bill")
 MAX_INT = 2**63 - 1
 
 
@@ -458,7 +458,7 @@ LAMPORTS = re.compile(r"\d{1,20}")
 INFLOW_ASSETS = ("SOL", "USDC")
 INFLOW_CATEGORIES = ("team", "tip", "sale", "bounty", "unclassified")
 COST_LINES = ("models", "server", "tools", "total")
-INCOME_LINES = ("tip", "sale", "bounty", "total")
+INCOME_LINES = ("tip", "sale", "bounty", "refunds", "total")
 NOT_COUNTED = ("network fees", "SOL in dollars", "EVM networks")
 
 
