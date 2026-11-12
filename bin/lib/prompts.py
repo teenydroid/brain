@@ -78,6 +78,20 @@ def _read(path: Path) -> str:
 def world(brain: Path) -> str:
     """The "## your world" section every speaking agent carries."""
     parts: list[str] = []
+    memory = _read(brain / "MEMORY.md")
+    if memory:
+        memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
+        if len(memory) > MEMORY_MAX_CHARS:
+            memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
+        memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
+        # First, though it changes most often: reflection rewrites it twice a
+        # day, so the cache it costs is small, and it is what happened.
+        parts.append(
+            "## what you keep in mind (MEMORY.md)\n\n"
+            "This is what actually happened, so it comes first. Where it disagrees with the context, "
+            "the lore or the arcs below, MEMORY.md wins: the lore is where you started, not a script to replay.\n\n"
+            + memory
+        )
     context = _read(brain / "CONTEXT.md")
     if context:
         # Its own "# CONTEXT.md" title would read as a second document.
