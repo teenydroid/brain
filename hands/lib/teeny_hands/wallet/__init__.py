@@ -8,6 +8,8 @@ pay.py), keeps its own ledger, and reads balances, receipts and costs.
   solana  addresses, Solscan links, the USDC balance over Solana JSON-RPC
   store   wallet_payments, bills, vendors
   pay     the rules, then prepare and execute through the core
+  buy     buy-tiny: a share of net inflows into $TINY, buy only
+  jupiter Jupiter's public quote API, read only
   reads   address, balance, ledger, costs, receipts, the operator's lists
   cli     the verbs
 """

@@ -58,19 +58,68 @@ def _public(row: Mapping[str, Any]) -> Json:
     return out
 
 
+#: What a $TINY buy receipt says it was for: Teeny's own holding, bought
+#: from what it earned. No price, no call to anyone.
+BUY_FOR = "$TINY for Teeny's own holding, bought with a share of what it earned. It never sells."
+
+
+def _public_buy(row: Mapping[str, Any]) -> Json:
+    out = dict(row)
+    out["id"] = f"buy-{row['id']}"
+    out["kind"] = "tiny_buy"
+    out["asset"] = "USDC"
+    out["amount"] = caps.display(int(row["usdc_raw"]), "USDC")
+    out["usdc_raw"] = str(row["usdc_raw"])
+    out["usd"] = caps.usd(int(row["usd_micro"]))
+    out["earned_usd"] = caps.usd(int(row["earned_micro"]))
+    out["spent_usd"] = caps.usd(int(row["spent_micro"]))
+    for key in ("usd_micro", "earned_micro", "spent_micro"):
+        del out[key]
+    for key in ("tiny_out_raw", "tiny_min_raw"):
+        if key in out:
+            out[key] = str(out[key])
+    if row.get("signature"):
+        out["url"] = solana.explorer_tx(row["signature"], row["cluster"])
+    return out
+
+
 def ledger(max_rows: int) -> Json:
     conn = store.db()
     try:
         rows = conn.execute("SELECT * FROM wallet_payments ORDER BY id DESC LIMIT ?", (max_rows,)).fetchall()
+        buys = conn.execute("SELECT * FROM wallet_tiny_buys ORDER BY id DESC LIMIT ?", (max_rows,)).fetchall()
     finally:
         conn.close()
-    out: Json = {"payments": [_public(store.row_dict(r) or {}) for r in rows]}
+    out: Json = {"payments": [_public(store.row_dict(r) or {}) for r in rows], "tiny_buys": [_public_buy(store.row_dict(r) or {}) for r in buys]}
     try:
         core_rows = hand.core("wallet_ledger_list", {"limit": max_rows})
         out["core"] = core_rows if isinstance(core_rows, list) else []
     except hand.HandError as exc:
         out["core_error"] = str(exc)
     return out
+
+
+def buy_receipt(buy_id: int) -> Json:
+    conn = store.db()
+    try:
+        row = store.buy(conn, buy_id)
+    finally:
+        conn.close()
+    if row is None or row["status"] != "bought":
+        raise hand.Refused(f"there is no $TINY buy buy-{buy_id} that went out", rule="unknown")
+    out = _public_buy(row)
+    out["for"] = BUY_FOR
+    return {"receipt": out}
+
+
+def receipt_for(ref: str) -> Json:
+    """`receipt ID`: a payment's number, or `buy-N` for a $TINY buy."""
+    text = str(ref).strip()
+    if text.startswith("buy-") and text[4:].isdigit():
+        return buy_receipt(int(text[4:]))
+    if text.isdigit():
+        return receipt(int(text))
+    raise hand.Refused("a receipt ID is a payment's number or buy-N", rule="unknown")
 
 
 def receipt(payment_id: int) -> Json:
@@ -93,15 +142,18 @@ def receipt(payment_id: int) -> Json:
 
 
 def receipts_due(max_rows: int = 5) -> Json:
-    """Paid payments no X post of Teeny's has carried the signature of yet:
-    what the wallet-receipt playbook still owes a receipt post for."""
+    """Paid payments and $TINY buys no X post of Teeny's has carried the
+    signature of yet, oldest first: what the wallet-receipt playbook still
+    owes a receipt post for."""
     conn = store.db()
     try:
         has_posts = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'x_posts'").fetchone()
-        rows = conn.execute("SELECT id FROM wallet_payments WHERE status = 'paid' ORDER BY id").fetchall()
+        rows = conn.execute("SELECT id, updated_at FROM wallet_payments WHERE status = 'paid'").fetchall()
+        buys = conn.execute("SELECT id, updated_at FROM wallet_tiny_buys WHERE status = 'bought'").fetchall()
+        done = [(r["updated_at"], 0, int(r["id"])) for r in rows] + [(r["updated_at"], 1, int(r["id"])) for r in buys]
         due = []
-        for row in rows:
-            got = receipt(int(row["id"]))["receipt"]
+        for _, is_buy, row_id in sorted(done):
+            got = (buy_receipt(row_id) if is_buy else receipt(row_id))["receipt"]
             if has_posts and conn.execute("SELECT 1 FROM x_posts WHERE instr(text, ?) > 0", (got["signature"],)).fetchone():
                 continue
             due.append(got)

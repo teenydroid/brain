@@ -4,15 +4,16 @@
   R  balance                       SOL (the core) and USDC (Solana RPC), raw and display
   R  ledger [--max N]              this hand's payments and the core's spend ledger
   R  costs [--days N]              what keeping Teeny running cost: models, x402, bills
-  R  receipt ID                    one payment: amount, recipient, purpose, signature, Solscan
-  R  receipts [--max N]            paid payments no X post has carried the signature of yet
+  R  receipt ID                    one payment (or buy-N, one $TINY buy): amount, purpose, signature, Solscan
+  R  receipts [--max N]            paid payments and buys no X post has carried the signature of yet
   R  caps                          the caps it pays under
   A  pay                           {to, amount_usdc | amount_sol, purpose, ref} (pay.py)
+  J  buy-tiny                      a share of net inflows into $TINY, buy only (buy.py; bin/tiny-buy)
   O  bills add NAME --usd N --period month|year [--note T], bills list, bills remove NAME
   O  vendors add NAME ADDRESS [--note T], vendors list, vendors remove NAME
 
-`pay` is never given to a model: bin/lib/playbook.py refuses it as a
-playbook's output, and the drafting agents have no tools.
+`pay` and `buy-tiny` are never given to a model: bin/lib/playbook.py
+refuses them as a playbook's output, and the drafting agents have no tools.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import pay, reads
+from . import buy, pay, reads
 
 
 def _bounded(low: int, high: int, what: str):
@@ -47,10 +48,11 @@ def parser() -> argparse.ArgumentParser:
     verb("balance", lambda a, _: reads.balance(), "SOL and USDC, raw and display")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)
-    verb("receipt", lambda a, _: reads.receipt(a.id), "one payment's receipt").add_argument("id", type=int, metavar="ID")
+    verb("receipt", lambda a, _: reads.receipt_for(a.id), "one payment's receipt, or buy-N").add_argument("id", metavar="ID")
     verb("receipts", lambda a, _: reads.receipts_due(a.max), "paid payments still owed a receipt post").add_argument("--max", type=_bounded(1, 50, "--max"), default=5)
     verb("caps", lambda a, _: reads.caps_status(), "the caps it pays under")
     verb("pay", lambda a, body: pay.pay(body), "pay a bounty winner or an allowlisted vendor", body=True)
+    verb("buy-tiny", lambda a, _: buy.buy_tiny(), "buy $TINY with a share of net inflows (the pinned job only)")
 
     bills = verbs.add_parser("bills", help="fixed bills (operator)").add_subparsers(dest="bills_verb")
     add = verb("add", lambda a, _: reads.bills_add(a.name, a.usd, a.period, a.note), "add or replace a bill", under=bills)
