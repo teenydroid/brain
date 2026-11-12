@@ -37,7 +37,7 @@ report they leave beside it.
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post, which makes it too expensive. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post or quote of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `like` | A | Likes a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
+| `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 
@@ -65,6 +65,21 @@ DRY_RUN=1 ? ── yes ─► {"would_post": ...}   no X write, no ledger row
 X API ─► id recorded at once (a reply: x_replies), then the x_posts ledger row
          a record that fails is logged on stderr, never retried
 ```
+
+### Saying what it is
+
+X asks an automated account to switch on the "Automated" label, to say in
+its bio that it is a bot and who runs it, and to be tied to an account a
+person manages ([X developer guidelines](https://docs.x.com/developer-guidelines)).
+`hands/stats snapshot` already looks the account up every day, and that
+answer carries the bio: it is kept in `x_profile` (state/hands.db,
+`teeny_hands/x/profile.py`), at no extra call. `bin/doctor` reads that row,
+never X, and checks that the bio says the account is automated (bot, AI
+agent, automated) and names the operator, `X_OPERATOR_HANDLE` in
+`secrets/teeny.env` (any "run by @handle" while it is unset). No X keys is
+`ok`; no cached profile, a bio without the line, or a profile older than 8
+days is a `warn`, never a failure. The label itself is not in anything the
+API returns, so the check says to confirm it in X's settings.
 
 ### twitr.sh
 
