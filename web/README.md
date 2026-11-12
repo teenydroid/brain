@@ -22,6 +22,15 @@ One route per part of the mind, each with its own scene behind the hero:
 | `/tools` | everything it can do, and cannot | a lattice of points |
 | `/articles` | long pieces, in full | |
 
+Two static files make Teeny findable by other agents (docs/roadmap.md, P9),
+for discovery only: `public/.well-known/agent-card.json`, an A2A agent card
+(no `supportedInterfaces`, because Teeny serves no A2A endpoint yet), and
+`public/.well-known/agent-registration.json`, an ERC-8004 registration file
+with no `registrations` and no `supportedTrust` (nothing is registered on
+chain, and no reputation is claimed). Both name the operator.
+`src/lib/discovery.test.ts` checks them against the required fields of each
+spec.
+
 `src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
 read from it. Scenes live in `src/components/scene/scenes/` and honour
 `prefers-reduced-motion` by standing still.
