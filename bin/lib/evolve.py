@@ -2048,8 +2048,12 @@ def commit_branch(tree: Path, branch: str, title: str) -> str:
 
 
 def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json], src: Source,
-           publisher: Publisher | None) -> Json:
-    """Opens one pull request for the best candidate, or says why none."""
+           publisher: Publisher | None, promoter: Promoter | None = None) -> Json:
+    """Opens one pull request for the best candidate, or says why none.
+    With EVOLVE_AUTO_PROMOTE=1 and a candidate that may be promoted
+    (`promotable`), its commit carries the chronicle entry and the pull
+    request is merged and tagged; the result's `restart` is the caller's to
+    carry out last."""
     ranked = rank(cands, entries)
     if not ranked:
         return {"selected": None, "reason": "no candidate passed the gate and evaluation"}
@@ -2062,11 +2066,23 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
     branch = f"{BRANCH_PREFIX}{gen}"
     best["selected"] = True
     best["branch"] = branch
+    may, why = promotable(cfg, best)
+    auto = cfg.auto_promote and may
+    if not cfg.auto_promote:
+        why = "EVOLVE_AUTO_PROMOTE=0: the operator merges"
+    if auto:
+        body += ("\n\n**Promoted by the loop** (EVOLVE_AUTO_PROMOTE=1): " + why + ". It merges on its own once "
+                 "the required checks pass, is tagged `gen-" + str(gen) + "`, and the spine restarts on it.")
     if dry_run():
-        result = {"dry_run": True, "would_open_pr": {"branch": branch, "title": title}, "body": body}
+        result = {"dry_run": True, "would_open_pr": {"branch": branch, "title": title}, "body": body,
+                  "would_promote": auto, "promotion_reason": why}
         write_json(gen_dir(gen) / "pr.json", result)
         return {"selected": best["id"], **result}
     tree = evolve_dir() / best["worktree"]
+    if auto:
+        entry = tree / "brain" / "narrative" / "chronicle" / f"gen-{gen}.md"
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        entry.write_text(chronicle_text(gen, best, entries, len(cands)), encoding="utf-8")
     branch = best["branch"] = commit_branch(tree, branch, title)
     try:
         hits = [h.path for h in frozen.check(tree, best["base"], branch)]
@@ -2083,7 +2099,13 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
         return {"selected": best["id"], "pr_error": best["pr_error"]}
     best.update(pr_url=opened.get("html_url"), pr_number=opened.get("number"))
     write_json(gen_dir(gen) / "pr.json", {"opened": opened, "title": title, "body": body})
-    return {"selected": best["id"], "pr_url": best.get("pr_url")}
+    result = {"selected": best["id"], "pr_url": best.get("pr_url")}
+    if auto and best.get("pr_number"):
+        promoter = promoter or GhPromoter(HandsPublisher()._repo())
+        result["promotion"] = promote(cfg, gen, best, promoter)
+    elif cfg.auto_promote:
+        result["promotion"] = {"promoted": False, "why": why}
+    return result
 
 
 def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Config) -> dict[int, Evaluator]:
@@ -2102,7 +2124,8 @@ def evaluate_one(evaluator: Evaluator, cand: Json, src: Source) -> None:
 
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
                    cand_urls: Mapping[int, str] | None = None, base_url: str | None = None, hold: bool = False,
-                   publisher: Publisher | None = None, rng: random.Random | None = None) -> Json:
+                   publisher: Publisher | None = None, rng: random.Random | None = None,
+                   promoter: Promoter | None = None, restarter: Restarter | None = None) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
     if halt_path().exists():
@@ -2140,16 +2163,23 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
             remove_worktree(src, gdir / f"cand-{i}")
             say(f"candidate {i}: {cand['verdict']} {cand.get('reason') or ''}".rstrip())
     evaluators = make_evaluators(cand_urls or {}, base_url, cfg)
-    for cand in cands:
-        if cand["verdict"] == "pending":
-            evaluate_one(evaluators.get(cand["cand"], Unevaluated()), cand, src)
-            say(f"candidate {cand['cand']}: {cand['verdict']}")
+    default = make_default_evaluator(cfg, src, base, base_url) if any(c["verdict"] == "pending" for c in cands) \
+        else Unevaluated()
+    try:
+        for cand in cands:
+            if cand["verdict"] == "pending":
+                evaluate_one(evaluators.get(cand["cand"], default), cand, src)
+                say(f"candidate {cand['cand']}: {cand['verdict']}")
+    finally:
+        close = getattr(default, "close", None)
+        if close:
+            close()
     result: Json = {"gen": gen, "base": base, "candidates": [{k: c.get(k) for k in ("id", "parent", "verdict", "title")}
                                                              for c in cands]}
     if hold:
         result["held"] = "the gated candidates wait for `bin/evolve evaluate` and `bin/evolve select`"
     else:
-        result.update(select(cfg, gen, cands, entries, src, publisher))
+        result.update(select(cfg, gen, cands, entries, src, publisher, promoter))
         # What did not ship needs no worktree: its patch is kept beside it.
         for cand in cands:
             if not cand.get("selected") or cand.get("pr_url"):
@@ -2157,6 +2187,11 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
     for cand in cands:
         record(cand)
     write_json(gdir / "result.json", result)
+    # Last: a restart ends the container this runs in.
+    plan = (result.get("promotion") or {}).get("restart")
+    if plan:
+        result["restart"] = do_restart(restarter, plan)
+        write_json(gdir / "result.json", result)
     return {"ok": True, **result}
 
 
