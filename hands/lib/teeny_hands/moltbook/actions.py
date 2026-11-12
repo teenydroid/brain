@@ -30,7 +30,7 @@ from typing import Any, Mapping
 
 from .. import hand
 from ..rest import RestApi, RestError, quote
-from . import challenge, client, reads, rules
+from . import challenge, client, model_read, reads, rules
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -162,8 +162,9 @@ def _answer(api: RestApi, code: str, answer: str) -> tuple[bool, str]:
 
 
 def _settle(conn: sqlite3.Connection, api: RestApi, kind: str, table: str, row_id: int | None, content_id: str | None, ver: dict[str, Any]) -> dict[str, Any]:
-    """Answers a challenge when it reads with confidence; otherwise leaves it
-    pending for the operator and refuses (rule `verification`)."""
+    """Answers a challenge when it reads with confidence (the parser, or else
+    two agreeing model reads, model_read.py); otherwise leaves it pending for
+    the operator and refuses (rule `verification`)."""
     code, text = ver["verification_code"], ver["challenge_text"]
 
     def status(value: str) -> None:
@@ -178,7 +179,7 @@ def _settle(conn: sqlite3.Connection, api: RestApi, kind: str, table: str, row_i
             (hand.now(), kind, content_id, code, text[:2000], ver.get("expires_at"), value, note),
         )
 
-    answer = challenge.solve(text)
+    answer = challenge.solve(text) or model_read.solve(text)
     if answer is None:
         status("needs_verification")
         pending_id = pending("needs_verification", "not read with confidence; nothing was guessed")
