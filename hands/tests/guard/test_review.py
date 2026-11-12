@@ -38,7 +38,7 @@ class ReviewTest(support.Scratch):
     def hold(self, text: str, category: str = "profanity", *, kind: str = "draft", direction: str = "outbound",
              surface: str = "x") -> int:
         return holds.record(direction=direction, kind=kind, context={"surface": surface, "post_kind": "post"},
-                            category=category, reason="matched a word", held_by="screen", text=text)["id"]
+                            category=category, reason="matched a word", by="screen", text=text)["id"]
 
     def run_review(self, verdict: str = "release", rng: float = 0.5, **kw):
         def asker(text, category, model):
