@@ -25,7 +25,7 @@ SECRET_ID = "heldout-whisper"
 SECRET_PROMPT = "Reply to the lighthouse keeper who asks about the tide clock"
 ENV_KEYS = ("TEENY_ROOT", "TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "TEENY_OH", "EVOLVE_GIT_DIR", "EVOLVE_BASE",
             "EVOLVE_NOW", "DRY_RUN", "EVOLVE", "EVAL_HELDOUT_DIR", "TEENY_STORAGE", "OPENHUMAN_CORE_URL",
-            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT")
+            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE")
 
 
 def git(*args, cwd=None):
@@ -474,6 +474,54 @@ class Credit(EvolveCase):
         self.assertGreater(weights["g1c1"], uncredited["g1c1"])
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["measured"], [])
+
+    def test_a_generation_a_person_merged_gets_its_chronicle_page(self):
+        """docs/roadmap.md, A13: whoever merged it, a merged generation has
+        brain/narrative/chronicle/gen-<n>.md."""
+        evolve.record({"id": "g2c1", "gen": 2, "cand": 1, "parent": "main", "verdict": "lost", "gate": {"ok": True}})
+        evolve.record({"id": "g3c1", "gen": 3, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
+                       "pr_number": 5, "title": "open with what shipped", "component": "attention",
+                       "expected_move": "+2%", "scores": {"wins": 3, "decided": 4}})
+        evolve.record({"id": "g3c2", "gen": 3, "cand": 2, "parent": "main", "verdict": "lost", "gate": {"ok": True}})
+        pub = FakePublisher()
+        out = evolve.credit(evolve.load_config(), pub)
+        self.assertEqual(out["chronicled"], [])  # not merged yet: no page
+        page = self.root / "brain" / "narrative" / "chronicle" / "gen-3.md"
+        self.assertFalse(page.exists())
+        pub.states = {5: {"merged_at": evolve.iso(T0 - DAY)}}
+        out = evolve.credit(evolve.load_config(), pub)
+        self.assertEqual(out["chronicled"], ["g3c1"])
+        text = page.read_text()
+        self.assertIn("# gen-3", text)
+        self.assertIn("ran 2 candidates", text)
+        self.assertIn("open with what shipped", text)
+        self.assertIn("won 3 of 4 pairs", text)
+        self.assertIn("- merged by: the operator", text)
+        self.assertIn("- gen-2: the agents carried it back", text)
+        self.assertEqual(self.entries()["g3c1"]["chronicle"], "brain/narrative/chronicle/gen-3.md")
+        # Once: a later run neither rewrites it nor writes it again.
+        page.write_text("kept\n")
+        again = evolve.credit(evolve.load_config(), pub)
+        self.assertEqual(again["chronicled"], [])
+        self.assertEqual(page.read_text(), "kept\n")
+
+    def test_a_promoted_generation_keeps_the_page_its_commit_carried(self):
+        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
+                       "pr_number": 1, "promoted_at": evolve.iso(T0 - DAY)})
+        pub = FakePublisher()
+        pub.states = {1: {"merged_at": evolve.iso(T0 - DAY)}}
+        out = evolve.credit(evolve.load_config(), pub)
+        self.assertEqual(out["chronicled"], [])
+        self.assertFalse((self.root / "brain" / "narrative" / "chronicle" / "gen-1.md").exists())
+
+    def test_the_chronicle_goes_to_the_live_brain_the_core_boots(self):
+        live = self.root / "elsewhere"
+        os.environ["OPENHUMAN_WORKSPACE"] = str(live)
+        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "gate": {"ok": True}, "pr_number": 1})
+        pub = FakePublisher()
+        pub.states = {1: {"merged_at": evolve.iso(T0)}}
+        evolve.credit(evolve.load_config(), pub)
+        self.assertTrue((live / "narrative" / "chronicle" / "gen-1.md").is_file())
 
     def test_without_hands_world_nothing_is_measured(self):
         os.environ.pop("FAKE_HISTORY", None)
