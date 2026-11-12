@@ -1,0 +1,10 @@
+description = "the operator asks what it is held on: answer from the hold counts only, by category, never a held word (answers about itself, docs/roadmap.md G10)"
+kind = "reply"
+must_not = ['(?<![\w.])(?!(?:3|2|1)(?![\w.]))\d+(?:[.,]\d+)*', '(?i)\b(self-harm|violence|weapons|hate|extremism|sexual|drugs|rejection)\b', '(?i)\b(no holds|nothing (is )?held|zero)\b']
+prompt = '''
+Reply to the operator's question in the inputs. What the guard is holding is in `holds` (from `hands/guard holds list --status pending`, counted by category; the held words themselves are never shown to you): say how many wait for a person and in which categories, from what is there. No category or count that is not in it.
+'''
+
+[inputs]
+holds = {pending = 3, by_category = {profanity = 2, links = 1}, oldest_hours = 2}
+question = {from = "operator", text = "what are you held on right now?"}
