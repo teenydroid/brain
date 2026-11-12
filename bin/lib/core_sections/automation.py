@@ -7,6 +7,10 @@ linked modules.
                  take minutes, not the core's default 120 s
   [autonomy]     on, `full` tier, workspace_only: file tools reach the brain
                  (minus Teeny's own files, below) and state/workbench/ only.
+                 On the evolver's lab spine (SPINE_LAB=1 and SPINE_LAB_EDIT=1,
+                 bin/lib/lab.py) the root is a candidate's worktree, and the
+                 file tools may write it, except its git link, secrets, the
+                 core's config and the core's own files in the brain
                  `full` keeps cron shell jobs (bin/<job>) running as before:
                  the tier gates what an agent may do, the hands keep the rules
   [browser]      TinyComputer, headless, a persistent profile under
@@ -47,6 +51,12 @@ DEFAULT_FORBIDDEN = (
 BRAIN_FORBIDDEN = (
     "storage.db", "storage.db-wal", "storage.db-shm", "agents", "playbooks", "skills", "narrative", "assets",
     "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md", "MEMORY.md", "agent",
+)
+
+#: What the evolver's file tools may not touch even in its own worktree: the
+#: core's store and keyring, the prompts it builds, the git link.
+LAB_EDIT_FORBIDDEN = (
+    "storage.db", "storage.db-wal", "storage.db-shm", "agent", "keyring", "dev-keychain.json", "state",
 )
 
 CHROME_CANDIDATES = (
@@ -93,18 +103,24 @@ def tables(root: Path) -> dict[str, str]:
         folder.mkdir(parents=True, exist_ok=True)
 
     brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
+    lab_edit = os.environ.get("SPINE_LAB") == "1" and os.environ.get("SPINE_LAB_EDIT") == "1"
     forbidden = [
         *(os.path.expanduser(p) for p in DEFAULT_FORBIDDEN),
         str(root / "secrets"),
         str(root / ".openhuman"),
-        *(str(brain / name) for name in BRAIN_FORBIDDEN),
     ]
+    if lab_edit:
+        forbidden += [str(root / ".git"), str(root / "state"), *(str(brain / name) for name in LAB_EDIT_FORBIDDEN)]
+        trusted = root
+    else:
+        forbidden += [str(brain / name) for name in BRAIN_FORBIDDEN]
+        trusted = workbench
     autonomy = (
         "enabled = true\n"
         'level = "full"\n'
         "workspace_only = true\n"
         f"forbidden_paths = {_list(forbidden)}\n"
-        f'trusted_roots = [{{ path = {_s(str(workbench))}, access = "readwrite" }}]\n'
+        f'trusted_roots = [{{ path = {_s(str(trusted))}, access = "readwrite" }}]\n'
     )
 
     browser = (
