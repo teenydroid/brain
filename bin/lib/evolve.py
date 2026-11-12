@@ -866,7 +866,7 @@ class AskProposer:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
         try:
-            done = subprocess.run(argv, input=render_request(request), capture_output=True, text=True,
+            done = subprocess.run(argv, input=render_request(fit_request(request)), capture_output=True, text=True,
                                   env=code_env(), timeout=900)
         except subprocess.TimeoutExpired:
             raise EvolveError("the proposer's turn took over 900 s") from None
@@ -1007,6 +1007,27 @@ def render_evolver_request(request: Json) -> str:
     return "\n\n".join(parts)
 
 
+#: The core screens every prompt and holds one over 64 KiB as
+#: `input.oversized` (openhuman-core security/prompt_injection, MAX_PROMPT_BYTES),
+#: so a bigger proposer message never runs. Headroom for what bin/ask wraps it in.
+MAX_PROPOSER_PROMPT_BYTES = 60 * 1024
+
+
+def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES) -> Json:
+    """The request, cut until its message fits the core's prompt screen: the
+    largest shown files are dropped first, and the message names them (they
+    stay editable). A request that fits comes back as it is."""
+    if len(render_request(request).encode("utf-8")) <= limit:
+        return request
+    fitted = dict(request, files=dict(request["files"]), omitted=list(request.get("omitted", [])))
+    for rel in sorted(fitted["files"], key=lambda r: len(fitted["files"][r].encode("utf-8")), reverse=True):
+        del fitted["files"][rel]
+        fitted["omitted"].append(rel)
+        if len(render_request(fitted).encode("utf-8")) <= limit:
+            break
+    return fitted
+
+
 def render_request(request: Json) -> str:
     parts = [
         f"# evolve: generation {request['gen']}, candidate {request['cand']}",
@@ -1036,6 +1057,9 @@ def render_request(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     for rel, text in request["files"].items():
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
+    if request.get("omitted"):
+        parts.append("## files left out to fit the message\n\nThese are editable but not shown; change them only "
+                     "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
     parts.append(
         "## your answer\n\nAnswer with JSON only, no prose and no code fence:\n"
         '{"title": "<one line>", "component": "<a W component>", "expected_move": "<how much, and by when>", '
