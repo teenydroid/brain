@@ -28,8 +28,8 @@ class NotificationsTest(Scratch):
         super().setUp()
         self.notes: list[dict] = []
         self.repos: list[dict] = []
-        self.gh.route("GET", "/notifications", lambda seen: self.notes)
-        self.gh.route("GET", "/users/teenydroid/repos", lambda seen: self.repos)
+        self.gh.route("GET", "/notifications", self.notes)  # serialised at each request
+        self.gh.route("GET", "/users/teenydroid/repos", self.repos)
 
     def api(self, path: str) -> str:
         return self.gh.base + path
