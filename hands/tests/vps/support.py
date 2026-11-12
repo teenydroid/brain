@@ -80,7 +80,11 @@ class Scratch(unittest.TestCase):
         return done.returncode, json.loads(done.stdout)
 
     def orders(self):
-        return [dict(r) for r in hand.open_db(actions.SCHEMA).execute("SELECT * FROM vps_orders ORDER BY id")]
+        conn = hand.open_db(actions.SCHEMA)
+        try:
+            return [dict(r) for r in conn.execute("SELECT * FROM vps_orders ORDER BY id")]
+        finally:
+            conn.close()
 
     def vultr_sells(self):
         self.vultr.route("POST", "/instances", {"instance": instance(default_password=PASSWORD)}, status=202)
@@ -89,4 +93,8 @@ class Scratch(unittest.TestCase):
         self.eq.route("POST", "/orders", {"paid_from_balance": True, "service_id": sid})
 
     def bills(self):
-        return [dict(r) for r in hand.db().execute("SELECT name, usd_micro FROM bills ORDER BY name")]
+        conn = hand.db()
+        try:
+            return [dict(r) for r in conn.execute("SELECT name, usd_micro FROM bills ORDER BY name")]
+        finally:
+            conn.close()
