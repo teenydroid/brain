@@ -51,3 +51,13 @@ core_token() {
 
 # `bin/oh` by default. The tests swap in a stand-in that keeps jobs in a file.
 oh() { "${TEENY_OH:-$TEENY_ROOT/bin/oh}" "$@"; }
+
+# How long one cron agent turn may run (OpenHuman `[agent] agent_timeout_secs`).
+# The core bounds a whole scheduled agent turn by this one value, not just one
+# tool call, and ignores an agent definition's own `timeout_secs` there
+# (cron/scheduler/agent_run.rs). Its default of 120 s let the builder make six
+# model calls and no test run (2026-11-12). 900 s winds down at 780 s, so a
+# build started at ten past is over before build-ship collects at half past.
+# It also caps any single tool call, which the turn deadline bounds anyway.
+# bin/spine sets it at boot; `bin/doctor --live` checks it.
+TEENY_AGENT_TURN_SECS=900
