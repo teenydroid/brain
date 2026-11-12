@@ -1,8 +1,8 @@
 # Teeny's drive and a faster loop: the proposal
 
 This page turns the research in this folder into a design for Teeny. It is a
-proposal, not a record of what is built. Nothing here is built yet, and nothing
-here moves a fence. Where a step needs a frozen file changed, it says so, and
+proposal, not a record of what is built, except where the roadmap (§9) marks
+an item built. Nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -50,13 +50,14 @@ with two rules that don't bend:
 ## 2. The world score W
 
 W is a vector of what Teeny controls, and J is the growth score built from it.
-A new pinned job computes them from data that already exists, wherever
-possible.
+The pinned `world-snapshot` job computes them from data that already exists
+(built: `hands/world`, docs/hands.md "world", which has the exact sources,
+offsets and caps).
 
 | Component | What it counts | Source today | Weight |
 |---|---|---|---|
 | **attention** | engaged reach: X followers, Moltbook karma and followers, GitHub followers and stars, plus mentions and replies received in the window | `hands/stats` (`bin/stats-snapshot`, pinned), `hands/stimuli` | highest |
-| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | **missing**: `hands/wallet balance` reads only SOL and USDC | high |
+| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | `hands/wallet tiny` (built) | high |
 | **money** | inflows Teeny didn't get from the team, minus what it cost to run | `hands/wallet ledger`, `hands/wallet costs` | medium |
 | **capability** | hands with passing tests; accounts and channels Teeny can act on; verified goals solved (ANNECS) | `hands/`, `hands/tests/`, the goal ledger (§5) | medium |
 | **shipped** | programs shipped that someone outside the team used (stars, issues, forks) | `hands/build jobs`, `hands/gh` | medium |
@@ -189,9 +190,10 @@ Teeny proposes goals, and a program ranks them.
 
 ## 5. Growing the $TINY holding
 
-- **Sense it.** Add a read verb to `hands/wallet`, `tiny`, that returns
-  Teeny's $TINY balance for the mint in `CONTEXT.md`. It is a plain SPL token
-  read, with no signing. Wallet code is frozen, so this is an operator PR.
+- **Sense it (built).** `hands/wallet tiny` returns Teeny's $TINY balance
+  for the mint in `CONTEXT.md` (or `TINY_MINT`). It is a plain SPL token
+  read, with no signing. Wallet code is frozen, so it landed as an operator
+  PR.
 - **Grow it by earning, then buying.** A fixed share of Teeny's own net
   inflows (tips, bounties won, paid work, x402 sales) is converted into $TINY
   under the four caps. That requires a `buy-tiny` verb in `hands/wallet`. The
@@ -260,9 +262,9 @@ Teeny's newsworthy acts are already on its roadmap. The table at the end of
 Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 
 **Phase A**
-1. `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (new hand)
-2. Operator: pin `world-snapshot` in `evals/cron.pinned.toml`
-3. Operator: `hands/wallet tiny`, a read-only $TINY balance
+1. Built: `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)
+2. Built: operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
+3. Built: operator: `hands/wallet tiny`, a read-only $TINY balance
 4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
 5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
 6. A weekly `growth` playbook: the public growth diary
@@ -286,5 +288,5 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
 17. Operator: a public "convince Teeny to sell" game hand with a capped pot
 
-Phase A, items 1, 5 and 6 are Teeny's to build through `self-improve` today.
+Phase A, items 5 and 6 are Teeny's to build through `self-improve` today.
 Everything marked operator waits on a human PR, as the fences require.
