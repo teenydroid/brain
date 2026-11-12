@@ -9,12 +9,15 @@ and ledgers in a scratch root."""
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -127,13 +130,14 @@ class DoctorCheckTest(Scratch):
         self.env("evolve.env", EVOLVE="1", EVOLVE_AUTO_PROMOTE="1")
         self.assertEqual(self.check()["status"], "ok")
 
-    def test_the_switches_the_box_runs_today_pass(self):
+    def test_every_switch_already_released_for_the_operator_to_turn_on_passes(self):
+        # Turning one of these on must not fail a healthy box's boot.
         self.env("teeny.env", DRY_RUN="0", MIND_ISSUES_PER_DAY="2", MIND_TASKS_PER_DAY="2", MIND_MAILS_PER_DAY="1",
                  WALLET_MIND_ACTIONS="1")
         self.env("evolve.env", EVOLVE="1", EVOLVE_AUTO_PROMOTE="0")
         out = self.check()
         self.assertEqual(out["status"], "ok", out["detail"])
-        self.assertIn("7 switch(es) on", out["detail"])
+        self.assertIn("6 switch(es) on", out["detail"])
 
     def test_tiny_buy_needs_spend_at_l4(self):
         self.env("teeny.env", TINY_BUY="1")
@@ -142,8 +146,6 @@ class DoctorCheckTest(Scratch):
         self.assertIn("spend at L4", out["detail"])
 
     def test_the_process_environment_is_not_read(self):
-        import os
-
         os.environ["EVOLVE_AUTO_PROMOTE"] = "1"
         try:
             self.assertEqual(self.check()["status"], "ok")
@@ -170,27 +172,25 @@ class DoctorCheckTest(Scratch):
     def test_the_cli_exits_1_on_a_fail_and_0_on_a_warn(self):
         self.env("evolve.env", EVOLVE_AUTO_PROMOTE="1")
         args = ["check", "--root", str(self.root), "--secrets", str(self.secrets), "--state", str(self.state)]
-        self.assertEqual(autonomy.main(args), 1)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(autonomy.main(args), 1)
 
     def test_a_broken_ladder_is_an_error(self):
         (self.root / "evals" / "autonomy.toml").write_text("not = [toml")
         args = ["check", "--root", str(self.root), "--secrets", str(self.secrets), "--state", str(self.state)]
-        self.assertEqual(autonomy.main(args), 2)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(autonomy.main(args), 2)
 
 
 class ReportTest(Scratch):
     def setUp(self):
         super().setUp()
-        self._env = {k: v for k, v in __import__("os").environ.items() if k in ("TEENY_ROOT", "TEENY_STATE", "TEENY_NOW")}
-        import os
-
+        self._env = {k: v for k, v in os.environ.items() if k in ("TEENY_ROOT", "TEENY_STATE", "TEENY_NOW")}
         os.environ["TEENY_ROOT"] = str(self.root)
         os.environ["TEENY_STATE"] = str(self.state)
         os.environ["TEENY_NOW"] = "1795000000"
 
     def tearDown(self):
-        import os
-
         for k in ("TEENY_ROOT", "TEENY_STATE", "TEENY_NOW"):
             os.environ.pop(k, None)
         os.environ.update(self._env)
@@ -226,9 +226,6 @@ class ReportTest(Scratch):
     def test_proofs_ladder_prints_the_report(self):
         db = sqlite3.connect(self.state / "hands.db")
         db.close()
-        import io
-        from contextlib import redirect_stdout
-
         buf = io.StringIO()
         with redirect_stdout(buf):
             code = proofs.main(["--ladder", "--text"])
