@@ -271,7 +271,9 @@ Teeny's newsworthy acts are already on its roadmap. The table at the end of
 
 ## 9. Roadmap: candidate issues
 
-Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
+Titles only. "Operator" marks a change to a frozen path. Items 1 to 16 are
+built; what comes after them, and the order to switch them on, is in
+[`../roadmap.md`](../roadmap.md).
 
 **Phase A**
 1. **Built.** `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)

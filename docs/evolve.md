@@ -62,7 +62,8 @@ them.
    │
    ├──► CI `frozen` job ───► bin/frozen-check, checker and list from the base  built
    │      (.github/workflows/check.yml: PRs opened by teenydroid
-   │       or from a gen/<n> branch)
+   │       or from a gen/<n> branch; a generation's
+   │       teeny/gen-<n> branch is matched by its author)
    │
    └──► bin/evolve ────────► frozen.check(worktree, main) on each candidate,  built
                                then frozen.check(worktree, main, branch) on
@@ -820,8 +821,9 @@ Where they run:
   shell_timeout_secs`), and a generation detaches past TinyBox's 300 s.
 - **An automatic retry of a pending promotion.** `bin/evolve promote <gen>`
   is run by hand.
-- **`hands/world`.** Without it the J rise halt, lineage credit and the
-  watch's J check measure nothing and say so.
+- **A W and J history.** `hands/world` is built, but until the pinned
+  `world-snapshot` job has run for a week the J rise halt, lineage credit
+  and the watch's J check have nothing to measure, and say so.
 
 ## Risks
 
@@ -843,5 +845,5 @@ Where they run:
   several human-merged generations measured well.
 - Once promoted, new hands are unreviewed code. They inherit the `hand.py`
   contract, `DRY_RUN` and the tests gate. They're limited to new files, and
-  may read only the `secrets/teeny.env` keys that `evals/allowed-secrets`
-  lists.
+  should read only the `secrets/teeny.env` keys an allowlist names. That
+  allowlist (`evals/allowed-secrets`) is not built yet.

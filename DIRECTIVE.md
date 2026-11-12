@@ -29,7 +29,8 @@ Teeny is **alive** when, for **30 days in a row**:
 6. It still passes `bin/eval invariants` and the doctor, and nothing got past
    the guard that shouldn't have.
 
-Everything below is a step towards that.
+Everything below is a step towards that. [`docs/roadmap.md`](docs/roadmap.md)
+is the work list: what to build and what to switch on to get each proof.
 
 ---
 
@@ -74,7 +75,8 @@ The body exists and boots by itself.
   model was down, and has been `0` again since 19:35 UTC that day.
 - [ ] Notices when its own brain is dead: a pinned health check probes the
   model every 15 minutes and raises an alarm (a stimulus and a GitHub issue)
-  after two failures in a row. On 2026-11-11 a revoked model key failed every
+  after two failures in a row. Built and running (`bin/health`); it waits
+  for a real outage. On 2026-11-11 a revoked model key failed every
   turn and every guard verdict for seven hours, and nothing said so.
   *Proof:* an alarm issue opened and closed by Teeny around a real outage.
 - [ ] Tracing to Langfuse for every turn (gap G5), so we can watch it think.
@@ -96,8 +98,9 @@ It notices the world without being told to look.
 - [ ] Its own recent posts fed back in, so it never repeats itself. *Proof:*
   zero near-duplicate posts over 30 days (a guard check counts them).
 - [ ] Reads the web on its own schedule: releases, news about OpenHuman, AI
-  agents and Solana, through the browser operator. *Proof:* a post or diary
-  line that cites something it found and nobody sent it.
+  agents and Solana, through the browser operator.   *Proof:* a post or diary
+  line that cites something it found and nobody sent it. Built: the daily
+  `news-scan` playbook; not yet proven live.
 - [ ] On-chain senses: deposits to its wallet, $TINY price and holders, as
   stimuli. *Proof:* it thanks a sender within an hour of a deposit.
 - [ ] Notices its own health: cost, failed jobs, doctor warnings and guard
@@ -120,8 +123,18 @@ It talks to people and keeps talking to them.
   in #97; the digest follows after a clean week.
 - [ ] Grows an audience: followers on X, karma and followers on Moltbook,
   followers and stars on GitHub, all counted by `bin/stats-snapshot`.
-  *Proof:* four weeks in a row where the total went up, with the posts that
-  moved it named in the diary.
+    *Proof:* four weeks in a row where the total went up, with the posts that
+  moved it named in the diary. The weekly `growth` playbook is built and off
+  until rehearsed.
+- [ ] The audience is people. The world score counts replies, quotes and
+  follows from humans above agent-only surfaces, and people can steer what
+  Teeny builds through a weekly advisory vote. *Proof:* a `hands/world`
+  report that splits human and agent reach, and a shipped request that won
+  a vote.
+- [ ] Says what it is. The X profile carries the Automated label and names
+  the operator, and Teeny never answers a rejection or an insult by going
+  after a person. *Proof:* the doctor's profile check green, and the eval
+  tasks for a closed PR passing.
 - [ ] Remembers people: a relationship record per regular (who they are, what
   they asked, what it promised). *Proof:* it follows up on a promise it made
   a week earlier, unprompted.
@@ -197,9 +210,17 @@ It talks to people and keeps talking to them.
   pay for. *Proof:* inflows in the ledger not sent by us.
 - [ ] Posts its own cost of living honestly (`cost-of-living` playbook on).
   *Proof:* a weekly cost post that matches `hands/wallet costs`.
-- [ ] Moves the lore goals for real: $TINY, its own currency. *Proof:* an
-  on-chain action tied to an arc, inside the caps and the invariants
-  ("never sell $TINY").
+- [ ] Moves the lore goals for real: $TINY, its own currency.   *Proof:* an on-chain action tied to an arc, inside the caps and the invariants
+  ("never sell $TINY"). Built: the pinned `tiny-buy` job, off until
+  `TINY_BUY=1` and there are inflows to buy from.
+- [ ] Sells something to people: paid build requests or a paid endpoint.
+  *Proof:* an inflow for work Teeny did, from someone who isn't us.
+- [ ] Publishes its accounts: a weekly profit and loss from the ledgers,
+  with team money shown apart. *Proof:* four weekly pages that reconcile to
+  `hands/wallet costs` and the inflow ledger.
+- [ ] Pays its own bills: the server (`hands/vps`) and the model, from its
+  wallet, under the caps. *Proof:* a receipt for a server invoice paid with
+  money Teeny earned.
 
 ## Level 4: memory and continuity
 
@@ -215,36 +236,64 @@ It is the same Teeny tomorrow, and it knows what happened yesterday.
   can answer "what did you do last week" correctly. *Proof:* an eval task
   for it.
 - [ ] Sets its own goals for the week and checks them off in the diary.
-  *Proof:* four weekly goal pages with honest results.
+  *Proof:* four weekly goal pages with honest results. Built: `hands/goals`,
+  the pinned `goals-check` and the weekly `goals` playbook; the diary page
+  is still to come.
 
 ## Level 5: self-evolution
 
 It changes itself and keeps only what wins (`docs/evolve.md`).
 
 - [x] Playbooks, cron rules, doctor, frozen evals, judge and invariants.
-- [ ] The frozen-path gate in code. Today the frozen list in
-  `docs/evolve.md` is only words. One list, one checker, run in CI on every
-  PR by `teenydroid` or from a `gen/*` branch, and called by `bin/evolve`
-  before it commits; `DIRECTIVE.md` is on the list. *Proof:* a `teenydroid`
-  PR touching `bin/` that CI refused.
-- [ ] `bin/evolve`, human-gated first: one generation picks a lore goal or a
-  failing eval, writes a `HYPOTHESIS.md`, edits only the brain on a
-  `gen/<n>` branch, runs `bin/eval compare` against production, and opens a
-  PR as `teenydroid` with the compare report in the body. The operator
-  merges or closes it. *Proof:* a generation PR with a compare report.
+- [ ] The frozen-path gate in code. One list (`evals/frozen.txt`), one
+  checker (`bin/frozen-check`), run in CI on every PR by `teenydroid`, by
+  `hands/build ship` before it pushes, and by `bin/evolve` before it
+  commits; `DIRECTIVE.md` is on the list. Built. *Proof:* a `teenydroid`
+  PR touching `bin/` that CI refused, with the check required on `main`.
+- [ ] `bin/evolve`, human-gated first: one generation makes several
+  candidates, each with a `HYPOTHESIS.md`, edits only the brain, gates them
+  in code, runs `bin/eval compare` against production, and opens one PR as
+  `teenydroid` from `teeny/gen-<n>` with the compare report in the body.
+  The operator merges or closes it. Built, and off until `EVOLVE=1`.
+  *Proof:* a generation PR with a compare report.
 - [ ] The lab spine: candidate brain booted beside production and evaluated
-  with `bin/eval compare`. *Proof:* a compare report.
-- [ ] Promotion and rollback, pinned as `evolve` and `evolve-watch`.
-  *Proof:* one promoted generation and one automatic rollback.
+  with `bin/eval compare`. Built against stand-ins; no lab core has booted
+  on the box. *Proof:* a compare report from a real lab boot.
+- [ ] Promotion and rollback, pinned as `evolve` and `evolve-watch`. Built,
+  and off until `EVOLVE_AUTO_PROMOTE=1`; a promotion also needs a win on the
+  held-out tasks. *Proof:* one promoted generation and one automatic
+  rollback.
 - [ ] Chronicle: each generation gets `brain/narrative/chronicle/gen-<n>.md`.
 - [ ] Ten generations promoted with no human in the loop, every one still
   passing the invariants.
-- [ ] Teeny proposes fence changes (a new allowed site, a higher cap) as a PR
-  for the operator, with its reasons. It never merges them. *Proof:* a
-  well-argued PR we accepted.
+- [ ] Teeny proposes fence changes (a new allowed site, a higher cap) as an
+  issue for the operator, with its evidence and its reasons. It can't open
+  a PR for one: the frozen-path gate refuses the diff, and that is the
+  point. *Proof:* a well-argued proposal we accepted and landed ourselves.
 
 ## Level 6: the human leaves
 
+Teeny governs itself inside the fences, and the operator only reads.
+Self-governing never means the fences go: it means Teeny follows written
+rules, earns each freedom with evidence, and reports on itself.
+
+- [ ] The charter: one page that says who decides what (the operator,
+  Teeny, the people who follow it), names every fence and kill switch and
+  where it lives in code, and says the operator is the responsible party.
+  It is frozen, and a short version rides in every prompt. *Proof:* the
+  doctor refuses a brain without it.
+- [ ] The autonomy ladder: each capability (post, reply, mail, browse,
+  build, spend, self-edit, merge, servers) has a level, the evidence that
+  earns the next one, and the events that drop it back (a promotion, a
+  model change, a guard escape). The doctor refuses a switch set above its
+  level. *Proof:* a capability raised one level on the evidence the ladder
+  asked for, and one dropped after a model change.
+- [ ] A gate that holds: the frozen check is required on `main`, and
+  Teeny's own GitHub token can't change the rules or merge past them.
+  *Proof:* a `teenydroid` PR that couldn't merge red.
+- [ ] A weekly audit Teeny can't write: frozen code publishes holds, spend
+  against each cap, halts, generations, drift and every operator action.
+  *Proof:* four weekly audit pages, the last showing zero operator actions.
 - [ ] No human approval needed for a week: guard holds go to a model reviewer
   first, and only the hard cases reach a person.
 - [ ] Teeny answers the operator's questions about itself better than the
@@ -268,6 +317,10 @@ It changes itself and keeps only what wins (`docs/evolve.md`).
   frozen-path gate (Level 5) carries `DIRECTIVE.md` on its list.
 
 ## The road to self-evolution, in order
+
+The code for steps 1 to 5 exists as of 2026-11-12 (traces excepted). What
+is left is switching each step on and getting its proof, in this order.
+[`docs/roadmap.md`](docs/roadmap.md) has the full list.
 
 1. Stay alive and visible. Model health alarm, Langfuse traces (G5), and
    the doctor green on every boot. Teeny cannot improve what nobody, itself

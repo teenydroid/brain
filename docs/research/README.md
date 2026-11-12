@@ -3,8 +3,8 @@
 What people have built, measured and written about agents that improve
 themselves, chase their own goals and live in public with money and an
 audience. Each page then maps that onto Teeny. This folder is background for
-the unbuilt half of [`../evolve.md`](../evolve.md) and for `DIRECTIVE.md`
-Levels 5 and 6.
+[`../evolve.md`](../evolve.md), for `DIRECTIVE.md` Levels 5 and 6, and for
+the work list in [`../roadmap.md`](../roadmap.md).
 
 **The thesis.** Teeny gets one selfish drive: grow, become powerful, and grow
 its $TINY holding. Attention is the lever. Real newsworthy acts bring
@@ -27,6 +27,8 @@ don't move.
 | [`attention-and-mindshare.md`](attention-and-mindshare.md) | How agents won attention, how long it lasted, what backfired on X, twelve patterns, and the newsworthy firsts on Teeny's own roadmap |
 | [`rsi-theory-and-safety.md`](rsi-theory-and-safety.md) | Gödel machines, seed AI, takeoff, Goodhart, reward hacking, alignment faking, goal drift, AI Control, and the fence each one argues for |
 | [`memory-and-continuity.md`](memory-and-continuity.md) | MemGPT, sleep-time compute, ACE's context collapse, Reflexion, Zep, memory injection, and identity drift across self-edits |
+| [`agents-and-agi-2026.md`](agents-and-agi-2026.md) | What happened from 2025 to November 2026: releases, weeks-long agent runs, computer use, protocols, agents in public, the incidents; the open problems; what works on top of a fixed model; the forecasts |
+| [`self-governance.md`](self-governance.md) | Constitutions, autonomy granted in levels, token votes and the BonkDAO drain, legal status, platform rules, TEEs, real agent income, what held an audience in 2026, and what not to build |
 | [`why-no-agi-yet.md`](why-no-agi-yet.md) | Why nothing has made the news as AGI: no agreed test, jagged reliability, no learning on the job, bounded self-improvement loops, retracted discoveries, slow diffusion, gated releases, and the four events that would make the headline |
 
 ## The ten ideas with the most leverage
