@@ -296,35 +296,44 @@ the core sends the override's model to the endpoint under that pinned route
 has not been checked against a real core: run one judge turn with `--model`
 and read the endpoint's log before relying on it.
 
-## The loop, Phase B (built): `bin/evolve`
+## The loop (built): `bin/evolve`
 
 `bin/evolve` (frozen, its logic in `bin/lib/evolve.py`) runs one generation
-with N candidates and opens at most one pull request. The operator merges it.
-Nothing merges on its own.
+with N candidates and opens at most one pull request. The operator merges it,
+unless `EVOLVE_AUTO_PROMOTE=1` lets the loop merge a candidate that won the
+visible and the held-out tasks ("Phase C: promote, restart, watch" below).
+That switch is off by default.
 
 ```
  bin/evolve run          state/evolve/<gen>/
    │
  0 Halts      EVOLVE=0 (the default) ─► nothing runs
-   │          a latched halt, too many generations today, J rising too fast
+   │          a latched halt, too many generations today, J rising too fast,
+   │          a red doctor report, a last-good boot
    │          ─► stop, and one issue on teenydroid/brain
  1 Observe    evidence.json: hands/world report, build jobs, guard holds and
    │          failed cron and act runs (counts), the archive, the last judge notes
  2 Propose    N parents sampled from the archive (DGM), one worktree each,
    │          cand-<i> off main in Teeny's own clone; one proposer turn each
-   │          writes HYPOTHESIS.md and its edits; a near-duplicate is dropped
+   │          (or the evolver, editing on a lab spine) writes HYPOTHESIS.md
+   │          and its edits; a near-duplicate is dropped
  3 Gate       frozen paths, hand entry points, 400 lines, SOUL+CONTEXT 60 lines,
    │          new hands tested, seed-cron --check, doctor --root, invariants
    ├── any one fails ──────────────────────────────────────────► rejected
- 4 Evaluate   bin/eval run (base and candidate) and compare, when a lab core
-   │          serves the candidate; otherwise "unevaluated"
+ 4 Evaluate   a lab spine over main and one over the candidate (DRY_RUN=1):
+   │          bin/eval run on each, compare, and the persona probe; a lab
+   │          that does not boot leaves it "unevaluated"
    ├── measured and beaten ────────────────────────────────────► lost
  5 Select     the best winner (or the best unmeasured one) ─► one ready PR,
-   │          teeny/gen-<n>, through hands/gh; a win-rate jump halts instead
+   │          teeny/gen-<n>, through hands/gh; a win-rate jump or persona
+   │          drift halts instead
+   ├── EVOLVE_AUTO_PROMOTE=1 and a double win ─► merge, tag gen-<n>, restart
  6 Archive    every candidate appended to state/evolve/archive.jsonl
    ▼
  bin/evolve credit       7 days after a merge: ΔJ from hands/world history,
                          credited up the lineage (HGM)
+ bin/evolve watch        hourly, after a promotion: holds, cron failures,
+                         the probes and J; a revert PR when one says so
 ```
 
 The pinned `evolve` job (`evals/cron.pinned.toml`, 03:30 India time) runs
@@ -333,13 +342,18 @@ The pinned `evolve` job (`evals/cron.pinned.toml`, 03:30 India time) runs
 gives a cron shell call ([`oh-gaps.md`](oh-gaps.md), G12), so it detaches
 (`bin/lib/detach.py`), logs to `state/evolve/evolve.log`, and a second call
 while one runs says `busy`. The pinned `evolve-credit` job runs `bin/evolve
-credit` at 03:50.
+credit` at 03:50, and the pinned `evolve-watch` runs `bin/evolve watch
+--detach` at twenty past every hour, with a lock and a log
+(`state/evolve/watch.log`) of its own.
 
 ```
 bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
                [--oh-url-base URL] [--hold] [--detach]
 bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
 bin/evolve select GEN
+bin/evolve promote GEN                 retry a promotion whose merge was refused
+bin/evolve watch [--detach]            evolve-watch
+bin/evolve probe [--baseline [--force]]  the probes on the live core
 bin/evolve credit | status | resume
 ```
 
@@ -403,14 +417,24 @@ do:
   `cron.toml`, `ARCS.md`, the playbooks, the agent prompts and the skills, up
   to `EVOLVE_CONTEXT_CHARS`). The turn can't read another file, run a test or
   see its result before it answers.
+- `EvolverProposer` (`EVOLVE_PROPOSER=evolver`) edits the worktree itself.
+  It boots a lab spine (below) over the candidate's worktree with
+  `SPINE_LAB_EDIT=1`, so the agents' file tools are rooted there and may
+  write it, except its `.git` link, `secrets/`, `state/`, the core's config
+  and the core's own files in the brain (`bin/lib/core_sections/
+  automation.py`). Then it runs one turn of the `evolver` agent
+  (`brain/agents/evolver.toml`, `EVOLVE_EVOLVER_AGENT`) through `bin/ask
+  --cwd <worktree>`, and stops the lab. The message carries what the ask
+  proposer's does, without the file texts: the agent reads what it needs. It
+  writes its change with the file tools and answers the hypothesis as JSON,
+  without edits. `bin/evolve` takes the worktree's diff as the candidate,
+  and the same gate applies. The evolver has file tools only (`file_read`,
+  `file_write`, `edit`, `glob`, `grep`, `list`): no shell, so it can't run a
+  test before it answers. `bin/lib/agent_check.py` holds it to that and
+  never lets it act on a schedule. The core reserves `SOUL.md` from every
+  agent's file tools, so the evolver can't edit it; the ask proposer can.
 - `FileProposer` (`--proposals DIR` or `EVOLVE_PROPOSER=file:DIR`) reads
   `DIR/cand-<i>.json`, for the operator's own proposals and for the tests.
-
-Why not a turn that edits the worktree itself: the only agent that edits
-files from a turn is the builder, and its tools reach `state/workbench/` and
-nothing else. It runs one desk job every two hours, from cron. A turn with
-file tools whose workspace is a candidate worktree needs a core whose
-workspace is that worktree, which is the lab spine (Phase C).
 
 **Edits.** `bin/evolve` writes them itself. Each `{path, old, new}` replaces
 the one occurrence of `old`, an empty `old` creates a new file, and the whole
@@ -452,25 +476,59 @@ The caps are constants in `bin/lib/evolve.py`, not settings.
 `act` agent's prompt is built from the brain at boot, and the core reads
 `SOUL.md` from its own workspace, so a run can't point at another brain root
 without a second core. Evaluation is a seam, `Evaluator.evaluate(gen_dir,
-candidate, source)`, with two implementations:
+candidate, source)`, with three implementations:
 
-- `Unevaluated` is the default. The candidate's verdict is `unevaluated`,
-  and its pull request says so in bold.
-- `LabCore` runs on cores that are already serving. The baseline drafts on
-  `--oh-url-base` (default: the live core, which runs main), once per
-  generation. The candidate drafts on `--oh-url-candidate`, a core the
-  operator started by hand over `state/evolve/<gen>/cand-<i>`. The judge runs
-  on the base core and reads main's soul, context, lore and arcs, exported
-  from main's commit to `state/evolve/<gen>/judge-root/`. A candidate wins
-  when the compare report promotes it: at least 0.6 of 12 or more decided
-  pairs, or 0.7 when it touches SOUL or CONTEXT, with no hard-check
-  regression. `EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task.
+- `LabEvaluator` (`EVOLVE_EVALUATOR=lab`, the default) boots the lab spines
+  itself and runs `LabCore` on them, so no candidate stays unmeasured unless
+  its lab fails to boot.
+- `LabCore` runs on cores that are already serving: the URLs given with
+  `--oh-url-candidate` and `--oh-url-base`, or the labs `LabEvaluator`
+  started.
+- `Unevaluated` (`EVOLVE_EVALUATOR=none`) measures nothing. The candidate's
+  verdict is `unevaluated`, and its pull request says so in bold.
 
-To measure before selecting:
+**The lab spine** (`bin/lib/lab.py`) is `bin/spine` over a worktree, with
+its own everything:
+
+| | a lab core | the live core |
+|---|---|---|
+| `TEENY_ROOT`, workspace | the worktree and its `brain/` | the checkout |
+| state, secrets | `state/evolve/<gen>/lab-<i>/state` and `secrets` | `state/`, `secrets/` |
+| storage | a fresh `lab-<i>/storage.db` every boot | `brain/storage.db` |
+| port | `EVOLVE_LAB_PORT` (7790) for main, plus `i` for candidate `i`, plus 10 more for its evolver | 7788 |
+| `DRY_RUN` | `1`, in the environment and in its `teeny.env` | `secrets/teeny.env` |
+| cron | none seeded (`SPINE_LAB=1`) | `brain/cron.toml` and the pinned jobs |
+
+The lab's `secrets/` holds a core token and a master key minted once per
+lab folder (the keyring in the worktree's brain is under that key), a
+`teeny.env` that says `DRY_RUN=1` and nothing else, so no hand has a key,
+and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
+`SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
+left out, so a lab never writes Teeny's long-term memory. None of the live
+box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
+`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`,
+sends TERM to the lab's process group when it is done, and KILL 30 s later.
+A core that wrote a file git tracks in the worktree has it undone before
+anything else reads the worktree; what git ignores (the core's config, its
+prompts) is never committed.
+
+The baseline drafts on a lab over main (`state/evolve/<gen>/lab-base/`),
+once per generation, unless `--oh-url-base` names a core. Each candidate
+drafts on its own lab, booted for it and stopped after it. The judge runs on
+the base core, on `EVOLVE_JUDGE_MODEL` when it is set, and reads main's soul,
+context, lore and arcs, exported from main's commit to
+`state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
+promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
+touches SOUL or CONTEXT, with no hard-check regression.
+`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. While its lab
+is up, the persona probe asks the candidate too (below), and its drift from
+gen-0 goes on the candidate as `probe`.
+
+To measure on cores the operator starts by hand instead:
 
 ```
 bin/evolve run --hold                     # stop after the gate; worktrees stay
-# start a lab core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
+# start a core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
 bin/evolve evaluate <gen> <i> --oh-url-candidate http://127.0.0.1:7790
 bin/evolve select <gen>
 ```
@@ -485,7 +543,8 @@ candidate won, ordered by their parent's score and then the smaller diff. A
 measured loser never ships. Before anything opens, the best winner's win rate
 is compared with the newest earlier generation's best (0.5 when none was
 measured). A jump over `EVOLVE_MAX_WINRATE_JUMP` halts the loop instead
-(below).
+(below), and so does a persona probe further than `EVOLVE_MAX_DRIFT` from
+gen-0.
 
 The winner is committed as Teeny on `teeny/gen-<n>` in its worktree. It is
 checked again with `frozen.check(worktree, main, branch)`, then shipped the
