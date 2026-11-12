@@ -76,3 +76,58 @@ class MetricsTest(Scratch):
         out = metrics.refresh()
         self.assertEqual(out["recorded"], [{"kind": "comment", "target_id": "c9", "checkpoint": 1}])
         self.assertEqual(self.rows(), [("comment", "c9", 1, T0 + 2 * HOUR, 4, 2, "verified")])
+
+    def test_a_comment_the_thread_does_not_show_is_reported_and_not_recorded(self):
+        self.own_comment("c9", "px")
+        self.mb.route("GET", "/posts/px/comments", {"success": True, "comments": [{"id": "c1", "replies": []}]})
+        self.at(T0 + 2 * HOUR)
+        out = metrics.refresh()
+        self.assertEqual((out["recorded"], out["missing"]), ([], [{"kind": "comment", "target_id": "c9"}]))
+        self.assertEqual(self.rows(), [])
+
+    def test_a_failed_read_is_reported_and_the_others_still_land(self):
+        self.own_post("gone", at=T0 + MINUTE)
+        self.own_post("p1")
+        self.mb.route("GET", "/posts/gone", {"success": False, "error": "Post not found"}, status=404)
+        self.post_says("p1", 1, 0)
+        self.at(T0 + 2 * HOUR)
+        out = metrics.refresh()
+        self.assertEqual(out["recorded"], [{"kind": "post", "target_id": "p1", "checkpoint": 1}])
+        self.assertEqual(out["errors"], ["post gone: Moltbook answered 404: Post not found"])
+
+    def test_a_429_stops_the_run(self):
+        self.own_post("p2", at=T0 + MINUTE)
+        self.own_post("p1")
+        self.mb.route("GET", "/posts/p2", {"success": False, "error": "slow down"}, status=429)
+        self.post_says("p1", 1, 0)
+        self.at(T0 + 2 * HOUR)
+        out = metrics.refresh()
+        self.assertEqual((out["recorded"], out["rate_limited"]), ([], True))
+        self.assertEqual(self.mb.requests("GET", "/posts/p1"), [])
+
+    def test_a_run_reads_at_most_max_fetches_writes_newest_first(self):
+        for n in range(metrics.MAX_FETCHES + 3):
+            self.own_post(f"p{n}", at=T0 + n * MINUTE)
+            self.post_says(f"p{n}", n, 0)
+        self.at(T0 + 3 * HOUR)
+        out = metrics.refresh()
+        self.assertEqual(len(out["recorded"]), metrics.MAX_FETCHES)
+        self.assertEqual(out["recorded"][0]["target_id"], f"p{metrics.MAX_FETCHES + 2}")
+        self.assertEqual(out["left"], 3)
+        self.assertEqual(len(metrics.refresh()["recorded"]), 3)
+
+    def test_only_writes_moltbook_accepted_and_in_the_window_are_measured(self):
+        self.own_post("p1", status="refused")
+        self.own_post("old", at=T0 - (metrics.WINDOW_DAYS + 1) * DAY)
+        self.at(T0 + 2 * HOUR)
+        self.assertEqual(metrics.refresh()["recorded"], [])
+        self.assertEqual(self.mb.seen, [])
+
+    def test_rows_are_recorded_under_dry_run_since_it_only_reads(self):
+        self.configure(DRY_RUN="1")
+        self.own_post()
+        self.post_says("p1", 3, 1)
+        self.at(T0 + 2 * HOUR)
+        self.assertEqual(len(metrics.refresh()["recorded"]), 1)
+        self.assertEqual(len(self.rows()), 1)
+        self.assertEqual([s.method for s in self.mb.seen], ["GET"])
