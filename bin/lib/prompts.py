@@ -76,7 +76,8 @@ def _read(path: Path) -> str:
 
 
 def world(brain: Path) -> str:
-    """The "## your world" section every speaking agent carries."""
+    """The "## your world" section every speaking agent carries: MEMORY.md
+    first, then CONTEXT.md, the lore and the arcs."""
     parts: list[str] = []
     memory = _read(brain / "MEMORY.md")
     if memory:
