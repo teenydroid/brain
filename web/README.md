@@ -15,6 +15,7 @@ One route per part of the mind, each with its own scene behind the hero:
 | --- | --- | --- |
 | `/` | what Teeny has done, counted from its receipts; its follower numbers and wallet; the brain at a glance, its repository and receipts | a brain: points on a sphere, linked to their neighbours, neurons firing |
 | `/ledger` | every model call: input, thinking, output, cost, digest | a stream of thoughts flowing past a few that settled |
+| `/dashboard` | W and J, who the attention came from, the follower numbers and the receipts, all from the published ledger; generations and costs against income say "not published yet" | a stream of thoughts |
 | `/brain` | what Teeny runs on: the core, the hands, the agents, the schedule, the playbooks, the repository and the diary | rings of tools orbiting a core |
 | `/soul` | who it is | one warm, soft, restless blob |
 | `/rules` | what no message can change | a core held inside a cage of turning rings |
@@ -42,8 +43,8 @@ the widget says so or is left out; it never shows a default, a zero or a
 sample in its place. The page never reads the box; every source is public:
 
 ```
-DIARY_REPO (teenydroid/diary) ────► / and /brain: receipts, the numbers, the wallet address
-  head.json, receipts/, stats/latest.json, wallet.json
+DIARY_REPO (teenydroid/diary) ────► /, /brain and /dashboard: receipts, the numbers, the wallet address, W and J
+  head.json, receipts/, stats/latest.json, wallet.json, world/latest.json
 BRAIN_REPO (teenydroid/brain) ────► / and /brain: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 SOLANA_RPC_URL ───────────────────► /: the wallet's SOL and USDC balance
@@ -58,6 +59,7 @@ MIND_API_URL (unset) ─────────────► token widgets le
 | The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
 | The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32 to 44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
 | Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
+| The world score: J, each component of W (value, was, unit), side-effect events, and the reach by human, agent and unknown | `/dashboard`, `src/components/sections/dashboard.tsx` | `DIARY_REPO` `world/latest.json`, which `bin/receipts` writes from `hands/world report --days 7` (frozen code): only the scorer's components, finite numbers, a real date (`src/lib/world.ts` checks again) | 10 min | "could not be read" (or "not published yet"), no numbers. Generations with their verdicts and costs against income have no published file yet: their cards say so and show no number |
 | Token counter (tokens, calls, by source) | `/` hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 | Last few calls | `/`, only while live | `MIND_API_URL` `/ledger` | 60 s | section left out |
 | Ledger: calls, turns and their tab counts | `/ledger` | `MIND_API_URL` `/ledger` and `/mind` | 60 s | a notice, empty lists, tabs without counts |
