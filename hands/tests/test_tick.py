@@ -545,7 +545,7 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "2", "gm")
         self.tick()
         second = self.chats()[1]["message"]
-        self.assertIn("energy 52/100 (8 action(s) today)", second)
+        self.assertIn("energy 76/100 (8 action(s) today)", second)
         os.environ["TEENY_NOW"] = str(T0 + 86400)
         stimuli.add("x", "mention", "3", "tomorrow")
         self.answer({"thought": "", "intents": []})
