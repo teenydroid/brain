@@ -318,12 +318,11 @@ class ReflectTest(unittest.TestCase):
     def test_the_goals_page_is_written_even_without_a_diary_and_only_on_the_goals_day(self):
         self.goal("ten more followers on x", proposed=-3600)
         self.answer({"memory": NEW_MEMORY})
-        self.answer('{"memory": ' + json.dumps(NEW_MEMORY) + '}')
         got = self.reflect()
-        if got.get("ok"):
-            page = (self.root / "state" / "diary" / "2026-09-14.md").read_text()
-            self.assertTrue(page.startswith("# Monday 14 September 2026\n"))
-            self.assertIn("ten more followers on x", page)
+        self.assertTrue(got["ok"] and got["diary_missing"] and got["goals_page"], got)
+        page = (self.root / "state" / "diary" / "2026-09-14.md").read_text()
+        self.assertTrue(page.startswith("# Monday 14 September 2026\n\n## the week's goals"))
+        self.assertIn("ten more followers on x", page)
         os.environ["TEENY_NOW"] = str(T0 + 86400)  # Tuesday
         self.answer({"memory": NEW_MEMORY, "diary": "tuesday."})
         got = self.reflect()
