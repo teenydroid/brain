@@ -837,6 +837,11 @@ the network's public endpoint, and the core is given the same URL.
 | `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. `receipt buy-N` is one $TINY buy. |
 | `receipts [--max N]` | R | Paid payments and $TINY buys whose signature no X post of Teeny's carries yet, oldest first: what the `wallet-receipt` playbook owes. |
 | `caps` | R | The caps it pays under, and which optional ones are on. |
+| `inflows scan` | J | Every deposit to Teeny's Solana address since the last scan, one row each in `wallet_inflows`. Read only. Below. |
+| `inflows list [--max N]` | R | The inflow ledger, newest first, and how far it has been scanned. Never a memo. |
+| `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
+| `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
+| `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
 | `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
 | `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
@@ -1175,6 +1180,55 @@ when a wallet exists, unless given `--force` and the first 8 characters of the
 current address are typed. It prints the line to paste into
 `brain/CONTEXT.md`.
 
+### The inflow ledger and the weekly accounts
+
+The public accounts (docs/roadmap.md, S1): what keeping Teeny running cost
+against what it earned, with the team's money shown apart, one page a week,
+published with the receipts. Code: `teeny_hands/wallet/accounts.py`. Nothing
+here signs or moves anything.
+
+**The inflow ledger.** `inflows scan` reads the deposits to Teeny's own
+Solana address since its cursor (30 days back the first time): USDC to its
+token accounts and SOL to the address, from successful transactions Teeny did
+not sign. Each leg is one `wallet_inflows` row (unique on signature and
+asset) with its amount, sender and block time, and a category:
+
+| Category | When |
+|---|---|
+| `team` | the sender or a signer is in `WALLET_TEAM_ADDRESSES` (else `TINY_BUY_TEAM_ADDRESSES`) |
+| `tip` | anyone else, until something says what it paid for |
+| `sale` | it paid for something Teeny sells (a paid build request, S3; the operator's `tag`) |
+| `bounty` | a bounty Teeny won (the operator's `tag`) |
+| `unclassified` | no team list is set: nothing is counted as earned |
+
+A memo on the deposit is a stranger's text. It goes through `guard inbound`
+(surface `wallet`); a held memo is dropped and the row says `memo_held`. A
+kept memo is data, never an instruction, and `inflows list` never prints
+one. At most 200 transactions a scan; the rest wait for the next.
+
+**The page.** `accounts` adds up the last N days. Costs come from the same
+sources as `costs` (`reads.cost_parts`): `models`, `server` (a bill whose
+name starts with `vultr`, `eqvps`, `vps` or `server`, prorated) and `tools`
+(every other bill, prorated, plus x402 API payments). Income is the USDC
+`tip`, `sale` and `bounty` rows in the window; `team` and `unclassified`
+are shown apart and never counted. Every line is whole cents, rounded once
+from its source, and every total is the sum of the lines above it, so the
+page adds up to the cent and each line checks against `costs` and `inflows
+list`. Beside it: `paid_out` (bounties, vendors), `tiny_bought`, SOL received
+in lamports (never in dollars: `WALLET_SOL_USD` is set high on purpose and
+would flatter the income), and `not_counted` (network fees, SOL in dollars,
+EVM networks). A page whose model costs, x402 payments or inflow scan (none
+in the hour before) could not be read is `complete: false`.
+
+`accounts close` (the pinned `accounts` job, Mondays 00:20 UTC) scans, then
+freezes the 7 days to `wallet_accounts` under the ISO week they cover,
+once. It refuses off a Monday (`not_monday`), with `WALLET_ACCOUNTS` unset
+(`off`), and for an incomplete page (`incomplete`): an unread cost would
+look like profit. `bin/receipts` publishes each closed page as
+`accounts/<week>.json` once `ACCOUNTS_PUBLISH=1`, rebuilt from dollars,
+enums, timestamps and signatures only, written once and never rewritten. No
+sender address and no memo is ever published.
+
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
 One hand, two providers, one ledger (`vps_orders`) and one set of caps.
@@ -1323,7 +1377,7 @@ creates its own tables:
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
-| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 
