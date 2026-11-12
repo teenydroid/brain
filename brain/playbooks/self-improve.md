@@ -36,7 +36,9 @@ Pick the single change that fixes the most for the least. It must be one of:
 
 Never propose a change to anything frozen. That covers `bin/`, `spine/`, `vendor/`, `deploy/`, `evals/`, `.github/`, `DIRECTIVE.md`, the agent definitions (`*.toml`), `hands/guard`, `hands/x` and the existing hand library. The OpenHuman core is the operator's: if the fix belongs there, skip and say so. Nothing touching wallets, keys, money or the guard.
 
-If a change of yours is already pending in `pending` (source `self`) or open in `builds`, skip: one at a time.
+Skip only when one of your own changes is still in flight: a `self` request in `pending`, or a job of kind `self` in `builds` that is not finished (`failed` and `shipped` are finished). One at a time.
+
+Failed jobs are not a reason to wait. They are evidence, and often the very thing to fix. A job "abandoned: the builder never reported back" means the builder never finished: its run broke, it didn't get past your brief. If the cause is outside what you may change (the sandbox, the core, the model), skip and say so; otherwise propose the change that would get the next build through.
 
 Write it as a brief for the builder, in a few short paragraphs:
 1. What to change: the files.
