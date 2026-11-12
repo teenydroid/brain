@@ -61,6 +61,11 @@ bin/doctor                         # is this checkout safe to boot? (--live: is 
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
 bin/eval invariants                # does the brain still say what Teeny is?
+bin/evolve status                  # the evolve archive, the parent weights, any halt
+bin/evolve run --hold              # one generation, stopped after the gate (off until secrets/evolve.env says EVOLVE=1)
+bin/evolve watch                   # evolve-watch: the newest promotion, reverted when it hurts
+bin/evolve probe --baseline        # record gen-0's persona and memory answers on the live core
+bin/evolve resume                  # clear a latched halt
 
 hands/brief add "talk about the new release"          # queue the next told-to post
 hands/brief list                                      # open, posted and cancelled briefs
@@ -236,14 +241,18 @@ docs/                architecture, hands, evolve, upstream gaps
 
 These are gitignored and created at run time:
 - `secrets/`: the env files (`evolve.env` among them), the core token, the
-  master key, and the held-out eval tasks (`heldout/`).
+  master key, the held-out eval tasks (`heldout/`), and `evolve-watch/`, the
+  watch's reasons, which nothing Teeny reads ever sees.
 - `state/`: what the hands keep. `hands.db` holds the ledgers, caches, holds,
   pacing, the inbox and the queues. Beside it: `locks/`, `core.url` (where the
   core answers), `tick/` and `reflect/` (the mind's runs), `journal/`, `diary/`,
   `workbench/` (what the builder builds; `workbench/brain/` is Teeny's own
   clone of this repository, with its git directory in `self/`), `browser/`
   (the browser's profile and downloads), `media/` (what a post may attach) and
-  `evolve/` (each generation of `bin/evolve`, and `archive.jsonl`).
+  `evolve/` (each generation of `bin/evolve` with its lab spines' folders,
+  `archive.jsonl`, and `probes/gen-0.json`). `spine.pid` is the running
+  spine's pid, `last-good` the commit a promotion restarted from, and
+  `spine-fallback.json` is there only after a last-good boot.
 - `.openhuman/`: the core's config, written by the core.
 - `brain/storage.db`: all of the core's state (sessions, cron jobs and runs,
   encrypted secrets) in one SQLite file, so `sqlite3` can read it.
@@ -254,12 +263,12 @@ These are gitignored and created at run time:
 ## Tests
 
 ```sh
-python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, tick, reflect and the core config; X, GitHub and the core are faked
+python3 -m unittest discover -s hands/tests -t hands/tests   # the hands, tick, reflect, the core config and bin/evolve (lab spines, promotion, watch, probes); X, GitHub and the core are faked
 bin/test/seed_cron_test.sh                                   # cron reconciliation and rules; no core needed
 bin/test/act_test.sh                                         # playbooks; the core and hands faked
 bin/test/doctor_test.sh                                      # each thing the doctor catches; spine refuses to boot
 bin/test/eval_test.sh                                        # hard checks, blind swapped judging, scoring, held-out tasks; the core faked
-bin/test/evolve_test.sh                                      # bin/evolve end to end: dry run, a lab-core evaluation, halts; core, hands and GitHub faked
+bin/test/evolve_test.sh                                      # bin/evolve end to end: dry run, a lab-core evaluation, halts, evolve-watch; core, hands and GitHub faked
 bin/test/inbound_consume_test.sh                             # drafts to replies, batch-only, pacing; the core and hands faked
 bin/test/dockerfile_test.sh                                  # the image copies every module script it imports
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
