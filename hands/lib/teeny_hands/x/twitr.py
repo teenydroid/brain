@@ -1,11 +1,12 @@
 """twitr.sh: a pay-per-call X API, paid from Teeny's own wallet over x402.
 
-The keys never come here. Every call is one `openhuman.x402_fetch`: the core
-makes the HTTPS request, and on a 402 TinyWallet signs the payment within the
-cap this module states for that call (`maxAmountAtomic`, USDC atomic units),
-then the core retries and records the settlement in the module's ledger. The
-core's own x402 budget (OPENHUMAN_X402_PER_REQUEST_MAX, _DAILY_MAX,
-_MONTHLY_MAX) is a second, independent ceiling.
+The keys never come here. Every call goes through hands/wallet's `x402 fetch`
+(teeny_hands/wallet/x402.py), the one gate for the wallet's paid requests:
+twitr.sh must be in the operator's `x402 hosts` allowlist, every call is held
+to WALLET_MAX_X402_PER_REQUEST_USD and _PER_DAY_USD and written to the
+`x402_requests` ledger. That gate calls `openhuman.x402_fetch`: the core makes
+the HTTPS request, and on a 402 TinyWallet signs within the cap this module
+states for the call, then the core retries and records the settlement.
 
 What it costs (twitr.sh/llms.txt): reads are $0.0012 a record with a $0.0024
 floor; search, conversations and timelines are `upto` reads on Base, so the
@@ -18,8 +19,8 @@ PAYING wallet, and the link is made with the wallet's EVM key (SIWX), so
 every call is pinned to `TWITR_NETWORK` (Base unless told otherwise): paying
 a write from the Solana address would be a different wallet.
 
-twitr asks for one paid call at a time per wallet (an overlap is a free 429),
-so every call runs under the `twitr` lock.
+twitr asks for one paid call at a time per wallet (an overlap is a free 429);
+the wallet gate's `wallet-x402` lock already serialises every paid request.
 
 Like client.py, nothing that leaves this module names a URL with its query,
 a header, or a payment credential.
@@ -33,6 +34,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping, Sequence
 
 from .. import hand
+from ..wallet import x402 as wallet_x402
 from .client import XError
 from .model import Json, SearchOptions
 
@@ -268,10 +270,10 @@ class TwitrApi:
         idempotency: str | None = None,
         sign_in: bool = False,
     ) -> Json:
-        """One request through the core. `price` is the most it may pay, in
-        USDC atomic units; above TWITR_MAX_PER_CALL_USD it is refused here,
-        before anything leaves. `sign_in` lets the core answer a SIWX
-        challenge (the free account endpoints)."""
+        """One request through the wallet's x402 gate. `price` is the most it
+        may pay, in USDC atomic units; above TWITR_MAX_PER_CALL_USD it is
+        refused here, before anything leaves. `sign_in` answers a SIWX
+        challenge instead (the free account endpoints) and pays nothing."""
         if price > self._max_call:
             raise hand.Refused(
                 f"this call may cost ${price / 1e6:.4f}, over TWITR_MAX_PER_CALL_USD (${self._max_call / 1e6:.4f})",
@@ -280,29 +282,26 @@ class TwitrApi:
         headers = {"content-type": "application/json", "accept": "application/json"}
         if idempotency:
             headers["Idempotency-Key"] = idempotency
-        params: dict[str, Any] = {
-            "url": self._base + path,
-            "method": method,
-            "headers": headers,
-            "maxAmountAtomic": price,
-            "network": self.network,
-        }
+        request: dict[str, Any] = {"url": self._base + path, "method": method, "headers": headers, "network": self.network}
         if body is not None:
-            params["body"] = json.dumps(body)
+            request["body"] = json.dumps(body)
         if sign_in:
-            params["signIn"] = True
-        with hand.lock("twitr"):
-            try:
-                answer = self._core("x402_fetch", params, timeout=120)
-            except hand.CoreError as exc:
-                text = str(exc)
-                if "X402_REFUSED" in text:
-                    # Refused before signing: nothing was paid or sent on.
-                    raise TwitrError("the wallet refused to pay twitr (over a cap)", 402) from None
-                # The core may have paid and lost the answer: unknown.
-                raise TwitrError("twitr call failed in the core; whether it went out is unknown") from None
-        if not isinstance(answer, Mapping):
-            raise TwitrError("the core answered something unreadable for twitr")
+            request["sign_in"] = True
+        else:
+            request["max_usd"] = f"{Decimal(price) / 1_000_000:f}"
+        # hands/wallet's gate: the operator's x402 hosts allowlist, the
+        # WALLET_MAX_X402_* caps, the x402_requests ledger, and its lock,
+        # which also keeps twitr's calls one at a time.
+        try:
+            answer = wallet_x402.fetch(request, core=self._core)
+        except hand.Refused as exc:
+            # Refused before anything was sent: a definite no, never charged.
+            raise TwitrError(f"the wallet would not pay twitr ({exc})", 402) from None
+        except hand.HandError as exc:
+            # Sent, and the outcome was lost: it may have paid and acted.
+            raise TwitrError(f"twitr call in doubt ({exc})") from None
+        if answer.get("dry_run"):
+            raise TwitrError("DRY_RUN: twitr is not called while rehearsing", 402)
         status = answer.get("status")
         text = answer.get("body") if isinstance(answer.get("body"), str) else ""
         if not isinstance(status, int):
