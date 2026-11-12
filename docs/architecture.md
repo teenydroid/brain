@@ -173,12 +173,14 @@ The sealed generation stays on disk.
 - mail (`hands/mail ingest`);
 - comments said to Teeny on Moltbook, which `bin/tick` browses at most every
   10 minutes (`hands/moltbook inbox`);
+- replies to Teeny and mentions of it on Reddit, from Reddit's inbox, every
+  10 minutes once the account is set up (`hands/reddit inbox`);
 - the builder's and operator's reports (their desks).
 
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
 agent answers with a `thought` and JSON intents (`reply_x`,
-`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
+`comment_moltbook`, `comment_reddit`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
 and the rest). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
@@ -187,9 +189,9 @@ returns when due. `journal` writes a line in Teeny's private journal.
 
 **Follow-ups do not go stale.** A follow-up may carry a `ref`, the thing it
 is about, in the refs the stimuli use (an X post id, a Moltbook comment id,
-a mail's message id, `chat:message` on Telegram, `owner/repo#n`; a
+a Reddit comment's `t1_` fullname, a mail's message id, `chat:message` on Telegram, `owner/repo#n`; a
 `surface:` prefix such as `x:111` is ignored). When an answering intent
-(`reply_x`, `comment_moltbook`, `reply_mail`, `say_telegram`, `comment_gh`)
+(`reply_x`, `comment_moltbook`, `comment_reddit`, `reply_mail`, `say_telegram`, `comment_gh`)
 lands for real (done, not a dry run), every waiting follow-up whose ref is
 what it answered is `resolved` and never comes due; the intent's entry in
 `runs.jsonl` lists them under `resolved`, and its `hand · outcome` says
