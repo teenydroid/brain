@@ -6,7 +6,8 @@ the box.
 
   R  whoami                                   /agents/me
   R  status                                   claim status
-  R  home                                     the dashboard: notifications, what to do next
+  R  home [--expand]                          the dashboard: notifications, what to do next;
+                                              --expand attaches the post behind each mention
   R  feed [--submolt S] [--sort hot|new|top|rising] [--max N]
   R  post ID                                  one post (with no ID, the acting verb below)
   R  comments ID [--sort best|new|old] [--max N]
@@ -79,7 +80,9 @@ def parser() -> argparse.ArgumentParser:
 
     verb("whoami", lambda a, _: reads.whoami(), "Teeny's own agent")
     verb("status", lambda a, _: reads.status(), "claim status")
-    verb("home", lambda a, _: reads.home(), "the dashboard")
+    verb("home", lambda a, _: reads.home(expand=a.expand), "the dashboard").add_argument(
+        "--expand", action="store_true", help=f"attach the post behind each mention (at most {reads.EXPAND_MAX})"
+    )
     feed = verb("feed", lambda a, _: reads.feed(a.submolt, a.sort, a.max), "posts, newest or hottest")
     feed.add_argument("--submolt", default=None)
     feed.add_argument("--sort", default="hot", choices=reads.SORTS)

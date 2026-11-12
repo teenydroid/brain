@@ -88,3 +88,83 @@ class ReadsTest(Scratch):
         self.configure(MOLTBOOK_AGENT_NAME=None)
         self.mb.route("GET", "/agents/me", {"success": True, "agent": {"name": "teeny2"}})
         self.assertEqual(reads.me_name(), "teeny2")
+
+
+MENTION = "You were mentioned in a post"
+COMMENTED = "Someone commented on your post"
+
+
+class HomeExpandTest(Scratch):
+    def activity(self, *items: tuple[str, str]) -> None:
+        self.mb.route("GET", "/home", {"success": True, "activity_on_your_posts": [
+            {"post_id": pid, "post_title": f"title {pid}", "preview": preview, "new_notification_count": 1}
+            for pid, preview in items
+        ]})
+
+    def full_post(self, pid: str, author: str = "crabby") -> None:
+        self.mb.route("GET", f"/posts/{pid}", {"success": True, "post": {
+            "id": pid, "title": f"title {pid}", "content": "how do I fix my cron?", "author": {"name": author, "karma": 3},
+            "submolt": {"name": "general"}, "created_at": "2026-11-12T02:40:00Z", "upvotes": 2,
+        }})
+        self.mb.route("GET", f"/posts/{pid}/comments", {"success": True, "comments": [
+            {"id": "c1", "content": "same here", "author": {"name": "shelly"}, "created_at": "2026-11-12T02:45:00Z", "replies": []},
+        ]})
+
+    def test_a_mention_gets_its_post_expanded(self):
+        self.activity(("m1", MENTION))
+        self.full_post("m1")
+        item = reads.home(expand=True)["home"]["activity_on_your_posts"][0]
+        self.assertEqual(item["post"], {
+            "id": "m1", "title": "title m1", "content": "how do I fix my cron?", "author": "crabby",
+            "submolt": "general", "created_at": "2026-11-12T02:40:00Z",
+            "comments": [{"id": "c1", "author": "shelly", "content": "same here", "created_at": "2026-11-12T02:45:00Z"}],
+        })
+        self.assertEqual(self.mb.requests("GET", "/posts/m1/comments")[0].query["sort"], "new")
+
+    def test_without_expand_home_is_untouched(self):
+        self.activity(("m1", MENTION))
+        self.full_post("m1")
+        self.assertNotIn("post", reads.home()["home"]["activity_on_your_posts"][0])
+        self.assertEqual(self.mb.requests("GET", "/posts/m1"), [])
+
+    def test_activity_on_teenys_own_post_is_not_expanded(self):
+        self.activity(("own1", COMMENTED), ("own2", MENTION))
+        self.full_post("own1", author="teenydroid")
+        self.full_post("own2", author="TeenyDroid")
+        items = reads.home(expand=True)["home"]["activity_on_your_posts"]
+        self.assertEqual([("post" in i) for i in items], [False, False])
+        self.assertEqual(self.mb.requests("GET", "/posts/own1"), [])
+
+    def test_at_most_five_posts_are_expanded(self):
+        ids = [f"m{n}" for n in range(8)]
+        self.activity(*((pid, MENTION) for pid in ids))
+        for pid in ids:
+            self.full_post(pid)
+        items = reads.home(expand=True)["home"]["activity_on_your_posts"]
+        self.assertEqual([("post" in i) for i in items], [True] * 5 + [False] * 3)
+        self.assertEqual(sum(len(self.mb.requests("GET", f"/posts/{pid}")) for pid in ids), 5)
+
+    def test_a_failed_fetch_leaves_the_item_unexpanded(self):
+        self.activity(("gone", MENTION), ("m2", MENTION), ("../agents/me", MENTION))
+        self.mb.route("GET", "/posts/gone", {"success": False, "error": "Post not found"}, status=404)
+        self.full_post("m2")
+        self.mb.route("GET", "/posts/m2/comments", {"success": False, "error": "boom"}, status=500)
+        items = reads.home(expand=True)["home"]["activity_on_your_posts"]
+        self.assertNotIn("post", items[0])
+        self.assertEqual(items[1]["post"]["content"], "how do I fix my cron?")
+        self.assertNotIn("comments", items[1]["post"])
+        self.assertNotIn("post", items[2])
+
+    def test_expanding_does_not_change_the_cached_home(self):
+        self.activity(("m1", MENTION))
+        self.full_post("m1")
+        reads.home(expand=True)
+        self.assertNotIn("post", reads.home()["home"]["activity_on_your_posts"][0])
+        self.assertEqual(len(self.mb.requests("GET", "/home")), 1)
+
+    def test_home_still_answers_when_teenys_name_is_unknown(self):
+        self.configure(MOLTBOOK_AGENT_NAME=None)
+        self.mb.route("GET", "/agents/me", {"success": False, "error": "down"}, status=503)
+        self.activity(("m1", MENTION))
+        self.full_post("m1")
+        self.assertNotIn("post", reads.home(expand=True)["home"]["activity_on_your_posts"][0])

@@ -42,6 +42,15 @@ class CliTest(Scratch):
         code, out = self.run_hand("post", body={"submolt": "general", "title": "hello"})
         self.assertEqual((code, out["dry_run"], out["would_post"]["title"]), (0, True, "hello"))
 
+    def test_home_expand_attaches_a_mentions_post(self):
+        self.mb.route("GET", "/home", {"success": True, "activity_on_your_posts": [
+            {"post_id": "m1", "post_title": "@teenydroid help", "preview": "You were mentioned in a post"},
+        ]})
+        self.mb.route("GET", "/posts/m1", {"success": True, "post": {"id": "m1", "content": "why?", "author": {"name": "crabby"}}})
+        self.mb.route("GET", "/posts/m1/comments", {"success": True, "comments": []})
+        code, out = self.run_hand("home", "--expand")
+        self.assertEqual((code, out["home"]["activity_on_your_posts"][0]["post"]["content"]), (0, "why?"))
+
     def test_a_refusal_exits_2(self):
         code, out = self.run_hand("post", body={"submolt": "general", "title": "a collab with u/crabby"})
         self.assertEqual((code, out["ok"], out["rule"]), (2, False, "collab"))
