@@ -71,6 +71,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.gh import actions as gh  # noqa: E402
 from teeny_hands.guard import rescreen  # noqa: E402
+from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
