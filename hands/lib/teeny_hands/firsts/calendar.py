@@ -20,12 +20,11 @@ import importlib.util
 import json
 import re
 import sqlite3
-import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, xpost
 
 Json = dict[str, Any]
 
@@ -202,29 +201,6 @@ def _numbers(text: str) -> set[float]:
     return {float(n.replace(",", "")) for n in _NUMBER.findall(text)}
 
 
-def _post(text: str) -> Json:
-    """`hands/x post`, which runs the guard and the posting rules and keeps
-    DRY_RUN; its answer, or Refused/HandError as it said."""
-    exe = hand.root() / "hands" / "x"
-    if not exe.is_file():
-        raise hand.HandError("hands/x is not installed")
-    try:
-        done = subprocess.run([str(exe), "post"], input=json.dumps({"text": text}), capture_output=True, text=True,
-                              timeout=180, cwd=hand.root())
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise hand.HandError(f"hands/x post: {type(exc).__name__}") from None
-    try:
-        answer = json.loads(done.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        raise hand.HandError(f"hands/x post answered no JSON (exit {done.returncode})") from None
-    if done.returncode == 2:
-        detail = {k: v for k, v in answer.items() if k not in ("ok", "refused")}
-        raise hand.Refused(f"hands/x post refused it: {answer.get('refused')}", **detail)
-    if done.returncode != 0:
-        raise hand.HandError(f"hands/x post: {answer.get('error', 'failed')}")
-    return answer
-
-
 def announce(body: Any) -> Json:
     """{text, first} or {text, round}: one due item, checked again now, then
     posted through hands/x. Refused (`unproven`) when it is not due, and
@@ -255,7 +231,7 @@ def announce(body: Any) -> Json:
         if stray:
             raise hand.Refused(f"the text quotes {', '.join(str(_plain(n)) for n in stray)}, which the ledger does not "
                                f"hold for this; only {', '.join(str(_plain(n)) for n in sorted(allowed))}", rule="number")
-        posted = _post(text)
+        posted = xpost.post(text)
         out: Json = {"key": item["key"], "post": posted}
         if posted.get("dry_run") or not posted.get("id"):
             out["recorded"] = False
