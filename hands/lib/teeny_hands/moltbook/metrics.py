@@ -98,18 +98,36 @@ def _measure(target: Mapping[str, Any], api: RestApi | None) -> Json | None:
 
 
 def refresh(api: RestApi | None = None) -> Json:
+    """Measures the writes with a checkpoint due: `recorded` (kind, id,
+    checkpoint), `missing` (not there to read), `errors`, `left` (due but
+    past MAX_FETCHES, for the next run) and `rate_limited` when a 429 ended
+    the run."""
     conn = rules.db()
     try:
         now = hand.now()
         done = _recorded(conn)
-        recorded: list[Json] = []
+        due = []
         for target in _targets(conn):
             checkpoint = _due(now - float(target["at"]))
+            if checkpoint is not None and checkpoint > done.get((target["kind"], str(target["target_id"])), 0):
+                due.append((target, checkpoint))
+        out: Json = {"recorded": [], "missing": [], "errors": [], "left": max(0, len(due) - MAX_FETCHES),
+                     "rate_limited": False}
+        for target, checkpoint in due[:MAX_FETCHES]:
             key = (target["kind"], str(target["target_id"]))
-            if checkpoint is None or checkpoint <= done.get(key, 0):
+            try:
+                got = _measure(target, api)
+            except RestError as error:
+                if error.status == 429:
+                    out["rate_limited"] = True
+                    break
+                out["errors"].append(f"{key[0]} {key[1]}: {error}")
                 continue
-            got = _measure(target, api)
+            except hand.HandError as error:
+                out["errors"].append(f"{key[0]} {key[1]}: {error}")
+                continue
             if got is None:
+                out["missing"].append({"kind": key[0], "target_id": key[1]})
                 continue
             conn.execute(
                 "INSERT OR IGNORE INTO moltbook_post_metrics"
@@ -117,7 +135,7 @@ def refresh(api: RestApi | None = None) -> Json:
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (*key, checkpoint, now, got["score"], got["comment_count"], got["verification_status"]),
             )
-            recorded.append({"kind": key[0], "target_id": key[1], "checkpoint": checkpoint})
+            out["recorded"].append({"kind": key[0], "target_id": key[1], "checkpoint": checkpoint})
     finally:
         conn.close()
-    return {"recorded": recorded}
+    return out
