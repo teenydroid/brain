@@ -100,16 +100,6 @@ def _measure(target: Mapping[str, Any], api: RestApi | None) -> Json | None:
 _COLUMNS = ("checkpoint", "at", "score", "comment_count", "verification_status")
 
 
-def latest(conn, kind: str, target_id: str) -> Json | None:
-    """The newest metrics row of one write, or None."""
-    row = conn.execute(
-        f"SELECT {', '.join(_COLUMNS)} FROM moltbook_post_metrics WHERE kind = ? AND target_id = ?"
-        " ORDER BY checkpoint DESC LIMIT 1",
-        (kind, target_id),
-    ).fetchone()
-    return dict(row) if row else None
-
-
 def listing(days: int = 7) -> Json:
     """The latest row of each write measured in the last `days`, newest
     write first: a post with its title, a comment with its post's id."""
