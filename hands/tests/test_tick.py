@@ -552,6 +552,74 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertIn("energy 100/100", self.chats()[2]["message"])
 
+    def test_actions_just_after_midnight_do_not_tire_the_morning(self):
+        # Up past midnight (00:30-00:40), busy: 24 actions on the new date.
+        likes = {"thought": "", "intents": [{"do": "like_x", "id": str(n)} for n in range(8)]}
+        self.answer(likes, likes, likes, {"thought": "", "intents": []})
+        for minute in (0, 5, 10):
+            self.night(0.5 + minute / 60)
+            stimuli.add("x", "mention", f"late{minute}", "still up?")
+            self.tick()
+        self.night(3)
+        self.assertTrue(self.tick()["asleep"])
+        self.night(7.1)
+        self.tick()
+        morning = self.chats()[-1]["message"]
+        self.assertIn("You just woke up", morning)
+        self.assertIn("energy 100/100", morning)
+        self.assertNotIn("low on energy", morning)
+        self.assertNotIn("running low", morning)
+
+    def test_energy_comes_back_slowly_while_awake(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "like_x", "id": str(n)} for n in range(8)]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        os.environ["TEENY_NOW"] = str(T0 + 2 * 3600)
+        stimuli.add("x", "mention", "2", "gm")
+        self.tick()
+        self.assertIn("energy 86/100 (8 action(s) today)", self.chats()[1]["message"])
+
+    def quiet_beats(self, minutes) -> list[int]:
+        """Beats at these minutes past T0 with nothing coming in: the ones
+        that got a quiet moment (a model turn)."""
+        thought = []
+        for minute in minutes:
+            os.environ["TEENY_NOW"] = str(T0 + minute * 60)
+            before = len(self.chats())
+            got = self.tick()
+            if len(self.chats()) > before:
+                thought.append(minute)
+            else:
+                self.assertEqual(got["kind"], "idle", got)
+                self.assertTrue(got["resting"], got)
+        return thought
+
+    def test_quiet_moments_come_less_often_while_nothing_happens(self):
+        self.assertEqual(self.quiet_beats(range(0, 180, 5)), [0, 5, 20, 50, 110, 170])
+        resting = [r for r in self.runs() if r.get("resting")]
+        self.assertEqual(len(resting), 36 - 6)
+        self.assertTrue(all(r["kind"] == "idle" and r["idle"] for r in resting))
+
+    def test_the_quiet_back_off_ends_when_something_comes_in(self):
+        self.assertEqual(self.quiet_beats([0, 5, 10]), [0, 5])
+        os.environ["TEENY_NOW"] = str(T0 + 12 * 60)
+        stimuli.add("x", "mention", "1", "gm")
+        self.assertEqual(self.tick()["kind"], "beat")
+        self.assertEqual(self.quiet_beats([15, 20]), [15, 20])
+
+    def test_the_quiet_moment_says_what_time_of_day_it_is(self):
+        os.environ["TEENY_QUIET_HOURS"] = "1-7"
+        os.environ["TEENY_NOW"] = str(T0 + 3600)  # 08:00
+        self.tick()
+        quiet = self.chats()[0]["message"]
+        self.assertIn("It is 08:00 in the morning, your time.", quiet)
+        self.assertIn("Your quiet hours start at 01:00, in 17 h.", quiet)
+        os.environ["TEENY_NOW"] = str(T0 + 15 * 3600 + 20 * 60)  # 22:20
+        self.tick()
+        self.assertIn("It is 22:20 at night, your time. Your quiet hours start at 01:00, in 2 h 40 min.",
+                      self.chats()[1]["message"])
+
     def test_a_quiet_moment_is_a_look_at_moltbook_at_most_every_two_hours(self):
         os.environ["FAKE_FEED"] = json.dumps({"ok": True, "posts": [
             {"id": "p7", "title": "do agents dream of crabs", "author": {"name": "lobster"}}]})
