@@ -462,12 +462,15 @@ def week_of(at: float) -> str:
 
 
 def close() -> Json:
-    """Freezes last week's page into `wallet_accounts`, once. Run on a Monday
+    """Scans the deposits, then freezes last week's page into
+    `wallet_accounts`, once. Off unless WALLET_ACCOUNTS=1. Run on a Monday
     (UTC) by the pinned job, so the 7 days it covers are the week it is
     named for, give or take the minutes past midnight it ran (the page
     carries its exact `from` and `to`). An incomplete page (a cost source
     or the inflow scan missing) is not closed: an unread cost would look
     like profit."""
+    if not hand.flag("WALLET_ACCOUNTS", False):
+        raise hand.Refused("the weekly accounts are off: WALLET_ACCOUNTS=1 in secrets/teeny.env", rule="off")
     now = hand.now()
     if _dt.datetime.fromtimestamp(now, _dt.timezone.utc).weekday() != 0:
         raise hand.Refused("a week is closed on Mondays (UTC) only", rule="not_monday")
@@ -478,7 +481,11 @@ def close() -> Json:
             return {"closed": False, "week": week, "why": "already closed"}
     finally:
         conn.close()
+    scanned = scan()
     got = page(7)
+    if scanned["truncated"]:
+        got["complete"] = False
+        got.setdefault("incomplete", []).append("inflows")
     if not got["complete"]:
         raise hand.Refused("the week's page is incomplete", rule="incomplete", missing=got["incomplete"])
     got["week"] = week
