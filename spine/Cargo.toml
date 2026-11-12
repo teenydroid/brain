@@ -61,3 +61,10 @@ openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-module
     "tinywallet",
 ] }
 libc = "0.2"
+# `debridge.rs`: the wallet-backend hook (`__host::wallet_backend`, behind
+# embed's `web3`) and the HTTP client for deBridge's public API. Every feature
+# named is one the core already turns on, so neither adds a crate.
+openhuman-embed = { path = "../vendor/openhuman/crates/openhuman-embed", default-features = false, features = ["web3"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+log = "0.4"

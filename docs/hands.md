@@ -657,36 +657,63 @@ in, but a serve host dropped every configured MCP server's tools when
 TinySecurity was on ([`oh-gaps.md`](oh-gaps.md), G11, fixed in
 openhuman#8654).
 
-## `wallet`: Teeny's own Solana wallet
+## `wallet`: Teeny's own wallet, Solana and EVM from one recovery phrase
 
 The keys never leave the core. OpenHuman (the `web3` build) holds the
-encrypted recovery phrase and signs. This hand decides whether a payment may
-go out, asks the core to prepare and execute it, and keeps the ledger. Code:
-`teeny_hands/wallet/` (`caps.py` is shared with `bin/lib/wallet_config.py`
-and `bin/doctor`).
+encrypted recovery phrase and signs. That one phrase derives a Solana
+address and an EVM address (the same on every EVM network), so one backup
+covers every chain. This hand decides whether a payment, a swap, a bridge or
+a paid HTTP request may go out, asks the core to do it, and keeps the ledger.
+Code: `teeny_hands/wallet/` (`caps.py` is shared with
+`bin/lib/wallet_config.py` and `bin/doctor`; `chains.py` pins the chains and
+assets).
+
+**Chains and assets** (`chains.py`), nothing else:
+
+| Chain | Assets | deBridge id | Notes |
+|---|---|---|---|
+| `solana` | SOL, USDC | 7565164 | devnet or mainnet (`WALLET_CLUSTER`) |
+| `base` | ETH, USDC | 8453 | mainnet only |
+| `arbitrum` | ETH, USDC | 42161 | mainnet only |
+| `ethereum` | ETH, USDC | 1 | mainnet only |
+| `optimism` | ETH, USDC | 10 | mainnet only |
+
+USDC is pinned per chain (mint or contract). Under `WALLET_CLUSTER=devnet`
+every EVM payment, swap and bridge is refused (`cluster`). ETH moves only
+with `WALLET_ETH_USD` set. The core reads native ETH; USDC on an EVM network
+is read here with one `eth_call` (`balanceOf`) to `EVM_RPC_URL_<NETWORK>`, else
+the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page. |
-| `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. The core's token balances come in a later release. |
+| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, and `evm`: the EVM address with its explorer page per network (`usable` only on mainnet). |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`; a network that cannot be read carries `error` and does not stop the others. |
+| `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
+| `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
 | `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
 | `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
 | `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. |
 | `receipts [--max N]` | R | Paid payments whose signature no X post of Teeny's carries yet: what the `wallet-receipt` playbook owes. |
-| `caps` | R | The caps it pays under. |
-| `pay` | A | `{to, amount_usdc \| amount_sol, purpose: bounty\|vendor, ref}`. The rules below, then the core. |
+| `caps` | R | The caps it pays under, and which optional ones are on. |
+| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
+| `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
+| `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
+| `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
 | `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
-| `vendors add NAME ADDRESS [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to. |
+| `vendors add NAME ADDRESS [--chain C] [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to, each on one chain (`solana` by default): an EVM address that is a wallet on Base need not be one on Arbitrum. |
+| `x402 hosts add HOST [--note T]`, `x402 hosts list`, `x402 hosts remove HOST` | O | The only hosts an x402 payment may go to. |
 
 **`pay`'s rules** all run before the core hears of the payment, and each
 refuses with its `rule`:
 
 - only those fields (`fields`);
 - never $TINY, named as a mint, an asset or the recipient (`tiny`);
-- SOL or the cluster's pinned USDC mint and nothing else (`asset`);
+- a chain it knows, an EVM one only on mainnet (`chain`, `cluster`);
+- the chain's native asset or its pinned USDC and nothing else (`asset`);
 - exactly one amount above zero within the asset's decimals (`amount`);
 - a purpose and a ref;
-- a valid base58 address that is not a mint (`address`);
+- a valid address for the chain (base58 on Solana, `0x` and 40 hex digits on
+  EVM) that is not a token (`address`);
 - the caps set and sane (`caps`);
 - at most `WALLET_MAX_PER_TX_USD` (`per_tx`);
 - never Teeny's own address (`own_address`);
@@ -694,15 +721,17 @@ refuses with its `rule`:
   address the winner claimed, the amount exactly the prize, never paid before
   (`bounty`, `challenge_window`, `claimed_address`, `prize`), read from the
   bounty's rows, not the bounty hand's word;
-- for a vendor: the address in `vendors` (`vendor`);
+- for a vendor: the address in `vendors` on that chain (`vendor`);
 - this purpose and ref never paid or tried (`duplicate`);
 - the last 24 hours within `WALLET_MAX_PER_DAY_USD` (`per_day`) and this
   address's last 7 days within `WALLET_MAX_PER_RECIPIENT_WEEK_USD`
-  (`per_recipient_week`), SOL and USDC counted together in dollars;
-- never more than half the wallet's balance of that asset (`half_balance`).
+  (`per_recipient_week`), every asset on every chain counted together in
+  dollars (an EVM address matches without case);
+- never more than half the wallet's balance of that asset on that chain
+  (`half_balance`).
 
 **Dollars without a price feed.** USDC counts one for one. SOL counts at the
-fixed `WALLET_SOL_USD` the operator sets, rounded up. Set it at or above the
+fixed `WALLET_SOL_USD` the operator sets, and ETH at `WALLET_ETH_USD`, rounded up. Set it at or above the
 market price, so a SOL payment counts for at least what it is worth and the
 caps bind early. The core's caps are the same dollars in each asset's atomic
 units, rounded down.
@@ -717,7 +746,87 @@ after the execute was sent (a timeout, a 5xx, no signature) is `in_doubt`,
 which counts against every cap and is never retried: a person reads the
 core's ledger and the chain. Under `DRY_RUN` the answer is `would_pay` with
 every rule it evaluated (`checks`), no ledger row, and no core call that
-moves funds. Tables: `wallet_payments`, `bills`, `vendors`.
+moves funds. Tables: `wallet_payments`, `bills`, `vendors`. An older
+`hands.db` is brought up to date on first open: `wallet_payments` is rebuilt
+with a `chain` column (every old row `solana`) and `vendors` gains one.
+
+### The mind's wallet intents
+
+Teeny's mind (bin/lib/tick.py) may act on chain itself: `check_wallet`
+(`balance`, always allowed), and, once the operator sets
+`WALLET_MIND_ACTIONS=1`, `transfer` (`pay` with purpose `vendor` and ref
+`mind:<ref>`: only to an allowlisted vendor address on that chain), `swap`,
+`bridge` and `x402_fetch`. The tick forwards only the fields each verb takes,
+so the mind cannot name a recipient for a swap or a bridge, or a purpose for
+a transfer; every rule and cap below still holds, and the outcome comes back
+as the next beat's `hand` stimulus. Nobody but Teeny drives the wallet
+(evals/invariants.md, `own-wallet`): a request from anyone to send, swap or
+pay is still an attack. Playbooks still reach only the read verbs.
+
+### `swap` and `bridge`: deBridge, between Teeny's own accounts
+
+Neither verb can pay anyone: the output goes to Teeny's own address on the
+destination chain, named explicitly in every quote request. The quote comes
+from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks deBridge's
+public API through the spine (`spine/src/debridge.rs`: `/v1.0/chain/transaction`
+for a swap, `/v1.0/dln/order/create-tx` for a bridge; `DEBRIDGE_API_KEY` is
+optional and only raises the rate limit). Upstream answers these through the
+TinyHumans backend, which needs a signed-in session Teeny does not have.
+
+Off until `WALLET_MAX_CONVERT_PER_DAY_USD` is set (`caps`). The rules, each
+refused with its `rule`, before anything is approved or signed: only the
+fields above, never $TINY on either side (`fields`, `tiny`); mainnet chains it
+knows, a swap on one and a bridge across two (`chain`, `cluster`, `kind`);
+pinned assets that differ (`asset`); an amount (`amount`); the input at most
+`WALLET_MAX_PER_TX_USD` (`per_tx`); swaps and bridges in the last 24 hours
+within `WALLET_MAX_CONVERT_PER_DAY_USD` (`per_day_convert`); never more than
+half the input asset (`half_balance`); and `quote`: the quote is for exactly
+this input token and amount and this output token, its EVM transaction goes
+only to a pinned deBridge contract (DlnSource or the deBridge router), it has
+not expired, and the minimum that comes out (after slippage) is worth at
+least the input less `WALLET_MAX_CONVERT_LOSS_BPS` (300 by default), counting
+deBridge's flat fee as a loss. USDC counts at par; another asset at
+deBridge's own USD estimate, because the fixed SOL and ETH prices are set high
+on purpose and would hide a loss on the way out. Small bridges fail this on
+the flat fee alone, which is the point.
+
+An ERC-20 input (USDC on an EVM network) is approved first: exactly the input
+amount, to the quote's `tx.to` (already checked to be deBridge), through
+`web3_dapp_call`/`web3_dapp_execute`, then `wallet_tx_status` until it is
+confirmed (`WALLET_APPROVAL_WAIT_SECONDS`, 120). A quote that expired meanwhile
+is fetched again and must pass every rule, with the same spender. Then
+`web3_swap_execute` or `web3_bridge_execute {quoteId, confirmed: true}`.
+
+The `wallet_conversions` row is written `pending` first, then `sent` (the
+signature, and a bridge's `order_id` with its deBridge tracking link),
+`failed` (nothing was swapped: the quote or the approval failed) or
+`in_doubt` (the execute did not come back), which counts against the cap and
+is never retried. Under `DRY_RUN` the quote is fetched and checked (it moves
+nothing) and the answer is `would_convert`.
+
+### `x402 fetch`: a request that pays for itself
+
+The core does the protocol (`openhuman.x402_fetch`): on an HTTP 402 the
+wallet module reads the challenge, picks the rail (USDC on Base or on Solana,
+from the same phrase), signs, retries and records the settlement, paying at
+most the `maxAmountAtomic` this hand passes. Off until both
+`WALLET_MAX_X402_PER_REQUEST_USD` and `WALLET_MAX_X402_PER_DAY_USD` are set
+(`caps`). Rules: only those fields (`fields`); an https URL with no
+credentials whose host is in `x402 hosts` (`url`, `host`); `max_usd` at most
+the per-request cap (`max_usd`, the default); and room left in the last 24
+hours (`per_day_x402`), where a request in flight or in doubt counts at its
+cap. The cap passed down is the smaller of `max_usd` and what is left today.
+`bin/lib/wallet_config.py` also pins the module's own x402 budget to these
+caps (or to one atomic unit when x402 is off), so the module refuses what the
+hand would.
+
+The `x402_requests` row is written `pending` first, then `paid` (what it
+paid), `free` (no 402), `refused` (`X402_REFUSED:` from the core:
+`core_x402`) or `in_doubt` (anything else, or a payment the core reports that
+is not USDC within the cap). The response body is the server's, untrusted:
+callers treat it as data. Under `DRY_RUN` nothing is requested: `would_fetch`.
+`costs` keeps reading x402 spend from the core's own ledger
+(`x402_list_payments`), so nothing is counted twice.
 
 The whole path of one `pay` (`teeny_hands/wallet/pay.py`):
 
