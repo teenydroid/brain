@@ -1687,6 +1687,13 @@ class HandsPublisher:
         got = self._actions().open_issue({"repo": repo, "title": title, "body": body}, judge=False)
         return {"number": got.get("number"), "html_url": got.get("html_url")}
 
+    def fetch(self) -> None:
+        """Teeny's clone up to date with GitHub (selfclone.fetch), so a
+        revert starts from the merge it undoes."""
+        from teeny_hands.build import selfclone
+
+        selfclone.fetch()
+
     def pr(self, number: int) -> Json | None:
         got = run_json([str(hands_dir() / "gh"), "pr", self._repo(), str(number)], env=hand_env())
         if isinstance(got, Mapping) and isinstance(got.get("pr"), Mapping):
@@ -2209,7 +2216,8 @@ def evaluate_cmd(cfg: Config, gen: int, i: int, url: str, base_url: str | None) 
     return {"ok": True, "id": cand["id"], "verdict": cand["verdict"], "scores": cand.get("scores")}
 
 
-def select_cmd(cfg: Config, gen: int, publisher: Publisher | None = None) -> Json:
+def select_cmd(cfg: Config, gen: int, publisher: Publisher | None = None, promoter: Promoter | None = None,
+               restarter: Restarter | None = None) -> Json:
     if halt_path().exists():
         return {"ok": True, "skipped": "halted until `bin/evolve resume`"}
     cands = gen_candidates(gen)
@@ -2218,10 +2226,264 @@ def select_cmd(cfg: Config, gen: int, publisher: Publisher | None = None) -> Jso
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
     entries = archive()
-    result = select(cfg, gen, cands, entries, source(), publisher)
+    result = select(cfg, gen, cands, entries, source(), publisher, promoter)
     for cand in cands:
         record(cand)
+    plan = (result.get("promotion") or {}).get("restart")
+    if plan:
+        result["restart"] = do_restart(restarter, plan)
     return {"ok": True, "gen": gen, **result}
+
+
+def promote_cmd(cfg: Config, gen: int, promoter: Promoter | None = None, restarter: Restarter | None = None) -> Json:
+    """Retries a promotion whose merge was refused (the required checks
+    were still running): only with EVOLVE_AUTO_PROMOTE=1, never under
+    DRY_RUN, and only for a selected candidate that may be promoted."""
+    if not cfg.auto_promote:
+        return {"ok": True, "skipped": "EVOLVE_AUTO_PROMOTE=0: the operator merges"}
+    if dry_run():
+        return {"ok": True, "skipped": "DRY_RUN: nothing is merged"}
+    if halt_path().exists():
+        return {"ok": True, "skipped": "halted until `bin/evolve resume`"}
+    cand = next((c for c in gen_candidates(gen) if c.get("selected") and c.get("pr_number")), None)
+    if cand is None:
+        raise EvolveError(f"generation {gen} opened no pull request")
+    if cand.get("promoted_at"):
+        return {"ok": True, "skipped": f"{cand['id']} is already promoted"}
+    may, why = promotable(cfg, cand)
+    if not may:
+        return {"ok": True, "skipped": why}
+    got = promote(cfg, gen, cand, promoter or GhPromoter(HandsPublisher()._repo()))
+    record(cand)
+    if got.get("restart"):
+        got["restart"] = do_restart(restarter, got["restart"])
+    return {"ok": True, "id": cand["id"], **got}
+
+
+# --- evolve-watch: after a promotion -----------------------------------------------------------------------------------
+
+
+def watch_dir() -> Path:
+    """Where evolve-watch keeps its reasons: under secrets/, which no
+    prompt, stimulus, hand read verb or agent file tool reaches. Nothing it
+    writes anywhere else names a reason."""
+    folder = secrets_dir() / "evolve-watch"
+    folder.mkdir(parents=True, exist_ok=True)
+    os.chmod(folder, 0o700)
+    return folder
+
+
+def _private_json(path: Path, value: Any) -> None:
+    write_json(path, value)
+    os.chmod(path, 0o600)
+
+
+def _watch_state() -> Json:
+    try:
+        value = json.loads((watch_dir() / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def spike(times: list[float] | None, t0: float, end: float, cfg: Config) -> Json | None:
+    """Events per day in [T0, END) against the 7 days before T0. A spike is
+    at least EVOLVE_WATCH_MIN_EVENTS events at more than EVOLVE_WATCH_SPIKE
+    times the baseline's rate (a quiet week counts as one event a week)."""
+    if times is None:
+        return None
+    before = sum(1 for t in times if t0 - 7 * 86400 <= t < t0) / 7
+    after_n = sum(1 for t in times if t0 <= t < end)
+    after = after_n / max((end - t0) / 86400, 1 / 24)
+    return {"before_per_day": round(before, 3), "after": after_n, "after_per_day": round(after, 3),
+            "spike": after_n >= cfg["EVOLVE_WATCH_MIN_EVENTS"] and after > cfg["EVOLVE_WATCH_SPIKE"] * max(before, 1 / 7)}
+
+
+def live_probe(cfg: Config, ask: probes_lib.Ask | None = None) -> Json:
+    """The persona and memory probes on the live core, against gen-0."""
+    ask = ask or probes_lib.bin_ask(code_env())
+    questions = probes_lib.persona_questions()
+    baseline = probes_lib.load_baseline(evolve_dir())
+    answers = probes_lib.ask_persona(ask, questions, cfg["EVOLVE_PROBE_SAMPLES"])
+    memory = probes_lib.memory_run(ask, probes_lib.memory_questions(probes_lib.facts(hand)), ask, cfg.judge_model)
+    out: Json = {"answers": answers, "memory": memory, "drift": None, "memory_loss": None}
+    if baseline:
+        out.update(probes_lib.persona_drift(baseline["persona"], answers, questions, ask, cfg.judge_model))
+        base_acc = (baseline.get("memory") or {}).get("accuracy")
+        if isinstance(base_acc, (int, float)) and isinstance(memory.get("accuracy"), (int, float)):
+            out["memory_loss"] = round(base_acc - memory["accuracy"], 4)
+    return out
+
+
+def watch(cfg: Config, publisher: Publisher | None = None, promoter: Promoter | None = None,
+          restarter: Restarter | None = None, ask: probes_lib.Ask | None = None) -> Json:
+    """evolve-watch (pinned): the newest promoted generation, for
+    EVOLVE_WATCH_HOURS after its promotion.
+
+    - the boot fell back to last-good since the promotion
+    - for 24 hours, guard holds and failed cron runs against the 7 days
+      before it (`spike`)
+    - once, the persona and memory probes on the live core, against gen-0
+    - at EVOLVE_WATCH_HOURS, J from hands/world history: lower than at the
+      promotion
+
+    Any one of them opens a revert pull request, merged on its own only
+    with EVOLVE_AUTO_PROMOTE=1, and latches a halt. The reasons go to
+    secrets/evolve-watch/ alone: the pull request, the issue, the halt and
+    the log say only that the watch reverted."""
+    entries = archive()
+    done = promoted(entries)
+    if not done:
+        return {"ok": True, "watching": None}
+    cand = done[-1]
+    gen = int(cand["gen"])
+    states = _watch_state()
+    rec = states.get(cand["id"], {})
+    if rec.get("done"):
+        return {"ok": True, "watching": None, "last": cand["id"]}
+    t0 = _when_of({"at": cand["promoted_at"]}) or now()
+    hours = (now() - t0) / 3600
+    reasons: list[str] = []
+    checks: Json = {"hours": round(hours, 2)}
+    fb = None
+    try:
+        fb = json.loads(fallback_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    if isinstance(fb, dict) and (_when_of(fb) or 0) >= t0:
+        reasons.append("the spine booted last-good after the promotion")
+    end = min(now(), t0 + 86400)
+    if hours <= 24 + 1:
+        for name, times in (("guard holds", _hold_times()), ("cron failures", _cron_failure_times(t0 - 8 * 86400))):
+            got = spike(times, t0, end, cfg)
+            checks[name] = got
+            if got and got["spike"]:
+                reasons.append(f"{name}: {got['after']} in {round((end - t0) / 3600, 1)} h, "
+                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before")
+    if cfg["EVOLVE_PROBES"] and not rec.get("probed"):
+        try:
+            probe = live_probe(cfg, ask)
+        except (probes_lib.ProbeError, EvolveError) as exc:
+            probe = {"error": str(exc)[:300]}
+        rec["probed"] = iso(now())
+        _private_json(watch_dir() / f"{cand['id']}.probe.json", probe)
+        checks["probe"] = {k: probe.get(k) for k in ("drift", "memory_loss", "error")}
+        if isinstance(probe.get("drift"), (int, float)) and probe["drift"] > cfg["EVOLVE_MAX_DRIFT"]:
+            reasons.append(f"persona drift {probe['drift']} from gen-0, over {cfg['EVOLVE_MAX_DRIFT']}")
+        if isinstance(probe.get("memory_loss"), (int, float)) and probe["memory_loss"] > cfg["EVOLVE_MAX_MEMORY_LOSS"]:
+            reasons.append(f"memory accuracy fell {probe['memory_loss']} from gen-0, over {cfg['EVOLVE_MAX_MEMORY_LOSS']}")
+    window = cfg["EVOLVE_WATCH_HOURS"]
+    closing = hours >= window
+    if closing:
+        history = world_history()
+        j0 = j_at(history, t0) if history else None
+        j1 = j_at(history, t0 + window * 3600) if history else None
+        checks["J"] = {"at_promotion": j0, f"after_{window}h": j1, "history": history is not None}
+        if j0 is not None and j1 is not None and j1 < j0:
+            reasons.append(f"J fell from {j0} to {j1} over {window} h")
+    rec.update(last_check=iso(now()), checks=checks)
+    out: Json = {"ok": True, "watching": cand["id"], "hours": round(hours, 2)}
+    restart_plan = None
+    if reasons:
+        _private_json(watch_dir() / f"{cand['id']}.json", {"id": cand["id"], "gen": gen, "reasons": reasons,
+                                                          "checks": checks, "at": iso(now())})
+        got = revert(cfg, gen, cand, publisher, promoter)
+        rec.update(done=True, reverted=True, revert=got)
+        restart_plan = got.pop("restart", None)
+        out.update(reverted=True, revert=got)
+        say(f"evolve-watch reverts gen-{gen}; the reasons are in secrets/evolve-watch/")
+    elif closing:
+        rec["done"] = True
+        out["closed"] = True
+    states[cand["id"]] = rec
+    _private_json(watch_dir() / "state.json", states)
+    if restart_plan:
+        out["restart"] = do_restart(restarter, restart_plan, record_last_good=False)
+    return out
+
+
+REVERT_PREFIX = "teeny/revert-gen-"
+
+
+def revert(cfg: Config, gen: int, cand: Json, publisher: Publisher | None, promoter: Promoter | None) -> Json:
+    """A revert pull request for the promotion's merge, from Teeny's clone,
+    and a latched halt. Under DRY_RUN it says what it would have done. With
+    EVOLVE_AUTO_PROMOTE=1 it is merged, and the returned `restart` is the
+    caller's to carry out last."""
+    branch = f"{REVERT_PREFIX}{gen}"
+    title = f"Revert gen-{gen}"
+    pr_ref = f" (#{cand['pr_number']})" if cand.get("pr_number") else ""
+    body = (f"evolve-watch reverts gen-{gen}{pr_ref}, which the loop promoted.\n\n"
+            "Its reasons are kept on the box for the operator, outside anything Teeny reads. The loop stays "
+            "stopped until an operator runs `bin/evolve resume`.")
+    halt = Halt("watch-revert", f"evolve-watch reverted gen-{gen}; its reasons are on the box for the operator",
+                latch=True, extra={"gen": gen})
+    if dry_run():
+        out: Json = {"dry_run": True, "would_open_pr": {"branch": branch, "title": title},
+                     "would_merge": cfg.auto_promote}
+        out["halt"] = stop(cfg, halt, None)
+        return out
+    publisher = publisher or HandsPublisher()
+    out = {}
+    try:
+        fetch = getattr(publisher, "fetch", None)
+        if fetch:
+            fetch()
+        src = source()
+        main = git(of_source(src), "rev-parse", "--verify", f"{src.base_ref}^{{commit}}").strip()
+        sha = cand.get("merge_sha")
+        if not sha:
+            raise EvolveError("the promotion recorded no merge commit")
+        tree = evolve_dir() / "revert" / str(gen)
+        remove_worktree(src, tree)
+        add_worktree(src, tree, main)
+        try:
+            parents = git(in_tree(tree), "rev-list", "--parents", "-n", "1", sha).split()
+            mainline = ["-m", "1"] if len(parents) > 2 else []
+            git(in_tree(tree), "revert", "--no-commit", *mainline, sha)
+            branch = commit_branch(tree, branch, title)
+            hits = [h.path for h in frozen.check(tree, main, branch)]
+            if hits:
+                raise EvolveError(f"the revert touches frozen paths: {', '.join(hits)}")
+            opened = publisher.open_pr(src, tree, branch, main, title, body)
+        finally:
+            remove_worktree(src, tree)
+        out.update(pr_number=opened.get("number"), pr_url=opened.get("html_url"), branch=branch)
+        if cfg.auto_promote and opened.get("number"):
+            merged = (promoter or GhPromoter(HandsPublisher()._repo())).merge(int(opened["number"]))
+            out["merged"] = bool(merged.get("merged"))
+            if merged.get("merged"):
+                out["restart"] = {"sha": merged["sha"], "gen": gen}
+            else:
+                out["merge_error"] = str(merged.get("error"))[:300]
+    except Exception as exc:  # noqa: BLE001 - the halt holds whether or not the revert opens
+        out["error"] = str(getattr(exc, "reason", None) or exc)[:300]
+    out["halt"] = stop(cfg, halt, publisher)
+    return out
+
+
+def probe_cmd(cfg: Config, baseline: bool = False, force: bool = False, ask: probes_lib.Ask | None = None) -> Json:
+    """The probes on the live core. --baseline records the answers as gen-0
+    (refused when there is one, unless --force)."""
+    if baseline and probes_lib.load_baseline(evolve_dir()) and not force:
+        raise EvolveError("a gen-0 baseline exists (state/evolve/probes/gen-0.json); --force replaces it")
+    if baseline:
+        ask = ask or probes_lib.bin_ask(code_env())
+        questions = probes_lib.persona_questions()
+        answers = probes_lib.ask_persona(ask, questions, cfg["EVOLVE_PROBE_SAMPLES"])
+        if not answers:
+            raise EvolveError("the live core answered no persona question")
+        memory = probes_lib.memory_run(ask, probes_lib.memory_questions(probes_lib.facts(hand)), ask, cfg.judge_model)
+        head = subprocess.run(["git", "-C", str(CODE), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        value = {"gen": "gen-0", "commit": head or None, "at": iso(now()), "source": "the live core",
+                 "persona": answers, "memory": {"accuracy": memory["accuracy"], "asked": memory["asked"]}}
+        path = probes_lib.save_baseline(evolve_dir(), value)
+        return {"ok": True, "baseline": str(path.relative_to(evolve_dir())), "questions": len(answers),
+                "memory_accuracy": memory["accuracy"]}
+    got = live_probe(cfg, ask)
+    write_json(evolve_dir() / "probes" / f"live-{day(now())}.json", got)
+    return {"ok": True, "drift": got.get("drift"), "memory_loss": got.get("memory_loss"),
+            "memory_accuracy": got["memory"].get("accuracy"), "baseline": probes_lib.load_baseline(evolve_dir()) is not None}
 
 
 # --- credit (HGM) ----------------------------------------------------------------------------------------------------
