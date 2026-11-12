@@ -1268,6 +1268,14 @@ never given to a model.
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `lore`: proof events for lore episodes
+
+Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
+
+| Verb | | Does |
+|---|---|---|
+| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
+
 ## `goals`: the goal ledger
 
 Teeny proposes its own goals, and frozen code checks them

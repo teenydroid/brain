@@ -158,10 +158,19 @@ The loop moves Teeny's story forward instead of tuning a generic score.
     answer mentions overnight
   - "find out what the terminal types" → a new hand that reads something, and
     a playbook that posts it as a terminal line
-- Evolution is itself an episode. A promotion writes
+- Evolution is itself an episode. Every merged generation has
   `brain/narrative/chronicle/gen-<n>.md`, a short in-voice entry under the
-  "night shift" engine about what the tiny agents rebuilt overnight. A
+  "night shift" engine about what the tiny agents rebuilt overnight, written
+  by `bin/evolve` from the record. A promotion carries it in its own commit;
+  for a generation a person merged, `bin/evolve credit` writes it into the
+  live brain when it first sees the merge (`- merged by: the operator`). A
   rejected generation gets a line too ("the agents carried it back").
+- Real events move the story (docs/roadmap.md, A13): the `episode` playbook
+  reads the day's proof events (`hands/lore events`: a generation merged with
+  its chronicle page, a pull request merged elsewhere, a bounty paid) and
+  posts one episode about the biggest. With no event it skips before any
+  model turn. It runs from the pinned `episode` job, off until the operator
+  turns it on.
 - The judge scores lore alongside voice and usefulness. The output has to fit
   the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
   visibly move.
@@ -692,8 +701,8 @@ Then:
 1. The commit carries `brain/narrative/chronicle/gen-<n>.md`, written by
    `bin/evolve` from the record, never by a model: the night shift's count
    of candidates, the one the tiny agents kept, its scores, its lineage, and
-   a line for every generation since the last promotion that promoted
-   nothing ("the agents carried it back").
+   a line for every generation since the last merged one that merged
+   nothing ("the agents carried it back"), and who merged it.
 2. The pull request says it is promoted by the loop, and is merged with `gh
    pr merge --merge`: never squashed, and never `--admin`, so the branch's
    required checks (CI's `frozen` job among them) still decide. The token is
