@@ -230,3 +230,13 @@ command = "bin/wallet-watch"
 schedule = "50 0 * * *"
 tz = "UTC"
 command = "bin/wallet-watch daily"
+
+# Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
+# wallet holds over what running Teeny cost a day this week, as one
+# `health · runway` stimulus, and the tier from evals/runway.toml that cuts
+# optional spend (pictures and clips, evolve candidates) while it is low.
+# OFF unless RUNWAY=1 in secrets/teeny.env; reads only.
+[jobs.runway]
+schedule = "45 0 * * *"
+tz = "UTC"
+command = "bin/health runway"
