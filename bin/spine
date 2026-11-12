@@ -165,9 +165,18 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
     # Every call here ends in `|| die`: this block runs in a subshell whose
     # status is tested, and bash ignores set -e inside one, so a failed call
     # would otherwise fall through to "ready" and every turn would 401.
-    oh config_update_local_ai_settings "$(jq -cn --arg k "${LADDER_API_KEY:-}" \
-      '{runtime_enabled: true, opt_in_confirmed: true} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null ||
+    # Native tool calls, on unless SPINE_NATIVE_TOOLS=0. The core treats a
+    # local-openai endpoint as unable to take `tools` and otherwise prompts a
+    # JSON-in-tag text protocol, which Surplus (glm-5.3-flash) breaks: its
+    # server reads each <tool_call> body as the tool's name, so the builder's
+    # every call after the first failed as `unknown tool `{"arguments":…}``.
+    # Set it to 0 only for an endpoint whose model cannot take `tools`.
+    native_tools=true
+    [ "${SPINE_NATIVE_TOOLS:-1}" = 0 ] && native_tools=false
+    oh config_update_local_ai_settings "$(jq -cn --arg k "${LADDER_API_KEY:-}" --argjson n "$native_tools" \
+      '{runtime_enabled: true, opt_in_confirmed: true, native_tool_calling: $n} + (if $k != "" then {api_key: $k} else {} end)')" >/dev/null ||
       die "model: the core did not store the model settings (the key above); every turn would fail"
+    log "model: native tool calls $([ "$native_tools" = true ] && echo on || echo "off (SPINE_NATIVE_TOOLS=0)")"
     [ -n "${LADDER_API_KEY:-}" ] || log "model: no LADDER_API_KEY; keeping the key the core already stores"
     oh config_update_model_settings "$(jq -cn --arg m "$SPINE_MODEL" '("local-openai:" + $m) as $p |
       {default_model: $m, chat_provider: $p, reasoning_provider: $p, agentic_provider: $p,

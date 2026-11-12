@@ -90,6 +90,7 @@ class Model(BaseHTTPRequestHandler):
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
         # A bin/act or bin/eval turn: answer the JSON it asks for.
         answer = ANSWER
+        native_call = None
         last = users[-1].get("content") if users else None
         if isinstance(last, str) and "# playbook: hello" in last:
             answer = json.dumps({"action": "note", "text": "hello from a playbook"})
@@ -118,7 +119,34 @@ class Model(BaseHTTPRequestHandler):
                 # computed by the shell like the marker).
                 command = (f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
                            f" && echo \"teeny-net-$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{sys.argv[1]}/v1/models)\"")
-                answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
+                call = {"name": "shell", "arguments": json.dumps({"command": command})}
+                # Offered native tools, answer the way Surplus does: one
+                # structured call. Otherwise the text protocol.
+                if body.get("tools"):
+                    native_call = call
+                else:
+                    answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
+        if native_call is not None:
+            tool_calls = [{"index": 0, "id": "call_stub_1", "type": "function", "function": native_call}]
+            if body.get("stream"):
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.end_headers()
+                chunks = [
+                    {**base, "object": "chat.completion.chunk",
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": None}]},
+                    {**base, "object": "chat.completion.chunk",
+                     "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                     "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
+                ]
+                for chunk in chunks:
+                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            self._json({**base, "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": "tool_calls"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
+            return
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -376,6 +404,11 @@ check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder
 check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
 check "the builder is told where its desk is" grep -q 'desk/build.json' <<<"$(builder_request)"
+# The regression: the builder was prompted with the JSON-in-tag text protocol
+# and no `tools`, and Surplus read each <tool_call> body as the tool's name.
+# bin/spine turns native tool calls on, so the shell rides the wire as a tool.
+check "the builder is offered the shell as a native tool" \
+  bash -c 'jq -e "[.tools[]?.function.name] | index(\"shell\")" <<<"$1" >/dev/null' _ "$(builder_request)"
 check "the builder run is rooted at the workbench" grep -q "rooted at its agent's workspace" "$scratch/spine.log"
 # The regression: a shell rooted at the checkout, which holds brain/, was
 # refused as a grant over the core workspace on every call. Never again,
