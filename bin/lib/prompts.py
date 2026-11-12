@@ -16,6 +16,10 @@ points its definition at the built file (`[system_prompt] file = "<id>.md"`).
 This writes brain/agent/prompts/<id>.md, where the core looks for a prompt
 file (`<workspace>/agent/prompts/`): the instructions, then "## your world".
 
+MEMORY.md leads the world, ahead of CONTEXT.md, the lore and the arcs. It is
+what actually happened, and where it disagrees with the lore it wins: the
+lore is where Teeny started, not a script it keeps replaying.
+
 LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
 in the dark until the world trips them, and narrative/VOICE.md and
 EDITOR.md are prompts for other workflows (the terminal episodes, the
