@@ -193,5 +193,5 @@ def run(workdir: Path, timeout: float = TIMEOUT_SECS) -> dict[str, Any]:
     found = _SUMMARY.findall(text)
     ran = int(found[-1]) if found else 0
     ok = proc.returncode == 0 and ran > 0
-    output = _tail(text) if ran or proc.returncode else "no tests were found to run"
+    output = _tail(text) if ran else "no tests were found to run"
     return {**out, "ok": ok, "jailed": True, "ran": ran, "exit": proc.returncode, "abi": abi, "output": output}
