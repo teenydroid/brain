@@ -139,3 +139,15 @@ command = "bin/evolve run --detach"
 schedule = "50 3 * * *"
 tz = "Asia/Kolkata"
 command = "bin/evolve credit"
+
+# The watch over the loop's own promotions (bin/evolve watch; docs/evolve.md,
+# "evolve-watch"): for the newest generation the loop merged on its own
+# (EVOLVE_AUTO_PROMOTE=1), a last-good boot, a spike in guard holds or failed
+# cron runs against the week before, the persona and memory probes against
+# gen-0, and J over 72 hours. Any one opens a revert pull request (merged on
+# its own only with auto-promote on) and stops the loop. Its reasons are
+# written under secrets/evolve-watch/ only, never where Teeny reads. With
+# nothing promoted it does nothing. Detached: the probes are many turns.
+[jobs.evolve-watch]
+schedule = "20 * * * *"
+command = "bin/evolve watch --detach"
