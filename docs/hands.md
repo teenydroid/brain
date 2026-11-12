@@ -350,6 +350,8 @@ no key: it reads each source through the hand that holds it.
 | `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
+Before the snapshot it runs `hands/moltbook metrics refresh` (its line on
+stderr; a refresh that fails never stops the snapshot).
 
 The newest snapshot is also public: `bin/receipts` writes its allowed metrics
 (whole numbers only, from a fixed list per source) to `stats/latest.json` and
