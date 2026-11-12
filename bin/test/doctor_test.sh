@@ -35,7 +35,7 @@ fresh() {
   cp -R "$repo/hands/lib" "$root/hands/"
   find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-  cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
+  cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
 doctor() { "$root/bin/doctor" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
 fails() { # NAME CHECK-SUBSTRING: the doctor exits 1 and names the failing check
@@ -71,6 +71,11 @@ fresh; : >"$root/brain/CONTEXT.md"
 fails "fails on an empty CONTEXT.md" "brain/CONTEXT.md"
 fresh; rm "$root/brain/DRIVE.md"
 fails "fails without DRIVE.md" "brain/DRIVE.md"
+# The charter (docs/governance.md, fence "charter").
+fresh; rm "$root/brain/CHARTER.md"
+fails "fails without CHARTER.md" "brain/CHARTER.md"
+fresh; sed -i.bak 's/responsible for what you do/answerable to nobody/' "$root/brain/CHARTER.md"
+fails "fails a charter that no longer names the operator as responsible" "invariants"
 fresh; : >"$root/brain/config.toml"
 fails "fails on a config.toml inside the brain" "brain/config.toml"
 fresh; printf '[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n' >"$root/brain/cron.toml"

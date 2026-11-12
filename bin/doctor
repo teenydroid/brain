@@ -119,7 +119,9 @@ agent_turn_budget() {
 }
 
 # --- the brain -----------------------------------------------------------------
-for file in SOUL.md DRIVE.md CONTEXT.md; do
+# CHARTER.md is the charter's short version (docs/governance.md): frozen, and
+# in every speaking prompt.
+for file in SOUL.md DRIVE.md CHARTER.md CONTEXT.md; do
   if [ -s "$brain/$file" ]; then
     note "brain/$file" ok "$(wc -l <"$brain/$file" | tr -d ' ') lines"
   else
