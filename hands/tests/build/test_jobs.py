@@ -270,6 +270,7 @@ class ShipTest(Scratch):
         self.assertNotIn("SENTINEL", checked["output"])
         self.assertTrue("PermissionError" in checked["output"] and checked["output"].count("Error") >= 2)
 
+    @needs_landlock
     def test_without_landlock_nothing_runs_and_nothing_ships(self):
         from unittest import mock
         from teeny_hands.build import verify
