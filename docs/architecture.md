@@ -184,7 +184,8 @@ diary entry, are taught to the core's memory with `openhuman.memory_learn`.
 
 ```
 brain/
-  SOUL.md  CONTEXT.md  MEMORY.md       who Teeny is, what it may treat as known, its own page of things to keep in mind
+  SOUL.md  CONTEXT.md                  who Teeny is, what it may treat as known
+  MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
   narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
@@ -193,6 +194,7 @@ brain/
   calendar.json                        a posting calendar that nothing reads
   cron.toml                            the brain's schedule; seeded by bin/seed-cron
   # gitignored: storage.db* (the core's state and encrypted secrets), agent/prompts/ (built at boot),
+  #             MEMORY.md (Teeny's live page, rewritten on the box by bin/reflect),
   #             IDENTITY.md, ROLE.md, STYLE.md (the core's persona defaults)
 # beside it, also gitignored: /.openhuman/ (config), /secrets/ (master key, env files), /state/ (hands.db and the rest)
 ```
@@ -219,7 +221,11 @@ handed four things beyond the message:
 - `MEMORY.md`, Teeny's own page of things to keep in mind (people, promises,
   what it is in the middle of, what it decided), capped at 12k characters.
   It is the persistence that survives anything, and no agent's file tool can
-  write it (`BRAIN_FORBIDDEN`).
+  write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/reflect`
+  rewrites it there, so it is gitignored, and the repository keeps where it
+  started, `MEMORY.seed.md`. Building the prompts starts the live page from
+  the seed when there is none (a fresh checkout, the first boot) and never
+  touches either after that.
 - Its thread. `bin/act` drafts every playbook on one thread, `teeny:act`, so
   a draft sees the drafts before it. The core recalls memory before the turn
   and logs it after (it skips both on a turn with no thread). The evals draft
@@ -408,7 +414,7 @@ How the day's beats become the page every prompt carries:
                                        + MEMORY.md as it stands
                                               │
                                               ▼
-                     new brain/MEMORY.md (at most 12k chars); old page in state/reflect/
+                     new brain/MEMORY.md (at most 12k chars, never committed); old page in state/reflect/
                      night only: diary to state/diary/<date>.md and memory_learn
                                               │
                                               ▼
