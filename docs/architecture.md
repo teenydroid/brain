@@ -207,6 +207,28 @@ when, what, ref; the soonest five), and a raised one arrives as `self ·
 follow_up #id · ref ...`.
 `TEENY_INBOX=core` restores the old per-surface path.
 
+**A paced reply waits; it is not decided again.** `hands/x` keeps a random
+gap between replies (`REPLY_MIN_INTERVAL_MS`..`REPLY_MAX_INTERVAL_MS`), so
+the second `reply_x` of a beat is usually refused with `rule: pacing` and a
+`wait_seconds`. Moltbook's one comment a minute is the same kind of refusal
+(`rule: rate_limit`) for `comment_moltbook`; those two pairs are the only
+ones (`PACED` in `bin/lib/tick.py`). When the wait is at most 90 s and the
+beat is still inside its budget (`TEENY_TICK_BUDGET_SECS`, 240 s from the
+beat's start, jitter included), the beat sleeps the wait plus 1 to
+`TEENY_TICK_PACE_JITTER_SECS` (5) seconds and sends the same intent once
+more. The retry is not a new action under the cap of 8, and the hand runs
+its guard again on it. Otherwise, or when the retry is held again, the
+intent is deferred: its entry is `deferred`, nothing is marked or reported,
+and it is written to `state/tick/deferred.json`. The next beat sends it
+first, word for word, before it takes its batch and at any hour (it was
+decided while awake), with no model turn; its outcome is in that beat's
+batch ("held by the pacing last beat, it went out by itself") and in the
+beat's record under `resumed`. The file is cleared before sending, and the
+hands refuse a second reply to one post or a second answer to one comment
+from their ledgers, so nothing goes out twice. One still held is kept for
+the beat after; after an hour it goes back to the mind as refused. Other
+refusals (caps, the guard, anything with another rule) are never retried.
+
 **The cron call does not wait for the beat.** The job runs `bin/tick
 --detach`: `bin/lib/detach.py` starts the beat in its own session (stdout
 and stderr to `state/tick/beat.log`, moved to `beat.log.1` past 1 MB) and

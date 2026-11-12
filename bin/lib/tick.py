@@ -30,6 +30,14 @@
 5. The batch is settled before any intent is carried out, so a beat that
    dies halfway never answers the same thing twice. A failed turn, or an
    answer that is not usable JSON twice, puts the batch back instead.
+6. A reply_x held by hands/x's pacing (or a comment_moltbook by Moltbook's
+   one-a-minute limit) is not handed back to the mind to decide again. With
+   a short wait (PACE_WAIT_MAX_SECS) and time left in the beat
+   (TEENY_TICK_BUDGET_SECS) the beat waits it out, plus a few seconds of
+   jitter, and sends the same intent once more; otherwise it is deferred to
+   state/tick/deferred.json and the next beat sends it first, before taking
+   its batch, without a model turn (resume). The entry says `paced`; the
+   outcome the mind reads says how it went out.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
