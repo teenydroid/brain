@@ -184,9 +184,9 @@ environment forces a rehearsal.
 
 ### `deploy/browser-allow.txt`
 
-The websites the browser may open (and that
-OpenHuman's `http_request` shares), one host per line, subdomains included.
-Reviewed by the operator, outside the brain Teeny edits. `bin/spine` writes it
+The websites the browser may open, one host per line, subdomains included.
+OpenHuman's `http_request` shares the list. It sits outside the brain Teeny
+edits, and the operator reviews it. `bin/spine` writes it
 into the core's config at every boot, and `hands/tasks add` refuses a task that
 starts anywhere else.
 
