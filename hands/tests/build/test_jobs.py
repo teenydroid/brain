@@ -255,6 +255,23 @@ class DeskTest(Scratch):
         self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
         self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
 
+    def test_the_mind_hears_why_a_build_failed(self):
+        # A report that reaches the mind as "build 3: failed" and nothing
+        # else can't be learned from; the summary is the reason.
+        from teeny_hands import stimuli
+
+        request("build me a coin flipper")
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "failed",
+             "summary": "cannot ship: the brief lives in a frozen file", "tests": "none ran"}))
+        jobs.desk()
+        told = [s for s in stimuli.take(max_items=10, max_chars=10_000)["stimuli"] if s["kind"] == "report"]
+        self.assertEqual(len(told), 1)
+        self.assertIn("cannot ship: the brief lives in a frozen file", told[0]["text"])
+        self.assertIn("none ran", told[0]["text"])
+
     def test_a_refused_report_is_set_aside_with_the_reason(self):
         request("build me a coin flipper")
         jobs.desk()
