@@ -398,11 +398,10 @@ class TickTest(unittest.TestCase):
             {"do": "check_wallet"},
         ]})
         got = self.tick()
-        statuses = [r["status"] for r in got["results"]] if "results" in got else None
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "refused", "done"])
+        self.assertIn("WALLET_MIND_ACTIONS", got["results"][0]["result"]["refused"])
         calls = [c["argv"] for c in self.hand_calls() if c["hand"] == "wallet"]
-        self.assertEqual(calls, [["balance"]], got)  # reading is always allowed
-        if statuses is not None:
-            self.assertEqual(statuses[:2], ["refused", "refused"])
+        self.assertEqual(calls, [["balance"]])  # reading is always allowed
 
     def test_say_telegram_goes_to_the_telegram_hand(self):
         stimuli.add("telegram", "dm", "42:7", "@steve in a DM:\nhey teeny", who="@steve")
