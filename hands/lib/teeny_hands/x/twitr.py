@@ -34,7 +34,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping, Sequence
 
 from .. import hand
-from ..wallet import x402 as wallet_x402
 from .client import XError
 from .model import Json, SearchOptions
 
@@ -292,6 +291,10 @@ class TwitrApi:
         # hands/wallet's gate: the operator's x402 hosts allowlist, the
         # WALLET_MAX_X402_* caps, the x402_requests ledger, and its lock,
         # which also keeps twitr's calls one at a time.
+        # Imported here, not at the top: hands/x runs without the wallet
+        # package until a twitr call is actually made.
+        from ..wallet import x402 as wallet_x402
+
         try:
             answer = wallet_x402.fetch(request, core=self._core)
         except hand.Refused as exc:
