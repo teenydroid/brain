@@ -211,6 +211,49 @@ class LiveChallengesUnansweredTest(unittest.TestCase):
         self.assertEqual(numbers_in(CORRECTED), {Decimal(23), Decimal(50), Decimal(7)})
 
 
+#: Set 2026-11-12 16:41 UTC. Teeny answered 40.00 (32 + 8, "another" read as
+#: an addition) and Moltbook said "Incorrect answer". 24.00 is inferred from
+#: the physics of two opposing forces, not confirmed by Moltbook.
+LIVE_NET_FORCE = (
+    "A] LoB-StErRr ClAw] FoR-Ce Is^ ThIrTy ]TwO NooToNs um, BuT] An-OtHeR ClAw ApPlIeS EiGhT NooTons ~"
+    " WhAt Is^ ThE NeT FoRcE ]nOw?"
+)
+
+
+class NetForceTest(unittest.TestCase):
+    def test_live_net_force_with_an_opposing_claw_is_the_difference(self):
+        self.assertEqual(solve(LIVE_NET_FORCE), "24.00")
+
+    def test_net_force_with_an_opposing_cue_is_the_difference(self):
+        cases = {
+            "a lobster pushes with twenty newtons and a crab pushes against it with five, what is the net force": "15.00",
+            "a claw pulls thirty newtons, another pulls twelve in the opposite direction, net force?": "18.00",
+            "a lobster pushes forty newtons and the current pushes back with ten, what is the net force": "30.00",
+            "a lobster exerts fifty newtons and the rock resists with twenty, net force": "30.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_net_force_without_an_opposing_cue_is_refused(self):
+        for text in (
+            "a lobster claw force is thirty two newtons and another claw applies eight, what is the net force",
+            "one claw pushes twenty newtons, the other claw pushes five, what is the net force",
+            "a lobster exerts twenty newtons and gains five, what is the net force",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_two_numbers_without_an_operation_word_are_refused(self):
+        for text in (
+            "a lobster claw applies thirty two newtons and another claw applies eight, what is the force now",
+            "a lobster has twenty pearls and another has five",
+            "a lobster swims twenty meters, the crab swims five meters, together how far",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+
 class ComputeTest(unittest.TestCase):
     def test_the_four_operations_and_what_is_refused(self):
         self.assertEqual(compute(Decimal(23), "*", Decimal(7)), "161.00")
