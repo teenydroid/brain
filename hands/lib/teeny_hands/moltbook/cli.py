@@ -20,6 +20,8 @@ the box.
   R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
                                               24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
   R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  study                                    the week's best posts (hot+top, six submolts) and
+                                              Teeny's own last 10 writes with their metrics; cached 6h
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
