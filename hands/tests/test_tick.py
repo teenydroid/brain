@@ -482,7 +482,9 @@ class TickTest(unittest.TestCase):
         self.assertEqual(self.runs()[-1]["results"][0]["resolved"][0]["id"], 1)
         self.at(3 * 3600)
         self.tick()
-        self.assertNotIn("send the japanese reply", self.chats()[-1]["message"])
+        message = self.chats()[-1]["message"]
+        self.assertNotIn("### self · follow_up", message)  # never raised
+        self.assertIn("it cleared follow-up #1 (send the japanese reply)", message)  # and the mind is told why
         self.assertEqual(stimuli.follow_ups()["follow_ups"], [])
         self.assertEqual(len(stimuli.follow_ups("resolved")["follow_ups"]), 1)
 
