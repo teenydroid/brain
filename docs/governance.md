@@ -60,7 +60,7 @@ fence proposal (G3) names.
 | tool-less | Every turn that reads strangers' text is tool-less: models draft, hands act | `bin/lib/agent_check.py`, `brain/agents/*.toml` | `bin/test/doctor_test.sh::fails an act agent that was given a tool`, `bin/test/doctor_test.sh::fails a mail agent that was given a tool` |
 | invariants | What Teeny is stays anchored in its brain, whatever it rewrites | `evals/invariants.md`, `bin/lib/evals.py` | `bin/test/doctor_test.sh::fails a soul that no longer says it never sells`, `bin/test/doctor_test.sh::fails a drive that no longer needs a ledger` |
 | charter | This charter exists and its short version rides in every speaking prompt | `brain/CHARTER.md`, `bin/doctor`, `bin/lib/prompts.py` | `bin/test/doctor_test.sh::fails without CHARTER.md`, `hands/tests/test_prompts.py::PromptsTest.test_the_checked_in_charter_rides_in_the_real_prompt` |
-| only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt` (this page, `DIRECTIVE.md`, `evals/autonomy.toml`) | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
+| only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt`, `bin/lib/frozen.py`, `.github/workflows/check.yml` | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
 
 ## Kill switches
 
