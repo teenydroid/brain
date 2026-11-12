@@ -101,7 +101,7 @@ class DoneTest(Scratch):
             jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed"})
         (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
         out = jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed", "repo": "tiny-thing"})
-        self.assertEqual(out, {"job_id": job["job_id"], "status": "ok"})
+        self.assertEqual(out, {"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed"})
         row = jobs.listing("ok")["jobs"][0]
         self.assertEqual((row["repo"], row["tests"]), ("tiny-thing", "1 passed"))
 
@@ -250,7 +250,7 @@ class DeskTest(Scratch):
         self.desk("build-done.json").write_text(json.dumps(
             {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"}))
         out = jobs.desk()
-        self.assertEqual(out["settled"], {"job_id": job["job_id"], "status": "ok"})
+        self.assertEqual(out["settled"], {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"})
         self.assertFalse(self.desk("build-done.json").exists())
         self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
         self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
