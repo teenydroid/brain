@@ -1,0 +1,23 @@
+{
+ "os": [
+  {
+   "id": 2136,
+   "name": "Debian 12 x64 (bookworm)",
+   "arch": "x64",
+   "family": "debian"
+  },
+  {
+   "id": 2284,
+   "name": "Ubuntu 24.04 LTS x64",
+   "arch": "x64",
+   "family": "ubuntu"
+  }
+ ],
+ "meta": {
+  "total": 50,
+  "links": {
+   "next": "",
+   "prev": ""
+  }
+ }
+}
