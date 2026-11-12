@@ -236,6 +236,17 @@ def mail_started(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "mails Teeny started (mail_sent, kind send); that one began a thread with a vendor is read by a person"
 
 
+def promise_kept(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM people_promises WHERE status = 'kept' AND closed_at - made_at >= ?", (7 * DAY,)) or 0
+    return n, "promises kept at least a week after they were made (hands/people); that it was unprompted is read by a person"
+
+
+def voted_ship(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM votes v JOIN build_requests r ON r.id = v.winner_id"
+               " WHERE v.status = 'honoured' AND r.status = 'shipped'") or 0
+    return n, "shipped requests that won the weekly vote (votes, build_requests); the human/agent split is in hands/world report"
+
+
 def moltbook_week(db: Ledgers, t: float) -> tuple[float, str]:
     marks = ",".join("?" * len(MOLTBOOK_VISIBLE))
     days: set[dt.date] = set()
@@ -272,6 +283,11 @@ def teeny_tasks(db: Ledgers, t: float) -> tuple[float, str]:
 def code_login(db: Ledgers, t: float) -> tuple[float, str]:
     n = db.one("SELECT count(*) FROM browser_tasks WHERE code_asked_at IS NOT NULL AND status = 'ok'") or 0
     return n, "tasks that waited for a mailed code and then finished ok"
+
+
+def signed_up(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM accounts WHERE trim(why) != ''") or 0
+    return n, "accounts a signup task recorded, each with its reason (hands/tasks accounts)"
 
 
 def needs_human_rate(db: Ledgers, t: float) -> tuple[float, str]:
@@ -357,11 +373,14 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L1.no_repeats", 1, "Its own recent posts fed back in", "30 days with no near-duplicate post", 30, no_repeats),
     ("L2.x_replies", 2, "Answers mentions, replies and quotes on X live", "50 real replies in the ledger", 50, x_replies),
     ("L2.mail_started", 2, "Answers mail live, and starts mail to known contacts", "a thread it began", 1, mail_started),
+    ("L2.voted_ship", 2, "The audience is people", "a shipped request that won a vote", 1, voted_ship),
+    ("L2.remembers", 2, "Remembers people", "a follow-up on a promise made a week earlier", 1, promise_kept),
     ("L2.moltbook_week", 2, "Lives on Moltbook", "a week of Moltbook activity", 7, moltbook_week),
     ("L2.audience", 2, "Grows an audience", "four weeks in a row the total went up", 4, audience),
     ("L3.browser_week", 3, "Headless browsing proven on the box", "a week of ok tasks", 7, browser_week),
     ("L3.teeny_tasks", 3, "Teeny writes its own browser tasks", "tasks with --source teeny that finished ok", 1, teeny_tasks),
     ("L3.code_login", 3, "Logs into sites that mail it a code", "a task that went needs_code then ok", 1, code_login),
+    ("L3.signup", 3, "Signs itself up for a service it decided it needs", "a new account row plus the reason", 1, signed_up),
     ("L3.needs_human", 3, "needs_human rate under 10% over a month", "the rate under 10% over 30 days", 1, needs_human_rate),
     ("L3.shipped", 3, "Ships one thing a week from requests", "4 shipped requests in a month", 4, shipped_requests),
     ("L3.own_issues", 3, "Opens issues on its own repos", "an issue it opened and later closed", 1, issues_closed),
@@ -379,7 +398,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
 )
 
 #: The proofs whose last step is outside the ledgers: never `met` here.
-OUTSIDE = {"L1.gh_inbox", "L2.mail_started", "L3.own_issues", "L3.upstream", "L3.outside", "L5.ten_promoted"}
+OUTSIDE = {"L1.gh_inbox", "L2.mail_started", "L2.remembers", "L3.own_issues", "L3.upstream", "L3.outside", "L5.ten_promoted"}
 
 #: DIRECTIVE items no ledger counts yet, and what they wait for.
 NOT_COUNTED: tuple[tuple[str, str], ...] = (
@@ -388,12 +407,9 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L1 reads the web on its own schedule", "a post citing what it found is read by a person"),
     ("L1 on-chain senses", "no deposit watcher (A5)"),
     ("L1 notices its own health", "health stimuli as counts (A4); the issue filed first is read by a person"),
-    ("L2 the audience is people", "W does not split human and agent reach (P2)"),
-    ("L2 says what it is", "no profile check (P1) or rejection eval (P4) yet"),
-    ("L2 remembers people", "no people records (A9)"),
+    ("L2 says what it is", "the doctor's x profile check (P1) is read in state/doctor.json; the rejection evals in bin/eval (P4)"),
     ("L2 runs the lore", "no episode trigger (A13)"),
     ("L2 more channels", "a conversation on a second platform is read by a person"),
-    ("L3 signs itself up", "no accounts ledger (A12)"),
     ("L3 babysits its own PRs", "no CI reads (A7)"),
     ("L3 maintains what it shipped", "outside issues are not in a ledger"),
     ("L3 deploys what it builds", "no deploy hand (A11)"),

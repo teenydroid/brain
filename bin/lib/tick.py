@@ -306,6 +306,15 @@ def _queue_task(i):
     return "tasks", ["add", "--source", MIND_TASK_SOURCE], body
 
 
+def _promise(i):
+    keep = {k: i[k] for k in ("surface", "who", "what", "due_in_hours", "ref") if k in i}
+    return "people", ["promise"], keep
+
+
+def _kept(i):
+    return "people", ["kept"], {"id": i.get("id"), **({"note": i["note"]} if isinstance(i.get("note"), str) else {})}
+
+
 def _start_mail(i):
     _within_cap("start_mail")
     to = i.get("to")
@@ -333,6 +342,8 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "open_issue": _open_issue,
     "queue_task": _queue_task,
     "start_mail": _start_mail,
+    "promise": _promise,
+    "kept": _kept,
 }
 OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip")
 #: The intents that answer something: once one lands, a waiting follow-up
@@ -362,6 +373,8 @@ Each intent is one of:
 - {"do": "say_telegram", "chat_id": <chat id>, "reply_to": <message id, to answer one, optional>, "text": "..."}
 - {"do": "comment_gh", "repo": "owner/name", "number": <issue or pr number>, "text": "..."}
 - {"do": "remember", "note": "...", "who": "<handle, when it is about someone>"}
+- {"do": "promise", "surface": "x|moltbook|mail|telegram|gh", "who": "<who you promised>", "what": "<what you said you would do>", "due_in_hours": <1 to 2160>, "ref": "<what it answers, optional>"}: only to someone who wrote to you; it comes back when due
+- {"do": "kept", "id": <promise #>, "note": "<how, optional>"}
 - {"do": "follow_up", "in_hours": <1 to 2160>, "about": "...", "ref": "<the ref of what it is about, optional>"}
 - {"do": "drop_follow_up", "id": <follow-up #>} or {"do": "drop_follow_up", "ref": "<ref>"}
 - {"do": "feel", "mood": "<how you feel, a few words>", "obsession": "<what is on your mind, optional>"}
@@ -459,8 +472,22 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         lines.append("")
         lines.append(s["text"])
         lines.append("")
+    lines.extend(_people(batch))
     lines.append(shape())
     return "\n".join(lines)
+
+
+def _people(batch: list[Mapping[str, Any]]) -> list[str]:
+    """The records of the people this batch is from or about, and of nobody
+    else (hands/people, docs/roadmap.md A9): what they asked and what Teeny
+    promised them. A record that can't be read leaves the beat as it was."""
+    try:
+        from teeny_hands.people import records
+
+        return records.prompt_block(batch)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] people records unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
 
 
 def parse(text: str) -> tuple[str, list[Json]]:

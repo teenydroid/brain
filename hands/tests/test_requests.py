@@ -212,3 +212,132 @@ class CliTest(Scratch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FAKE_X = """#!/usr/bin/env python3
+import json, os, sys
+root = os.environ["TEENY_ROOT"]
+body = json.loads(sys.stdin.read())
+with open(os.path.join(root, "x-calls.jsonl"), "a") as f:
+    f.write(json.dumps({"argv": sys.argv[1:], "body": body}) + "\\n")
+if open(os.path.join(root, "x-mode")).read().strip() == "dry":
+    print(json.dumps({"ok": True, "dry_run": True, "would_post": body["text"]}))
+else:
+    print(json.dumps({"ok": True, "id": "5000", "kind": "post"}))
+"""
+
+
+class VoteTest(Scratch):
+    """P5: a weekly advisory vote, counted by code, one account one vote; the
+    winner becomes the next pick and nothing else."""
+
+    TEXT = "what should i build next? reply with a number. 1: a plant timer. 2: a pomodoro bot. 3: a recipe scaler"
+
+    def setUp(self):
+        super().setUp()
+        from teeny_hands import votes
+        from teeny_hands.x import mentions
+
+        self.votes = votes
+        (self.root / "hands").mkdir()
+        (self.root / "hands" / "x").write_text(FAKE_X)
+        (self.root / "hands" / "x").chmod(0o755)
+        (self.root / "x-mode").write_text("live")
+        self.ids = [self.add(f"q{i}", f"can you build me thing {i}?") for i in range(4)]
+        conn = hand.db()
+        conn.executescript(mentions.SCHEMA)
+        conn.close()
+        self.n = 0
+
+    def at(self, t):
+        os.environ["TEENY_NOW"] = str(t)
+
+    def reply(self, author, text, at, status="offered", conversation="5000"):
+        self.n += 1
+        conn = hand.db()
+        conn.execute("INSERT INTO x_mentions (id, author_id, author_username, conversation_id, text, post, status, seen_at, updated_at)"
+                     " VALUES (?, ?, ?, ?, ?, '{}', ?, ?, ?)",
+                     (f"r{self.n}", f"id-{author}", author, conversation, text, status, at, at))
+        conn.close()
+
+    def opened(self):
+        out = self.votes.open_vote({"text": self.TEXT, "options": self.ids[:3]})
+        self.assertTrue(out["opened"], out)
+        return out
+
+    def test_choice_reads_a_number_first(self):
+        for text, want in (("2", 2), ("@teenydroid 3!", 3), ("vote #1 please", 1), ("#2", 2), ("i like 2", None),
+                           ("12", None), ("4", None), ("@a @b, 1", 1)):
+            self.assertEqual(self.votes.choice(text, 3), want, text)
+
+    def test_one_account_one_vote_counted_by_code(self):
+        self.opened()
+        self.reply("ann", "@teenydroid 1", T0 + 100)
+        self.reply("ann", "@teenydroid 2", T0 + 200)  # changed her mind: the last one counts
+        self.reply("bob", "2", T0 + 300)
+        self.reply("cat", "3 for sure", T0 + 400, status="held")  # the guard held it
+        self.reply("dan", "1", T0 + 500, conversation="other")  # another thread
+        self.reply("teenydroid", "1", T0 + 600)  # its own
+        self.reply("eve", "nice idea", T0 + 700)  # not a vote
+        self.reply("fay", "1", T0 + 8 * 86400)  # after the close
+        got = self.votes.current()["vote"]["so_far"]
+        self.assertEqual(got["accounts"], 2)
+        self.assertEqual([t["votes"] for t in got["tally"]], [0, 2, 0])
+        self.assertEqual(got["winner"], self.ids[1])
+
+    def test_the_winner_is_the_next_pick_and_nothing_else(self):
+        self.opened()
+        self.reply("ann", "2", T0 + 100)
+        self.reply("bob", "2", T0 + 200)
+        self.reply("cat", "1", T0 + 300)
+        self.at(T0 + 7 * 86400 + 1)
+        self.assertEqual(self.votes.current()["next_pick"], self.ids[1])
+        refused = self.refused(requests.pick, {"id": self.ids[0], "reason": "i like it"})
+        self.assertEqual((refused.detail["rule"], refused.detail["winner"]), ("vote", self.ids[1]))
+        self.assertEqual(requests.pick({"id": self.ids[1], "reason": "it won the vote"})["status"], "picked")
+        self.assertEqual(self.votes.current()["vote"]["status"], "honoured")
+        self.assertNotIn("next_pick", self.votes.current())
+
+    def test_a_skipped_winner_binds_nothing(self):
+        self.opened()
+        self.reply("ann", "2", T0 + 100)
+        self.at(T0 + 8 * 86400)
+        requests.skip({"id": self.ids[1], "reason": "it needs an api key"})
+        self.assertEqual(requests.pick({"id": self.ids[0], "reason": "next best"})["status"], "picked")
+
+    def test_a_tie_or_no_votes_has_no_winner(self):
+        self.opened()
+        self.reply("ann", "1", T0 + 100)
+        self.reply("bob", "2", T0 + 200)
+        self.at(T0 + 8 * 86400)
+        out = self.votes.current()
+        self.assertEqual((out["vote"]["result"]["winner"], out["vote"]["result"]["why"]), (None, "a tie"))
+        self.assertNotIn("next_pick", out)
+        self.assertEqual(requests.pick({"id": self.ids[3], "reason": "free choice"})["status"], "picked")
+
+    def test_opening_rules(self):
+        refused = self.refused(self.votes.open_vote, {"text": self.TEXT + " cc @ann", "options": self.ids[:3]})
+        self.assertEqual(refused.detail["rule"], "mention")
+        refused = self.refused(self.votes.open_vote, {"text": "1: a. 2: b", "options": self.ids[:3]})
+        self.assertEqual(refused.detail["rule"], "numbers")
+        with self.assertRaises(hand.HandError):
+            self.votes.open_vote({"text": self.TEXT, "options": [self.ids[0]]})
+        requests.skip({"id": self.ids[2], "reason": "no"})
+        self.assertEqual(self.refused(self.votes.open_vote, {"text": self.TEXT, "options": self.ids[:3]}).detail["rule"], "option")
+        self.assertFalse((self.root / "x-calls.jsonl").exists())  # nothing was posted
+
+    def test_one_vote_a_week_and_a_dry_run_opens_nothing(self):
+        (self.root / "x-mode").write_text("dry")
+        self.assertFalse(self.votes.open_vote({"text": self.TEXT, "options": self.ids[:3]})["opened"])
+        self.assertIsNone(self.votes.current()["vote"])
+        (self.root / "x-mode").write_text("live")
+        self.opened()
+        self.assertEqual(self.refused(self.votes.open_vote, {"text": self.TEXT, "options": self.ids[:3]}).detail["rule"], "open")
+        self.at(T0 + 7 * 86400 + 1)
+        # once it has closed, the next week's vote opens
+        self.assertTrue(self.votes.open_vote({"text": self.TEXT, "options": [self.ids[0], self.ids[3]]})["opened"])
+
+    def test_the_cli(self):
+        env = dict(os.environ)
+        done = subprocess.run([sys.executable, str(HAND), "vote"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual((done.returncode, json.loads(done.stdout)["vote"]), (0, None))

@@ -95,7 +95,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -339,6 +339,41 @@ class TickTest(unittest.TestCase):
             self.assertIn(bit, chat["message"])
         self.assertEqual(got["thought"], "two friends")
         self.assertEqual(stimuli.counts()["done"], 2)
+
+    def test_promise_and_kept_go_to_the_people_hand_with_only_their_fields(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "promise", "surface": "x", "who": "ana", "what": "ship the timer", "due_in_hours": 168, "ref": "x:111", "extra": 1},
+            {"do": "kept", "id": 3, "note": "shipped", "who": "ana"},
+        ]})
+        self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            ("people", ["promise"], {"surface": "x", "who": "ana", "what": "ship the timer", "due_in_hours": 168, "ref": "x:111"}),
+            ("people", ["kept"], {"id": 3, "note": "shipped"}),
+        ])
+
+    def test_a_beat_carries_the_records_of_its_own_people_only(self):
+        from teeny_hands.people import records
+
+        day = 86400
+        stimuli.add("x", "mention", "100", "can you build a timer?", who="ana", at=T0 - 3 * day)
+        stimuli.add("x", "mention", "101", "about my timer", who="ana", at=T0 - day)
+        stimuli.add("x", "mention", "200", "hi", who="ben", at=T0 - 3 * day)
+        stimuli.add("x", "mention", "201", "hi again", who="ben", at=T0 - day)
+        os.environ["TEENY_NOW"] = str(T0 - day + 60)
+        records.promise({"surface": "x", "who": "ana", "what": "ship the timer by friday", "due_in_hours": 72})
+        records.promise({"surface": "x", "who": "ben", "what": "send ben the sticker file", "due_in_hours": 72})
+        os.environ["TEENY_NOW"] = str(T0)
+        conn = hand.db()
+        conn.execute("UPDATE stimuli SET status = 'done' WHERE ref != '101'")
+        conn.close()
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("## people in this batch", message)
+        self.assertIn("ship the timer by friday", message)
+        self.assertNotIn("sticker", message)  # ben is not in this beat
+        self.assertIn('"do": "promise"', message)
 
     def test_the_thread_can_be_moved(self):
         os.environ["TEENY_MIND_THREAD"] = "teeny:test"

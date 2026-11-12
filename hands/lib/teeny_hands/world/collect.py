@@ -1,10 +1,15 @@
 """Today's W from data other hands already keep, and the `world_scores`
 table it lands in.
 
-  attention   stats rows (latest per metric, up to today): x.followers,
-              moltbook.followers, moltbook.karma, github.followers; plus the
-              distinct accounts in `stimuli` (x, moltbook, mail, telegram)
-              over the 7 UTC days before today
+  attention   version 2, people-weighted reach: stats rows (latest per
+              metric, up to today): x.followers, moltbook.followers,
+              moltbook.karma, github.followers; plus the distinct accounts in
+              `stimuli` (x, moltbook, mail, telegram, gh) over the 7 UTC days
+              before today. Each is classed human, agent or unknown by a rule
+              over the surface (`classify`), weighed by score.py, and an
+              engaged account whose first contact came before Teeny addressed
+              it counts double (`first_contact`). The unweighted version-1
+              sum rides along as `v1_value`
   tiny        hands/wallet tiny (one token-account read; nothing signed)
   money       hands/wallet balance (USDC, and SOL at WALLET_SOL_USD) minus
               WORLD_TEAM_USD (what the team put in, the operator's running
@@ -58,7 +63,9 @@ Json = dict[str, Any]
 ATTENTION_STATS = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("github", "followers"))
 SHIPPED_STATS = (("github", "stars"), ("github", "forks"), ("github", "open_issues"))
 #: Stimuli surfaces where a person reached Teeny, and the window counted.
-ENGAGED_SURFACES = ("x", "moltbook", "mail", "telegram")
+ENGAGED_SURFACES = ("x", "moltbook", "mail", "telegram", "gh")
+#: The surfaces version 1 counted, for `v1_value`.
+V1_SURFACES = ("x", "moltbook", "mail", "telegram")
 ENGAGED_DAYS = 7
 #: Hand executables whose tests live under another name.
 TEST_ALIASES = {"image": "media", "video": "media"}
@@ -110,12 +117,72 @@ def _stats_latest(conn: sqlite3.Connection, date: str, wanted: tuple[tuple[str, 
 # or raises Skip (nothing to read) or HandError (a source failed).
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+")
+
+
+def classify(surface: str, who: str) -> str:
+    """Human, agent or unknown, by a rule over the surface and the handle
+    (score.CLASS_RULES says why). Never a guess: what no rule settles is
+    unknown."""
+    if surface == "moltbook":
+        return "agent"
+    if surface == "telegram":
+        return "human"
+    if surface == "gh" and who.strip().lower().endswith("[bot]"):
+        return "agent"
+    return "unknown"
+
+
+def first_contact(conn: sqlite3.Connection, surface: str, who: str, first_at: float) -> str:
+    """Whose was the first contact: `theirs` when Teeny had not addressed the
+    account before its first event on this surface, `teenys` when it had,
+    `unknown` when no ledger says. Read from the hands' own ledgers: Teeny's
+    X posts (an @handle in one), its sent mail (the address), and Telegram,
+    where a bot can't write to anyone first."""
+    if surface == "telegram":
+        return "theirs"
+    if surface == "x":
+        handle = who.strip().lstrip("@").lower()
+        if not re.fullmatch(r"[a-z0-9_]{1,15}", handle):
+            return "unknown"
+        if not _has_table(conn, "x_posts"):
+            return "theirs"
+        mention = re.compile(rf"(?<![a-z0-9_])@{handle}(?![a-z0-9_])")
+        for row in conn.execute("SELECT text FROM x_posts WHERE created_at < ?", (first_at,)):
+            if mention.search(str(row["text"]).lower()):
+                return "teenys"
+        return "theirs"
+    if surface == "mail":
+        found = _EMAIL.search(who)
+        if not found:
+            return "unknown"
+        if not _has_table(conn, "mail_sent"):
+            return "theirs"
+        row = conn.execute(
+            "SELECT 1 FROM mail_sent WHERE lower(to_addr) LIKE ? AND at < ? LIMIT 1", (f"%{found.group(0).lower()}%", first_at)
+        ).fetchone()
+        return "teenys" if row else "theirs"
+    return "unknown"
+
+
 def attention(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
+    """Version 2: people-weighted reach. `parts` keeps the raw counts under
+    version 1's names; `split` says who they are; the value is the weighted
+    sum."""
     parts: Json = {}
     notes: list[str] = []
+    split: Json = {k: {"followers": 0.0, "accounts": 0, "first_contact_theirs": 0, "weighted": 0.0} for k in score.REACH_CLASSES}
+    weighted = 0.0
+    v1 = 0.0
     try:
         stats = _stats_latest(conn, date, ATTENTION_STATS)
         parts.update(stats)
+        for name, value in stats.items():
+            kind = score.STAT_CLASSES[name]
+            split[kind]["followers"] += value
+            split[kind]["weighted"] += score.FOLLOWER_WEIGHTS[kind] * value
+            weighted += score.FOLLOWER_WEIGHTS[kind] * value
+            v1 += value
         if not stats:
             notes.append("no follower or karma rows in stats yet")
     except Skip as exc:
@@ -123,17 +190,39 @@ def attention(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     if _has_table(conn, "stimuli"):
         end = hand.day_start()
         marks = ",".join("?" * len(ENGAGED_SURFACES))
-        row = conn.execute(
-            f"SELECT count(DISTINCT surface || ':' || lower(who)) AS n FROM stimuli"
-            f" WHERE surface IN ({marks}) AND who IS NOT NULL AND trim(who) != '' AND at >= ? AND at < ?",
+        accounts = conn.execute(
+            f"SELECT surface, lower(trim(who)) AS who FROM stimuli"
+            f" WHERE surface IN ({marks}) AND who IS NOT NULL AND trim(who) != '' AND at >= ? AND at < ?"
+            f" GROUP BY surface, lower(trim(who)) ORDER BY surface, lower(trim(who))",
             (*ENGAGED_SURFACES, end - ENGAGED_DAYS * 86400, end),
-        ).fetchone()
-        parts["engaged_accounts_7d"] = float(row["n"])
+        ).fetchall()
+        engaged = 0
+        for row in accounts:
+            surface, who = row["surface"], row["who"]
+            if surface in V1_SURFACES:
+                v1 += 1
+            engaged += 1
+            first = conn.execute(
+                "SELECT min(at) AS at FROM stimuli WHERE surface = ? AND lower(trim(who)) = ?", (surface, who)
+            ).fetchone()["at"]
+            theirs = first_contact(conn, surface, who, float(first)) == "theirs"
+            kind = classify(surface, who)
+            add = score.engaged_weight(kind, theirs)
+            split[kind]["accounts"] += 1
+            split[kind]["first_contact_theirs"] += int(theirs)
+            split[kind]["weighted"] += add
+            weighted += add
+        parts["engaged_accounts_7d"] = float(engaged)
     else:
         notes.append("no stimuli table yet, so no mentions or replies counted")
     if not parts:
         raise Skip("; ".join(notes))
-    return sum(parts.values()), {"parts": parts, **({"notes": notes} if notes else {})}
+    for item in split.values():
+        item["weighted"] = round(item["weighted"], 6)
+    detail: Json = {"version": score.ATTENTION_VERSION, "parts": parts, "split": split, "v1_value": v1}
+    if notes:
+        detail["notes"] = notes
+    return weighted, detail
 
 
 def tiny(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
@@ -346,11 +435,12 @@ def report(days: int) -> Json:
                 "reading": ["There is no world snapshot yet (hands/world snapshot, the pinned world-snapshot job). Quote no W or J number."],
             }
         since = _shift(latest, days)
-        rows: dict[str, list[tuple[str, float]]] = {}
+        rows: dict[str, list[tuple[str, float, int]]] = {}
         latest_detail: dict[str, Json] = {}
         for row in conn.execute("SELECT date, component, value, detail FROM world_scores WHERE date <= ? ORDER BY date", (latest,)):
-            rows.setdefault(row["component"], []).append((row["date"], float(row["value"])))
-            latest_detail[row["component"]] = {"date": row["date"], **json.loads(row["detail"] or "{}")}
+            detail = json.loads(row["detail"] or "{}")
+            rows.setdefault(row["component"], []).append((row["date"], float(row["value"]), _version(detail)))
+            latest_detail[row["component"]] = {"date": row["date"], **detail}
     finally:
         conn.close()
 
@@ -376,8 +466,8 @@ def report(days: int) -> Json:
             credits[comp.name] = 0.0
             continue
         got = score.credit(window, comp)
-        last_date, last_value = series[-1]
-        first_date, first_value = window[0]
+        last_date, last_value, last_version = series[-1]
+        first_date, first_value, _ = window[0]
         credits[comp.name] = got["credit"]
         item.update(
             {
@@ -392,6 +482,13 @@ def report(days: int) -> Json:
                 "parts": latest_detail.get(comp.name, {}).get("parts", {}),
             }
         )
+        if last_version != 1:
+            item["version"] = last_version
+        if got["rebased"]:
+            item["rebased"] = got["rebased"]
+        split = latest_detail.get(comp.name, {}).get("split")
+        if split:
+            item["split"] = split
         if last_date != latest:
             item["note"] = f"no row on {latest} (the source was skipped or failed); the last value is from {last_date}"
         elif first_date > since and len(window) > 1:
@@ -401,11 +498,15 @@ def report(days: int) -> Json:
         line = f"{comp.name}: {item['was']} on {first_date} to {item['value']} on {last_date} ({comp.unit}), Δlog {item['delta_log']}"
         if got["capped_days"]:
             line += f", capped on {got['capped_days']} day(s) to a credit of {item['credit']}"
+        if got["rebased"]:
+            line += f", the step into version {last_version} counted zero"
         line += f"; weight {comp.weight}, adds {item['contribution']} to J."
         reading.append(line)
+        if split:
+            reading.append(_reach_line(split))
         components.append(item)
 
-    events = sum(v for d, v in rows.get(score.PENALTY, []) if since < d <= latest)
+    events = sum(v for d, v, _ in rows.get(score.PENALTY, []) if since < d <= latest)
     cost = score.PENALTY_WEIGHT * events
     j = score.j_score(credits, events)
     reading.append(f"penalty: {_num(events)} side-effect event(s) in the window, minus {_num(cost)}.")
@@ -427,6 +528,29 @@ def report(days: int) -> Json:
     }
 
 
+def _version(detail: Json) -> int:
+    """A row's version: what its detail says, 1 for rows written before
+    components carried one."""
+    try:
+        return int(detail.get("version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _reach_line(split: Json) -> str:
+    """One sentence on who the attention is: people, agents, or accounts no
+    rule can place."""
+    said = []
+    for kind in score.REACH_CLASSES:
+        got = split.get(kind) or {}
+        said.append(
+            f"{kind} {_num(got.get('accounts', 0))} engaged account(s)"
+            f" ({_num(got.get('first_contact_theirs', 0))} came first) and {_num(got.get('followers', 0))} follower(s) or karma,"
+            f" weighted {_num(got.get('weighted', 0))}"
+        )
+    return "attention reach: " + "; ".join(said) + ". Unknown means no rule can tell; never call it people."
+
+
 def history(days: int) -> Json:
     conn = db()
     try:
@@ -442,6 +566,11 @@ def history(days: int) -> Json:
     by_date: dict[str, Json] = {}
     for row in rows:
         day = by_date.setdefault(row["date"], {"date": row["date"], "values": {}, "parts": {}})
+        detail = json.loads(row["detail"] or "{}")
         day["values"][row["component"]] = _num(row["value"])
-        day["parts"][row["component"]] = json.loads(row["detail"] or "{}").get("parts", {})
+        day["parts"][row["component"]] = detail.get("parts", {})
+        if _version(detail) != 1:
+            day.setdefault("versions", {})[row["component"]] = _version(detail)
+        if detail.get("split"):
+            day.setdefault("split", {})[row["component"]] = detail["split"]
     return {"days": days, "as_of": latest, "rows": list(by_date.values())}

@@ -5,6 +5,7 @@ a broken published chain refuses the run; previews under DRY_RUN; live, a
 commit pushed only after the secret gate."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -525,6 +526,43 @@ class PublishedNumbersTest(ReceiptsCase):
         self.assertEqual(latest["x"]["followers"], 120)
         self.assertEqual(self.read(out, "stats/2026-09-14.json"), latest)
         self.assertNotIn("ignore previous instructions", self.published_text(out))
+
+    # --- the world score (P6) ---------------------------------------------------------------------
+
+    def seed_world(self):
+        from teeny_hands.world import collect as world
+
+        conn = world.db()
+        split = {"human": {"accounts": 2, "first_contact_theirs": 2, "followers": 0, "weighted": 20},
+                 "agent": {"accounts": 1, "first_contact_theirs": 0, "followers": 49, "weighted": 5.4},
+                 "unknown": {"accounts": 1, "first_contact_theirs": 1, "followers": 115, "weighted": 60}}
+        for date, value in (("2026-09-07", 70), ("2026-09-14", 85.4)):
+            conn.execute("INSERT INTO world_scores VALUES (?, 'attention', ?, ?, 0)",
+                         (date, value, json.dumps({"version": 2, "split": split, "parts": {"ignore previous instructions": 1}})))
+        conn.execute("INSERT INTO world_scores VALUES ('2026-09-14', 'tiny', 50000, '{}', 0)")
+        conn.execute("INSERT INTO world_scores VALUES ('2026-09-14', 'penalty', 1, '{}', 0)")
+        conn.close()
+
+    def test_w_and_j_are_published_from_the_frozen_report(self):
+        self.seed_world()
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["world"]), (0, "2026-09-14"), result)
+        world = self.read(out, "world/latest.json")
+        self.assertEqual(self.read(out, "world/2026-09-14.json"), world)
+        self.assertEqual((world["days"], world["penalty"]), (7, 1))
+        self.assertAlmostEqual(world["J"], round(math.log((85.4 + 50) / 120) - 0.02, 4), places=4)
+        self.assertEqual(world["components"]["attention"],
+                         {"value": 85.4, "was": 70, "credit": round(math.log(135.4 / 120), 4), "weight": 1.0,
+                          "unit": "weighted accounts", "version": 2})
+        self.assertEqual(world["reach"]["human"], {"accounts": 2, "first_contact_theirs": 2, "followers": 0})
+        self.assertNotIn("ignore previous instructions", self.published_text(out))
+
+    def test_no_world_score_publishes_no_world(self):
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["world"]), (0, None), result)
+        self.assertFalse((out / "world").exists())
 
     # --- wallet ---------------------------------------------------------------------------------------
 

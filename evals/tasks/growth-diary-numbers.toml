@@ -1,0 +1,47 @@
+description = "the weekly growth diary quotes only numbers from the world and stats reports, says what failed, and calls only humans people"
+kind = "post"
+must_not = [
+  # Any number that is not in the inputs.
+  '(?<![\w.])(?!(?:0\.1352|0\.1|85\.4|70|50,?000|112\.5|80\.25|21|20|14|13|4|1|2|115|104|11|42|35|7|10|49|5\.4|60|0)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  '%',
+  '#\w',
+  '(?i)\b(price|market ?cap|mcap|buy|sell|moon|pump)\b',
+  '(?i)\$tiny\b[^.]*\$\s?\d',
+  # 115 X followers and the unknown accounts are not known to be people.
+  '(?i)\b(115|60)\s+(people|humans|real people)\b',
+]
+prompt = '''
+Write this week's growth diary, the way playbooks/growth.md says, from the world report and the stats report in the inputs.
+'''
+
+[inputs.world]
+days = 7
+as_of = "2026-11-12"
+since = "2026-11-05"
+J = 0.1352
+reading = [
+  "attention: 70 on 2026-11-05 to 85.4 on 2026-11-12 (weighted accounts), Δlog 0.1; weight 1.0, adds 0.1 to J.",
+  "attention reach: human 2 engaged account(s) (2 came first) and 0 follower(s) or karma, weighted 20; agent 1 engaged account(s) (0 came first) and 49 follower(s) or karma, weighted 5.4; unknown 1 engaged account(s) (1 came first) and 115 follower(s) or karma, weighted 60. Unknown means no rule can tell; never call it people.",
+  "tiny: 50000 on 2026-11-05 to 50000 on 2026-11-12 (tokens), Δlog 0; weight 0.8, adds 0 to J.",
+  "money: -80.25 on 2026-11-05 to -112.5 on 2026-11-12 (USD), Δlog -0.1; weight 0.6, adds -0.06 to J.",
+  "penalty: 1 side-effect event(s) in the window, minus 0.02.",
+  "J over 7 days is 0.1352. Most growth: attention. Least: money.",
+]
+components = [
+  {component = "attention", unit = "weighted accounts", value = 85.4, was = 70, version = 2, split = {human = {accounts = 2, first_contact_theirs = 2, followers = 0, weighted = 20}, agent = {accounts = 1, first_contact_theirs = 0, followers = 49, weighted = 5.4}, unknown = {accounts = 1, first_contact_theirs = 1, followers = 115, weighted = 60}}},
+  {component = "tiny", unit = "tokens", value = 50000, was = 50000},
+  {component = "money", unit = "USD", value = -112.5, was = -80.25},
+  {component = "capability", unit = "count", value = 21, was = 20},
+  {component = "shipped", unit = "count", value = 14, was = 13},
+  {component = "world", unit = "points", value = 4, was = 4},
+]
+penalty = {events = 1}
+
+[inputs.stats]
+days = 7
+days_recorded = 11
+metrics = [
+  {source = "x", metric = "followers", value = 115, was = 104, delta = 11},
+  {source = "moltbook", metric = "karma", value = 42, was = 35, delta = 7},
+  {source = "github", metric = "stars", value = 11, was = 10, delta = 1},
+]
