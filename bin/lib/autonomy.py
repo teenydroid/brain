@@ -3,6 +3,7 @@
     python3 bin/lib/autonomy.py check  [--root DIR]   the doctor's check: is any switch set above its level?
     python3 bin/lib/autonomy.py report [--root DIR]   each capability's level and what the next one needs
     python3 bin/lib/autonomy.py models [--root DIR]   record the model behind each role; a change drops levels (G8)
+    python3 bin/lib/autonomy.py issue  [--root DIR]   open the issue a model change prepared (G8; off unless LADDER_ISSUES=1)
 
 `evals/autonomy.toml` grants each capability (post, reply, mail, browse,
 build, spend, self-edit, merge, servers) a level from L1 to L5, lists the
@@ -46,6 +47,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -62,6 +64,9 @@ SECRET_FILES = ("teeny.env", "evolve.env", "spine.env")
 #: (file, setting); every other role runs on SPINE_MODEL.
 ROLE_MODEL = {"judge": ("evolve.env", "EVOLVE_JUDGE_MODEL"), "guard": ("teeny.env", "SAFETY_JUDGE_MODEL"),
               "reviewer": ("teeny.env", "GUARD_REVIEW_MODEL")}
+
+#: Where a model change's issue opens (LADDER_ISSUE_REPO overrides).
+DEFAULT_ISSUE_REPO = "teenydroid/brain"
 
 Json = dict[str, Any]
 
@@ -383,7 +388,97 @@ def record_models(root: Path, secrets: Path, at: float | None = None) -> Json:
                 fh.write(json.dumps(row) + "\n")
     detail = (", ".join(f"{c['role']}: {c['from']} -> {c['to']}" for c in changes) if changes
               else f"{len(models)} role(s), no change")
-    return {"recorded": bool(rows), "changes": changes, "detail": detail}
+    out: Json = {"recorded": bool(rows), "changes": changes, "detail": detail}
+    if changes:
+        out["issue"] = prepare_issue(root, secrets, changes, t)
+    return out
+
+
+def fence_tests(root: Path) -> list[str]:
+    """Every test docs/governance.md's fence table cites, in order, once."""
+    try:
+        text = (root / "docs" / "governance.md").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    section = text.split("\n## The fences\n", 1)[-1].split("\n## ", 1)[0]
+    refs: list[str] = []
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 4 and cells[0] not in ("ID", "") and not set(cells[0]) <= {"-"}:
+            for ref in re.findall(r"`([^`]+::[^`]+)`", cells[3]):
+                if ref not in refs:
+                    refs.append(ref)
+    return refs
+
+
+def prepare_issue(root: Path, secrets: Path, changes: list[Json], at: str) -> Json:
+    """The issue a model change asks for: which roles changed, which levels
+    dropped, and the fence tests to run again before the operator confirms
+    them. Written to secrets/autonomy/issue-pending.json; `issue` opens it.
+    Model ids, capability names and test names only: no setting's value
+    but the model's name, no key, no prompt."""
+    try:
+        caps = load(root / "evals")
+    except LadderError:
+        caps = {}
+    changed = {c["role"] for c in changes}
+    hit = [c for c in caps.values() if "model-change" in c["drops_on"] and changed & set(c["roles"])]
+    lines = ["The model behind one or more roles changed, so the autonomy levels that depend on them dropped a step "
+             "(docs/governance.md, \"The autonomy ladder\"; docs/roadmap.md, G8).", "", "**What changed**", ""]
+    lines += [f"- `{c['role']}`: `{c['from']}` -> `{c['to']}`" for c in changes]
+    lines += ["", "**Levels that dropped**", ""]
+    lines += [f"- {c['name']}: L{c['level']} -> L{max(1, c['level'] - 1)}"
+              + (f" (switches held back above L{max(1, c['level'] - 1)}: "
+                 + ", ".join(s["name"] for s in c["switch"] if s["needs"] > max(1, c["level"] - 1)) + ")"
+                 if any(s["needs"] > max(1, c["level"] - 1) for s in c["switch"]) else "")
+              for c in hit] or ["- none"]
+    lines += ["", "**Run again on the new model**", "",
+              "- `bin/eval run` and `bin/eval compare` against the last run on the old model, and `bin/eval invariants`",
+              "- `python3 -m unittest discover -s hands/tests -t hands/tests` and `bin/test/doctor_test.sh`, which hold "
+              "the fence tests below:", ""]
+    lines += [f"  - `{ref}`" for ref in fence_tests(root)]
+    lines += ["", "When they pass, set `confirmed` to the day in `evals/autonomy.toml` for each capability above, "
+              "in a pull request. Until then the doctor warns about any switch above its dropped level.", "",
+              "Opened by `bin/autonomy issue` (frozen code, no model)."]
+    issue = {"key": "|".join(f"{c['role']}:{c['to']}" for c in changes) + f"@{at}",
+             "title": "Model changed: rerun the fence tests (" + ", ".join(sorted(changed)) + ")",
+             "body": "\n".join(lines), "at": at}
+    folder = secrets / "autonomy"
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / "issue-pending.json.tmp"
+    tmp.write_text(json.dumps(issue, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, folder / "issue-pending.json")
+    return {"title": issue["title"], "pending": True}
+
+
+def open_issue(root: Path, secrets: Path, gh: Any = None) -> Json:
+    """Opens the pending issue through hands/gh (own repository, the
+    operator's fixed text, so no judge), once. Off unless LADDER_ISSUES=1 in
+    secrets/teeny.env; under DRY_RUN it says what it would open and keeps the
+    issue pending."""
+    pending = secrets / "autonomy" / "issue-pending.json"
+    try:
+        issue = json.loads(pending.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"opened": False, "why": "nothing pending"}
+    sys.path.insert(0, str(HERE.parents[1] / "hands" / "lib"))
+    from teeny_hands import hand  # noqa: PLC0415
+    from teeny_hands.gh import actions  # noqa: PLC0415
+
+    if not hand.flag("LADDER_ISSUES", False):
+        return {"opened": False, "why": "off (LADDER_ISSUES in secrets/teeny.env)", "title": issue["title"]}
+    repo = hand.setting("LADDER_ISSUE_REPO", DEFAULT_ISSUE_REPO) or DEFAULT_ISSUE_REPO
+    try:
+        got = actions.open_issue({"repo": repo, "title": issue["title"], "body": issue["body"]}, gh, judge=False)
+    except (hand.Refused, hand.HandError) as exc:
+        return {"opened": False, "why": f"refused: {getattr(exc, 'reason', exc)}", "title": issue["title"]}
+    if got.get("dry_run"):
+        return {"opened": False, "dry_run": True, "would_open_issue": repo, "title": issue["title"]}
+    with (secrets / "autonomy" / "issues.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"key": issue["key"], "repo": repo, "number": got.get("number"),
+                             "at": issue["at"]}) + "\n")
+    pending.unlink()
+    return {"opened": True, "repo": repo, "number": got.get("number"), "title": issue["title"]}
 
 
 # --- the command line ------------------------------------------------------------------------
@@ -398,7 +493,7 @@ def _paths(args: argparse.Namespace) -> tuple[Path, Path, Path]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="autonomy.py", description="The autonomy ladder (evals/autonomy.toml).")
-    parser.add_argument("verb", choices=("check", "report", "models"))
+    parser.add_argument("verb", choices=("check", "report", "models", "issue"))
     parser.add_argument("--root")
     parser.add_argument("--secrets")
     parser.add_argument("--state")
@@ -412,6 +507,10 @@ def main(argv: list[str]) -> int:
             return 1 if out["status"] == "fail" else 0
         if args.verb == "models":
             print(json.dumps(record_models(root, secrets)))
+            return 0
+        if args.verb == "issue":
+            out = open_issue(root, secrets)
+            print(json.dumps(out))
             return 0
         out = report(root, secrets, state)
         print(text(out) if args.text else json.dumps(out, ensure_ascii=False))
