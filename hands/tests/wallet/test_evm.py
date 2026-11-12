@@ -103,17 +103,18 @@ class EvmPayTest(Scratch):
         self.refused(self.body(chain="bsc"), "chain")
 
     def test_never_to_its_own_evm_address_in_any_case(self):
-        reads.vendors_add("self", EVM_OWN.upper().replace("0X", "0x"), chain="base")
+        reads.vendors_add("self", EVM_OWN.upper().replace("0X", "0x"), None, chain="base")
         self.refused(self.body(to=EVM_OWN.upper().replace("0X", "0x")), "own_address")
 
     def test_the_caps_count_every_chain_together(self):
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_MAX_PER_DAY_USD="90")
         pay.pay(self.body(amount_usdc="50"))
         reads.vendors_add("hosting", VENDOR, "the server")
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(1000 * 10**6, USDC_MAINNET)
         self.core.answers["openhuman.wallet_prepare_transfer"] = evm_quote
         with self.assertRaises(hand.Refused) as caught:
             pay.pay({"to": VENDOR, "amount_usdc": "50", "purpose": "vendor", "ref": "inv-sol", "chain": "solana"})
-        self.assertEqual(caught.exception.detail["rule"], "per_day")  # 50 on Base + 50 on Solana > 100
+        self.assertEqual(caught.exception.detail["rule"], "per_day")  # 50 on Base + 50 on Solana > 90
 
     def test_half_balance_reads_usdc_on_the_network(self):
         self.chain.answers["eth_call"] = balance_of_call(15 * 10**6)
