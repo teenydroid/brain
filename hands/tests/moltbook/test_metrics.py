@@ -56,3 +56,23 @@ class MetricsTest(Scratch):
         self.assertEqual([r[2] for r in self.rows()], [1, 24, 72])
         self.assertEqual(self.rows()[1][4:6], (9, 4))
         self.assertEqual(len(self.mb.requests("GET", "/posts/p1")), 3)
+
+    def test_a_late_run_records_only_the_latest_checkpoint_due(self):
+        self.own_post()
+        self.post_says("p1", 2, 0)
+        self.at(T0 + 30 * HOUR)
+        self.assertEqual(metrics.refresh()["recorded"], [{"kind": "post", "target_id": "p1", "checkpoint": 24}])
+        self.assertEqual([r[2] for r in self.rows()], [24])
+
+    def test_a_comment_is_found_by_id_in_its_posts_comments(self):
+        self.own_comment("c9", "px")
+        self.mb.route("GET", "/posts/px/comments", {"success": True, "comments": [
+            {"id": "c1", "score": 40, "replies": [
+                {"id": "c9", "upvotes": 5, "downvotes": 1, "verification_status": "verified",
+                 "replies": [{"id": "c10", "replies": []}, {"id": "c11", "replies": []}]},
+            ]},
+        ]})
+        self.at(T0 + 2 * HOUR)
+        out = metrics.refresh()
+        self.assertEqual(out["recorded"], [{"kind": "comment", "target_id": "c9", "checkpoint": 1}])
+        self.assertEqual(self.rows(), [("comment", "c9", 1, T0 + 2 * HOUR, 4, 2, "verified")])
