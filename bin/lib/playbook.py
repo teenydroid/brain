@@ -67,6 +67,9 @@ VERB_OUTPUTS = {
     "gh": ("open-issue", "comment"),
     "tasks": ("add",),
     "mail": ("reply", "send"),
+    # A fence proposal is an issue built and capped by the hand (G3); the
+    # ladder's report and fences are reads.
+    "ladder": ("propose",),
 }
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")

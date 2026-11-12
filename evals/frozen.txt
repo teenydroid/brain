@@ -104,3 +104,9 @@ hands/lib/teeny_hands/x/
 # here, so a proposal cannot redefine how success is checked.
 hands/goals
 hands/lib/teeny_hands/goals/
+
+# The autonomy ladder's reads and the fence-proposal issue (docs/roadmap.md,
+# G3): how a proposal is built and capped is the operator's; the playbook
+# that writes one is Teeny's.
+hands/ladder
+hands/lib/teeny_hands/ladder/
