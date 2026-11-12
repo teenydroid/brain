@@ -52,7 +52,7 @@ class MaterialTest(Scratch):
     def test_health_alarms_of_the_week_and_the_current_state(self):
         self.at(T0 - 2 * DAY)
         stimuli.add("health", "alarm", "outage:1", "health alarm: your model has not answered for 30 minutes."
-                    " last error: provider at https://api.example.com/v1?key={FAKE_KEY} said 401")
+                    f" last error: provider at https://api.example.com/v1?key={FAKE_KEY} said 401")
         self.at(T0 - 2 * DAY + 7 * HOUR)
         stimuli.add("health", "recovered", "outage:1", "health: your model answers again.")
         self.at(T0 - 9 * DAY)
