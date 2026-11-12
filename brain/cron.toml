@@ -104,17 +104,6 @@ schedule = "0 11 * * 1"
 tz = "Asia/Kolkata"
 command = "bin/act goals"
 
-# Ask the operator for one fence change or one level, in the open, with the
-# evidence (brain/playbooks/fence-proposal.md; docs/governance.md, "How a
-# fence changes"). Weekly; hands/ladder refuses a second within seven days.
-# Off until the operator has read a rehearsal (bin/act fence-proposal under
-# DRY_RUN): it opens a public issue.
-[jobs.fence-proposal]
-schedule = "0 12 * * 3"
-tz = "Asia/Kolkata"
-command = "bin/act fence-proposal"
-enabled = false
-
 # The news sense: one browser task a day that reads the AI and agent news
 # (brain/playbooks/news-scan.md). The operator does it at its next run, and
 # what it found comes back to the mind as a `world · news` stimulus.
