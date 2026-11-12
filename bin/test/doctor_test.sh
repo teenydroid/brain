@@ -156,6 +156,8 @@ fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
 # above the dropped level warns (never fails the boot), and the issue is prepared.
 fresh; mkdir -p "$root/secrets" "$root/docs"; cp "$repo/docs/governance.md" "$root/docs/"
 printf 'SPINE_MODEL=model-a\n' >"$root/secrets/spine.env"; printf 'EVOLVE=1\n' >"$root/secrets/evolve.env"
+# Confirmed before today, so a change today counts as after it.
+sed -i.bak 's/^confirmed = .*/confirmed = "2020-01-01"/' "$root/evals/autonomy.toml"
 check "records the model behind each role" doctor
 check "and says nothing changed the first time" grep -q '^ok   model: .*no change' "$scratch/doctor.log"
 printf 'SPINE_MODEL=model-b\n' >"$root/secrets/spine.env"
