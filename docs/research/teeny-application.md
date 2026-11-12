@@ -282,8 +282,14 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 13. Operator: the lab spine and automatic promotion; `evolve-watch` watches J
 
 **Phase D**
-14. A goal ledger with success checks, the ranking, and ANNECS
-15. A browser task that reads the news and turns trends into stimuli
+14. A goal ledger with success checks, the ranking, and ANNECS. **Built:**
+    `hands/goals` (frozen), the pinned `goals-check` job and the weekly
+    `goals` playbook ([`../hands.md`](../hands.md), "goals"). The judge-based
+    interestingness check is future work.
+15. A browser task that reads the news and turns trends into stimuli.
+    **Built:** the daily `news-scan` playbook queues a `news` task, and its
+    notes reach the mind as a `world · news` stimulus
+    ([`../hands.md`](../hands.md), "tasks").
 
 **$TINY**
 16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows

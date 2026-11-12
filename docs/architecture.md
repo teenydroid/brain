@@ -539,6 +539,8 @@ Every scheduled job is in one of two files:
   - `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST);
   - `receipts`, `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
+    proposed against checks in frozen code (docs/hands.md, "goals");
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
