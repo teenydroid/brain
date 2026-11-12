@@ -372,20 +372,55 @@ memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`).
 
 **Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
 `bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
-to rewrite `MEMORY.md`. It works from what the mind chose to remember
-(`mind_notes`), what it thought and did each beat that thought, quiet ones
-included (`state/tick/runs.jsonl`), the follow-ups still waiting, and the
-page as it stands. The old page is kept in `state/reflect/`, and the diary
-entry goes to `state/diary/<date>.md` and to the core's memory. The prompts
-are rebuilt, so the next beat reads the new page. An unusable answer is
-asked about once more on the same thread. If the mind then answers with the
-page itself in markdown instead of the JSON, that is kept as the page (with
-a trailing `## diary` section as the diary, or no diary and
-`diary_missing`). Anything else changes nothing. Like the beat, the pinned
-jobs run it detached (`bin/reflect --detach`, log in
-`state/reflect/reflect.log`) under a `reflect` lock: one long turn can
-outlast the core's 300 s, and a second reflection never starts while one is
-running.
+to bring `MEMORY.md` up to date. It works from what the mind chose to
+remember (`mind_notes`), what it thought and did each beat that thought,
+quiet ones included (`state/tick/runs.jsonl`), the follow-ups still waiting,
+and the page as it stands.
+
+The page is never rewritten whole, because a page rewritten twice a day
+collapses into thin summaries (ACE, arXiv:2510.04618;
+`docs/research/memory-and-continuity.md`). Every item on it (a bullet, or a
+paragraph under a `## section`) carries a stable id in the page itself, as a
+`[m12]` prefix. Before it asks, `bin/reflect` gives an id to each item that
+lacks one, in page order from one past the highest id ever used, so the
+first run over an un-ID'd page migrates it the same way every time. An id is
+never given twice. The mind answers with operations on the page and the
+diary entry, as JSON:
+
+```
+{"ops": [{"op": "add", "section": "people", "text": "..."},
+         {"op": "edit", "id": "m3", "text": "..."},
+         {"op": "retire", "id": "m7", "reason": "kept: sent the write-up"}],
+ "diary": "..."}
+```
+
+What no operation names stays as it is. A retired item is not deleted: it
+moves to `state/reflect/retired.jsonl` with its section, text, reason and
+the time, so a promise never leaves the page unrecorded (Zep's "invalidate,
+don't delete").
+
+The shrink check in `bin/lib/reflect.py` then refuses a result that retires
+more than 8 items, or that takes more than 30% off the page (a loss under
+500 characters is spared, so a young page can still close a thread). Every
+retire needs a reason. A refused reflection is logged to
+`state/reflect/refused.jsonl`, keeps the old page and returns
+`refused: true`. A page past the 12k-character limit (and longer than
+before) is not cut: the mind is asked to retire or merge items instead.
+
+The old page is kept in `state/reflect/`, and the diary entry goes to
+`state/diary/<date>.md` and to the core's memory. The prompts are rebuilt,
+so the next beat reads the new page. An unusable answer (no JSON, an
+unknown id, a retire without a reason, a refusal, a page too long) is asked
+about once more on the same thread, with the reason. The whole page is
+still taken as a fallback under the same check: the old `{"memory": ...}`
+shape, or, when the second answer still has no JSON, the page itself in
+markdown (with a trailing `## diary` section as the diary, or no diary and
+`diary_missing`). Its items keep the id they carry or the id of the old
+item with the same text, and an old item it leaves off counts as retired.
+Anything else changes nothing. Like the beat, the pinned jobs run it
+detached (`bin/reflect --detach`, log in `state/reflect/reflect.log`) under
+a `reflect` lock: one long turn can outlast the core's 300 s, and a second
+reflection never starts while one is running.
 
 At midday (the pinned `reflect-midday` job, 14:00 IST) `bin/reflect --light`
 does the same for the page alone, so the afternoon's prompts carry the
@@ -405,10 +440,12 @@ How the day's beats become the page every prompt carries:
                                                                               │
  bin/reflect --light (14:00 IST)  ─┐                                          │
  bin/reflect         (02:00 IST)  ─┴─► the teeny agent on teeny:mind ◄────────┘
-                                       + MEMORY.md as it stands
+                                       + MEMORY.md as it stands, with ids
                                               │
                                               ▼
+                     ops (add / edit / retire by [mN] id), then the shrink check
                      new brain/MEMORY.md (at most 12k chars); old page in state/reflect/
+                     retired items to state/reflect/retired.jsonl
                      night only: diary to state/diary/<date>.md and memory_learn
                                               │
                                               ▼
