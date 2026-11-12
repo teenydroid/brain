@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Today's world score W into state/hands.db (evals/cron.pinned.toml,
+# world-snapshot): `hands/world snapshot` reads the stats rows, the stimuli,
+# the wallet ($TINY, balance, costs), the build jobs, the guard holds, the
+# hands on disk and brain/narrative/ARCS.md, and writes one row per component
+# per UTC day. A source that is missing is skipped and the rest still land.
+# The score J that `hands/world report` builds from these rows is computed by
+# frozen code, never reported by a model (docs/research/teeny-application.md,
+# section 2).
+#
+# It runs after stats-snapshot (15 0 * * *), so attention reads today's rows.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/world" snapshot </dev/null

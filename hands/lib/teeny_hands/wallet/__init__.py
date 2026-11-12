@@ -8,13 +8,13 @@ x402.py), keeps its own ledger, and reads balances, receipts and costs.
 
   caps    the caps and the mints it knows (also read by bin/lib/wallet_config.py and bin/doctor)
   chains  the chains and assets it knows (pinned), EVM addresses and reads
-  solana  addresses, Solscan links, the USDC balance over Solana JSON-RPC
+  solana  addresses, Solscan links, token balances (USDC, $TINY) over Solana JSON-RPC
   store   wallet_payments, bills, vendors
   pay     the rules, then prepare and execute through the core
   convert swap and bridge between its own accounts, through deBridge
   x402    one HTTP request that may pay for itself, under its own caps
   buy     buy-tiny: a share of net inflows into $TINY, buy only
   jupiter Jupiter's public quote API, read only
-  reads   address, balance, ledger, costs, receipts, the operator's lists
+  reads   address, balance, tiny, ledger, costs, receipts, the operator's lists
   cli     the verbs
 """

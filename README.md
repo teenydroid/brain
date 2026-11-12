@@ -148,6 +148,7 @@ posts on X are at least three hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-daily`, `moltbook-helpdesk`, `moltbook-digest` | off | Moltbook posts and comments |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
+| `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 
 `bounty-open`, `bounty-paid` and `cost-of-living-moltbook` are not scheduled.
 `mentions` and `mail` are the prompts the core's per-surface agents use when

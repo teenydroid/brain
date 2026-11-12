@@ -2,8 +2,8 @@
 
 Nothing here moves funds or asks the core to: the reads are `wallet_status`,
 `wallet_balances`, `wallet_ledger_list`, `cost_report`, `x402_list_payments`,
-one Solana RPC read for USDC and, on mainnet, one `eth_call` per EVM network
-for its USDC (chains.py).
+Solana RPC token-account reads for USDC and $TINY and, on mainnet, one
+`eth_call` per EVM network for its USDC (chains.py).
 """
 
 from __future__ import annotations
@@ -52,9 +52,10 @@ def address() -> Json:
 
 
 def balance() -> Json:
-    """SOL and USDC on Solana (`sol`, `usdc`, as before) and, on mainnet, ETH
-    and USDC on every EVM network. A network that cannot be read carries
-    `error` and does not stop the others."""
+    """SOL and USDC on Solana (`sol`, `usdc`, as before), $TINY (`tiny`) and,
+    on mainnet, ETH and USDC on every EVM network. A network that cannot be
+    read carries `error`, and a failed $TINY read `tiny.error`; neither stops
+    the others."""
     cluster = _cluster()
     own = own_address()
     sol = sol_balance()
@@ -66,6 +67,12 @@ def balance() -> Json:
         "sol": {"raw": str(sol), "display": caps.display(sol, "SOL")},
         "usdc": {"raw": str(usdc), "display": caps.display(usdc, "USDC"), "mint": mint},
     }
+    # $TINY rides along, but a failed read of it never hides SOL and USDC.
+    try:
+        held = _tiny_holding(cluster, own)
+        out["tiny"] = {"raw": held["raw"], "display": _decimal(int(held["raw"]), held["decimals"]), "mint": held["mint"]}
+    except hand.HandError as exc:
+        out["tiny"] = {"error": str(exc)}
     evm = _evm_address() if cluster == "mainnet" else None
     if evm is not None:
         networks: Json = {}
@@ -84,6 +91,43 @@ def balance() -> Json:
             networks[key] = entry
         out["evm"] = {"address": evm, "networks": networks}
     return out
+
+
+#: $TINY is a pump.fun mint, and those have 6 decimals. Used only when Teeny
+#: holds no token account for it, so no account says otherwise.
+TINY_DECIMALS = 6
+
+
+def tiny_mint() -> str:
+    """The $TINY mint: TINY_MINT in secrets/teeny.env, else the one in
+    brain/CONTEXT.md (caps.TINY_MINT)."""
+    mint = (hand.setting("TINY_MINT", caps.TINY_MINT) or caps.TINY_MINT).strip()
+    if not solana.is_address(mint):
+        raise hand.HandError("TINY_MINT is not a valid Solana address")
+    return mint
+
+
+def _decimal(raw: int, decimals: int) -> str:
+    whole, frac = divmod(raw, 10**decimals)
+    return f"{whole}.{frac:0{decimals}d}".rstrip("0").rstrip(".") if decimals else str(whole)
+
+
+def _tiny_holding(cluster: str, owner: str) -> Json:
+    mint = tiny_mint()
+    raw, decimals = solana.token_holding(cluster, owner, mint)
+    decimals = TINY_DECIMALS if decimals is None else decimals
+    return {"mint": mint, "owner": owner, "raw": str(raw), "decimals": decimals}
+
+
+def tiny() -> Json:
+    """Teeny's $TINY, in tokens: one token-account read over the same Solana
+    RPC the USDC balance uses. Nothing is signed and nothing moves. No token
+    account for the mint is a balance of 0, not an error."""
+    cluster = _cluster()
+    held = _tiny_holding(cluster, own_address())
+    held["amount"] = int(held["raw"]) / 10 ** held["decimals"]
+    held["cluster"] = cluster
+    return held
 
 
 def _public(row: Mapping[str, Any]) -> Json:

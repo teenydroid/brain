@@ -56,8 +56,9 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
 # draft may only propose a change to Teeny itself (`self`), which files a
 # pending request that pick-request, the builder, the frozen-path check and
-# the operator's merge all still stand between and main.
-VERB_OUTPUTS = {"build": ("self",)}
+# the operator's merge all still stand between and main. The goal ledger
+# takes a proposal only: its checks run from the pinned goals-check job.
+VERB_OUTPUTS = {"build": ("self",), "goals": ("propose",)}
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
@@ -65,7 +66,7 @@ MEDIA_KINDS = ("image", "video")
 # input runs only their read verbs.
 MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
 MONEY_READS = {
-    "wallet": ("address", "balance", "ledger", "costs", "receipt", "receipts", "caps"),
+    "wallet": ("address", "balance", "tiny", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
 }
 #: The verbs that move money, named so a change to MONEY_OUTPUTS above can

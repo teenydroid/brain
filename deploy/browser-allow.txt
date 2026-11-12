@@ -18,6 +18,9 @@ agentmail.to
 # Reading the chain (never transacting: money moves only through hands/wallet)
 solscan.io
 
+# The news the operator reads for Teeny's news sense (brain/playbooks/news-scan.md)
+news.ycombinator.com
+
 # Documentation the builder and the operator look things up in
 docs.rs
 pypi.org
