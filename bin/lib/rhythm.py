@@ -215,6 +215,13 @@ def header(woke: Mapping[str, Any] | None = None) -> list[str]:
     lines.append("How you are: " + "; ".join(bits) + ".")
     if e < IDLE_MIN_ENERGY:
         lines.append("You are running low. Doing less, or nothing, is fine.")
+    # Runway (docs/roadmap.md, S2): how long the wallet lasts, and what a low
+    # tier cuts, so the mind knows why a picture was refused.
+    from teeny_hands import runway
+
+    money = runway.header_line()
+    if money:
+        lines.append(money)
     return lines
 
 

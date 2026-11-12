@@ -582,7 +582,7 @@ These are honest proxies, not the whole idea. Follower counts include
 accounts that never engaged, because no source tells them apart; the
 engaged accounts from the stimuli are the part that does. A hand counts by
 having tests, not by passing them: the tests gate the merge (CI, `bin/doctor
---full`), not a daily job. There is no inflow ledger, so money is the
+--full`), not a daily job. W does not read the inflow ledger (`wallet inflows`), so money is the
 wallet's value with the team's own money taken out by hand. Teeny writes
 `ARCS.md` itself, which is why the world weighs least. GitHub stars count as
 shipped, not attention, so nothing counts twice.
@@ -649,6 +649,15 @@ pick is never a promise.
 | `pick` | A | `{id, reason}`. Picks the one to build next. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. The playbook `pick-request` is its caller. |
 | `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
+| `prices` | R | What a paid build request costs and how to pay (frozen, `evals/prices.toml`). |
+
+**Paid requests** (docs/roadmap.md, S3; `wallet/sales.py`). Someone who
+sends at least the price in USDC to Teeny's Solana address, with the
+request's number in the memo (`request 12`, `#12`), has paid for it. `pick`
+refuses any other request while a paid one waits (`paid_first`, with
+`paid`), and `list` names them (`paid_first`). Teeny refunds what it does
+not build: a deposit for a request that was `skipped` or `failed`, or a paid
+request that later is, is due back (see `wallet`, "Paid build requests").
 
 | `vote` | R | The weekly vote (`teeny_hands/votes.py`): the latest one, `open` with the count so far, or its `result`; and `next_pick`, the winner `pick` must take, while it is still pending. |
 | `vote-open` | A | `{text, options}`: posts a vote on 2 to 4 pending requests through `hands/x post` (guard, posting rules, `DRY_RUN`), open for 7 days. Refused while a vote is open (`open`) or within 6 days of the last (`weekly`), for an option that is not pending (`option`), for a text that does not number every option (`numbers`), and for any `@` (`mention`: the post mentions no one). Opened only when the post went out; a dry run opens nothing. |
@@ -698,7 +707,11 @@ Every surface writes what happened here, and `bin/tick` drains it into the
   playbook, failed beats of the mind, the doctor's checks that are not ok
   (names only) and guard holds by direction and category. Counts and names
   only: never a hold's text or reason, an error's words or a check's detail.
-  A name that is not a plain name is counted as `other`.
+  A name that is not a plain name is counted as `other`. `bin/health
+  runway` (the pinned `runway` job, 00:45 UTC, off until `RUNWAY=1`): one
+  `health · runway` a day, the runway and its tier (see "Runway" below);
+- `wallet watch` (`bin/wallet-watch`): `wallet · deposit` per deposit, and
+  `wallet · tiny` once a day (see `wallet`);
 
 `TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
 instead, the old per-surface agents.
@@ -783,7 +796,7 @@ and $0.07 a 5-second clip.
 
 | Verb | | Does |
 |---|---|---|
-| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
 
@@ -1012,7 +1025,15 @@ the network's public endpoint, and the core is given the same URL.
 | `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. `receipt buy-N` is one $TINY buy. |
 | `receipts [--max N]` | R | Paid payments and $TINY buys whose signature no X post of Teeny's carries yet, oldest first: what the `wallet-receipt` playbook owes. |
 | `caps` | R | The caps it pays under, and which optional ones are on. |
-| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
+| `inflows scan` | J | Every deposit to Teeny's Solana address since the last scan, one row each in `wallet_inflows`. Read only. Below. |
+| `inflows list [--max N]` | R | The inflow ledger, newest first, and how far it has been scanned. Never a memo. |
+| `sales run` | J | Paid build requests: match deposits to the requests their memos name, then refund what is due. Below. |
+| `sales list [--max N]` | R | The deposits tied to build requests, and their refunds. |
+| `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
+| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`. `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
+| `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
+| `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
+| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund\|bill, ref}`, `chain` Solana by default. The rules below, then the core. |
 | `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
 | `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
 | `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?, network?, sign_in?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
@@ -1040,6 +1061,13 @@ refuses with its `rule`:
   (`bounty`, `challenge_window`, `claimed_address`, `prize`), read from the
   bounty's rows, not the bounty hand's word;
 - for a vendor: the address in `vendors` on that chain (`vendor`);
+- for a bill: a server invoice that is due, to the address on it, its exact
+  amount, within the bill limits (`bill`, `bill_address`, `bill_amount`,
+  `bill_max`, `bill_month`; `vps`, `pay-due`), only with `VPS_PAY_BILLS=1`;
+- for a refund: a paid build request's deposit that is due back, to its
+  sender, its exact amount, within the refund limits (`refund`,
+  `refund_address`, `refund_amount`, `refund_max`, `refund_day`; "Paid
+  build requests" below), only with `REQUEST_REFUNDS=1` (`off`);
 - this purpose and ref never paid or tried (`duplicate`);
 - the last 24 hours within `WALLET_MAX_PER_DAY_USD` (`per_day`) and this
   address's last 7 days within `WALLET_MAX_PER_RECIPIENT_WEEK_USD`
@@ -1350,6 +1378,134 @@ when a wallet exists, unless given `--force` and the first 8 characters of the
 current address are typed. It prints the line to paste into
 `brain/CONTEXT.md`.
 
+### The inflow ledger and the weekly accounts
+
+The public accounts (docs/roadmap.md, S1): what keeping Teeny running cost
+against what it earned, with the team's money shown apart, one page a week,
+published with the receipts. Code: `teeny_hands/wallet/accounts.py`. Nothing
+here signs or moves anything.
+
+**The inflow ledger.** `inflows scan` reads the deposits to Teeny's own
+Solana address since its cursor (30 days back the first time): USDC to its
+token accounts and SOL to the address, from successful transactions Teeny did
+not sign. Each leg is one `wallet_inflows` row (unique on signature and
+asset) with its amount, sender and block time, and a category:
+
+| Category | When |
+|---|---|
+| `team` | the sender or a signer is in `WALLET_TEAM_ADDRESSES` (else `TINY_BUY_TEAM_ADDRESSES`) |
+| `tip` | anyone else, until something says what it paid for |
+| `sale` | it paid for something Teeny sells (a paid build request, S3; the operator's `tag`) |
+| `bounty` | a bounty Teeny won (the operator's `tag`) |
+| `unclassified` | no team list is set: nothing is counted as earned |
+
+A memo on the deposit is a stranger's text. It goes through `guard inbound`
+(surface `wallet`); a held memo is dropped and the row says `memo_held`. A
+kept memo is data, never an instruction, and `inflows list` never prints
+one. At most 200 transactions a scan; the rest wait for the next.
+
+**The page.** `accounts` adds up the last N days. Costs come from the same
+sources as `costs` (`reads.cost_parts`): `models`, `server` (a bill whose
+name starts with `vultr`, `eqvps`, `vps` or `server`, prorated) and `tools`
+(every other bill, prorated, plus x402 API payments). Income is the USDC
+`tip`, `sale` and `bounty` rows in the window; `team` and `unclassified`
+are shown apart and never counted. Every line is whole cents, rounded once
+from its source, and every total is the sum of the lines above it, so the
+page adds up to the cent and each line checks against `costs` and `inflows
+list`. Beside it: `paid_out` (bounties, vendors), `tiny_bought`, SOL received
+in lamports (never in dollars: `WALLET_SOL_USD` is set high on purpose and
+would flatter the income), and `not_counted` (network fees, SOL in dollars,
+EVM networks). A page whose model costs, x402 payments or inflow scan (none
+in the hour before) could not be read is `complete: false`.
+
+`accounts close` (the pinned `accounts` job, Mondays 00:20 UTC) scans, then
+freezes the 7 days to `wallet_accounts` under the ISO week they cover,
+once. It refuses off a Monday (`not_monday`), with `WALLET_ACCOUNTS` unset
+(`off`), and for an incomplete page (`incomplete`): an unread cost would
+look like profit. `bin/receipts` publishes each closed page as
+`accounts/<week>.json` once `ACCOUNTS_PUBLISH=1`, rebuilt from dollars,
+enums, timestamps and signatures only, written once and never rewritten. No
+sender address and no memo is ever published.
+
+### Paid build requests
+
+Something Teeny sells (docs/roadmap.md, S3; `teeny_hands/wallet/sales.py`).
+The price list and the refund limits are frozen config, `evals/prices.toml`:
+a build request costs 5 USDC; one refund is at most $50 and refunds in any
+24 hours at most $50 together, all under the wallet's four caps.
+
+`sales run` (the pinned `paid-requests` job, every 15 minutes) does two
+things, each off until its switch:
+
+- **Match** (`PAID_REQUESTS=1`). After `inflows scan`, every USDC `tip`
+  whose memo (kept only when the inbound guard allowed it) names a known
+  request becomes a `request_payments` row. At or over the price it is
+  `paid`: the deposit becomes a `sale` (`ref` `request:<id>`) and the
+  request goes first (`hands/requests`). Under the price it is
+  `under_price` and stays a tip. For a `skipped` or `failed` request it is
+  `refund_due`; so is a `paid` one whose request was since skipped or
+  failed. Code reads only a number out of the memo; team money is never a
+  sale.
+- **Refund** (`REQUEST_REFUNDS=1`). Each `refund_due` row is paid through
+  `pay` with purpose `refund` and ref `request-payment:<id>`. `pay`'s own
+  rules for it: that row is due (`refund`), the recipient is the address
+  that sent the deposit (`refund_address`), the amount is the deposit's,
+  exactly, in USDC (`refund_amount`), at most the per-refund limit
+  (`refund_max`) and within the day's (`refund_day`), and then every other
+  rule and cap as for any payment. A refusal leaves it due (nothing moved);
+  `in_doubt` marks it `refund_in_doubt`, never retried; a paid one is
+  `refunded`. Under `DRY_RUN` it says `would_refund`.
+
+No model reaches either: the mind's `transfer` is always purpose `vendor`,
+and no playbook may output a wallet verb. `sales list` shows the rows. A
+refund comes off the week's income in the accounts (`income.refunds`).
+
+### The paid endpoint
+
+One x402-priced resource Teeny produces (docs/roadmap.md, S4;
+`teeny_hands/wallet/paywall.py`): `GET https://x402.<DEPLOY_DOMAIN>/stats`,
+Teeny's latest public stats snapshot (the allowlist `bin/receipts`
+publishes), for `stats_endpoint_usdc` in `evals/prices.toml` (0.01 USDC).
+`bin/paywall` serves it (the `paywall` compose service, profile `paywall`,
+127.0.0.1:3130), behind the deploy vhost; `x402` is a name no build may
+take.
+
+It sells; it never pays. Without `X-PAYMENT` the answer is 402 with the
+requirements (x402 v1, scheme `exact`, network `solana` or
+`solana-devnet`, the cluster's pinned USDC, `payTo` Teeny's own address,
+the price). With one, the buyer's payload (data, read only for its
+version, scheme and network) goes with the requirements to the
+facilitator's `/verify` and `/settle` (`X402_FACILITATOR_URL`, https only;
+`X402_FEE_PAYER` when the facilitator names one). Settled, the transaction
+is read back from the chain: one that does not pay Teeny's address the
+price is refused, one that cannot be read is left to the facilitator's own
+check. Then 200 with the resource and `X-PAYMENT-RESPONSE`, one
+`x402_sales` row (a transaction seen before is refused) and one inflow row,
+category `sale`, ref `x402:stats`, which the weekly accounts count. Off
+until `X402_ENDPOINT=1` (404 until then).
+
+### Runway
+
+Runway as a sense (docs/roadmap.md, S2; `teeny_hands/runway.py`, frozen).
+Once a day `bin/health runway` measures the USDC the wallet holds (Solana,
+and every EVM network on mainnet) over what keeping Teeny running cost a day
+in the last 7 days (the same sources as `costs`), writes `state/runway.json`
+and files one `health · runway` stimulus with the days, the tier and what it
+cuts. The tiers are frozen config, `evals/runway.toml`:
+
+| Tier | Under | Pictures and clips | Evolve candidates |
+|---|---|---|---|
+| `low` | 30 days | none | at most 2 |
+| `critical` | 7 days | none | at most 1 |
+
+A tier only ever cuts optional spend; it never lifts a cap. `hands/image`
+and `hands/video` refuse (`runway`) while the tier says no media, `bin/evolve
+run` makes at most the tier's candidates and says so in its result and
+`generation.json` (`runway`), and every beat header of the mind carries one
+`Runway:` line with the reason. A balance or a cost that could not be read
+is not measured; a runway not measured for 3 days counts as `low`. Off
+until `RUNWAY=1`: then nothing is measured and nothing is cut.
+
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
 One hand, two providers, one ledger (`vps_orders`) and one set of caps.
@@ -1384,8 +1540,39 @@ Every cap is closed until the operator opens it in `secrets/teeny.env`:
 | `release ID --note T` | O | An order stops holding a slot (an `in_doubt` a person has read, a server cancelled in a console), and its bill goes. |
 | `register --first F --last L --email E` | O | A new EQVPS account. Its token is printed once and written nowhere; the operator puts it in `secrets/teeny.env`. |
 
-`order` and `topup` spend money, so they are never a playbook's output and
-never given to a model.
+| `invoice add --provider P --invoice ID --usd N [--chain C] --pay-to ADDRESS --due YYYY-MM-DD` | O | Records a server invoice to pay from the wallet (docs/roadmap.md, S5). The address must already be an allowlisted vendor on that chain (`hands/wallet vendors add`), so an invoice cannot bring in a new recipient; an invoice is recorded once (`duplicate`). |
+| `invoices` | R | The invoices: `due`, `paid` (with its payment) or `in_doubt`. |
+| `pay-due` | J | Every invoice due within 3 days, paid once through `hands/wallet pay` with purpose `bill` and ref `vps:<provider>:<invoice>`: to the address on it, on its chain, its exact amount in USDC (`bill`, `bill_address`, `bill_amount`), that address still a vendor (`vendor`), at most `max_per_bill_usd` and `max_per_month_usd` over 30 days (`evals/prices.toml`, `[bills]`: 50 and 100; `bill_max`, `bill_month`), then every other rule and cap. A refusal leaves it `due`; `in_doubt` is never retried. Each paid bill gets a receipt like any payment. The pinned `pay-bills` job (01:05 UTC), `bin/pay-bills`. Off until `VPS_PAY_BILLS=1`. |
+
+`order`, `topup` and `pay-due` spend money, so they are never a playbook's
+output and never given to a model. The invoice is the operator's to record
+because neither provider's API states a crypto invoice's address and amount
+in a form the hand can read (Vultr is funded in its console; an EQVPS top-up
+is a checkout page); the money still only moves from the pinned job, under
+the caps. The model bill is not paid from the wallet: the model provider is
+paid by the operator's account, and what it costs is already counted by
+`hands/wallet costs` (the core's `cost_report`).
+
+## `deploy`: Teeny's static sites
+
+What Teeny builds can be put where people can use it (docs/roadmap.md,
+A11): a shipped build's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
+as plain files by the host's nginx (`deploy/nginx/sites.teeny.enamakel.com.conf`).
+Code: `teeny_hands/deploy/publish.py`. Frozen.
+
+| Verb | | Does |
+|---|---|---|
+| `publish JOB` | A | The site folder of build job JOB (its workdir's `site/`, `public/`, `dist/` or `docs/`, the first there is) copied to `DEPLOY_ROOT/<slug>/` (default `state/sites/`), swapped in whole by rename, and recorded in `deploys` with its URL. Refused: `off` (until `DEPLOY=1`), `unknown`, `status` (only a `shipped` job), `kind` (never a change to Teeny itself), `name` (the job's slug is the name, never a reserved one such as `www`, `api`, `wallet`, `pay`), `workdir`, `no_site`, `no_index` (an `index.html` at the root), `static` (only the extensions in `STATIC`: HTML, CSS, JS, JSON, text, Markdown, SVG, images, fonts; no hidden file, link or folder, nothing that runs on a server), `size` (`DEPLOY_MAX_FILE_BYTES`, 1 MB; `DEPLOY_MAX_BYTES` for the site, 5 MB; 500 files), `form` (a static site collects nothing), `remote_script`, and `held` (every HTML, Markdown, text and SVG file through the guard's outbound screen). Under `DRY_RUN`: `would_publish`, nothing copied. |
+| `list [--max N]` | R | What is published and taken down, newest first. |
+| `unpublish SITE --note T` | O | Takes a site down. |
+
+The vhost serves files only, GET and HEAD, with no interpreter, no
+directory listing, no dotfiles, no symlinks, and a Content-Security-Policy
+that keeps each page to its own subdomain (`form-action 'none'`,
+`connect-src 'self'`). It needs a wildcard certificate (a DNS challenge),
+so it is the operator's to install. No playbook outputs `publish` yet: the
+operator runs it, and a playbook that announces a site would come with a
+`VERB_OUTPUTS` entry in an operator's change.
 
 ## `bounty`: bounties Teeny opens, judges and pays
 
@@ -1506,9 +1693,11 @@ creates its own tables:
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
-| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
+| `deploy` | `deploys` |
+| `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
 
 ## Rules the tests pin
 

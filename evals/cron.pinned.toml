@@ -214,3 +214,63 @@ enabled = false
 #   [jobs.tiny-buy]
 #   schedule = "41 3 * * *"
 #   command = "bin/tiny-buy"
+
+# Teeny's weekly accounts (bin/accounts; docs/roadmap.md, S1): every deposit
+# since the last scan into the inflow ledger (read only, nothing signed), then
+# last week's profit and loss, costs against what it earned with the team's
+# money shown apart, frozen into state/hands.db once. Mondays, 00:20 UTC, so
+# the seven days it covers are the ISO week it is named for. The receipts job
+# publishes closed pages when ACCOUNTS_PUBLISH=1. OFF unless WALLET_ACCOUNTS=1
+# in secrets/teeny.env (each run a refusal until then). Operator-owned: Teeny
+# does not get to decide whether its books are kept.
+[jobs.accounts]
+schedule = "20 0 * * 1"
+tz = "UTC"
+command = "bin/accounts"
+
+# Teeny's on-chain senses (bin/wallet-watch; docs/roadmap.md, A5): every
+# deposit to the wallet into the inflow ledger and the mind's inbox, one
+# `wallet · deposit` stimulus each, so it can thank a sender within the hour;
+# a stranger's memo only through the inbound guard. Read only: nothing is
+# signed or paid. OFF unless WALLET_WATCH=1 in secrets/teeny.env.
+[jobs.wallet-watch]
+schedule = "7-59/15 * * * *"
+command = "bin/wallet-watch"
+
+# Once a day, Teeny's $TINY balance and how many accounts hold $TINY, as one
+# `wallet · tiny` stimulus (bin/wallet-watch daily). Same switch.
+[jobs.wallet-daily]
+schedule = "50 0 * * *"
+tz = "UTC"
+command = "bin/wallet-watch daily"
+
+# Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
+# wallet holds over what running Teeny cost a day this week, as one
+# `health · runway` stimulus, and the tier from evals/runway.toml that cuts
+# optional spend (pictures and clips, evolve candidates) while it is low.
+# OFF unless RUNWAY=1 in secrets/teeny.env; reads only.
+[jobs.runway]
+schedule = "45 0 * * *"
+tz = "UTC"
+command = "bin/health runway"
+
+# Paid build requests (bin/paid-requests; docs/roadmap.md, S3): deposits whose
+# memo names a request, at the frozen price (evals/prices.toml), put that
+# request first; a paid request Teeny did not build is refunded to its sender
+# under the wallet's caps and the refund limits, once, never retried in
+# doubt. OFF unless PAID_REQUESTS=1 (matching) and REQUEST_REFUNDS=1
+# (refunds) in secrets/teeny.env. Operator-owned: money moves only here.
+[jobs.paid-requests]
+schedule = "11-59/15 * * * *"
+command = "bin/paid-requests"
+
+# Teeny pays its own server (bin/pay-bills; docs/roadmap.md, S5): each
+# recorded server invoice due within three days, paid once from the wallet to
+# the allowlisted address on it, under the four caps and the bill limits in
+# evals/prices.toml, with a receipt like any payment. In doubt is never
+# retried. OFF unless VPS_PAY_BILLS=1 in secrets/teeny.env. Operator-owned:
+# no model ever pays a bill.
+[jobs.pay-bills]
+schedule = "5 1 * * *"
+tz = "UTC"
+command = "bin/pay-bills"

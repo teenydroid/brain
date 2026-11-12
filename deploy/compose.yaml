@@ -122,6 +122,31 @@ services:
     volumes:
       - ..:/srv/teeny
 
+  # Teeny's paid endpoint (bin/paywall; docs/roadmap.md, S4): one x402-priced
+  # resource, its latest public stats, at https://x402.teeny.enamakel.com/stats
+  # (nginx/sites.teeny.enamakel.com.conf proxies to 127.0.0.1:3130). Same
+  # image and checkout as the spine; it signs nothing and pays nothing, and
+  # writes only x402_sales and the inflow ledger in state/hands.db. Behind a
+  # profile, and 404 until X402_ENDPOINT=1: `--profile paywall up -d`.
+  paywall:
+    profiles: [paywall]
+    image: teeny-spine:current
+    restart: unless-stopped
+    init: true
+    user: "${TEENY_UID:-1000}:${TEENY_GID:-1000}"
+    environment:
+      HOME: /tmp
+    entrypoint: ["/srv/teeny/bin/paywall"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3130/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "127.0.0.1:${PAYWALL_PORT:-3130}:3130"
+    volumes:
+      - ..:/srv/teeny
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try

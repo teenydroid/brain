@@ -66,6 +66,14 @@ hands/lib/teeny_hands/firsts/
 
 # What spends money on servers stays the operator's, like the wallet.
 hands/vps
+# The wallet's own entry point: its library is frozen below, and so is the
+# script that loads it, so nothing can stand in front of the caps.
+hands/wallet
+# The request list decides which paid request is built first (S3).
+hands/requests
+# What Teeny publishes on its own domain (A11): static files only.
+hands/deploy
+hands/lib/teeny_hands/deploy/
 
 # The existing hand library, one entry each. A new hand Teeny writes
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
@@ -87,6 +95,9 @@ hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/requests.py
 hands/lib/teeny_hands/requests_cli.py
 hands/lib/teeny_hands/rest.py
+# Runway tiers cut optional spend when the wallet is low (S2): what decides
+# how much Teeny may spend stays the operator's.
+hands/lib/teeny_hands/runway.py
 hands/lib/teeny_hands/slopcash/
 hands/lib/teeny_hands/stats/
 hands/lib/teeny_hands/stimuli.py

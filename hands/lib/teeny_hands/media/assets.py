@@ -114,6 +114,12 @@ def _spent_today(conn) -> int:
 
 
 def _check_caps(conn, kind: str, extra_micro: int) -> None:
+    # Runway (docs/roadmap.md, S2): a low wallet makes no pictures or clips.
+    from .. import runway
+
+    lim = runway.limits()
+    if not lim["media"]:
+        raise hand.Refused(f"no {kind}s on the {lim['tier']} runway tier ({lim['why']})", rule="runway", tier=lim["tier"])
     limit = hand.number(f"MEDIA_{kind.upper()}_MAX_PER_DAY", 8 if kind == "image" else 2, 0, 100)
     used = conn.execute(
         "SELECT COUNT(*) AS n FROM media_assets WHERE kind = ? AND status != 'failed' AND created_at >= ?"
