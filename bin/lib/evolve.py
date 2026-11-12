@@ -1172,13 +1172,12 @@ class LabCore:
 
     def _eval(self, url: str | None, *args: str) -> subprocess.CompletedProcess:
         extra = {"OPENHUMAN_CORE_URL": url} if url else {}
+        extra["EVAL_HELDOUT_DIR"] = str(heldout_dir())
         return subprocess.run([str(CODE / "bin" / "eval"), *args], capture_output=True, text=True,
                               env=code_env(**extra), stdin=subprocess.DEVNULL)
 
     def evaluate(self, gen_dir: Path, cand: Json, src: Source) -> Json:
         held = ["--with-heldout"] if evals_lib.heldout_ids(heldout_dir()) else []
-        env_held = {"EVAL_HELDOUT_DIR": str(heldout_dir())} if held else {}
-        os.environ.update(env_held)
         base_run = gen_dir / "eval" / "base"
         if not (base_run / "drafts.jsonl").is_file():
             done = self._eval(self.base_url, "run", "--samples", str(self.samples), *held, str(base_run))
@@ -1598,8 +1597,10 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         return {"ok": True, "skipped": f"halted ({latched.get('kind')}) until `bin/evolve resume`", "halt": latched}
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
-    for halt in halts_before(cfg):
-        return {"ok": True, "skipped": f"halted: {halt.kind}", "halt": stop(cfg, halt, publisher)}
+    halts = halts_before(cfg)
+    if halts:
+        return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
+                "halts": [stop(cfg, h, publisher) for h in halts]}
     n = n or cfg["EVOLVE_CANDIDATES"]
     src = source()
     base = git(of_source(src), "rev-parse", "--verify", f"{src.base_ref}^{{commit}}").strip()
@@ -1636,6 +1637,10 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         result["held"] = "the gated candidates wait for `bin/evolve evaluate` and `bin/evolve select`"
     else:
         result.update(select(cfg, gen, cands, entries, src, publisher))
+        # What did not ship needs no worktree: its patch is kept beside it.
+        for cand in cands:
+            if not cand.get("selected") or cand.get("pr_url"):
+                remove_worktree(src, gdir / f"cand-{cand['cand']}")
     for cand in cands:
         record(cand)
     write_json(gdir / "result.json", result)
@@ -1777,9 +1782,12 @@ def main(argv: list[str]) -> int:
                 raise EvolveError("--candidates is 1..8")
             from teeny_hands import hand as _hand
 
-            with _hand.lock("evolve", timeout=5):
-                out = run_generation(cfg, args.candidates, args.proposals, _url_map(args.oh_url_candidate),
-                                     args.oh_url_base, args.hold)
+            try:
+                with _hand.lock("evolve", timeout=5):
+                    out = run_generation(cfg, args.candidates, args.proposals, _url_map(args.oh_url_candidate),
+                                         args.oh_url_base, args.hold)
+            except _hand.HandError as exc:
+                out = {"ok": True, "kind": "busy", "detail": str(exc)}
         elif args.verb == "evaluate":
             out = evaluate_cmd(cfg, args.gen, args.cand, args.oh_url_candidate, args.oh_url_base)
         elif args.verb == "select":
