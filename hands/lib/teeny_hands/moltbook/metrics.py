@@ -30,6 +30,8 @@ CHECKPOINTS = (1, 24, 72)
 WINDOW_DAYS = 14
 #: Writes read per run, at most.
 MAX_FETCHES = 20
+#: A comment is looked for in its post's latest comments, this many.
+COMMENTS_READ = 100
 
 Json = dict[str, Any]
 
