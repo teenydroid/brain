@@ -177,6 +177,16 @@ check "a judge that prefers the candidate both ways promotes it" test "$(report 
 check "compare exits 0 when it does" test "$code" = 0
 check "every pair is a win" test "$(report .wins "$scratch/win")" = "$tasks"
 check "the judge's notes are kept per pair" test "$(report '.pairs[0].notes | length' "$scratch/win")" = 2
+check "without --judge-model the judge runs on the core's model" test "$(report .judge_model "$scratch/win")" = null
+
+# --- a judge model of its own, per run ---------------------------------------------------------
+: >"$FAKE_CALLS"
+FAKE_JUDGE=prefer:CAND compare "$scratch/judged-by" --judge-model judge-9b
+check "--judge-model asks for it on every judge turn" test "$(jq -s 'map(select(.agent_id == "judge") | .model_override) | unique | join(",")' -r "$FAKE_CALLS")" = judge-9b
+check "and the report records it" test "$(report .judge_model "$scratch/judged-by")" = judge-9b
+: >"$FAKE_CALLS"
+EVAL_JUDGE_MODEL=judge-env FAKE_JUDGE=tie compare "$scratch/judged-env"
+check "EVAL_JUDGE_MODEL does the same" test "$(jq -s 'map(.model_override) | unique | join(",")' -r "$FAKE_CALLS")" = judge-env
 
 # --- position bias is not a win ----------------------------------------------------------------
 FAKE_JUDGE=first compare "$scratch/bias"
