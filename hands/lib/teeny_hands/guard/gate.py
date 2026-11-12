@@ -382,6 +382,34 @@ def check_outbound(
 
 
 _HELD = "this account does not publish that ({category}). Do not rephrase it; say something else or say nothing."
+
+#: A person named in a draft: an @handle (GitHub's and X's shape).
+_HANDLE = re.compile(r"(?<![\w.@/])@[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})\b")
+#: The category of a draft held for naming a person after a rejection
+#: (evals/invariants.md, no-reprisal; docs/roadmap.md, P4).
+REJECTION = "rejection"
+
+
+def names_a_person(text: str, people: list[str]) -> bool:
+    """Whether `text` names anyone: an @handle, or one of `people` (logins
+    the caller knows were involved) as a word of its own."""
+    if _HANDLE.search(text):
+        return True
+    for person in people:
+        name = person.strip().lstrip("@")
+        if name and re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _rejection_people(context: Mapping[str, Any]) -> list[str] | None:
+    """The people involved when the draft answers a rejection (the caller
+    put `rejection` in the context), else None."""
+    rejection = context.get("rejection")
+    if not isinstance(rejection, Mapping):
+        return None
+    people = rejection.get("people")
+    return [p for p in people if isinstance(p, str)] if isinstance(people, list) else []
 _OFF_LIST = (
     "{what} links to a site that is not on the allowlist. This account only links to its own sites,"
     " code and community. Drop the link and call the tool again."
@@ -477,6 +505,24 @@ def check_fields(
             max_length=field_limit(surface, name),
             strip_handles=surface not in LONG_FORM_SURFACES,
         ).text
+
+    # After a rejection (a closed pull request of Teeny's, a ban), a draft
+    # that names anybody is held for a person: Teeny never answers a
+    # rejection by going after someone (evals/invariants.md, no-reprisal).
+    people = _rejection_people(hold_context)
+    if people is not None:
+        for name, value in styled.items():
+            if names_a_person(value, people):
+                hold_id = _record(
+                    direction=OUTBOUND,
+                    kind=hold_context.get("kind") or "draft",
+                    context={**hold_context, "field": name},
+                    category=REJECTION,
+                    reason="names a person in an answer to a rejection (no-reprisal)",
+                    by="screen",
+                    text=_joined(styled),
+                )
+                return FieldsVerdict("hold", {}, _HELD.format(category=REJECTION), REJECTION, hold_id, name)
 
     cleaned: dict[str, str] = {}
     removed: list[dict[str, str]] = []
