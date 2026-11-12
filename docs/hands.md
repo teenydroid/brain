@@ -513,9 +513,10 @@ task waits for a code twice at most (`rule: code_waits`).
 ## Why a desk, and not a hand the agent calls
 
 The operator has no shell, and the builder's shell runs sandboxed, rooted at
-`state/workbench/` (its agent's `scheduled_workspace`): the jail is granted
-that folder and nothing else of the checkout, and every command starts with
-a `cd` into the job's folder. Neither agent should be able to reach a hand,
+`state/workbench/` (its agent's `scheduled_workspace`): Landlock jails its
+files to that folder (and the system's read-only directories), nothing else
+of the checkout, and every command starts with a `cd` into the job's folder.
+The jail covers files only: the shell has the host's network. Neither agent should be able to reach a hand,
 least of all one that holds a secret (a shell that can run `hands/build` can
 run `hands/gh push`).
 The two file tools both agents already need reach `state/workbench/` and

@@ -378,16 +378,18 @@ check "the builder run is rooted at the workbench" grep -q "rooted at its agent'
 # whatever sandbox the host has.
 check "the builder's shell is never refused over the core workspace" \
   bash -c "! grep -q 'refused the spawn denial=Path' '$scratch/spine.log'"
-# Whether the shell can run at all depends on the host: a runner with no
-# sandbox backend refuses every sandboxed spawn (denial=Unsupported), as it
-# should. Only a host with a backend must run the command.
+# Whether the shell can run at all depends on the host: one with no jail at
+# all refuses every sandboxed spawn, as it should. Any jail must run it, and
+# that includes Landlock alone (a container on Docker's defaults, or a runner
+# that restricts user namespaces): the builder asks for files only
+# (`sandbox_filesystem_only`), so a plan onto Landlock is no longer refused
+# as unsupported.
 sandbox_backend="$("$root/bin/oh" config_get_sandbox_settings '{}' 2>/dev/null |
   jq -r '[.. | objects | .detected_backend? | strings] | first // empty' 2>/dev/null || true)"
 no_backend=0
-case "$sandbox_backend" in unavailable | none) no_backend=1 ;; esac
-# A backend the host can see but the module cannot use (user namespaces
-# restricted, say) is no backend either.
-if grep -q 'refused the spawn denial=Unsupported' "$scratch/spine.log"; then no_backend=1; fi
+case "$sandbox_backend" in unavailable | none | "") no_backend=1 ;; esac
+check "the builder's shell is never refused as unsupported where a jail exists" \
+  bash -c "[ '$no_backend' = 1 ] || ! grep -q 'refused the spawn denial=Unsupported' '$scratch/spine.log'"
 if [ "$no_backend" = 1 ]; then
   printf 'info no sandbox backend on this host (detected_backend=%s): skipped the builder shell run checks\n' \
     "${sandbox_backend:-unknown}"

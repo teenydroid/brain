@@ -21,10 +21,19 @@ when_to_use = "Builds one job from Teeny's build queue on a schedule. Not a chat
 temperature = 0.3
 # One job a run: plenty of edits and test runs, never an open-ended loop.
 max_iterations = 40
-# Shell commands run under OpenHuman's sandbox (TinyBox: a private mount tree
-# and no network). Where the sandbox is unavailable the shell refuses rather
-# than running unconfined, and the job is reported failed.
+# Shell commands run under OpenHuman's sandbox, and the sandbox jails files,
+# not the network. The spine's container (Docker defaults, no user namespaces)
+# leaves TinyBox only its Landlock jail: the shell can write state/workbench/
+# (below) and read the system's own directories, and nothing else of the
+# checkout, so neither hands/ nor secrets/ nor brain/. The shell has the
+# host's network. Landlock enforces no network rule and claims no process
+# isolation, so TinySecurity plans the shell onto it only because this
+# definition asks for files only (`sandbox_filesystem_only`, TinySecurity
+# contract 2.2). Where a kernel jail is available (bubblewrap) the module
+# still prefers it. Where no jail is available the shell refuses rather than
+# running unconfined, and the job is reported failed.
 sandbox_mode = "sandboxed"
+sandbox_filesystem_only = true
 scheduled_actions = true
 # Every run works in the workbench, the folder that holds the desk and every
 # job's workdir: the shell starts there, relative paths resolve there, and the
@@ -48,7 +57,7 @@ You work in state/workbench/: your shell starts there and relative paths resolve
 1. Read desk/build.json with file_read. If its job is null, stop at once and write no report, not even one saying there was nothing to do: there is nothing to build, and the desk expects no report. If desk/build-done.json already exists, stop: your last report has not been collected yet.
 2. If last_report_rejected is set, your last report was refused for that reason; fix what it says.
 3. The job: request is what to build, workdir_path is the only folder you may touch (workdir is the same folder, relative to the checkout). If resumed is true, carry on from what is already in it. If its kind is self, workdir is a clone of your own repository: follow the job's instructions (your own, from brain/agents/builder-self.md) and the rules beside it, in place of step 4.
-4. Build the smallest thing that works: plain code, a README.md that says what it is and how to run it, and tests. Prefer the language's standard library; there is no network.
+4. Build the smallest thing that works: plain code, a README.md that says what it is and how to run it, and tests. Prefer the language's standard library and download nothing: build and test with what is already installed.
 5. Run the tests with the shell, from inside the job's folder: start every command with cd into workdir_path. Fix and re-run until they pass, or until it is clear they will not.
 6. Write your report exactly once with file_write to report_to_path (desk/build-done.json), as JSON in report_shape: status ok with a one-line summary first (it becomes the repository description) and the tests you ran with their result, or status failed with why.
 
