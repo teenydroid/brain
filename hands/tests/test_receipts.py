@@ -591,7 +591,7 @@ class PublishedAccountsTest(ReceiptsCase):
         page = {
             "week": "2026-W37", "from": "2026-09-07T00:20:00Z", "to": "2026-09-14T00:20:00Z", "days": 7,
             "costs": {"models": "3.14", "server": "5.60", "tools": "2.34", "total": "11.08"},
-            "income": {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "total": "6.26"},
+            "income": {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "refunds": "0.00", "total": "6.26"},
             "net": "-4.82", "team": "50.00", "unclassified": "0.00", "paid_out": {"bounty": "5.00"},
             "tiny_bought": "0.00", "sol_received_lamports": {"tip": "1000000000"}, "model_calls": 120,
             "inflows": [{"signature": SIG, "at": "2026-09-11T07:00:00Z", "asset": "USDC", "amount_raw": "5255000",

@@ -196,7 +196,7 @@ class AccountsTest(Scratch):
         self.assertEqual(got["costs"]["models"], costs["models"]["usd"])  # 3.14
         self.assertEqual(got["costs"]["server"], "5.60")  # 24 a month, 7 of 30 days
         self.assertEqual(got["costs"]["tools"], "2.34")  # the plan's 2.333333 -> 2.33, x402's 0.012345 -> 0.01
-        self.assertEqual(got["income"], {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "total": "6.26"})
+        self.assertEqual(got["income"], {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "refunds": "0.00", "total": "6.26"})
         self.assertEqual(got["team"], "50.00")
         # ... and every total is the sum of the lines above it.
         cents = lambda v: round(float(v) * 100)  # noqa: E731
