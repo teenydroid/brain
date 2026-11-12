@@ -5,7 +5,10 @@ against the fake Moltbook."""
 
 from __future__ import annotations
 
-from .support import DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
+import json
+
+from guard.support import FakeCore, result
+from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
 from teeny_hands import hand
 from teeny_hands.moltbook import actions, rules
 
