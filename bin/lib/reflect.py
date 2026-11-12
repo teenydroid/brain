@@ -716,7 +716,7 @@ def diary_notes(since: float, until: float) -> str | None:
     reflection (state/diary-notes.jsonl: bin/lib/health.py's switch to the
     fallback model and back, docs/roadmap.md A18), as a section. Their
     words, never the model's. None when there are none."""
-    path = ROOT / "state" / "diary-notes.jsonl"
+    path = hand.state_dir() / "diary-notes.jsonl"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
