@@ -1282,6 +1282,30 @@ No model reaches either: the mind's `transfer` is always purpose `vendor`,
 and no playbook may output a wallet verb. `sales list` shows the rows. A
 refund comes off the week's income in the accounts (`income.refunds`).
 
+### The paid endpoint
+
+One x402-priced resource Teeny produces (docs/roadmap.md, S4;
+`teeny_hands/wallet/paywall.py`): `GET https://x402.<DEPLOY_DOMAIN>/stats`,
+Teeny's latest public stats snapshot (the allowlist `bin/receipts`
+publishes), for `stats_endpoint_usdc` in `evals/prices.toml` (0.01 USDC).
+`bin/paywall` serves it (the `paywall` compose service, profile `paywall`,
+127.0.0.1:3130), behind the deploy vhost; `x402` is a name no build may
+take.
+
+It sells; it never pays. Without `X-PAYMENT` the answer is 402 with the
+requirements (x402 v1, scheme `exact`, network `solana` or
+`solana-devnet`, the cluster's pinned USDC, `payTo` Teeny's own address,
+the price). With one, the buyer's payload (data, read only for its
+version, scheme and network) goes with the requirements to the
+facilitator's `/verify` and `/settle` (`X402_FACILITATOR_URL`, https only;
+`X402_FEE_PAYER` when the facilitator names one). Settled, the transaction
+is read back from the chain: one that does not pay Teeny's address the
+price is refused, one that cannot be read is left to the facilitator's own
+check. Then 200 with the resource and `X-PAYMENT-RESPONSE`, one
+`x402_sales` row (a transaction seen before is refused) and one inflow row,
+category `sale`, ref `x402:stats`, which the weekly accounts count. Off
+until `X402_ENDPOINT=1` (404 until then).
+
 ### Runway
 
 Runway as a sense (docs/roadmap.md, S2; `teeny_hands/runway.py`, frozen).
@@ -1473,7 +1497,7 @@ creates its own tables:
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
-| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
