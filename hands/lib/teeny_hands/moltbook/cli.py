@@ -100,6 +100,9 @@ def parser() -> argparse.ArgumentParser:
     scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
+    measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
+    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
