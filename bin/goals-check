@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The goal ledger's checks (evals/cron.pinned.toml, goals-check): `hands/goals
+# check` evaluates every open goal against its check, a kind written in frozen
+# code (hands/lib/teeny_hands/goals/checks.py), and moves each one to solved,
+# or failed once its deadline has passed. A goal moves once; a second run
+# changes nothing. Pinned, so the brain that proposes the goals cannot switch
+# off what checks them.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/goals" check </dev/null
