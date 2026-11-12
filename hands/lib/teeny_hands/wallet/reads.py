@@ -1,8 +1,9 @@
 """The wallet's read verbs, and the operator's lists (bills, vendors).
 
 Nothing here moves funds or asks the core to: the reads are `wallet_status`,
-`wallet_balances`, `wallet_ledger_list`, `cost_report`, `x402_list_payments`
-and Solana RPC token-account reads for USDC and $TINY.
+`wallet_balances`, `wallet_ledger_list`, `cost_report`, `x402_list_payments`,
+Solana RPC token-account reads for USDC and $TINY and, on mainnet, one
+`eth_call` per EVM network for its USDC (chains.py).
 """
 
 from __future__ import annotations
@@ -13,8 +14,8 @@ from typing import Any, Mapping
 
 from .. import hand
 from ..bounty import store as bounty_store
-from . import caps, solana, store
-from .pay import load_caps, own_address, sol_balance
+from . import caps, chains, solana, store
+from .pay import load_caps, native_balance, own_address, sol_balance
 
 Json = dict[str, Any]
 MONTH_DAYS = 30
@@ -27,13 +28,34 @@ def _cluster() -> str:
         raise hand.HandError(str(exc)) from None
 
 
+def _evm_address() -> str | None:
+    try:
+        return own_address(chain="base")
+    except hand.HandError:
+        return None  # a wallet made before EVM accounts were stored
+
+
 def address() -> Json:
+    """Teeny's Solana address (`address`, as before) and its EVM address, the
+    same on every EVM network: both from the one recovery phrase."""
     cluster = _cluster()
     own = own_address()
-    return {"address": own, "cluster": cluster, "url": solana.explorer_account(own, cluster)}
+    out: Json = {"address": own, "cluster": cluster, "url": solana.explorer_account(own, cluster)}
+    evm = _evm_address()
+    if evm is not None:
+        out["evm"] = {
+            "address": evm,
+            "networks": {key: chains.explorer_account(key, evm, cluster) for key in chains.NETWORKS},
+            "usable": cluster == "mainnet",
+        }
+    return out
 
 
 def balance() -> Json:
+    """SOL and USDC on Solana (`sol`, `usdc`, as before), $TINY (`tiny`) and,
+    on mainnet, ETH and USDC on every EVM network. A network that cannot be
+    read carries `error`, and a failed $TINY read `tiny.error`; neither stops
+    the others."""
     cluster = _cluster()
     own = own_address()
     sol = sol_balance()
@@ -51,6 +73,23 @@ def balance() -> Json:
         out["tiny"] = {"raw": held["raw"], "display": _decimal(int(held["raw"]), held["decimals"]), "mint": held["mint"]}
     except hand.HandError as exc:
         out["tiny"] = {"error": str(exc)}
+    evm = _evm_address() if cluster == "mainnet" else None
+    if evm is not None:
+        networks: Json = {}
+        for key, network in chains.NETWORKS.items():
+            entry: Json = {}
+            try:
+                native = native_balance(chain=key)
+                entry[network.native.lower()] = {"raw": str(native), "display": caps.display(native, network.native)}
+            except hand.HandError as exc:
+                entry["error"] = str(exc)
+            try:
+                token = chains.erc20_balance(key, network.usdc["mainnet"], evm)
+                entry["usdc"] = {"raw": str(token), "display": caps.display(token, "USDC"), "contract": network.usdc["mainnet"]}
+            except hand.HandError as exc:
+                entry["usdc_error"] = str(exc)
+            networks[key] = entry
+        out["evm"] = {"address": evm, "networks": networks}
     return out
 
 
@@ -98,7 +137,7 @@ def _public(row: Mapping[str, Any]) -> Json:
     out["usd"] = caps.usd(int(row["usd_micro"]))
     del out["usd_micro"]
     if row.get("signature"):
-        out["url"] = solana.explorer_tx(row["signature"], row["cluster"])
+        out["url"] = chains.explorer_tx(row.get("chain") or chains.SOLANA, row["signature"], row["cluster"])
     return out
 
 
@@ -129,7 +168,7 @@ def receipt(payment_id: int) -> Json:
             if bounty is not None:
                 out["for"] = f"the prize for bounty #{row['ref']}: {bounty['title']}"
         elif row["purpose"] == "vendor":
-            vendor = store.vendor_by_address(conn, row["to_address"])
+            vendor = store.vendor_by_address(conn, row["to_address"], row.get("chain") or chains.SOLANA)
             out["for"] = f"{vendor['name'] if vendor else 'a vendor'} ({row['ref']})"
     finally:
         conn.close()
@@ -305,27 +344,38 @@ def bills_remove(name: str) -> Json:
     return {"removed": _name(name)}
 
 
-def vendors_add(name: str, address_text: str, note: str | None) -> Json:
-    if not solana.is_address(address_text):
-        raise hand.Refused("that is not a valid Solana address", rule="address")
-    if address_text == caps.TINY_MINT or address_text in caps.USDC_MINTS.values():
-        raise hand.Refused("that is a token mint, not a wallet", rule="address")
+def vendors_add(name: str, address_text: str, note: str | None, chain: str = chains.SOLANA) -> Json:
+    """Allow one vendor address on one chain. An EVM vendor names its network:
+    an address that is a wallet on Base need not be one on Arbitrum."""
+    chain = (chain or chains.SOLANA).strip().lower()
+    if chain not in chains.CHAINS:
+        raise hand.Refused(f"--chain is one of {', '.join(chains.CHAINS)}", rule="chain")
+    if chains.is_evm(chain):
+        if not chains.is_evm_address(address_text):
+            raise hand.Refused(f"that is not a valid {chain} address", rule="address")
+        if address_text.lower() in chains.evm_tokens():
+            raise hand.Refused("that is a token contract, not a wallet", rule="address")
+    else:
+        if not solana.is_address(address_text):
+            raise hand.Refused("that is not a valid Solana address", rule="address")
+        if address_text == caps.TINY_MINT or address_text in caps.USDC_MINTS.values():
+            raise hand.Refused("that is a token mint, not a wallet", rule="address")
     conn = store.db()
     try:
         conn.execute(
-            "INSERT INTO vendors (name, address, note, created_at) VALUES (?, ?, ?, ?)"
-            " ON CONFLICT (name) DO UPDATE SET address = excluded.address, note = excluded.note",
-            (_name(name), address_text, note, hand.now()),
+            "INSERT INTO vendors (name, address, chain, note, created_at) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (name) DO UPDATE SET address = excluded.address, chain = excluded.chain, note = excluded.note",
+            (_name(name), address_text, chain, note, hand.now()),
         )
     finally:
         conn.close()
-    return {"vendor": {"name": _name(name), "address": address_text}}
+    return {"vendor": {"name": _name(name), "address": address_text, "chain": chain}}
 
 
 def vendors_list() -> Json:
     conn = store.db()
     try:
-        rows = conn.execute("SELECT name, address, note FROM vendors ORDER BY name").fetchall()
+        rows = conn.execute("SELECT name, address, chain, note FROM vendors ORDER BY name").fetchall()
     finally:
         conn.close()
     return {"vendors": [store.row_dict(r) for r in rows]}
@@ -351,6 +401,12 @@ def caps_status() -> Json:
         "per_day_usd": caps.usd(c.per_day_micro),
         "per_recipient_week_usd": caps.usd(c.recipient_week_micro),
         "sol_usd": caps.usd(c.sol_usd_micro),
+        "eth_usd": caps.usd(c.eth_usd_micro) if c.eth_usd_micro is not None else None,
+        "convert_per_day_usd": caps.usd(c.convert_day_micro) if c.convert_day_micro is not None else None,
+        "convert_loss_bps": c.convert_loss_bps,
+        "x402_per_request_usd": caps.usd(c.x402_request_micro) if c.x402_request_micro is not None else None,
+        "x402_per_day_usd": caps.usd(c.x402_day_micro) if c.x402_day_micro is not None else None,
+        "evm_networks": list(chains.NETWORKS) if c.cluster == "mainnet" else [],
         "usdc_mint": c.usdc_mint,
         "challenge_hours": bounty_store.challenge_hours(),
     }
