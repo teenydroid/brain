@@ -832,8 +832,11 @@ class AskProposer:
     def propose(self, request: Json) -> Any:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
-        done = subprocess.run(argv, input=render_request(request), capture_output=True, text=True, env=code_env(),
-                              timeout=900)
+        try:
+            done = subprocess.run(argv, input=render_request(request), capture_output=True, text=True,
+                                  env=code_env(), timeout=900)
+        except subprocess.TimeoutExpired:
+            raise EvolveError("the proposer's turn took over 900 s") from None
         if done.returncode != 0:
             raise EvolveError(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
         return first_json(done.stdout)
@@ -1072,8 +1075,11 @@ def _run_check(argv: list[str], env: Mapping[str, str], timeout: float = 600) ->
         return False, f"timed out after {int(timeout)} s"
     except OSError as exc:
         return False, str(exc)
-    tail = (done.stderr.strip() or done.stdout.strip()).splitlines()[-3:]
-    return done.returncode == 0, " ".join(tail)[-400:]
+    tail = " ".join((done.stderr.strip() or done.stdout.strip()).splitlines()[-3:])
+    # The details go into a public pull request: no paths of the box.
+    for where, short in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+        tail = tail.replace(where, short)
+    return done.returncode == 0, tail[-400:]
 
 
 def gate(tree: Path, base: str) -> Json:
