@@ -29,6 +29,7 @@ secrets/teeny.env; each refused `off` until then.
 from __future__ import annotations
 
 import re
+import sqlite3
 import tomllib
 from pathlib import Path
 from typing import Any, Mapping
@@ -195,8 +196,10 @@ def refundable(conn, ref: str, to: str, asset: str, raw: int) -> Json:
     if not hand.flag("REQUEST_REFUNDS", False):
         raise hand.Refused("refunds are off: REQUEST_REFUNDS=1 in secrets/teeny.env", rule="off")
     found = re.fullmatch(r"request-payment:(\d{1,12})", ref)
-    conn.executescript(SCHEMA) if not conn.in_transaction else None
-    row = conn.execute("SELECT * FROM request_payments WHERE id = ?", (int(found.group(1)),)).fetchone() if found else None
+    try:
+        row = conn.execute("SELECT * FROM request_payments WHERE id = ?", (int(found.group(1)),)).fetchone() if found else None
+    except sqlite3.OperationalError:  # no request_payments yet: nothing is due
+        row = None
     if row is None or row["status"] != "refund_due":
         raise hand.Refused("that is not a refund that is due", rule="refund")
     if row["sender"] != to:
