@@ -216,7 +216,7 @@ class RejectionTest(support.Scratch):
                            context=dict(self.CONTEXT), judge=False)
         self.assertEqual((got.kind, got.category, got.field), ("hold", "rejection", "body"))
         (held,) = holds.list_holds()
-        self.assertEqual((held["category"], held["held_by"]), ("rejection", "screen"))
+        self.assertEqual((held["category"], held["by"]), ("rejection", "screen"))
 
     def test_a_gracious_draft_after_a_rejection_passes(self):
         got = check_fields({"body": "understood, thanks for taking a look"}, surface="github", kind="comment",
