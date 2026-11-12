@@ -222,6 +222,22 @@ def start(branch: str) -> str:
         return record["commit"]
 
 
+def resume(branch: str) -> str:
+    """Syncs, then checks out BRANCH as origin has it, for a fix job on a
+    pull request already open (docs/roadmap.md, A7). Refused while the
+    clone is not free, or when origin has no such branch."""
+    with hand.lock("self-clone"):
+        record = _sync_locked()
+        if record["state"] not in ("cloned", "synced"):
+            raise hand.Refused(f"the clone is not free ({record['state']} on {record['branch']})", rule="busy")
+        remote = f"refs/remotes/origin/{branch}"
+        sha = _rev(remote)
+        if sha is None or not branch.startswith(BRANCH_PREFIX):
+            raise hand.Refused(f"origin has no branch {branch}", rule="no_branch")
+        _git("checkout", "-q", "-B", branch, remote)
+        return sha
+
+
 def base_of(branch: str) -> str | None:
     """Where BRANCH left origin/main."""
     done = _git("merge-base", ORIGIN_BASE, f"refs/heads/{branch}", check=False)
@@ -230,9 +246,10 @@ def base_of(branch: str) -> str | None:
     return done.stdout.decode().strip() or None
 
 
-def has_changes() -> bool:
-    """The checked-out branch differs from origin/main: edits, or commits."""
-    return dirty() or int(_out("rev-list", "--count", f"{ORIGIN_BASE}..HEAD")) > 0
+def has_changes(since: str = ORIGIN_BASE) -> bool:
+    """The checked-out branch differs from SINCE (origin/main by default):
+    edits, or commits."""
+    return dirty() or int(_out("rev-list", "--count", f"{since}..HEAD")) > 0
 
 
 # --- shipping a self job ----------------------------------------------------------------------
@@ -323,4 +340,38 @@ def ship(job: Json, gh: Any = None) -> Json:
                 "would_open_pr": opened.get("would_open_pr"), "title": fields["title"]}
     return {"job_id": job["id"], "repo": full, "branch": branch, "commit": pushed["commit"],
             "pr_url": opened.get("html_url"), "number": opened.get("number"),
+            "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}
+
+
+def ship_fix(job: Json, gh: Any = None) -> Json:
+    """Ships a fix job (docs/roadmap.md, A7): its commits on top of the open
+    pull request's branch, checked for frozen paths against origin/main and
+    pushed to the same branch, never forced. No new pull request: the one
+    already open picks the commits up and its checks run again."""
+    from ..gh import actions
+    from ..gh.client import GitHubApi
+
+    branch = job["branch"]
+    since = f"refs/remotes/origin/{branch}"
+    full = repo()
+    with hand.lock("self-clone"):
+        fetch()
+        on = current_branch()
+        if on != branch:
+            raise hand.HandError(f"the clone is on {on}, not {branch}")
+        if dirty():
+            _git("add", "-A")
+            _git("commit", "-q", "-m", f"fix: make the failing checks pass ({job['slug']})")
+        if not has_changes(since):
+            raise hand.Refused("the fix changes nothing", rule="empty")
+        paths = frozen_paths(branch)
+        if paths:
+            raise hand.Refused(f"it touches frozen path(s): {', '.join(paths)} (evals/frozen.txt)", rule="frozen",
+                               paths=paths)
+        if gh is None and not hand.dry_run():
+            gh = GitHubApi.from_settings()
+        pushed = actions.push_branch(gitdir(), full, branch, since, gh=gh)
+    if pushed.get("dry_run"):
+        return {"job_id": job["id"], "dry_run": True, "branch": branch, "would_push": pushed["would_push"]}
+    return {"job_id": job["id"], "repo": full, "branch": branch, "commit": pushed["commit"], "pr_url": job.get("pr_url"),
             "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}
