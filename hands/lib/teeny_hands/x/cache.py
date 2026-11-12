@@ -30,7 +30,7 @@ from datetime import datetime
 from typing import Any, Callable, Iterator
 
 from .. import hand
-from . import open_db
+from . import open_db, twitr
 from .client import XApi, number_setting
 from .model import Json, SearchOptions
 

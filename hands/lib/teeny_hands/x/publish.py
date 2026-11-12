@@ -20,7 +20,7 @@ import sys
 from typing import Any, Mapping
 
 from .. import hand
-from . import open_db
+from . import open_db, twitr
 from . import cache, media
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
