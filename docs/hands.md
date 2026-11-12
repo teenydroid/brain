@@ -191,7 +191,7 @@ a link post's `url` must be on the link allowlist.
 | `post` | A | `{submolt, title, body?, url?, type?}` (with no `ID`, stdin is the post). |
 | `comment` | A | `{post_id, body, parent_id?}`. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `follow`, `subscribe` | A | `{name}`, `{submolt}`; once each, never itself. |
+| `follow`, `subscribe` | A | `{name}`, `{submolt}`; once each, never itself. Refused (`too_few_exchanges`) until the agent has said at least 2 things to Teeny on Moltbook (its `moltbook` stimuli): a small, curated follow list, never a stranger. |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` **once**; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Challenges left for the operator and the failure count; answer one; clear the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
