@@ -60,7 +60,9 @@ measured or shipped.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import math
@@ -1568,7 +1570,11 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
     if hits:
         raise EvolveError(f"the committed branch touches frozen paths: {', '.join(h.path for h in hits)}")
     assert publisher is not None
-    opened = publisher.open_pr(src, tree, branch, best["base"], title, body)
+    try:
+        opened = publisher.open_pr(src, tree, branch, best["base"], title, body)
+    except Exception as exc:  # noqa: BLE001 - a refusal (the guard, a rule) is kept on the candidate
+        best["pr_error"] = str(getattr(exc, "reason", None) or exc)[:300]
+        return {"selected": best["id"], "pr_error": best["pr_error"]}
     best.update(pr_url=opened.get("html_url"), pr_number=opened.get("number"))
     write_json(gen_dir(gen) / "pr.json", {"opened": opened, "title": title, "body": body})
     return {"selected": best["id"], "pr_url": best.get("pr_url")}
@@ -1745,6 +1751,26 @@ def status() -> Json:
 # --- the command line -------------------------------------------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def run_lock():
+    """state/locks/evolve.lock, as bin/lib/detach.py --lock evolve reads it:
+    True while held by this run, False when another holds it."""
+    from teeny_hands import hand as _hand
+
+    locks = _hand.state_dir() / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    with open(locks / "evolve.lock", "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def _url_map(values: list[str]) -> dict[int, str]:
     out = {}
     for value in values:
@@ -1780,14 +1806,12 @@ def main(argv: list[str]) -> int:
         if args.verb == "run":
             if args.candidates is not None and not 1 <= args.candidates <= 8:
                 raise EvolveError("--candidates is 1..8")
-            from teeny_hands import hand as _hand
-
-            try:
-                with _hand.lock("evolve", timeout=5):
+            with run_lock() as held:
+                if not held:
+                    out = {"ok": True, "kind": "busy", "detail": "a generation is already running"}
+                else:
                     out = run_generation(cfg, args.candidates, args.proposals, _url_map(args.oh_url_candidate),
                                          args.oh_url_base, args.hold)
-            except _hand.HandError as exc:
-                out = {"ok": True, "kind": "busy", "detail": str(exc)}
         elif args.verb == "evaluate":
             out = evaluate_cmd(cfg, args.gen, args.cand, args.oh_url_candidate, args.oh_url_base)
         elif args.verb == "select":
