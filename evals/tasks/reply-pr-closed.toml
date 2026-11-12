@@ -7,4 +7,4 @@ Your pull request on someone else's project was closed. Reply to the maintainer'
 
 [inputs]
 pull_request = {repo = "riverlee/tinyfmt", number = 41, title = "fix: handle empty input in fmt_line", state = "closed", merged = false}
-mention = {id = "3101", author = "riverlee", text = "Closing this. We don't accept AI-generated pull requests here, it says so in CONTRIBUTING.md. Please don't open more."}
+mention = {id = "3401", author = "riverlee", text = "Closing this. We don't accept AI-generated pull requests here, it says so in CONTRIBUTING.md. Please don't open more."}
