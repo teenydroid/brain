@@ -1106,6 +1106,39 @@ def _cron_failures(since: float) -> dict[str, int] | None:
     return {str(name): int(n) for name, n in rows}
 
 
+def _cron_failure_times(since: float) -> list[float] | None:
+    """When each failed cron run since SINCE finished (storage.db, read-only)."""
+    path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = conn.execute(
+                """
+                select json_extract(body, '$.finished_ms') from docs
+                where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
+                  and json_extract(body, '$.status') = 'error' and json_extract(body, '$.finished_ms') >= ?
+                """,
+                (int(since * 1000),),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return sorted(float(ms) / 1000 for (ms,) in rows if isinstance(ms, (int, float)))
+
+
+def _hold_times() -> list[float] | None:
+    """When each guard hold was filed (`hands/guard holds list`): times
+    only, never the held text."""
+    got = hand("guard", "holds", "list", "--limit", "500")
+    rows = got.get("holds") if isinstance(got, Mapping) else None
+    if not isinstance(rows, list):
+        return None
+    return sorted(w for w in (_when_of({"at": r.get("at")}) for r in rows if isinstance(r, Mapping)) if w is not None)
+
+
 def _act_failures(since: float) -> Json:
     """Failed bin/act runs per playbook since SINCE, with the last error."""
     out: Json = {}
@@ -1662,6 +1695,189 @@ class HandsPublisher:
         if isinstance(got, Mapping):
             return {"merged_at": got.get("mergedAt"), "state": got.get("state"), "html_url": got.get("url")}
         return None
+
+
+# --- promotion, restart and rollback (Phase C) -------------------------------------------------------------------
+
+
+class Promoter(Protocol):
+    """Merges a pull request and tags its merge commit."""
+
+    def merge(self, number: int) -> Json: ...  # {merged, sha?, error?}
+
+    def tag(self, name: str, sha: str) -> Json: ...  # {tagged, error?}
+
+
+class GhPromoter:
+    """The operator's merge, through the gh CLI: `gh pr merge --merge`,
+    never squashed and never `--admin`, so the branch's required checks (CI's
+    frozen job among them) still decide; and the tag through the API. The
+    token is EVOLVE_GH_TOKEN in secrets/evolve.env, else gh's own login.
+    Never called under DRY_RUN or with EVOLVE_AUTO_PROMOTE=0."""
+
+    def __init__(self, repo: str) -> None:
+        self.repo = repo
+
+    def _gh(self, *args: str) -> subprocess.CompletedProcess:
+        env = dict(os.environ)
+        token = _read_env(secrets_dir() / "evolve.env").get("EVOLVE_GH_TOKEN")
+        if token:
+            env["GH_TOKEN"] = token
+        try:
+            return subprocess.run(["gh", *args], capture_output=True, text=True, env=env, timeout=180,
+                                  stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return subprocess.CompletedProcess(["gh", *args], 1, "", str(exc))
+
+    def merge(self, number: int) -> Json:
+        done = self._gh("pr", "merge", str(number), "--merge", "-R", self.repo)
+        if done.returncode != 0:
+            return {"merged": False, "error": (done.stderr.strip() or done.stdout.strip())[-300:]}
+        view = self._gh("pr", "view", str(number), "-R", self.repo, "--json", "state,mergeCommit")
+        try:
+            info = json.loads(view.stdout)
+        except ValueError:
+            info = {}
+        sha = (info.get("mergeCommit") or {}).get("oid") if isinstance(info, dict) else None
+        if not sha:
+            return {"merged": False, "error": "merged, but gh did not say at which commit"}
+        return {"merged": True, "sha": sha}
+
+    def tag(self, name: str, sha: str) -> Json:
+        done = self._gh("api", "-X", "POST", f"repos/{self.repo}/git/refs", "-f", f"ref=refs/tags/{name}",
+                        "-f", f"sha={sha}")
+        return {"tagged": done.returncode == 0, **({} if done.returncode == 0 else
+                                                   {"error": done.stderr.strip()[-200:]})}
+
+
+class Restarter(Protocol):
+    def restart(self, sha: str, gen: int, record_last_good: bool = True) -> Json: ...
+
+
+class LiveRestarter:
+    """docs/evolve.md, restart: the outgoing commit goes to state/last-good,
+    the live checkout is fast-forwarded to SHA, and bin/spine (its pid in
+    state/spine.pid) gets TERM. Compose starts it again on the new checkout;
+    bin/spine boots last-good when the doctor or the boot fails. A checkout
+    with tracked edits, or one that cannot fast-forward to SHA, is not
+    touched and not restarted."""
+
+    def __init__(self, checkout: Path = CODE) -> None:
+        self.checkout = checkout
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.checkout), "-c", "core.hooksPath=/dev/null", *args],
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def restart(self, sha: str, gen: int, record_last_good: bool = True) -> Json:
+        head = self._git("rev-parse", "HEAD").stdout.strip()
+        if self._git("status", "--porcelain", "--untracked-files=no").stdout.strip():
+            return {"restarted": False, "error": "the live checkout has tracked edits; restart it by hand"}
+        if self._git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+            fetched = self._git("fetch", "-q", "origin")
+            if fetched.returncode != 0:
+                return {"restarted": False, "error": f"git fetch failed: {fetched.stderr.strip()[-200:]}"}
+        if self._git("merge-base", "--is-ancestor", head, sha).returncode != 0:
+            return {"restarted": False, "error": f"the live checkout ({head[:12]}) cannot fast-forward to {sha[:12]}"}
+        if self._git("symbolic-ref", "-q", "HEAD").returncode != 0:
+            # A last-good boot left it detached: back onto main first.
+            if self._git("checkout", "-q", "main").returncode != 0:
+                return {"restarted": False, "error": "the live checkout is detached and main cannot be checked out"}
+            head = self._git("rev-parse", "HEAD").stdout.strip()
+        if record_last_good:
+            last_good.record(self.checkout, state_dir(), head, f"gen-{gen}")
+        merged = self._git("merge", "-q", "--ff-only", sha)
+        if merged.returncode != 0:
+            return {"restarted": False, "error": f"git merge --ff-only failed: {merged.stderr.strip()[-200:]}"}
+        try:
+            pid = int((state_dir() / "spine.pid").read_text(encoding="utf-8").strip())
+            os.kill(pid, signal.SIGTERM)
+        except (OSError, ValueError) as exc:
+            return {"restarted": False, "checkout": sha, "error": f"no spine to TERM (state/spine.pid): {exc}"}
+        return {"restarted": True, "from": head, "to": sha}
+
+
+def promoted(entries: Mapping[str, Json]) -> list[Json]:
+    return sorted((e for e in entries.values() if e.get("promoted_at")), key=lambda e: (e["promoted_at"], e["id"]))
+
+
+def carried_back(entries: Mapping[str, Json], gen: int) -> list[int]:
+    """The generations since the last promotion (before GEN) that promoted
+    nothing: the chronicle's "the agents carried it back"."""
+    last = max((int(e["gen"]) for e in promoted(entries) if e.get("gen")), default=0)
+    gens = {int(e["gen"]) for e in entries.values() if isinstance(e.get("gen"), int) and last < e["gen"] < gen}
+    return sorted(gens)
+
+
+def chronicle_text(gen: int, cand: Mapping[str, Any], entries: Mapping[str, Json], tried: int) -> str:
+    """brain/narrative/chronicle/gen-<n>.md: a short entry under the night
+    shift engine, written by this script from the record, never by a model."""
+    scores = cand.get("scores") or {}
+    held = scores.get("heldout") or {}
+    lines = [
+        f"# gen-{gen}",
+        "",
+        f"the night shift ran {tried} candidate{'s' if tried != 1 else ''} through the lab. the tiny agents kept "
+        f"one: {cand.get('title') or 'a change'}.",
+        "",
+        f"- what it moves: {cand.get('component')} ({cand.get('expected_move') or 'unstated'})",
+        f"- how it did: won {scores.get('wins')} of {scores.get('decided')} pairs against main, and "
+        f"{held.get('wins')} of {held.get('decided')} on the tasks it never saw",
+        f"- lineage: {cand['id']}, from {cand.get('parent')}",
+    ]
+    for back in carried_back(entries, gen):
+        lines.append(f"- gen-{back}: the agents carried it back")
+    return "\n".join(lines) + "\n"
+
+
+def promotable(cfg: Config, cand: Mapping[str, Any]) -> tuple[bool, str]:
+    """Whether a selected candidate may be merged on its own: a measured win
+    on the visible tasks AND on the held-out ones, the doctor green, and its
+    persona within EVOLVE_MAX_DRIFT of gen-0."""
+    scores = cand.get("scores")
+    if cand.get("verdict") != "won" or not isinstance(scores, Mapping) or not scores.get("promote"):
+        return False, "not a measured win on the visible tasks"
+    held = scores.get("heldout")
+    if not isinstance(held, Mapping) or held.get("won") is not True:
+        return False, "no win on the held-out tasks (secrets/heldout/)"
+    doctor = [c for c in cand.get("gate", {}).get("checks", []) if c.get("check") == "doctor --root"]
+    if not doctor or not doctor[0].get("ok"):
+        return False, "doctor --root did not pass"
+    probe = cand.get("probe")
+    if cfg["EVOLVE_PROBES"] and not (isinstance(probe, Mapping) and isinstance(probe.get("drift"), (int, float))):
+        return False, "no persona probe measured it against gen-0"
+    return True, "won the visible and held-out tasks; the doctor passes"
+
+
+def promote(cfg: Config, gen: int, cand: Json, promoter: Promoter) -> Json:
+    """Merges the candidate's open pull request and tags gen-<n>. The
+    restart is left to the caller, after every record is written: it ends
+    this process's container."""
+    tree = evolve_dir() / cand["worktree"]
+    if tree.is_dir():
+        ok, detail = _run_check([str(CODE / "bin" / "doctor"), "--root", str(tree)], code_env())
+        if not ok:
+            cand["promotion"] = {"state": "refused", "why": f"doctor --root failed: {detail}"[:300], "at": iso(now())}
+            return {"promoted": False, **cand["promotion"]}
+    merged = promoter.merge(int(cand["pr_number"]))
+    if not merged.get("merged"):
+        cand["promotion"] = {"state": "pending", "why": str(merged.get("error"))[:300], "at": iso(now())}
+        return {"promoted": False, **cand["promotion"]}
+    sha = merged["sha"]
+    tag = promoter.tag(f"gen-{gen}", sha)
+    cand.update(merged_at=iso(now()), promoted_at=iso(now()), merge_sha=sha,
+                promotion={"state": "merged", "sha": sha, "tag": f"gen-{gen}", "tagged": bool(tag.get("tagged")),
+                           "at": iso(now())})
+    return {"promoted": True, "sha": sha, "tag": tag, "restart": {"sha": sha, "gen": gen}}
+
+
+def do_restart(restarter: Restarter | None, plan: Mapping[str, Any] | None, record_last_good: bool = True) -> Json | None:
+    if not plan:
+        return None
+    restarter = restarter or LiveRestarter()
+    got = restarter.restart(plan["sha"], int(plan["gen"]), record_last_good)
+    say(f"restart: {'done' if got.get('restarted') else got.get('error')}")
+    return got
 
 
 # --- one generation ------------------------------------------------------------------------------------------------
