@@ -85,6 +85,12 @@ STALE_SECS = 600
 #: A run in flight renews the claim on its slot (the core's occurrence lease)
 #: every 30 s; a claim nobody renewed for this long is a gone process's.
 LEASE_FRESH_SECS = 120
+#: Moltbook hides a write until its challenge is solved: the share of the
+#: last MOLTBOOK_WINDOW_SECS's writes that must be visible, once at least
+#: MOLTBOOK_MIN_WRITES went out.
+MOLTBOOK_VERIFIED_SHARE = 0.9
+MOLTBOOK_MIN_WRITES = 3
+MOLTBOOK_WINDOW_SECS = 86400
 
 Json = dict[str, Any]
 
