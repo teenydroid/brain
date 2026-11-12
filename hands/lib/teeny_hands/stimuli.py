@@ -18,7 +18,13 @@ a no-op, so a surface can re-scan freely.
 
 Follow-ups are Teeny's own reminders ("check whether ana's cli shipped"),
 kept in `follow_ups` until they come due, then raised as a `self`
-stimulus.
+stimulus. One may carry a `ref`, the thing it is about (an X post, a
+Moltbook comment, a mail, `chat:message` on Telegram, `owner/repo#n`):
+
+  pending   waiting to come due
+  raised    came due and went into the inbox
+  dropped   the mind cleared it (drop_follow_up)
+  resolved  the thing it was about was answered first (resolve)
 
 Text is stored capped and never trusted: it is what strangers wrote, read
 by a turn that has no acting tools.
@@ -28,7 +34,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from . import hand
 
@@ -40,6 +46,8 @@ MAX_TEXT_CHARS = 4000
 TAKEN_TIMEOUT_SECS = 3600
 #: How far ahead a follow-up may be set.
 MAX_FOLLOW_UP_SECS = 90 * 86400
+#: Surfaces a follow-up's ref may be prefixed with ("x:111" is "111").
+_REF_SURFACES = ("x", "moltbook", "mail", "telegram", "gh")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stimuli (
@@ -202,6 +210,14 @@ def recent(max_items: int = 50) -> Json:
 # --- follow-ups -------------------------------------------------------------------------
 
 
+def bare_ref(ref: str) -> str:
+    """A ref as the thing itself: trimmed, any `surface:` prefix gone, so
+    "x:111" and "111" are the same post."""
+    ref = ref.strip()
+    head, sep, rest = ref.partition(":")
+    return rest.strip() if sep and head.strip().lower() in _REF_SURFACES and rest.strip() else ref
+
+
 def follow_up(due_at: float, about: str, ref: str | None = None) -> Json:
     """Teeny's own reminder, raised as a stimulus once `due_at` passes."""
     now = hand.now()
@@ -211,13 +227,17 @@ def follow_up(due_at: float, about: str, ref: str | None = None) -> Json:
         raise hand.HandError("a follow-up is due in the future")
     if due_at - now > MAX_FOLLOW_UP_SECS:
         raise hand.HandError(f"a follow-up is due within {MAX_FOLLOW_UP_SECS // 86400} days")
+    ref = ref.strip() if isinstance(ref, str) and ref.strip() else None
     conn = db()
     with hand.transaction(conn):
         cur = conn.execute(
             "INSERT INTO follow_ups (due_at, about, ref, status, created_at) VALUES (?,?,?, 'pending', ?)",
             (float(due_at), _clip(about), ref, now),
         )
-    return {"id": cur.lastrowid, "due_at": float(due_at), "about": about.strip()}
+    out: Json = {"id": cur.lastrowid, "due_at": float(due_at), "about": about.strip()}
+    if ref:
+        out["ref"] = ref
+    return out
 
 
 def raise_due() -> int:
@@ -238,6 +258,45 @@ def raise_due() -> int:
             )
             conn.execute("UPDATE follow_ups SET status = 'raised' WHERE id = ?", (row["id"],))
     return len(due)
+
+
+def _waiting_on(conn, refs: Iterable[str]) -> list:
+    wanted = {bare_ref(r) for r in refs if isinstance(r, str) and r.strip()}
+    if not wanted:
+        return []
+    rows = conn.execute("SELECT id, about, ref FROM follow_ups WHERE status = 'pending' AND ref IS NOT NULL").fetchall()
+    return [r for r in rows if bare_ref(r["ref"]) in wanted]
+
+
+def _close(conn, rows: list, status: str) -> None:
+    conn.executemany("UPDATE follow_ups SET status = ? WHERE id = ? AND status = 'pending'",
+                     [(status, r["id"]) for r in rows])
+
+
+def drop_follow_up(id: int | None = None, ref: str | None = None) -> list[int]:
+    """Clears waiting follow-ups, by id or by ref, so they never come due.
+    The ids dropped; none when nothing by that id or ref is still waiting."""
+    if id is None and not (isinstance(ref, str) and ref.strip()):
+        raise hand.HandError("dropping a follow-up needs its id or ref")
+    conn = db()
+    with hand.transaction(conn):
+        if id is not None:
+            rows = conn.execute("SELECT id FROM follow_ups WHERE id = ? AND status = 'pending'", (id,)).fetchall()
+        else:
+            rows = _waiting_on(conn, [ref])
+        _close(conn, rows, "dropped")
+    return [r["id"] for r in rows]
+
+
+def resolve(refs: Iterable[str], keep: Iterable[int] = ()) -> list[Json]:
+    """The thing these refs name was just answered: every waiting follow-up
+    about it is resolved and never comes due, except the ids in `keep`."""
+    spare = set(keep)
+    conn = db()
+    with hand.transaction(conn):
+        rows = [r for r in _waiting_on(conn, refs) if r["id"] not in spare]
+        _close(conn, rows, "resolved")
+    return [{"id": r["id"], "about": r["about"], "ref": r["ref"]} for r in rows]
 
 
 def follow_ups(status: str = "pending") -> Json:

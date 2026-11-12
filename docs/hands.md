@@ -381,9 +381,15 @@ instead, the old per-surface agents.
 | `settle TICK` | A | The beat read its batch: `done` for good. |
 | `release TICK` | A | The beat failed: back to `pending`, in its old place. |
 | `counts` / `recent [--max N]` | R | How many in each status, and the newest of any status. |
-| `follow-up` | A | `{about, in_hours \| due_at, ref?}`. A reminder Teeny set itself, due within 90 days. |
+| `follow-up` | A | `{about, in_hours \| due_at, ref?}`. A reminder Teeny set itself, due within 90 days. `ref` is what it is about, in the stimuli's refs (`x:111` and `111` are one post). |
+| `drop-follow-up` | A | `{id}` or `{ref}`. Clears the waiting follow-ups by that id, or about that ref, so they never come due: `{"dropped": [ids]}`, empty when none was waiting. |
 | `due` | A | Raise the follow-ups now due as `self · follow_up` stimuli, once. |
 | `follow-ups` | R | The reminders still waiting, soonest first. |
+
+A follow-up is `pending` until it is `raised` (came due), `dropped` (the mind
+cleared it: `drop_follow_up`, or this verb) or `resolved`: `bin/tick`
+answered the thing its `ref` names before it came due
+(`stimuli.resolve`; docs/architecture.md, 4a).
 
 It writes only `state/hands.db` (`stimuli`, `follow_ups`, `mind_notes`) and
 tells nobody, so `DRY_RUN` does not apply.

@@ -184,6 +184,27 @@ hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
+
+**Follow-ups do not go stale.** A follow-up may carry a `ref`, the thing it
+is about, in the refs the stimuli use (an X post id, a Moltbook comment id,
+a mail's message id, `chat:message` on Telegram, `owner/repo#n`; a
+`surface:` prefix such as `x:111` is ignored). When an answering intent
+(`reply_x`, `comment_moltbook`, `reply_mail`, `say_telegram`, `comment_gh`)
+lands for real (done, not a dry run), every waiting follow-up whose ref is
+what it answered is `resolved` and never comes due; the intent's entry in
+`runs.jsonl` lists them under `resolved`, and its `hand · outcome` says
+"it cleared follow-up #N". Follow-ups set in the same beat are spared, so
+"reply, and see whether they answer back" survives its own reply. The usual
+case is a reply parked behind a cap or a captcha: a refused answer's
+outcome carries its `ref`, and a `follow_up` set without one while exactly
+one answer stands refused (in this beat, or in the outcomes this batch
+brought) takes that ref. Two refusals at once are ambiguous, and the
+follow-up keeps no ref. Likes, upvotes and posts resolve nothing. The mind
+can clear one itself: `{"do": "drop_follow_up", "id": N}` (or `"ref"`, to
+clear every one about that thing); nothing waiting by that id or ref is a
+refusal. Every beat's header lists the follow-ups still waiting (`#id`,
+when, what, ref; the soonest five), and a raised one arrives as `self ·
+follow_up #id · ref ...`.
 `TEENY_INBOX=core` restores the old per-surface path.
 
 **The cron call does not wait for the beat.** The job runs `bin/tick

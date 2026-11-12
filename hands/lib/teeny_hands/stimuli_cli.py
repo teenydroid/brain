@@ -8,6 +8,7 @@ Teeny's mind reads (teeny_hands.stimuli).
   R  counts                                           how many in each status
   R  recent [--max N]                                 the newest, any status
   A  follow-up {about, in_hours | due_at, ref?}       a reminder to itself
+  A  drop-follow-up {id | ref}                        clear a waiting follow-up
   A  due                                              raise the follow-ups now due
   R  follow-ups                                       the ones still waiting
 
@@ -62,6 +63,15 @@ def _follow_up(_: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return stimuli.follow_up(due, str(b.get("about", "")), ref=ref)
 
 
+def _drop_follow_up(_: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    b = _body(body)
+    fid = b.get("id")
+    if fid is not None and (isinstance(fid, bool) or not isinstance(fid, int)):
+        raise hand.HandError("id is a follow-up's number")
+    ref = b.get("ref") if isinstance(b.get("ref"), str) else None
+    return {"dropped": stimuli.drop_follow_up(id=fid, ref=ref)}
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="hands/stimuli", description="The inbox Teeny's mind reads.")
     verbs = root.add_subparsers(dest="verb")
@@ -81,6 +91,7 @@ def parser() -> argparse.ArgumentParser:
     recent = verb("recent", lambda a, _: stimuli.recent(a.max), "the newest, any status")
     recent.add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("follow-up", _follow_up, "a reminder to itself (JSON on stdin)", body=True)
+    verb("drop-follow-up", _drop_follow_up, "clear a waiting follow-up by id or ref (JSON on stdin)", body=True)
     verb("due", lambda a, _: {"raised": stimuli.raise_due()}, "raise the follow-ups now due")
     verb("follow-ups", lambda a, _: stimuli.follow_ups(), "the follow-ups still waiting")
     return root
