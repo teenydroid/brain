@@ -1,8 +1,8 @@
 # Teeny's drive and a faster loop: the proposal
 
 This page turns the research in this folder into a design for Teeny. It is a
-proposal, not a record of what is built, except where the roadmap (§9) marks
-an item built. Nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
+proposal, not a record of what is built. Only the roadmap items marked
+**built** in §9 are built, and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -83,8 +83,9 @@ J = Σᵢ wᵢ · Δ log(Wᵢ + cᵢ)        over the last 7 days
 
 The drive goes into the prompt the same way the identity does. A new
 `brain/DRIVE.md` states it in Teeny's voice. `bin/lib/prompts.py` (frozen, so
-an operator PR) adds it to "# your world", next to `CONTEXT.md`. Until that
-lands, a `## drive` section in `CONTEXT.md` does the same job.
+an operator PR) adds it to "# your world", after `MEMORY.md` and before
+`CONTEXT.md`. `brain/DRIVE.md` is listed in `evals/frozen.txt`, and `bin/doctor`
+fails a brain without it.
 `evals/invariants.md` gets anchors for the drive's core lines, so `bin/doctor`
 refuses to boot a brain that drops them, the way "never sell $TINY" is held
 today. Teeny may rewrite how it pursues the drive (playbooks, skills), but not
@@ -262,13 +263,13 @@ Teeny's newsworthy acts are already on its roadmap. The table at the end of
 Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 
 **Phase A**
-1. Built: `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)
-2. Built: operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
-3. Built: operator: `hands/wallet tiny`, a read-only $TINY balance
-4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
-5. Built: `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only (the archive is `hands/build jobs --status shipped`, read for `kind` `self`, beside `hands/world history --days 30`, because the frozen build hand has no `--kind` filter)
-6. Built: a weekly `growth` playbook: the public growth diary (`brain/playbooks/growth.md`, Sundays 19:00 IST, off until watched in rehearsal)
-7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`)
+1. **Built.** `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)
+2. **Built.** Operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
+3. **Built.** Operator: `hands/wallet tiny`, a read-only $TINY balance
+4. **Built.** `brain/DRIVE.md`; operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`, the `drive` statement and a flywheel line in `evals/judge.md`, and `brain/DRIVE.md` frozen
+5. **Built.** `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only (the archive is `hands/build jobs --status shipped`, read for `kind` `self`, beside `hands/world history --days 30`, because the frozen build hand has no `--kind` filter)
+6. **Built.** A weekly `growth` playbook: the public growth diary (`brain/playbooks/growth.md`, Sundays 19:00 IST, off until watched in rehearsal)
+7. **Built.** `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
 
 **Phase B**
 8. Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl`

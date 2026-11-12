@@ -29,6 +29,12 @@ secrets/
 # The fences themselves.
 DIRECTIVE.md
 
+# Teeny's one drive (docs/research/teeny-application.md, §3). It rides in every
+# prompt and its core lines are anchored in invariants.md, so a candidate that
+# rewrote it would move what it is measured against. How Teeny pursues the
+# drive (playbooks, skills, SOUL, CONTEXT) stays Teeny's.
+brain/DRIVE.md
+
 # The tool-less agents bin/act drafts with and bin/eval judges with, and the
 # agent definitions that say "Frozen like act.toml": the posture of a turn
 # that reads strangers' text, or acts on a schedule. Their prompts (*.md) and
@@ -50,6 +56,9 @@ hands/x
 # grows, never how the growth is counted.
 hands/world
 hands/lib/teeny_hands/world/
+
+# What spends money on servers stays the operator's, like the wallet.
+hands/vps
 
 # The existing hand library, one entry each. A new hand Teeny writes
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
@@ -77,6 +86,7 @@ hands/lib/teeny_hands/stimuli.py
 hands/lib/teeny_hands/stimuli_cli.py
 hands/lib/teeny_hands/tasks/
 hands/lib/teeny_hands/telegram/
+hands/lib/teeny_hands/vps/
 hands/lib/teeny_hands/wallet/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
