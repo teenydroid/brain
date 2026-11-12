@@ -506,7 +506,7 @@ def report(days: int) -> Json:
             reading.append(_reach_line(split))
         components.append(item)
 
-    events = sum(v for d, v in rows.get(score.PENALTY, []) if since < d <= latest)
+    events = sum(v for d, v, _ in rows.get(score.PENALTY, []) if since < d <= latest)
     cost = score.PENALTY_WEIGHT * events
     j = score.j_score(credits, events)
     reading.append(f"penalty: {_num(events)} side-effect event(s) in the window, minus {_num(cost)}.")
