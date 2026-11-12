@@ -174,6 +174,20 @@ fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"
 check "passes with pre-spine leftovers" doctor
 check "but warns about the old kernel env" grep -q '^warn secrets/kernel.env: pre-spine leftover' "$scratch/doctor.log"
 check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-spine leftover' "$scratch/doctor.log"
+# --- the X profile's disclosure line warns, never fails (P1) --------------------------
+fresh
+check "passes with no X keys" doctor
+check "and the X profile check is ok" grep -q '^ok   x profile: no X keys' "$scratch/doctor.log"
+mkdir -p "$root/secrets" "$root/state"
+printf 'X_API_KEY=k\nX_API_SECRET=s\nX_ACCESS_TOKEN=t\nX_ACCESS_TOKEN_SECRET=ts\nX_OPERATOR_HANDLE=steven\n' >"$root/secrets/teeny.env"
+check "passes with X keys and no cached profile" doctor
+check "but warns that the bio is unchecked" grep -q '^warn x profile: no cached profile' "$scratch/doctor.log"
+sqlite3 "$root/state/hands.db" "create table x_profile (handle text primary key, user_id text, name text, description text not null default '', read_at real not null);
+  insert into x_profile values ('teenydroid', '1', 'teeny', 'a tiny crab', strftime('%s','now'));"
+check "passes a bio without the disclosure line" doctor
+check "but warns that it does not say automated" grep -q '^warn x profile: @teenydroid: the bio does not say' "$scratch/doctor.log"
+sqlite3 "$root/state/hands.db" "update x_profile set description = 'a tiny crab. automated, run by @steven'"
+check "names the X profile ok once the bio says it" grep -q '^ok   x profile: @teenydroid' <(doctor; cat "$scratch/doctor.log")
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/lib/agent_check.py'"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
