@@ -21,9 +21,16 @@ a night this rewrites it, from inside the day:
    the prompts so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
-An answer that is not JSON, or a page that is empty or too long, changes
-nothing; neither does a failed turn. The next night tries again with
-everything since the last reflection that worked.
+The JSON is found wherever it sits in the answer (in a fence, after a line
+of prose). An answer that is not usable (no JSON, a page empty or too long)
+is asked about once more on the same thread, with a short reminder of the
+shape. When the second answer still carries no JSON but is the page itself
+in markdown (one has been seen live: the page, its title written as a bare
+"MEMORY.md"), either answer that is the page is kept as the page, titled
+`# MEMORY.md`; a trailing "## diary" section or "diary:" line is the diary,
+and without one the night writes none and says so (`diary_missing`).
+Anything else changes nothing, and neither does a failed turn: the next
+night tries again with everything since the last reflection that worked.
 
 `--light` (the pinned `reflect-midday` job, 14:00) does steps 1-3 for the
 page alone, so what the morning brought is in every prompt by the

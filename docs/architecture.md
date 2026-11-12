@@ -251,8 +251,11 @@ to rewrite `MEMORY.md`. It works from what the mind chose to remember
 included (`state/tick/runs.jsonl`), the follow-ups still waiting, and the
 page as it stands. The old page is kept in `state/reflect/`, and the diary
 entry goes to `state/diary/<date>.md` and to the core's memory. The prompts
-are rebuilt, so the next beat reads the new page. An unusable answer changes
-nothing. Like the beat, the pinned jobs run it detached (`bin/reflect
+are rebuilt, so the next beat reads the new page. An unusable answer is
+asked about once more on the same thread; if the mind then answers with the
+page itself in markdown instead of the JSON, that is kept as the page (with
+a trailing `## diary` section as the diary, or no diary and
+`diary_missing`). Anything else changes nothing. Like the beat, the pinned jobs run it detached (`bin/reflect
 --detach`, log in `state/reflect/reflect.log`) under a `reflect` lock: one
 long turn can outlast the core's 300 s, and a second reflection never starts
 while one is running.
