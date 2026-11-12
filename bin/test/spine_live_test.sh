@@ -373,9 +373,30 @@ check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offer
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
 check "the builder is told where its desk is" grep -q 'desk/build.json' <<<"$(builder_request)"
 check "the builder run is rooted at the workbench" grep -q "rooted at its agent's workspace" "$scratch/spine.log"
-check "the builder's shell is not refused" bash -c "! grep -q 'refused the spawn' '$scratch/spine.log'"
-check "the builder's shell ran in its job's folder" test -n "$workdir" -a -e "$workdir/shell-ran"
-check "the builder saw the shell's output" grep -qF "teeny-shell-2-ran:$workdir" "$scratch/model-bodies.jsonl"
+# The regression: a shell rooted at the checkout, which holds brain/, was
+# refused as a grant over the core workspace on every call. Never again,
+# whatever sandbox the host has.
+check "the builder's shell is never refused over the core workspace" \
+  bash -c "! grep -q 'refused the spawn denial=Path' '$scratch/spine.log'"
+# Whether the shell can run at all depends on the host: a runner with no
+# sandbox backend refuses every sandboxed spawn (denial=Unsupported), as it
+# should. Only a host with a backend must run the command.
+sandbox_backend="$("$root/bin/oh" config_get_sandbox_settings '{}' 2>/dev/null |
+  jq -r '[.. | objects | .detected_backend? | strings] | first // empty' 2>/dev/null || true)"
+case "$sandbox_backend" in
+  unavailable | none) no_backend=1 ;;
+  "") if grep -q 'refused the spawn denial=Unsupported' "$scratch/spine.log"; then no_backend=1; else no_backend=0; fi ;;
+  *) no_backend=0 ;;
+esac
+if [ "$no_backend" = 1 ]; then
+  printf 'info no sandbox backend on this host (detected_backend=%s): skipped the builder shell run checks\n' \
+    "${sandbox_backend:-unknown}"
+else
+  printf 'info sandbox backend: %s\n' "${sandbox_backend:-unknown}"
+  check "the builder's shell is not refused" bash -c "! grep -q 'refused the spawn' '$scratch/spine.log'"
+  check "the builder's shell ran in its job's folder" test -n "$workdir" -a -e "$workdir/shell-ran"
+  check "the builder saw the shell's output" grep -qF "teeny-shell-2-ran:$workdir" "$scratch/model-bodies.jsonl"
+fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
 operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
