@@ -408,7 +408,12 @@ This was the simplest safe choice, and the one that works at this pin:
   rooted at the checkout: the checkout is the core's action dir and holds
   `brain/`, the core workspace, and TinySecurity refuses any grant that
   overlaps it (every call failed `denial=Path` until openhuman#8674 let a
-  cron run carry its own root). OpenHuman resolves the root at each run and
+  cron run carry its own root). The jail is bubblewrap: under Docker's
+  defaults the container only has Landlock, which TinySecurity will not plan
+  a shell onto (`denial=Unsupported`), so `deploy/compose.yaml` lets the
+  spine create user namespaces (a seccomp profile that is Docker's default
+  plus five syscalls, `apparmor=unconfined`, `systempaths=unconfined`;
+  `bin/test/compose_sandbox_test.sh`). OpenHuman resolves the root at each run and
   refuses to start one over `brain/` or the keyring;
 - the file tools are ones both agents need anyway, scoped by OpenHuman's
   own path policy to the workbench;

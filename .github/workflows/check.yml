@@ -31,6 +31,8 @@ jobs:
       # The image's modules stage copies OpenHuman scripts piecemeal; their
       # imports must come along (this job has vendor/openhuman checked out).
       - run: bin/test/dockerfile_test.sh
+      # The spine's container lets TinyBox's bubblewrap jail start, and no more.
+      - run: bin/test/compose_sandbox_test.sh
       # OpenHuman links X11, xdo, evdev and ALSA on Linux.
       - name: Install system headers
         run: |
