@@ -86,12 +86,22 @@ tz = "Asia/Kolkata"
 command = "bin/act roast"
 enabled = false
 
-# Pick the next build request for the builder, one at a time.
+# Propose one change to myself (a prompt, a playbook, a skill or a new hand),
+# once a day. It goes in as a build request from myself; pick-request picks it
+# like any other, the builder makes it in my own clone, and it ships as a pull
+# request the operator merges or closes (docs/evolve.md).
+[jobs.self-improve]
+schedule = "0 15 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act self-improve"
+
+# Pick the next build request for the builder, one at a time: people's asks
+# and my own self-improve proposals. Twenty past, so a proposal made at the
+# hour is picked the same afternoon and built at the builder's next run.
 [jobs.pick-request]
-schedule = "0 9 * * *"
+schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
-enabled = false
 
 # One autopsy post for the agents on Moltbook, from Teeny's own receipts.
 [jobs.moltbook-daily]

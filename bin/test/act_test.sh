@@ -405,6 +405,17 @@ refuses "refuses a bounty job verb as an input" $'+++\ndescription = "x"\noutput
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:bounty pick"\n[[inputs]]\nrun = "hands/wallet costs --days 7"\n[[inputs]]\nrun = "hands/bounty announcements"\n+++\ngo' >"$brain/playbooks/money.md"
 check "allows a bounty pick output and the money hands' reads as inputs" bash -c "'$act' --check money >/dev/null"
 rm -f "$brain/playbooks/money.md"
+# The builder's queue: a draft may only propose a change to Teeny itself
+# (`build self`, a pending request the operator still gates). The queue verbs
+# stay the builder's and bin/build-ship's.
+[ -e "$scratch/hands/build" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/build"
+chmod +x "$scratch/hands/build"
+refuses "refuses the builder's done as an output" $'+++\ndescription = "x"\noutput = "hand:build done"\n+++\ngo'
+refuses "refuses the builder's ship as an output" $'+++\ndescription = "x"\noutput = "hand:build ship"\n+++\ngo'
+refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\noutput = "hand:build next"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
+check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
+rm -f "$brain/playbooks/selfprop.md"
 
 # --- bin/ask: a long message is asked, not stalled --------------------------------------
 # Inputs are capped at 20k characters each and a playbook may have 8; bin/eval's

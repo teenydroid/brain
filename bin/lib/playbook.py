@@ -49,11 +49,15 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
-# itself, and a draft must not reach the guard's own admin verbs; the
-# builder's queue belongs to the builder and bin/build-ship, not to a
-# playbook's draft (a playbook may still queue a browser task with
-# hand:tasks add).
-NOT_OUTPUTS = ("guard", "build", "image", "video")
+# itself, and a draft must not reach the guard's own admin verbs (a playbook
+# may still queue a browser task with hand:tasks add).
+NOT_OUTPUTS = ("guard", "image", "video")
+# Hands a draft reaches only through the verbs named here. The builder's
+# queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
+# draft may only propose a change to Teeny itself (`self`), which files a
+# pending request that pick-request, the builder, the frozen-path check and
+# the operator's merge all still stand between and main.
+VERB_OUTPUTS = {"build": ("self",)}
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
@@ -132,6 +136,9 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             raise PlaybookError(f"{path}: output hand:<name> <verb>, got {output!r}")
         if argv[0] in NOT_OUTPUTS:
             raise PlaybookError(f"{path}: hands/{argv[0]} cannot be an output")
+        if argv[0] in VERB_OUTPUTS and argv[1] not in VERB_OUTPUTS[argv[0]]:
+            allowed = ", ".join(VERB_OUTPUTS[argv[0]])
+            raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
         if argv[0] in MONEY_OUTPUTS and argv[1] not in MONEY_OUTPUTS[argv[0]]:
             allowed = ", ".join(MONEY_OUTPUTS[argv[0]]) or "nothing"
             raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
