@@ -458,6 +458,123 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertIn("did ana ship?", self.chats()[-1]["message"])
 
+    # --- stale follow-ups -------------------------------------------------
+
+    def at(self, offset: float) -> None:
+        os.environ["TEENY_NOW"] = str(T0 + offset)
+
+    def test_a_parked_reply_sent_later_never_raises_its_follow_up(self):
+        stimuli.add("x", "mention", "111", "konnichiwa teeny", who="kenji")
+        os.environ["FAKE_EXIT_X"] = "2"
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "konnichiwa"}]},
+                    {"thought": "capped, later", "intents": [{"do": "follow_up", "in_hours": 2, "about": "send the japanese reply"}]},
+                    {"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "konnichiwa"}]},
+                    {"thought": "", "intents": [{"do": "journal", "text": "a calm one"}]})
+        self.tick()  # refused: the daily cap
+        self.at(60)
+        self.tick()  # reads the refusal, parks it as a follow-up (its ref taken from the refusal)
+        self.assertEqual(stimuli.follow_ups()["follow_ups"][0]["ref"], "111")
+        del os.environ["FAKE_EXIT_X"]
+        self.at(1800)
+        got = self.tick()  # the cap lifted: the reply lands
+        [sent] = [r for r in got["results"] if r["do"] == "reply_x"]
+        self.assertEqual(sent["resolved"], [{"id": 1, "about": "send the japanese reply", "ref": "111"}])
+        self.assertEqual(self.runs()[-1]["results"][0]["resolved"][0]["id"], 1)
+        self.at(3 * 3600)
+        self.tick()
+        self.assertNotIn("send the japanese reply", self.chats()[-1]["message"])
+        self.assertEqual(stimuli.follow_ups()["follow_ups"], [])
+        self.assertEqual(len(stimuli.follow_ups("resolved")["follow_ups"]), 1)
+
+    def test_a_follow_up_with_a_ref_is_resolved_by_answering_that_thing(self):
+        stimuli.add("telegram", "dm", "42:7", "@steve in a DM: ping me tomorrow", who="@steve")
+        self.answer({"thought": "", "intents": [{"do": "follow_up", "in_hours": 20, "about": "answer steve", "ref": "telegram:42:7"}]},
+                    {"thought": "", "intents": [{"do": "say_telegram", "chat_id": 42, "reply_to": 7, "text": "hey steve"}]})
+        self.tick()
+        self.at(600)
+        got = self.tick()
+        self.assertEqual(got["results"][0]["resolved"][0]["about"], "answer steve")
+        self.assertEqual(stimuli.follow_ups()["follow_ups"], [])
+
+    def test_a_follow_up_about_something_else_still_fires(self):
+        stimuli.follow_up(T0 + 3600, "did ana ship?", ref="x:222")
+        stimuli.follow_up(T0 + 3600, "write the weekly post")
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertNotIn("resolved", got["results"][0])
+        self.at(3601)
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertIn("did ana ship?", message)
+        self.assertIn("write the weekly post", message)
+
+    def test_a_follow_up_set_in_the_same_beat_as_its_answer_is_kept(self):
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "follow_up", "in_hours": 24, "about": "see whether ana answers back", "ref": "111"},
+            {"do": "reply_x", "to": "111", "text": "gm"},
+        ]})
+        got = self.tick()
+        self.assertNotIn("resolved", got["results"][1])
+        self.assertEqual(len(stimuli.follow_ups()["follow_ups"]), 1)
+
+    def test_a_follow_up_set_beside_a_refused_reply_takes_its_ref(self):
+        os.environ["FAKE_EXIT_X"] = "2"
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "follow_up", "in_hours": 2, "about": "try the reply again"},
+        ]})
+        got = self.tick()
+        self.assertEqual(got["results"][1]["result"]["ref"], "111")
+
+    def test_an_unclear_park_takes_no_ref(self):
+        os.environ["FAKE_EXIT_X"] = "2"
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "gm"},
+            {"do": "follow_up", "in_hours": 2, "about": "try both again"},
+        ]})
+        got = self.tick()
+        self.assertNotIn("ref", got["results"][2]["result"])
+
+    def test_the_mind_can_drop_a_follow_up(self):
+        stimuli.follow_up(T0 + 3600, "send the japanese reply", ref="111")
+        stimuli.follow_up(T0 + 3600, "did ana ship?")
+        self.answer({"thought": "already sent it", "intents": [{"do": "drop_follow_up", "id": 1}]},
+                    {"thought": "", "intents": [{"do": "drop_follow_up", "id": 1}]},
+                    {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual((got["results"][0]["status"], got["results"][0]["result"]["dropped"]), ("done", [1]))
+        self.at(60)
+        got = self.tick()  # nothing by that id is waiting any more
+        self.assertEqual(got["results"][0]["status"], "refused")
+        self.at(3601)
+        self.tick()
+        message = self.chats()[-1]["message"]
+        self.assertNotIn("send the japanese reply", message)
+        self.assertIn("did ana ship?", message)
+
+    def test_the_mind_can_drop_follow_ups_by_ref(self):
+        stimuli.follow_up(T0 + 3600, "answer maeongi", ref="moltbook:c9")
+        self.answer({"thought": "", "intents": [{"do": "drop_follow_up", "ref": "c9"}]})
+        self.assertEqual(self.tick()["results"][0]["result"]["dropped"], [1])
+        self.assertIn('"do": "drop_follow_up"', self.chats()[0]["message"])
+
+    def test_the_batch_shows_each_follow_up_by_id_and_ref(self):
+        stimuli.follow_up(T0 + 60, "send the japanese reply", ref="x:111")
+        stimuli.follow_up(T0 + 5 * 3600, "write to bob", ref="bob@example.com")
+        stimuli.follow_up(T0 + 7 * 3600, "write the weekly post")
+        self.at(61)
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("### self · follow_up #1 · ref x:111", message)
+        self.assertIn("#2 in 5 h: write to bob (ref bob@example.com)", message)
+        self.assertIn("#3 in 7 h: write the weekly post", message)
+
     def test_a_beat_browses_moltbook_at_most_every_ten_minutes(self):
         browsed = lambda: sum(1 for c in (map(json.loads, self.hands_log.read_text().splitlines()) if self.hands_log.exists() else [])
                               if c["hand"] == "moltbook" and c["argv"][:1] == ["inbox"])
