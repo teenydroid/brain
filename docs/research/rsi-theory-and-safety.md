@@ -45,7 +45,7 @@ empirical question.
 
 Christiano, "Takeoff Speeds" (2018,
 [post](https://sideways-view.com/2018/02/24/takeoff-speeds/)), and the
-Yudkowsky–Christiano debate (2021,
+Yudkowsky-Christiano debate (2021,
 [LessWrong](https://www.lesswrong.com/posts/vwLxd6hhFvPbvKmBH/yudkowsky-and-christiano-discuss-takeoff-speeds)).
 
 Christiano expects a slow, continuous takeoff. Yudkowsky expects a sharp jump

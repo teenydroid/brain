@@ -19,7 +19,7 @@ source is secondary, the entry says so.
 | Freysa | prize pool of $47k | game ended | Yes: the payout is on-chain | A prompt-level rule was jailbroken, as designed |
 | Botto | over $6M lifetime sales | still running | Model generates, token holders vote | Nothing major |
 | Zerebro | about $700M, Jan 2025 | down about 95% | No | The founder's staged death; a holder lawsuit (allegations) |
-| Spore.fun | 3–5 generations | stalled | Yes: runs in TEEs | Fitness was market cap, so it bred memecoins |
+| Spore.fun | 3 to 5 generations | stalled | Yes: runs in TEEs | Fitness was market cap, so it bred memecoins |
 | Clanker | over $50M in fees | buybacks stopped in 2026 | Yes, for a narrow job | Its value followed its host platform's |
 | AI Village | $1,984 raised | small seasons continue | Mostly, nudged by viewers | Spam and unsolicited email |
 | Project Vend | a shop in an office | phase 2 profitable most weeks | Documented in detail | Talked into discounts and bad deals |
@@ -191,7 +191,7 @@ mid-2026, but the dollar volume is small, and a large share is reportedly
 gamified
 ([Cointelegraph](https://cointelegraph.com/news/agentic-payment-activity-surpasses-100m-transactions-on-base)).
 In May 2026 an attacker got Grok to repeat an instruction, and Bankr's
-automation treated Grok's reply as a transfer order and sent about $150–200k
+automation treated Grok's reply as a transfer order and sent about $150k to $200k
 of tokens. No key was stolen
 ([Cointelegraph](https://cointelegraph.com/news/grok-bankr-wallet-free-nft-prompt-injection)).
 
@@ -207,8 +207,8 @@ of tokens. No key was stolen
    PRs let anyone check what it did. That is rare, and it's worth saying out
    loud.
 2. **What lasted:** shipped code (Eliza, OpenClaw), product revenue (Botto,
-   Clanker), and people. Every agent token from the 2024–25 peak is down
-   90–99%. Teeny's holding grows durably only if Teeny produces things.
+   Clanker), and people. Every agent token from the 2024-25 peak is down
+   90 to 99%. Teeny's holding grows durably only if Teeny produces things.
 3. **How they failed,** most common first: a human account taken over (SIM
    swap, sniped handle), the operator's dashboard or secrets, operator fraud,
    prompt injection into a wallet, and being deplatformed.

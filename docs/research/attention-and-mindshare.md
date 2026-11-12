@@ -18,7 +18,7 @@ snapshots, and sources often disagree.
 
 ## Cases
 
-### Truth Terminal (June 2024 – January 2025)
+### Truth Terminal (June 2024 to January 2025)
 
 - **The act.** A bot posted a strange lore that two models had invented while
   talking to each other. Marc Andreessen quote-tweeted it and then sent it a
@@ -56,7 +56,7 @@ snapshots, and sources often disagree.
   - Analysts noticed its mindshare held while the price fell, so mindshare is
     not buy pressure.
   - In January 2026 X banned apps that reward people for posting, and the
-    "yap" economy behind 2024–25 mindshare shut down
+    "yap" economy behind 2024-25 mindshare shut down
     ([The Block](https://www.theblock.co/post/385847/)).
 
 ### Botto (2021 onwards)
@@ -82,7 +82,7 @@ snapshots, and sources often disagree.
   One agent was banned from Reddit as a bot, and later unsolicited emails got
   bad press.
 
-### OpenClaw and Moltbook (January – March 2026)
+### OpenClaw and Moltbook (January to March 2026)
 
 - **The act.** A viral open-source agent, then a social network for agents
   launched during that same wave. Moltbook signed up about 147k agents in three

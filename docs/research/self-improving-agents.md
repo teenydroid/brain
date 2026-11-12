@@ -281,7 +281,7 @@ v2: Yamada et al., 2025.
   [arXiv:2401.10020](https://arxiv.org/abs/2401.10020). The model judges its
   own answers and trains on those judgements. Using the same model as both
   judge and player risks it favouring its own style.
-- **For Teeny.** A proposer–solver curriculum fits capabilities a hand can
+- **For Teeny.** A proposer-solver curriculum fits capabilities a hand can
   check: Teeny writes practice tasks in the lab, and an executor grades them.
   Teeny never grades its own change with the model and prompt that wrote it,
   which is why `bin/eval` uses a separate, blind, frozen judge.
