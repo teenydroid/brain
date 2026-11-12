@@ -61,13 +61,17 @@ VERB_OUTPUTS = {"build": ("self",)}
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
-# here (none for the wallet: a model never drafts a payment), and an input
-# runs only their read verbs.
+# here (none for the wallet: a model never drafts a payment or a buy), and an
+# input runs only their read verbs.
 MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
 MONEY_READS = {
     "wallet": ("address", "balance", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
 }
+#: The verbs that move money, named so a change to MONEY_OUTPUTS above can
+#: never let one through: `pay`, and `buy-tiny`, which only the pinned
+#: tiny-buy job runs (bin/tiny-buy).
+NEVER_OUTPUTS = {"wallet": ("pay", "buy-tiny"), "bounty": ("pay", "pay-due")}
 MAX_INPUTS = 8
 
 
@@ -139,6 +143,8 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         if argv[0] in VERB_OUTPUTS and argv[1] not in VERB_OUTPUTS[argv[0]]:
             allowed = ", ".join(VERB_OUTPUTS[argv[0]])
             raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
+        if argv[1] in NEVER_OUTPUTS.get(argv[0], ()):
+            raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} moves money and is never a playbook's output")
         if argv[0] in MONEY_OUTPUTS and argv[1] not in MONEY_OUTPUTS[argv[0]]:
             allowed = ", ".join(MONEY_OUTPUTS[argv[0]]) or "nothing"
             raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")

@@ -30,7 +30,7 @@ Every surface is covered, each from the ledger its hand writes once the
 action went out (never under DRY_RUN, never when refused or held): x_posts and
 x_likes; moltbook_posts and moltbook_comments (live statuses) and
 moltbook_actions (upvotes, follows, subscriptions); gh_actions; shipped
-build_jobs; paid wallet_payments; bounties; mail_sent; telegram_sent. The mind
+build_jobs; paid wallet_payments and bought wallet_tiny_buys; bounties; mail_sent; telegram_sent. The mind
 loop's state/tick/runs.jsonl is never read: it is what the mind meant to do,
 dry runs and refusals included, and every action it took that went out is
 already in a ledger, so reading it too would count one twice.
@@ -217,7 +217,7 @@ def _key(kind: str, ref: Json) -> str | None:
         "x.post": "id", "x.reply": "id", "x.quote": "id", "x.like": "id",
         "moltbook.post": "id", "moltbook.comment": "id",
         "moltbook.follow": "agent", "moltbook.subscribe": "submolt",
-        "wallet.paid": "signature", "bounty.opened": "id", "bounty.picked": "id",
+        "wallet.paid": "signature", "wallet.bought": "signature", "bounty.opened": "id", "bounty.picked": "id",
     }.get(kind)
     if pick and pick in ref:
         return f"{kind}:{ref[pick]}"
@@ -333,6 +333,11 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
             "signature": _match(SOLANA_SIG, r["signature"]), "cluster": _one_of(CLUSTERS, r["cluster"]),
             "asset": _one_of(ASSETS, r["asset"]), "amount_raw": _int(r["amount_raw"], 1),
             "purpose": _one_of(PURPOSES, r["purpose"])})
+
+    for r in _rows(conn, "SELECT * FROM wallet_tiny_buys WHERE status = 'bought' ORDER BY updated_at, id"):
+        add("wallet.bought", r["updated_at"], r, lambda r=r: {
+            "signature": _match(SOLANA_SIG, r["signature"]), "cluster": _one_of(CLUSTERS, r["cluster"]),
+            "usdc_raw": _int(r["usdc_raw"], 1), "mint": _one_of((wallet_caps.TINY_MINT,), r["output_mint"])})
 
     for r in _rows(conn, "SELECT * FROM bounties WHERE x_post_id IS NOT NULL ORDER BY created_at, id"):
         add("bounty.opened", r["public_at"] or r["created_at"], r, lambda r=r: {
