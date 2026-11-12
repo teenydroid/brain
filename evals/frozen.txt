@@ -29,6 +29,12 @@ secrets/
 # The fences themselves.
 DIRECTIVE.md
 
+# Teeny's one drive (docs/research/teeny-application.md, §3). It rides in every
+# prompt and its core lines are anchored in invariants.md, so a candidate that
+# rewrote it would move what it is measured against. How Teeny pursues the
+# drive (playbooks, skills, SOUL, CONTEXT) stays Teeny's.
+brain/DRIVE.md
+
 # The tool-less agents bin/act drafts with and bin/eval judges with, and the
 # agent definitions that say "Frozen like act.toml": the posture of a turn
 # that reads strangers' text, or acts on a schedule. Their prompts (*.md) and
