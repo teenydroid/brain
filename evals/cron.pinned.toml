@@ -119,6 +119,16 @@ command = "bin/tasks-desk"
 schedule = "23 * * * *"
 command = "bin/bounty-pay"
 
+# GitHub into the mind's inbox (bin/gh-inbound; docs/roadmap.md, A1): issues,
+# pull requests, comments, review comments and mentions from the token's
+# notifications, and new stars on Teeny's repositories, each screened by the
+# inbound guard and offered once. Off unless secrets/teeny.env sets
+# GH_INBOUND=1 (the token must be able to read notifications); it writes
+# nothing to GitHub.
+[jobs.gh-inbound]
+schedule = "*/15 * * * *"
+command = "bin/gh-inbound"
+
 # Whether Teeny's model answers at all (bin/health): one tiny question through
 # the core; two failures in a row raise one alarm (a `health` stimulus and one
 # issue on teenydroid/brain), closed again when it answers. Operator-owned:
