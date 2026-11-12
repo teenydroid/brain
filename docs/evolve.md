@@ -7,11 +7,16 @@ can't edit fence the whole thing.
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
 judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
-clone, which proposes changes as pull requests, and the human-gated loop
-(`bin/evolve`, Phase B): N candidates a generation, gated in code, the best
+clone, which proposes changes as pull requests, the human-gated loop
+(`bin/evolve`, Phase B: N candidates a generation, gated in code, the best
 one opened as a pull request, an archive with lineage credit, and halt
-thresholds. Not built: Phase C (the lab spine, automatic promotion, rollback
-and `evolve-watch`). The sections marked "not built" are its spec.
+thresholds), and Phase C in code: the lab spine that measures every
+candidate, the `evolver` agent that edits a worktree, automatic promotion
+behind `EVOLVE_AUTO_PROMOTE=1` (off by default), the restart and the
+last-good boot, the pinned `evolve-watch`, the persona and memory probes with
+the drift halt, and a judge model of its own. Phase C has run only against
+stand-ins: no lab core has booted on the box yet, and nothing has been
+promoted. "What is not built" near the end lists what is left.
 
 The research behind the unbuilt part, and a proposal to point the loop at one
 drive (grow and become powerful, $TINY included) and run it faster, are in
@@ -202,9 +207,9 @@ rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
 - At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
-  take a pinned name, so Teeny can't switch off what watches it (`evolve` and
-  `evolve-credit` are pinned there; `evolve-watch` joins them in Phase C). A
-  pinned job may run any `bin/` script.
+  take a pinned name, so Teeny can't switch off what watches it (`evolve`,
+  `evolve-credit` and `evolve-watch` are pinned there). A pinned job may run
+  any `bin/` script.
 
 `bin/seed-cron --check` validates a candidate `cron.toml` without a core.
 
@@ -274,8 +279,22 @@ B wins when it fails no task's hard checks more often than A, at least
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
 
-The judge inherits the core's model. To pin a different one, set
-`model = "<name>"` in `brain/agents/judge.toml`, which only a human can edit.
+The judge inherits the core's model. Two ways give it another:
+
+- Per run, without touching `judge.toml`: `bin/eval compare --judge-model M`
+  (or `EVAL_JUDGE_MODEL=M`) passes `--model M` to every judge turn of
+  `bin/ask`, which sends it as `model_override` on `inference_agent_chat`.
+  The core sets that turn's model from it and leaves the agent's definition
+  alone. `report.json` records the model asked for as `judge_model`.
+  `bin/evolve` does this with `EVOLVE_JUDGE_MODEL` from `secrets/evolve.env`,
+  for the compare and for the probes' judge.
+- For good: `model = "<name>"` in `brain/agents/judge.toml`, which only a
+  human can edit.
+
+`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`. Whether
+the core sends the override's model to the endpoint under that pinned route
+has not been checked against a real core: run one judge turn with `--model`
+and read the endpoint's log before relying on it.
 
 ## The loop, Phase B (built): `bin/evolve`
 
