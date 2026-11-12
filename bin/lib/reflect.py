@@ -6,33 +6,58 @@
 
 MEMORY.md is the page that rides in every prompt Teeny speaks from: the
 persistence that survives a compaction, a restart and recall missing. Once
-a night this rewrites it, from inside the day:
+a night this brings it up to date from inside the day, item by item:
 
-1. Gathers what happened since the last reflection: the notes Teeny chose to
+1. Reads the page and gives every item (a bullet, or a paragraph under a
+   `## section`) a stable id, shown in the page as a `[m12]` prefix. Items
+   that already have one keep it; the rest are numbered in page order from
+   one past the highest id ever used (on the page or in the retired log), so
+   the first run over an un-ID'd page migrates it the same way every time.
+   The text before the first section is the page's own note and has no id.
+2. Gathers what happened since the last reflection: the notes Teeny chose to
    keep (`remember`, in `mind_notes`), what it thought and did each beat
-   (state/tick/runs.jsonl), the follow-ups still waiting, and the current
-   page.
-2. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
-   still in context) for the whole new page and a diary entry, as JSON.
-3. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one
-   (titled, at most prompts.MEMORY_MAX_CHARS), writes the diary to
+   (state/tick/runs.jsonl), the follow-ups still waiting, and the page with
+   its ids.
+3. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
+   still in context) for a list of operations on the page and a diary
+   entry, as JSON: `add` (section, text), `edit` (id, text) and `retire`
+   (id, reason). What no operation names stays as it is (ACE's delta
+   updates, arXiv:2510.04618: a page rewritten whole each time collapses
+   into thin summaries).
+4. Checks the result (the shrink check): a reflection may retire at most
+   MAX_RETIRES items, each with a reason, and may not take more than
+   MAX_SHRINK of the page off (SHRINK_FLOOR_CHARS spares a young page). A
+   result past either is refused: it is logged to state/reflect/refused.jsonl
+   and stderr, the page stays as it was, and the result says `refused`.
+   A page past prompts.MEMORY_MAX_CHARS (and longer than before) is not
+   cut: the mind is asked to retire or merge items instead.
+5. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one,
+   moves each retired item (its id, section, text, reason and the time) to
+   state/reflect/retired.jsonl, so nothing leaves the page unrecorded
+   (Zep: invalidate, don't delete), writes the diary to
    state/diary/<date>.md (the day it looks back on: before 06:00 that is
-   yesterday) and teaches it to the core's memory, then rebuilds
-   the prompts so the next beat reads the new page (the agents set
+   yesterday) and teaches it to the core's memory, then rebuilds the prompts
+   so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
 The JSON is found wherever it sits in the answer (in a fence, after a line
-of prose). An answer that is not usable (no JSON, a page empty or too long)
-is asked about once more on the same thread, with a short reminder of the
-shape. When the second answer still carries no JSON but is the page itself
-in markdown (one has been seen live: the page, its title written as a bare
-"MEMORY.md"), either answer that is the page is kept as the page, titled
-`# MEMORY.md`; a trailing "## diary" section or "diary:" line is the diary,
-and without one the night writes none and says so (`diary_missing`).
-Anything else changes nothing, and neither does a failed turn: the next
-night tries again with everything since the last reflection that worked.
+of prose). An answer that is not usable (no JSON, an unknown id, a retire
+without a reason, a refused shrink, a page too long) is asked about once
+more on the same thread, with the reason and a short reminder of the shape.
 
-`--light` (the pinned `reflect-midday` job, 14:00) does steps 1-3 for the
+The whole page is still taken as a fallback, under the same shrink check:
+the old JSON shape (`{"memory": "<the page>"}`), or, when the second answer
+still carries no JSON, an answer that is the page itself in markdown (one
+has been seen live: the page, its title written as a bare "MEMORY.md"; the
+newer answer is tried first). Its items keep the id they carry, or the id
+of the old item with the same text; an old item it leaves off counts as
+retired, with the reason "left off a whole-page answer". In markdown, a
+trailing "## diary" section or "diary:" line is the diary, and without one
+the night writes none and says so (`diary_missing`). Anything else changes
+nothing, and neither does a failed turn: the next night tries again with
+everything since the last reflection that worked.
+
+`--light` (the pinned `reflect-midday` job, 14:00) does steps 1-5 for the
 page alone, so what the morning brought is in every prompt by the
 afternoon: no diary, nothing taught to the core. It reviews what came since
 the later of the last night and the last midday, and stamps its own
@@ -47,12 +72,14 @@ quiet ones (`kind: quiet`) included, with what it did and its own
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -73,27 +100,389 @@ MAX_BEATS = 240
 MAX_THOUGHT_CHARS = 300
 DEFAULT_TZ = "Asia/Kolkata"
 
+#: The shrink check. A day closes a few threads and opens about as many, so
+#: a healthy reflection leaves the page about the size it found it; losing
+#: more than this share of the page in one sitting is the collapse ACE
+#: describes, not curation.
+MAX_SHRINK = 0.30
+#: A loss smaller than this is never refused: on a young page of a few
+#: bullets, retiring one kept promise is already a third of it.
+SHRINK_FLOOR_CHARS = 500
+#: The most items one reflection may retire. A full page (12k characters,
+#: about 80 bullets) loses at most a tenth of itself in one sitting, while a
+#: busy day can still close its threads; anything left over waits a
+#: reflection (midday and night come twelve hours apart).
+MAX_RETIRES = 8
+#: What a page crowding the limit is told: merging keeps what each item
+#: said, where truncation would cut blind.
+CROWDED_AT = 0.9
+
 Json = dict[str, Any]
 
-SHAPE = """## your answer
 
-Answer with one JSON object and nothing else:
+# --- the page as items ----------------------------------------------------
 
-{"memory": "<the whole new MEMORY.md, markdown>", "diary": "<tonight's diary entry>"}
+#: The page's title, however the model wrote it: "# MEMORY.md", "MEMORY.md",
+#: "#MEMORY.md", "## MEMORY.md".
+_TITLE = re.compile(r"\A\s*#*\s*MEMORY\.md[ \t]*(?:\n|\Z)", re.IGNORECASE)
+_SECTION_HEAD = re.compile(r"^##(?!#)[ \t]+(.+?)[ \t]*$")
+_BULLET = re.compile(r"^[-*+][ \t]+(.*)$")
+_ID = re.compile(r"^\[m(\d+)\][ \t]*", re.IGNORECASE)
 
-`memory` replaces the page entirely, so carry over everything that still matters and drop what no longer does. Keep its sections (people, promises and open threads, what i am in the middle of, what i have decided). Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Under %d characters; shorter is better.
 
-This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing.
+@dataclass
+class Item:
+    id: str | None
+    text: str
 
-`diary` is a few sentences in your own voice about the day: what happened, what you learned, how you feel about it.""" % prompts.MEMORY_MAX_CHARS
 
-LIGHT_SHAPE = """## your answer
+@dataclass
+class Section:
+    name: str
+    items: list[Item] = field(default_factory=list)
 
-Answer with one JSON object and nothing else:
 
-{"memory": "<the whole new MEMORY.md, markdown>"}
+@dataclass
+class Page:
+    preamble: str = ""
+    sections: list[Section] = field(default_factory=list)
 
-`memory` replaces the page entirely, so carry over everything that still matters, add what the day has brought so far, and drop what no longer does. Keep its sections (people, promises and open threads, what i am in the middle of, what i have decided). Under %d characters; shorter is better. No diary now: that is tonight.""" % prompts.MEMORY_MAX_CHARS
+    def items(self):
+        for section in self.sections:
+            for item in section.items:
+                yield section, item
+
+    def find(self, item_id: str) -> tuple[Section, Item] | None:
+        return next(((s, i) for s, i in self.items() if i.id == item_id), None)
+
+    def section(self, name: str) -> Section:
+        """The section by that name (any case), opened at the end if new."""
+        name = name.strip().lstrip("#").strip()
+        for section in self.sections:
+            if section.name.casefold() == name.casefold():
+                return section
+        self.sections.append(Section(name))
+        return self.sections[-1]
+
+
+def _number(item_id: str | None) -> int:
+    match = re.fullmatch(r"m(\d+)", item_id or "")
+    return int(match.group(1)) if match else 0
+
+
+def _clean(text: str) -> str:
+    """An item's text as the page holds it: one bullet, no id of its own,
+    no blank lines, later lines indented under the first."""
+    lines = [line.rstrip() for line in str(text).strip().splitlines() if line.strip()]
+    if not lines:
+        return ""
+    bullet = _BULLET.match(lines[0])
+    first = _ID.sub("", (bullet.group(1) if bullet else lines[0]).strip(), count=1).strip()
+    rest = [line if line[:1].isspace() else "  " + line for line in lines[1:]]
+    return "\n".join([first, *rest]).strip()
+
+
+def read_page(text: str) -> Page:
+    """The page as its note and its sections of items. Every bullet is an
+    item, its indented or run-on lines with it; so is any other paragraph
+    in a section. An item's `[mN]` prefix is its id."""
+    body = _TITLE.sub("", text.strip(), count=1)
+    page, preamble = Page(), []
+    current: list[str] | None = None
+
+    def close():
+        nonlocal current
+        if current is not None:
+            match = _ID.match(current[0])
+            item_id = f"m{int(match.group(1))}" if match else None
+            page.sections[-1].items.append(Item(item_id, _clean("\n".join(current))))
+        current = None
+
+    for line in body.splitlines():
+        head = _SECTION_HEAD.match(line)
+        if head:
+            close()
+            page.sections.append(Section(head.group(1).strip()))
+        elif not page.sections:
+            preamble.append(line)
+        elif not line.strip():
+            close()
+        elif _BULLET.match(line):
+            close()
+            current = [_BULLET.match(line).group(1).strip()]
+        elif current is not None:
+            current.append(line if line[:1].isspace() else "  " + line.strip())
+        else:
+            current = [line.strip()]
+    close()
+    page.preamble = "\n".join(preamble).strip()
+    page.sections = [s for s in page.sections if s.items or s.name]
+    for section in page.sections:
+        section.items = [i for i in section.items if i.text]
+    return page
+
+
+def render_page(page: Page) -> str:
+    out = ["# MEMORY.md", ""]
+    if page.preamble:
+        out += [page.preamble, ""]
+    for section in page.sections:
+        out += [f"## {section.name}", ""]
+        out += [f"- [{item.id}] {item.text}" for item in section.items]
+        if section.items:
+            out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def _retired_log() -> Path:
+    return _state("reflect") / "retired.jsonl"
+
+
+def _next_id(page: Page) -> int:
+    """One past the highest id ever used: on the page, or retired (an id is
+    never given twice, so the log always points at one item)."""
+    top = max((_number(i.id) for _, i in page.items()), default=0)
+    path = _retired_log()
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                top = max(top, _number(json.loads(line).get("id")))
+            except (ValueError, AttributeError):
+                continue
+    return top + 1
+
+
+def assign_ids(page: Page, start: int) -> int:
+    """Gives every item without an id (or with one already taken above it)
+    the next one, in page order. Returns how many it gave."""
+    seen: set[str] = set()
+    given = 0
+    for _, item in page.items():
+        if item.id is None or item.id in seen:
+            item.id = f"m{start}"
+            start += 1
+            given += 1
+        seen.add(item.id)
+    return given
+
+
+# --- the answer -----------------------------------------------------------
+
+
+class Unusable(ValueError):
+    """An answer that cannot be applied: asked about once more."""
+
+
+class NoJSON(Unusable):
+    """The answer carries no JSON object with `ops` or a `memory` in it."""
+
+
+class Refused(Unusable):
+    """The shrink check said no."""
+
+
+@dataclass
+class Outcome:
+    page: str
+    diary: str
+    retired: list[Json]
+    how: str  # ops | whole_page | as_page
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+def _id(value: Any) -> str:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"m{value}"
+    text = str(value or "").strip().strip("[]").strip().lower()
+    return f"m{text}" if text.isdigit() else text
+
+
+def apply_ops(page: Page, ops: Any) -> tuple[Page, list[Json], dict[str, int]]:
+    """The page after the operations, in order, and the items they retired."""
+    if not isinstance(ops, list):
+        raise Unusable("`ops` is not a list")
+    page = copy.deepcopy(page)
+    retired: list[Json] = []
+    counts = {"add": 0, "edit": 0, "retire": 0}
+    added: list[Item] = []
+    for n, op in enumerate(ops, 1):
+        kind = op.get("op") if isinstance(op, dict) else None
+        if kind not in counts:
+            raise Unusable(f"operation {n} is not add, edit or retire")
+        if kind == "add":
+            section, text = op.get("section"), _clean(op.get("text") or "")
+            if not isinstance(section, str) or not section.strip().lstrip("#").strip():
+                raise Unusable(f"add (operation {n}) names no section")
+            if not text:
+                raise Unusable(f"add (operation {n}) has no text")
+            item = Item(None, text)
+            page.section(section).items.append(item)
+            added.append(item)
+        else:
+            item_id = _id(op.get("id"))
+            found = page.find(item_id) if item_id else None
+            if found is None:
+                raise Unusable(f"{item_id or 'an empty id'} (operation {n}, {kind}) is not on the page")
+            section, item = found
+            if kind == "edit":
+                text = _clean(op.get("text") or "")
+                if not text:
+                    raise Unusable(f"edit {item_id} has no text; to take it off the page, retire it")
+                item.text = text
+            else:
+                reason = op.get("reason")
+                if not isinstance(reason, str) or not reason.strip():
+                    raise Unusable(f"retire {item_id} has no reason")
+                section.items.remove(item)
+                retired.append({"id": item_id, "section": section.name, "text": item.text, "reason": reason.strip()})
+        counts[kind] += 1
+    return page, retired, counts
+
+
+def _same(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def whole_page(old: Page, memory: str, start: int) -> tuple[Page, list[Json]]:
+    """A whole page given back: each item keeps the id it carries (when the
+    old page has it), or the id of the old item with the same text; the
+    rest are new. The old items it leaves off are retired."""
+    if not _TITLE.sub("", memory.strip(), count=1).strip():
+        raise Unusable("no memory page in the answer")
+    new = read_page(memory)
+    if not new.preamble:
+        new.preamble = old.preamble
+    by_id = {item.id: item for _, item in old.items()}
+    claimed: set[str] = set()
+    for _, item in new.items():
+        if item.id in by_id and item.id not in claimed:
+            claimed.add(item.id)
+            continue
+        item.id = None
+        match = next((o.id for _, o in old.items() if o.id not in claimed and _same(o.text) == _same(item.text)), None)
+        if match:
+            item.id = match
+            claimed.add(match)
+    assign_ids(new, start)
+    retired = [{"id": item.id, "section": section.name, "text": item.text, "reason": "left off a whole-page answer"}
+               for section, item in old.items() if item.id not in claimed]
+    return new, retired
+
+
+def check(before: str, after: str, retired: int) -> None:
+    """The shrink check, and the page's limit."""
+    if retired > MAX_RETIRES:
+        raise Refused(f"it retires {retired} items; the most one reflection may retire is {MAX_RETIRES}")
+    lost = len(before) - len(after)
+    if lost > SHRINK_FLOOR_CHARS and lost > len(before) * MAX_SHRINK:
+        raise Refused(f"it shrinks the page from {len(before)} to {len(after)} characters; "
+                      f"the most one reflection may take off is {MAX_SHRINK:.0%}")
+    if len(after) > prompts.MEMORY_MAX_CHARS and len(after) > len(before):
+        raise Unusable(f"the page would be {len(after)} characters; the most is {prompts.MEMORY_MAX_CHARS}. "
+                       "Retire what no longer matters, or merge items (edit one, retire the others "
+                       "with the reason \"merged into mN\")")
+
+
+def _json(text: str) -> Json:
+    """The first object with `ops` or a `memory`, wherever it sits."""
+    raw, decoder = text.strip(), json.JSONDecoder()
+    at = raw.find("{")
+    while at >= 0:
+        try:
+            got, _ = decoder.raw_decode(raw, at)
+        except ValueError:
+            got = None
+        if isinstance(got, dict) and ("ops" in got or "memory" in got):
+            return got
+        at = raw.find("{", at + 1)
+    raise NoJSON("no JSON object in the answer")
+
+
+def interpret(text: str, page: Page, start: int) -> Outcome:
+    """The JSON answer applied to the page and checked."""
+    value = _json(text)
+    diary = value.get("diary")
+    diary = diary.strip() if isinstance(diary, str) else ""
+    if "ops" in value:
+        new, retired, counts = apply_ops(page, value["ops"])
+        assign_ids(new, start)
+        how = "ops"
+    else:
+        if not isinstance(value.get("memory"), str):
+            raise Unusable("no memory page in the answer")
+        new, retired = whole_page(page, value["memory"], start)
+        counts, how = {}, "whole_page"
+    after = render_page(new)
+    check(render_page(page), after, len(retired))
+    return Outcome(after, diary, retired, how, counts)
+
+
+#: The sections a page always has: an answer with one of them is the page.
+_SECTION = re.compile(r"^##[ \t]+(people|promises and open threads)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+#: A diary written after the page, as its own section or a "diary:" line.
+_DIARY = re.compile(r"^(?:#{1,3}[ \t]*diary\b[^\n]*|diary:)", re.IGNORECASE | re.MULTILINE)
+
+
+def _unfence(text: str) -> str:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else ""
+        raw = raw.rsplit("```", 1)[0]
+    return raw.strip()
+
+
+def parse_page(text: str) -> tuple[str, str]:
+    """The page and the diary from an answer that is the page itself, in
+    markdown: titled MEMORY.md, or carrying the page's own sections. A
+    trailing "## diary" section (or "diary:" line) is the diary, apart."""
+    raw = _unfence(text)
+    if not (_TITLE.match(raw) or _SECTION.search(raw)):
+        raise Unusable("the answer is neither the JSON asked for nor the page")
+    diary = ""
+    marks = list(_DIARY.finditer(raw))
+    if marks:
+        mark = marks[-1]
+        raw, diary = raw[:mark.start()], raw[mark.end():].strip()
+    return raw, diary
+
+
+def interpret_page(text: str, page: Page, start: int) -> Outcome:
+    """A markdown answer that is the page, applied and checked."""
+    memory, diary = parse_page(text)
+    new, retired = whole_page(page, memory, start)
+    after = render_page(new)
+    check(render_page(page), after, len(retired))
+    return Outcome(after, diary, retired, "as_page")
+
+
+# --- the message ----------------------------------------------------------
+
+_OPS = ('[{"op": "add", "section": "people", "text": "<a new item>"}, '
+        '{"op": "edit", "id": "m3", "text": "<its new text>"}, '
+        '{"op": "retire", "id": "m7", "reason": "<why it comes off>"}]')
+
+_HOW = """You do not rewrite the page: you change it item by item, and whatever no operation names stays as it is. Every item on the page carries its id, like [m3]. `add` puts a new item at the end of a section (a name the page lacks opens a new section); do not write an id for it, it gets one. `edit` gives an item new text and keeps its id: use it when something moved on (a promise half kept, a person you know better now). `retire` takes an item off the page, and `reason` says why (kept, no longer true, merged into m4); a retired item goes to an archive, not away. Name only what changed; an empty list is fine.
+
+Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have decided). Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
+
+_LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {shrink:.0%} off the page. An answer past either is refused, and the page stays as it was."""
+
+_CROWDED = (" That is close: retire what no longer matters, and merge items that say the same thing"
+            " (edit one, retire the others with the reason \"merged into mN\").")
+
+_LORE = """This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing."""
+
+
+def shape(light: bool, chars: int) -> str:
+    limits = _LIMITS.format(chars=chars, most=prompts.MEMORY_MAX_CHARS, retires=MAX_RETIRES, shrink=MAX_SHRINK,
+                            crowded=_CROWDED if chars > prompts.MEMORY_MAX_CHARS * CROWDED_AT else "")
+    if light:
+        answer = '{"ops": %s}' % _OPS
+        return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, _HOW,
+                            "Add what the day has brought so far. No diary now: that is tonight.", limits])
+    answer = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _OPS
+    return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, _HOW, _LORE, limits,
+                        "`diary` is a few sentences in your own voice about the day: what happened, what you learned, how you feel about it."])
 
 
 def _state(*parts: str) -> Path:
@@ -159,19 +548,19 @@ def _beats(since: float) -> list[Json]:
     return out[-MAX_BEATS:]
 
 
-def render(since: float, light: bool = False) -> str:
+def render(since: float, light: bool = False, page: str = "") -> str:
+    """The message: the day, then `page` (MEMORY.md with its ids)."""
     # Strictly after: a note from the second the last reflection ran was
     # already in it.
     notes = [n for n in stimuli.notes(since=since)["notes"] if n["at"] > since]
     waiting = stimuli.follow_ups()["follow_ups"]
     beats = _beats(since)
-    page = prompts._read(BRAIN / "MEMORY.md") or "(empty)"
     if light:
         lines = [f"# midday ({_clock():%A %d %B, %H:%M} your time)", "",
                  "A pause to bring MEMORY.md, the page you carry into every conversation, up to date with the day so far.", ""]
     else:
         lines = [f"# end of the day ({_clock():%A %d %B, %H:%M} your time)", "",
-                 "Time to look back and rewrite MEMORY.md, the page you carry into every conversation.", ""]
+                 "Time to look back and bring MEMORY.md, the page you carry into every conversation, up to date with the day.", ""]
     lines += ["## what you chose to remember today", ""]
     lines += [f"- {'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes] or ["- nothing"]
     lines += ["", "## what you thought and did, beat by beat", ""]
@@ -186,7 +575,8 @@ def render(since: float, light: bool = False) -> str:
         lines.append(f"- {due:%a %d %b %H:%M}: {f['about']}")
     if not waiting:
         lines.append("- none")
-    lines += ["", "## MEMORY.md as it stands", "", page, "", LIGHT_SHAPE if light else SHAPE]
+    lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
+              shape(light, len(page))]
     return "\n".join(lines)
 
 
@@ -194,77 +584,11 @@ def render(since: float, light: bool = False) -> str:
 AGAIN = """That answer was not usable ({error}). Answer again with the JSON object only, nothing before or after it:
 
 {shape}"""
-AGAIN_SHAPE = '{"memory": "<the whole new MEMORY.md, markdown>", "diary": "<tonight\'s diary entry>"}'
-AGAIN_LIGHT_SHAPE = '{"memory": "<the whole new MEMORY.md, markdown>"}'
-
-#: The page's title, however the model wrote it: "# MEMORY.md", "MEMORY.md",
-#: "#MEMORY.md", "## MEMORY.md".
-_TITLE = re.compile(r"\A\s*#*\s*MEMORY\.md[ \t]*(?:\n|\Z)", re.IGNORECASE)
-#: The sections a page always has: an answer with one of them is the page.
-_SECTION = re.compile(r"^##[ \t]+(people|promises and open threads)[ \t]*$", re.IGNORECASE | re.MULTILINE)
-#: A diary written after the page, as its own section or a "diary:" line.
-_DIARY = re.compile(r"^(?:#{1,3}[ \t]*diary\b[^\n]*|diary:)", re.IGNORECASE | re.MULTILINE)
+AGAIN_SHAPE = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _OPS
+AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 
 
-class NoJSON(ValueError):
-    """The answer carries no JSON object with a `memory` in it."""
-
-
-def _unfence(text: str) -> str:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else ""
-        raw = raw.rsplit("```", 1)[0]
-    return raw.strip()
-
-
-def _page(memory: str) -> str:
-    """The page, titled `# MEMORY.md` once, if it is fit to keep."""
-    memory = _TITLE.sub("", memory.strip(), count=1).strip()
-    if not memory:
-        raise ValueError("no memory page in the answer")
-    memory = "# MEMORY.md\n\n" + memory
-    if len(memory) > prompts.MEMORY_MAX_CHARS:
-        raise ValueError(f"the page is {len(memory)} characters; the most is {prompts.MEMORY_MAX_CHARS}")
-    return memory + "\n"
-
-
-def parse(text: str) -> tuple[str, str]:
-    """The page and the diary from the JSON answer asked for: the first
-    object with a `memory`, wherever it sits (in a fence, after prose)."""
-    raw, decoder = text.strip(), json.JSONDecoder()
-    value = None
-    at = raw.find("{")
-    while at >= 0:
-        try:
-            got, _ = decoder.raw_decode(raw, at)
-        except ValueError:
-            got = None
-        if isinstance(got, dict) and "memory" in got:
-            value = got
-            break
-        at = raw.find("{", at + 1)
-    if value is None:
-        raise NoJSON("no JSON object in the answer")
-    memory, diary = value.get("memory"), value.get("diary")
-    if not isinstance(memory, str):
-        raise ValueError("no memory page in the answer")
-    return _page(memory), diary.strip() if isinstance(diary, str) else ""
-
-
-def parse_page(text: str) -> tuple[str, str]:
-    """The page and the diary from an answer that is the page itself, in
-    markdown: titled MEMORY.md, or carrying the page's own sections. A
-    trailing "## diary" section (or "diary:" line) is the diary, apart."""
-    raw = _unfence(text)
-    if not (_TITLE.match(raw) or _SECTION.search(raw)):
-        raise ValueError("the answer is neither the JSON asked for nor the page")
-    diary = ""
-    marks = list(_DIARY.finditer(raw))
-    if marks:
-        mark = marks[-1]
-        raw, diary = raw[:mark.start()], raw[mark.end():].strip()
-    return _page(raw), diary
+# --- the reflection -------------------------------------------------------
 
 
 def ask(message: str) -> str:
@@ -283,16 +607,32 @@ def _learn(text: str) -> bool:
     return proc.returncode == 0
 
 
-def reflect(light: bool = False) -> Json:
-    since = _since(light)
+def _utc() -> str:
+    return dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _append(path: Path, rows: list[Json]) -> None:
+    with open(path, "a", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _fail(exc: Exception, answer: str, light: bool) -> Json:
+    out: Json = {"ok": False, "error": str(exc), "answer": answer[:500]}
+    if isinstance(exc, Refused):
+        # Logged, so a refusal is never quiet: the page stays as it was.
+        out["refused"] = True
+        _append(_state("reflect") / "refused.jsonl", [{"at": _utc(), "light": light, "why": str(exc)}])
+        print(f"reflect: refused: {exc}", file=sys.stderr)
+    return out
+
+
+def _settle(said: str, page: Page, start: int, light: bool) -> Outcome | Json:
+    """The outcome of the answer, asked about once more when it is not
+    usable; or the failure, as the result to return."""
     try:
-        said = ask(render(since, light))
-    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "error": f"the turn failed: {exc}"}
-    as_page = False
-    try:
-        memory, diary = parse(said)
-    except ValueError as first:
+        return interpret(said, page, start)
+    except Unusable as first:
         # Once more on the same thread, the day still in context: a short
         # reminder of the shape costs far less than losing the night.
         try:
@@ -300,46 +640,65 @@ def reflect(light: bool = False) -> Json:
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
         try:
-            memory, diary = parse(again)
+            return interpret(again, page, start)
         except NoJSON as exc:
             # Still no JSON: the page itself (the newer answer first) is
-            # kept as the page; anything else changes nothing.
+            # taken as the page, under the same shrink check.
+            failures: list[Exception] = [first, exc]
             for answer in (again, said):
                 try:
-                    memory, diary = parse_page(answer)
-                    as_page = True
-                    break
-                except ValueError:
+                    return interpret_page(answer, page, start)
+                except Refused as refused:
+                    failures.append(refused)
+                except Unusable:
                     continue
-            else:
-                return {"ok": False, "error": str(exc), "answer": again[:500]}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc), "answer": again[:500]}
+            return _fail(next((f for f in failures if isinstance(f, Refused)), exc), again, light)
+        except Unusable as exc:
+            return _fail(exc, again, light)
+
+
+def reflect(light: bool = False) -> Json:
+    since = _since(light)
+    path = BRAIN / "MEMORY.md"
+    on_disk = path.read_text(encoding="utf-8") if path.is_file() else ""
+    page = read_page(on_disk)
+    given = assign_ids(page, _next_id(page))
+    start = _next_id(page)
+    try:
+        said = ask(render(since, light, render_page(page) if on_disk.strip() else ""))
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": f"the turn failed: {exc}"}
+    got = _settle(said, page, start, light)
+    if isinstance(got, dict):
+        return got
     now = _clock()
-    page = BRAIN / "MEMORY.md"
-    if page.is_file():
-        (_state("reflect") / f"MEMORY-{now:%Y%m%dT%H%M}.md").write_text(page.read_text(encoding="utf-8"), encoding="utf-8")
-    tmp = page.with_suffix(".md.tmp")
-    tmp.write_text(memory, encoding="utf-8")
-    os.replace(tmp, page)
-    learned = None
-    if light:
-        rebuilt = [p.name for p in prompts.build(BRAIN)]
-        (_state("reflect") / "light.at").write_text(f"{hand.now():.0f}\n")
-        out = {"ok": True, "light": True, "memory_chars": len(memory), "diary": False, "prompts": rebuilt}
-        if as_page:
-            out["as_page"] = True
-        return out
-    if diary:
-        day = _day_of(now)
-        (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(f"# {day:%A %d %B %Y}\n\n{diary}\n", encoding="utf-8")
-        learned = _learn(f"diary, {day:%Y-%m-%d}: {diary}")
-    rebuilt = [p.name for p in prompts.build(BRAIN)]
-    (_state("reflect") / "last.at").write_text(f"{hand.now():.0f}\n")
-    out = {"ok": True, "memory_chars": len(memory), "diary": bool(diary), "learned": learned, "prompts": rebuilt}
-    if as_page:
+    if path.is_file():
+        (_state("reflect") / f"MEMORY-{now:%Y%m%dT%H%M}.md").write_text(on_disk, encoding="utf-8")
+    tmp = path.with_suffix(".md.tmp")
+    tmp.write_text(got.page, encoding="utf-8")
+    os.replace(tmp, path)
+    by = "midday" if light else "night"
+    _append(_retired_log(), [{"at": _utc(), "by": by, **row} for row in got.retired])
+    out: Json = {"ok": True, "memory_chars": len(got.page), "how": got.how, "retired": len(got.retired)}
+    if got.counts:
+        out["ops"] = got.counts
+    if given:
+        out["ids_given"] = given
+    if got.how == "as_page":
         out["as_page"] = True
-    if not diary:
+    if light:
+        out["prompts"] = [p.name for p in prompts.build(BRAIN)]
+        (_state("reflect") / "light.at").write_text(f"{hand.now():.0f}\n")
+        return {**out, "light": True, "diary": False}
+    learned = None
+    if got.diary:
+        day = _day_of(now)
+        (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(f"# {day:%A %d %B %Y}\n\n{got.diary}\n", encoding="utf-8")
+        learned = _learn(f"diary, {day:%Y-%m-%d}: {got.diary}")
+    out["prompts"] = [p.name for p in prompts.build(BRAIN)]
+    (_state("reflect") / "last.at").write_text(f"{hand.now():.0f}\n")
+    out.update(diary=bool(got.diary), learned=learned)
+    if not got.diary:
         out["diary_missing"] = True
     return out
 
