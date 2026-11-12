@@ -446,6 +446,8 @@ for money in wallet bounty; do
 done
 refuses "refuses the wallet's pay as an output" $'+++\ndescription = "x"\noutput = "hand:wallet pay"\n+++\ngo'
 refuses "refuses any wallet verb as an output" $'+++\ndescription = "x"\noutput = "hand:wallet vendors"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an output" $'+++\ndescription = "x"\noutput = "hand:wallet buy-tiny"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet buy-tiny"\n+++\ngo'
 refuses "refuses the bounty's pay as an output" $'+++\ndescription = "x"\noutput = "hand:bounty pay"\n+++\ngo'
 refuses "refuses opening a bounty as an output" $'+++\ndescription = "x"\noutput = "hand:bounty open"\n+++\ngo'
 refuses "refuses the wallet's pay as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet pay"\n+++\ngo'
@@ -464,6 +466,14 @@ refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\nou
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
 check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
 rm -f "$brain/playbooks/selfprop.md"
+# The goal ledger: a draft may only propose a goal. Its checks are the
+# pinned goals-check job's.
+[ -e "$scratch/hands/goals" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/goals"
+chmod +x "$scratch/hands/goals"
+refuses "refuses running the goal checks as an output" $'+++\ndescription = "x"\noutput = "hand:goals check"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:goals propose"\n+++\ngo' >"$brain/playbooks/goalprop.md"
+check "allows proposing a goal (goals propose) as an output" bash -c "'$act' --check goalprop >/dev/null"
+rm -f "$brain/playbooks/goalprop.md"
 
 # --- bin/ask: a long message is asked, not stalled --------------------------------------
 # Inputs are capped at 20k characters each and a playbook may have 8; bin/eval's

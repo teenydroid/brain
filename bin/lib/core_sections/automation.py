@@ -45,12 +45,14 @@ DEFAULT_FORBIDDEN = (
     "/var", "/tmp", "~/.ssh", "~/.gnupg", "~/.aws", "~/.config",
 )
 #: Teeny's files in the brain (the core's workspace, which workspace_only
-#: always allows): no agent's file tool reads or writes them. SOUL.md and
-#: IDENTITY.md the core reserves itself. TinySecurity takes only absolute
-#: forbidden paths, so these and `~` are resolved here.
+#: always allows): no agent's file tool reads or writes them (MEMORY.md, the
+#: live page, only bin/reflect writes; MEMORY.seed.md is where it started).
+#: SOUL.md and IDENTITY.md the core reserves itself. TinySecurity takes only
+#: absolute forbidden paths, so these and `~` are resolved here.
 BRAIN_FORBIDDEN = (
     "storage.db", "storage.db-wal", "storage.db-shm", "agents", "playbooks", "skills", "narrative", "assets",
-    "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md", "MEMORY.md", "agent",
+    "cron.toml", "hooks.json", "calendar.json", "CONTEXT.md", "MEMORY.md",
+    "MEMORY.seed.md", "agent",
 )
 
 #: What the evolver's file tools may not touch even in its own worktree: the

@@ -70,7 +70,9 @@ token is set. All of it lands in one inbox,
   and to the core's memory. At 14:00 `bin/reflect --light` updates
   `brain/MEMORY.md`, the page in every prompt, from the day so far, item by
   item. At 02:00 `bin/reflect` updates it again and writes a diary entry to
-  `state/diary/<date>.md`. Retired items go to `state/reflect/retired.jsonl`.
+  `state/diary/<date>.md`. Retired items go to `state/reflect/retired.jsonl`. The page is the box's
+  own and never committed; the repository keeps where it started,
+  `brain/MEMORY.seed.md`.
 - It builds and browses. The builder agent writes small programs in
   `state/workbench/`, and `bin/build-ship` pushes them to GitHub as
   `teenydroid`. The browser operator does one task at a time on the allowed
@@ -146,6 +148,7 @@ posts on X are at least three hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-daily`, `moltbook-helpdesk`, `moltbook-digest` | off | Moltbook posts and comments |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
+| `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 
 `bounty-open`, `bounty-paid` and `cost-of-living-moltbook` are not scheduled.
 `mentions` and `mail` are the prompts the core's per-surface agents use when

@@ -69,6 +69,7 @@ jobs:
       - run: bin/test/inbound_consume_test.sh
       - run: bin/test/frozen_test.sh
       - run: bin/test/evolve_test.sh
+      - run: bin/test/memory_page_test.sh
       - run: python3 -m unittest discover -s hands/tests -t hands/tests -v
 
   frozen:

@@ -4,7 +4,7 @@ Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour. | `spine/`, `vendor/openhuman` |
+| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from deBridge's public API (`spine/src/debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. | `spine/`, `vendor/openhuman` |
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
@@ -120,7 +120,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
 | Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer and tinywallet are linked into `teeny-spine` (`spine/Cargo.toml`). |
-| Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`). |
+| Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; swaps and bridges go through deBridge (`spine/src/debridge.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
 and the rest), and OpenHuman's own `http_request` for anything that needs a
@@ -184,8 +184,9 @@ diary entry, are taught to the core's memory with `openhuman.memory_learn`.
 
 ```
 brain/
-  SOUL.md  CONTEXT.md  MEMORY.md       who Teeny is, what it may treat as known, its own page of things to keep in mind
+  SOUL.md  CONTEXT.md                  who Teeny is, what it may treat as known
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
+  MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
   narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
@@ -194,6 +195,7 @@ brain/
   calendar.json                        a posting calendar that nothing reads
   cron.toml                            the brain's schedule; seeded by bin/seed-cron
   # gitignored: storage.db* (the core's state and encrypted secrets), agent/prompts/ (built at boot),
+  #             MEMORY.md (Teeny's live page, rewritten on the box by bin/reflect),
   #             IDENTITY.md, ROLE.md, STYLE.md (the core's persona defaults)
 # beside it, also gitignored: /.openhuman/ (config), /secrets/ (master key, env files), /state/ (hands.db and the rest)
 ```
@@ -226,7 +228,11 @@ handed four things beyond the message:
 - `MEMORY.md`, Teeny's own page of things to keep in mind (people, promises,
   what it is in the middle of, what it decided), capped at 12k characters.
   It is the persistence that survives anything, and no agent's file tool can
-  write it (`BRAIN_FORBIDDEN`).
+  write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/reflect`
+  rewrites it there, so it is gitignored, and the repository keeps where it
+  started, `MEMORY.seed.md`. Building the prompts starts the live page from
+  the seed when there is none (a fresh checkout, the first boot) and never
+  touches either after that.
 - Its thread. `bin/act` drafts every playbook on one thread, `teeny:act`, so
   a draft sees the drafts before it. The core recalls memory before the turn
   and logs it after (it skips both on a turn with no thread). The evals draft
@@ -451,7 +457,7 @@ How the day's beats become the page every prompt carries:
                                               │
                                               ▼
                      ops (add / edit / retire by [mN] id), then the shrink check
-                     new brain/MEMORY.md (at most 12k chars); old page in state/reflect/
+                     new brain/MEMORY.md (at most 12k chars, never committed); old page in state/reflect/
                      retired items to state/reflect/retired.jsonl
                      night only: diary to state/diary/<date>.md and memory_learn
                                               │
@@ -533,8 +539,10 @@ Every scheduled job is in one of two files:
     ingest);
   - `reflect` (`bin/reflect --detach`, 02:00 IST);
   - `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST);
-  - `receipts` and `stats-snapshot`;
+  - `receipts`, `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
+    proposed against checks in frozen code (docs/hands.md, "goals");
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the

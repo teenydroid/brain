@@ -30,6 +30,12 @@ MEMORY.md does not outrank it. Teeny writes its memory every night, and the
 drive is frozen (evals/frozen.txt), so a note can never talk the drive away.
 It is short (under 40 lines) and changes only in an operator's PR.
 
+MEMORY.md is Teeny's own and lives only on the box it runs on: bin/reflect
+rewrites it twice a day, so it is not in git (.gitignore). The repository
+keeps where it started, brain/MEMORY.seed.md. A build starts the live page
+from the seed when there is none (a fresh checkout, the first boot) and
+never touches either once the live page exists.
+
 LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
 in the dark until the world trips them, and narrative/VOICE.md and
 EDITOR.md are prompts for other workflows (the terminal episodes, the
@@ -41,6 +47,7 @@ prefix (and the provider's cache of it) holds from boot to boot.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -50,6 +57,10 @@ SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
+#: The live page (Teeny's, never committed) and the committed page it starts
+#: from.
+MEMORY = "MEMORY.md"
+MEMORY_SEED = "MEMORY.seed.md"
 #: The LORE.md sections Teeny itself reads (the rest is the producer's).
 LORE_SECTIONS = ("cast", "running bits")
 
@@ -89,11 +100,27 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
 
 
+def memory_page(brain: Path) -> Path:
+    """The page Teeny keeps in mind: the live one, else the seed."""
+    live = brain / MEMORY
+    return live if live.is_file() else brain / MEMORY_SEED
+
+
+def seed_memory(brain: Path) -> Path:
+    """The live page, started from the seed when there is none yet."""
+    live, seed = brain / MEMORY, brain / MEMORY_SEED
+    if not live.is_file() and seed.is_file():
+        tmp = live.with_suffix(".md.tmp")
+        tmp.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
+        os.replace(tmp, live)
+    return live
+
+
 def world(brain: Path) -> str:
     """The "# your world" section every speaking agent carries: MEMORY.md
     first, then DRIVE.md, CONTEXT.md, the lore and the arcs."""
     parts: list[str] = []
-    memory = _read(brain / "MEMORY.md")
+    memory = _read(memory_page(brain))
     if memory:
         memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
         if len(memory) > MEMORY_MAX_CHARS:
@@ -146,7 +173,9 @@ def render(brain: Path, agent: str) -> str:
 
 def build(brain: Path) -> list[Path]:
     """Writes brain/agent/prompts/<id>.md for every speaking agent that has
-    instructions, leaving a file whose text is unchanged untouched."""
+    instructions, leaving a file whose text is unchanged untouched. The live
+    MEMORY.md is started from the seed first if it is missing."""
+    seed_memory(brain)
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []

@@ -53,6 +53,12 @@ brain/agents/evolver.toml
 hands/guard
 hands/x
 
+# The scorer: hands/world computes W and J from the other hands' data
+# (docs/research/teeny-application.md, section 2). Teeny can change how it
+# grows, never how the growth is counted.
+hands/world
+hands/lib/teeny_hands/world/
+
 # What spends money on servers stays the operator's, like the wallet.
 hands/vps
 
@@ -86,3 +92,9 @@ hands/lib/teeny_hands/vps/
 hands/lib/teeny_hands/wallet/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
+
+# The goal ledger: the checks that decide whether a goal Teeny proposed was
+# solved. A goal names a checker kind and its parameters; the kinds are code
+# here, so a proposal cannot redefine how success is checked.
+hands/goals
+hands/lib/teeny_hands/goals/

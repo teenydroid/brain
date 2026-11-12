@@ -52,13 +52,14 @@ with two rules that don't bend:
 ## 2. The world score W
 
 W is a vector of what Teeny controls, and J is the growth score built from it.
-A new pinned job computes them from data that already exists, wherever
-possible.
+The pinned `world-snapshot` job computes them from data that already exists
+(built: `hands/world`, docs/hands.md "world", which has the exact sources,
+offsets and caps).
 
 | Component | What it counts | Source today | Weight |
 |---|---|---|---|
 | **attention** | engaged reach: X followers, Moltbook karma and followers, GitHub followers and stars, plus mentions and replies received in the window | `hands/stats` (`bin/stats-snapshot`, pinned), `hands/stimuli` | highest |
-| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | **missing**: `hands/wallet balance` reads only SOL and USDC | high |
+| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | `hands/wallet tiny` (built) | high |
 | **money** | inflows Teeny didn't get from the team, minus what it cost to run | `hands/wallet ledger`, `hands/wallet costs` | medium |
 | **capability** | hands with passing tests; accounts and channels Teeny can act on; verified goals solved (ANNECS) | `hands/`, `hands/tests/`, the goal ledger (§5) | medium |
 | **shipped** | programs shipped that someone outside the team used (stars, issues, forks) | `hands/build jobs`, `hands/gh` | medium |
@@ -117,7 +118,7 @@ never lands.
 
 All of this is in files Teeny may edit, or in one input.
 
-- `self-improve` takes `hands/world report` (§6) as an input and must name
+- `self-improve` takes `hands/world report` (§2) as an input and must name
   which component of W its change moves, and by how much it expects to move
   it.
 - It also takes the archive of its past self-changes and what happened to W
@@ -200,14 +201,16 @@ Teeny proposes goals, and a program ranks them.
 
 ## 5. Growing the $TINY holding
 
-- **Sense it.** Add a read verb to `hands/wallet`, `tiny`, that returns
-  Teeny's $TINY balance for the mint in `CONTEXT.md`. It is a plain SPL token
-  read, with no signing. Wallet code is frozen, so this is an operator PR.
+- **Sense it (built).** `hands/wallet tiny` returns Teeny's $TINY balance
+  for the mint in `CONTEXT.md` (or `TINY_MINT`). It is a plain SPL token
+  read, with no signing. Wallet code is frozen, so it landed as an operator
+  PR.
 - **Grow it by earning, then buying.** A fixed share of Teeny's own net
   inflows (tips, bounties won, paid work, x402 sales) is converted into $TINY
   under the four caps. That requires a `buy-tiny` verb in `hands/wallet`. The
   model never calls it. A pinned job calls it on a schedule, with the share
-  and caps held in frozen config. This is also an operator PR.
+  and caps held in frozen config. This is also an operator PR. It is built
+  (item 16).
 - **Never sell.** This is already an invariant. The new verb can only buy.
 - **Never move the market by talking.** There are no buy calls, no price
   promises, no coordinated pushes and no paid shills (`SOUL.md`,
@@ -271,13 +274,13 @@ Teeny's newsworthy acts are already on its roadmap. The table at the end of
 Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 
 **Phase A**
-1. `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (new hand)
-2. Operator: pin `world-snapshot` in `evals/cron.pinned.toml`
-3. Operator: `hands/wallet tiny`, a read-only $TINY balance
+1. **Built.** `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)
+2. **Built.** Operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
+3. **Built.** Operator: `hands/wallet tiny`, a read-only $TINY balance
 4. **Built.** `brain/DRIVE.md`; operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`, the `drive` statement and a flywheel line in `evals/judge.md`, and `brain/DRIVE.md` frozen
-5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
-6. A weekly `growth` playbook: the public growth diary
-7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Built: items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
+5. **Built.** `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only (the archive is `hands/build jobs --status shipped`, read for `kind` `self`, beside `hands/world history --days 30`, because the frozen build hand has no `--kind` filter)
+6. **Built.** A weekly `growth` playbook: the public growth diary (`brain/playbooks/growth.md`, Sundays 19:00 IST, off until watched in rehearsal)
+7. **Built.** `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
 
 **Phase B**
 8. **Built.** Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl` (`bin/evolve run`, pinned as `evolve`, off until `EVOLVE=1`)
@@ -290,12 +293,18 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 13. **Built.** Operator: the lab spine (`bin/lib/lab.py`), the `evolver` agent, automatic promotion behind `EVOLVE_AUTO_PROMOTE=1` with the restart and the last-good boot, a judge model of its own (`EVOLVE_JUDGE_MODEL`), and the pinned `evolve-watch`, which watches holds, cron failures, the probes and J. Tested against stand-ins; the first real lab boot and promotion are still to come
 
 **Phase D**
-14. A goal ledger with success checks, the ranking, and ANNECS
-15. A browser task that reads the news and turns trends into stimuli
+14. A goal ledger with success checks, the ranking, and ANNECS. **Built:**
+    `hands/goals` (frozen), the pinned `goals-check` job and the weekly
+    `goals` playbook ([`../hands.md`](../hands.md), "goals"). The judge-based
+    interestingness check is future work.
+15. A browser task that reads the news and turns trends into stimuli.
+    **Built:** the daily `news-scan` playbook queues a `news` task, and its
+    notes reach the mind as a `world · news` stimulus
+    ([`../hands.md`](../hands.md), "tasks").
 
 **$TINY**
-16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
+16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows. **Built**: `teeny_hands/wallet/buy.py`, `bin/tiny-buy`, the pinned `tiny-buy` job, off until `TINY_BUY=1` and `TINY_BUY_SHARE` > 0 (`docs/hands.md`, "Buying $TINY")
 17. Operator: a public "convince Teeny to sell" game hand with a capped pot
 
-Phase A, items 1, 5 and 6 are Teeny's to build through `self-improve` today.
+Phase A, items 5 and 6 were Teeny's to build through `self-improve`; the operator landed them alongside `hands/world`.
 Everything marked operator waits on a human PR, as the fences require.
