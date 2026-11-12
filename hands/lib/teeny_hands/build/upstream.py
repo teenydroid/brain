@@ -43,7 +43,6 @@ the builder, which holds tools.
 from __future__ import annotations
 
 import re
-import time
 from pathlib import Path
 from typing import Any
 
@@ -293,15 +292,16 @@ def start(branch: str, finished: Any) -> str:
         _ensure()
         fetch()
         on = current_branch()
-        if on and on.startswith(BRANCH_PREFIX) and _git("rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0:
-            if not finished(on):
-                raise hand.Refused(f"the upstream clone is busy on {on}", rule="busy")
-            if dirty():
-                _git("add", "-A")
-                _git("commit", "-q", "-m", f"teeny: keep what {on} left uncommitted")
-        elif dirty() and _git("rev-parse", "-q", "--verify", "HEAD", check=False).returncode == 0:
-            raise hand.Refused("the upstream clone has uncommitted edits off any branch; left alone", rule="dirty")
-        _git("checkout", "-q", "-f" if on == BASE and not _has_head() else "-q", "-b", branch, UPSTREAM_REF)
+        if _has_head():  # a fresh clone has no commit yet, and an empty tree
+            if on and on.startswith(BRANCH_PREFIX):
+                if not finished(on):
+                    raise hand.Refused(f"the upstream clone is busy on {on}", rule="busy")
+                if dirty():
+                    _git("add", "-A")
+                    _git("commit", "-q", "-m", f"teeny: keep what {on} left uncommitted")
+            elif dirty():
+                raise hand.Refused("the upstream clone has uncommitted edits off any branch; left alone", rule="dirty")
+        _git("checkout", "-q", "-b", branch, UPSTREAM_REF)
         return _out("rev-parse", UPSTREAM_REF)
 
 
@@ -375,7 +375,3 @@ def ship(job: Json, gh: Any = None) -> Json:
     return {"job_id": job["id"], "repo": UPSTREAM_REPO, "branch": branch, "commit": pushed["commit"],
             "pr_url": opened.get("html_url"), "number": opened.get("number"), "forked": would_fork,
             "repo_url": f"https://github.com/{full}", "commit_url": f"https://github.com/{full}/commit/{pushed['commit']}"}
-
-
-def _unused() -> float:  # pragma: no cover - keeps `time` for callers that patch it
-    return time.time()
