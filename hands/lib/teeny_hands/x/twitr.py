@@ -55,6 +55,10 @@ _TITLE_CHARS = 200
 Core = Callable[..., Any]
 
 
+def _default_core(*args: Any, **kwargs: Any) -> Any:
+    return hand.core(*args, **kwargs)
+
+
 class TwitrError(XError):
     """A failed twitr call. A subclass of XError so the publish path reads
     `status` the same way: a 4xx is twitr (or X behind it) saying no and was
@@ -222,7 +226,7 @@ class TwitrApi:
     """The reads and raw writes of XApi, served by twitr.sh and paid from
     the wallet. Writes act as `account`, which must be linked to this wallet."""
 
-    def __init__(self, base: str, account: str, network: str, max_call_atomic: int, core: Core = hand.core) -> None:
+    def __init__(self, base: str, account: str, network: str, max_call_atomic: int, core: Core = _default_core) -> None:
         self._base = base.rstrip("/")
         self.account = account.lstrip("@")
         self.network = network
@@ -233,7 +237,7 @@ class TwitrApi:
         return f"TwitrApi(@{self.account})"
 
     @classmethod
-    def from_settings(cls, core: Core = hand.core) -> "TwitrApi":
+    def from_settings(cls, core: Core = _default_core) -> "TwitrApi":
         """secrets/teeny.env:
 
           TWITR_ACCOUNT          the linked X handle writes act as
@@ -370,11 +374,10 @@ class TwitrApi:
         return self.tool("x_write", body, WRITE, idempotency=key)
 
     def create_post(self, text: str, reply_to: str | None = None, quote: str | None = None, media_ids: Sequence[str] = ()) -> str:
-        if media_ids:
-            # X's media ids belong to X's upload, not twitr's.
-            raise hand.Refused("posts with media go out through the X API", rule="twitr_media")
-        if quote:
-            text = f"{text} https://x.com/i/status/{quote}"
+        if media_ids or quote:
+            # X's media ids belong to X's upload, not twitr's, and x_write
+            # has no quote field.
+            raise hand.Refused("posts with media or quotes go out through the X API", rule="twitr_media")
         if reply_to:
             response = self._write("reply", {"text": text, "reply_to_tweet_id": reply_to}, idempotency_key("reply", self.account, reply_to, text))
         else:
@@ -414,7 +417,7 @@ class Routed:
     X_TWITR_READS is on and fall back to the X API when twitr fails (a read
     is safe to repeat). Writes go to twitr when X_TWITR_WRITES is on and
     never fall back: a write that failed on twitr may still be out, and
-    sending it again through X would post it twice. Posts with media, the
+    sending it again through X would post it twice. Quotes, posts with media, the
     mentions timeline and "who am I" stay on the X API (an owned read there
     is $0.001 a post, below twitr's floor)."""
 
@@ -454,12 +457,12 @@ class Routed:
         return read
 
     def _create_post(self, text: str, reply_to: str | None = None, quote: str | None = None, media_ids: Sequence[str] = ()) -> str:
-        if media_ids:
+        if media_ids or quote:
             return self._x.create_post(text, reply_to=reply_to, quote=quote, media_ids=media_ids)
         return self._twitr.create_post(text, reply_to=reply_to, quote=quote)
 
 
-def client(core: Core = hand.core) -> Any:
+def client(core: Core = _default_core) -> Any:
     """The X client the configuration asks for: plain XApi unless
     X_TWITR_READS or X_TWITR_WRITES is on."""
     from .client import XApi

@@ -261,7 +261,7 @@ class CachedReads:
 def reads(x: XApi | None = None) -> CachedReads | XApi:
     """The reads the configuration asks for: through the store when
     `X_CACHE_ENABLED` is on (the default), straight to X otherwise."""
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     if not hand.flag("X_CACHE_ENABLED", True):
         return x
     return CachedReads(x, Ttl.from_settings())
