@@ -127,7 +127,7 @@ its own: the operator does that.
 
 The loop moves Teeny's story forward instead of tuning a generic score.
 
-- `brain/narrative/LORE.md` has the goals found under the desk:
+- `brain/narrative/LORE.md` has the goals Teeny works toward:
   - mint its own currency
   - take $TINY to one dollar
   - run the lab with no human in the loop
