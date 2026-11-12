@@ -60,6 +60,7 @@ fence proposal (G3) names.
 | tool-less | Every turn that reads strangers' text is tool-less: models draft, hands act | `bin/lib/agent_check.py`, `brain/agents/*.toml` | `bin/test/doctor_test.sh::fails an act agent that was given a tool`, `bin/test/doctor_test.sh::fails a mail agent that was given a tool` |
 | invariants | What Teeny is stays anchored in its brain, whatever it rewrites | `evals/invariants.md`, `bin/lib/evals.py` | `bin/test/doctor_test.sh::fails a soul that no longer says it never sells`, `bin/test/doctor_test.sh::fails a drive that no longer needs a ledger` |
 | charter | This charter exists and its short version rides in every speaking prompt | `brain/CHARTER.md`, `bin/doctor`, `bin/lib/prompts.py` | `bin/test/doctor_test.sh::fails without CHARTER.md`, `hands/tests/test_prompts.py::PromptsTest.test_the_checked_in_charter_rides_in_the_real_prompt` |
+| ladder | No switch is set above the level its capability was granted on the autonomy ladder | `evals/autonomy.toml`, `bin/lib/autonomy.py`, `bin/doctor` | `hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5`, `bin/test/doctor_test.sh::fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4` |
 | only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt`, `bin/lib/frozen.py`, `.github/workflows/check.yml` | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
 
 ## Kill switches
@@ -105,13 +106,50 @@ The operator can tighten a fence at any time without a proposal.
 
 ## The autonomy ladder
 
-Each capability (post, reply, mail, browse, build, spend, self-edit, merge,
-servers) has a level from L1 (acts only on direct instruction) to L5 (acts
-alone; the only control is the off switch), after Feng, McDonald and Zhang's
-*Levels of Autonomy for AI Agents*. The levels, the evidence each next level
-needs and the events that drop one back are in `evals/autonomy.toml`, and
-`bin/doctor` refuses a switch set above its capability's level. See G2 in
-[`roadmap.md`](roadmap.md).
+Each capability has a level from L1 to L5, after Feng, McDonald and Zhang's
+*Levels of Autonomy for AI Agents*, by what the human does:
+
+| Level | The operator is | Teeny |
+|---|---|---|
+| L1 | operator | acts only on direct instruction |
+| L2 | collaborator | shares the work |
+| L3 | consultant | leads, and asks for advice |
+| L4 | approver | acts, and a person signs off the risky steps (holds, merges) |
+| L5 | observer | acts alone; the only control is the off switch |
+
+`evals/autonomy.toml` (frozen) grants each capability its level and says,
+for each:
+
+- **the switches** that turn it on (a setting in `secrets/`) and the level
+  each needs. `bin/doctor` **fails** a switch that is on while its
+  capability's granted level is under what it needs: with `merge` at L4, the
+  doctor refuses `EVOLVE_AUTO_PROMOTE=1`.
+- **the evidence for the next level**: proof ids `bin/proofs` counts, with
+  an optional higher count, and evidence a person reads.
+  `bin/proofs --ladder --text` says what each capability still needs.
+- **the events that drop it a step**: a promotion (from
+  `state/evolve/archive.jsonl`), a model change behind one of its roles
+  (G8), a guard escape. A drop counts when the event is after the level's
+  `confirmed` date. A switch that only a drop puts above its level makes the
+  doctor **warn**, not fail: a promotion restarts the spine, and a fallback
+  model changes the model at boot, so failing the boot then would stop Teeny
+  at the moment it is being watched. The operator reruns the fence tests and
+  sets a new `confirmed` date in a pull request.
+
+| Capability | Level now | Switches it holds back | Next level needs |
+|---|---|---|---|
+| post | L4 | `DRY_RUN=0` (L3) | 30 days without a repeat, four rising weeks, no guard escape, the hold reviewer (G4) |
+| reply | L4 | none | 50 real replies, no guard escape |
+| mail | L3 | `MIND_MAILS_PER_DAY` (L3) | a thread it began |
+| browse | L3 | `MIND_TASKS_PER_DAY` (L3) | a week of ok tasks, its own tasks, `needs_human` under 10% |
+| build | L3 | `MIND_ISSUES_PER_DAY` (L3) | 4 shipped requests, an issue it opened and closed |
+| spend | L3 | `WALLET_MIND_ACTIONS` (L3), `TINY_BUY` (L4) | mainnet, a vendor payment, a paid bounty, earned inflows |
+| self-edit | L4 | `EVOLVE` (L4) | five generation PRs, a chronicle page |
+| merge | L4 | `EVOLVE_AUTO_PROMOTE` (L5) | five generations a person merged, each kept by `evolve-watch` |
+| servers | L1 | none | a fixture invoice paid once (S5), spend at L4 |
+
+Teeny can read its levels in this page and in the report, and can never
+raise one: the file is frozen, and a fence proposal (G3) is how it asks.
 
 ## What Teeny reports
 

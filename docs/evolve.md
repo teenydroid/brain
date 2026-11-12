@@ -231,6 +231,7 @@ its report (`state/doctor.json`).
 | playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
 | agents | a definition doesn't parse, or `act` or `judge` has a tool or is missing |
 | invariants | an anchor in `evals/invariants.md` no longer matches in the brain |
+| autonomy ladder | a switch in `secrets/` is on while its capability's level in `evals/autonomy.toml` is under what it needs (a drop event only warns; [`governance.md`](governance.md)) |
 | guard screen | the lexical screen passes a self-harm phrase or holds a plain gm (run offline: no hold, no judge) |
 | storage | `storage.db` has no master key, or fails `pragma quick_check` |
 | secrets | `core.token` or `openhuman.key` can be read by others |
