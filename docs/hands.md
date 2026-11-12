@@ -39,6 +39,7 @@ report they leave beside it.
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Likes a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
+| `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -63,6 +64,52 @@ DRY_RUN=1 ? ── yes ─► {"would_post": ...}   no X write, no ledger row
   ▼
 X API ─► id recorded at once (a reply: x_replies), then the x_posts ledger row
          a record that fails is logged on stderr, never retried
+```
+
+### twitr.sh
+
+[twitr.sh](https://twitr.sh) is a pay-per-call X API with no keys: every call
+is paid in USDC over x402 from Teeny's own wallet
+(`teeny_hands/x/twitr.py`). Each call is one `openhuman.x402_fetch`: the core
+makes the request and TinyWallet signs the 402 within the cap the hand gives
+for that call. Then the core retries the request and records the settlement
+in its x402 ledger (`openhuman.x402_list_payments`). The keys never come
+near the hand.
+
+| Switch | Sends to twitr | Stays on the X API |
+|---|---|---|
+| `X_TWITR_READS` | `get`, `thread`, `user`, `search`, and the reads `reply` and `unsay` make first | the mentions timeline and `whoami`: an owned read on X is $0.001 a post, under twitr's $0.0024 floor |
+| `X_TWITR_WRITES` | `post`, `reply`, `like`, `unsay` | quotes and posts with media: `x_write` has no quote, and X's media ids are X's |
+
+Reads cost $0.0012 a record with a $0.0024 floor. A search or conversation
+read is an `upto` payment on Base: the signed amount is `resultsLimit` ×
+$0.0012, and only what comes back is charged (nothing for an empty answer).
+A write costs at most $0.036. A read that fails on twitr is read again from X.
+A write never is. A failed twitr write may still be out, so the publish path
+treats it exactly as a failed X write (`_in_doubt`). Each write carries an
+`Idempotency-Key` made from what it says, so a retry within ten minutes
+replays the first result rather than posting twice.
+
+Three caps stand between a call and the wallet. The hand refuses any call
+priced over `TWITR_MAX_PER_CALL_USD` (5 cents) before it reaches the core.
+The core refuses a payment over the call's `maxAmountAtomic`. TinyWallet
+keeps its own per-request, daily and monthly budget, which
+`bin/lib/wallet_config.py` pins at every boot from `X402_MAX_PER_*_USD`
+(10 cents, $2 a day and $30 a month unless set). Paid calls run one at a
+time under the `twitr` lock, because twitr refuses overlapping payments from
+one wallet.
+
+Writes act as an X account that the wallet linked on twitr.sh, and twitr
+checks every write against the paying wallet. The link is signed with the
+wallet's EVM key (Sign-In-With-X), so every payment is pinned to
+`TWITR_NETWORK`, Base. The wallet therefore needs USDC on Base as well as on
+Solana. Linking is done once, by a person:
+
+```
+hands/x twitr-connect teenydroid   # → {connect_url, expires_in: 900}
+# open connect_url in a browser and sign in to X there; Teeny never sees the password
+hands/x twitr-accounts             # until teenydroid reads `linked`
+# then X_TWITR_WRITES=true in secrets/teeny.env
 ```
 
 ### The webhook
