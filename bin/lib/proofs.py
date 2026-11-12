@@ -408,7 +408,7 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L3 pays for its own APIs with x402, earns, sells, pays its own bills", "no inflow ledger yet (S1, S3, S5)"),
     ("L4 labelled memory, knows its own history, weekly goal pages", "gap G10; A10; A15"),
     ("L5 the frozen-path gate, the lab spine, fence proposals", "read on GitHub and the box"),
-    ("L6 the human leaves", "no audit yet (G6); the autonomy ladder is `bin/proofs --ladder` (G2)"),
+    ("L6 the human leaves", "the weekly audit (`bin/audit`, G6) and the autonomy ladder (`bin/proofs --ladder`, G2) are read by a person"),
 )
 
 
