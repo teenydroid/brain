@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from . import support  # noqa: F401  (puts hands/lib on the path)
 from teeny_hands.x import profile
 
 KEYS = {"X_API_KEY": "k", "X_API_SECRET": "s", "X_ACCESS_TOKEN": "t", "X_ACCESS_TOKEN_SECRET": "ts"}
