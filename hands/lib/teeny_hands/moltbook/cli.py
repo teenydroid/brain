@@ -56,6 +56,10 @@ def _post(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return actions.post(hand.read_body())
 
 
+def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
+
+
 def _collab(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     if args.action == "list":
         return rules.collab_list()
