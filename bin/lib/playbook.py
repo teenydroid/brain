@@ -59,6 +59,8 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # the operator's merge all still stand between and main. The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
+    # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
+    # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
     "build": ("self", "upstream"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
