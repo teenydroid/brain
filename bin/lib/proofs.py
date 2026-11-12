@@ -44,11 +44,13 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
+#: The one near-duplicate measure, shared with the posting rule that refuses
+#: a repeat (docs/roadmap.md, A2).
+from teeny_hands.guard import repeats  # noqa: E402
+
 DAY = 86400
-#: Two posts this alike (word-set Jaccard) count as a near-duplicate.
-NEAR_DUPLICATE = 0.8
-#: Words shorter than this are left out of the comparison ("a", "is", "gm").
-MIN_WORD = 3
+NEAR_DUPLICATE = repeats.NEAR_DUPLICATE
 #: The follower-like numbers bin/stats-snapshot keeps whose sum is the
 #: audience (DIRECTIVE.md, level 2, "Grows an audience").
 AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"),
@@ -129,16 +131,7 @@ def _streak(days: set[dt.date], today: dt.date) -> int:
     return n
 
 
-def _words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9$#@']+", text.lower()) if len(w) >= MIN_WORD}
-
-
-def similarity(a: str, b: str) -> float:
-    """Word-set Jaccard of two texts, 0 to 1."""
-    wa, wb = _words(a), _words(b)
-    if not wa or not wb:
-        return 1.0 if a.strip().lower() == b.strip().lower() else 0.0
-    return len(wa & wb) / len(wa | wb)
+similarity = repeats.similarity
 
 
 def near_duplicates(texts: list[tuple[float, str]], threshold: float = NEAR_DUPLICATE) -> list[tuple[float, float]]:
