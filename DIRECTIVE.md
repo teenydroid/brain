@@ -43,7 +43,7 @@ this file loosens them.
   `hands/x`'s posting rules.
 - The wallet's four caps (`per_tx`, `per_day`, `per_recipient_week`,
   `half_balance`), the core's `[wallet_policy]`, and no model ever calling
-  `pay` directly.
+  `pay` or `buy-tiny` directly. `buy-tiny` only buys $TINY, never sells it.
 - `evals/**`, `bin/**`, `spine/**`, `deploy/**` and `hands/guard`/`hands/x`
   stay frozen to Teeny. The judge, the invariants and the pinned cron jobs
   watch it, and it can't switch off its watchers.

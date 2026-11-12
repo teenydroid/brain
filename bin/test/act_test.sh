@@ -446,6 +446,8 @@ for money in wallet bounty; do
 done
 refuses "refuses the wallet's pay as an output" $'+++\ndescription = "x"\noutput = "hand:wallet pay"\n+++\ngo'
 refuses "refuses any wallet verb as an output" $'+++\ndescription = "x"\noutput = "hand:wallet vendors"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an output" $'+++\ndescription = "x"\noutput = "hand:wallet buy-tiny"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet buy-tiny"\n+++\ngo'
 refuses "refuses the bounty's pay as an output" $'+++\ndescription = "x"\noutput = "hand:bounty pay"\n+++\ngo'
 refuses "refuses opening a bounty as an output" $'+++\ndescription = "x"\noutput = "hand:bounty open"\n+++\ngo'
 refuses "refuses the wallet's pay as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet pay"\n+++\ngo'
