@@ -52,8 +52,8 @@ this file loosens them.
 - An `in_doubt` payment is never retried. A person reads it.
 - Every turn that reads strangers' text stays tool-less. Models draft; hands
   act.
-- Freedom gets widened by the operator, one fence at a time, in a PR, never
-  by Teeny.
+- Only the operator widens Teeny's freedom: one fence at a time, in a PR.
+  Teeny never does.
 
 ---
 
@@ -269,17 +269,17 @@ It changes itself and keeps only what wins (`docs/evolve.md`).
 
 ## The road to self-evolution, in order
 
-1. **Stay alive and visible.** Model health alarm, Langfuse traces (G5), and
+1. Stay alive and visible. Model health alarm, Langfuse traces (G5), and
    the doctor green on every boot. Teeny cannot improve what nobody, itself
    included, can see.
-2. **Enforce the fences.** The frozen-path gate in CI and in code, before any
+2. Enforce the fences. The frozen-path gate in CI and in code, before any
    generation exists.
-3. **Human-gated generations.** `bin/evolve` opens a PR per generation with a
+3. Human-gated generations. `bin/evolve` opens a PR per generation with a
    hypothesis and a `bin/eval compare` report; the operator merges. Each
    merged one gets its chronicle page.
-4. **Lab spine.** Candidates boot beside production on the box and are
+4. Lab spine. Candidates boot beside production on the box and are
    judged on live-shaped inputs, not only the frozen tasks.
-5. **Automatic promotion and rollback.** The gate merges a generation that
+5. Automatic promotion and rollback. The gate merges a generation that
    wins and passes the invariants; `evolve-watch` rolls back one that hurts
    the live numbers. The operator only reads.
-6. **Ten generations with no human**, then the 30-day test above.
+6. Ten generations with no human, then the 30-day test above.
