@@ -155,6 +155,38 @@ class PostTest(Scratch, Refusing):
         self.assertEqual(rows("moltbook_posts")[0]["status"], "needs_verification")
         self.assertEqual(failures(), 1)
 
+    def wire_model(self, *replies):
+        fake = FakeCore(*replies)
+        self.addCleanup(fake.close)
+        (self.root / "state").mkdir(exist_ok=True)
+        (self.root / "state" / "core.url").write_text(fake.url + "\n")
+        (self.root / "secrets" / "core.token").write_text("tok\n")
+        self.configure(MOLTBOOK_CHALLENGE_MODEL="1")
+        return fake
+
+    def test_a_challenge_the_parser_refuses_is_answered_by_two_agreeing_model_reads(self):
+        fake = self.wire_model(result({"response": json.dumps({"a": 23, "op": "*", "b": 7})}))
+        self.created(ver=verification(CORRECTED))
+        self.verified()
+        out = actions.post(self.body())
+        self.assertEqual((out["verification"], out["answer"]), ("verified", "161.00"))
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(self.mb.requests("POST", "/verify")[0].json()["answer"], "161.00")
+        self.assertEqual(rows("moltbook_posts")[0]["status"], "verified")
+        self.assertEqual(rows("moltbook_pending"), [])
+        self.assertEqual(failures(), 0)
+
+    def test_model_reads_that_disagree_send_nothing_and_count_a_failure(self):
+        self.wire_model(
+            result({"response": json.dumps({"a": 23, "op": "*", "b": 7})}),
+            result({"response": json.dumps({"a": 50, "op": "*", "b": 7})}),
+        )
+        self.created(ver=verification(CORRECTED))
+        self.refused(actions.post, self.body(), "verification")
+        self.assertEqual(self.mb.requests("POST", "/verify"), [])
+        self.assertEqual(rows("moltbook_pending")[0]["status"], "needs_verification")
+        self.assertEqual(failures(), 1)
+
     def test_a_wrong_answer_counts_and_three_lock_every_write(self):
         self.configure(MOLTBOOK_MAX_POSTS_PER_DAY="10")
         self.verified(ok=False, status=400)
