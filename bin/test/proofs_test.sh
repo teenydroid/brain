@@ -153,6 +153,7 @@ expect L1.no_repeats met 30
 expect L2.x_replies met 52
 expect L2.mail_started none 0
 expect L2.remembers progress 1
+expect L2.voted_ship none 0
 expect L2.moltbook_week progress 3
 expect L2.audience met 5
 expect L3.browser_week met 7

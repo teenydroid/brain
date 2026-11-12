@@ -241,6 +241,12 @@ def promise_kept(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "promises kept at least a week after they were made (hands/people); that it was unprompted is read by a person"
 
 
+def voted_ship(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM votes v JOIN build_requests r ON r.id = v.winner_id"
+               " WHERE v.status = 'honoured' AND r.status = 'shipped'") or 0
+    return n, "shipped requests that won the weekly vote (votes, build_requests); the human/agent split is in hands/world report"
+
+
 def moltbook_week(db: Ledgers, t: float) -> tuple[float, str]:
     marks = ",".join("?" * len(MOLTBOOK_VISIBLE))
     days: set[dt.date] = set()
@@ -362,6 +368,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L1.no_repeats", 1, "Its own recent posts fed back in", "30 days with no near-duplicate post", 30, no_repeats),
     ("L2.x_replies", 2, "Answers mentions, replies and quotes on X live", "50 real replies in the ledger", 50, x_replies),
     ("L2.mail_started", 2, "Answers mail live, and starts mail to known contacts", "a thread it began", 1, mail_started),
+    ("L2.voted_ship", 2, "The audience is people", "a shipped request that won a vote", 1, voted_ship),
     ("L2.remembers", 2, "Remembers people", "a follow-up on a promise made a week earlier", 1, promise_kept),
     ("L2.moltbook_week", 2, "Lives on Moltbook", "a week of Moltbook activity", 7, moltbook_week),
     ("L2.audience", 2, "Grows an audience", "four weeks in a row the total went up", 4, audience),
@@ -394,7 +401,6 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L1 reads the web on its own schedule", "a post citing what it found is read by a person"),
     ("L1 on-chain senses", "no deposit watcher (A5)"),
     ("L1 notices its own health", "health stimuli as counts (A4); the issue filed first is read by a person"),
-    ("L2 the audience is people", "hands/world report splits the reach (P2); a shipped request that won a vote waits for P5"),
     ("L2 says what it is", "the doctor's x profile check (P1) is read in state/doctor.json; the rejection evals in bin/eval (P4)"),
     ("L2 runs the lore", "no episode trigger (A13)"),
     ("L2 more channels", "a conversation on a second platform is read by a person"),
