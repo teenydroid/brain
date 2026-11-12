@@ -99,6 +99,11 @@ def result(value: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": 1, "result": value}
 
 
+def error(message: str) -> dict[str, Any]:
+    """A JSON-RPC error carrying `message`, as the core reports a failed call."""
+    return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": message}}
+
+
 def verdict(verdict: str, category: str | None = None, reason: str = "") -> dict[str, Any]:
     """A core reply whose text is the judge's JSON answer."""
     answer: dict[str, Any] = {"reason": reason, "verdict": verdict}
