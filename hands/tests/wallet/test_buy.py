@@ -567,14 +567,14 @@ class BuyTest(Scratch):
 
 
 class PinnedJobTest(Scratch):
-    def test_the_pinned_job_runs_buy_tiny_daily(self):
+    def test_buy_tiny_is_not_scheduled_for_now(self):
+        # The operator took the daily buy off the schedule (2026-11-12); the
+        # script stays, so putting it back is the commented block in the file.
         import tomllib
 
         jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
-        job = jobs["tiny-buy"]
-        self.assertEqual(job["command"], "bin/tiny-buy")
-        minute, hour, *rest = job["schedule"].split()
-        self.assertTrue(minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"])
+        self.assertNotIn("tiny-buy", jobs)
+        self.assertFalse(any(j.get("command") == "bin/tiny-buy" for j in jobs.values()))
         script = (REPO / "bin" / "tiny-buy").read_text()
         self.assertIn('"$hands/wallet" buy-tiny', script)
         self.assertTrue(os.access(REPO / "bin" / "tiny-buy", os.X_OK))

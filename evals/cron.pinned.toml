@@ -179,6 +179,7 @@ command = "bin/goals-check"
 # and TINY_BUY_SHARE > 0 in secrets/teeny.env: until then each run is a
 # refusal or a recorded skip and moves nothing. Operator-owned: no model ever
 # calls buy-tiny (bin/lib/playbook.py refuses it as a playbook's output).
-[jobs.tiny-buy]
-schedule = "41 3 * * *"
-command = "bin/tiny-buy"
+# Not scheduled for now (operator, 2026-11-12). To bring it back, restore:
+#   [jobs.tiny-buy]
+#   schedule = "41 3 * * *"
+#   command = "bin/tiny-buy"
