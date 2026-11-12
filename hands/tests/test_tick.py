@@ -95,7 +95,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"

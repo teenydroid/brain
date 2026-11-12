@@ -247,7 +247,10 @@ def promise(body: Any) -> Json:
             pid = cur.lastrowid
     finally:
         conn.close()
-    follow = stimuli.follow_up(float(due_at), f"you promised {who} on {surface}: {what}", ref=f"promise:{pid}")
+    # The follow-up names no one: the waiting list rides in every beat, and a
+    # person's promise belongs only in a beat about them. When it is raised,
+    # the beat's people block (prompt_block) brings the record by its ref.
+    follow = stimuli.follow_up(float(due_at), f"a promise you made comes due (promise #{pid})", ref=f"promise:{pid}")
     conn = db()
     try:
         with hand.transaction(conn):

@@ -102,8 +102,12 @@ class PromiseTest(Scratch):
         self.assertEqual(stimuli.raise_due(), 1)
         raised = [s for s in stimuli.recent()["stimuli"] if s["surface"] == "self"]
         self.assertEqual(len(raised), 1)
-        self.assertIn("you promised ann on x: ship the plant timer", raised[0]["text"])
+        self.assertIn(f"a promise you made comes due (promise #{made['promise']})", raised[0]["text"])
+        self.assertNotIn("ann", raised[0]["text"])  # the waiting list rides in every beat: it names no one
         self.assertEqual(raised[0]["payload"]["ref"], f"promise:{made['promise']}")
+        # the beat that sees it gets ann's record, with the promise
+        text = "\n".join(records.prompt_block([raised[0]]))
+        self.assertIn("ship the plant timer", text)
         self.assertTrue(records.record("x", "ann")["promises"][0]["overdue"])
 
     def test_answering_a_post_does_not_clear_a_promise(self):
