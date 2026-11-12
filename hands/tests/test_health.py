@@ -241,6 +241,35 @@ class HealthTest(unittest.TestCase):
         self.assertIn("teeny.operator (2)", body)
         self.assertIn("teeny.operator (2)", self.inbox()[0]["text"])
 
+    # --- Moltbook writes nobody can see ------------------------------------------------
+    # 2026-11-12: Moltbook hides a write until its challenge is solved, and a
+    # third of Teeny's writes were still unverified with nothing saying so.
+
+    def moltbook_writes(self, *statuses: str, ago: float = 3600) -> None:
+        from teeny_hands.moltbook import rules
+
+        conn = rules.db()
+        for n, status in enumerate(statuses):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'p', ?, ?)",
+                         (f"c{n}-{ago}", T0 - ago, status))
+        conn.close()
+
+    def test_unverified_moltbook_writes_of_the_last_day_are_counted_without_an_alarm(self):
+        self.moltbook_writes("verified", "posted", "needs_verification", "verification_failed")
+        self.moltbook_writes("needs_verification", "needs_verification", ago=2 * 86400)
+        self.moltbook_writes("refused")
+        out = health.check()
+        self.assertEqual((out["moltbook_unverified"], out["healthy"], out["alarm"]), (2, True, None))
+        self.assertEqual(self.inbox(), [])
+        self.assertEqual(self.gh.seen, [])
+
+    def test_moltbook_writes_at_least_nine_in_ten_verified_or_too_few_are_no_count(self):
+        self.assertIsNone(health.check()["moltbook_unverified"])
+        self.moltbook_writes("needs_verification", "verified")
+        self.assertIsNone(health.check()["moltbook_unverified"])
+        self.moltbook_writes(*["verified"] * 8, ago=60)
+        self.assertIsNone(health.check()["moltbook_unverified"])
+
     def test_no_storage_yet_is_no_cron_errors(self):
         self.assertEqual(health.check()["cron_errors"], {})
 
