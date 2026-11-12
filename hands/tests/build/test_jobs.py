@@ -138,7 +138,23 @@ class DoneTest(Scratch):
                 jobs.done(bad)
 
 
+JAILED = __import__("teeny_hands.build.verify", fromlist=["verify"]).landlock_abi() > 0
+needs_landlock = __import__("unittest").skipUnless(JAILED, "this kernel has no Landlock: the ship step's test run cannot be jailed here")
+
+
 class ShipTest(Scratch):
+    def setUp(self):
+        super().setUp()
+        if not JAILED:
+            # Shipping itself is what these tests are about; on a kernel with no
+            # Landlock the jailed run is stood in for (the tests that need the
+            # real jail are skipped, below).
+            from unittest import mock
+            from teeny_hands.build import verify
+            patcher = mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": 1, "output": "OK"})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def finished(self, text="build me a greeter", files=None, repo=None):
         rid = request(text)
         job = jobs.next_job()["job"]
@@ -209,6 +225,7 @@ class ShipTest(Scratch):
         from teeny_hands import stimuli
         return stimuli.recent()["stimuli"]
 
+    @needs_landlock
     def test_a_report_of_success_with_failing_tests_is_recorded_as_failed_with_the_output(self):
         self.me()
         rid, job = self.finished(files={"greet.py": "print('hi')\n", "test_greet.py": FAILING}, repo="greeter")
@@ -228,6 +245,7 @@ class ShipTest(Scratch):
         self.assertIn("'hi' != 'hello'", told["text"])
         self.assertEqual(jobs.ship()["results"], [])  # failed is failed: not tried again
 
+    @needs_landlock
     def test_no_tests_is_not_tested(self):
         self.me()
         self.finished(files={"greet.py": "print('hi')\n"}, repo="greeter")
@@ -235,6 +253,7 @@ class ShipTest(Scratch):
         self.assertEqual(out["results"][0]["verified"]["output"], "no tests were found to run")
         self.assertEqual(self.gh.writes(), [])
 
+    @needs_landlock
     def test_the_tests_run_jailed_away_from_secrets_and_the_network(self):
         self.me()
         (self.root / "secrets" / "probe.txt").write_text("SENTINEL")
