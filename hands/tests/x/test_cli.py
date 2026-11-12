@@ -190,6 +190,9 @@ class WriteVerbsTest(Cli):
 
     def test_like(self):
         self.x.route("POST", "/2/users/1000/likes", {"data": {"liked": True}})
+        code, out, _ = self.run_x("like", "77")
+        self.assertEqual((code, out["rule"]), (2, "likes_off"))
+        self.configure(X_LIKES="1")
         self.assertEqual(self.run_x("like", "77")[:2], (0, {"ok": True, "liked": "77"}))
 
     def test_unsay_previews_then_deletes(self):
