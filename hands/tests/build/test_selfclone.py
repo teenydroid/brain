@@ -395,11 +395,15 @@ class ScheduledTest(SelfJobScratch):
         self.assertEqual(json.loads(synced.stdout)["state"], "cloned")
 
 
-class BabysitTest(SelfShipTest):
+class BabysitTest(SelfJobScratch):
     """docs/roadmap.md, A7: Teeny's own open pull request with a red check
     goes back on the builder's desk as a `fix` job on its own branch, at most
     MAX_FIX_ATTEMPTS times, and the fix is pushed to that branch with no new
     pull request. Off unless BUILD_BABYSIT=1."""
+
+    setUp = SelfShipTest.setUp
+    built = SelfShipTest.built
+    told = SelfShipTest.told
 
     def shipped_pr(self):
         rid, job = self.built({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
