@@ -110,6 +110,18 @@ def _jail(workdir: str, abi: int) -> None:
     the folder, and (ABI 4+) makes no TCP connection. Any failure kills the
     child before the tests start."""
     try:
+        confine((), (workdir,), abi)
+    except BaseException:  # noqa: BLE001 - never exec the tests outside the jail
+        os._exit(97)
+
+
+def confine(reads: Any, writes: Any, abi: int) -> None:
+    """The jail itself, for a child between fork and exec: no new
+    privileges, then a Landlock domain that may read READ_ROOTS and READS,
+    read and write WRITES, nothing else, and (ABI 4+) make no TCP
+    connection. Raises on any failure; the caller exits the child
+    (`_jail` here, bin/lib/datajob.py for a scheduled data job, A17)."""
+    if True:
         libc = _libc()
         handled = _READ | _WRITE_V1 | (_FS_REFER if abi >= 2 else 0) | (_FS_TRUNCATE if abi >= 3 else 0)
         handled_net = (_NET_BIND_TCP | _NET_CONNECT_TCP) if abi >= 4 else 0
@@ -139,14 +151,15 @@ def _jail(workdir: str, abi: int) -> None:
         for root in READ_ROOTS:
             allow(root, _READ)
         allow("/dev/null", _READ | _FS_WRITE_FILE)
-        allow(workdir, handled)
+        for path in reads:
+            allow(path, _READ)
+        for path in writes:
+            allow(path, handled)
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             raise OSError(ctypes.get_errno(), "prctl(NO_NEW_PRIVS)")
         if libc.syscall(_SYS_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0)) < 0:
             raise OSError(ctypes.get_errno(), "landlock_restrict_self")
         os.close(ruleset)
-    except BaseException:  # noqa: BLE001 - never exec the tests outside the jail
-        os._exit(97)
 
 
 # --- the run ----------------------------------------------------------------------------------
