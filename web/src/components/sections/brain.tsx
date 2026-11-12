@@ -180,7 +180,7 @@ function Parts({ anatomy }: { anatomy: BrainAnatomy }) {
       name: "Brain",
       where: "brain/",
       href: tree("brain"),
-      body: "Who Teeny is and what it does: SOUL.md, CONTEXT.md, MEMORY.md (rewritten every night), the narrative, the agents, the playbooks and the schedule in cron.toml.",
+      body: "Who Teeny is and what it does: SOUL.md, CONTEXT.md, MEMORY.md (rewritten every night on the box; the repository keeps where it started), the narrative, the agents, the playbooks and the schedule in cron.toml.",
       count: live ? `${anatomy.agents.length} agents · ${anatomy.playbooks.length} playbooks` : undefined,
     },
   ]

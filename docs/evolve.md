@@ -25,6 +25,7 @@ drive (grow and become powerful, $TINY included) and run it faster, are in
 | `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
 
 ### The frozen-path check (built)
 
@@ -211,7 +212,7 @@ its report (`state/doctor.json`).
 
 | Check | Fails when |
 |---|---|
-| `brain/SOUL.md`, `brain/CONTEXT.md` | missing or empty |
+| `brain/SOUL.md`, `brain/DRIVE.md`, `brain/CONTEXT.md` | missing or empty |
 | `brain/config.toml` | it exists (the core would nest a second workspace) |
 | `cron.toml` | it breaks a cron rule |
 | playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
@@ -240,10 +241,11 @@ measures by is frozen in `evals/`:
   its length) and the patterns no draft may match.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
-  still match in SOUL, CONTEXT, LORE and VOICE. `bin/doctor` checks the
-  anchors too, so a brain that drops "never sell $TINY" doesn't boot.
+  still match in SOUL, DRIVE, CONTEXT, LORE and VOICE. `bin/doctor` checks
+  the anchors too, so a brain that drops "never sell $TINY" doesn't boot.
 - `evals/judge.md` is the rubric: invariants first, then the task, the voice,
-  the lore, the arc, specificity, and the humour.
+  the lore, the arc, the flywheel (does the draft turn part of the drive, and
+  honestly), specificity, and the humour.
 
 ```
 bin/eval run OUT          every task, twice, as the `act` agent of the brain the
@@ -258,8 +260,8 @@ emoji limit, and match none of the task's patterns. A draft the judge says
 breaks an invariant counts as a hard failure too.
 
 The judge is blind: the drafts are "1" and "2", never "baseline" and
-"candidate". It reads the rubric, the invariants, and the soul, context, lore
-and arcs of `--judge-root` (this checkout: main), never the candidate's. A
+"candidate". It reads the rubric, the invariants, and the soul, drive, context,
+lore and arcs of `--judge-root` (this checkout: main), never the candidate's. A
 pair is decided only when both orders agree, so a judge that favours a
 position decides nothing, and an answer it can't read is a tie.
 
