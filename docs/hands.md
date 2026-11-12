@@ -959,6 +959,22 @@ callers treat it as data. Under `DRY_RUN` nothing is requested: `would_fetch`.
 `costs` keeps reading x402 spend from the core's own ledger
 (`x402_list_payments`), so nothing is counted twice.
 
+Two optional fields:
+
+- **`network`** pins the payment to one CAIP-2 network (`eip155:8453`) or
+  namespace (`eip155`, `solana`). The module refuses a challenge with no
+  option there. hands/x pins twitr.sh to Base, the chain its sign-in
+  identity lives on.
+- **`sign_in: true`** answers the 402 with a Sign-In-With-X credential
+  instead of a payment. The module builds the message, signs it with the EVM
+  key, and refuses any challenge that is not for the requested host. It pays
+  nothing: the cap passed down is one atomic unit, and `max_usd` is refused.
+  The answer names `signed_in_as`.
+
+Both need the TinyWallet release with contract 1.16 (`X402SignIn` and the
+prepare `network` field). Until the core is re-pinned to it, the core ignores
+both fields, so leave the twitr.sh writes switch (`X_TWITR_WRITES`) off.
+
 The whole path of one `pay` (`teeny_hands/wallet/pay.py`):
 
 ```
