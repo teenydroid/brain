@@ -433,7 +433,11 @@ retire needs a reason. A refused reflection is logged to
 before) is not cut: the mind is asked to retire or merge items instead.
 
 The old page is kept in `state/reflect/`, and the diary entry goes to
-`state/diary/<date>.md` and to the core's memory. The prompts are rebuilt,
+`state/diary/<date>.md` and to the core's memory. On Mondays, the goals
+day, that page also ends with "the week's goals": the goals set in the seven
+days, the verdicts the frozen checks reached in them and the goals still
+running, written from the goal ledger by `goals_week`, never by the model,
+and never taught to the core (docs/roadmap.md, A15). The prompts are rebuilt,
 so the next beat reads the new page. An unusable answer (no JSON, an
 unknown id, a retire without a reason, a refusal, a page too long) is asked
 about once more on the same thread, with the reason. The whole page is
