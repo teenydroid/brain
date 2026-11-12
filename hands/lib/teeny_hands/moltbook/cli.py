@@ -110,6 +110,7 @@ def parser() -> argparse.ArgumentParser:
     measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
     measuring.add_argument("action", choices=("refresh", "list"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
