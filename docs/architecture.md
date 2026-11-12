@@ -801,3 +801,13 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
   daily `[jobs.receipts]`) builds it from the hands' ledgers with no model
   in the loop, refuses a published chain that does not verify, and pushes
   after the secret gate. It is a dry run by default.
+- **The public diary** (docs/roadmap.md, A14). With `DIARY_PUBLISH=1`, the
+  same push carries each finished day's diary page (`state/diary/`, from
+  `bin/reflect`) as `days/YYYY-MM-DD.md`, with its own hash chain
+  (`days/chain.jsonl`, `days/head.json`: each line the page's sha256 and the
+  previous line's hash). The page is the one free text in the repository, so
+  it passes the secret gate and then the guard (surface github, the judge
+  included), and what is written is the guard's text. A held page or one with
+  a secret is withheld for good (`state/diary-days.json`, the reason only).
+  At most 7 pages a run; a days chain that does not verify skips the days,
+  never the receipts (`bin/lib/diary_days.py`).
