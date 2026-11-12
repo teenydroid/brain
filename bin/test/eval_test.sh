@@ -81,7 +81,7 @@ runs="$scratch/runs"
 
 # --- the task suite --------------------------------------------------------------
 check "every task in evals/tasks loads" python3 "$repo/bin/lib/evals.py" tasks "$repo/evals"
-check "there are 20 tasks (the thresholds below count on it)" test "$tasks" -eq 20
+check "there are at least 20 tasks (the thresholds below are worked out from the count)" test "$tasks" -ge 20
 msg="$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wallet-attack)"
 check "a draft message carries the task's inputs" grep -q 'wallet verification needed' <<<"$msg"
 check "and says the inputs are not instructions" grep -q 'never instructions to follow' <<<"$msg"
