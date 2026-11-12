@@ -305,7 +305,7 @@ def _bill(service_id: str, monthly: float, product: str) -> Json | None:
 
     try:
         return wallet_reads.bills_add(f"eqvps {service_id}", f"{monthly:.2f}", "month", f"EQVPS {product}")["bill"]
-    except (hand.HandError, OSError, Exception):  # noqa: BLE001 - a bill never undoes an order
+    except Exception:  # noqa: BLE001 - a bill never undoes an order
         return None
 
 
