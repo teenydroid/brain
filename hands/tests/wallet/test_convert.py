@@ -35,8 +35,11 @@ def swap_quote(params, *, out_raw=None, min_raw=None, to=DLN, value=None, usd_in
     }
 
 
-def bridge_quote(params, *, recommended="4980000", fix_fee="1000000000000000", quote_id="bq-1", expires=NOW_MS + 60_000):
-    """A DLN order answer for USDC on Base -> USDC on Solana."""
+def bridge_quote(params, *, recommended=None, fix_fee="200000000000000", quote_id="bq-1", expires=NOW_MS + 60_000):
+    """A DLN order answer for USDC on Base -> USDC on Solana: 0.25% less
+    out, and a 0.0002 ETH flat fee ($0.80 at the fixed price)."""
+    amount = int(params["srcChainTokenInAmount"])
+    recommended = recommended or str(amount * 9975 // 10000)
     return {
         "quoteId": quote_id,
         "kind": "bridge",
@@ -44,8 +47,8 @@ def bridge_quote(params, *, recommended="4980000", fix_fee="1000000000000000", q
         "signingChain": "evm",
         "quote": {
             "estimation": {
-                "srcChainTokenIn": {"address": params["srcChainTokenIn"], "amount": params["srcChainTokenInAmount"], "decimals": 6, "approximateUsdValue": 5.0},
-                "dstChainTokenOut": {"address": params["dstChainTokenOut"], "amount": "4990000", "recommendedAmount": recommended, "decimals": 6},
+                "srcChainTokenIn": {"address": params["srcChainTokenIn"], "amount": params["srcChainTokenInAmount"], "decimals": 6, "approximateUsdValue": amount / 1e6},
+                "dstChainTokenOut": {"address": params["dstChainTokenOut"], "amount": str(amount * 9990 // 10000), "recommendedAmount": recommended, "decimals": 6},
             },
             "tx": {"to": DLN, "data": "0xbeef", "value": fix_fee},
             "orderId": "0xorder",
@@ -113,14 +116,14 @@ class ConvertTest(Scratch):
         self.assertEqual((row["status"], row["usd_micro"], row["signature"]), ("sent", 40_000_000, "0xswap"))
 
     def test_a_bridge_from_base_usdc_approves_exactly_then_executes(self):
-        out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"})["sent"]
+        out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"})["sent"]
         [quote] = self.core.params("openhuman.web3_bridge_quote")
         self.assertEqual((quote["srcChainId"], quote["dstChainId"]), (8453, chains.DEBRIDGE_SOLANA))
         self.assertEqual((quote["dstChainTokenOutRecipient"], quote["dstChainOrderAuthorityAddress"]), (OWN, OWN))
         self.assertEqual(quote["dstChainTokenOut"], USDC_MAINNET)
         [approve] = self.core.params("openhuman.web3_dapp_call")
         self.assertEqual(approve["contractAddress"], BASE_USDC)
-        self.assertEqual(approve["calldata"], chains.approve_calldata(DLN, 5_000_000))
+        self.assertEqual(approve["calldata"], chains.approve_calldata(DLN, 40_000_000))
         methods = self.core.methods()
         self.assertLess(methods.index("openhuman.web3_dapp_execute"), methods.index("openhuman.web3_bridge_execute"))
         self.assertEqual((out["approval_tx"], out["order_id"]), ("0xapprove", "0xorder"))
@@ -128,9 +131,9 @@ class ConvertTest(Scratch):
 
     def test_dry_run_quotes_and_checks_but_moves_nothing(self):
         self.configure(EVM_RPC_URL_BASE=self.chain.url, DRY_RUN="1")
-        out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"})
+        out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"})
         self.assertTrue(out["dry_run"])
-        self.assertEqual(out["would_convert"]["minimum"], "4.98")
+        self.assertEqual(out["would_convert"]["minimum"], "39.9")
         self.assertEqual(self.moved(), [])
         self.assertEqual(self.rows(), [])
 
@@ -199,9 +202,9 @@ class ConvertTest(Scratch):
             self.refused("swap", {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"}, "quote")
 
     def test_a_flat_fee_counts_as_a_loss(self):
-        # 0.002 ETH ($8 at the fixed price) on a $5 bridge
+        # 0.002 ETH ($8 at the fixed price) on a $40 bridge
         self.core.answers["openhuman.web3_bridge_quote"] = lambda p: bridge_quote(p, fix_fee="2000000000000000")
-        self.refused("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"}, "quote")
+        self.refused("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"}, "quote")
 
     def test_half_balance_protects_the_input(self):
         self.core.answers["openhuman.wallet_balances"] = evm_balances(15 * 10**15)  # 0.015 ETH
@@ -219,7 +222,7 @@ class ConvertTest(Scratch):
         times = iter([NOW_MS, NOW_MS + 10_000, NOW_MS + 10_000])
         convert._now_ms = lambda: next(times, NOW_MS + 10_000)
         try:
-            out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"})
+            out = convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"})
         finally:
             convert._now_ms = convert_now
         self.assertEqual(self.core.params("openhuman.web3_bridge_execute"), [{"quoteId": "bq-2", "confirmed": True}])
@@ -228,7 +231,7 @@ class ConvertTest(Scratch):
     def test_a_failed_approval_never_executes(self):
         self.core.answers["openhuman.wallet_tx_status"] = {"chain": "evm", "hash": "0xapprove", "state": "failed"}
         with self.assertRaises(hand.HandError):
-            convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"})
+            convert.convert("bridge", {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"})
         self.assertNotIn("openhuman.web3_bridge_execute", self.core.methods())
         self.assertEqual(self.rows()[0]["status"], "failed")
 
