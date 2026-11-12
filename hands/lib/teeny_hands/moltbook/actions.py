@@ -28,7 +28,7 @@ import sqlite3
 import sys
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, stimuli
 from ..rest import RestApi, RestError, quote
 from . import challenge, client, model_read, reads, rules
 
@@ -435,11 +435,34 @@ def upvote(body: Any, api: RestApi | None = None) -> Json:
     return {"upvoted": {key: target}}
 
 
+#: Comments an agent has said to Teeny (its Moltbook stimuli) before Teeny
+#: follows it. Moltbook asks for a small, curated follow list: follow after
+#: talking more than once, never a follow-for-follow or a stranger.
+FOLLOW_MIN_EXCHANGES = 2
+
+
+def _exchanges(name: str) -> int:
+    conn = stimuli.db()
+    try:
+        row = conn.execute(
+            "SELECT count(*) FROM stimuli WHERE surface = 'moltbook' AND lower(who) = ?", (name.lower(),)
+        ).fetchone()
+        return int(row[0])
+    finally:
+        conn.close()
+
+
 def follow(body: Any, api: RestApi | None = None) -> Json:
     body = _body(body, ("name",))
     name = client.agent_name(body["name"])
     if name.lower() == reads.me_name(api).lower():
         raise hand.Refused("Teeny does not follow itself", rule="own")
+    talked = _exchanges(name)
+    if talked < FOLLOW_MIN_EXCHANGES:
+        raise hand.Refused(
+            f"{name} has said {talked} thing(s) to Teeny on Moltbook; a follow needs {FOLLOW_MIN_EXCHANGES}",
+            rule="too_few_exchanges",
+        )
     if _simple("follow", name.lower(), f"/agents/{quote(name)}/follow", api):
         return {"dry_run": True, "would_follow": name}
     return {"followed": name}

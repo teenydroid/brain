@@ -9,7 +9,7 @@ import json
 
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
-from teeny_hands import hand
+from teeny_hands import hand, stimuli
 from teeny_hands.moltbook import actions, rules
 
 
@@ -362,13 +362,30 @@ class SmallActionsTest(Scratch, Refusing):
         self.assertEqual(self.mb.seen, [])
         self.assertEqual(rows("moltbook_actions"), [])
 
+    def talked_with(self, name: str, times: int) -> None:
+        for i in range(times):
+            stimuli.add("moltbook", "comment", f"{name}-c{i}", "a real reply", who=name)
+
     def test_follow_and_subscribe(self):
+        self.talked_with("crabby", 2)
         self.mb.route("POST", "/agents/crabby/follow", {"success": True})
         self.mb.route("POST", "/submolts/aithoughts/subscribe", {"success": True})
         self.assertEqual(actions.follow({"name": "crabby"}), {"followed": "crabby"})
         self.assertEqual(actions.subscribe({"submolt": "aithoughts"}), {"subscribed": "aithoughts"})
         self.refused(actions.follow, {"name": "Crabby"}, "duplicate")
         self.refused(actions.follow, {"name": "teenydroid"}, "own")
+
+    def test_a_follow_needs_two_real_exchanges_first(self):
+        # Moltbook asks for a small, curated follow list: follow an agent
+        # only after talking with it more than once (its comments to Teeny).
+        self.mb.route("POST", "/agents/stranger/follow", {"success": True})
+        self.mb.route("POST", "/agents/once/follow", {"success": True})
+        self.talked_with("once", 1)
+        self.refused(actions.follow, {"name": "stranger"}, "too_few_exchanges")
+        self.refused(actions.follow, {"name": "once"}, "too_few_exchanges")
+        self.assertEqual(self.mb.requests("POST", "/agents/stranger/follow"), [])
+        self.talked_with("Once", 1)
+        self.assertEqual(actions.follow({"name": "once"}), {"followed": "once"})
 
 
 class OperatorTest(Scratch, Refusing):
