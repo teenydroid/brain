@@ -25,10 +25,28 @@ tick an item.
 | 5 self-evolution | 7 | 4 | 1 | 2 |
 | 6 the human leaves | 4 | 0 | 2 | 2 |
 
-The counts are of the items as they stood at the audit. This page's tracks
-added nine more to `DIRECTIVE.md` (people as the audience, saying what it
-is, selling, public accounts, paying its own bills, and the four governance
-items in Level 6), and none of those is built.
+The counts are of the items as they stood at the audit on 2026-11-12. This
+page's tracks then added nine more to `DIRECTIVE.md` (people as the audience,
+saying what it is, selling, public accounts, paying its own bills, and the
+four governance items in Level 6).
+
+**Build status.** Every build item in Tracks A, P, S and G landed on `main`
+on 2026-11-12, and each row below says what was built and where it differs
+from the first spec. Three things are left: A16 (traces, which waits on
+upstream OpenHuman), the repository-settings half of G5, and P8, which is
+the operator's list. Everything that posts or moves money shipped off. What
+remains is Track 0: switching each thing on and getting its proof.
+
+Three limits the build ran into, each the operator's call:
+
+- `brain/cron.toml` is at its 24-job cap. The weekly vote (P5), the upstream
+  picker (A8), fence proposals (G3) and pin bumps (G9) have a playbook and no
+  job, and the `episode` job (A13) is pinned and disabled for the same reason.
+- The autonomy ladder (G2) makes the doctor refuse a boot when
+  `EVOLVE_AUTO_PROMOTE`, `TINY_BUY` or `VPS_PAY_BILLS` is on above its level
+  in `evals/autonomy.toml`. Raise the level there first.
+- `BUILD_UPSTREAM`, `DEPLOY`, `X402_ENDPOINT` and `ACCOUNTS_PUBLISH` aren't on
+  the ladder yet.
 
 So there are two kinds of work, and they need different hands:
 
@@ -40,9 +58,9 @@ So there are two kinds of work, and they need different hands:
   one pull request per item.
 
 The whole evolve loop (`bin/evolve`, the lab spine, promotion, rollback, the
-probes) landed on 2026-11-12 and has never run against a real core. The
-first real generation is the most valuable single proof on this page, and it
-is a first nobody else has published.
+probes) landed on 2026-11-12. The first promoted generation is the most
+valuable single proof on this page, and it is a first nobody else has
+published.
 
 ## The four goals
 
