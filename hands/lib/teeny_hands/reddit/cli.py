@@ -4,7 +4,7 @@ a JSON body on stdin and only go through `actions`, which runs the guard,
 the rules and DRY_RUN itself. Operator verbs (O) are for a person at the box.
 
   R  whoami                                   the account: name, karma, suspended or not
-  R  feed SUBREDDIT [--sort hot|new|top|rising] [--time T] [--max N]
+  R  feed [SUBREDDIT] [--sort hot|new|top|rising] [--time T] [--max N]
   R  thread ID [--sort S] [--max N]           one post and its comments
   R  search QUERY [--subreddit S] [--sort S] [--max N]
   R  user NAME                                another account
@@ -67,7 +67,7 @@ def parser() -> argparse.ArgumentParser:
 
     verb("whoami", lambda a, _: reads.whoami(), "the account")
     feed = verb("feed", lambda a, _: reads.feed(a.subreddit, a.sort, a.max, a.time), "a subreddit's posts")
-    feed.add_argument("subreddit", metavar="SUBREDDIT")
+    feed.add_argument("subreddit", metavar="SUBREDDIT", nargs="?", help="default: every subreddit on the allowlist")
     feed.add_argument("--sort", default="hot", choices=reads.SORTS)
     feed.add_argument("--time", default="day", choices=reads.TIMES, help="for --sort top")
     feed.add_argument("--max", type=_bounded(1, 50, "--max"), default=15)

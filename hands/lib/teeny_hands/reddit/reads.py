@@ -119,16 +119,26 @@ def whoami(api: client.Reddit | None = None) -> Json:
     return {"me": CACHE.cached("whoami", (), fetch)}
 
 
-def feed(subreddit: str, sort: str, max_results: int, time: str = "day", api: client.Reddit | None = None) -> Json:
+def feed(subreddit: str | None, sort: str, max_results: int, time: str = "day", api: client.Reddit | None = None) -> Json:
+    """One subreddit's posts or, with none named, every subreddit on the
+    allowlist at once (Reddit's `r/a+b` multireddit)."""
+    from . import rules
+
     if sort not in SORTS:
         raise hand.HandError(f"--sort is one of {', '.join(SORTS)}")
     if time not in TIMES:
         raise hand.HandError(f"--time is one of {', '.join(TIMES)}")
-    name = client.subreddit_name(subreddit, "SUBREDDIT")
+    if subreddit:
+        names = [client.subreddit_name(subreddit, "SUBREDDIT")]
+    else:
+        names = [client.subreddit_name(n, "REDDIT_SUBREDDITS") for n in rules.allowed_subreddits()]
+        if not names:
+            raise hand.HandError("name a SUBREDDIT: REDDIT_SUBREDDITS is empty")
+    name = "+".join(names)
     query = [("limit", str(max_results))]
     if sort == "top":
         query.append(("t", time))
-    path = f"/r/{client.quote(name)}/{sort}"
+    path = f"/r/{'+'.join(client.quote(n) for n in names)}/{sort}"
     got = CACHE.cached("feed", (name.lower(), sort, max_results, time), lambda: _posts(_api(api).call("GET", path, query)))
     return {"subreddit": name, "sort": sort, "posts": got}
 

@@ -74,6 +74,13 @@ class ReadsTest(Scratch):
         self.assertTrue(got["posts"][0]["locked"])
         self.assertNotIn("junk", got["posts"][0])
 
+    def test_a_feed_with_no_subreddit_reads_the_whole_allowlist(self):
+        self.rd.route("GET", "/r/learnpython+sideproject/new", listing(t3("p1")))
+        self.assertEqual(reads.feed(None, "new", 5)["posts"][0]["id"], "p1")
+        self.configure(REDDIT_SUBREDDITS="")
+        with self.assertRaises(hand.HandError):
+            reads.feed(None, "new", 5)
+
     def test_a_thread_keeps_its_replies(self):
         reply = t1("c2", "bob", "p1", parent="t1_c1")
         top = t1("c1", "ana", "p1", replies=listing(reply))
