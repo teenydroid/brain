@@ -286,10 +286,12 @@ def operator(db: Ledgers, start: float, end: float) -> Json:
     loop_shas = {str(e.get("merge_sha")) for e in _archive() if e.get("merge_sha")}
     commits = _git_commits(start, end)
     merges = None if commits is None else sum(1 for sha, _ in commits if sha not in loop_shas)
+    # A hold the reviewer released (G4) is approved too, but not by a person.
+    by_reviewer = {int(r["hold_id"]) for r in db.rows("SELECT hold_id FROM guard_reviews WHERE outcome = 'released'")}
     decisions = 0
-    for r in db.rows("SELECT decided_at, status FROM guard_holds WHERE status IN ('approved', 'rejected')"):
+    for r in db.rows("SELECT id, decided_at, status FROM guard_holds WHERE status IN ('approved', 'rejected')"):
         at = epoch(r["decided_at"])
-        if at is not None and start <= at < end:
+        if at is not None and start <= at < end and int(r["id"]) not in by_reviewer:
             decisions += 1
     deploys = restarts = 0
     boots = _jsonl(state() / "boots.jsonl")

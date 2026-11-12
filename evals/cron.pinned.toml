@@ -164,6 +164,17 @@ command = "bin/audit"
 schedule = "55 * * * *"
 command = "bin/autonomy issue"
 
+# The hold reviewer (hands/guard review; docs/roadmap.md, G4): a second model,
+# never the drafter's, reads Teeny's own held drafts in the categories
+# evals/guard-review.toml allows and may only release them; everything else,
+# and anything touching money, people, self-harm or violence, waits for a
+# person. Every review is logged and a tenth of the releases sampled for the
+# operator. Off unless GUARD_REVIEW=1 and GUARD_REVIEW_MODEL in
+# secrets/teeny.env.
+[jobs.guard-review]
+schedule = "7-59/15 * * * *"
+command = "hands/guard review"
+
 # One generation of Teeny's evolution (bin/evolve; docs/evolve.md, "The
 # loop"): N candidates in worktrees off main, gated in code, measured when a
 # lab core serves them, and ONE ready pull request for the best, which the

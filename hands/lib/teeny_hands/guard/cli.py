@@ -192,6 +192,19 @@ def holds_release(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"hold": reviewed}
 
 
+def review_run(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    """The hold reviewer's pass (review.py; docs/roadmap.md, G4)."""
+    from . import review
+
+    return review.run(args.limit)
+
+
+def reviews_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    from . import review
+
+    return {"reviews": review.listing(args.sampled, args.limit)}
+
+
 def links_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"links": holds.approved_link_rows()}
 
@@ -243,6 +256,14 @@ def parser() -> argparse.ArgumentParser:
     release.add_argument("id", type=int)
     release.add_argument("--note")
     release.set_defaults(handler=holds_release)
+
+    review_p = verbs.add_parser("review")
+    review_p.add_argument("--limit", type=int, default=10)
+    review_p.set_defaults(handler=review_run)
+    reviews_p = verbs.add_parser("reviews")
+    reviews_p.add_argument("--sampled", action="store_true", help="only the releases queued for the operator to read")
+    reviews_p.add_argument("--limit", type=int, default=100)
+    reviews_p.set_defaults(handler=reviews_list)
 
     links_p = verbs.add_parser("links").add_subparsers(dest="action")
     links_p.add_parser("list").set_defaults(handler=links_list)
