@@ -36,10 +36,10 @@ a night this brings it up to date from inside the day, item by item:
    moves each retired item (its id, section, text, reason and the time) to
    state/reflect/retired.jsonl, so nothing leaves the page unrecorded
    (Zep: invalidate, don't delete), writes the diary to
-   state/diary/<date>.md (on the goals weekday, GOALS_WEEKDAY, with the week's
-   goals and their verdicts from the goal ledger after it, `goals_week`;
-   the day it looks back on: before 06:00 that is
-   yesterday) and teaches it to the core's memory, then rebuilds the prompts
+   state/diary/<date>.md (the day it looks back on: before 06:00 that is
+   yesterday; on GOALS_WEEKDAY the page also carries the week's goals and
+   their verdicts, written from the goal ledger by `goals_week`) and teaches
+   it to the core's memory, then rebuilds the prompts
    so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
