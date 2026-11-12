@@ -193,10 +193,9 @@ def due() -> Json:
         for f in listed["firsts"]
         if f.get("status") == "met" and "announced" not in f
     ]
-    out: Json = {"firsts": firsts, "rounds": rounds}
-    if not firsts and not rounds:
-        out["note"] = "nothing is due: no proof newly met, no round number crossed"
-    return out
+    # Nothing due is two empty lists and nothing else, so a playbook input
+    # marked `required` skips the run before any model turn.
+    return {"firsts": firsts, "rounds": rounds}
 
 
 def _numbers(text: str) -> set[float]:
