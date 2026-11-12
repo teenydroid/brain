@@ -2,13 +2,13 @@
 
 References are `upstream/main` at `6741ea4b41`, with
 `$C = crates/openhuman-core/src`. None of these blocks the design in
-[`architecture.md`](architecture.md). Each has a workaround in Teeny's
-scripts or hands, and each upstream change would delete that workaround. They're ranked by how
-much Teeny-side code they'd remove.
+[`architecture.md`](architecture.md). Each has a workaround in Teeny's scripts
+or hands that the upstream change would delete, and they're ranked by how much
+Teeny-side code that would remove.
 
 | # | Gap | Teeny's workaround today | Proposed upstream change |
 |---|---|---|---|
-| G1 ([#8118](https://github.com/tinyhumansai/openhuman/issues/8118)) | **Solved** (openhuman#8648), but capped by G12. Shell cron jobs were killed after a hard 120 s. `[cron] shell_timeout_secs` (default 120) now sets the limit. | `bin/spine` sets `shell_timeout_secs = 1800` (`bin/lib/core_sections/automation.py`); past 300 s G12 applies. | Done. A per-job timeout would still let one slow job have a longer leash than the rest. |
+| G1 ([#8118](https://github.com/tinyhumansai/openhuman/issues/8118)) | **Solved** (openhuman#8648), but capped by G12. Shell cron jobs had a fixed 120 s limit; `[cron] shell_timeout_secs` (default 120) sets it. | `bin/spine` sets `shell_timeout_secs = 1800` (`bin/lib/core_sections/automation.py`); past 300 s G12 applies. | Done. A per-job timeout would still let one slow job have a longer leash than the rest. |
 | G2 ([#8119](https://github.com/tinyhumansai/openhuman/issues/8119)) | **Cron jobs can't be declared in a file.** They're created only through `cron.add` (RPC or the agent tool), so the schedule isn't version-controlled. | `bin/seed-cron` reconciles `brain/cron.toml` against `cron.list` at every boot. | Load `<brain>/cron.toml` at boot as operator-declared jobs, owned by the file and pruned when they're removed from it. |
 | G3 ([#8120](https://github.com/tinyhumansai/openhuman/issues/8120)) | **Channel replies have no outbound hook.** A Telegram turn's text goes to the chat with no step to filter, rewrite or block it. `afterAgentResponse` only observes (`vendor/tinyagents/crates/tinyagents-hooks/src/command/types.rs`). | Teeny uses no OpenHuman channel. Every outside surface is a hand that runs the guard itself. | A `beforeChannelSend` hook that can deny or rewrite, with the same contract as `preToolUse`. |
 | G4 ([#8121](https://github.com/tinyhumansai/openhuman/issues/8121)) | **Read-only tools need MCP, and MCP is always `Execute`.** A no-shell agent can only reach a script through MCP, and every MCP call registers as `Execute` whatever the server's `readOnlyHint` says (`$C/tools/impl/network/mcp.rs:319`). So OpenHuman's gate can't tell a read verb from a write, and Teeny's safety rests only on the MCP catalog and the agents' allowlists. | No agent that reads strangers' text has any tool. The scheduled agents use desk files (G11). | Workspace-declared command tools (`tools/<name>.toml`: command, JSON schema, permission level, external effect) registered like built-ins. |
@@ -24,7 +24,7 @@ much Teeny-side code they'd remove.
 
 ## Landed upstream
 
-- **Scheduled actions** (openhuman#8648). A cron job whose agent sets
+- Scheduled actions (openhuman#8648). A cron job whose agent sets
   `scheduled_actions = true` and names its tools explicitly runs as
   `TrustedAutomation { CronActions }`: its root run may use those tools
   without a person's approval, while the autonomy tier, `workspace_only`,
@@ -34,24 +34,23 @@ much Teeny-side code they'd remove.
   agents, the builder and the browser operator
   ([`architecture.md`](architecture.md) §6a). Every other scheduled job is
   still a shell job, and every agent that reads strangers' text is still
-  tool-less: the read-only rule stays the default, and the opt-in is per
-  agent, not a blanket allowlist.
-- **Wallet policy** (openhuman#8649): `[wallet_policy]` and the spend ledger
+  tool-less. The read-only rule stays the default, and the opt-in is per
+  agent rather than a blanket allowlist.
+- Wallet policy (openhuman#8649). `[wallet_policy]` and a spend ledger
   shared by every core in a workspace. The spine builds the `web3` domain
   with tinywallet linked in (`spine/Cargo.toml`); the policy itself belongs
   to the wallet hand.
-
-- **MCP tool scanning on a serve host** (openhuman#8654, gap G11). The scan
+- MCP tool scanning on a serve host (openhuman#8654, gap G11). The scan
   no longer drops every configured MCP server's tools under `openhuman-core
   serve`. The desk-file handoff stays as the builder's and the browser
   operator's path for now; `hands/mcp` is no longer blocked on the core.
 
 ## Deliberately not asked for
 
-- **Letting every cron agent turn take external actions** (an `[cron]
-  unattended_tools` allowlist). The rule at
+- An `[cron] unattended_tools` allowlist that would let every cron agent turn
+  take external actions. The rule at
   `$C/agent/tinyagents/host/security_gate.rs:532` is the right default for a
   public agent, and the design relies on it. Scripts act and models draft;
   the per-agent opt-in above covers the two agents built to act.
-- **Secret injection for `http_request`.** Hands hold the secrets, so the
-  model never needs a credentialed HTTP tool.
+- Secret injection for `http_request`. Hands hold the secrets, so the model
+  never needs a credentialed HTTP tool.
