@@ -566,7 +566,11 @@ Every scheduled job is in one of two files:
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
-    guard holds an outage made (docs/hands.md, "Re-screening").
+    guard holds an outage made (docs/hands.md, "Re-screening"). With
+    `SPINE_FALLBACK_MODEL` in `secrets/spine.env`, the same two failures,
+    and a fallback model that answers, move the running core to that model.
+    The main model answering again moves it back. Each move is a note on the
+    night's diary page (docs/roadmap.md, A18).
   - `health-daily` (`bin/health daily`, 00:40 UTC), which tells Teeny how
     the day before went as one `health · daily` stimulus: cost, failed cron
     and playbook runs, failed beats, the doctor's checks that are not ok and
