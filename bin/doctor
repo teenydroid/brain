@@ -119,7 +119,7 @@ agent_turn_budget() {
 }
 
 # --- the brain -----------------------------------------------------------------
-for file in SOUL.md CONTEXT.md; do
+for file in SOUL.md DRIVE.md CONTEXT.md; do
   if [ -s "$brain/$file" ]; then
     note "brain/$file" ok "$(wc -l <"$brain/$file" | tr -d ' ') lines"
   else
