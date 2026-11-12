@@ -431,12 +431,18 @@ the next offer carries), then writes the next job or task to
 `state/workbench/desk/<name>.json`. The agent reads one file and writes one.
 This was the simplest safe choice, and the one that works at this pin:
 - the operator has no shell, so a shell wrapper could not serve it;
-- the builder's shell runs sandboxed (`sandbox_mode = "sandboxed"`: TinyBox's
-  namespace jail, a private mount tree and no network), rooted at
-  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`):
-  the jail is granted that folder read-write and nothing else of the
-  checkout, so it can reach neither `hands/` nor `secrets/` (a shell that
-  could run `hands/build` could also run `hands/gh push`). It cannot be
+- the builder's shell runs sandboxed, and the sandbox jails its files, not
+  its network. In the spine's container (Docker defaults, no user
+  namespaces) TinyBox's only jail is Landlock: the shell can write
+  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`)
+  and read the system's own directories, and nothing else of the checkout,
+  so it can reach neither `hands/` nor `secrets/` (a shell that could run
+  `hands/build` could also run `hands/gh push`). **The shell has the host's
+  network.** Landlock enforces no network rule and claims no process
+  isolation, so TinySecurity plans onto it only because the builder asks for
+  files only (`sandbox_filesystem_only = true`, TinySecurity contract 2.2,
+  openhuman#8678); a kernel jail (bubblewrap) is still preferred where one
+  exists, and without any jail the shell refuses. It cannot be
   rooted at the checkout: the checkout is the core's action dir and holds
   `brain/`, the core workspace, and TinySecurity refuses any grant that
   overlaps it (every call failed `denial=Path` until openhuman#8674 let a
@@ -458,8 +464,10 @@ the core's config, each table replaced whole. `automation.py` owns `[cron]`
 linked modules). `context.py` owns `[context]` and `secrets.py` owns
 `[secrets]`.
 
-**What the builder may not do.** It has no token and no network in its
-shell; it publishes nothing. `hands/build ship` runs from cron, outside any
+**What the builder may not do.** It has no token (its shell cannot read
+`secrets/` and gets an allowlisted environment), and it publishes nothing.
+Its shell does have the host's network; what it may build and push is
+decided outside it. `hands/build ship` runs from cron, outside any
 model turn, and pushes only the job's folder through hands/gh: the guard on
 the commit message and description, the owner rule, the workbench rule and
 the secret scan. A refused push is retried twice more, then the job fails

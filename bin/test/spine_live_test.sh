@@ -113,7 +113,11 @@ class Model(BaseHTTPRequestHandler):
             else:
                 with open(sys.argv[5]) as desk:
                     workdir = json.load(desk)["job"]["workdir_path"]
-                command = f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
+                # The jail confines files, not the network: the shell shares the
+                # host's, so it reaches this model on loopback (a printed status,
+                # computed by the shell like the marker).
+                command = (f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
+                           f" && echo \"teeny-net-$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{sys.argv[1]}/v1/models)\"")
                 answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
         if body.get("stream"):
             self.send_response(200)
@@ -378,16 +382,18 @@ check "the builder run is rooted at the workbench" grep -q "rooted at its agent'
 # whatever sandbox the host has.
 check "the builder's shell is never refused over the core workspace" \
   bash -c "! grep -q 'refused the spawn denial=Path' '$scratch/spine.log'"
-# Whether the shell can run at all depends on the host: a runner with no
-# sandbox backend refuses every sandboxed spawn (denial=Unsupported), as it
-# should. Only a host with a backend must run the command.
+# Whether the shell can run at all depends on the host: one with no jail at
+# all refuses every sandboxed spawn, as it should. Any jail must run it, and
+# that includes Landlock alone (a container on Docker's defaults, or a runner
+# that restricts user namespaces): the builder asks for files only
+# (`sandbox_filesystem_only`), so a plan onto Landlock is no longer refused
+# as unsupported.
 sandbox_backend="$("$root/bin/oh" config_get_sandbox_settings '{}' 2>/dev/null |
   jq -r '[.. | objects | .detected_backend? | strings] | first // empty' 2>/dev/null || true)"
 no_backend=0
-case "$sandbox_backend" in unavailable | none) no_backend=1 ;; esac
-# A backend the host can see but the module cannot use (user namespaces
-# restricted, say) is no backend either.
-if grep -q 'refused the spawn denial=Unsupported' "$scratch/spine.log"; then no_backend=1; fi
+case "$sandbox_backend" in unavailable | none | "") no_backend=1 ;; esac
+check "the builder's shell is never refused as unsupported where a jail exists" \
+  bash -c "[ '$no_backend' = 1 ] || ! grep -q 'refused the spawn denial=Unsupported' '$scratch/spine.log'"
 if [ "$no_backend" = 1 ]; then
   printf 'info no sandbox backend on this host (detected_backend=%s): skipped the builder shell run checks\n' \
     "${sandbox_backend:-unknown}"
@@ -396,6 +402,8 @@ else
   check "the builder's shell is not refused" bash -c "! grep -q 'refused the spawn' '$scratch/spine.log'"
   check "the builder's shell ran in its job's folder" test -n "$workdir" -a -e "$workdir/shell-ran"
   check "the builder saw the shell's output" grep -qF "teeny-shell-2-ran:$workdir" "$scratch/model-bodies.jsonl"
+  # builder.toml and docs/architecture.md say it plainly: files jailed, network not.
+  check "the builder's shell has the host's network" grep -qF "teeny-net-200" "$scratch/model-bodies.jsonl"
 fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
