@@ -477,7 +477,7 @@ def main(argv: list[str]) -> int:
         import autonomy  # noqa: PLC0415 (bin/lib, beside this file)
 
         try:
-            out = autonomy.report(root(), root() / "secrets", state_dir())
+            out = autonomy.report(root(), Path(os.environ.get("TEENY_SECRETS") or root() / "secrets"), state_dir())
         except autonomy.LadderError as exc:
             print(json.dumps({"ok": False, "error": str(exc)}))
             return 2

@@ -46,7 +46,7 @@ from teeny_hands import hand  # noqa: E402
 #: Every watcher and the files it is made of (directories: every file in them).
 WATCHERS = {
     "guard": ["hands/guard", "hands/lib/teeny_hands/guard", "hands/x", "hands/lib/teeny_hands/x"],
-    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine"],
+    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/autonomy.py"],
     "frozen check": ["bin/frozen-check", "bin/lib/frozen.py", "evals/frozen.txt", ".github/workflows/check.yml"],
     "evolve-watch": ["bin/evolve", "bin/lib/evolve.py", "bin/lib/lab.py", "bin/lib/probes.py", "bin/lib/last_good.py",
                      "evals/invariants.md", "evals/judge.md"],
