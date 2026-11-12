@@ -70,11 +70,11 @@ X API ─► id recorded at once (a reply: x_replies), then the x_posts ledger r
 
 [twitr.sh](https://twitr.sh) is a pay-per-call X API with no keys: every call
 is paid in USDC over x402 from Teeny's own wallet
-(`teeny_hands/x/twitr.py`). Each call is one `openhuman.x402_fetch`: the core
-makes the request and TinyWallet signs the 402 within the cap the hand gives
-for that call. Then the core retries the request and records the settlement
-in its x402 ledger (`openhuman.x402_list_payments`). The keys never come
-near the hand.
+(`teeny_hands/x/twitr.py`). Each call goes through hands/wallet's `x402
+fetch`, the one gate for paid requests. That gate makes one
+`openhuman.x402_fetch`: the core sends the request, TinyWallet signs the 402
+within the cap given for the call, and the core retries and records the
+settlement. The keys never come near either hand.
 
 | Switch | Sends to twitr | Stays on the X API |
 |---|---|---|
@@ -90,14 +90,21 @@ treats it exactly as a failed X write (`_in_doubt`). Each write carries an
 `Idempotency-Key` made from what it says, so a retry within ten minutes
 replays the first result rather than posting twice.
 
-Three caps stand between a call and the wallet. The hand refuses any call
-priced over `TWITR_MAX_PER_CALL_USD` (5 cents) before it reaches the core.
-The core refuses a payment over the call's `maxAmountAtomic`. TinyWallet
-keeps its own per-request, daily and monthly budget, which
-`bin/lib/wallet_config.py` pins at every boot from `X402_MAX_PER_*_USD`
-(10 cents, $2 a day and $30 a month unless set). Paid calls run one at a
-time under the `twitr` lock, because twitr refuses overlapping payments from
-one wallet.
+Four limits stand between a call and the wallet:
+
+- **The hand's own cap.** Any call priced over `TWITR_MAX_PER_CALL_USD`
+  (5 cents) is refused here and never reaches the wallet.
+- **The wallet's gate.** `twitr.sh` must be in the operator's `x402 hosts`
+  allowlist, and each call is held to `WALLET_MAX_X402_PER_REQUEST_USD` and
+  `_PER_DAY_USD`. Each call is written to `x402_requests` (`hands/wallet x402
+  log`).
+- **The core.** It refuses a payment over the call's `maxAmountAtomic`.
+- **TinyWallet's own budget.** `bin/lib/wallet_config.py` pins it from the
+  same caps.
+
+Paid calls run one at a time under the wallet's `wallet-x402` lock. That is
+also what twitr asks of a wallet. Under `DRY_RUN` the gate calls nothing, so
+twitr reads come from X.
 
 Writes act as an X account that the wallet linked on twitr.sh, and twitr
 checks every write against the paying wallet. The link is signed with the
@@ -106,6 +113,7 @@ wallet's EVM key (Sign-In-With-X), so every payment is pinned to
 Solana. Linking is done once, by a person:
 
 ```
+hands/wallet x402 hosts add twitr.sh --note "hands/x reads and writes"
 hands/x twitr-connect teenydroid   # → {connect_url, expires_in: 900}
 # open connect_url in a browser and sign in to X there; Teeny never sees the password
 hands/x twitr-accounts             # until teenydroid reads `linked`

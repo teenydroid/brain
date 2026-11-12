@@ -48,6 +48,26 @@ class X402Test(Scratch):
         [row] = self.rows()
         self.assertEqual((row["status"], row["usd_micro"], row["max_micro"], row["host"]), ("paid", 50_000, 80_000, "api.example.com"))
 
+    def test_a_network_pin_is_passed_down(self):
+        x402.fetch({"url": URL, "max_usd": "0.08", "network": "eip155:8453"})
+        self.assertEqual(self.core.params("openhuman.x402_fetch")[0]["network"], "eip155:8453")
+
+    def test_a_malformed_network_is_refused(self):
+        for network in ("eip155:8453:1", "eip 155", 8453, ""):
+            self.refused({"url": URL, "network": network}, "fields")
+
+    def test_a_sign_in_can_pay_nothing(self):
+        self.core.answers["openhuman.x402_fetch"] = {"status": 200, "body": "{}", "payment": None, "signedInAs": "0x" + "4" * 40}
+        out = x402.fetch({"url": URL, "method": "POST", "body": "{}", "sign_in": True})
+        [params] = self.core.params("openhuman.x402_fetch")
+        self.assertIs(params["signIn"], True)
+        self.assertEqual(params["maxAmountAtomic"], x402.SIGN_IN_CAP)
+        self.assertEqual(out["signed_in_as"], "0x" + "4" * 40)
+        self.assertEqual(self.rows()[0]["status"], "free")
+
+    def test_a_sign_in_takes_no_max_usd(self):
+        self.refused({"url": URL, "sign_in": True, "max_usd": "0.05"}, "max_usd")
+
     def test_a_free_response_costs_nothing(self):
         self.core.answers["openhuman.x402_fetch"] = {"status": 200, "body": "ok", "payment": None}
         self.assertIsNone(x402.fetch({"url": URL})["paid"])

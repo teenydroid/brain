@@ -1,4 +1,5 @@
-"""twitr.sh behind hands/x: every call one `openhuman.x402_fetch` under a cap,
+"""twitr.sh behind hands/x: every call one hands/wallet `x402 fetch` (and so
+one `openhuman.x402_fetch`) under a cap,
 reads that fall back to X, writes that never do, and the shapes mapped to
 the hand's own. The core is a stand-in; nothing reaches twitr.sh or pays."""
 
@@ -10,6 +11,7 @@ from unittest import mock
 
 from .support import T0, Guard, Scratch, me
 from teeny_hands import hand
+from teeny_hands.wallet import x402 as wallet_x402
 from teeny_hands.x import cache, publish, twitr
 from teeny_hands.x.client import XApi
 from teeny_hands.x.model import SearchOptions
@@ -46,8 +48,19 @@ class FakeCore:
         return json.loads(self.params["body"])
 
 
+WALLET = {
+    "WALLET_CLUSTER": "devnet",
+    "WALLET_MAX_PER_TX_USD": "50",
+    "WALLET_MAX_PER_DAY_USD": "100",
+    "WALLET_MAX_PER_RECIPIENT_WEEK_USD": "60",
+    "WALLET_SOL_USD": "200",
+    "WALLET_MAX_X402_PER_REQUEST_USD": "1",
+    "WALLET_MAX_X402_PER_DAY_USD": "5",
+}
+
+
 class Twitr(Scratch):
-    settings = {"X_TWITR_READS": "1", "X_TWITR_WRITES": "1", "TWITR_ACCOUNT": "teenydroid", "TWITR_API_BASE": "https://twitr.test"}
+    settings = {**WALLET, "X_TWITR_READS": "1", "X_TWITR_WRITES": "1", "TWITR_ACCOUNT": "teenydroid", "TWITR_API_BASE": "https://twitr.test"}
 
     def setUp(self):
         super().setUp()
@@ -55,6 +68,14 @@ class Twitr(Scratch):
         patcher = mock.patch.object(hand, "core", self.core)
         patcher.start()
         self.addCleanup(patcher.stop)
+        wallet_x402.hosts_add("twitr.test", "twitr.sh, for hands/x")
+
+    def ledger(self) -> list[dict]:
+        conn = hand.db()
+        try:
+            return [dict(r) for r in conn.execute("SELECT status, host, max_micro FROM x402_requests ORDER BY id")]
+        finally:
+            conn.close()
 
 
 class ReadsTest(Twitr):
@@ -71,6 +92,19 @@ class ReadsTest(Twitr):
         self.assertEqual(params["network"], "eip155:8453")
         self.assertEqual(self.core.body(), {"resource": "get-tweet", "id": "77"})
         self.assertEqual(self.x.requests(), [], "X is not asked when twitr answers")
+        self.assertEqual(self.ledger(), [{"status": "free", "host": "twitr.test", "max_micro": twitr.FLOOR}])
+
+    def test_twitr_is_not_paid_unless_the_operator_allowlisted_it(self):
+        wallet_x402.hosts_remove("twitr.test")
+        self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "from x"}})
+        self.assertEqual(twitr.client().get_post("77")["text"], "from x")
+        self.assertEqual(self.core.calls, [])
+
+    def test_under_dry_run_reads_come_from_x(self):
+        self.configure(DRY_RUN="1")
+        self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "from x"}})
+        self.assertEqual(twitr.client().get_post("77")["text"], "from x")
+        self.assertEqual(self.core.calls, [])
 
     def test_a_search_caps_the_payment_at_its_results_limit(self):
         self.core.answer(200, {"items": [{"id": "601", "text": "b"}, {"id": "600", "text": "a"}]})
