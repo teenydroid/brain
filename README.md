@@ -70,7 +70,9 @@ token is set. All of it lands in one inbox,
   and to the core's memory. At 14:00 `bin/reflect --light` updates
   `brain/MEMORY.md`, the page in every prompt, from the day so far, item by
   item. At 02:00 `bin/reflect` updates it again and writes a diary entry to
-  `state/diary/<date>.md`. Retired items go to `state/reflect/retired.jsonl`.
+  `state/diary/<date>.md`. Retired items go to `state/reflect/retired.jsonl`. The page is the box's
+  own and never committed; the repository keeps where it started,
+  `brain/MEMORY.seed.md`.
 - It builds and browses. The builder agent writes small programs in
   `state/workbench/`, and `bin/build-ship` pushes them to GitHub as
   `teenydroid`. The browser operator does one task at a time on the allowed

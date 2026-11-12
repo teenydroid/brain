@@ -31,7 +31,8 @@ a night this brings it up to date from inside the day, item by item:
    and stderr, the page stays as it was, and the result says `refused`.
    A page past prompts.MEMORY_MAX_CHARS (and longer than before) is not
    cut: the mind is asked to retire or merge items instead.
-5. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one,
+5. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one
+   to brain/MEMORY.md,
    moves each retired item (its id, section, text, reason and the time) to
    state/reflect/retired.jsonl, so nothing leaves the page unrecorded
    (Zep: invalidate, don't delete), writes the diary to
@@ -39,6 +40,10 @@ a night this brings it up to date from inside the day, item by item:
    yesterday) and teaches it to the core's memory, then rebuilds the prompts
    so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
+
+brain/MEMORY.md is the live page, never committed; the first reflection on
+a checkout without one starts it from the committed brain/MEMORY.seed.md,
+which is never written.
 
 The JSON is found wherever it sits in the answer (in a fence, after a line
 of prose). An answer that is not usable (no JSON, an unknown id, a retire
@@ -658,7 +663,8 @@ def _settle(said: str, page: Page, start: int, light: bool) -> Outcome | Json:
 
 def reflect(light: bool = False) -> Json:
     since = _since(light)
-    path = BRAIN / "MEMORY.md"
+    # The live page, started from the committed seed on a checkout without one.
+    path = prompts.seed_memory(BRAIN)
     on_disk = path.read_text(encoding="utf-8") if path.is_file() else ""
     page = read_page(on_disk)
     given = assign_ids(page, _next_id(page))
