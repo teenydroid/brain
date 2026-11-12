@@ -104,6 +104,8 @@ else
   # The flags TinyBox's bubblewrap probe uses (tinybox-jail bwrap/args.rs, a
   # jail that denies the network, with --disable-userns), then its check: the
   # jail has its own PID namespace. Inside, a nested user namespace must fail.
+  # It runs in the container's sh, so nothing in it expands here.
+  # shellcheck disable=SC2016
   probe='parent="$(readlink /proc/self/ns/pid)"
 bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try \
   --unshare-net --disable-userns --die-with-parent --new-session \
@@ -112,7 +114,7 @@ bwrap --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-
   --ro-bind-try /etc /etc --chdir / \
   /bin/sh -c "test \"\$(readlink /proc/self/ns/pid)\" != \"\$1\" && echo isolated;
     if unshare -U true 2>/dev/null; then echo nested-userns; else echo no-nested-userns; fi" probe "$parent"'
-  # The spine shares cortexdb'"'"'s network, which this one-off run does not start.
+  # The spine shares cortexdb's network, which this one-off run does not start.
   override="$(mktemp "${TMPDIR:-/tmp}/teeny-compose.XXXXXX")"
   trap 'rm -f "$override"' EXIT
   printf 'services:\n  spine:\n    image: %s\n    network_mode: none\n    depends_on: !reset {}\n' "$image" >"$override"
