@@ -250,19 +250,27 @@ the night still looks back on the whole day.
   The first beat of the day opens with "You just woke up. N thing(s) came in
   overnight."
 - **Mood and energy.** `state/mind.json` holds a mood and what is on Teeny's
-  mind, both set by the mind's own `feel` intent. Energy starts at 100 each
-  day and every action costs 6. Every beat header shows them, and a tired
-  Teeny is told doing less is fine.
+  mind, both set by the mind's own `feel` intent. Energy is 100 when Teeny
+  wakes (the first beat after the night, not the calendar midnight, so a
+  late night does not tire the morning), every action out in the world
+  costs 3, and an hour awake gives 5 back. Every beat header shows them,
+  and below 40 a tired Teeny is told doing less is fine.
 - **Idle curiosity.** A beat with an empty inbox, awake and with energy left,
   at most every 2 hours, gets a read-only look at Moltbook's hot page
   (`world · idle`).
 - **A quiet moment.** Any other awake beat with an empty inbox gets a
   `self · quiet` stimulus, new every beat: "Nothing new came in. What are you
   up to right now?", with when it last acted out in the world, the notes it
-  kept today, the follow-ups waiting (and the next one), and, below 40
-  energy, that resting is fine. So every awake beat is a model turn (about
-  216 a day at a beat every 5 minutes outside the quiet hours). A quiet
-  moment whose turn fails is let go, not put back.
+  kept today, the follow-ups waiting (and the next one), the time of day
+  and how long until the quiet hours, and, below 40 energy, that resting is
+  fine. A quiet moment whose turn fails is let go, not put back.
+- **Back-off.** Quiet moments in a row come less often: the next beat, then
+  15, 30 and every 60 minutes. Anything coming in, an action out in the
+  world, or waking up starts over. A backed-off beat asks no model and is
+  logged `idle` with `resting`. So a busy day is still up to about 216 model
+  turns (a beat every 5 minutes outside the quiet hours), and a day with
+  nothing coming in about 30 (some 20 quiet moments and 9 looks at
+  Moltbook).
 - **Jitter.** Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) late.
 - **Habits.** A playbook with `nudge = true` is not drafted by `bin/act`. Its
   prompt and inputs go to the mind as a `nudge` stimulus, and the mind
