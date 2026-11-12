@@ -44,7 +44,7 @@ it, and it reads only the ledgers hands write after an action succeeded.
 Live, before appending, the published chain is verified from the first line;
 a chain that does not verify (someone else pushed, or history was edited)
 refuses the run rather than build on it. Only `receipts/`, `head.json`,
-`stats/` and `wallet.json` are ever staged, the staged diff still goes through
+`stats/`, `wallet.json` and `accounts/` are ever staged, the staged diff still goes through
 the secret gate (every value in secrets/*.env of 12 characters or more, and
 the usual key shapes), and a push that fails resets the checkout to the remote so the next run rebuilds.
 
@@ -65,6 +65,20 @@ only if it is a base58 public key; nothing else of the wallet is read. A
 snapshot with nothing allowed in it, or a core that does not answer, leaves
 the files already published as they are. Live, a run with no new receipts
 still pushes when either file changed, and nothing at all when neither did.
+
+With ACCOUNTS_PUBLISH=1 the closed weekly profit and loss pages ride along
+too (docs/roadmap.md, S1), one file each, written once and never rewritten:
+
+    accounts/2026-W46.json   {"week", "from", "to", "costs": {"models",
+      "server", "tools", "total"}, "income": {"tip", "sale", "bounty",
+      "total"}, "net", "team", "unclassified", "paid_out", "tiny_bought",
+      "sol_received_lamports", "inflows": [{"signature", "at", "asset",
+      "amount_raw", "usd", "category"}], "not_counted", "team_known", ...}
+
+They are closed by `hands/wallet accounts close` (the pinned `accounts`
+job) and rebuilt here field by field: dollars as `0.00`, enums, timestamps
+and Solana signatures only; a page with anything else, or not complete, is
+withheld whole. No sender address and no memo is ever published.
 
 Under DRY_RUN (the default) a fresh chain is written to state/receipts-preview/
 and nothing touches git or hands.db. Live, the repository is cloned to
