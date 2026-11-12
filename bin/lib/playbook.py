@@ -65,7 +65,7 @@ MEDIA_KINDS = ("image", "video")
 # runs only their read verbs.
 MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
 MONEY_READS = {
-    "wallet": ("address", "balance", "ledger", "costs", "receipt", "receipts", "caps"),
+    "wallet": ("address", "balance", "tiny", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
 }
 MAX_INPUTS = 8

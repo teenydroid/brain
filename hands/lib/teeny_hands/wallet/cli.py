@@ -1,7 +1,8 @@
 """The verbs of hands/wallet (docs/hands.md, "wallet").
 
   R  address                       Teeny's Solana address and its Solscan page
-  R  balance                       SOL (the core) and USDC (Solana RPC), raw and display
+  R  balance                       SOL (the core), USDC and $TINY (Solana RPC), raw and display
+  R  tiny                          Teeny's $TINY: {mint, owner, raw, decimals, amount}, read only
   R  ledger [--max N]              this hand's payments and the core's spend ledger
   R  costs [--days N]              what keeping Teeny running cost: models, x402, bills
   R  receipt ID                    one payment: amount, recipient, purpose, signature, Solscan
@@ -44,7 +45,8 @@ def parser() -> argparse.ArgumentParser:
         return sub
 
     verb("address", lambda a, _: reads.address(), "Teeny's Solana address")
-    verb("balance", lambda a, _: reads.balance(), "SOL and USDC, raw and display")
+    verb("balance", lambda a, _: reads.balance(), "SOL, USDC and $TINY, raw and display")
+    verb("tiny", lambda a, _: reads.tiny(), "Teeny's $TINY balance, in tokens")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)
     verb("receipt", lambda a, _: reads.receipt(a.id), "one payment's receipt").add_argument("id", type=int, metavar="ID")
