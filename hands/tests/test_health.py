@@ -551,3 +551,156 @@ class HealthTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoutingCore:
+    """A core whose model answers by name: `alive` is the set of models that
+    answer. `inference_agent_chat_simple` runs on `model_override`, else on
+    the model the core is set to; `config_update_model_settings` sets it.
+    `inference_agent_chat` (a beat of the mind) runs on the set model."""
+
+    def __init__(self, configured: str, alive: set[str]) -> None:
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+
+        self.configured, self.alive, self.calls = configured, set(alive), []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                fake.calls.append(body)
+                data = json.dumps(fake.answer(body["method"].split(".", 1)[-1], body.get("params") or {})).encode()
+                self.send_response(200)
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+
+    def answer(self, method, params):
+        if method == "config_update_model_settings":
+            self.configured = params["default_model"]
+            return result({"ok": True})
+        if method == "inference_update_model_settings":
+            return result({"ok": True})
+        if method in ("inference_agent_chat_simple", "inference_agent_chat"):
+            model = params.get("model_override") or self.configured
+            if model in self.alive:
+                return result({"response": f"ok from {model}"})
+            return {"jsonrpc": "2.0", "id": 1, "error": {"message": f"{model}: HTTP 503"}}
+        return result({})
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_port}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class FallbackRouteTest(unittest.TestCase):
+    """docs/roadmap.md, A18: two failed checks in a row and a fallback model
+    that answers move the core to it, with a diary note; the main model
+    answering again moves it back. HealthTest's scratch and helpers, not its
+    tests."""
+
+    tearDown = HealthTest.tearDown
+    configure = HealthTest.configure
+    at = HealthTest.at
+    inbox = HealthTest.inbox
+
+    def setUp(self):
+        HealthTest.setUp(self)
+        self.core.close()
+        self.core = RoutingCore("main-model", {"backup-model"})
+        self.addCleanup(self.core.close)
+        (self.root / "state" / "core.url").write_text(self.core.url + "\n")
+        (self.root / "secrets" / "spine.env").write_text(
+            "LADDER_URL=http://ladder/v1\nSPINE_MODEL=main-model\nSPINE_FALLBACK_MODEL=backup-model\n"
+            "SPINE_FALLBACK_CONTEXT_WINDOW=128000\n")
+        self.configure(DRY_RUN="1")
+
+    def check_at(self, n):
+        self.at(n * QUARTER)
+        return health.check()
+
+    def beat(self):
+        """What a beat of the mind gets: a turn on the model the core is set to."""
+        return hand.core("inference_agent_chat", {"message": "a beat", "agent_id": "teeny"}, timeout=5)
+
+    def notes(self):
+        path = self.root / "state" / "diary-notes.jsonl"
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def test_with_the_main_route_down_the_next_beat_runs_on_the_fallback(self):
+        first = self.check_at(0)
+        self.assertEqual((first["healthy"], first["route"]), (False, "main"))
+        self.assertEqual(self.core.configured, "main-model")  # one failure is not two
+        second = self.check_at(1)
+        self.assertEqual(second["route"], "fallback", second)
+        self.assertEqual(self.core.configured, "backup-model")
+        self.assertEqual(self.beat()["response"], "ok from backup-model")
+        settings = [c["params"] for c in self.core.calls if c["method"].endswith("config_update_model_settings")]
+        self.assertEqual(settings[-1]["chat_provider"], "local-openai:backup-model")
+        self.assertEqual(settings[-1]["agentic_provider"], "local-openai:backup-model")
+        windows = [c["params"] for c in self.core.calls if c["method"].endswith("inference_update_model_settings")]
+        self.assertEqual(windows[-1]["model_registry"][0]["context_window"], 128000)
+        [note] = self.notes()
+        self.assertIn("fallback model, backup-model", note["text"])
+        self.assertEqual([s["kind"] for s in self.inbox() if s["surface"] == "health"][-1], "route")
+        # The next check runs on the fallback and is healthy; main is asked
+        # too, and while it is down nothing moves.
+        third = self.check_at(2)
+        self.assertEqual((third["healthy"], third["route"]), (True, "fallback"))
+        self.assertEqual(len(self.notes()), 1)
+
+    def test_back_on_main_once_it_answers_with_a_note(self):
+        self.check_at(0)
+        self.check_at(1)
+        self.core.alive.add("main-model")
+        out = self.check_at(2)
+        self.assertEqual(out["route"], "main", out)
+        self.assertEqual(self.core.configured, "main-model")
+        self.assertEqual(self.beat()["response"], "ok from main-model")
+        self.assertIn("answers again", self.notes()[-1]["text"])
+
+    def test_no_fallback_model_no_switch(self):
+        (self.root / "secrets" / "spine.env").write_text("SPINE_MODEL=main-model\n")
+        self.check_at(0)
+        out = self.check_at(1)
+        self.assertNotIn("route", out)
+        self.assertEqual(self.core.configured, "main-model")
+        self.assertEqual(self.notes(), [])
+
+    def test_a_fallback_that_is_down_too_is_not_switched_to(self):
+        self.core.alive.clear()
+        self.check_at(0)
+        out = self.check_at(1)
+        self.assertEqual(out["route"], "main")
+        self.assertIn("did not answer either", out["route_error"])
+        self.assertEqual(self.core.configured, "main-model")
+
+    def test_after_a_reboot_back_on_main_the_failures_move_it_again(self):
+        self.check_at(0)
+        self.check_at(1)
+        self.core.configured = "main-model"  # bin/spine boots on the main model
+        self.check_at(2)
+        out = self.check_at(3)
+        self.assertEqual((out["route"], self.core.configured), ("fallback", "backup-model"))
+        self.assertEqual(len(self.notes()), 1)  # already on the fallback: no second note
+
+    def test_the_night_puts_the_notes_on_the_diary_page(self):
+        import reflect
+
+        self.check_at(0)
+        self.check_at(1)
+        text = reflect.diary_notes(T0 - 3600, T0 + 3600)
+        self.assertTrue(text.startswith("## notes\n"))
+        self.assertIn("backup-model", text)
+        self.assertIsNone(reflect.diary_notes(T0 + 3600, T0 + 7200))

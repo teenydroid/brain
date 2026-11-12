@@ -454,7 +454,11 @@ retire needs a reason. A refused reflection is logged to
 before) is not cut: the mind is asked to retire or merge items instead.
 
 The old page is kept in `state/reflect/`, and the diary entry goes to
-`state/diary/<date>.md` and to the core's memory. The prompts are rebuilt,
+`state/diary/<date>.md` and to the core's memory. On Mondays, the goals
+day, that page also ends with "the week's goals": the goals set in the seven
+days, the verdicts the frozen checks reached in them and the goals still
+running, written from the goal ledger by `goals_week`, never by the model,
+and never taught to the core (docs/roadmap.md, A15). The prompts are rebuilt,
 so the next beat reads the new page. An unusable answer (no JSON, an
 unknown id, a retire without a reason, a refusal, a page too long) is asked
 about once more on the same thread, with the reason. The whole page is
@@ -597,7 +601,11 @@ Every scheduled job is in one of two files:
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
-    guard holds an outage made (docs/hands.md, "Re-screening").
+    guard holds an outage made (docs/hands.md, "Re-screening"). With
+    `SPINE_FALLBACK_MODEL` in `secrets/spine.env`, the same two failures,
+    and a fallback model that answers, move the running core to that model.
+    The main model answering again moves it back. Each move is a note on the
+    night's diary page (docs/roadmap.md, A18).
   - `health-daily` (`bin/health daily`, 00:40 UTC), which tells Teeny how
     the day before went as one `health · daily` stimulus: cost, failed cron
     and playbook runs, failed beats, the doctor's checks that are not ok and
@@ -836,3 +844,13 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
   daily `[jobs.receipts]`) builds it from the hands' ledgers with no model
   in the loop, refuses a published chain that does not verify, and pushes
   after the secret gate. It is a dry run by default.
+- **The public diary** (docs/roadmap.md, A14). With `DIARY_PUBLISH=1`, the
+  same push carries each finished day's diary page (`state/diary/`, from
+  `bin/reflect`) as `days/YYYY-MM-DD.md`, with its own hash chain
+  (`days/chain.jsonl`, `days/head.json`: each line the page's sha256 and the
+  previous line's hash). The page is the one free text in the repository, so
+  it passes the secret gate and then the guard (surface github, the judge
+  included), and what is written is the guard's text. A held page or one with
+  a secret is withheld for good (`state/diary-days.json`, the reason only).
+  At most 7 pages a run; a days chain that does not verify skips the days,
+  never the receipts (`bin/lib/diary_days.py`).

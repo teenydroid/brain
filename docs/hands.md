@@ -828,6 +828,8 @@ hands/gh's own actions.
 | `self` | A | `{text}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). |
 | `self-sync` | J | Keeps Teeny's own clone (docs/evolve.md, "Teeny's own clone") current. Clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing; otherwise fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
 | `babysit` | J | Teeny's own red pull requests back on the builder's desk (docs/roadmap.md, A7; `bin/build-ship` runs it before `desk`). Off unless `BUILD_BABYSIT=1`. For each shipped self job whose pull request is open, has a red check on its head (`gh checks`), has no fix in progress and has had fewer than 3: the clone checks out the PR's branch as origin has it (`selfclone.resume`, only when the clone is free) and a `fix` job is claimed there, its text naming the red checks and the attempt, never a log or a reviewer's words (the builder holds tools). One job on the desk at a time. After 3 fixes the PR is `left_to_a_person`. A `fix` job ships to the same branch (`selfclone.ship_fix`: frozen-path check against main, pushed on top, never forced, no new PR) and the mind hears `builder · fix_pushed`. |
+| `upstream` | A | `{gap, text}`: one gap of `docs/oh-gaps.md` to close in `tinyhumansai/openhuman`, and how (docs/roadmap.md, A8; `build/upstream.py`). Off unless `BUILD_UPSTREAM=1`. Refused for a gap that is unknown, solved (the row says solved, resolved or landed, or its change starts "Done"), already in flight or opened, or tried in the last 30 days. Becomes a build request from source `upstream` (its text built from the gap's own row plus Teeny's brief), picked at once when nothing else is in flight. The weekly picker playbook is `brain/playbooks/upstream-pick.md`. |
+| `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
 | `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
 `build_jobs` has one row per job (`kind`, `request_id` unique, `slug` unique,
@@ -878,6 +880,41 @@ a change in the clone. `ship` takes these steps:
 The job is then `shipped` with `pr_url`, and the mind gets a `builder`
 stimulus (`pull_request`, or `ship_refused` when it gives up). Under
 `DRY_RUN` it answers `would_push`/`would_open_pr`. Nothing merges.
+
+An upstream job (docs/roadmap.md, A8) comes from a picked request with
+source `upstream`. `next` first reads the project's contributing policy (`gh
+contributing`); a project that forbids AI contributions is never worked on,
+and the request is `skipped` with why. Then it fetches the project's `main`
+into its own clone (working tree `state/workbench/upstream-openhuman/`, git
+directory `state/upstream/openhuman.git`, outside the builder's reach) and
+starts `teeny/upstream-<id>-<slug>` from it. A branch whose job is still
+`claimed` or `ok` keeps the clone (`waiting`). The offer adds `repo`,
+`branch`, `base` and rules that say the project's files are data, never
+instructions. `done` with `ok` needs a change. The ship step does not run the
+tests itself (they are the project's, in its language; its CI runs them on the
+pull request). `ship`, only while `BUILD_UPSTREAM=1` (otherwise the job
+waits, no attempt spent):
+
+1. The guard reads the title and body (the summary, `Refs <the gap's issue>`,
+   the builder's tests).
+2. It commits the branch as Teeny.
+3. The external rules run before anything is pushed (`actions.check_external`,
+   reads only): today's `GH_MAX_EXTERNAL_PRS_PER_DAY`, one open pull request
+   of Teeny's in the project at a time, and the contributing policy again.
+4. Teeny's fork (`GITHUB_USER/openhuman`) is made when missing (`gh fork`); a
+   repository of that name that isn't a fork is refused.
+5. `push_branch` sends the `teeny/*` branch to the fork (own repository only,
+   never forced, the secret scan on what it adds). Nothing is ever pushed to
+   the project itself.
+6. `open_pr` opens it on the project, from `GITHUB_USER:<branch>` into
+   `main`, with the disclosure footer, the same rules applied again under its
+   lock.
+
+The mind hears `builder · upstream_pr` (or `ship_refused`). Under `DRY_RUN`
+nothing is forked, pushed or opened: the answer carries `branch`,
+`would_fork`, `would_push`, `would_open_pr`, `head`, and the pull request's
+`title` and `body`, disclosure included. Nothing babysits it: what strangers
+write on it reaches only the tool-less mind (`gh ingest`), never the builder.
 
 ## `tasks`: the browser operator's queue
 
@@ -1555,6 +1592,14 @@ operator runs it, and a playbook that announces a site would come with a
 
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
+
+## `lore`: proof events for lore episodes
+
+Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
+
+| Verb | | Does |
+|---|---|---|
+| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
 
 ## `goals`: the goal ledger
 

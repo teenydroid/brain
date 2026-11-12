@@ -263,6 +263,15 @@ def _check_external(gh: GitHubApi, owner: str, name: str) -> None:
         )
 
 
+def check_external(gh: GitHubApi, owner: str, name: str) -> None:
+    """The external rules, for a caller that must know before it pushes
+    (an upstream build job, teeny_hands.build.upstream). Reads GitHub only;
+    `open_pr` applies them again under its lock."""
+    if is_own(owner):
+        raise hand.Refused(f"{owner}/{name} is Teeny's own, not another project", rule="owner")
+    _check_external(gh, owner, name)
+
+
 def open_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo", "head", "base", "title", "body"))
     owner, name = split_repo(body["repo"])

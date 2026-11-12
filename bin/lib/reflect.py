@@ -37,7 +37,9 @@ a night this brings it up to date from inside the day, item by item:
    state/reflect/retired.jsonl, so nothing leaves the page unrecorded
    (Zep: invalidate, don't delete), writes the diary to
    state/diary/<date>.md (the day it looks back on: before 06:00 that is
-   yesterday) and teaches it to the core's memory, then rebuilds the prompts
+   yesterday; on GOALS_WEEKDAY the page also carries the week's goals and
+   their verdicts, written from the goal ledger by `goals_week`) and teaches
+   it to the core's memory, then rebuilds the prompts
    so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
@@ -661,6 +663,77 @@ def _settle(said: str, page: Page, start: int, light: bool) -> Outcome | Json:
             return _fail(exc, again, light)
 
 
+#: The weekday (Monday is 0) whose diary page carries the week's goals and
+#: the verdicts since the last such page (docs/roadmap.md, A15): the day
+#: brain/cron.toml's `goals` job proposes them.
+GOALS_WEEKDAY = 0
+
+
+def _date(at: float, tz: dt.tzinfo) -> str:
+    return f"{dt.datetime.fromtimestamp(at, tz):%a %d %b}"
+
+
+def goals_week(day: dt.date) -> str | None:
+    """The week's goals and their verdicts, from the goal ledger
+    (hands/goals), as a section of DAY's diary page: the goals set in the
+    seven days up to the end of DAY, the ones the frozen checks decided in
+    those days (solved or failed), and the ones still running from before.
+    Written here from the ledger, never by the model, so a verdict reads as
+    the check found it. None when there is no ledger or no goal at all."""
+    try:
+        from teeny_hands.goals import ledger
+
+        goals = ledger.all_goals()
+    except Exception:  # noqa: BLE001 - no ledger (no goal ever proposed): no section
+        return None
+    if not goals:
+        return None
+    tz = ZoneInfo(os.environ.get("CALENDAR_TZ") or DEFAULT_TZ)
+    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0), tz).timestamp()
+    start = end - 7 * 86400
+
+    def within(at: Any) -> bool:
+        return isinstance(at, (int, float)) and start <= at < end
+
+    def line(goal: Json) -> str:
+        return (f"- {goal.get('instruction')} ({goal.get('component')} on {goal.get('channel')}, "
+                f"checked by {goal.get('check_kind')}, due {_date(goal['deadline_at'], tz)})")
+
+    set_now = [g for g in goals if within(g.get("proposed_at"))]
+    decided = [g for g in goals if g.get("status") in ("solved", "failed") and within(g.get("resolved_at"))]
+    running = [g for g in goals if g.get("status") == "open" and not within(g.get("proposed_at"))]
+    lines = ["## the week's goals", "", "set this week:"]
+    lines += [line(g) for g in set_now] or ["- none"]
+    lines += ["", "decided this week (the frozen checks' verdicts):"]
+    lines += [f"- {g['status']}: {g.get('instruction')} ({_date(g['resolved_at'], tz)})" for g in decided] or ["- none"]
+    if running:
+        lines += ["", "still running:"] + [line(g) for g in running]
+    return "\n".join(lines) + "\n"
+
+
+def diary_notes(since: float, until: float) -> str | None:
+    """The notes operator scripts left for the diary since the last night's
+    reflection (state/diary-notes.jsonl: bin/lib/health.py's switch to the
+    fallback model and back, docs/roadmap.md A18), as a section. Their
+    words, never the model's. None when there are none."""
+    path = hand.state_dir() / "diary-notes.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    tz = ZoneInfo(os.environ.get("CALENDAR_TZ") or DEFAULT_TZ)
+    found = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        at = row.get("at") if isinstance(row, dict) else None
+        if isinstance(at, (int, float)) and since < at <= until and isinstance(row.get("text"), str):
+            found.append(f"- {dt.datetime.fromtimestamp(at, tz):%H:%M}: {row['text']}")
+    return "## notes\n\n" + "\n".join(found) + "\n" if found else None
+
+
 def reflect(light: bool = False) -> Json:
     since = _since(light)
     # The live page, started from the committed seed on a checkout without one.
@@ -696,10 +769,17 @@ def reflect(light: bool = False) -> Json:
         (_state("reflect") / "light.at").write_text(f"{hand.now():.0f}\n")
         return {**out, "light": True, "diary": False}
     learned = None
+    day = _day_of(now)
+    goals = goals_week(day) if day.weekday() == GOALS_WEEKDAY else None
+    notes = diary_notes(since, hand.now())
+    if got.diary or goals or notes:
+        parts = [part for part in (got.diary and f"{got.diary}\n", goals, notes) if part]
+        text = f"# {day:%A %d %B %Y}\n\n" + "\n".join(parts)
+        (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(text, encoding="utf-8")
     if got.diary:
-        day = _day_of(now)
-        (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(f"# {day:%A %d %B %Y}\n\n{got.diary}\n", encoding="utf-8")
         learned = _learn(f"diary, {day:%Y-%m-%d}: {got.diary}")
+    if goals:
+        out["goals_page"] = True
     out["prompts"] = [p.name for p in prompts.build(BRAIN)]
     (_state("reflect") / "last.at").write_text(f"{hand.now():.0f}\n")
     out.update(diary=bool(got.diary), learned=learned)

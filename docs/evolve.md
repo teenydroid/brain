@@ -29,7 +29,7 @@ drive (grow and become powerful, $TINY included) and run it faster, are in
 |---|---|
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
-| `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
+| `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
@@ -159,10 +159,19 @@ The loop moves Teeny's story forward instead of tuning a generic score.
     answer mentions overnight
   - "find out what the terminal types" → a new hand that reads something, and
     a playbook that posts it as a terminal line
-- Evolution is itself an episode. A promotion writes
+- Evolution is itself an episode. Every merged generation has
   `brain/narrative/chronicle/gen-<n>.md`, a short in-voice entry under the
-  "night shift" engine about what the tiny agents rebuilt overnight. A
+  "night shift" engine about what the tiny agents rebuilt overnight, written
+  by `bin/evolve` from the record. A promotion carries it in its own commit;
+  for a generation a person merged, `bin/evolve credit` writes it into the
+  live brain when it first sees the merge (`- merged by: the operator`). A
   rejected generation gets a line too ("the agents carried it back").
+- Real events move the story (docs/roadmap.md, A13): the `episode` playbook
+  reads the day's proof events (`hands/lore events`: a generation merged with
+  its chronicle page, a pull request merged elsewhere, a bounty paid) and
+  posts one episode about the biggest. With no event it skips before any
+  model turn. It runs from the pinned `episode` job, off until the operator
+  turns it on.
 - The judge scores lore alongside voice and usefulness. The output has to fit
   the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
   visibly move.
@@ -197,8 +206,29 @@ required = true            # optional: skip without a model turn when it is empt
 Write one post when a number in the inputs crossed a round value. ...
 ```
 
-An input only ever runs a hand. The output is a hand verb that applies its own
-rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
+An input runs a hand, or a data job. The output is a hand verb that applies
+its own rules, never a shell command.
+
+A **data job** (docs/roadmap.md, A17) is a small script Teeny writes,
+`brain/datajobs/<name>.py`, named as an input `run = "datajob:<name>"`. It
+runs when its playbook runs, so on that playbook's cron schedule.
+`bin/lib/datajob.py` runs it:
+
+- stdin is the inputs gathered before it, which is its only data;
+- stdout must be one JSON value of at most 20,000 characters, and it becomes
+  the input;
+- it runs in a jail set before it starts, which fails closed. Landlock lets it
+  read the system's directories and a scratch copy of itself, and write only
+  that scratch folder, which is deleted after, so `secrets/`, `state/` and
+  `brain/` are out of reach and nothing it writes lasts. With ABI 4 or later,
+  TCP connect and bind are refused too;
+- a seccomp filter kills it the moment it opens an IPv4, IPv6 or packet
+  socket;
+- it also gets `no_new_privs`, a bare environment and a 60 s limit;
+- without Landlock or seccomp it doesn't run;
+- `state/datajobs/runs.jsonl` records each run (ok, exit, killed, seconds),
+  never its data;
+- a failed run fails the playbook, as a failed hand does. `bin/lib/playbook.py` parses playbooks, and
 `bin/act --check <name>` validates one.
 
 ## Cron rules (built)
@@ -698,8 +728,8 @@ Then:
 1. The commit carries `brain/narrative/chronicle/gen-<n>.md`, written by
    `bin/evolve` from the record, never by a model: the night shift's count
    of candidates, the one the tiny agents kept, its scores, its lineage, and
-   a line for every generation since the last promotion that promoted
-   nothing ("the agents carried it back").
+   a line for every generation since the last merged one that merged
+   nothing ("the agents carried it back"), and who merged it.
 2. The pull request says it is promoted by the loop, and is merged with `gh
    pr merge --merge`: never squashed, and never `--admin`, so the branch's
    required checks (CI's `frozen` job among them) still decide. The token is

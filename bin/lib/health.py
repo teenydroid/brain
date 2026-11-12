@@ -55,6 +55,18 @@ holds by direction and category. Counts and names Teeny's own code chose
 (job, playbook, check and category names), never the text of a hold, an
 error or anything a stranger wrote. A second run the same day adds nothing.
 
+The fallback route (docs/roadmap.md, A18; `reroute`): with
+SPINE_FALLBACK_MODEL in secrets/spine.env (a second model on the same
+endpoint), FAILURES_TO_FALLBACK failed probes in a row and a fallback that
+answers its own probe (`model_override`) move every workload of the running
+core to it (`config_update_model_settings`, as bin/spine does at boot), so
+the next beat runs on it. While on the fallback each run also asks the main
+model, and the first answer moves the core back. Each move leaves a line in
+state/diary-notes.jsonl, which the night's reflection puts on the diary page
+(bin/lib/reflect.py, `diary_notes`), and a `health · route` stimulus. A
+reboot starts on the main model again. The alarm still follows the probe of
+whatever model the core is on.
+
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
 model judge (`check_fields(judge=False)`; the lexicon and the links still
@@ -128,10 +140,13 @@ def _words(reply: Any) -> str:
     return reply if isinstance(reply, str) else ""
 
 
-def probe() -> str | None:
-    """None when the model answered; what went wrong when it did not."""
+def probe(model: str | None = None) -> str | None:
+    """None when the model answered; what went wrong when it did not. With
+    MODEL, that model on the core's endpoint (`model_override`), not the
+    one the core is set to."""
+    params: Json = {"message": PROBE, **({"model_override": model} if model else {})}
     try:
-        reply = hand.core("inference_agent_chat_simple", {"message": PROBE}, timeout=PROBE_TIMEOUT)
+        reply = hand.core("inference_agent_chat_simple", params, timeout=PROBE_TIMEOUT)
     except Exception as error:  # noqa: BLE001 - any failure to answer is the thing watched for
         return scrub(str(error) or type(error).__name__)
     return None if _words(reply).strip() else "the model answered with nothing"
@@ -680,6 +695,92 @@ def _rescreen() -> Json:
         return {"rescreen": None, "rescreen_error": scrub(f"{type(error).__name__}: {error}")}
 
 
+# --- the fallback route (docs/roadmap.md, A18) ----------------------------------------------
+
+#: Failed probes in a row after which the core is switched to the fallback model.
+FAILURES_TO_FALLBACK = 2
+#: Where a switch is noted for the night's diary page (bin/lib/reflect.py).
+NOTES = "diary-notes.jsonl"
+#: The workloads bin/spine points at the model, every one of them.
+_PROVIDERS = ("chat_provider", "reasoning_provider", "agentic_provider", "coding_provider", "vision_provider",
+              "memory_provider")
+
+
+def routes() -> tuple[str | None, str | None, str | None]:
+    """(the main model, the fallback model, the fallback's context window),
+    from secrets/spine.env as bin/spine reads it: SPINE_MODEL, and
+    SPINE_FALLBACK_MODEL, a second model on the same endpoint. No fallback
+    (or one equal to the main) is no fallback."""
+    try:
+        env = hand._parse_env_file((hand.secrets_dir() / "spine.env").read_text(encoding="utf-8"))
+    except OSError:
+        return None, None, None
+    main = (env.get("SPINE_MODEL") or "").strip() or None
+    fallback = (env.get("SPINE_FALLBACK_MODEL") or "").strip() or None
+    window = (env.get("SPINE_FALLBACK_CONTEXT_WINDOW") or "").strip() or None
+    return main, (fallback if fallback != main else None), window
+
+
+def use_model(model: str, window: str | None = None) -> None:
+    """Points every workload of the running core at MODEL on its endpoint,
+    as bin/spine does at boot. The next turn (a beat, a judge call) runs on
+    it."""
+    provider = f"local-openai:{model}"
+    hand.core("config_update_model_settings", {"default_model": model, **{p: provider for p in _PROVIDERS}},
+              timeout=PROBE_TIMEOUT)
+    if window and window.isdigit() and int(window) > 0:
+        hand.core("inference_update_model_settings",
+                  {"model_registry": [{"id": model, "provider": "local-openai", "context_window": int(window)}]},
+                  timeout=PROBE_TIMEOUT)
+
+
+def note(text: str, now: float) -> None:
+    """One line for the night's diary page (state/diary-notes.jsonl; the
+    reflection adds the notes since the last one), written by this script,
+    never by a model."""
+    with (hand.state_dir() / NOTES).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": now, "text": text}, ensure_ascii=False) + "\n")
+
+
+def _switch(state: Json, model: str, route: str, now: float, window: str | None, why: str) -> None:
+    use_model(model, window)
+    if state.get("route", "main") != route:
+        text = (f"my model stopped answering, so the spine moved me to the fallback model, {model}. {why}"
+                if route == "fallback" else f"my main model, {model}, answers again; the spine moved me back to it.")
+        note(text, now)
+        stimuli.add("health", "route", f"route:{route}:{int(now)}", text,
+                    payload={"route": route, "model": model})
+    state.update(route=route, route_model=model, route_since=now)
+
+
+def reroute(state: Json, error: str | None, now: float) -> Json:
+    """After the probe: FAILURES_TO_FALLBACK failures in a row and a
+    fallback that answers move the core to it; on the fallback, a main
+    model that answers moves it back. Each move is a diary note and a
+    `health · route` stimulus. Nothing without SPINE_FALLBACK_MODEL. A
+    reboot puts the core back on the main model (bin/spine); the next
+    failures move it again."""
+    main, fallback, window = routes()
+    if not main or not fallback:
+        return {}
+    route = state.get("route", "main")
+    out: Json = {"route": route}
+    try:
+        if error is not None and int(state.get("failures") or 0) >= FAILURES_TO_FALLBACK:
+            if probe(fallback) is None:
+                _switch(state, fallback, "fallback", now, window, f"the main one said: {error}")
+            elif route == "fallback" and probe(main) is None:
+                _switch(state, main, "main", now, None, "")
+            else:
+                out["route_error"] = "the fallback model did not answer either"
+        elif error is None and route == "fallback" and probe(main) is None:
+            _switch(state, main, "main", now, None, "")
+    except Exception as exc:  # noqa: BLE001 - a failed switch is reported, never raised
+        out["route_error"] = scrub(f"the switch failed: {exc}")
+    out["route"] = state.get("route", "main")
+    return out
+
+
 def check() -> Json:
     with hand.lock("health"):
         now = hand.now()
@@ -713,6 +814,7 @@ def check() -> Json:
                 out.update(issue=alarm.get("issue"), issue_error=alarm.get("issue_error"),
                            issue_dry_run=alarm.get("issue_dry_run"))
         out["failures"] = state["failures"]
+        out.update(reroute(state, error, now))
         out.update(_watch_crons(state, now))
         save(state)
         return out

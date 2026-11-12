@@ -13,6 +13,10 @@ desk files.
                               to GITHUB_USER/brain as a pull request; DRY_RUN applies
   A  self                     stdin {text}: a change Teeny proposes to itself, a pending
                               build request (source self) picked like any other
+  A  upstream                 stdin {gap, text}: one gap from docs/oh-gaps.md to close in OpenHuman,
+                              a build request (source upstream) built in a fork and opened as
+                              one disclosed pull request; off unless BUILD_UPSTREAM=1
+  R  gaps                     the gaps of docs/oh-gaps.md, each with whether it can be proposed
   J  self-sync                fetch Teeny's own clone (state/workbench/brain) and fast-forward
                               it to origin/main when nothing unshipped is on it; recorded in
                               state/self/sync.json
@@ -24,7 +28,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import jobs, selfclone
+from . import jobs, selfclone, upstream
 
 
 def _limit(value: str) -> int:
@@ -53,6 +57,9 @@ def parser() -> argparse.ArgumentParser:
     verb("babysit", lambda a, _: jobs.babysit(), "put Teeny's own red pull requests back on the builder's desk")
     verb("self", lambda a, body: jobs.propose_self(body), "propose a change to Teeny itself (JSON on stdin)",
          body=True)
+    verb("upstream", lambda a, body: upstream.propose(body),
+         "propose closing one OpenHuman gap upstream (JSON on stdin)", body=True)
+    verb("gaps", lambda a, _: upstream.listing(), "the OpenHuman gaps, and which can be proposed")
     verb("self-sync", lambda a, _: selfclone.sync(), "sync Teeny's own clone with origin/main")
     return root
 

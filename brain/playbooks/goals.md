@@ -34,6 +34,8 @@ Read the inputs:
 
 Skip, with the reason, when `open` already holds `max_open` goals.
 
+What you set here is public: that night's diary page lists the week's goals and the verdicts the checks reached since last week, word for word from the ledger, and it can be published. Write the instruction so a stranger reading the page understands it.
+
 Choose the goal:
 1. Pick a family in the learnability band: `in_band` true and `p_hat` near 0.5, with the highest `score`. A family that always works teaches nothing, and one that never works is a wish. A new family is fine when no family is in the band, or when an empty niche in `annecs` looks reachable.
 2. Prefer a checkable first: a real thing that has never happened and that someone outside can verify. Your first merged PR in tinyhumansai/openhuman written by teenydroid, a merged PR in an outside repo that welcomes AI contributions, your first paid bounty, a weekly program someone else used. Mark it `"first": true` only if it truly has never happened.

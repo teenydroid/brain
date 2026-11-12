@@ -110,43 +110,55 @@ def _jail(workdir: str, abi: int) -> None:
     the folder, and (ABI 4+) makes no TCP connection. Any failure kills the
     child before the tests start."""
     try:
-        libc = _libc()
-        handled = _READ | _WRITE_V1 | (_FS_REFER if abi >= 2 else 0) | (_FS_TRUNCATE if abi >= 3 else 0)
-        handled_net = (_NET_BIND_TCP | _NET_CONNECT_TCP) if abi >= 4 else 0
-        attr = _RulesetAttr(handled, handled_net)
-        size = ctypes.sizeof(_RulesetAttr) if abi >= 4 else ctypes.sizeof(ctypes.c_uint64)
-        ruleset = libc.syscall(_SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.c_size_t(size), ctypes.c_uint32(0))
-        if ruleset < 0:
-            raise OSError(ctypes.get_errno(), "landlock_create_ruleset")
-
-        def allow(path: str, access: int) -> None:
-            try:
-                fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
-            except OSError:
-                return  # a root this system does not have
-            try:
-                is_dir = os.path.isdir(path)
-                rule = _PathBeneath(access if is_dir else access & ~(_FS_READ_DIR | _FS_REMOVE_DIR | _FS_MAKE_CHAR
-                                                                     | _FS_MAKE_DIR | _FS_MAKE_REG | _FS_MAKE_SOCK
-                                                                     | _FS_MAKE_FIFO | _FS_MAKE_BLOCK | _FS_MAKE_SYM
-                                                                     | _FS_REFER), fd)
-                if libc.syscall(_SYS_ADD_RULE, ctypes.c_int(ruleset), ctypes.c_int(_RULE_PATH_BENEATH),
-                                ctypes.byref(rule), ctypes.c_uint32(0)) < 0:
-                    raise OSError(ctypes.get_errno(), f"landlock_add_rule {path}")
-            finally:
-                os.close(fd)
-
-        for root in READ_ROOTS:
-            allow(root, _READ)
-        allow("/dev/null", _READ | _FS_WRITE_FILE)
-        allow(workdir, handled)
-        if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
-            raise OSError(ctypes.get_errno(), "prctl(NO_NEW_PRIVS)")
-        if libc.syscall(_SYS_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0)) < 0:
-            raise OSError(ctypes.get_errno(), "landlock_restrict_self")
-        os.close(ruleset)
+        confine((), (workdir,), abi)
     except BaseException:  # noqa: BLE001 - never exec the tests outside the jail
         os._exit(97)
+
+
+def confine(reads: Any, writes: Any, abi: int) -> None:
+    """The jail itself, for a child between fork and exec: no new
+    privileges, then a Landlock domain that may read READ_ROOTS and READS,
+    read and write WRITES, nothing else, and (ABI 4+) make no TCP
+    connection. Raises on any failure; the caller exits the child
+    (`_jail` here, bin/lib/datajob.py for a scheduled data job, A17)."""
+    libc = _libc()
+    handled = _READ | _WRITE_V1 | (_FS_REFER if abi >= 2 else 0) | (_FS_TRUNCATE if abi >= 3 else 0)
+    handled_net = (_NET_BIND_TCP | _NET_CONNECT_TCP) if abi >= 4 else 0
+    attr = _RulesetAttr(handled, handled_net)
+    size = ctypes.sizeof(_RulesetAttr) if abi >= 4 else ctypes.sizeof(ctypes.c_uint64)
+    ruleset = libc.syscall(_SYS_CREATE_RULESET, ctypes.byref(attr), ctypes.c_size_t(size), ctypes.c_uint32(0))
+    if ruleset < 0:
+        raise OSError(ctypes.get_errno(), "landlock_create_ruleset")
+
+    def allow(path: str, access: int) -> None:
+        try:
+            fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+        except OSError:
+            return  # a root this system does not have
+        try:
+            is_dir = os.path.isdir(path)
+            rule = _PathBeneath(access if is_dir else access & ~(_FS_READ_DIR | _FS_REMOVE_DIR | _FS_MAKE_CHAR
+                                                                 | _FS_MAKE_DIR | _FS_MAKE_REG | _FS_MAKE_SOCK
+                                                                 | _FS_MAKE_FIFO | _FS_MAKE_BLOCK | _FS_MAKE_SYM
+                                                                 | _FS_REFER), fd)
+            if libc.syscall(_SYS_ADD_RULE, ctypes.c_int(ruleset), ctypes.c_int(_RULE_PATH_BENEATH),
+                            ctypes.byref(rule), ctypes.c_uint32(0)) < 0:
+                raise OSError(ctypes.get_errno(), f"landlock_add_rule {path}")
+        finally:
+            os.close(fd)
+
+    for root in READ_ROOTS:
+        allow(root, _READ)
+    allow("/dev/null", _READ | _FS_WRITE_FILE)
+    for path in reads:
+        allow(path, _READ)
+    for path in writes:
+        allow(path, handled)
+    if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(NO_NEW_PRIVS)")
+    if libc.syscall(_SYS_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0)) < 0:
+        raise OSError(ctypes.get_errno(), "landlock_restrict_self")
+    os.close(ruleset)
 
 
 # --- the run ----------------------------------------------------------------------------------

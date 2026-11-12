@@ -59,7 +59,9 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # the operator's merge all still stand between and main. The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
-    "build": ("self",),
+    # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
+    # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
+    "build": ("self", "upstream"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
     # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
@@ -103,6 +105,21 @@ def guard_surfaces() -> tuple[str, ...]:
     from teeny_hands.guard.holds import SURFACES
 
     return tuple(SURFACES)
+
+
+#: An input that runs a data job Teeny wrote (docs/roadmap.md, A17;
+#: bin/lib/datajob.py): `datajob:<name>` runs brain/datajobs/<name>.py in its
+#: jail, fed the inputs before it, and its JSON is the input.
+DATAJOB = "datajob:"
+
+
+def _datajob_argv(run: str, where: str, brain: Path) -> list[str]:
+    name = run[len(DATAJOB):]
+    if not NAME.fullmatch(name):
+        raise PlaybookError(f"{where}: a data job input is datajob:<name>, got {run!r}")
+    if not (brain / "datajobs" / f"{name}.py").is_file():
+        raise PlaybookError(f"{where}: no data job datajobs/{name}.py")
+    return ["datajob", name]
 
 
 def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
@@ -193,7 +210,8 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         parsed.append(
             {
                 "name": input_name,
-                "argv": _hand_argv(entry["run"], where, hands_dir),
+                "argv": _datajob_argv(entry["run"], where, brain) if entry["run"].startswith(DATAJOB)
+                else _hand_argv(entry["run"], where, hands_dir),
                 "required": entry.get("required", False),
             }
         )

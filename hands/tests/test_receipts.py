@@ -707,3 +707,108 @@ class PublishedAccountsTest(ReceiptsCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DiaryDaysTest(ReceiptsCase):
+    """docs/roadmap.md, A14: each finished day's diary page lands in the
+    diary repository's days/, through the secret gate and the guard, with a
+    hash chain of its own like the receipts'. Off unless DIARY_PUBLISH=1."""
+
+    def page(self, date, text):
+        folder = self.root / "state" / "diary"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{date}.md").write_text(text)
+
+    def pages(self):
+        self.page("2026-09-13", "# Sunday 13 September 2026\n\nshipped a tiny cli. the crabs liked it.\n")
+        self.page("2026-09-14", "# Monday 14 September 2026\n\nquiet day. read about agents.\n")
+        self.page("2026-09-15", "# Tuesday 15 September 2026\n\nnot over yet.\n")  # today: not finished
+
+    def on(self, bare, extra=""):
+        self.live(bare, f"DIARY_PUBLISH=1\nSAFETY_JUDGE=0\n{extra}")
+
+    def test_off_unless_switched_on(self):
+        bare = self.remote()
+        self.pages()
+        self.live(bare, "SAFETY_JUDGE=0\n")
+        self.seed()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("off", out["days"]["skipped"])
+        self.assertFalse((self.clone(bare) / "days").exists())
+
+    def test_finished_days_land_in_days_hash_chained(self):
+        bare = self.remote()
+        self.pages()
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["days"]["published"], ["2026-09-13", "2026-09-14"])
+        self.assertEqual(out["pushed"], 1)  # the days alone are worth a push
+        clone = self.clone(bare)
+        self.assertIn("shipped a tiny cli", (clone / "days" / "2026-09-13.md").read_text())
+        self.assertFalse((clone / "days" / "2026-09-15.md").exists())
+        seq, prev, dates = receipts.diary_days.verify(clone)
+        self.assertEqual((seq, dates), (2, {"2026-09-13", "2026-09-14"}))
+        lines = [json.loads(l) for l in (clone / "days" / "chain.jsonl").read_text().splitlines()]
+        self.assertEqual(lines[0]["prev"], receipts.diary_days.GENESIS)
+        self.assertEqual(lines[1]["prev"], receipts.diary_days.line_hash(
+            (clone / "days" / "chain.jsonl").read_text().splitlines()[0]))
+        # The next run adds the next day, once.
+        os.environ["TEENY_NOW"] = str(NOW + 86400)
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], ["2026-09-15"])
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], [])
+        self.assertEqual(receipts.diary_days.verify(self.clone(bare))[0], 3)
+
+    def test_a_page_the_guard_holds_is_withheld_and_never_retried(self):
+        bare = self.remote()
+        self.page("2026-09-14", "# Monday\n\nthis is fucking great.\n")
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], [])
+        self.assertEqual(out["days"]["withheld"][0]["date"], "2026-09-14")
+        self.assertEqual(out["days"]["withheld"][0]["why"], "held")
+        self.assertNotIn("fucking", json.dumps(out))
+        self.assertFalse((self.clone(bare) / "days" / "2026-09-14.md").exists())
+        withheld = json.loads((self.root / "state" / "diary-days.json").read_text())
+        self.assertNotIn("fucking", json.dumps(withheld))
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["withheld"], [])  # not asked again
+
+    def test_a_page_with_a_secret_is_withheld(self):
+        bare = self.remote()
+        self.page("2026-09-14", "# Monday\n\nthe key is supersecretvalue123 lol\n")
+        self.on(bare, "SOME_KEY=supersecretvalue123\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["days"]["withheld"], [{"date": "2026-09-14", "why": "secret"}])
+        self.assertNotIn("supersecretvalue123", self.published_text(self.clone(bare)))
+
+    def test_an_edited_page_breaks_the_chain_and_the_receipts_still_go_out(self):
+        bare = self.remote()
+        self.pages()
+        self.on(bare)
+        self.run_receipts()
+        clone = self.clone(bare)
+        (clone / "days" / "2026-09-13.md").write_text("rewritten\n")
+        git = lambda *a: subprocess.run(["git", *a], cwd=clone, check=True, capture_output=True)
+        git("-c", "user.name=t", "-c", "user.email=t@e", "commit", "-qam", "edit")
+        git("push", "-q", "origin", "main")
+        self.seed()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("does not verify", out["days"]["refused"])
+        self.assertGreater(out["issued"], 0)
+
+    def test_the_preview_writes_the_pages_unscreened_and_asks_no_guard(self):
+        self.pages()
+        self.secrets("DIARY_PUBLISH=1\n")
+        preview = self.scratch / "preview"
+        code, out = self.run_receipts("--preview", str(preview))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["days"]["would_screen"])
+        self.assertEqual(out["days"]["published"], ["2026-09-13", "2026-09-14"])
+        self.assertTrue((preview / "days" / "2026-09-14.md").is_file())
+        self.assertFalse((self.root / "state" / "diary-days.json").exists())

@@ -44,7 +44,7 @@ it, and it reads only the ledgers hands write after an action succeeded.
 Live, before appending, the published chain is verified from the first line;
 a chain that does not verify (someone else pushed, or history was edited)
 refuses the run rather than build on it. Only `receipts/`, `head.json`, `world/`,
-`stats/`, `wallet.json` and `accounts/` are ever staged, the staged diff still goes through
+`stats/`, `wallet.json`, `accounts/` and `days/` are ever staged, the staged diff still goes through
 the secret gate (every value in secrets/*.env of 12 characters or more, and
 the usual key shapes), and a push that fails resets the checkout to the remote so the next run rebuilds.
 
@@ -89,6 +89,14 @@ job) and rebuilt here field by field: dollars as `0.00`, enums, timestamps
 and Solana signatures only; a page with anything else, or not complete, is
 withheld whole. No sender address and no memo is ever published.
 
+One more rides the push when DIARY_PUBLISH=1: each finished day's diary
+page, `days/YYYY-MM-DD.md`, with its own hash chain (`days/chain.jsonl`,
+`days/head.json`). That is free text, so it is the one exception to the rule
+above, and it takes the road every public word takes: the secret gate, then
+the guard, and only the guard's text is written (bin/lib/diary_days.py;
+docs/roadmap.md, A14). A days chain that does not verify skips the days and
+never the receipts.
+
 Under DRY_RUN (the default) a fresh chain is written to state/receipts-preview/
 and nothing touches git or hands.db. Live, the repository is cloned to
 state/receipts-repo/ and pushed with RECEIPTS_GITHUB_TOKEN (or
@@ -117,6 +125,8 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import git, hand  # noqa: E402
 from teeny_hands.wallet import caps as wallet_caps, pay as wallet_pay, solana  # noqa: E402
+
+import diary_days  # noqa: E402  (bin/lib, beside this file: the public diary pages, A14)
 
 DEFAULT_REPO = "teenydroid/diary"
 GENESIS = "0" * 64
@@ -703,6 +713,10 @@ def _git(repo: Path | None, *args: str, token: str | None = None) -> str:
     return git.text(repo, *args, token=token, timeout=90)
 
 
+def _repo_name() -> str:
+    return hand.setting("RECEIPTS_REPO") or hand.setting("DIARY_REPO") or DEFAULT_REPO
+
+
 def _branch() -> str:
     return hand.setting("RECEIPTS_BRANCH") or hand.setting("DIARY_BRANCH") or "main"
 
@@ -748,17 +762,21 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
         issued = append(repo, fresh, seq, prev, _iso(hand.now())[:10]) if fresh else []
         write_numbers(repo, stats, wallet, world)
         write_accounts(repo, accounts or {})
-        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, WORLD_DIR, ACCOUNTS_DIR) if (repo / p).exists()]
+        days = diary_days.add(repo, True, check_secrets, _repo_name())
+        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, WORLD_DIR, ACCOUNTS_DIR, diary_days.DAYS_DIR)
+                 if (repo / p).exists()]
         if paths:
             _git(repo, "add", "--", *paths)
         if not _git(repo, "diff", "--cached", "--name-only").strip():
-            return {"issued": 0, "head": seq, "pushed": 0}
+            return {"issued": 0, "head": seq, "pushed": 0, "days": days}
         try:
             check_secrets(_git(repo, "diff", "--cached", "--unified=0"))
         except hand.Refused as why:
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the receipts carry a secret, nothing committed", why=why.reason) from None
         message = f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}" if issued else "receipts: stats, wallet and accounts"
+        if days.get("published"):
+            message += f"; days: {', '.join(days['published'])}"
         _git(repo, "commit", "-q", "-m", message)
         try:
             _git(repo, "push", "-q", "origin", f"HEAD:{branch}", token=token)
@@ -774,7 +792,7 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
                         " VALUES (:key, :seq, :kind, :salt, :record, :at)", issued)
             finally:
                 conn.close()
-    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1}
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1, "days": days}
 
 
 def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None,
@@ -785,7 +803,8 @@ def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet
     issued = append(root, [a for a in actions if a.key], 0, GENESIS, _iso(hand.now())[:10])
     write_numbers(root, stats, wallet, world)
     write_accounts(root, accounts or {})
-    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0}
+    days = diary_days.add(root, False, check_secrets, _repo_name())
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0, "days": days}
 
 
 def reveal(seq: int) -> Json:
