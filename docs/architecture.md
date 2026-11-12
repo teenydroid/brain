@@ -222,7 +222,10 @@ handed four things beyond the message:
   never `## latent`, which is the producer's), `narrative/ARCS.md`, and
   last "what you said lately": its newest own posts on X and the titles of
   its newest Moltbook posts, from the ledger, so a draft knows what it would
-  be repeating (the posting rules refuse a near-duplicate all the same). The
+  be repeating (the posting rules refuse a near-duplicate all the same),
+  and "what you did last week": its posts, replies, Moltbook writes, builds
+  shipped, pull requests opened and payments of the last 7 days, counted
+  from the ledgers, so "what did you do last week" has a true answer. The
   drive is rebuilt into every turn, so it survives a compaction of a thread
   without help. `bin/spine` builds
   it into `brain/agent/prompts/<id>.md` at every boot (`bin/lib/prompts.py`).
