@@ -155,7 +155,11 @@ raise one: the file is frozen, and a fence proposal (G3) is how it asks.
 
 - The receipts (`bin/receipts`): every payment, hash-chained and public.
 - The diary: what it did each day.
-- The weekly audit (G6): written by frozen code, never by Teeny. Holds by
-  category, spend against each cap, halts, generations and every operator
-  action.
+- The weekly audit (`bin/audit`, the pinned `audit` job): written by
+  frozen code from the ledgers, never by Teeny. Guard holds by category and
+  outcome, spend against each cap, halts, generations and their verdicts,
+  persona drift, and every operator action (commits on main the loop didn't
+  merge, hold decisions, deploys, restarts). Always kept in `state/audit/`;
+  published beside the receipts once the operator sets `AUDIT_PUBLISH=1`.
+  The 30-day test reads its operator-action count.
 - `bin/proofs`: how far each countable proof in `DIRECTIVE.md` has got.
