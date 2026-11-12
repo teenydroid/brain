@@ -93,10 +93,12 @@ hands/lib/teeny_hands/stimuli.py
 hands/lib/teeny_hands/stimuli_cli.py
 hands/lib/teeny_hands/tasks/
 hands/lib/teeny_hands/telegram/
+hands/lib/teeny_hands/votes.py
 hands/lib/teeny_hands/vps/
 hands/lib/teeny_hands/wallet/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
+hands/lib/teeny_hands/xpost.py
 
 # The goal ledger: the checks that decide whether a goal Teeny proposed was
 # solved. A goal names a checker kind and its parameters; the kinds are code

@@ -642,6 +642,25 @@ pick is never a promise.
 | `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
 
+| `vote` | R | The weekly vote (`teeny_hands/votes.py`): the latest one, `open` with the count so far, or its `result`; and `next_pick`, the winner `pick` must take, while it is still pending. |
+| `vote-open` | A | `{text, options}`: posts a vote on 2 to 4 pending requests through `hands/x post` (guard, posting rules, `DRY_RUN`), open for 7 days. Refused while a vote is open (`open`) or within 6 days of the last (`weekly`), for an option that is not pending (`option`), for a text that does not number every option (`numbers`), and for any `@` (`mention`: the post mentions no one). Opened only when the post went out; a dry run opens nothing. |
+
+**The weekly vote is advisory and counted by code** (docs/roadmap.md, P5).
+A vote is a reply in the vote post's conversation (`x_mentions`, from
+`hands/x ingest`) whose text, after any leading @handles, starts with an
+option's number (`2`, `#2`, `vote 2`). One account, one vote: an account's
+last vote before the close counts. Replies the guard held, the account's own
+posts, other threads and anything seen after the close are not counted. The
+most votes wins; a tie or no votes has no winner. A vote closes when it is
+read after its 7 days. The winner, while still pending, is the next pick:
+`pick` refuses any other id with `rule: vote` and the `winner`, and marks the
+vote `honoured` when it picks it. Every rule of `pick` still holds, and the
+`pick-request` playbook still skips a winner that breaks one; once the
+winner is not pending, it binds nothing. It never touches the wallet, a
+fence or anything but which request is built next. The `vote` playbook
+drafts the post; it has no cron job yet (brain/cron.toml is at its 24-job
+limit).
+
 `pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
 does not stop them. Whatever is built from a pick goes out through hands that
 keep `DRY_RUN` themselves. The builder takes a `picked` request, and sets it
