@@ -259,7 +259,8 @@ These are gitignored and created at run time:
   `evolve/` (each generation of `bin/evolve` with its lab spines' folders,
   `archive.jsonl`, and `probes/gen-0.json`). `spine.pid` is the running
   spine's pid, `last-good` the commit a promotion restarted from, and
-  `spine-fallback.json` is there only after a last-good boot.
+  `spine-fallback.json` is there only after a last-good boot. `boots.jsonl`
+  is one line per spine boot, and `audit/` the weekly audit pages (`bin/audit`).
 - `.openhuman/`: the core's config, written by the core.
 - `brain/storage.db`: all of the core's state (sessions, cron jobs and runs,
   encrypted secrets) in one SQLite file, so `sqlite3` can read it.
