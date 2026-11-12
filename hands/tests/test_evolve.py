@@ -86,12 +86,12 @@ class EvolveCase(unittest.TestCase):
     def setUpClass(cls):
         cls.shared = tempfile.TemporaryDirectory()
         cls.src = Path(cls.shared.name) / "src.git"
-        # This repository as it stands, committed into a scratch clone: the
-        # brain every candidate starts from.
-        work = Path(cls.shared.name) / "work"
-        git("clone", "-q", "--no-hardlinks", str(REPO), str(work))
-        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base", cwd=work)
-        git("clone", "-q", "--bare", str(work), str(cls.src))
+        # This repository's HEAD, pushed into a scratch bare repository: the
+        # brain every candidate starts from. A push, not a clone, so a
+        # detached or shallow checkout (CI's) works too.
+        git("init", "-q", "--bare", str(cls.src))
+        git("--git-dir", str(cls.src), "config", "receive.shallowUpdate", "true")
+        git("-c", "core.hooksPath=/dev/null", "push", "-q", "--no-verify", str(cls.src), "HEAD:refs/heads/main", cwd=REPO)
 
     @classmethod
     def tearDownClass(cls):
@@ -112,7 +112,7 @@ class EvolveCase(unittest.TestCase):
         for k in ENV_KEYS:
             os.environ.pop(k, None)
         os.environ.update(TEENY_ROOT=str(self.root), TEENY_HANDS=str(hands), EVOLVE_GIT_DIR=str(self.src),
-                          EVOLVE_BASE="HEAD", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
+                          EVOLVE_BASE="main", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
                           TEENY_OH=str(self.root / "no-core"))
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24)
         self.props = self.root / "props"
@@ -140,7 +140,7 @@ class EvolveCase(unittest.TestCase):
         (self.root / "secrets" / "evolve.env").write_text(text)
 
     def base_text(self, path):
-        return git("--git-dir", str(self.src), "show", f"HEAD:{path}")
+        return git("--git-dir", str(self.src), "show", f"main:{path}")
 
     def propose(self, i, edits, component="attention", title=None):
         (self.props / f"cand-{i}.json").write_text(json.dumps({
@@ -161,7 +161,7 @@ class EvolveCase(unittest.TestCase):
 
     def worktree(self, name):
         tree = self.root / "trees" / name
-        evolve.add_worktree(evolve.source(), tree, git("--git-dir", str(self.src), "rev-parse", "HEAD").strip())
+        evolve.add_worktree(evolve.source(), tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
         return tree
 
 
@@ -266,7 +266,7 @@ class Gate(EvolveCase):
     def gated(self, edits):
         tree = self.worktree("t")
         evolve.apply_edits(tree, edits)
-        base = git("--git-dir", str(self.src), "rev-parse", "HEAD").strip()
+        base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
         out = evolve.gate(tree, base)
         return out, {c["check"]: c for c in out["checks"]}
 

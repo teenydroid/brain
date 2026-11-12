@@ -30,8 +30,12 @@ pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1" >&2; failures=$((failures + 1)); }
 check() { local name="$1"; shift; if "$@"; then pass "$name"; else fail "$name"; fi; }
 
-# This repository as committed, cloned bare: what candidates branch from.
-git clone -q --bare "$repo" "$src"
+# This repository's HEAD, pushed into a scratch bare repository: what the
+# candidates branch from. A push, not a clone, so CI's detached, shallow
+# checkout works too.
+git init -q --bare "$src"
+git --git-dir "$src" config receive.shallowUpdate true
+git -C "$repo" -c core.hooksPath=/dev/null push -q --no-verify "$src" HEAD:refs/heads/main
 
 root="$scratch/root"
 mkdir -p "$root/secrets" "$root/state" "$root/hands" "$root/props"
@@ -74,7 +78,7 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 unset OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE TEENY_STATE TEENY_SECRETS EVAL_HELDOUT_DIR EVOLVE
-export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE_BASE=HEAD \
+export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE_BASE=main \
   FAKE_CALLS="$scratch/calls.log" FAKE_CORE_CALLS="$scratch/core.log" TEENY_OH="$scratch/fake-oh" DRY_RUN=1
 : >"$FAKE_CALLS"
 : >"$FAKE_CORE_CALLS"
@@ -83,7 +87,7 @@ export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE
 propose() { # I LINE
   python3 - "$src" "$root/props/cand-$1.json" "$2" <<'PY'
 import json, subprocess, sys
-text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "HEAD:brain/playbooks/morning.md"],
+text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/playbooks/morning.md"],
                       check=True, capture_output=True, text=True).stdout
 last = text.rstrip().splitlines()[-1]
 json.dump({"title": f"morning: {sys.argv[3][:30]}", "component": "attention", "expected_move": "+1% engaged reach",
