@@ -139,7 +139,7 @@ def daily() -> Json:
     try:
         held = reads.tiny()
         out["balance"] = held["amount"]
-        lines.append(f"You hold {held['amount']:,.{min(int(held['decimals']), 6)}f} $TINY.".replace(".000000 ", " "))
+        lines.append(f"You hold {reads._decimal(int(held['raw']), int(held['decimals'])) or '0'} $TINY.")
         cluster, mint = held["cluster"], held["mint"]
     except hand.HandError as exc:
         out["balance_error"] = str(exc)
