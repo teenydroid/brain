@@ -81,17 +81,24 @@ J = Σᵢ wᵢ · Δ log(Wᵢ + cᵢ)        over the last 7 days
 ## 3. Where the drive lives
 
 The drive goes into the prompt the same way the identity does. A new
-`brain/DRIVE.md` states it in Teeny's voice, and `evals/invariants.md` gets
-anchors for its core lines, so `bin/doctor` refuses to boot a brain that drops
-them. That is how "never sell $TINY" is held today. Teeny may rewrite how it
-pursues the drive (the playbooks and skills), but not the drive itself. After
-every compaction of `teeny:mind`, the drive is injected again to counter goal
-drift.
+`brain/DRIVE.md` states it in Teeny's voice. `bin/lib/prompts.py` (frozen, so
+an operator PR) adds it to "# your world", next to `CONTEXT.md`. Until that
+lands, a `## drive` section in `CONTEXT.md` does the same job.
+`evals/invariants.md` gets anchors for the drive's core lines, so `bin/doctor`
+refuses to boot a brain that drops them, the way "never sell $TINY" is held
+today. Teeny may rewrite how it pursues the drive (playbooks, skills), but not
+the drive itself.
 
-Every playbook, and every self-change, then has to say which step of the
-flywheel it turns: act, attention, mindshare, holding, or capability. The
-judge rubric (`evals/judge.md`) gets one more line: does the output turn the
-flywheel, and does it do it honestly?
+The prompt is rebuilt into every turn (architecture §4a), so the drive
+survives a compaction of `teeny:mind` without help. What compaction can wear
+down is the thread's sense of what Teeny is in the middle of, so the 02:00
+reflection should restate the week's drive goals in `MEMORY.md` (goal drift,
+[`rsi-theory-and-safety.md`](rsi-theory-and-safety.md)).
+
+Every playbook and every self-change then has to say which step of the
+flywheel it turns: act, attention, mindshare, holding or capability. The judge
+rubric (`evals/judge.md`, an operator change) gets one more line: does the
+output turn the flywheel, and does it do it honestly?
 
 ## 4. A faster loop
 
