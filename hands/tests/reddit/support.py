@@ -67,6 +67,8 @@ class Scratch(unittest.TestCase):
         self.at(T0)
         self.rd = FakeX()
         self.addCleanup(self.rd.close)
+        # Reddit answers an unknown fullname with an empty listing.
+        self.rd.route("GET", "/api/info", listing())
         self.rd.route("POST", "/api/v1/access_token", {"access_token": TOKEN, "token_type": "bearer", "expires_in": 3600})
         self.configure()
 

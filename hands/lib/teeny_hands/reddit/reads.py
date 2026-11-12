@@ -194,7 +194,7 @@ def user(name: str, api: client.Reddit | None = None) -> Json:
     return {"user": CACHE.cached("user", (who.lower(),), fetch)}
 
 
-def subreddit(name: str, api: client.Reddit | None = None) -> Json | None:
+def subreddit(name: str, api: client.Reddit | None = None, fresh: bool = False) -> Json | None:
     """One subreddit's about page and its rules; None when Reddit has none
     by that name (or it is private or banned, which reads the same)."""
     who = client.subreddit_name(name, "NAME")
@@ -225,7 +225,7 @@ def subreddit(name: str, api: client.Reddit | None = None) -> Json | None:
             if isinstance(r, Mapping)
         ]
 
-    got = CACHE.cached("subreddit", (who.lower(),), about)
+    got = about() if fresh else CACHE.cached("subreddit", (who.lower(),), about)
     if got is None:
         return None
     return {**got, "rules": CACHE.cached("rules", (who.lower(),), rules)}

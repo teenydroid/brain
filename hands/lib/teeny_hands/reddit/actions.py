@@ -145,7 +145,8 @@ def _call(api: client.Reddit, path: str, form: Mapping[str, str]) -> Mapping[str
 
 
 def _community(name: str, api: client.Reddit | None) -> Mapping[str, Any]:
-    about = reads.subreddit(name, api)
+    # Fresh: a ban or a change of the community's rules must not wait out the cache.
+    about = reads.subreddit(name, api, fresh=True)
     if about is None:
         raise hand.Refused(f"Reddit has no open community r/{name}", rule="subreddit", subreddit=name)
     if about.get("user_is_banned"):

@@ -52,6 +52,7 @@ class PostTest(Scratch, Refusing):
         self.assertEqual(self.rd.writes(), [])
 
     def test_the_allowlist_ignores_case_and_the_r_prefix(self):
+        self.community("sideproject")
         self.submitted("p1")
         actions.post(self.body(subreddit="r/sideproject"))
         self.assertEqual(form(self.rd.requests("POST", "/api/submit")[0])["sr"], "sideproject")
