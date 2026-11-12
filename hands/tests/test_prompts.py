@@ -74,14 +74,24 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("secret goal list", text)
         self.assertNotIn("the producer reads all of it", text)
 
-    def test_memory_md_rides_last_in_every_speaking_prompt(self):
+    def test_memory_md_comes_first_and_outranks_the_lore(self):
         (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n## people\n\n- @ana asked for a cli; said i'd look friday.\n")
         text = self.built()
         self.assertIn("## what you keep in mind (MEMORY.md)", text)
         self.assertIn("### people", text)
         self.assertIn("said i'd look friday", text)
-        # The most changeable part last, after the stable world.
-        self.assertGreater(text.index("MEMORY.md"), text.index("mint my own currency"))
+        # What actually happened comes before the context, the lore and the
+        # arcs, and wins where they disagree.
+        memory = text.index("## what you keep in mind (MEMORY.md)")
+        self.assertLess(memory, text.index("running the lab."))
+        self.assertLess(memory, text.index("## the story you are in"))
+        self.assertLess(memory, text.index("mint my own currency"))
+        self.assertIn("MEMORY.md wins", text)
+
+    def test_without_a_memory_the_world_still_builds(self):
+        text = self.built()
+        self.assertNotIn("## what you keep in mind", text)
+        self.assertIn("running the lab.", text)
 
     def test_an_overlong_memory_is_cut_and_says_so(self):
         (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))
