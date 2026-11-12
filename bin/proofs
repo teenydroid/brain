@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# How far each countable proof in DIRECTIVE.md has got (docs/roadmap.md, A0):
+# replies in the ledger, weeks of rising stats, days of diary, ok browser
+# tasks, shipped requests, generations. Reads state/hands.db (read-only),
+# state/diary/, state/evolve/archive.jsonl and the chronicle pages; never
+# secrets/, never a hand or a model (bin/lib/proofs.py). Prints one JSON
+# object, or a table with --text.
+#
+#   bin/proofs [--text] [--only ID ...]
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/proofs.py" "$@"

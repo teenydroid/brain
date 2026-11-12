@@ -58,6 +58,7 @@ bin/tick --detach                  # what cron runs: start the beat in the backg
 bin/mentions                       # read mentions into the inbox
 bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
+bin/proofs --text                  # how far each countable DIRECTIVE.md proof has got (read-only)
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
 bin/eval invariants                # does the brain still say what Teeny is?
@@ -233,7 +234,7 @@ The database is unreadable without its key.
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
-bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
+bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
 hands/               x, guard, gh, moltbook, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
@@ -274,6 +275,7 @@ bin/test/eval_test.sh                                        # hard checks, blin
 bin/test/evolve_test.sh                                      # bin/evolve end to end: dry run, a lab-core evaluation, halts, evolve-watch; core, hands and GitHub faked
 bin/test/inbound_consume_test.sh                             # drafts to replies, batch-only, pacing; the core and hands faked
 bin/test/dockerfile_test.sh                                  # the image copies every module script it imports
+bin/test/proofs_test.sh                                      # bin/proofs over fixture ledgers; read-only, no core
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 ```
 
