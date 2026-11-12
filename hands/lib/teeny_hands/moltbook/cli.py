@@ -17,6 +17,9 @@ the box.
   R  submolt NAME                             one submolt (allow_crypto and all)
   R  inbox [--days N] [--max N]               comments said to Teeny (on its posts, under its
                                               comments), screened, into its mind's inbox
+  R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
+                                              24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
+  R  metrics list [--days N]                  the latest row per write measured in the last N days
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
