@@ -259,6 +259,10 @@ The sealed generation stays on disk.
 - GitHub: issues, pull requests, comments, review comments and mentions
   from the token's notifications, and new stars (`hands/gh ingest`, the
   pinned `gh-inbound` job, every 15 minutes, off until `GH_INBOUND=1`);
+- the wallet: one `wallet · deposit` per deposit (who sent how much, and a
+  memo only through the inbound guard) and one `wallet · tiny` a day ($TINY
+  held and the holder count), from `hands/wallet watch` (the pinned
+  `wallet-watch` and `wallet-daily` jobs, off until `WALLET_WATCH=1`);
 - the builder's and operator's reports (their desks).
 
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
@@ -555,6 +559,11 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `wallet-watch` (`bin/wallet-watch`, every 15 minutes) and
+    `wallet-daily` (`bin/wallet-watch daily`, 00:50 UTC), the on-chain
+    senses, read only, off until `WALLET_WATCH=1`; `accounts`
+    (`bin/accounts`, Mondays 00:20 UTC), the weekly profit and loss, off
+    until `WALLET_ACCOUNTS=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the

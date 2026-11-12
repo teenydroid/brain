@@ -588,6 +588,8 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `goals check`: `self · goal` when a goal is solved or fails;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
   Teeny's own follow-ups as they come due;
+- `wallet watch` (`bin/wallet-watch`): `wallet · deposit` per deposit, and
+  `wallet · tiny` once a day (see `wallet`);
 - `gh ingest` (`bin/gh-inbound`): `gh · issue`, `pr`, `comment`, `review`,
   `mention` and `star` (see `gh`);
 - `bin/health`: `health · alarm` when the model has failed two checks in a
@@ -840,6 +842,7 @@ the network's public endpoint, and the core is given the same URL.
 | `inflows scan` | J | Every deposit to Teeny's Solana address since the last scan, one row each in `wallet_inflows`. Read only. Below. |
 | `inflows list [--max N]` | R | The inflow ledger, newest first, and how far it has been scanned. Never a memo. |
 | `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
+| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`. `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
