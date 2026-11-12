@@ -2590,8 +2590,7 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
                 if not entry.get("promoted_at"):
                     page = write_chronicle(entry, entries)
                     if page is not None:
-                        entry["chronicle"] = str(page.relative_to(brain_dir().parent)) \
-                            if brain_dir().parent in page.parents else str(page)
+                        entry["chronicle"] = f"brain/narrative/chronicle/{page.name}"
                         chronicled.append(entry["id"])
             elif str(info.get("state", "")).lower() == "closed":
                 entry["closed"] = True
