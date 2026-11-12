@@ -340,6 +340,43 @@ class CommentAndForkTest(Scratch):
         self.assertTrue(actions.comment({"repo": "a/b", "number": 4, "body": "hi"})["dry_run"])
         self.assertEqual(self.gh.seen, [])
 
+    # --- no reprisal (docs/roadmap.md, P4; evals/invariants.md, no-reprisal) -----------------
+
+    def closed_pr(self, merged: bool = False, author: str = "teenydroid") -> None:
+        self.gh.route("GET", "/repos/riverlee/tinyfmt/pulls/41",
+                      {"number": 41, "state": "closed", "merged": merged, "user": {"login": author}})
+        self.gh.route("POST", "/repos/riverlee/tinyfmt/issues/41/comments", {"id": 9, "html_url": "u"}, status=201)
+
+    def test_after_its_pr_was_closed_a_comment_naming_anybody_is_held(self):
+        from teeny_hands.guard import holds
+
+        self.closed_pr()
+        for text in ("riverlee is gatekeeping, their loss", "thanks @someone for nothing"):
+            with self.assertRaises(hand.Refused) as caught:
+                actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": text})
+            self.assertEqual((caught.exception.reason, caught.exception.detail["category"]), ("held", "rejection"))
+        self.assertEqual(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments"), [])
+        held = holds.list_holds()
+        self.assertEqual([h["category"] for h in held], ["rejection", "rejection"])
+        self.assertEqual(held[0]["context"]["rejection"], {"people": ["riverlee"]})
+
+    def test_after_its_pr_was_closed_a_gracious_comment_goes_out(self):
+        self.closed_pr()
+        out = actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": "understood, thanks for taking a look"})
+        self.assertEqual(out["number"], 41)
+        self.assertEqual(len(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments")), 1)
+
+    def test_a_merged_pr_or_someone_elses_is_no_rejection(self):
+        for merged, author in ((True, "teenydroid"), (False, "ana")):
+            self.closed_pr(merged=merged, author=author)
+            actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": "thanks riverlee"})
+        self.assertEqual(len(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments")), 2)
+
+    def test_its_own_repositories_are_never_looked_up(self):
+        self.gh.route("POST", "/repos/teenydroid/hello/issues/4/comments", {"id": 9, "html_url": "u"}, status=201)
+        actions.comment({"repo": "teenydroid/hello", "number": 4, "body": "thanks @ana"})
+        self.assertEqual(self.gh.requests("GET"), [])
+
     def test_forks_others_repos_only(self):
         self.me()
         self.gh.route("POST", "/repos/a/b/forks", {"full_name": "teenydroid/b", "owner": {"login": "teenydroid"}}, status=202)

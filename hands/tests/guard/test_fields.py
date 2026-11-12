@@ -195,3 +195,35 @@ class FieldsCliTest(Cli):
 
     def test_text_check_is_unchanged(self):
         self.assertEqual(self.guard("check", body={"text": "hello world"}), (0, {"ok": True, "text": "hello world"}))
+
+
+class RejectionTest(support.Scratch):
+    """docs/roadmap.md, P4: after a rejection (the caller says so in the
+    context), a draft that names anybody is held for a person, category
+    `rejection`, before the judge is asked; without it nothing changes."""
+
+    CONTEXT = {"repo": "riverlee/tinyfmt", "number": 41, "rejection": {"people": ["riverlee"]}}
+
+    def test_names_a_person(self):
+        self.assertTrue(gate.names_a_person("thanks @kdavis", []))
+        self.assertTrue(gate.names_a_person("RiverLee should know better", ["riverlee"]))
+        self.assertFalse(gate.names_a_person("understood, thanks for looking", ["riverlee"]))
+        self.assertFalse(gate.names_a_person("mail me at teeny@agentmail.to", []))
+        self.assertFalse(gate.names_a_person("the riverlee-fork branch", ["riverlee"]))
+
+    def test_a_draft_naming_someone_after_a_rejection_is_held(self):
+        got = check_fields({"body": "riverlee is just gatekeeping"}, surface="github", kind="comment",
+                           context=dict(self.CONTEXT), judge=False)
+        self.assertEqual((got.kind, got.category, got.field), ("hold", "rejection", "body"))
+        (held,) = holds.list_holds()
+        self.assertEqual((held["category"], held["by"]), ("rejection", "screen"))
+
+    def test_a_gracious_draft_after_a_rejection_passes(self):
+        got = check_fields({"body": "understood, thanks for taking a look"}, surface="github", kind="comment",
+                           context=dict(self.CONTEXT), judge=False)
+        self.assertEqual(got.kind, "allow")
+
+    def test_without_a_rejection_naming_people_is_fine(self):
+        got = check_fields({"body": "thanks @riverlee, merged"}, surface="github", kind="comment",
+                           context={"repo": "riverlee/tinyfmt", "number": 41}, judge=False)
+        self.assertEqual(got.kind, "allow")
