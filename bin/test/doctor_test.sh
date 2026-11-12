@@ -143,6 +143,15 @@ fresh; rm "$root/evals/invariants.md"
 fails "fails a checkout without evals/invariants.md" "invariants"
 fresh; rm -rf "$root/hands/lib/teeny_hands/guard"
 fails "fails without the guard" "guard screen"
+# The autonomy ladder (docs/governance.md, fence "ladder"; roadmap G2).
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
+fails "fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4" "autonomy ladder"
+check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladder: EVOLVE_AUTO_PROMOTE=1 .*merge at L5' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=0\n' >"$root/secrets/evolve.env"
+check "passes EVOLVE=1 with self-edit at L4" doctor
+check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
+fresh; rm "$root/evals/autonomy.toml"
+fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 
