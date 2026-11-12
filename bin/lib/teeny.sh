@@ -60,4 +60,5 @@ oh() { "${TEENY_OH:-$TEENY_ROOT/bin/oh}" "$@"; }
 # build started at ten past is over before build-ship collects at half past.
 # It also caps any single tool call, which the turn deadline bounds anyway.
 # bin/spine sets it at boot; `bin/doctor --live` checks it.
+# shellcheck disable=SC2034 # read by bin/spine and bin/doctor, which source this file
 TEENY_AGENT_TURN_SECS=900
