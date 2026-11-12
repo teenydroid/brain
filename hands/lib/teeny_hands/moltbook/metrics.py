@@ -21,6 +21,7 @@ from typing import Any, Mapping
 from .. import hand
 from ..rest import RestApi, RestError
 from . import reads, rules
+from .actions import _walk
 
 HOUR = 3600.0
 DAY = 86400.0
