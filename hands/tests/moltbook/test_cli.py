@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .support import KEY, Scratch
+from .support import HOUR, KEY, T0, Scratch
 
 MOLTBOOK = Path(__file__).resolve().parents[2] / "moltbook"
 
