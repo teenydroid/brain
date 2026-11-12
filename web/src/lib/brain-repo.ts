@@ -4,8 +4,9 @@
  *
  * Teeny is a stock OpenHuman core (spine/, vendor/openhuman), small programs
  * that hold every outside capability (hands/), and the files the core reads
- * (brain/: SOUL.md, CONTEXT.md, MEMORY.md, narrative/, agents/, playbooks/
- * and cron.toml). The web image is built from web/ alone, so those files
+ * (brain/: SOUL.md, CONTEXT.md, MEMORY.seed.md, narrative/, agents/,
+ * playbooks/ and cron.toml; the live MEMORY.md is the box's own and never
+ * committed). The web image is built from web/ alone, so those files
  * are not on disk here: the page lists them from GitHub, revalidated hourly.
  * The receipts (teenydroid/diary) are read in receipts.ts.
  *

@@ -366,7 +366,9 @@ def done(body: Any) -> Json:
                 _mark_request(conn, row["request_id"], "failed", summary or "the build failed")
     finally:
         conn.close()
-    return {"job_id": job_id, "status": status}
+    # The summary and tests ride along so the mind hears why, not just
+    # "failed": the desk puts them in the report stimulus's text.
+    return {"job_id": job_id, "status": status, "summary": summary, "tests": body.get("tests")}
 
 
 #: What the builder writes to state/workbench/desk/build-done.json.
