@@ -60,6 +60,14 @@ canned = {
 }.get((name, verb))
 if canned:
     print(canned); sys.exit(0)
+# FAKE_REFUSALS_<HAND>: a JSON list, one entry per acting call to this hand
+# (in order); an object there is that call's refusal (exit 2), null lets it
+# through.
+acting = [c for c in map(json.loads, open(os.environ["FAKE_HANDS"]))
+          if c["hand"] == name and c["argv"][:1] not in (["mark"], ["inbox"], ["feed"], ["ingest"], ["upload"])]
+refusals = json.loads(os.environ.get("FAKE_REFUSALS_" + name.upper()) or "[]")
+if len(acting) <= len(refusals) and refusals[len(acting) - 1]:
+    print(json.dumps({"ok": False, **refusals[len(acting) - 1]})); sys.exit(2)
 code = int(os.environ.get("FAKE_EXIT_" + name.upper(), "0"))
 if code == 2:
     print(json.dumps({"ok": False, "refused": "daily cap"}))
@@ -103,9 +111,11 @@ class TickTest(unittest.TestCase):
             FAKE_ANSWER=str(self.answer_file),
             CALENDAR_TZ="UTC",
             TEENY_TICK_JITTER_SECS="0",
+            TEENY_TICK_PACE_JITTER_SECS="0",
             TEENY_QUIET_HOURS="off",
         )
-        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED"):
+        for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
+                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -397,6 +407,178 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual(len(self.hand_calls()), 8)
         self.assertEqual([r["status"] for r in got["results"]].count("refused"), 4)
+
+    # --- pacing: a reply held a few seconds waits, it is not re-decided ------
+    # hands/x paces replies (REPLY_MIN_INTERVAL_MS..REPLY_MAX_INTERVAL_MS), so
+    # the second reply of a beat is refused with `rule: pacing` and how long
+    # to wait. The beat waits that out and sends the same intent once more;
+    # a wait too long for the beat parks it, and the next beat sends it first.
+
+    @staticmethod
+    def paced(wait: float, rule: str = "pacing") -> dict:
+        return {"refused": f"{rule}: the next reply may go out in {wait}s; wait and try again", "rule": rule,
+                "wait_seconds": wait, "next_at": "2026-09-14T07:00:30Z"}
+
+    def x_replies(self) -> list[tuple]:
+        return [(c["argv"][2], c["body"]["text"]) for c in self.hand_calls() if c["hand"] == "x" and c["argv"][:1] == ["reply"]]
+
+    def test_a_paced_second_reply_waits_and_goes_out_in_the_same_beat(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(0.2)])
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        stimuli.add("x", "mention", "222", "nice chart", who="bo")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm ana"},
+            {"do": "reply_x", "to": "222", "text": "the chart is the point"},
+        ]}, {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(self.x_replies(), [("111", "gm ana"), ("222", "the chart is the point"),
+                                            ("222", "the chart is the point")])
+        first, second = got["results"]
+        self.assertEqual(second["status"], "done", second)
+        self.assertEqual(second["paced"]["rule"], "pacing")
+        self.assertGreaterEqual(second["paced"]["waited"], 0.2)
+        self.assertIn(("x", ["mark", "222", "--status", "replied"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.assertNotIn(("x", ["mark", "222", "--status", "refused"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.assertEqual(json.loads((self.root / "state" / "mind.json").read_text())["actions_today"], 2)
+        self.at(300)
+        self.tick()
+        message = self.chats()[1]["message"]
+        self.assertIn("your reply_x on 222: done", message)
+        self.assertNotIn("222: refused", message)
+        self.assertEqual(len(self.chats()), 2)  # the paced reply cost no turn of its own
+
+    def test_a_paced_retry_is_not_counted_as_another_action(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(0.1)])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": str(100 + n), "text": f"hi {n}"} for n in range(8)]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done"] * 8)
+        self.assertEqual(len(self.x_replies()), 9)
+
+    def test_a_reply_paced_twice_in_a_row_is_tried_once_more_then_deferred(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(0.1), self.paced(0.1)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]})
+        got = self.tick()
+        self.assertEqual(len(self.x_replies()), 2)
+        self.assertEqual(got["results"][0]["status"], "deferred")
+
+    def test_a_long_pacing_wait_is_sent_first_next_beat_without_asking_again(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(600)])
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        stimuli.add("x", "mention", "222", "nice chart", who="bo")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm ana"},
+            {"do": "reply_x", "to": "222", "text": "the chart is the point"},
+        ]}, {"thought": "", "intents": [{"do": "journal", "text": "a calm one"}]},
+            {"thought": "", "intents": [{"do": "journal", "text": "another"}]})
+        got = self.tick()
+        self.assertEqual(len(self.x_replies()), 2)  # never slept 600 s
+        self.assertEqual(got["results"][1]["status"], "deferred")
+        self.assertTrue(got["results"][1]["paced"]["deferred"])
+        self.assertEqual(self.marks()[-1]["argv"][1:4], ["111", "--status", "replied"])  # 222 is not marked refused
+        self.at(600)
+        got = self.tick()
+        # Sent before the mind was asked, word for word; the mind only hears it went out.
+        self.assertEqual(self.x_replies()[2], ("222", "the chart is the point"))
+        [resumed] = got["resumed"]
+        self.assertEqual((resumed["do"], resumed["status"]), ("reply_x", "done"))
+        self.assertEqual(len(self.chats()), 2)
+        message = self.chats()[1]["message"]
+        self.assertIn("your reply_x on 222: done", message)
+        self.assertIn("went out by itself", message)
+        self.assertIn(("x", ["mark", "222", "--status", "replied"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.assertEqual(json.loads((self.root / "state" / "mind.json").read_text())["actions_today"], 2)
+        self.at(1200)
+        self.tick()
+        self.assertEqual(len(self.x_replies()), 3)  # sent once, never again
+
+    def test_a_paced_reply_is_deferred_when_the_beat_has_no_time_left(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(0.2)])
+        os.environ["TEENY_TICK_BUDGET_SECS"] = "0"
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "gm too"},
+        ]})
+        got = self.tick()
+        self.assertEqual(len(self.x_replies()), 2)
+        self.assertEqual(got["results"][1]["status"], "deferred")
+
+    def test_a_refusal_for_another_reason_is_not_retried_or_deferred(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(0.1, rule="cap"), self.paced(0.1)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "like_x", "id": "333"},
+        ]}, {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "refused"])
+        self.assertEqual(len(self.hand_calls()), 2)  # a paced like is not one of the paced verbs
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(got.get("resumed"), None)
+        self.assertEqual(len(self.hand_calls()), 2)
+        self.assertIn("your reply_x on 111: refused: cap", self.chats()[1]["message"])
+
+    def test_a_moltbook_comment_held_by_the_one_a_minute_limit_waits_and_goes_out(self):
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([None, self.paced(0.2, rule="rate_limit")])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "text": "first"},
+            {"do": "comment_moltbook", "post_id": "p2", "text": "second"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done", "done"])
+        self.assertEqual([c["body"]["post_id"] for c in self.hand_calls()], ["p1", "p2", "p2"])
+
+    def test_a_deferred_reply_still_paced_after_an_hour_goes_back_to_the_mind(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600), self.paced(600), self.paced(600)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        got = self.tick()  # still paced: kept for the beat after, nothing said yet
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.assertNotIn("reply_x on 111", self.chats()[-1]["message"])
+        self.at(3700)
+        got = self.tick()  # an hour on, it stops waiting and the mind decides
+        self.assertEqual(got["resumed"][0]["status"], "refused")
+        self.assertIn("your reply_x on 111: refused: pacing", self.chats()[-1]["message"])
+        self.at(4000)
+        self.tick()
+        self.assertEqual(len(self.x_replies()), 3)
+
+    def test_a_deferred_reply_refused_for_another_reason_next_beat_says_why(self):
+        replied = {"refused": "already replied to post 111 (reply 9); a post gets one reply", "rule": "replied"}
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600), replied])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "refused")
+        message = self.chats()[-1]["message"]
+        self.assertIn("your reply_x on 111: refused: already replied to post 111", message)
+        self.assertNotIn("held by the pacing", message)
+
+    def test_a_deferred_reply_still_goes_out_in_the_quiet_hours(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([None, self.paced(600)])
+        self.night(0.9)
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "late one"},
+        ]})
+        self.tick()
+        self.night(1.1)
+        got = self.tick()  # decided while awake: sent, though the beat only gathers
+        self.assertTrue(got["asleep"])
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        self.assertEqual(self.x_replies()[-1], ("222", "late one"))
+        self.assertEqual(len(self.chats()), 1)
 
     def test_what_the_hands_did_comes_back_next_beat(self):
         os.environ["FAKE_EXIT_X"] = "2"
