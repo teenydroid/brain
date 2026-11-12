@@ -2599,6 +2599,12 @@ def main(argv: list[str]) -> int:
     ev.add_argument("--oh-url-base", default=None)
     sel = verbs.add_parser("select", help="open the pull request for a held generation")
     sel.add_argument("gen", type=int)
+    pro = verbs.add_parser("promote", help="retry a promotion whose merge was refused (EVOLVE_AUTO_PROMOTE=1)")
+    pro.add_argument("gen", type=int)
+    verbs.add_parser("watch", help="evolve-watch: the newest promotion, reverted when it hurts")
+    prb = verbs.add_parser("probe", help="the persona and memory probes on the live core")
+    prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
+    prb.add_argument("--force", action="store_true", help="with --baseline: replace an existing gen-0")
     verbs.add_parser("credit", help="record ΔJ after merges and credit the lineage")
     verbs.add_parser("status", help="the archive, the weights and any halt")
     verbs.add_parser("resume", help="clear a latched halt")
@@ -2618,13 +2624,19 @@ def main(argv: list[str]) -> int:
             out = evaluate_cmd(cfg, args.gen, args.cand, args.oh_url_candidate, args.oh_url_base)
         elif args.verb == "select":
             out = select_cmd(cfg, args.gen)
+        elif args.verb == "promote":
+            out = promote_cmd(cfg, args.gen)
+        elif args.verb == "watch":
+            out = watch(cfg)
+        elif args.verb == "probe":
+            out = probe_cmd(cfg, args.baseline, args.force)
         elif args.verb == "credit":
             out = credit(cfg)
         elif args.verb == "status":
             out = status()
         else:
             out = resume()
-    except EvolveError as exc:
+    except (EvolveError, probes_lib.ProbeError) as exc:
         say(str(exc))
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
