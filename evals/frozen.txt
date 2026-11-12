@@ -45,6 +45,12 @@ brain/agents/operator.toml
 hands/guard
 hands/x
 
+# The scorer: hands/world computes W and J from the other hands' data
+# (docs/research/teeny-application.md, section 2). Teeny can change how it
+# grows, never how the growth is counted.
+hands/world
+hands/lib/teeny_hands/world/
+
 # The existing hand library, one entry each. A new hand Teeny writes
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
 # lands a hand that should be frozen too.
