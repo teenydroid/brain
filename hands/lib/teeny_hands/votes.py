@@ -123,6 +123,8 @@ def waiting_winner(conn: sqlite3.Connection) -> Json | None:
     row = conn.execute("SELECT * FROM votes WHERE status = 'closed' AND winner_id IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
     if row is None:
         return None
+    if not _has(conn, "build_requests"):
+        return None
     req = conn.execute("SELECT status FROM build_requests WHERE id = ?", (row["winner_id"],)).fetchone()
     if req is None or req["status"] != "pending":
         return None
