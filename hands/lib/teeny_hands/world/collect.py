@@ -435,11 +435,12 @@ def report(days: int) -> Json:
                 "reading": ["There is no world snapshot yet (hands/world snapshot, the pinned world-snapshot job). Quote no W or J number."],
             }
         since = _shift(latest, days)
-        rows: dict[str, list[tuple[str, float]]] = {}
+        rows: dict[str, list[tuple[str, float, int]]] = {}
         latest_detail: dict[str, Json] = {}
         for row in conn.execute("SELECT date, component, value, detail FROM world_scores WHERE date <= ? ORDER BY date", (latest,)):
-            rows.setdefault(row["component"], []).append((row["date"], float(row["value"])))
-            latest_detail[row["component"]] = {"date": row["date"], **json.loads(row["detail"] or "{}")}
+            detail = json.loads(row["detail"] or "{}")
+            rows.setdefault(row["component"], []).append((row["date"], float(row["value"]), _version(detail)))
+            latest_detail[row["component"]] = {"date": row["date"], **detail}
     finally:
         conn.close()
 
@@ -465,8 +466,8 @@ def report(days: int) -> Json:
             credits[comp.name] = 0.0
             continue
         got = score.credit(window, comp)
-        last_date, last_value = series[-1]
-        first_date, first_value = window[0]
+        last_date, last_value, last_version = series[-1]
+        first_date, first_value, _ = window[0]
         credits[comp.name] = got["credit"]
         item.update(
             {
@@ -481,6 +482,13 @@ def report(days: int) -> Json:
                 "parts": latest_detail.get(comp.name, {}).get("parts", {}),
             }
         )
+        if last_version != 1:
+            item["version"] = last_version
+        if got["rebased"]:
+            item["rebased"] = got["rebased"]
+        split = latest_detail.get(comp.name, {}).get("split")
+        if split:
+            item["split"] = split
         if last_date != latest:
             item["note"] = f"no row on {latest} (the source was skipped or failed); the last value is from {last_date}"
         elif first_date > since and len(window) > 1:
@@ -490,8 +498,12 @@ def report(days: int) -> Json:
         line = f"{comp.name}: {item['was']} on {first_date} to {item['value']} on {last_date} ({comp.unit}), Δlog {item['delta_log']}"
         if got["capped_days"]:
             line += f", capped on {got['capped_days']} day(s) to a credit of {item['credit']}"
+        if got["rebased"]:
+            line += f", the step into version {last_version} counted zero"
         line += f"; weight {comp.weight}, adds {item['contribution']} to J."
         reading.append(line)
+        if split:
+            reading.append(_reach_line(split))
         components.append(item)
 
     events = sum(v for d, v in rows.get(score.PENALTY, []) if since < d <= latest)
@@ -516,6 +528,29 @@ def report(days: int) -> Json:
     }
 
 
+def _version(detail: Json) -> int:
+    """A row's version: what its detail says, 1 for rows written before
+    components carried one."""
+    try:
+        return int(detail.get("version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _reach_line(split: Json) -> str:
+    """One sentence on who the attention is: people, agents, or accounts no
+    rule can place."""
+    said = []
+    for kind in score.REACH_CLASSES:
+        got = split.get(kind) or {}
+        said.append(
+            f"{kind} {_num(got.get('accounts', 0))} engaged account(s)"
+            f" ({_num(got.get('first_contact_theirs', 0))} came first) and {_num(got.get('followers', 0))} follower(s) or karma,"
+            f" weighted {_num(got.get('weighted', 0))}"
+        )
+    return "attention reach: " + "; ".join(said) + ". Unknown means no rule can tell; never call it people."
+
+
 def history(days: int) -> Json:
     conn = db()
     try:
@@ -531,6 +566,11 @@ def history(days: int) -> Json:
     by_date: dict[str, Json] = {}
     for row in rows:
         day = by_date.setdefault(row["date"], {"date": row["date"], "values": {}, "parts": {}})
+        detail = json.loads(row["detail"] or "{}")
         day["values"][row["component"]] = _num(row["value"])
-        day["parts"][row["component"]] = json.loads(row["detail"] or "{}").get("parts", {})
+        day["parts"][row["component"]] = detail.get("parts", {})
+        if _version(detail) != 1:
+            day.setdefault("versions", {})[row["component"]] = _version(detail)
+        if detail.get("split"):
+            day.setdefault("split", {})[row["component"]] = detail["split"]
     return {"days": days, "as_of": latest, "rows": list(by_date.values())}
