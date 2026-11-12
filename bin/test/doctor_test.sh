@@ -203,8 +203,11 @@ mkdir -p "$scratch/core"
 : >"$scratch/core/health"
 cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
-[ "$1" = cron_list ] || { echo "unexpected method $1" >&2; exit 1; }
-cat "$FAKE_JOBS"
+case "$1" in
+  cron_list) cat "$FAKE_JOBS" ;;
+  config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
+  *) echo "unexpected method $1" >&2; exit 1 ;;
+esac
 FAKE
 chmod +x "$scratch/fake-oh"
 live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
@@ -218,7 +221,7 @@ live_jobs() { # NAME:NEXT_RUN_SECONDS_AGO:ENABLED ...
   printf '%s\n' "$jobs" >"$scratch/jobs.json"
 }
 live_doctor() {
-  FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
+  FAKE_AGENT_TIMEOUT="${FAKE_AGENT_TIMEOUT:-900}" FAKE_JOBS="$scratch/jobs.json" TEENY_OH="$scratch/fake-oh" OPENHUMAN_CORE_URL="file://$scratch/core" \
     "$root/bin/doctor" --live >"$scratch/report.json" 2>"$scratch/doctor.log"
 }
 fresh
@@ -238,6 +241,15 @@ check "and records it in the report" \
 live_jobs teeny.mail-inbound:-100:true teeny.tick:30:true teeny.late:300:true teeny.paused:7200:false
 live_doctor || true
 check "--live passes current next runs" grep -q '^ok   cron next runs are current' "$scratch/doctor.log"
+
+# 2026-11-12: the builder's cron turn ran out of the core's default 120 s
+# (`[agent] agent_timeout_secs`, which bounds a whole cron agent turn) after
+# six model calls, twice, and never reached its tests. bin/spine raises it.
+FAKE_AGENT_TIMEOUT=120 live_doctor || true
+check "--live fails when a cron agent turn gets only the core's default 120 s" \
+  grep -q '^FAIL cron agent turn budget: ' "$scratch/doctor.log"
+live_doctor || true
+check "--live passes the budget bin/spine sets" grep -q '^ok   cron agent turn budget' "$scratch/doctor.log"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'

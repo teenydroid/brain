@@ -140,6 +140,14 @@ for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
 done
 curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not answer /health in ${SPINE_BOOT_SECS:-120}s"
 
+# The cron agent turn budget (bin/lib/teeny.sh). Set over RPC rather than in
+# bin/lib/core_sections/, which would own the whole `[agent]` table and drop
+# the core's own keys and subtables under it. The scheduler reads the stored
+# config on every tick.
+oh config_update_agent_settings "$(jq -cn --argjson s "$TEENY_AGENT_TURN_SECS" '{agent_timeout_secs: $s}')" >/dev/null ||
+  die "the core did not take a ${TEENY_AGENT_TURN_SECS}s agent turn budget; the builder and the operator would stop at 120s"
+log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
+
 # The model and the memory store, from secrets/spine.env when it exists. Set
 # on every boot, so editing the file and restarting is the whole procedure.
 (

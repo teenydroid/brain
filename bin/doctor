@@ -106,6 +106,17 @@ cron_current() {
   fi
   echo "no enabled job is more than $STALE_NEXT_RUN_MINUTES minutes behind"
 }
+# A cron agent turn (the builder, the operator) gets the budget bin/spine sets,
+# not the core's default 120 s, which ended every build before its tests.
+agent_turn_budget() {
+  local secs
+  secs="$(oh config_get_agent_settings | jq -r '.agent_timeout_secs // .result.agent_timeout_secs // empty')" || return 1
+  if ! [[ "$secs" =~ ^[0-9]+$ ]] || [ "$secs" -lt "$TEENY_AGENT_TURN_SECS" ]; then
+    echo "agent_timeout_secs is ${secs:-unset}, under ${TEENY_AGENT_TURN_SECS}s: a cron agent turn stops before it finishes (bin/spine sets it at boot)"
+    return 1
+  fi
+  echo "${secs}s"
+}
 
 # --- the brain -----------------------------------------------------------------
 for file in SOUL.md CONTEXT.md; do
@@ -258,6 +269,7 @@ if [ "$live" = 1 ]; then
     note "core /health" ok "$OH_URL"
     run "cron in step" cron_in_step
     run "cron next runs are current" cron_current
+    run "cron agent turn budget" agent_turn_budget
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
