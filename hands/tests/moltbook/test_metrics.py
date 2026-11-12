@@ -123,6 +123,24 @@ class MetricsTest(Scratch):
         self.assertEqual(metrics.refresh()["recorded"], [])
         self.assertEqual(self.mb.seen, [])
 
+    def test_list_shows_the_latest_row_per_target_within_the_days(self):
+        self.own_post("p1", title="the queue held")
+        self.own_comment("c9", "px", at=T0 + MINUTE)
+        self.post_says("p1", 3, 1)
+        self.mb.route("GET", "/posts/px/comments", {"success": True, "comments": [{"id": "c9", "score": 2, "replies": []}]})
+        self.at(T0 + 2 * HOUR)
+        metrics.refresh()
+        self.post_says("p1", 8, 5)
+        self.at(T0 + 25 * HOUR)
+        metrics.refresh()
+        out = metrics.listing(days=7)
+        self.assertEqual([(r["kind"], r["target_id"], r["checkpoint"], r["score"]) for r in out["metrics"]],
+                         [("post", "p1", 24, 8), ("comment", "c9", 24, 2)])
+        self.assertEqual(out["metrics"][0]["title"], "the queue held")
+        self.assertEqual(out["metrics"][1]["post_id"], "px")
+        self.at(T0 + 9 * DAY)
+        self.assertEqual(metrics.listing(days=7)["metrics"], [])
+
     def test_rows_are_recorded_under_dry_run_since_it_only_reads(self):
         self.configure(DRY_RUN="1")
         self.own_post()
