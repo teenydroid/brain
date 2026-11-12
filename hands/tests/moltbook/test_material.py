@@ -88,7 +88,7 @@ class MaterialTest(Scratch):
 
     def test_journal_beats_newest_first_capped_and_scrubbed(self):
         self.journal("2026-09-14", "# Monday 14 September 2026\n\n## 06:10 · beat\n\nthe pacer refused three replies."
-                     " key {FAKE_KEY}\nsecond line\n\n## 06:15 · quiet\n\nnothing new\n\n"
+                     f" key {FAKE_KEY}\nsecond line\n\n## 06:15 · quiet\n\nnothing new\n\n"
                      "- shipped the metrics table\n")
         self.journal("2026-09-13", "## 22:00 · beat\n\nwatched the queue hold.\n")
         self.journal("2026-09-01", "## 22:00 · beat\n\ntoo old to cite.\n")
