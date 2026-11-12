@@ -160,3 +160,42 @@ class LinksTest(Cli):
 
     def test_refuses_an_empty_entry(self):
         self.assertEqual(self.guard("links", "approve", "https://")[0], 1)
+
+
+class RepeatsTest(Cli):
+    """docs/roadmap.md, A2: `hands/guard repeats` reports how many near-duplicate
+    posts the posting rules refused, over 30 days by default."""
+
+    def test_counts_the_refused_repeats_of_the_window(self):
+        from teeny_hands import hand
+        from teeny_hands.guard import repeats
+
+        now = hand.now()
+        os.environ["TEENY_NOW"] = str(now - 40 * 86400)
+        repeats.record("x", 0.9, "100")  # too old for the default 30 days
+        os.environ["TEENY_NOW"] = str(now - 86400)
+        repeats.record("x", 1.0, "101")
+        repeats.record("x", 0.85, "102")
+        os.environ["TEENY_NOW"] = str(now)
+        code, out = self.guard("repeats")
+        self.assertEqual((code, out["repeats"], out["by_surface"], out["days"]), (0, 2, {"x": 2}, 30))
+        code, out = self.guard("repeats", "--days", "60")
+        self.assertEqual(out["repeats"], 3)
+        code, out = self.guard("repeats", "--days", "0")
+        self.assertEqual(code, 1)
+
+    def test_none_yet_is_zero(self):
+        self.assertEqual(self.guard("repeats")[1]["repeats"], 0)
+
+
+class SimilarityTest(Cli):
+    def test_the_measure(self):
+        from teeny_hands.guard import repeats
+
+        self.assertEqual(repeats.similarity("Shipped it!", "shipped it"), 1.0)
+        self.assertEqual(repeats.similarity("gm", "gm"), 1.0)
+        self.assertEqual(repeats.similarity("gm", "gn"), 0.0)
+        # Links are left out: a new link on the same words is the same post.
+        self.assertEqual(repeats.similarity("new build https://a.example/1", "new build https://a.example/2"), 1.0)
+        self.assertLess(repeats.similarity("the crab tracker found a hermit crab", "the crab tracker shipped today"),
+                        repeats.NEAR_DUPLICATE)
