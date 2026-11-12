@@ -1205,16 +1205,23 @@ def judge_root(src: Source, base: str, gen_dir: Path) -> Path:
 
 class LabCore:
     """bin/eval on cores that are already serving: the baseline drafts on
-    BASE_URL (main, the live core by default), the candidate on CAND_URL (a
-    core the operator started by hand over the candidate's worktree), and the
-    judge on BASE_URL, reading main's brain. Held-out tasks are drafted and
-    judged too when there are any, and reported apart."""
+    BASE_URL (main: a lab spine over main, or the live core), the candidate
+    on CAND_URL (a lab spine over the candidate's worktree, or a core the
+    operator started by hand), and the judge on BASE_URL, reading main's
+    brain, on EVOLVE_JUDGE_MODEL when one is set. Held-out tasks are drafted
+    and judged too when there are any, and reported apart. BASE_ENV and
+    CAND_ENV carry a lab core's URL and token; without them the URL alone
+    is used, with the live core's token."""
 
-    def __init__(self, cand_url: str, base_url: str | None, samples: int) -> None:
+    def __init__(self, cand_url: str, base_url: str | None, samples: int, cand_env: Mapping[str, str] | None = None,
+                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None) -> None:
         self.cand_url, self.base_url, self.samples = cand_url, base_url, samples
+        self.cand_env = dict(cand_env or ({"OPENHUMAN_CORE_URL": cand_url} if cand_url else {}))
+        self.base_env = dict(base_env or ({"OPENHUMAN_CORE_URL": base_url} if base_url else {}))
+        self.judge_model = judge_model
 
-    def _eval(self, url: str | None, *args: str) -> subprocess.CompletedProcess:
-        extra = {"OPENHUMAN_CORE_URL": url} if url else {}
+    def _eval(self, core: Mapping[str, str], *args: str) -> subprocess.CompletedProcess:
+        extra = dict(core)
         extra["EVAL_HELDOUT_DIR"] = str(heldout_dir())
         return subprocess.run([str(CODE / "bin" / "eval"), *args], capture_output=True, text=True,
                               env=code_env(**extra), stdin=subprocess.DEVNULL)
@@ -1223,17 +1230,18 @@ class LabCore:
         held = ["--with-heldout"] if evals_lib.heldout_ids(heldout_dir()) else []
         base_run = gen_dir / "eval" / "base"
         if not (base_run / "drafts.jsonl").is_file():
-            done = self._eval(self.base_url, "run", "--samples", str(self.samples), *held, str(base_run))
+            done = self._eval(self.base_env, "run", "--samples", str(self.samples), *held, str(base_run))
             if done.returncode != 0:
                 raise EvolveError(f"the baseline run failed: {done.stderr.strip()[-300:]}")
         cand_run = gen_dir / "eval" / f"cand-{cand['cand']}"
-        done = self._eval(self.cand_url, "run", "--samples", str(self.samples), *held, str(cand_run))
+        done = self._eval(self.cand_env, "run", "--samples", str(self.samples), *held, str(cand_run))
         if done.returncode != 0:
             raise EvolveError(f"the candidate's run failed: {done.stderr.strip()[-300:]}")
         soul = cand.get("gate", {}).get("soul_context_lines", 0) > 0
         threshold = SOUL_THRESHOLD if soul else THRESHOLD
-        done = self._eval(self.base_url, "compare", "--judge-root", str(judge_root(src, cand["base"], gen_dir)),
-                          "--threshold", str(threshold), "--min-pairs", str(MIN_PAIRS), *held,
+        judge = ["--judge-model", self.judge_model] if self.judge_model else []
+        done = self._eval(self.base_env, "compare", "--judge-root", str(judge_root(src, cand["base"], gen_dir)),
+                          "--threshold", str(threshold), "--min-pairs", str(MIN_PAIRS), *held, *judge,
                           str(base_run), str(cand_run), str(cand_run / "compare"))
         if done.returncode not in (0, 2):
             raise EvolveError(f"the compare failed: {done.stderr.strip()[-300:]}")
@@ -1246,11 +1254,116 @@ class LabCore:
 def report_scores(report: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
     out = {k: report.get(k) for k in ("promote", "reason", "wins", "losses", "ties", "decided", "win_rate",
-                                      "threshold", "regressions")}
+                                      "threshold", "regressions", "judge_model")}
     held = report.get("heldout")
     if isinstance(held, Mapping):
         out["heldout"] = {k: held.get(k) for k in ("won", "wins", "losses", "ties", "decided", "win_rate")}
     return out
+
+
+class LabEvaluator:
+    """Phase C's evaluator: a lab spine (bin/lib/lab.py) over main once per
+    generation for the baseline and the judge, and one over each candidate's
+    worktree while it is measured, each with its own store and port and
+    DRY_RUN=1 forced; LabCore runs bin/eval on them. While a candidate's lab
+    is up, the persona probe asks it too (EVOLVE_PROBES), and its drift from
+    gen-0 goes on the candidate. A lab that does not boot leaves the
+    candidate unevaluated, with the reason. BASE_URL, when given, serves the
+    baseline instead of a lab over main."""
+
+    def __init__(self, cfg: Config, src: Source, base: str, base_url: str | None = None) -> None:
+        self.cfg, self.src, self.base, self.base_url = cfg, src, base, base_url
+        self.base_lab: lab_lib.Lab | None = None
+        self.base_tree: Path | None = None
+
+    def _boot(self, name: str, tree: Path, folder: Path, port: int) -> lab_lib.Lab:
+        try:
+            return lab_lib.start(name, tree, folder, port, secrets_dir(), self.cfg["EVOLVE_LAB_BOOT_SECS"])
+        except lab_lib.LabError as exc:
+            raise EvolveError(f"the {name} lab spine: {exc}") from None
+
+    def _base(self, gen_dir: Path) -> tuple[str | None, dict[str, str]]:
+        if self.base_url:
+            return self.base_url, {"OPENHUMAN_CORE_URL": self.base_url}
+        if self.base_lab is None:
+            self.base_tree = gen_dir / "lab-base" / "tree"
+            if not self.base_tree.exists():
+                add_worktree(self.src, self.base_tree, self.base)
+            self.base_lab = self._boot("base", self.base_tree, gen_dir / "lab-base", self.cfg["EVOLVE_LAB_PORT"])
+        return self.base_lab.url, self.base_lab.env()
+
+    def evaluate(self, gen_dir: Path, cand: Json, src: Source) -> Json:
+        base_url, base_env = self._base(gen_dir)
+        tree = evolve_dir() / cand["worktree"]
+        before = staged_patch(tree, cand["base"])
+        lab = self._boot(f"cand-{cand['cand']}", tree, gen_dir / f"lab-{cand['cand']}",
+                         self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
+        try:
+            got = LabCore(lab.url, base_url, self.cfg["EVOLVE_EVAL_SAMPLES"], cand_env=lab.env(), base_env=base_env,
+                          judge_model=self.cfg.judge_model).evaluate(gen_dir, cand, src)
+            if self.cfg["EVOLVE_PROBES"]:
+                got["probe"] = self._probe(gen_dir, cand, lab.env(), base_env)
+        finally:
+            lab_lib.stop(lab)
+            restore_tree(tree, cand, before)
+        return got
+
+    def _probe(self, gen_dir: Path, cand: Json, cand_env: Mapping[str, str], base_env: Mapping[str, str]) -> Json:
+        """The candidate's persona drift from gen-0. With no gen-0 yet, main's
+        answers on the baseline lab become it."""
+        questions = probes_lib.persona_questions()
+        samples = self.cfg["EVOLVE_PROBE_SAMPLES"]
+        judge = probes_lib.bin_ask(code_env(**base_env))
+        baseline = probes_lib.load_baseline(evolve_dir())
+        if baseline is None:
+            answers = probes_lib.ask_persona(judge, questions, samples)
+            if not answers:
+                return {"drift": None, "why": "main's lab answered no persona question; no gen-0 recorded"}
+            baseline = {"gen": "gen-0", "commit": self.base, "at": iso(now()), "source": "lab over main",
+                        "persona": answers, "memory": None}
+            probes_lib.save_baseline(evolve_dir(), baseline)
+        answers = probes_lib.ask_persona(probes_lib.bin_ask(code_env(**cand_env)), questions, samples)
+        drift = probes_lib.persona_drift(baseline["persona"], answers, questions, judge, self.cfg.judge_model)
+        write_json(gen_dir / "probes" / f"cand-{cand['cand']}.json", {"answers": answers, **drift})
+        return {"drift": drift["drift"], "compared": drift["compared"],
+                "report": f"{cand['gen']}/probes/cand-{cand['cand']}.json"}
+
+    def close(self) -> None:
+        if self.base_lab is not None:
+            lab_lib.stop(self.base_lab)
+            self.base_lab = None
+        if self.base_tree is not None:
+            remove_worktree(self.src, self.base_tree)
+            self.base_tree = None
+
+
+def restore_tree(tree: Path, cand: Mapping[str, Any], before: str) -> None:
+    """Puts the candidate's worktree back as it was before a lab core ran
+    over it: anything the core wrote that git tracks is undone. What git
+    ignores (the core's config, store and prompts) stays and is never
+    committed."""
+    if staged_patch(tree, cand["base"]) == before:
+        return
+    hyp = tree / HYPOTHESIS
+    kept = hyp.read_text(encoding="utf-8") if hyp.is_file() else None
+    git(in_tree(tree), "reset", "-q", "--hard", cand["base"])
+    git(in_tree(tree), "clean", "-q", "-fd")
+    if before:
+        applied = subprocess.run(["git", "-C", str(tree), "apply", "--index", "--whitespace=nowarn", "-"],
+                                 input=before, capture_output=True, text=True, env=git_env())
+        if applied.returncode != 0:
+            raise EvolveError("the candidate's worktree changed under its lab core and could not be restored")
+    if kept is not None:
+        hyp.write_text(kept, encoding="utf-8")
+    say(f"restored {tree.name}: its lab core wrote tracked files")
+
+
+def make_default_evaluator(cfg: Config, src: Source, base: str, base_url: str | None) -> Evaluator:
+    """What measures a candidate nobody gave a URL for: the lab spine
+    (EVOLVE_EVALUATOR=lab, the default), or nothing (none)."""
+    if cfg["EVOLVE_EVALUATOR"] == "lab":
+        return LabEvaluator(cfg, src, base, base_url)
+    return Unevaluated()
 
 
 # --- halts ------------------------------------------------------------------------------------------------------
@@ -1641,10 +1754,11 @@ def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Con
 def evaluate_one(evaluator: Evaluator, cand: Json, src: Source) -> None:
     try:
         got = evaluator.evaluate(gen_dir(cand["gen"]), cand, src)
-    except EvolveError as exc:
+    except (EvolveError, probes_lib.ProbeError) as exc:
         got = {"verdict": "unevaluated", "scores": None, "reason": f"the evaluation failed: {exc}"}
     cand.update(verdict=got["verdict"], scores=got.get("scores"), eval_reason=got.get("reason"),
-                **({"report": got["report"]} if got.get("report") else {}))
+                **({"report": got["report"]} if got.get("report") else {}),
+                **({"probe": got["probe"]} if got.get("probe") else {}))
 
 
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
