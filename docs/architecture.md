@@ -490,7 +490,9 @@ How the day's beats become the page every prompt carries:
   beat after the night, not the calendar midnight, so a late night does not
   tire the morning). Every action out in the world costs 3, and an hour
   awake gives 5 back. Every beat header shows mood and energy, and below 40
-  a tired Teeny is told doing less is fine.
+  a tired Teeny is told doing less is fine. With `RUNWAY=1` it also carries
+  one `Runway:` line: the days the wallet lasts and, on a low tier, what is
+  cut and why (docs/hands.md, "Runway").
 - Idle curiosity: a beat with an empty inbox, awake and with energy left, at
   most every 2 hours, gets a read-only look at Moltbook's hot page
   (`world · idle`).
@@ -564,6 +566,9 @@ Every scheduled job is in one of two files:
     senses, read only, off until `WALLET_WATCH=1`; `accounts`
     (`bin/accounts`, Mondays 00:20 UTC), the weekly profit and loss, off
     until `WALLET_ACCOUNTS=1`;
+  - `runway` (`bin/health runway`, 00:45 UTC), the runway as one
+    `health · runway` stimulus and the tier that cuts optional spend, off
+    until `RUNWAY=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the

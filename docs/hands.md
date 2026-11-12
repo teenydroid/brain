@@ -588,8 +588,6 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `goals check`: `self · goal` when a goal is solved or fails;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
   Teeny's own follow-ups as they come due;
-- `wallet watch` (`bin/wallet-watch`): `wallet · deposit` per deposit, and
-  `wallet · tiny` once a day (see `wallet`);
 - `gh ingest` (`bin/gh-inbound`): `gh · issue`, `pr`, `comment`, `review`,
   `mention` and `star` (see `gh`);
 - `bin/health`: `health · alarm` when the model has failed two checks in a
@@ -600,7 +598,11 @@ Every surface writes what happened here, and `bin/tick` drains it into the
   playbook, failed beats of the mind, the doctor's checks that are not ok
   (names only) and guard holds by direction and category. Counts and names
   only: never a hold's text or reason, an error's words or a check's detail.
-  A name that is not a plain name is counted as `other`.
+  A name that is not a plain name is counted as `other`. `bin/health
+  runway` (the pinned `runway` job, 00:45 UTC, off until `RUNWAY=1`): one
+  `health · runway` a day, the runway and its tier (see "Runway" below);
+- `wallet watch` (`bin/wallet-watch`): `wallet · deposit` per deposit, and
+  `wallet · tiny` once a day (see `wallet`);
 
 `TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
 instead, the old per-surface agents.
@@ -659,7 +661,7 @@ and $0.07 a 5-second clip.
 
 | Verb | | Does |
 |---|---|---|
-| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
 
@@ -1231,6 +1233,28 @@ look like profit. `bin/receipts` publishes each closed page as
 `accounts/<week>.json` once `ACCOUNTS_PUBLISH=1`, rebuilt from dollars,
 enums, timestamps and signatures only, written once and never rewritten. No
 sender address and no memo is ever published.
+
+### Runway
+
+Runway as a sense (docs/roadmap.md, S2; `teeny_hands/runway.py`, frozen).
+Once a day `bin/health runway` measures the USDC the wallet holds (Solana,
+and every EVM network on mainnet) over what keeping Teeny running cost a day
+in the last 7 days (the same sources as `costs`), writes `state/runway.json`
+and files one `health · runway` stimulus with the days, the tier and what it
+cuts. The tiers are frozen config, `evals/runway.toml`:
+
+| Tier | Under | Pictures and clips | Evolve candidates |
+|---|---|---|---|
+| `low` | 30 days | none | at most 2 |
+| `critical` | 7 days | none | at most 1 |
+
+A tier only ever cuts optional spend; it never lifts a cap. `hands/image`
+and `hands/video` refuse (`runway`) while the tier says no media, `bin/evolve
+run` makes at most the tier's candidates and says so in its result and
+`generation.json` (`runway`), and every beat header of the mind carries one
+`Runway:` line with the reason. A balance or a cost that could not be read
+is not measured; a runway not measured for 3 days counts as `low`. Off
+until `RUNWAY=1`: then nothing is measured and nothing is cut.
 
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
