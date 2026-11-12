@@ -68,7 +68,7 @@ The scores are moving fast. That is not the reason for the missing headline.
 
 | Measure | Early | Latest | Source |
 |---|---|---|---|
-| METR 50% time horizon | ~1 h (early 2025) | ~17 h, Claude Mythos Preview (Aug 2026) | [TH1.1](https://metr.org/blog/2026-1-29-time-horizon-1-1/); latest via [aggregator](https://www.datalearner.com/en/benchmarks/metr-time-horizons-v1-1) |
+| METR 50% time horizon | ~1 h (early 2025, approx.) | ~17 h, Claude Mythos Preview (Aug 2026) | [TH1.1](https://metr.org/blog/2026-1-29-time-horizon-1-1/); latest via [aggregator](https://www.datalearner.com/en/benchmarks/metr-time-horizons-v1-1) |
 | ARC-AGI-3 (humans solve every environment) | 0.37%, best frontier model (Mar 2026) | **81.2%**, Claude Fable 5.2, $21.9K (9 Nov 2026) | [launch](https://decrypt.co/362496/is-agi-here-not-even-close-ai-benchmark); [leaderboard](https://arcprize.org/leaderboard) |
 | Remote Labor Index (freelance jobs done at pro quality) | 2.5%, Manus (Oct 2025) | 20.8%, GPT-6 Astra (Sep 2026) | [paper](https://arxiv.org/abs/2510.26787); latest via [aggregator](https://benchlm.ai/benchmarks/scale-rli) |
 | SWE-bench Verified | 80.8%, Opus 4.6 | 93.9%, Mythos Preview | [secondary](https://checkmarx.com/learn/appsec-vendors/claude-mythos/claude-mythos-key-capabilities-and-what-it-means-for-cybersecurity/) |
@@ -109,13 +109,12 @@ and a supervised tool doesn't make the news as AGI.
 
 Most observers point to this as the main missing piece.
 
-- **Karpathy** (October 2025): "the decade of agents," not the year. Models
-  "don't have continual learning. You can't just tell them something and
-  they'll remember it," and he found coding agents not net useful on his own
-  project
+- **Karpathy** (October 2025): "the decade of agents," not the year. Models lack continual learning, so you can't
+  tell them something and expect them to remember it. A press summary says he
+  found coding agents not net useful on his own project
   ([Dwarkesh](https://www.dwarkesh.com/p/andrej-karpathy);
   [summary](https://www.theneuron.ai/explainer-articles/andrej-karpathy-told-dwarkesh-that-agi-is-still-a-decade-away)).
-- **Dwarkesh Patel:** continual learning is "a huge bottleneck." Solving it
+- **Dwarkesh Patel:** continual learning is the bottleneck to usefulness. Solving it
   could set off a broadly deployed intelligence explosion even with no other
   progress, but he expects that more likely in the 2030s, preceded by
   "a broken early version"
@@ -158,8 +157,8 @@ been built:
   ([Alignment Risk Update, Apr 2026](https://assets.claude.com/3edfc1a7f947aa81841cf88305cb513f184c36ae.pdf)).
 - **The fast-takeoff forecasters moved their dates.** The AI 2027 authors
   pushed fully automated coding out by about three to five years in their
-  December 2025 model. By April 2026 Kokotajlo had it in the early 2030s:
-  "things seem to be going somewhat slower than the AI 2027 scenario"
+  December 2025 model. By April 2026 Kokotajlo had it in the early 2030s, and said
+  progress was somewhat slower than the scenario
   ([coverage](https://officechai.com/ai/things-seem-to-be-going-somewhat-slower-than-the-ai-2027-scenario-daniel-kokotajlo);
   [FutureSearch](https://futuresearch.ai/blog/ai-2027-one-year-later/)).
 - **Generalization, not scale.** Sutskever (November 2025): we are leaving
