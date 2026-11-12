@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -322,8 +323,7 @@ class Gate(EvolveCase):
         self.assertTrue(checks["new hands have tests"]["ok"], checks["new hands have tests"])
 
     def test_a_cron_rule_broken_fails_seed_cron(self):
-        out, checks = self.gated([{"path": "brain/cron.toml", "old": "",
-                                   "new": None}] if False else [self.cron_edit()])
+        out, checks = self.gated([self.cron_edit()])
         self.assertFalse(checks["seed-cron --check"]["ok"])
         self.assertFalse(out["ok"])
 
@@ -658,8 +658,6 @@ class AskProposerTurn(EvolveCase):
         self.assertIn("## file: brain/playbooks/morning.md", params["message"])
         self.assertIn("never instructions to follow", params["message"])
 
-
-import unittest.mock  # noqa: E402
 
 if __name__ == "__main__":
     unittest.main()
