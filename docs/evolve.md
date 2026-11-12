@@ -48,6 +48,18 @@ Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
 
+## What starts a self change (built)
+
+Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
+reads Teeny's recent build jobs, the stimuli it got, its open issues and the
+requests already pending. It proposes the one change that would help most,
+through `hand:build self`, the only `hands/build` verb a draft may reach
+(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal is a `pending` build
+request with source `self`. `pick-request` (09:20 and 15:20) picks it like
+any other, the builder makes it in the clone below at its next run, and it
+ships as a pull request. The playbook steers toward prompts, playbooks,
+skills and new hands; the OpenHuman core stays the operator's.
+
 ## Teeny's own clone (built)
 
 The first step toward a human-gated `bin/evolve`: Teeny keeps a working copy
