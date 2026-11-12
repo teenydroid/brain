@@ -61,6 +61,9 @@ hands/lib/teeny_hands/world/
 
 # What spends money on servers stays the operator's, like the wallet.
 hands/vps
+# The wallet's own entry point: its library is frozen below, and so is the
+# script that loads it, so nothing can stand in front of the caps.
+hands/wallet
 
 # The existing hand library, one entry each. A new hand Teeny writes
 # (hands/lib/teeny_hands/<name>/) is its own; add a line here when the operator
