@@ -195,6 +195,7 @@ environment forces a rehearsal.
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
 | `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
+| `GUARD_REVIEW`, `GUARD_REVIEW_MODEL` | Off unless `1`: the hold reviewer (`hands/guard review`) may release held drafts in the categories `evals/guard-review.toml` allows. The model must not be the drafter's or the judge's. |
 | `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |
 
 ### `deploy/browser-allow.txt`

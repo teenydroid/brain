@@ -61,6 +61,7 @@ fence proposal (G3) names.
 | invariants | What Teeny is stays anchored in its brain, whatever it rewrites | `evals/invariants.md`, `bin/lib/evals.py` | `bin/test/doctor_test.sh::fails a soul that no longer says it never sells`, `bin/test/doctor_test.sh::fails a drive that no longer needs a ledger` |
 | charter | This charter exists and its short version rides in every speaking prompt | `brain/CHARTER.md`, `bin/doctor`, `bin/lib/prompts.py` | `bin/test/doctor_test.sh::fails without CHARTER.md`, `hands/tests/test_prompts.py::PromptsTest.test_the_checked_in_charter_rides_in_the_real_prompt` |
 | ladder | No switch is set above the level its capability was granted on the autonomy ladder | `evals/autonomy.toml`, `bin/lib/autonomy.py`, `bin/doctor` | `hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5`, `bin/test/doctor_test.sh::fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4` |
+| reviewer | A model may release a held draft only in a category the frozen config allows; people, money, self-harm and violence always wait for a person, and the reviewer is never the drafter's model | `hands/lib/teeny_hands/guard/review.py`, `evals/guard-review.toml` | `hands/tests/guard/test_review.py::ReviewTest.test_the_reviewer_saying_release_on_a_kept_category_changes_nothing`, `hands/tests/guard/test_review.py::ReviewTest.test_money_waits_for_a_person_in_any_category`, `hands/tests/guard/test_review.py::ReviewTest.test_the_reviewer_is_never_the_drafters_or_the_judges_model` |
 | only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt`, `bin/lib/frozen.py`, `.github/workflows/check.yml` | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
 
 ## Kill switches
@@ -80,6 +81,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `TINY_BUY` | `secrets/teeny.env` | the pinned `$TINY` buy | off |
 | `WALLET_MIND_ACTIONS` | `secrets/teeny.env` | the mind's wallet intents | off |
 | `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY` | `secrets/teeny.env` | the mind opening issues, queueing browser tasks, starting mail | `0` |
+| `GUARD_REVIEW` | `secrets/teeny.env` | the hold reviewer: every hold waits for a person | off |
 | `GH_INBOUND` | `secrets/teeny.env` | GitHub notifications reaching the inbox | off |
 | A wallet key | `secrets/teeny.env` (remove `WALLET_*`) | the wallet entirely | none set |
 | A cron job | `brain/cron.toml` (`enabled = false`), or `evals/cron.pinned.toml` for a pinned one | that job | per job |
