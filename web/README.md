@@ -39,7 +39,16 @@ npm run build
 The rule: a number on the page is a count of something anyone can check, read
 server-side at render time and cached (ISR). When its source cannot be read,
 the widget says so or is left out; it never shows a default, a zero or a
-sample in its place.
+sample in its place. The page never reads the box; every source is public:
+
+```
+DIARY_REPO (teenydroid/diary) ────► / and /brain: receipts, the numbers, the wallet address
+  head.json, receipts/, stats/latest.json, wallet.json
+BRAIN_REPO (teenydroid/brain) ────► / and /brain: agents, playbooks, hands, jobs, repository card
+  brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
+SOLANA_RPC_URL ───────────────────► /: the wallet's SOL and USDC balance
+MIND_API_URL (unset) ─────────────► token widgets left out; /ledger and /articles unavailable
+```
 
 | Widget | Where | Source | Cache | When the source is down |
 | --- | --- | --- | --- | --- |
@@ -47,16 +56,16 @@ sample in its place.
 | Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/`, `/brain` | same | 10 min | says GitHub could not be reached, links the repository |
 | Agents, playbooks, hands, jobs scheduled (counts and lists) | `/`, `/brain` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
 | The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
-| The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32–44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
+| The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32 to 44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
 | Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
 | Token counter (tokens, calls, by source) | `/` hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 | Last few calls | `/`, only while live | `MIND_API_URL` `/ledger` | 60 s | section left out |
 | Ledger: calls, turns and their tab counts | `/ledger` | `MIND_API_URL` `/ledger` and `/mind` | 60 s | a notice, empty lists, tabs without counts |
 | Articles, word counts | `/articles` | `MIND_API_URL` `/articles` (`src/lib/articles.ts`) | 5 min | "not reachable", no list; a missing word count is not shown |
 
-`GITHUB_TOKEN` is optional and only raises the GitHub rate limit; `SOLANA_RPC_URL` is optional too. The web
-image is built from `web/` alone, so the brain's files are fetched, never read
-from disk.
+`GITHUB_TOKEN` is optional and only raises the GitHub rate limit;
+`SOLANA_RPC_URL` is optional too. The web image is built from `web/` alone,
+so the brain's files are fetched, never read from disk.
 
 `MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
 and the current spine does not serve it. It is unset in `deploy/compose.yaml`,

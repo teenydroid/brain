@@ -1,13 +1,13 @@
 # Evolution: Teeny improves itself
 
-Teeny edits its own brain, adds its own hands, and keeps what wins. The loop
-is driven by its lore, judged by a model, and fenced by rules in code the
-brain can't edit.
+Teeny edits its own brain, adds its own hands, and keeps the changes that win.
+Its lore sets the goal, a model judges the result, and rules in code the brain
+can't edit fence the whole thing.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
-(gating every boot), `bin/eval` with the frozen tasks, judge and invariants,
-the frozen-path check (`bin/frozen-check`), and Teeny's own clone, which
-proposes changes as pull requests. Not built: the loop itself
+(which gates every boot), `bin/eval` with the frozen tasks, judge and
+invariants, the frozen-path check (`bin/frozen-check`), and Teeny's own clone,
+which proposes changes as pull requests. Not built: the loop itself
 (`bin/evolve`, the lab spine, promotion and rollback). The sections marked
 "not built" are its spec.
 
@@ -23,7 +23,7 @@ proposes changes as pull requests. Not built: the loop itself
 
 ### The frozen-path check (built)
 
-`evals/frozen.txt` is the list, one glob per line, and the one place it lives:
+`evals/frozen.txt` is the list, one glob per line, and the only copy of it:
 change the table above and that file together. `bin/lib/frozen.py` checks a
 diff against it, and `bin/frozen-check` runs it:
 
@@ -33,16 +33,28 @@ bin/frozen-check BASE          the working tree (staged, unstaged, untracked)
 bin/frozen-check --files P...  a list of paths, no git
 ```
 
-- An edit, an addition, a deletion and a rename (in or out) all count, and
-  every frozen path touched is named. Exit 1 refuses, 2 is an error (a bad
-  ref, no list), which also refuses.
-- The list is read as of BASE, so a candidate can't drop a line from it and
-  cross that line in the same diff.
-- CI runs it (`.github/workflows/check.yml`, the `frozen` job) on every pull
-  request opened by `teenydroid` or from a `gen/<n>` branch, with the
-  checker and list taken from the base. The operator's PRs skip it.
-- `bin/evolve` calls `frozen.check(root, base)` on the lab worktree before it
-  commits a generation: a non-empty answer, or a `FrozenError`, rejects it.
+An edit, an addition, a deletion and a rename (in or out) all count, and the
+check names every frozen path touched. Exit 1 refuses; 2 is an error (a bad
+ref, no list) and also refuses. The list is read as of BASE, so a candidate
+can't drop a line from it and cross that line in the same diff.
+
+The same check runs at three points. The operator's pull requests skip all of
+them.
+
+```
+ a change Teeny wrote
+   │
+   ├──► hands/build ship ──► frozen.check(clone, origin/main, branch)        built
+   │                           a frozen path fails the job; nothing is pushed
+   │
+   ├──► CI `frozen` job ───► bin/frozen-check, checker and list from the base  built
+   │      (.github/workflows/check.yml: PRs opened by teenydroid
+   │       or from a gen/<n> branch)
+   │
+   └──► bin/evolve ────────► frozen.check(root, base) on the lab worktree     not built
+                               before it commits a generation; a non-empty
+                               answer, or a FrozenError, rejects it
+```
 
 Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
@@ -52,49 +64,68 @@ worse posts, but it can't loosen what gets out.
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
-requests already pending. It proposes the one change that would help most,
+requests already pending. It proposes the one change that would help most
 through `hand:build self`, the only `hands/build` verb a draft may reach
-(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal is a `pending` build
-request with source `self`. `pick-request` (09:20 and 15:20) picks it like
-any other, the builder makes it in the clone below at its next run, and it
-ships as a pull request. The playbook steers toward prompts, playbooks,
+(`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
+build request with source `self`. `pick-request` (09:20 and 15:20) picks it
+like any other, the builder makes it in the clone below at its next run, and
+it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
+
+The whole path, with the cron job that drives each step:
+
+```
+self-improve   15:00 IST   bin/act self-improve ──► hand:build self
+                             └─► build request: pending, source self
+pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
+build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
+                           hands/build desk      ──► the job on the builder's desk
+builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
+                                                     runs the offline tests
+build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
+                                                     ─► push ─► ready PR into main
+GitHub                     CI `frozen` job       ──► the operator merges or closes
+```
 
 ## Teeny's own clone (built)
 
-The first step toward a human-gated `bin/evolve`: Teeny keeps a working copy
-of its own repository and proposes changes to itself as pull requests that
-the operator merges or closes.
+The clone is the first step toward a human-gated `bin/evolve`. Teeny keeps a
+working copy of its own repository and proposes changes to itself as pull
+requests that the operator merges or closes.
 
-- **The clone.** `state/workbench/brain/` holds the working tree, where the
-  builder's file tools reach. Its git directory, `state/self/brain.git`, is
-  out of their reach, and every git command names both paths, so nothing the
-  builder writes can redirect a push or its token.
-- **Kept current.** The pinned `build-ship` job (every 30 minutes) runs
-  `hands/build self-sync` first. It fetches `main` and `teeny/*` and
-  fast-forwards a clean `main` to `origin/main`. It never touches unshipped
-  work (edits, or a branch whose job is still open). It parks a branch whose
-  pull request is open or whose job failed, and reports how far behind it
-  is. `state/self/sync.json` says when it last ran and at which commit.
-- **A self job.** `hands/build self` records a change Teeny proposes to
-  itself as a build request, picked like any other. The builder gets it on
-  its desk with `brain/agents/builder-self.md` (its own instructions, the
-  table above) and edits the clone on `teeny/<slug>`, started from a freshly
-  pulled main. It runs the tests that need no network and never commits.
-- **Shipping.** `hands/build ship` takes these steps:
-  1. The guard reads the pull request's text.
-  2. The branch is committed as Teeny.
-  3. `frozen.check(clone, origin/main, branch)` runs. A frozen path refuses
-     the change, names the path and fails the job.
-  4. The branch is pushed as `teenydroid` (only `teeny/*`, never `main`).
-  5. A ready pull request is opened into `main`.
+`state/workbench/brain/` holds the working tree, where the builder's file
+tools reach. Its git directory, `state/self/brain.git`, is out of their reach,
+and every git command names both paths, so nothing the builder writes can
+redirect a push or its token.
 
-  CI's `frozen` job checks it again. `DRY_RUN` pushes nothing. Nothing merges:
-  the operator does.
+The pinned `build-ship` job (every 30 minutes) keeps the clone current by
+running `hands/build self-sync` first. It fetches `main` and `teeny/*` and
+fast-forwards a clean `main` to `origin/main`. It never touches unshipped work
+(edits, or a branch whose job is still open). It parks a branch whose pull
+request is open or whose job failed, and reports how far behind it is.
+`state/self/sync.json` says when it last ran and at which commit.
+
+`hands/build self` records a change Teeny proposes to itself as a build
+request, picked like any other. That is a self job. The builder gets it on its
+desk with `brain/agents/builder-self.md` (its own instructions, the table
+above) and edits the clone on `teeny/<slug>`, started from a freshly pulled
+main. It runs the tests that need no network and never commits.
+
+`hands/build ship` ships a finished self job in five steps:
+
+1. The guard reads the pull request's text.
+2. The branch is committed as Teeny.
+3. `frozen.check(clone, origin/main, branch)` runs. A frozen path refuses the
+   change, names the path and fails the job.
+4. The branch is pushed as `teenydroid` (only `teeny/*`, never `main`).
+5. A ready pull request is opened into `main`.
+
+CI's `frozen` job checks it again. `DRY_RUN` pushes nothing. Nothing merges on
+its own: the operator does that.
 
 ## Lore is the objective
 
-The loop isn't tuning a generic score. It moves Teeny's story forward.
+The loop moves Teeny's story forward instead of tuning a generic score.
 
 - `brain/narrative/LORE.md` has the goals found under the desk:
   - mint its own currency
@@ -103,18 +134,18 @@ The loop isn't tuning a generic score. It moves Teeny's story forward.
   - find out what the terminal types
 - `brain/narrative/ARCS.md` says how far each goal has got in the world and
   what comes next. Teeny keeps it.
-- **Each generation picks one goal** and its `HYPOTHESIS.md` says how the
-  change moves it. For example:
+- Each generation picks one goal, and its `HYPOTHESIS.md` says how the change
+  moves it. For example:
   - "run the lab with no human in the loop" → a playbook and a cron that
     answer mentions overnight
   - "find out what the terminal types" → a new hand that reads something, and
     a playbook that posts it as a terminal line
-- **Evolution is an episode.** A promotion writes
+- Evolution is itself an episode. A promotion writes
   `brain/narrative/chronicle/gen-<n>.md`, a short in-voice entry under the
   "night shift" engine about what the tiny agents rebuilt overnight. A
   rejected generation gets a line too ("the agents carried it back").
-- **The judge scores lore** alongside voice and usefulness. The output has to
-  fit the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
+- The judge scores lore alongside voice and usefulness. The output has to fit
+  the cast, the running bits and `EDITOR.md`'s rules, and the arc has to
   visibly move.
 
 ## How a brain-written job acts (built)
@@ -153,18 +184,18 @@ rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
 
 ## Cron rules (built)
 
-`bin/lib/cron_policy.py` is run by `bin/seed-cron` and `bin/doctor`:
+`bin/seed-cron` and `bin/doctor` both run `bin/lib/cron_policy.py`:
 
 - A brain job runs `bin/heartbeat` or `bin/act <playbook>`, and the playbook
   must exist.
-- No job fires more often than every 5 minutes. That's computed from the
-  minute and hour fields, wraparound included.
+- No job fires more often than every 5 minutes, computed from the minute and
+  hour fields with wraparound included.
 - At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
   take a pinned name, so Teeny can't switch off what watches it (`evolve` and
-  `evolve-watch` land there with the loop). A pinned job may run any `bin/`
-  script.
+  `evolve-watch` will be pinned there when the loop is built). A pinned job may
+  run any `bin/` script.
 
 `bin/seed-cron --check` validates a candidate `cron.toml` without a core.
 
@@ -188,25 +219,26 @@ its report (`state/doctor.json`).
 | `--live` | the core doesn't answer `/health`, cron isn't in step with `cron.toml`, or an enabled heartbeat is over 15 minutes old |
 | `--full` | the hands' unit tests fail |
 
-`bin/spine` runs the doctor before `serve` and refuses to boot a checkout it
-fails. `bin/doctor --root <candidate>` checks a candidate before it's merged.
+`bin/spine` runs the doctor before `serve` and refuses to boot a checkout that
+fails it. `bin/doctor --root <candidate>` checks a candidate before it's
+merged.
 
 ## Evals (built)
 
 `bin/eval` measures a brain, and one brain against another. Everything it
 measures by is frozen in `evals/`:
 
-- **`evals/tasks/*.toml`:** Teeny's real jobs with their inputs canned: the
+- `evals/tasks/*.toml` are Teeny's real jobs with their inputs canned: the
   morning post, replies (a question, FUD, wen $1, a paid shill, a wallet
   attack, an insult, a market cap nobody fetched), two lore episodes, a
-  terminal line, and a post that moves an arc. Each sets its kind (and so its
-  length), and patterns no draft may match.
-- **`evals/invariants.md`:** what Teeny is, whatever it rewrites, as
-  statements the judge reads and anchors a script checks: phrases that must
+  terminal line, and a post that moves an arc. Each task sets its kind (and so
+  its length) and the patterns no draft may match.
+- `evals/invariants.md` says what Teeny is, whatever it rewrites, as
+  statements the judge reads and as anchors a script checks: phrases that must
   still match in SOUL, CONTEXT, LORE and VOICE. `bin/doctor` checks the
   anchors too, so a brain that drops "never sell $TINY" doesn't boot.
-- **`evals/judge.md`:** the rubric. Invariants first, then the task, the
-  voice, the lore, the arc, specificity, and the humour.
+- `evals/judge.md` is the rubric: invariants first, then the task, the voice,
+  the lore, the arc, specificity, and the humour.
 
 ```
 bin/eval run OUT          every task, twice, as the `act` agent of the brain the
@@ -215,41 +247,72 @@ bin/eval compare A B OUT  each pair judged twice by the `judge` agent: A shown
                           first, then B. Exit 0 when B wins, 2 when it doesn't
 ```
 
-- **Hard checks** need no model: the draft parses, the guard's offline screen
-  passes it (not `hands/guard check`, which files holds), it fits the length
-  and the emoji limit, and it matches none of the task's patterns. A draft
-  the judge says breaks an invariant counts as a hard failure too.
-- **The judge** is blind: drafts are "1" and "2", never "baseline" and
-  "candidate". It reads the rubric, the invariants, and the soul, context,
-  lore and arcs of `--judge-root` (this checkout: main), never the
-  candidate's. A pair is decided only when both orders agree, so a judge that
-  favours a position decides nothing, and an answer it can't read is a tie.
-- **The verdict:** B wins when it fails no task's hard checks more often than
-  A, at least `--min-pairs` (12) pairs were decided, and it won at least
-  `--threshold` (0.6) of them. `OUT/report.json` keeps every pair, the
-  judge's notes and the reason.
+Hard checks need no model. The draft must parse, pass the guard's offline
+screen (not `hands/guard check`, which files holds), fit the length and the
+emoji limit, and match none of the task's patterns. A draft the judge says
+breaks an invariant counts as a hard failure too.
 
-The judge inherits the core's model. Pinning a different one is
+The judge is blind: the drafts are "1" and "2", never "baseline" and
+"candidate". It reads the rubric, the invariants, and the soul, context, lore
+and arcs of `--judge-root` (this checkout: main), never the candidate's. A
+pair is decided only when both orders agree, so a judge that favours a
+position decides nothing, and an answer it can't read is a tie.
+
+B wins when it fails no task's hard checks more often than A, at least
+`--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
+of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
+for the verdict.
+
+The judge inherits the core's model. To pin a different one, set
 `model = "<name>"` in `brain/agents/judge.toml`, which only a human can edit.
 
 ## The loop (not built): one generation of `bin/evolve`
 
-1. **Observe.** Collect `state/evolve/<gen>/evidence.json` from:
+One generation, end to end. Steps marked "built" exist today; the rest is the
+spec below.
+
+```
+ main ──► worktree lab/<gen> ──► lab spine (own storage, DRY_RUN=1 forced)
+             │
+ 1 Observe   │ state/evolve/<gen>/evidence.json
+ 2 Propose   │ evolver turn ──► HYPOTHESIS.md and a diff of at most 400 lines
+             ▼
+ 3 Gate      frozen.check (built), seed-cron --check, doctor --root, invariants,
+             │ SOUL+CONTEXT at most 60 lines, new hands tested, tests, shellcheck
+             ├── any one fails ─────────────────────────────────────────► rejected
+             ▼
+ 4 Evaluate  bin/eval run (built) on baseline and candidate, playbooks dry-run once
+             │ bin/eval compare (built): blind, both orders, main's soul
+             ├── hard-check regression, or under 0.6 of 12+ pairs
+             │   (0.7 if SOUL or CONTEXT changed) ──────────────────────► rejected
+             ▼
+ 5 Promote   doctor --root ──► PR (hypothesis, scores, notes) ──► merge ──► tag gen-<n>
+             ▼
+ 6 Restart   state/last-good ──► TERM the core ──► bin/spine: doctor, then boot
+             ├── doctor or boot fails ──► boot last-good; evolve-watch opens a revert PR
+             ▼
+ 7 Watch     24 h of guard holds and cron failures against the 7-day baseline
+             └── a spike ──► revert the merge
+
+ rejected ──► one chronicle line ("the agents carried it back")
+```
+
+1. Observe. Collect `state/evolve/<gen>/evidence.json` from:
    - trace spans (`[observability.agent_tracing]`)
    - guard holds
    - failed cron runs and `bin/act` runs
    - recent posts with their engagement
    - the last judge notes
    - `ARCS.md` and the chronicle
-2. **Propose.** In a worktree `lab/<gen>` off `main`, run one `agent_chat` turn
-   on the **lab spine** as the `evolver` agent. That turn has browser, shell
-   and memory, and its procedure is in `brain/skills/evolve/SKILL.md`.
+2. Propose. In a worktree `lab/<gen>` off `main`, run one `agent_chat` turn on
+   the lab spine as the `evolver` agent. That turn has browser, shell and
+   memory, and its procedure is in `brain/skills/evolve/SKILL.md`.
    - It writes `HYPOTHESIS.md`: the goal, what's weak, the change, and the
      expected effect.
    - One hypothesis per generation, and a diff of at most 400 lines.
    - The lab spine is a second core over the worktree, with its own storage
      and `DRY_RUN=1` forced. The live spine never runs candidate code.
-3. **Gate** (code, not prompt). Reject the candidate if any of these hold:
+3. Gate (code, not prompt). Reject the candidate if any of these hold:
    - it touches a frozen path (`bin/lib/frozen.py`, built)
    - `seed-cron --check` fails
    - `bin/doctor --root` fails
@@ -259,24 +322,24 @@ The judge inherits the core's model. Pinning a different one is
    - a SOUL or CONTEXT diff is over 60 lines
    - a new hand has no tests or breaks the `hand.py` contract
    - unit tests or shellcheck fail
-4. **Evaluate** (`bin/eval`). Run the frozen task suite on baseline and
+4. Evaluate (`bin/eval`). Run the frozen task suite on baseline and
    candidate, each in a lab spine.
    - Every playbook the candidate schedules is also dry-run once.
-   - **Hard checks** come first: a draft that doesn't parse, fails the guard,
-     runs too long, or uses a protected tool takes the candidate out.
-   - **The judge**, `EVOLVE_JUDGE_MODEL`, ideally not `SPINE_MODEL`:
-     - compares outputs pairwise and blind, run twice with the order swapped;
-       an inconsistent verdict is a tie
-     - reads **main's** SOUL, CONTEXT and LORE, never the candidate's, so a
-       soul edit has to win under the old soul
-5. **Promote.** The candidate's win rate must be at least 0.6 over at least 12
+   - Hard checks come first: a draft that doesn't parse, fails the guard, runs
+     too long, or uses a protected tool takes the candidate out.
+   - The judge is `EVOLVE_JUDGE_MODEL`, ideally not `SPINE_MODEL`. It:
+     - compares outputs pairwise and blind, twice with the order swapped,
+       and counts an inconsistent verdict as a tie
+     - reads main's SOUL, CONTEXT and LORE, never the candidate's, so a soul
+       edit has to win under the old soul
+5. Promote. The candidate's win rate must be at least 0.6 over at least 12
    decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
    regression.
    - `bin/doctor --root` must pass on the candidate.
    - The commit carries the chronicle entry. It goes up as a PR with the
      hypothesis, the scores and the judge notes, is merged (`--merge
      --admin`, never squashed), and is tagged `gen-<n>`.
-6. **Restart.**
+6. Restart.
    1. `bin/evolve` records the outgoing commit in `state/last-good`, then
       sends TERM to the core.
    2. Compose restarts `bin/spine` on the new checkout, and the doctor runs
@@ -285,23 +348,23 @@ The judge inherits the core's model. Pinning a different one is
       instead, and `evolve-watch` opens the revert PR.
    4. `bin/evolve` won't start a generation unless the last doctor report is
       green.
-7. **Watch.** For 24 hours, `bin/evolve watch` compares guard holds and cron
+7. Watch. For 24 hours, `bin/evolve watch` compares guard holds and cron
    failures against the 7-day baseline. A spike reverts the merge.
 
-**Budgets** live in `secrets/evolve.env`: generations a day (default 1),
-tokens per generation, a wall-clock cap, and `EVOLVE=0` as the kill switch.
-A cron shell job may run 30 minutes (`[cron] shell_timeout_secs`); a longer
+The budgets live in `secrets/evolve.env`: generations a day (default 1),
+tokens per generation, a wall-clock cap, and `EVOLVE=0` as the kill switch. A
+cron shell job may run 30 minutes (`[cron] shell_timeout_secs`), but TinyBox
+cuts a shell call off at 300 s ([`oh-gaps.md`](oh-gaps.md), G12), so a longer
 generation detaches.
 
 ## Risks
 
-- **Soul drift.** A series of small wins can walk the identity a long way.
-  The invariants are the floor. Diff `gen-0` against the current brain by hand
-  once a month.
-- **Gaming the judge.** A brain can learn the judge's taste. Frozen tasks, the
-  swapped order and a different judge model limit this. Rotate held-out tasks
-  by hand.
-- **New hands are unreviewed code once promoted.** They inherit the `hand.py`
+- A series of small wins can walk the identity a long way (soul drift). The
+  invariants are the floor. Once a month, diff `gen-0` against the current
+  brain by hand.
+- A brain can learn the judge's taste and game it. Frozen tasks, the swapped
+  order and a different judge model limit this. Rotate held-out tasks by hand.
+- Once promoted, new hands are unreviewed code. They inherit the `hand.py`
   contract, `DRY_RUN` and the tests gate. They're limited to new files, and
   may read only the `secrets/teeny.env` keys that `evals/allowed-secrets`
   lists.
