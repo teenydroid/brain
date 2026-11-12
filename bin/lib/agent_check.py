@@ -14,6 +14,9 @@ needs; exits non-zero with the reason otherwise:
   (never the wildcard), and leave out the tools their role must not have;
 - each scheduled agent has the tools its desk needs (it reads its work from
   state/workbench/desk/ and writes its report there) and its role's own;
+- the builder's runs are rooted at the workbench (`scheduled_workspace`),
+  so its sandboxed shell is granted that folder and never the checkout
+  that holds brain/ and secrets/; no other agent picks a root;
 - an agent whose prompt is a file has its instructions beside it
   (brain/agents/<id>.md), which bin/lib/prompts.py builds the file from.
 """
@@ -42,6 +45,10 @@ SCHEDULED = {
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
 }
 
+#: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
+#: relative to the checkout). Unlisted agents must not set one.
+WORKSPACE = {"builder": "state/workbench"}
+
 
 def check(path: Path) -> str:
     with open(path, "rb") as fh:
@@ -57,6 +64,12 @@ def check(path: Path) -> str:
         instructions = path.parent / f"{agent}.md"
         if not instructions.is_file() or not instructions.read_text(encoding="utf-8").strip():
             raise SystemExit(f"the {agent} agent's prompt is a file; its instructions belong in {instructions.name}")
+    root = doc.get("scheduled_workspace")
+    if root != WORKSPACE.get(agent):
+        if agent in WORKSPACE:
+            raise SystemExit(f"the {agent} agent must set scheduled_workspace = {WORKSPACE[agent]!r} "
+                             "(its sandboxed shell is granted that folder, never the checkout)")
+        raise SystemExit(f"only {', '.join(WORKSPACE)} may set scheduled_workspace, not {agent}")
     if agent in NO_TOOLS:
         if named != []:
             raise SystemExit(f"the {agent} agent must have no tools ([tools] named = [])")
