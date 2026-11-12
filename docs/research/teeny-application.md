@@ -2,7 +2,9 @@
 
 This page turns the research in this folder into a design for Teeny. It is a
 proposal, not a record of what is built. Only the roadmap items marked
-**built** in §9 are built, and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
+**built** in §9 are built (Phase B, items 8 to 11, is recorded in
+[`../evolve.md`](../evolve.md), "The loop, Phase B"), and nothing here moves a
+fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -128,10 +130,13 @@ All of this is in files Teeny may edit, or in one input.
   diary, a serial format, and pattern 4 and 5 in
   [`attention-and-mindshare.md`](attention-and-mindshare.md).
 
-### Phase B: N candidates per generation, human-gated
+### Phase B: N candidates per generation, human-gated (built)
 
 This is `bin/evolve` as `docs/evolve.md` specifies it, with one change: each
-generation makes N candidates (start with 4), not one.
+generation makes N candidates (start with 4), not one. It is built, with the
+held-out tasks and the halt thresholds from Phase C pulled forward. Until the
+lab spine lands, a candidate is measured only on a core the operator starts
+by hand, and otherwise its pull request says it is unevaluated.
 
 ```
  observe  ── W, its trend, judge notes on the visible tasks, the archive
@@ -154,13 +159,15 @@ hurts W next week loses credit.
 
 This is `docs/evolve.md` steps 5 to 7, plus three things the research adds:
 
-- **Hidden, rotated held-out tasks** in `evals/`, which the proposer never
-  sees. Promotion needs a win on them as well.
+- **Hidden, rotated held-out tasks**, which the proposer never sees.
+  Promotion needs a win on them as well. Built in Phase B, in
+  `secrets/heldout/` rather than `evals/`, because the repository is public.
 - **Halt thresholds**, frozen in `secrets/evolve.env`: generations a day, the
   largest allowed jump in judge win rate, how fast W can rise before a person
   looks, and the cumulative persona drift from `gen-0`. Crossing any of them
   stops the loop and opens an issue. The loop runs only as fast as review can
-  follow (AI Control).
+  follow (AI Control). Built in Phase B, except persona drift, which waits on
+  item 12.
 - **Rollback stays out of Teeny's view.** `evolve-watch` is pinned, and its
   reasons never go into Teeny's context. That covers both the
   agentic-misalignment and the monitor-obfuscation findings.
@@ -273,12 +280,12 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 7. **Built.** `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
 
 **Phase B**
-8. Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl`
-9. Operator: lineage credit, recording ΔJ 7 days after each merge
+8. **Built.** Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl` (`bin/evolve run`, pinned as `evolve`, off until `EVOLVE=1`)
+9. **Built.** Operator: lineage credit, recording ΔJ 7 days after each merge (`bin/evolve credit`, pinned as `evolve-credit`)
 
 **Phase C**
-10. Operator: hidden held-out tasks in `evals/`, rotated by hand
-11. Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`
+10. **Built.** Operator: hidden held-out tasks, rotated by hand, in `secrets/heldout/` rather than `evals/` because the repository is public (`bin/eval --with-heldout`, reported apart, kept from the proposer)
+11. **Built.** Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`: the kill switch, generations a day, the win-rate jump and the rise in J. Persona drift waits on item 12
 12. Operator: a persona-fingerprint eval and a memory probe against `gen-0`
 13. Operator: the lab spine and automatic promotion; `evolve-watch` watches J
 

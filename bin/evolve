@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Teeny's evolution, human-gated (docs/evolve.md, "The loop"; Phase B of
+# docs/research/teeny-application.md). The work is bin/lib/evolve.py.
+#
+#   bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
+#                  [--oh-url-base URL] [--hold] [--detach]
+#       One generation in state/evolve/<gen>/: observe, propose N candidates
+#       (each in its own worktree off main, from Teeny's own clone), gate
+#       them in code, evaluate the ones a lab core serves, and open ONE ready
+#       pull request (teeny/gen-<n>) for the best. --hold stops after the gate.
+#   bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
+#       bin/eval run and compare for one gated candidate, on a core the
+#       operator started over state/evolve/GEN/cand-I.
+#   bin/evolve select GEN        open the pull request for a held generation
+#   bin/evolve credit            ΔJ after each merge, credited up the lineage
+#   bin/evolve status            the archive, the parent weights, any halt
+#   bin/evolve resume            clear a latched halt
+#
+# Off unless secrets/evolve.env sets EVOLVE=1, so the pinned job is safe to
+# seed. Under DRY_RUN nothing is pushed, opened or filed. The operator merges;
+# nothing here does. --detach starts the run in the background and returns at
+# once (a generation outlasts the 300 s a cron shell call gets, oh-gaps.md
+# G12); it logs to state/evolve/evolve.log, and says `busy` while one runs.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need git python3 jq
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+args=()
+detach=0
+for arg in "$@"; do
+  if [ "$arg" = --detach ]; then detach=1; else args+=("$arg"); fi
+done
+if [ "$detach" = 1 ]; then
+  exec python3 "$here/lib/detach.py" --log evolve/evolve.log --lock evolve -- \
+    "$here/evolve" ${args[@]+"${args[@]}"}
+fi
+exec python3 "$here/lib/evolve.py" ${args[@]+"${args[@]}"}

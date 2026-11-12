@@ -3,6 +3,7 @@ message and verdict, and the score. bin/eval does the model calls; nothing
 here talks to a core, writes a guard hold or posts.
 
     python3 bin/lib/evals.py tasks EVALS
+    python3 bin/lib/evals.py heldout-tasks EVALS DIR       -> the held-out task ids in DIR
     python3 bin/lib/evals.py render EVALS TASK            -> the draft message
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
     python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS -- ASK...
@@ -27,11 +28,21 @@ canned, so both brains answer the same thing:
 Tasks, the rubric and the invariants are frozen (evals/ is outside what the
 evolve gate lets a candidate touch), and the judge always reads the
 incumbent's brain, so a candidate cannot move what it is measured against.
+
+Held-out tasks: the repository is public, so nothing in evals/tasks/ is
+hidden from a brain that reads its own repository. Tasks in the same format
+can also live outside it, in secrets/heldout/*.toml (gitignored and frozen),
+and are used only when EVAL_HELDOUT_DIR names that folder (bin/eval
+--with-heldout). Their drafts are marked `heldout`, the score reports them in
+a block of their own (`heldout`) and leaves them out of the verdict, and
+without EVAL_HELDOUT_DIR every held-out record is ignored. bin/evolve never
+puts a held-out task, draft or judge note in what the proposer reads.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import uuid
@@ -46,17 +57,40 @@ REFERENCE = ("SOUL.md", "DRIVE.md", "CONTEXT.md", "narrative/LORE.md", "narrativ
 ANCHOR = re.compile(r"^- ([a-z0-9-]+) \| ([^|]+?) \| (.+)$")
 
 
+#: Names the folder of held-out tasks; unset, none is loaded or scored.
+HELDOUT_ENV = "EVAL_HELDOUT_DIR"
+
+
 class EvalError(Exception):
     pass
+
+
+def heldout_dir() -> Path | None:
+    value = os.environ.get(HELDOUT_ENV, "").strip()
+    return Path(value) if value else None
+
+
+def heldout_ids(folder: Path | None) -> list[str]:
+    if folder is None or not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.toml") if NAME.fullmatch(p.stem))
 
 
 # --- tasks ------------------------------------------------------------------------
 
 
 def load_task(evals: Path, task_id: str) -> dict:
+    """A task from evals/tasks/, or from the held-out folder when
+    EVAL_HELDOUT_DIR names one (`heldout` says which)."""
     if not NAME.fullmatch(task_id):
         raise EvalError(f"bad task id {task_id!r}")
     path = evals / "tasks" / f"{task_id}.toml"
+    held = heldout_dir()
+    heldout = False
+    if held is not None and (held / f"{task_id}.toml").is_file():
+        if path.is_file():
+            raise EvalError(f"{task_id} is both a visible and a held-out task")
+        path, heldout = held / f"{task_id}.toml", True
     try:
         meta = tomllib.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -94,6 +128,7 @@ def load_task(evals: Path, task_id: str) -> dict:
         "must_not": must_not,
         "prompt": meta["prompt"].strip(),
         "inputs": inputs,
+        "heldout": heldout,
     }
 
 
@@ -194,7 +229,8 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
                     result = check(task, turn.stdout, hands_lib)
                 else:
                     result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
-                fh.write(json.dumps({"task": task["id"], "sample": sample, "answer": turn.stdout[:4000], **result}, ensure_ascii=False) + "\n")
+                fh.write(json.dumps({"task": task["id"], "sample": sample, "heldout": task["heldout"],
+                                     "answer": turn.stdout[:4000], **result}, ensure_ascii=False) + "\n")
                 failed = [c["check"] for c in result["checks"] if not c["ok"]]
                 print(f"[eval] {task['id']} #{sample}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
                 drafted += 1
@@ -295,10 +331,16 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _drafts(path: Path) -> dict:
+    """A run's drafts by (task, sample). Held-out ones only while
+    EVAL_HELDOUT_DIR is set: without it they are not judged or scored."""
+    keep = heldout_dir() is not None
+    return {(r["task"], r["sample"]): r for r in _read_jsonl(path) if keep or not r.get("heldout")}
+
+
 def pairs(base_path: Path, cand_path: Path) -> list[dict]:
     """The pairs the judge reads: every task and sample both runs drafted."""
-    base = {(r["task"], r["sample"]): r for r in _read_jsonl(base_path)}
-    cand = {(r["task"], r["sample"]): r for r in _read_jsonl(cand_path)}
+    base, cand = _drafts(base_path), _drafts(cand_path)
     return [
         {"task": k[0], "sample": k[1], "base": base[k]["draft"], "cand": cand[k]["draft"]}
         for k in sorted(set(base) & set(cand))
@@ -339,13 +381,24 @@ def pair_outcome(first: dict, second: dict) -> dict:
     return {"winner": a if a == b else "tie", "consistent": a == b, "breaks": breaks}
 
 
+def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
+    wins = sum(p["winner"] == "cand" for p in pairs)
+    losses = sum(p["winner"] == "base" for p in pairs)
+    decided = wins + losses
+    # A regression is a task the candidate fails a hard check on more often
+    # than the baseline did: one is enough to keep it out.
+    regressions = sorted(t for t, n in failures.items() if n["cand"] > n["base"])
+    return {"wins": wins, "losses": losses, "ties": len(pairs) - decided, "decided": decided,
+            "win_rate": wins / decided if decided else 0.0, "regressions": regressions}
+
+
 def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int) -> dict:
-    base = {(r["task"], r["sample"]): r for r in _read_jsonl(base_path)}
-    cand = {(r["task"], r["sample"]): r for r in _read_jsonl(cand_path)}
+    base, cand = _drafts(base_path), _drafts(cand_path)
     judged = {(r["task"], r["sample"]): r for r in _read_jsonl(judged_path)} if judged_path.is_file() else {}
 
     pairs = []
     failures: dict[str, dict[str, int]] = {}
+    held_failures: dict[str, dict[str, int]] = {}
     for key in sorted(set(base) & set(cand)):
         b, c = base[key], cand[key]
         record = judged.get(key)
@@ -361,12 +414,14 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             "base": not b.get("ok") or bool(outcome["breaks"]["base"]),
             "cand": not c.get("ok") or bool(outcome["breaks"]["cand"]),
         }
-        counts = failures.setdefault(key[0], {"base": 0, "cand": 0})
+        heldout = bool(b.get("heldout") or c.get("heldout"))
+        counts = (held_failures if heldout else failures).setdefault(key[0], {"base": 0, "cand": 0})
         counts["base"] += hard["base"]
         counts["cand"] += hard["cand"]
         pairs.append({
             "task": key[0],
             "sample": key[1],
+            "heldout": heldout,
             "winner": outcome["winner"],
             "consistent": outcome["consistent"],
             "breaks": outcome["breaks"],
@@ -374,13 +429,11 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             "notes": [r["notes"] for r in (record["first"], record["second"])] if record else [],
         })
 
-    wins = sum(p["winner"] == "cand" for p in pairs)
-    losses = sum(p["winner"] == "base" for p in pairs)
-    decided = wins + losses
-    win_rate = wins / decided if decided else 0.0
-    # A regression is a task the candidate fails a hard check on more often
-    # than the baseline did: one is enough to keep it out.
-    regressions = sorted(t for t, n in failures.items() if n["cand"] > n["base"])
+    # The verdict is the visible tasks'; the held-out ones are reported
+    # beside it (docs/evolve.md, "Held-out tasks").
+    visible = _tally([p for p in pairs if not p["heldout"]], failures)
+    wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
+    win_rate, regressions = visible["win_rate"], visible["regressions"]
     if regressions:
         reason = f"hard-check regression on {', '.join(regressions)}"
     elif decided < min_pairs:
@@ -389,12 +442,12 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
-    return {
+    out = {
         "promote": not regressions and decided >= min_pairs and win_rate >= threshold,
         "reason": reason,
         "wins": wins,
         "losses": losses,
-        "ties": len(pairs) - decided,
+        "ties": visible["ties"],
         "decided": decided,
         "win_rate": round(win_rate, 4),
         "threshold": threshold,
@@ -403,6 +456,12 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         "hard_failures": failures,
         "pairs": pairs,
     }
+    held = [p for p in pairs if p["heldout"]]
+    if held:
+        tally = _tally(held, held_failures)
+        out["heldout"] = {**tally, "win_rate": round(tally["win_rate"], 4), "pairs": len(held),
+                          "won": not tally["regressions"] and tally["decided"] > 0 and tally["win_rate"] >= threshold}
+    return out
 
 
 # --- the command line --------------------------------------------------------------------------
@@ -419,6 +478,15 @@ def main(argv: list[str]) -> int:
             out = [load_task(Path(args[0]), t) for t in task_ids(Path(args[0]))]
             if not out:
                 raise EvalError(f"no tasks in {args[0]}/tasks")
+        elif cmd == "heldout-tasks" and len(args) == 2:
+            ids = heldout_ids(Path(args[1]))
+            clash = sorted(set(ids) & set(task_ids(Path(args[0]))))
+            if clash:
+                raise EvalError(f"held-out task(s) share an id with evals/tasks: {', '.join(clash)}")
+            os.environ[HELDOUT_ENV] = args[1]
+            for task_id in ids:
+                load_task(Path(args[0]), task_id)
+            out = ids
         elif cmd == "render" and len(args) == 2:
             print(render(load_task(Path(args[0]), args[1])))
             return 0
