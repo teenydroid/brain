@@ -150,6 +150,53 @@ class BriefTest(unittest.TestCase):
         self.assertNotEqual(done.returncode, 0)
         self.assertEqual(briefs.next_open(), {"brief": None})
 
+    # --- Moltbook leads: threads and topics the operator scouted -------------------------
+
+    def test_a_moltbook_lead_is_never_the_next_x_brief(self):
+        briefs.add("https://www.moltbook.com/post/abc agents arguing about memory compaction", surface="moltbook")
+        self.assertEqual(briefs.next_open(), {"brief": None})
+        x_brief = briefs.add("the x topic")["brief"]["id"]
+        self.assertEqual(briefs.next_open()["brief"]["id"], x_brief)
+
+    def test_leads_are_the_open_moltbook_ones_from_the_last_two_days_newest_first(self):
+        old = briefs.add("old thread", surface="moltbook")["brief"]["id"]
+        os.environ["TEENY_NOW"] = str(T0 + 47 * 3600)
+        first = briefs.add("a reddit thread on agent rate limits", surface="moltbook")["brief"]["id"]
+        dropped = briefs.add("never mind", surface="moltbook")["brief"]["id"]
+        briefs.cancel(dropped)
+        second = briefs.add("https://www.moltbook.com/post/xyz", surface="moltbook")["brief"]["id"]
+        briefs.add("an x topic")
+        self.assertEqual([lead["id"] for lead in briefs.leads()["leads"]], [second, first, old])
+        os.environ["TEENY_NOW"] = str(T0 + 49 * 3600)
+        self.assertEqual([lead["id"] for lead in briefs.leads()["leads"]], [second, first])
+
+    def test_a_lead_names_its_surface_in_the_listing(self):
+        briefs.add("a thread", surface="moltbook")
+        briefs.add("a post topic")
+        self.assertEqual([b["surface"] for b in briefs.listing(10)["briefs"]], ["x", "moltbook"])
+
+    def test_an_unknown_surface_is_refused(self):
+        with self.assertRaises(hand.Refused):
+            briefs.add("hello", surface="reddit")
+
+    def test_a_ledger_from_before_surfaces_is_read_as_x(self):
+        conn = hand.db()
+        conn.executescript(
+            "CREATE TABLE briefs (id INTEGER PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',"
+            " created_at REAL NOT NULL, post_id TEXT, post_text TEXT, done_at REAL);"
+            f"INSERT INTO briefs (text, created_at) VALUES ('from before', {T0});"
+        )
+        conn.close()
+        self.assertEqual(briefs.next_open()["brief"]["text"], "from before")
+        self.assertEqual(briefs.leads(), {"leads": []})
+
+    def test_the_hand_takes_a_moltbook_lead_from_the_command_line(self):
+        env = dict(os.environ)
+        done = subprocess.run([str(HAND), "add", "--surface", "moltbook", "a", "thread"], capture_output=True, text=True, env=env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        done = subprocess.run([str(HAND), "leads"], capture_output=True, text=True, env=env)
+        self.assertEqual([lead["text"] for lead in json.loads(done.stdout)["leads"]], ["a thread"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -408,13 +408,15 @@ minutes, skips without a model turn when nothing is queued (its input is
 
 | Verb | | Does |
 |---|---|---|
-| `add TEXT` | O | Queue a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. |
-| `next` | R | The oldest open brief, `{brief: {id, text}}`, or `{brief: null}`. |
+| `add [--surface x\|moltbook] TEXT` | O | Queue a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a **Moltbook lead** instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. A lead is never an X brief. |
+| `next` | R | The oldest open X brief, `{brief: {id, text}}`, or `{brief: null}`. |
+| `leads` | R | The open Moltbook leads of the last 48 hours, newest first (at most 10): `{leads: [{id, text, created_at}]}`. The Moltbook playbooks read them and decide for themselves whether one is worth a post or a comment, under the same guard and caps. A lead is never marked used; it drops out after 48 hours or when cancelled. |
 | `list [--max N]` | R | The briefs, newest first (20), with status `open`, `posted` or `cancelled`. |
 | `post` | A | `{id, text}`: Teeny's draft of brief `id`, already through the guard (bin/act). Sends `{text}` to `hands/x post`, which keeps its own rules, pacing and `DRY_RUN`. The brief is marked `posted` (with the post id) only when X took the post; a dry run leaves it `open`, a refusal from hands/x is a refusal here (exit 2) and an error an error, and either way the brief stays `open` for the next run. Refused when the brief is not `open`. |
 | `cancel ID` | O | Drop an open brief. |
 
 From the box: `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.
+A Moltbook lead: `... hands/brief add --surface moltbook "https://www.moltbook.com/post/<id> they are arguing about compaction; we have the 7-hour outage receipt"`.
 
 ## `image` and `video`: pictures and clips of Teeny
 
