@@ -23,6 +23,7 @@ from .. import hand, stimuli
 from . import client, reads, rules
 
 Json = dict[str, Any]
+_POST_IN_PERMALINK = re.compile(r"/comments/([a-z0-9]{1,13})/")
 
 
 def _screen(text: str, context: Mapping[str, Any]) -> Any:
