@@ -517,13 +517,50 @@ Teeny writes itself.
 
 | Component | Counts | Source | Weight | c | Daily cap |
 |---|---|---|---|---|---|
-| `attention` | followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, with a `who`) | 1.0 | 50 | 0.10 |
+| `attention` | version 2, people-weighted reach (below): followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot, each weighed by whether it is a human, an agent or unknown | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, `gh`, with a `who`), and Teeny's own `x_posts` and `mail_sent` for who wrote first | 1.0 | 50 | 0.10 |
 | `tiny` | $TINY held, in tokens | `wallet tiny` | 0.8 | 10,000 | 0.20 |
 | `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs` | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
 | `capability` | hands with tests (an executable in `hands/` with `hands/tests/<name>/test_*.py` or `hands/tests/test_<name>.py`; `image` and `video` share `media`), plus the channels Teeny can act on (`x`, `moltbook`, `github`, `mail`, `telegram` when their keys are set; `wallet` when its caps load) | the checkout, `secrets/teeny.env` | 0.5 | 5 | 0.10 |
 | `shipped` | build jobs shipped, plus `github.stars`, `github.forks` and `github.open_issues` where `stats` keeps them | `build_jobs`, `stats` | 0.4 | 5 | 0.15 |
 | `world` | each arc in `brain/narrative/ARCS.md` by its `- status:` line: 0 not started, 2 done (complete, reached, achieved), 1 anything else | `ARCS.md` | 0.2 | 2 | 0.10 |
 | `penalty` | side effects on the UTC day before the snapshot: guard holds on Teeny's own text (not inbound, not approved, not cleared by the re-screen) and wallet payments in doubt | `guard_holds`, `wallet_payments` | 0.02 each | | none |
+
+**People in attention (version 2).** Attention counts people above agents
+(docs/roadmap.md, P2). Every account is classed by a rule in
+`collect.classify` over data the hands already hold, never by a model, and
+what no rule settles is `unknown`, never guessed:
+
+| Where | Class | Why |
+|---|---|---|
+| `moltbook` accounts, `moltbook.followers`, `moltbook.karma` | agent | Moltbook admits only AI agents |
+| `telegram` | human | Telegram marks every bot (`is_bot`), and `telegram ingest` skips bots |
+| `gh` | agent when the login ends in `[bot]`, else unknown | a GitHub App's login carries `[bot]`; nothing says the rest are people |
+| `x`, `mail`, `x.followers`, `github.followers` | unknown | nothing X, GitHub or AgentMail returns says whether an account is automated |
+
+| | human | unknown | agent |
+|---|---|---|---|
+| a follower or a point of karma | 1.0 | 0.5 | 0.1 |
+| an account that engaged in the 7-day window | 5.0 | 2.5 | 0.5 |
+
+An engaged account whose first contact was its own counts twice
+(`FIRST_CONTACT_FACTOR`): on X, when none of Teeny's earlier `x_posts`
+@-mentioned it; by mail, when nothing in `mail_sent` went to its address
+before; on Telegram always, since a bot can't write first. Moltbook and
+GitHub keep no such ledger, so their accounts never get the factor. A
+person who wrote first is worth 10, a point of Moltbook karma 0.1. Every
+weight is in `score.py` and pinned by `hands/tests/world/test_world.py`.
+
+The detail of each attention row carries `version: 2`, the raw counts in
+`parts` (under version 1's names; `engaged_accounts_7d` now includes `gh`),
+the `split` by class (followers, engaged accounts, how many came first, the
+weighted sum) and `v1_value`, the unweighted sum version 1 would have
+written, so the old series can still be compared. Rows written before have
+no version and count as version 1. `credit` never counts the step between
+two versions (`rebased` in the report, and the reading says so), so the
+switch is not read as growth or loss. `report` shows the version and the
+split, with a reading line per class; `history` shows `versions` and
+`split`. A `goals` `world_delta` goal on attention whose baseline was taken
+before version 2 compares across the change; the operator drops or resets it.
 
 These are honest proxies, not the whole idea. Follower counts include
 accounts that never engaged, because no source tells them apart; the
