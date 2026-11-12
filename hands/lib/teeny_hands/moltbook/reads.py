@@ -30,6 +30,7 @@ CACHE = ReadCache(
         "profile": HOUR,
         "submolts": HOUR,
         "submolt": HOUR,
+        "study": 6 * HOUR,
     },
     "MOLTBOOK_CACHE_ENABLED",
 )
