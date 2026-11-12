@@ -1340,6 +1340,8 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
+| `ladder` | `fence_proposals` |
+| `guard` (review) | `guard_reviews` |
 
 ## Rules the tests pin
 
