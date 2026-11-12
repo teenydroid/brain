@@ -135,9 +135,9 @@ class MetricsTest(Scratch):
         metrics.refresh()
         out = metrics.listing(days=7)
         self.assertEqual([(r["kind"], r["target_id"], r["checkpoint"], r["score"]) for r in out["metrics"]],
-                         [("post", "p1", 24, 8), ("comment", "c9", 24, 2)])
-        self.assertEqual(out["metrics"][0]["title"], "the queue held")
-        self.assertEqual(out["metrics"][1]["post_id"], "px")
+                         [("comment", "c9", 24, 2), ("post", "p1", 24, 8)])
+        self.assertEqual(out["metrics"][1]["title"], "the queue held")
+        self.assertEqual(out["metrics"][0]["post_id"], "px")
         self.at(T0 + 9 * DAY)
         self.assertEqual(metrics.listing(days=7)["metrics"], [])
 
