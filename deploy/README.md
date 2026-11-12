@@ -21,7 +21,7 @@ X, browsers ──► Cloudflare ──► host nginx: teeny.enamakel.com (nginx
                                  │       everything else 301 to https
                                  │ :443  certificate in /etc/letsencrypt/live/teeny.enamakel.com
                                  ├── = /api/webhooks/x ──► 127.0.0.1:3110/webhooks/x ──► xhook
-                                 └── /, /_next/static/ ──► 127.0.0.1:3120 ──► web (port 3000 inside)
+                                 └── /, /_next/static/ ──► 127.0.0.1:3120 ──► web (:3000 inside)
 
 compose project teeny-spine
   cortexdb's network namespace, shared by two services
