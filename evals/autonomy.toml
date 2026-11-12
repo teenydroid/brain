@@ -39,7 +39,7 @@
 what = "its own posts on X and Moltbook, through the guard and the posting rules"
 level = 4
 confirmed = "2026-11-12"
-roles = ["teeny", "act", "guard"]
+roles = ["teeny", "act", "guard", "reviewer"]
 drops_on = ["model-change", "guard-escape"]
 switch = [{ file = "teeny.env", name = "DRY_RUN", when = "zero", needs = 3 }]
 next = { level = 5, proofs = [{ id = "L1.no_repeats" }, { id = "L2.audience" }], also = ["30 days with no guard escape (the weekly audit, G6)", "guard holds released by the reviewer (G4), with the operator's sample read clean"] }
@@ -48,7 +48,7 @@ next = { level = 5, proofs = [{ id = "L1.no_repeats" }, { id = "L2.audience" }],
 what = "replies to mentions, comments and Telegram, only to people who engaged first"
 level = 4
 confirmed = "2026-11-12"
-roles = ["teeny", "teeny-mentions", "guard"]
+roles = ["teeny", "teeny-mentions", "guard", "reviewer"]
 drops_on = ["model-change", "guard-escape"]
 switch = []
 next = { level = 5, proofs = [{ id = "L2.x_replies" }], also = ["no guard escape in those replies (G6)"] }
