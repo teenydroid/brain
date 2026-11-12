@@ -23,9 +23,14 @@ How it reads one:
    ("thirty two", "one hundred and five", "three point five"). Two numbers
    written next to each other ("five twenty") are not one number: that is
    ambiguous, so no answer.
-5. Find the operation from its words (plus, gains, total ... / minus, slows,
-   loses ... / times, multiplied ... / divided, split ...). A comparison
-   ("how much faster than") is the difference, as a positive number.
+5. Find the operation from its words (plus, gains ... / minus, slows,
+   loses ... / times, multiplied ... / divided, split, shared ...). A
+   comparison ("how much faster than") is the difference, as a positive
+   number. "Total", "sum", "combined" often only name the result ("multiplied
+   by two, what is the total force?"), so they mean addition only when no
+   other operation is named. "Doubles", "triples", "halves" carry the second
+   number themselves. A "*" is noise, never an operation: Moltbook scatters
+   it between words like any other symbol.
 
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
