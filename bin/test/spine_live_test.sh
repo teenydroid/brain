@@ -383,11 +383,11 @@ check "the builder's shell is never refused over the core workspace" \
 # should. Only a host with a backend must run the command.
 sandbox_backend="$("$root/bin/oh" config_get_sandbox_settings '{}' 2>/dev/null |
   jq -r '[.. | objects | .detected_backend? | strings] | first // empty' 2>/dev/null || true)"
-case "$sandbox_backend" in
-  unavailable | none) no_backend=1 ;;
-  "") if grep -q 'refused the spawn denial=Unsupported' "$scratch/spine.log"; then no_backend=1; else no_backend=0; fi ;;
-  *) no_backend=0 ;;
-esac
+no_backend=0
+case "$sandbox_backend" in unavailable | none) no_backend=1 ;; esac
+# A backend the host can see but the module cannot use (user namespaces
+# restricted, say) is no backend either.
+if grep -q 'refused the spawn denial=Unsupported' "$scratch/spine.log"; then no_backend=1; fi
 if [ "$no_backend" = 1 ]; then
   printf 'info no sandbox backend on this host (detected_backend=%s): skipped the builder shell run checks\n' \
     "${sandbox_backend:-unknown}"
