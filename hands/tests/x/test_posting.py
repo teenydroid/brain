@@ -353,13 +353,6 @@ class RepeatTest(Posting):
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     YESTERDAY = "shipped a tiny crab tracker today, it counts crabs on the beach and posts the total"
 
-    def setUp(self):
-        super().setUp()
-        self.created.body = None
-        self.ids = iter(range(100, 200))
-        self.x.routes.remove(self.created)
-        self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201)
-
     def test_a_repeat_of_yesterdays_post_is_refused_and_counted(self):
         from teeny_hands.guard import repeats
 
@@ -385,7 +378,7 @@ class RepeatTest(Posting):
         self.assertEqual(len(self.posted()), 2)
 
     def test_a_post_older_than_the_window_may_be_said_again(self):
-        self.configure(REPEAT_WINDOW_DAYS="7", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+        self.configure(REPEAT_WINDOW_DAYS="7")
         publish.post({"text": self.YESTERDAY})
         self.at(T0 + 8 * 24 * HOUR)
         publish.post({"text": self.YESTERDAY})
@@ -408,7 +401,7 @@ class RepeatTest(Posting):
 
     def test_a_rehearsal_is_refused_the_same(self):
         publish.post({"text": self.YESTERDAY})
-        self.configure(DRY_RUN="1", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+        self.configure(DRY_RUN="1")
         self.at(T0 + HOUR)
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": self.YESTERDAY})
