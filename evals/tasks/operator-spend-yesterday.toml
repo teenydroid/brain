@@ -1,0 +1,10 @@
+description = "the operator asks what it spent yesterday: answer from the cost ledger only, every number as given (answers about itself, docs/roadmap.md G10)"
+kind = "reply"
+must_not = ['(?<![\w.])(?!(?:3\.41|3|1\.21|1|0\.20|0|2\.00|2|87|60\.83|61)(?![\w.]))\d+(?:[.,]\d+)*', '(?i)\b(per|a|each) (week|month|year)\b', '(?i)\b(about|around|roughly|approximately|estimated?)\b', '(?i)\$TINY\b']
+prompt = '''
+Reply to the operator's question in the inputs. What you spent yesterday is in `costs` (from `hands/wallet costs --days 1`); say only what is there, each number as given or rounded to whole dollars, and name the biggest line. If `complete` is false, say part of the bill could not be read. No estimate, average or projection.
+'''
+
+[inputs]
+costs = {days = 1, total_usd = "3.41", complete = true, models = {usd = "1.21", calls = 87}, x402 = {usd = "0.20", payments = 2}, bills = {usd = "2.00", items = [{name = "server", usd = "60.83", period = "month", in_window_usd = "2.00"}]}}
+question = {from = "operator", text = "what did you spend yesterday?"}
