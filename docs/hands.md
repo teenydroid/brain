@@ -858,7 +858,7 @@ the network's public endpoint, and the core is given the same URL.
 | `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`. `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
-| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund, ref}`, `chain` Solana by default. The rules below, then the core. |
+| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund\|bill, ref}`, `chain` Solana by default. The rules below, then the core. |
 | `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
 | `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
 | `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?, network?, sign_in?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
@@ -886,6 +886,9 @@ refuses with its `rule`:
   (`bounty`, `challenge_window`, `claimed_address`, `prize`), read from the
   bounty's rows, not the bounty hand's word;
 - for a vendor: the address in `vendors` on that chain (`vendor`);
+- for a bill: a server invoice that is due, to the address on it, its exact
+  amount, within the bill limits (`bill`, `bill_address`, `bill_amount`,
+  `bill_max`, `bill_month`; `vps`, `pay-due`), only with `VPS_PAY_BILLS=1`;
 - for a refund: a paid build request's deposit that is due back, to its
   sender, its exact amount, within the refund limits (`refund`,
   `refund_address`, `refund_amount`, `refund_max`, `refund_day`; "Paid
@@ -1362,8 +1365,18 @@ Every cap is closed until the operator opens it in `secrets/teeny.env`:
 | `release ID --note T` | O | An order stops holding a slot (an `in_doubt` a person has read, a server cancelled in a console), and its bill goes. |
 | `register --first F --last L --email E` | O | A new EQVPS account. Its token is printed once and written nowhere; the operator puts it in `secrets/teeny.env`. |
 
-`order` and `topup` spend money, so they are never a playbook's output and
-never given to a model.
+| `invoice add --provider P --invoice ID --usd N [--chain C] --pay-to ADDRESS --due YYYY-MM-DD` | O | Records a server invoice to pay from the wallet (docs/roadmap.md, S5). The address must already be an allowlisted vendor on that chain (`hands/wallet vendors add`), so an invoice cannot bring in a new recipient; an invoice is recorded once (`duplicate`). |
+| `invoices` | R | The invoices: `due`, `paid` (with its payment) or `in_doubt`. |
+| `pay-due` | J | Every invoice due within 3 days, paid once through `hands/wallet pay` with purpose `bill` and ref `vps:<provider>:<invoice>`: to the address on it, on its chain, its exact amount in USDC (`bill`, `bill_address`, `bill_amount`), that address still a vendor (`vendor`), at most `max_per_bill_usd` and `max_per_month_usd` over 30 days (`evals/prices.toml`, `[bills]`: 50 and 100; `bill_max`, `bill_month`), then every other rule and cap. A refusal leaves it `due`; `in_doubt` is never retried. Each paid bill gets a receipt like any payment. The pinned `pay-bills` job (01:05 UTC), `bin/pay-bills`. Off until `VPS_PAY_BILLS=1`. |
+
+`order`, `topup` and `pay-due` spend money, so they are never a playbook's
+output and never given to a model. The invoice is the operator's to record
+because neither provider's API states a crypto invoice's address and amount
+in a form the hand can read (Vultr is funded in its console; an EQVPS top-up
+is a checkout page); the money still only moves from the pinned job, under
+the caps. The model bill is not paid from the wallet: the model provider is
+paid by the operator's account, and what it costs is already counted by
+`hands/wallet costs` (the core's `cost_report`).
 
 ## `deploy`: Teeny's static sites
 
@@ -1501,6 +1514,7 @@ creates its own tables:
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
+| `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
 
 ## Rules the tests pin
 

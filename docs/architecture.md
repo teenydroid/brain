@@ -569,6 +569,8 @@ Every scheduled job is in one of two files:
     until `WALLET_ACCOUNTS=1`; `paid-requests` (`bin/paid-requests`, every
     15 minutes), paid build requests and their refunds, off until
     `PAID_REQUESTS=1` and `REQUEST_REFUNDS=1`;
+  - `pay-bills` (`bin/pay-bills`, 01:05 UTC), Teeny's server invoices paid
+    from its wallet under the caps, off until `VPS_PAY_BILLS=1`;
   - `runway` (`bin/health runway`, 00:45 UTC), the runway as one
     `health · runway` stimulus and the tier that cuts optional spend, off
     until `RUNWAY=1`;
