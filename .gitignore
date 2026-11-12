@@ -40,5 +40,6 @@ __pycache__/
 # and its lock, and stray build logs: never committed, even by a box-local
 # auto-commit.
 /brain/dev-keychain.json
+/brain/keyring/
 /brain/dev-keychain.json.lock
 /*.log
