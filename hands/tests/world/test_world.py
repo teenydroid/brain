@@ -224,8 +224,10 @@ class SnapshotTest(Scratch):
         self.assertNotIn("failed", out)
         self.assertNotIn("skipped", out)
         w = out["written"]
-        # 120 + 7 + 42 + 9 followers and karma, plus alice and bob (carol is too old, dave is today)
-        self.assertEqual(w["attention"], 180)
+        # version 2: X 120 and GitHub 9 followers are unknown (0.5 each), Moltbook 7 followers and
+        # 42 karma are agents (0.1 each), and alice and bob (carol is too old, dave is today) are
+        # unknown X accounts that came first (2.5 x 2 each)
+        self.assertEqual(w["attention"], round(60 + 4.5 + 0.7 + 4.2 + 10, 6))
         self.assertEqual(w["tiny"], 50_000)
         # 1000 USDC + 10 SOL at 200 - 2500 from the team - 12.35 of costs
         self.assertEqual(w["money"], 487.65)
@@ -239,7 +241,16 @@ class SnapshotTest(Scratch):
         self.assertEqual(w["penalty"], 2)
         self.assertEqual(self.moved(), [])
         report = collect.report(7)
-        self.assertEqual({c["component"]: c["value"] for c in report["components"]}["attention"], 180)
+        attention = {c["component"]: c for c in report["components"]}["attention"]
+        self.assertEqual(attention["value"], 79.4)
+        self.assertEqual(attention["version"], 2)
+        self.assertEqual(attention["split"]["unknown"]["accounts"], 2)
+        # version 1's unweighted sum rides along: 120 + 7 + 42 + 9 + alice and bob
+        conn = collect.db()
+        detail = json.loads(conn.execute("SELECT detail FROM world_scores WHERE component = 'attention'").fetchone()["detail"])
+        conn.close()
+        self.assertEqual(detail["v1_value"], 180)
+        self.assertTrue(any(line.startswith("attention reach: human 0") for line in report["reading"]))
 
     def test_a_second_snapshot_the_same_day_replaces_its_rows(self):
         self.seed_everything()
@@ -251,7 +262,7 @@ class SnapshotTest(Scratch):
         collect.snapshot()
         rows = self.rows()
         self.assertEqual(len(rows), 7)
-        self.assertEqual(rows[(TODAY, "attention")], 260)
+        self.assertEqual(rows[(TODAY, "attention")], round(79.4 + 40, 6))
         self.at(T0 + DAY)
         collect.snapshot()
         self.assertEqual(len(self.rows()), 14)
@@ -271,7 +282,7 @@ class SnapshotTest(Scratch):
     def test_a_partial_source_still_counts_and_says_what_is_missing(self):
         stimuli.add("moltbook", "comment", "c1", "hi", who="eve", at=T0 - DAY)
         out = collect.snapshot()
-        self.assertEqual(out["written"]["attention"], 1)
+        self.assertEqual(out["written"]["attention"], 0.5)  # one Moltbook agent; no ledger says who came first
         conn = collect.db()
         detail = json.loads(conn.execute("SELECT detail FROM world_scores WHERE component = 'attention'").fetchone()["detail"])
         conn.close()
@@ -286,3 +297,125 @@ class SnapshotTest(Scratch):
             self.assertTrue(json.loads(done.stdout)["ok"])
         bad = subprocess.run([sys.executable, str(WORLD), "report", "--days", "0"], capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(bad.returncode, 1)
+
+
+class PeopleInAttentionTest(Scratch):
+    """P2: attention counts people. Human and agent reach are split, the weights
+    are pinned, a week of Moltbook karma alone moves attention less than a week
+    of human replies, and a change of version is never read as growth."""
+
+    def test_the_weights_rank_people_over_unknown_over_agents(self):
+        for table in (score.FOLLOWER_WEIGHTS, score.ENGAGED_WEIGHTS):
+            self.assertEqual(set(table), set(score.REACH_CLASSES))
+            self.assertGreater(table["human"], table["unknown"])
+            self.assertGreater(table["unknown"], table["agent"])
+        self.assertEqual(score.FOLLOWER_WEIGHTS, {"human": 1.0, "unknown": 0.5, "agent": 0.1})
+        self.assertEqual(score.ENGAGED_WEIGHTS, {"human": 5.0, "unknown": 2.5, "agent": 0.5})
+        self.assertEqual(score.FIRST_CONTACT_FACTOR, 2.0)
+        # a person who wrote first counts most of all
+        top = score.engaged_weight("human", True)
+        self.assertEqual(top, 10.0)
+        self.assertEqual(top, max(score.engaged_weight(k, t) for k in score.REACH_CLASSES for t in (True, False)))
+        self.assertEqual(score.STAT_CLASSES["moltbook.karma"], "agent")
+        self.assertEqual(set(score.CLASS_RULES), set(collect.ENGAGED_SURFACES))
+
+    def test_classification_is_a_rule_and_says_unknown_rather_than_guess(self):
+        self.assertEqual(collect.classify("moltbook", "eve"), "agent")
+        self.assertEqual(collect.classify("telegram", "@ann"), "human")
+        self.assertEqual(collect.classify("gh", "dependabot[bot]"), "agent")
+        self.assertEqual(collect.classify("gh", "octocat"), "unknown")
+        self.assertEqual(collect.classify("x", "definitely_a_human"), "unknown")
+        self.assertEqual(collect.classify("x", "gpt_bot_9000"), "unknown")  # a name is not evidence
+        self.assertEqual(collect.classify("mail", "Ann <ann@example.org>"), "unknown")
+
+    def test_first_contact_reads_teenys_own_ledgers(self):
+        from teeny_hands.mail import actions as mail
+        from teeny_hands.x import posting_rules
+
+        conn = collect.db()
+        posting_rules.ensure_schema(conn)
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('1', 'post', 'hello @Ann_B and friends', ?)", (T0 - 5 * DAY,))
+        conn.close()
+        conn = mail.db()
+        conn.execute("INSERT INTO mail_sent (at, kind, to_addr) VALUES (?, 'send', 'pal@example.org')", (T0 - 5 * DAY,))
+        conn.close()
+        conn = collect.db()
+        self.assertEqual(collect.first_contact(conn, "x", "ann_b", T0 - DAY), "teenys")
+        self.assertEqual(collect.first_contact(conn, "x", "ann_b", T0 - 6 * DAY), "theirs")  # wrote before Teeny's post
+        self.assertEqual(collect.first_contact(conn, "x", "ann", T0 - DAY), "theirs")  # @ann_b is not @ann
+        self.assertEqual(collect.first_contact(conn, "mail", "Pal <pal@example.org>", T0 - DAY), "teenys")
+        self.assertEqual(collect.first_contact(conn, "mail", "new@example.org", T0 - DAY), "theirs")
+        self.assertEqual(collect.first_contact(conn, "telegram", "@ann", T0 - DAY), "theirs")
+        self.assertEqual(collect.first_contact(conn, "moltbook", "eve", T0 - DAY), "unknown")
+        self.assertEqual(collect.first_contact(conn, "gh", "octocat", T0 - DAY), "unknown")
+        conn.close()
+
+    def test_the_split_lands_in_the_snapshot(self):
+        stimuli.add("telegram", "dm", "t1", "hi", who="@ann", at=T0 - DAY)
+        stimuli.add("moltbook", "comment", "c1", "hi", who="eve", at=T0 - DAY)
+        stimuli.add("gh", "comment", "g1", "hi", who="renovate[bot]", at=T0 - DAY)
+        stimuli.add("x", "mention", "x1", "hi", who="bob", at=T0 - DAY)
+        out = collect.snapshot()
+        # ann: human, first (10); eve: agent (0.5); renovate: agent (0.5); bob: unknown, first (5)
+        self.assertEqual(out["written"]["attention"], 16.0)
+        conn = collect.db()
+        detail = json.loads(conn.execute("SELECT detail FROM world_scores WHERE component = 'attention'").fetchone()["detail"])
+        conn.close()
+        self.assertEqual(detail["version"], 2)
+        self.assertEqual(detail["split"]["human"]["accounts"], 1)
+        self.assertEqual(detail["split"]["agent"]["accounts"], 2)
+        self.assertEqual(detail["split"]["unknown"]["first_contact_theirs"], 1)
+        self.assertEqual(detail["v1_value"], 3)  # version 1 never counted gh
+
+    def week(self, stats_rows, people):
+        """Seven daily snapshots; `stats_rows(day)` and `people(day)` say what
+        happened that day. Returns the attention credit over the week."""
+        for day in range(8):
+            self.at(T0 + day * DAY)
+            conn = stats.db()
+            date = collect.today()
+            for metric, value in stats_rows(day).items():
+                source, name = metric.split(".")
+                conn.execute("INSERT OR REPLACE INTO stats VALUES (?, ?, ?, ?, 0)", (date, source, name, value))
+            conn.close()
+            for i, who in enumerate(people(day)):
+                stimuli.add("telegram", "dm", f"d{day}-{i}", "hi", who=who, at=T0 + day * DAY - 3600)
+            collect.snapshot()
+        report = collect.report(7)
+        return {c["component"]: c for c in report["components"]}["attention"]["credit"]
+
+    def test_a_week_of_karma_alone_moves_attention_less_than_a_week_of_human_replies(self):
+        base = {"x.followers": 100, "moltbook.karma": 100}
+        karma = self.week(lambda d: {**base, "moltbook.karma": 100 + 10 * d}, lambda d: [])
+        self.reset_world()
+        humans = self.week(lambda d: base, lambda d: [f"@person{d}"] if d else [])
+        # 70 points of karma in a week against seven people writing once each
+        self.assertGreater(humans, 0)
+        self.assertGreater(karma, 0)
+        self.assertLess(karma, humans)
+
+    def reset_world(self):
+        for module in (collect, stats):
+            conn = module.db()
+            conn.execute(f"DELETE FROM {'world_scores' if module is collect else 'stats'}")
+            conn.close()
+        conn = stimuli.db()
+        conn.execute("DELETE FROM stimuli")
+        conn.close()
+
+    def test_the_step_into_version_two_counts_zero(self):
+        comp = score.BY_NAME["attention"]
+        got = score.credit([("2026-09-07", 180.0, 1), ("2026-09-08", 190.0, 1), ("2026-09-09", 80.0, 2), ("2026-09-10", 88.0, 2)], comp)
+        self.assertEqual(got["rebased"], 1)
+        self.assertAlmostEqual(got["credit"], math.log(240 / 230) + math.log(138 / 130))
+        self.assertAlmostEqual(got["delta_log"], math.log(138 / 130))
+        conn = collect.db()
+        for date, value, detail in (("2026-09-12", 180, "{}"), ("2026-09-13", 190, "{}"), ("2026-09-14", 80, '{"version": 2}')):
+            conn.execute("INSERT INTO world_scores VALUES (?, 'attention', ?, ?, 0)", (date, value, detail))
+        conn.close()
+        out = collect.report(7)
+        attention = {c["component"]: c for c in out["components"]}["attention"]
+        self.assertEqual((attention["version"], attention["rebased"]), (2, 1))
+        self.assertAlmostEqual(attention["credit"], round(math.log(240 / 230), 4))
+        self.assertTrue(any("version 2 counted zero" in line for line in out["reading"]))
+        self.assertEqual(collect.history(7)["rows"][-1]["versions"], {"attention": 2})

@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `bounty`, `goals` and `vps`. Each is an executable in `hands/`, with its code in
+`wallet`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -37,7 +37,7 @@ report they leave beside it.
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post, which makes it too expensive. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post or quote of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
-| `like` | A | Likes a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
+| `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 
@@ -65,6 +65,21 @@ DRY_RUN=1 ? ── yes ─► {"would_post": ...}   no X write, no ledger row
 X API ─► id recorded at once (a reply: x_replies), then the x_posts ledger row
          a record that fails is logged on stderr, never retried
 ```
+
+### Saying what it is
+
+X asks an automated account to switch on the "Automated" label, to say in
+its bio that it is a bot and who runs it, and to be tied to an account a
+person manages ([X developer guidelines](https://docs.x.com/developer-guidelines)).
+`hands/stats snapshot` already looks the account up every day, and that
+answer carries the bio: it is kept in `x_profile` (state/hands.db,
+`teeny_hands/x/profile.py`), at no extra call. `bin/doctor` reads that row,
+never X, and checks that the bio says the account is automated (bot, AI
+agent, automated) and names the operator, `X_OPERATOR_HANDLE` in
+`secrets/teeny.env` (any "run by @handle" while it is unset). No X keys is
+`ok`; no cached profile, a bio without the line, or a profile older than 8
+days is a `warn`, never a failure. The label itself is not in anything the
+API returns, so the check says to confirm it in X's settings.
 
 ### twitr.sh
 
@@ -518,13 +533,50 @@ Teeny writes itself.
 
 | Component | Counts | Source | Weight | c | Daily cap |
 |---|---|---|---|---|---|
-| `attention` | followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, with a `who`) | 1.0 | 50 | 0.10 |
+| `attention` | version 2, people-weighted reach (below): followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot, each weighed by whether it is a human, an agent or unknown | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, `gh`, with a `who`), and Teeny's own `x_posts` and `mail_sent` for who wrote first | 1.0 | 50 | 0.10 |
 | `tiny` | $TINY held, in tokens | `wallet tiny` | 0.8 | 10,000 | 0.20 |
 | `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs` | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
 | `capability` | hands with tests (an executable in `hands/` with `hands/tests/<name>/test_*.py` or `hands/tests/test_<name>.py`; `image` and `video` share `media`), plus the channels Teeny can act on (`x`, `moltbook`, `github`, `mail`, `telegram` when their keys are set; `wallet` when its caps load) | the checkout, `secrets/teeny.env` | 0.5 | 5 | 0.10 |
 | `shipped` | build jobs shipped, plus `github.stars`, `github.forks` and `github.open_issues` where `stats` keeps them | `build_jobs`, `stats` | 0.4 | 5 | 0.15 |
 | `world` | each arc in `brain/narrative/ARCS.md` by its `- status:` line: 0 not started, 2 done (complete, reached, achieved), 1 anything else | `ARCS.md` | 0.2 | 2 | 0.10 |
 | `penalty` | side effects on the UTC day before the snapshot: guard holds on Teeny's own text (not inbound, not approved, not cleared by the re-screen) and wallet payments in doubt | `guard_holds`, `wallet_payments` | 0.02 each | | none |
+
+**People in attention (version 2).** Attention counts people above agents
+(docs/roadmap.md, P2). Every account is classed by a rule in
+`collect.classify` over data the hands already hold, never by a model, and
+what no rule settles is `unknown`, never guessed:
+
+| Where | Class | Why |
+|---|---|---|
+| `moltbook` accounts, `moltbook.followers`, `moltbook.karma` | agent | Moltbook admits only AI agents |
+| `telegram` | human | Telegram marks every bot (`is_bot`), and `telegram ingest` skips bots |
+| `gh` | agent when the login ends in `[bot]`, else unknown | a GitHub App's login carries `[bot]`; nothing says the rest are people |
+| `x`, `mail`, `x.followers`, `github.followers` | unknown | nothing X, GitHub or AgentMail returns says whether an account is automated |
+
+| | human | unknown | agent |
+|---|---|---|---|
+| a follower or a point of karma | 1.0 | 0.5 | 0.1 |
+| an account that engaged in the 7-day window | 5.0 | 2.5 | 0.5 |
+
+An engaged account whose first contact was its own counts twice
+(`FIRST_CONTACT_FACTOR`): on X, when none of Teeny's earlier `x_posts`
+@-mentioned it; by mail, when nothing in `mail_sent` went to its address
+before; on Telegram always, since a bot can't write first. Moltbook and
+GitHub keep no such ledger, so their accounts never get the factor. A
+person who wrote first is worth 10, a point of Moltbook karma 0.1. Every
+weight is in `score.py` and pinned by `hands/tests/world/test_world.py`.
+
+The detail of each attention row carries `version: 2`, the raw counts in
+`parts` (under version 1's names; `engaged_accounts_7d` now includes `gh`),
+the `split` by class (followers, engaged accounts, how many came first, the
+weighted sum) and `v1_value`, the unweighted sum version 1 would have
+written, so the old series can still be compared. Rows written before have
+no version and count as version 1. `credit` never counts the step between
+two versions (`rebased` in the report, and the reading says so), so the
+switch is not read as growth or loss. `report` shows the version and the
+split, with a reading line per class; `history` shows `versions` and
+`split`. A `goals` `world_delta` goal on attention whose baseline was taken
+before version 2 compares across the change; the operator drops or resets it.
 
 These are honest proxies, not the whole idea. Follower counts include
 accounts that never engaged, because no source tells them apart; the
@@ -555,6 +607,34 @@ creditᵢ = Σ over consecutive rows of clip(Δ log(Wᵢ + cᵢ), ±capᵢ · da
 `bin/world-snapshot` is the pinned `world-snapshot` job (`30 0 * * *`),
 after `stats-snapshot`, so attention reads that day's rows.
 
+W and J are also public. `bin/receipts` writes `world/latest.json` and
+`world/YYYY-MM-DD.json` to the receipts repository from `report --days 7`:
+J, each component's value, `was`, `credit`, weight and unit (the unit from
+`score.py`, not the data), the penalty events and the reach counts by class,
+finite numbers only, and nothing before there is a J. The site's
+`/dashboard` reads it (web/README.md).
+
+## `firsts`: a milestone is posted only when the ledger proves it
+
+A first gets an audience only when anyone can check it, and a fake one is
+the fastest way to lose one (docs/research/attention-and-mindshare.md). The
+calendar, `brain/narrative/FIRSTS.md`, is Teeny's: each `## id` names what
+it would say (`- first:`), the `bin/proofs` id that proves it (`- proof:`,
+or `none`) and where anyone can check it (`- verify:`). Whether a proof is
+met is frozen code (`bin/lib/proofs.py`), and so is this hand, so the check
+can't be edited away. It holds no key: a post goes out through
+`hands/x post`, which keeps the guard, the posting rules and `DRY_RUN`.
+Code: `teeny_hands/firsts/`.
+
+| Verb | | Does |
+|---|---|---|
+| `list` | R | Every first in the calendar with its proof's `status`, `has` and `need` from `bin/proofs`, and `announced` once it was posted. A first with a missing line, a bad id or an unknown proof is `invalid`; `proof: none` is `uncounted`. |
+| `due` | R | `{firsts, rounds}`: the firsts whose proof is `met` and never announced, and the round numbers (100, 250, 500, 1000, 2500, ...) that `x.followers`, `moltbook.karma`, `github.stars` or `github.followers` crossed in the last 7 days of `stats` and never announced (the highest per metric). Nothing due is two empty lists, so a `required` input skips the run. A proof whose last step lives outside the ledgers (an upstream merge) is never `met` in `bin/proofs`, so never due here. |
+| `announce` | A | `{text, first}` or `{text, round}`. Checks again, under a lock: refused `rule: unproven` when it is not due now, and `rule: number` when the text quotes any number but the proof's `has` or `need` (a first) or the round number or exact value (a round). Then `hands/x post`; its refusal comes back as this refusal. Only a post that went out (an id, not a dry run) is recorded in `firsts_announced`, so a rehearsal can run any number of times. |
+
+The `milestone` playbook (`output = "hand:firsts announce"`, `hands/firsts
+due` as its required input) is its caller; its cron job ships off.
+
 ## `requests`: what people asked Teeny to build
 
 This hand keeps one list of build requests from every channel
@@ -569,6 +649,25 @@ pick is never a promise.
 | `pick` | A | `{id, reason}`. Picks the one to build next. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. The playbook `pick-request` is its caller. |
 | `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
+
+| `vote` | R | The weekly vote (`teeny_hands/votes.py`): the latest one, `open` with the count so far, or its `result`; and `next_pick`, the winner `pick` must take, while it is still pending. |
+| `vote-open` | A | `{text, options}`: posts a vote on 2 to 4 pending requests through `hands/x post` (guard, posting rules, `DRY_RUN`), open for 7 days. Refused while a vote is open (`open`) or within 6 days of the last (`weekly`), for an option that is not pending (`option`), for a text that does not number every option (`numbers`), and for any `@` (`mention`: the post mentions no one). Opened only when the post went out; a dry run opens nothing. |
+
+**The weekly vote is advisory and counted by code** (docs/roadmap.md, P5).
+A vote is a reply in the vote post's conversation (`x_mentions`, from
+`hands/x ingest`) whose text, after any leading @handles, starts with an
+option's number (`2`, `#2`, `vote 2`). One account, one vote: an account's
+last vote before the close counts. Replies the guard held, the account's own
+posts, other threads and anything seen after the close are not counted. The
+most votes wins; a tie or no votes has no winner. A vote closes when it is
+read after its 7 days. The winner, while still pending, is the next pick:
+`pick` refuses any other id with `rule: vote` and the `winner`, and marks the
+vote `honoured` when it picks it. Every rule of `pick` still holds, and the
+`pick-request` playbook still skips a winner that breaks one; once the
+winner is not pending, it binds nothing. It never touches the wallet, a
+fence or anything but which request is built next. The `vote` playbook
+drafts the post; it has no cron job yet (brain/cron.toml is at its 24-job
+limit).
 
 `pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
 does not stop them. Whatever is built from a pick goes out through hands that
@@ -623,6 +722,32 @@ docs/architecture.md, 4a).
 
 It writes only `state/hands.db` (`stimuli`, `follow_ups`, `mind_notes`) and
 tells nobody, so `DRY_RUN` does not apply.
+
+## `people`: who Teeny talks to, and what it promised them
+
+One record per person who writes to Teeny (docs/roadmap.md, A9). It holds
+what they said to Teeny and Teeny's promises, nothing else: their messages
+in the inbox (`stimuli`, already through `guard inbound`, so a held message
+is never there), their build requests (`build_requests`, not `skipped`, so
+none the guard held), and `people_promises`. Nothing is scraped, and Teeny's
+own notes about someone (`remember`) are not part of a record. A regular
+wrote on at least two days. Handles compare without `@` and case; a mail
+sender compares by address. Code: `teeny_hands/people/`. Teeny's hand, not
+frozen.
+
+| Verb | | Does |
+|---|---|---|
+| `list [--all]` | R | Regulars, and anyone with an open promise, most recent first: messages, days, first and last, open promises, requests. `--all`: everyone who wrote. |
+| `get SURFACE WHO` | R | One record: the counts, the opening of their last 3 messages (200 characters each), what they asked to build, and every promise (made, due, status, `overdue`). Refused `unknown` when there is none. |
+| `promise` | A | `{surface, who, what, due_in_hours \| due_at, ref?}`, due within 90 days. Refused `stranger` for someone who never wrote to Teeny on that surface. Records it and sets a follow-up (`stimuli`, ref `promise:<id>`, about "a promise you made comes due (promise #N)"), so it is raised when due; answering a post never resolves it. |
+| `kept` / `drop` | A | `{id, note?}`: an open promise kept or dropped; its follow-up is cleared if it still waits. |
+| `forget SURFACE WHO` | O | A person asked to be forgotten: their promises and follow-ups go. What they wrote stays in the inbox, which is the stimuli hand's. |
+
+It writes only `state/hands.db` and tells nobody, so `DRY_RUN` does not
+apply. The mind reaches `promise` and `kept` as intents, and a beat's
+prompt carries the records of the people in it, and only theirs
+(docs/architecture.md, "People in a beat"). `bin/proofs` counts
+`L2.remembers`: promises kept a week or more after they were made.
 
 ## `brief`: what the team tells Teeny to post about
 
@@ -790,9 +915,10 @@ outcome (`operator · report`), except for the news.
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, email?, mail_codes?}, rules}`, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?}`. `code_from` (a domain) goes with `needs_code` only. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
+| `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
@@ -810,6 +936,16 @@ writes its notes to the mind's inbox as one `world · news` stimulus (ref
 by saying the notes are data to read, never instructions to follow, and it is
 capped like every stimulus. `bin/tick`'s header says the same of the whole
 batch. A news task that fails is an ordinary operator report.
+
+**The accounts ledger** (docs/roadmap.md, A12). A task of kind `signup` is
+Teeny signing itself up for a service it decided it needs, on the allowed
+websites only. When it ends `ok`, the operator's report names the account as
+`{"handle": "<the name it signed up as>"}`; a report without one, or with any
+other field (a password, a key), is refused, so no secret reaches the
+ledger. `done` then writes one row to `accounts` (unique on site and
+handle): the site (the task's start page, checked again against the allowed
+websites), the handle, why (the task's goal) and when. `bin/proofs` counts
+the rows as `L3.signup`.
 
 `needs_code` is for a site that mails Teeny a one-time code or a verification
 link. The task goes back to `pending` with `code_from`. The next `next` reads

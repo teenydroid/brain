@@ -43,7 +43,7 @@ it, and it reads only the ledgers hands write after an action succeeded.
 
 Live, before appending, the published chain is verified from the first line;
 a chain that does not verify (someone else pushed, or history was edited)
-refuses the run rather than build on it. Only `receipts/`, `head.json`,
+refuses the run rather than build on it. Only `receipts/`, `head.json`, `world/`,
 `stats/`, `wallet.json` and `days/` are ever staged, the staged diff still goes through
 the secret gate (every value in secrets/*.env of 12 characters or more, and
 the usual key shapes), and a push that fails resets the checkout to the remote so the next run rebuilds.
@@ -56,6 +56,15 @@ check rather than defaults:
        "moltbook": {"karma": 77}, "x": {"followers": 120, "posts": 301}}
     wallet.json                                the wallet's public address
       {"address": "<base58 Solana public key>", "cluster": "mainnet"}
+    world/latest.json, world/YYYY-MM-DD.json   the world score W and J (P6)
+      {"date": "2026-11-12", "days": 7, "J": 0.1352, "penalty": 1,
+       "components": {"attention": {"value": 85.4, "was": 70, "credit": 0.1,
+       "weight": 1.0, "unit": "weighted accounts", "version": 2}, ...},
+       "reach": {"human": {"accounts": 2, "first_contact_theirs": 2, "followers": 0}, ...}}
+
+W and J are what `hands/world report --days 7` computes (frozen code), only
+for the components the scorer names, only finite numbers, with each unit
+taken from the scorer rather than the data; nothing when there is no J yet.
 
 The stats are the rows of the newest snapshot date (hands/stats writes them
 from what X, Moltbook and GitHub report), only for the sources and metrics in
@@ -111,6 +120,7 @@ HEAD_FILE = "head.json"
 RECEIPTS_DIR = "receipts"
 STATS_DIR = "stats"
 WALLET_FILE = "wallet.json"
+WORLD_DIR = "world"
 #: Moltbook statuses that mean the post or comment is up.
 MOLTBOOK_LIVE = ("posted", "verified")
 
@@ -425,13 +435,66 @@ def public_wallet(core: Callable[[str, Json], Any], env: Any) -> Json | None:
     return {"address": address, "cluster": cluster}
 
 
+def _finite(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or abs(value) > MAX_COUNT:
+        return None
+    value = round(float(value), 4)
+    return int(value) if value.is_integer() else value
+
+
+def public_world() -> Json | None:
+    """W and J as hands/world reports them over 7 days; None before there is a J."""
+    from teeny_hands.world import collect as world, score
+
+    try:
+        got = world.report(7)
+    except Exception:  # noqa: BLE001 - no world, no file; the rest still publishes
+        return None
+    date, j = got.get("as_of"), _finite(got.get("J"))
+    if j is None or not isinstance(date, str) or not DATE.fullmatch(date):
+        return None
+    components: Json = {}
+    reach: Json = {}
+    for item in got.get("components") or []:
+        comp = score.BY_NAME.get(item.get("component")) if isinstance(item, dict) else None
+        value = _finite(item.get("value")) if comp else None
+        if comp is None or value is None:
+            continue
+        entry: Json = {"value": value, "weight": comp.weight, "unit": comp.unit}
+        for name in ("was", "credit"):
+            number = _finite(item.get(name))
+            if number is not None:
+                entry[name] = number
+        if _count(item.get("version")) is not None:
+            entry["version"] = _count(item.get("version"))
+        components[comp.name] = entry
+        split = item.get("split") if comp.name == "attention" else None
+        if isinstance(split, dict):
+            for kind in score.REACH_CLASSES:
+                part = split.get(kind) if isinstance(split.get(kind), dict) else {}
+                counted = {k: _count(part.get(k)) for k in ("accounts", "first_contact_theirs", "followers")}
+                reach[kind] = {k: v for k, v in counted.items() if v is not None}
+    if not components:
+        return None
+    out: Json = {"date": date, "days": 7, "J": j, "components": components}
+    penalty = _finite((got.get("penalty") or {}).get("events"))
+    if penalty is not None:
+        out["penalty"] = penalty
+    if reach:
+        out["reach"] = reach
+    return out
+
+
 def _core(method: str, params: Json) -> Any:
     return hand.core(method, params, timeout=CORE_TIMEOUT)
 
 
-def write_numbers(root: Path, stats: Json | None, wallet: Json | None) -> list[str]:
+def write_numbers(root: Path, stats: Json | None, wallet: Json | None, world: Json | None = None) -> list[str]:
     """Writes the files there is something for; returns the paths, relative to root."""
     files: dict[str, Json] = {}
+    if world:
+        files[f"{WORLD_DIR}/latest.json"] = world
+        files[f"{WORLD_DIR}/{world['date']}.json"] = world
     if stats:
         files[f"{STATS_DIR}/latest.json"] = stats
         files[f"{STATS_DIR}/{stats['date']}.json"] = stats
@@ -595,7 +658,7 @@ def _issued_db() -> sqlite3.Connection:
     return hand.open_db(ISSUED_SCHEMA)
 
 
-def publish(actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
+def publish(actions: list[Action], stats: Json | None = None, wallet: Json | None = None, world: Json | None = None) -> Json:
     token = hand.setting("RECEIPTS_GITHUB_TOKEN") or hand.setting("DIARY_GITHUB_TOKEN") or hand.setting("GITHUB_TOKEN")
     if not token:
         raise hand.HandError("no token: set RECEIPTS_GITHUB_TOKEN (or GITHUB_TOKEN) in secrets/teeny.env")
@@ -610,9 +673,10 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
             conn.close()
         fresh = [a for a in actions if a.key and a.key not in published]
         issued = append(repo, fresh, seq, prev, _iso(hand.now())[:10]) if fresh else []
-        write_numbers(repo, stats, wallet)
+        write_numbers(repo, stats, wallet, world)
         days = diary_days.add(repo, True, check_secrets, _repo_name())
-        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, diary_days.DAYS_DIR) if (repo / p).exists()]
+        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, WORLD_DIR, diary_days.DAYS_DIR)
+                 if (repo / p).exists()]
         if paths:
             _git(repo, "add", "--", *paths)
         if not _git(repo, "diff", "--cached", "--name-only").strip():
@@ -643,12 +707,13 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1, "days": days}
 
 
-def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
+def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None,
+            world: Json | None = None) -> Json:
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)
     issued = append(root, [a for a in actions if a.key], 0, GENESIS, _iso(hand.now())[:10])
-    write_numbers(root, stats, wallet)
+    write_numbers(root, stats, wallet, world)
     days = diary_days.add(root, False, check_secrets, _repo_name())
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0, "days": days}
 
@@ -685,13 +750,15 @@ def main(argv: list[str]) -> int:
         finally:
             conn.close()
         wallet = public_wallet(_core, hand.secrets())
-        numbers = {"stats": stats["date"] if stats else None, "wallet": wallet is not None}
+        world = public_world()
+        numbers = {"stats": stats["date"] if stats else None, "wallet": wallet is not None,
+                   "world": world["date"] if world else None}
         if args.preview or hand.dry_run():
             root = Path(args.preview) if args.preview else hand.state_dir() / "receipts-preview"
             hand.emit({"ok": True, "dry_run": True, "preview": str(root), "withheld": withheld, **numbers, "pushed": 0,
-                       **preview(root, actions, stats, wallet)})
+                       **preview(root, actions, stats, wallet, world)})
             return 0
-        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **numbers, **publish(actions, stats, wallet)})
+        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **numbers, **publish(actions, stats, wallet, world)})
         return 0
     except hand.Refused as refused:
         hand.emit({"ok": False, "refused": refused.reason, **refused.detail})

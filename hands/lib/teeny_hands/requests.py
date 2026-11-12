@@ -224,6 +224,15 @@ def pick(body: Any) -> Mapping[str, Any]:
     tells nobody, so DRY_RUN does not stop it: what the builder does with the
     pick goes through hands that keep DRY_RUN themselves."""
     request_id, reason = _decision_body(body)
+    # The weekly vote (teeny_hands.votes): a winner still pending is the next
+    # pick, and nothing else is, until it is picked, skipped or built.
+    from . import votes
+
+    vconn = votes.db()
+    try:
+        winner = votes.waiting_winner(vconn)
+    finally:
+        vconn.close()
     conn = _db()
     try:
         with hand.transaction(conn):
@@ -232,6 +241,13 @@ def pick(body: Any) -> Mapping[str, Any]:
             ).fetchone()
             if row is None:
                 raise hand.Refused("unknown build request", rule="unknown", id=request_id)
+            if winner and winner["request"] != request_id:
+                raise hand.Refused(
+                    f"request {winner['request']} won the weekly vote and is still pending: pick it, or skip it with a reason",
+                    rule="vote",
+                    id=request_id,
+                    winner=winner["request"],
+                )
             if row["status"] != "pending":
                 raise hand.Refused(
                     f"request {request_id} is {row['status']}; only a pending request can be picked",
@@ -268,6 +284,8 @@ def pick(body: Any) -> Mapping[str, Any]:
         with hand.transaction(conn):
             conn.execute("UPDATE build_requests SET status = 'picked', note = ? WHERE id = ?", (reason, request_id))
             _event(conn, request_id, "pick", "picked", reason)
+            if winner:
+                votes.honour(conn, request_id)
     finally:
         conn.close()
     return {"id": request_id, "status": "picked", "reason": reason}

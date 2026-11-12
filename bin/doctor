@@ -199,6 +199,29 @@ else
   note "guard screen" fail "no hands/guard in $root: nothing could be published"
 fi
 
+# --- the X profile says what it is (docs/roadmap.md, P1) ------------------------
+# The bio must say the account is automated and name the operator
+# (X_OPERATOR_HANDLE). Read from the profile bin/stats-snapshot keeps in
+# state/hands.db, never from X: a boot makes no call. A warning, never a
+# failure: the bio is the operator's to fix on X.
+if [ -f "$root/hands/lib/teeny_hands/x/profile.py" ]; then
+  if profile_out="$(python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands import hand
+from teeny_hands.x import profile
+env = Path(sys.argv[3])
+settings = hand._parse_env_file(env.read_text()) if env.is_file() else {}
+status, detail = profile.check(Path(sys.argv[2]), settings)
+print(status, detail)
+' "$root/hands/lib" "$state/hands.db" "$secrets/teeny.env" 2>&1)"; then
+    note "x profile" "${profile_out%% *}" "${profile_out#* }"
+  else
+    note "x profile" warn "the check could not run: $(tail -n 1 <<<"$profile_out")"
+  fi
+fi
+
 # --- the wallet: no wallet keys without sane caps ---------------------------------
 # Once any WALLET_* key is set, every cap must be set, above zero and under its
 # ceiling (hands/lib/teeny_hands/wallet/caps.py): a wallet never boots uncapped.

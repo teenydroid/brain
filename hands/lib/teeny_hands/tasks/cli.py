@@ -5,11 +5,13 @@
                                must be on deploy/browser-allow.txt
   A  next                      claim a task: the operator's open one, else the oldest pending
   A  done                      stdin {task_id, outcome: ok|failed|needs_human, notes,
-                               screenshots?: [paths]}; images are copied under
-                               state/media/tasks/<id>/ for hands/x upload
+                               screenshots?: [paths], account?: {handle}}; images are copied under
+                               state/media/tasks/<id>/ for hands/x upload; a signup that ended
+                               ok names its account, which lands in `accounts`
   J  desk                      settle the operator's report (state/workbench/desk/task-done.json)
                                with `done`, then write its next task to state/workbench/desk/task.json
   R  list [--status S] [--limit N]   the tasks, newest first
+  R  accounts                  the accounts Teeny signed up for: site, handle, why, when
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ def parser() -> argparse.ArgumentParser:
     verb("next", lambda a, _: queue.next_task(), "claim the next task for the operator")
     verb("done", lambda a, body: queue.done(body), "finish the claimed task (JSON on stdin)", body=True)
     verb("desk", lambda a, _: queue.desk(), "settle the operator's report and lay out its next task")
+    verb("accounts", lambda a, _: queue.accounts(), "the accounts signup tasks recorded")
     listing = verb("list", lambda a, _: queue.listing(a.status, a.limit), "the tasks, newest first")
     listing.add_argument("--status", choices=queue.STATUSES, default=None)
     listing.add_argument("--limit", type=_limit, default=50)

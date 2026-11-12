@@ -19,6 +19,14 @@ export const PAGES: PageMeta[] = [
     scene: 'stream',
   },
   {
+    slug: '/dashboard',
+    label: 'Dashboard',
+    eyebrow: 'Dashboard',
+    title: 'Teeny in numbers, from the ledger',
+    lede: 'The world score and its growth, who the attention came from, the follower counts and the receipts. Every number here is read from the published ledger; what is not published yet says so and shows nothing.',
+    scene: 'stream',
+  },
+  {
     slug: '/brain',
     label: 'Brain',
     eyebrow: 'Brain',

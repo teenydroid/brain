@@ -16,6 +16,7 @@ day's value rather than adding a row.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
 
@@ -65,6 +66,19 @@ def x_metrics() -> dict[str, float]:
     user = XApi.from_settings().user_by_username(handle)
     if user is None:
         raise hand.HandError(f"X has no account @{handle}")
+    # The same answer carries the bio: kept for bin/doctor's disclosure check
+    # (x/profile.py), so the doctor never calls X. A store that fails only
+    # leaves the check stale.
+    try:
+        from ..x import profile
+
+        conn = hand.db()
+        try:
+            profile.remember(conn, handle, user, hand.now())
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"hands/stats: could not keep the X profile: {type(exc).__name__}", file=sys.stderr)
     return _pick(user, {"followers": "followers", "following": "following", "posts": "posts"})
 
 

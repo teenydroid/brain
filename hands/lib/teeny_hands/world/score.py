@@ -18,6 +18,10 @@ growth is counted.
 - **A daily cap per component, both ways.** Each day's step is clipped to
   ±cap (±cap·k across a gap of k days), so one spike can't carry J and one
   glitch in a source can't sink it.
+- **A new version of a component starts a new series.** When what a
+  component counts changes (attention became people-weighted reach in
+  version 2), the step from the last old row to the first new one counts
+  zero (`rebased`), so a change of definition is never read as growth.
 - **No credit for side effects.** The penalty is a count of events (guard
   holds on Teeny's own text, payments in doubt), each one subtracting
   PENALTY_WEIGHT, with no cap.
@@ -45,9 +49,11 @@ class Component:
 #: the world (lore) lowest, because Teeny writes ARCS.md itself.
 COMPONENTS: tuple[Component, ...] = (
     Component(
-        "attention", 1.0, 50.0, 0.10, "accounts",
-        "followers on X, Moltbook and GitHub, Moltbook karma, and distinct accounts that mentioned, "
-        "replied to, mailed or messaged Teeny in the 7 days before the snapshot",
+        "attention", 1.0, 50.0, 0.10, "weighted accounts",
+        "people-weighted reach (version 2): followers on X, Moltbook and GitHub and Moltbook karma, and the distinct "
+        "accounts that mentioned, replied to, commented, mailed or messaged Teeny in the 7 days before the snapshot, "
+        "each weighed by whether it is a human, an agent or unknown, and an account that reached Teeny first "
+        "counting double",
     ),
     Component("tiny", 0.8, 10_000.0, 0.20, "tokens", "$TINY held in Teeny's wallet, in tokens, never in dollars"),
     Component(
@@ -61,6 +67,43 @@ COMPONENTS: tuple[Component, ...] = (
 )
 
 BY_NAME = {c.name: c for c in COMPONENTS}
+
+#: --- attention, version 2: people-weighted reach (docs/roadmap.md, P2) ----------
+#: Rows written before version 2 have no `version` in their detail and count
+#: as version 1 (an unweighted sum). `credit` never counts the step between two
+#: versions.
+ATTENTION_VERSION = 2
+REACH_CLASSES = ("human", "agent", "unknown")
+#: A follower or a point of karma: a stock, weighed by who holds it.
+FOLLOWER_WEIGHTS = {"human": 1.0, "unknown": 0.5, "agent": 0.1}
+#: An account that engaged in the 7-day window: a flow, worth more than a
+#: follower because it did something.
+ENGAGED_WEIGHTS = {"human": 5.0, "unknown": 2.5, "agent": 0.5}
+#: An engaged account whose first contact came before Teeny ever addressed
+#: it (it was not answering Teeny's outreach) counts this many times over.
+FIRST_CONTACT_FACTOR = 2.0
+#: Who holds each attention stat. No source says who an X or GitHub follower
+#: is, so they are unknown; Moltbook admits only AI agents.
+STAT_CLASSES = {
+    "x.followers": "unknown",
+    "github.followers": "unknown",
+    "moltbook.followers": "agent",
+    "moltbook.karma": "agent",
+}
+#: Why each surface's accounts get the class they do (`collect.classify`).
+CLASS_RULES = {
+    "moltbook": "agent: Moltbook is a network for AI agents only",
+    "telegram": "human: Telegram marks every bot account (is_bot), and bots never reach the inbox",
+    "gh": "agent when the login ends in [bot] (a GitHub App), unknown otherwise",
+    "x": "unknown: nothing X returns says whether an account is automated",
+    "mail": "unknown: automated senders never reach the inbox, but nothing says a person wrote the rest",
+}
+
+
+def engaged_weight(kind: str, first_contact_theirs: bool) -> float:
+    """What one engaged account adds to attention (version 2)."""
+    return ENGAGED_WEIGHTS[kind] * (FIRST_CONTACT_FACTOR if first_contact_theirs else 1.0)
+
 
 #: The penalty component: a count of side effects, not a level.
 PENALTY = "penalty"
@@ -82,20 +125,29 @@ def _day(text: str) -> _date:
     return _date.fromisoformat(text)
 
 
-def credit(series: Iterable[tuple[str, float]], component: Component) -> dict[str, Any]:
-    """A component's growth over a run of (date, value) rows, oldest first.
+def credit(series: Iterable[tuple], component: Component) -> dict[str, Any]:
+    """A component's growth over a run of (date, value) or (date, value,
+    version) rows, oldest first.
 
     `delta_log` is the plain change, curve(last) − curve(first). `credit` is
     what J counts: the sum of each step between consecutive rows, each
     clipped to ±daily_cap times the days it spans. `capped_days` says how
-    many steps the cap cut.
+    many steps the cap cut. A step between rows of different versions counts
+    zero, and `rebased` says how many there were; `delta_log` then runs from
+    the first row of the newest version.
     """
-    rows = sorted(series)
+    rows = sorted((r[0], float(r[1]), int(r[2]) if len(r) > 2 else 1) for r in series)
     if len(rows) < 2:
-        return {"delta_log": 0.0, "credit": 0.0, "capped_days": 0, "steps": 0}
+        return {"delta_log": 0.0, "credit": 0.0, "capped_days": 0, "steps": 0, "rebased": 0}
     total = 0.0
     capped = 0
-    for (d1, v1), (d2, v2) in zip(rows, rows[1:]):
+    rebased = 0
+    start = rows[0]
+    for (d1, v1, k1), (d2, v2, k2) in zip(rows, rows[1:]):
+        if k1 != k2:
+            rebased += 1
+            start = (d2, v2, k2)
+            continue
         gap = max(1, (_day(d2) - _day(d1)).days)
         step = curve(v2, component.offset) - curve(v1, component.offset)
         limit = component.daily_cap * gap
@@ -103,8 +155,8 @@ def credit(series: Iterable[tuple[str, float]], component: Component) -> dict[st
             capped += 1
             step = math.copysign(limit, step)
         total += step
-    delta = curve(rows[-1][1], component.offset) - curve(rows[0][1], component.offset)
-    return {"delta_log": delta, "credit": total, "capped_days": capped, "steps": len(rows) - 1}
+    delta = curve(rows[-1][1], component.offset) - curve(start[1], component.offset)
+    return {"delta_log": delta, "credit": total, "capped_days": capped, "steps": len(rows) - 1, "rebased": rebased}
 
 
 def j_score(credits: dict[str, float], penalty_events: float) -> float:

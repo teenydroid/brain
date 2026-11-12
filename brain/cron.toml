@@ -51,7 +51,8 @@ tz = "Asia/Kolkata"
 command = "bin/act humans"
 enabled = false
 
-# A round-number milestone crossed this week, from the stats table only.
+# A first proven in bin/proofs, or a round number crossed this week, posted
+# only through hands/firsts announce, which checks it again (docs/roadmap.md, P3).
 [jobs.milestone]
 schedule = "30 13 * * *"
 tz = "Asia/Kolkata"

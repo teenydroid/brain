@@ -206,12 +206,28 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
 
 
+#: The switch for `like`, off unless set. X's developer guidelines
+#: (https://docs.x.com/developer-guidelines, reviewed 2026-11-12): "Likes must
+#: be directly initiated by the authenticated user"; automated liking "by
+#: keyword, hashtag, user, or schedule" is prohibited. Every caller of this
+#: verb is a model (bin/act's `like` output, the mind's `like` intent), so
+#: none of its likes is user-initiated (docs/roadmap.md, P1).
+LIKES_FLAG = "X_LIKES"
+
+
 def like(post_id: str, x: XApi | None = None) -> Json:
-    """Likes a post as the account. Nothing is said, so there is no guard;
-    under DRY_RUN nothing reaches X, not even "who am I". A like that went
-    out is written to `x_likes`."""
+    """Likes a post as the account. Refused (`likes_off`) unless X_LIKES is
+    on, under DRY_RUN too, so a rehearsal shows what the live run would do.
+    Nothing is said, so there is no guard; under DRY_RUN nothing reaches X,
+    not even "who am I". A like that went out is written to `x_likes`."""
     if not rules.is_x_id(post_id):
         raise hand.HandError("the post to like must be a numeric X post id")
+    if not hand.flag(LIKES_FLAG, False):
+        raise hand.Refused(
+            "likes are off: X's developer guidelines prohibit automated likes (a like must be initiated by the "
+            "person who owns the account), and every like here is chosen by a model; nothing was liked",
+            rule="likes_off",
+        )
     if hand.dry_run():
         return {"dry_run": True, "would_like": post_id}
     x = x or twitr.client()
