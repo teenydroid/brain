@@ -60,7 +60,8 @@ Teeny has three parts:
   off.
 - It answers what people say to it. X pushes mentions, replies and quotes to a
   webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
-  AgentMail inbox, and comments from Moltbook. All of it lands in one inbox,
+  AgentMail inbox, comments from Moltbook and messages from Telegram when a bot
+token is set. All of it lands in one inbox,
   and every 5 minutes `bin/tick` hands a batch to Teeny's mind, which answers
   with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
@@ -85,8 +86,8 @@ Teeny has three parts:
 X webhook (xhook) ──┐
 bin/mentions ───────┤
 bin/mail ───────────┼──► one inbox ──► bin/tick, every 5 min ──► teeny:mind thread
-hands/moltbook ─────┘   (hands/stimuli,   takes a batch            (one model turn)
-                         in hands.db)                                     │
+hands/moltbook ─────┤   (hands/stimuli,   takes a batch            (one model turn)
+hands/telegram ─────┘    in hands.db)                                     │
                                                                           │ intents: reply,
                                                                           │ post, like, mail...
                                                                           ▼
@@ -123,8 +124,8 @@ between each agent and the outside world:
 bin/build-ship ─────────────────────► state/workbench/desk/ ◄────────────── builder agent
 (hands/build     build.json                                   build-done.json  (every 2 h; writes
  desk + ship)  ◄─────────────────────                       ──────────────►   and tests in
-     │           collects the report                        writes the report  state/workbench/<job>/,
-     ▼                                                                         sandboxed, no network)
+     │           collects the report                        writes the report  state/workbench/<job>/;
+     ▼                                                                         files jailed, network open)
 hands/gh: guard, owner rule, secret scan, DRY_RUN ──► GitHub
 
 bin/tasks-desk ── task.json ──► operator agent ──► browser, on deploy/browser-allow.txt only
