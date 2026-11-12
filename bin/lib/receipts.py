@@ -66,6 +66,14 @@ snapshot with nothing allowed in it, or a core that does not answer, leaves
 the files already published as they are. Live, a run with no new receipts
 still pushes when either file changed, and nothing at all when neither did.
 
+One more rides the push when DIARY_PUBLISH=1: each finished day's diary
+page, `days/YYYY-MM-DD.md`, with its own hash chain (`days/chain.jsonl`,
+`days/head.json`). That is free text, so it is the one exception to the rule
+above, and it takes the road every public word takes: the secret gate, then
+the guard, and only the guard's text is written (bin/lib/diary_days.py;
+docs/roadmap.md, A14). A days chain that does not verify skips the days and
+never the receipts.
+
 Under DRY_RUN (the default) a fresh chain is written to state/receipts-preview/
 and nothing touches git or hands.db. Live, the repository is cloned to
 state/receipts-repo/ and pushed with RECEIPTS_GITHUB_TOKEN (or
@@ -615,6 +623,8 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the receipts carry a secret, nothing committed", why=why.reason) from None
         message = f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}" if issued else "receipts: stats and wallet"
+        if days.get("published"):
+            message += f"; days: {', '.join(days['published'])}"
         _git(repo, "commit", "-q", "-m", message)
         try:
             _git(repo, "push", "-q", "origin", f"HEAD:{branch}", token=token)
