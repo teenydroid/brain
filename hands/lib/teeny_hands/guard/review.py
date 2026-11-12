@@ -39,7 +39,6 @@ published. The pinned `guard-review` job runs it.
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 import re
@@ -139,7 +138,7 @@ def eligible(hold: Mapping[str, Any], cfg: Mapping[str, Any], releasers: Mapping
         return "money"
     if (hold.get("context") or {}).get("surface") not in releasers:
         return "nothing publishes it"
-    at = holds._epoch(hold.get("at")) if hasattr(holds, "_epoch") else _epoch(hold.get("at"))
+    at = _epoch(hold.get("at"))
     if at is None or now - at > cfg["max_age_hours"] * 3600:
         return "too old"
     return None
@@ -243,6 +242,3 @@ def listing(sampled_only: bool = False, limit: int = 100) -> list[dict[str, Any]
         conn.close()
     return [{"at": holds.iso(r[0]), "hold_id": r[1], "category": r[2], "outcome": r[3], "sampled": bool(r[4]),
              "model": r[5]} for r in rows]
-
-
-__all__ = ["run", "listing", "eligible", "config", "reviewer_model", "NEVER_RELEASE", "MONEY", "json"]
