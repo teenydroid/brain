@@ -25,6 +25,11 @@ tick an item.
 | 5 self-evolution | 7 | 4 | 1 | 2 |
 | 6 the human leaves | 4 | 0 | 2 | 2 |
 
+The counts are of the items as they stood at the audit. This page's tracks
+added nine more to `DIRECTIVE.md` (people as the audience, saying what it
+is, selling, public accounts, paying its own bills, and the four governance
+items in Level 6), and none of those is built.
+
 So there are two kinds of work, and they need different hands:
 
 - **Proof work** is the operator's. It means switching on what is built,
