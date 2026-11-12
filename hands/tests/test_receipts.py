@@ -251,6 +251,20 @@ class ReceiptsTest(ReceiptsCase):
         for bit in PRIVATE + ("never made it",):
             self.assertNotIn(bit, text)
 
+    def test_a_tiny_buy_that_went_out_becomes_a_receipt_of_references_only(self):
+        from teeny_hands.wallet import store as wallet_store
+
+        wallet_store.db().close()  # the wallet's own tables, wallet_tiny_buys among them
+        for status, sig in (("bought", SIG), ("skipped", None), ("failed", None)):
+            self.sql("INSERT INTO wallet_tiny_buys (created_at, updated_at, cluster, status, input_mint, output_mint,"
+                     " usdc_raw, usd_micro, since, earned_micro, spent_micro, share, reason, signature)"
+                     " VALUES (?, ?, 'mainnet', ?, ?, ?, ?, ?, 0, 0, 0, '0.5', 'secret plans', ?)",
+                     AT, AT, status, wallet_caps.USDC_MINTS["mainnet"], wallet_caps.TINY_MINT,
+                     5000000 if sig else 0, 5000000 if sig else 0, sig)
+        actions, _ = self.gather()
+        bought = [a.ref for a in actions if a.kind == "wallet.bought"]
+        self.assertEqual(bought, [{"signature": SIG, "cluster": "mainnet", "usdc_raw": 5000000, "mint": wallet_caps.TINY_MINT}])
+
     def test_a_payment_on_any_cluster_the_wallet_records_becomes_a_receipt(self):
         # The wallet hand writes WALLET_CLUSTER as it is (`mainnet` or
         # `devnet`); a mainnet payment must not be dropped from the ledger.
