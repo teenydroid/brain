@@ -101,3 +101,25 @@ def activity(days: int, gh: GitHubApi | None = None) -> Json:
         }
 
     return {"user": me, "since": since, "days": days, **cache.cached("activity", (me.lower(), since), fetch)}
+
+
+#: Check conclusions that mean the check failed.
+RED = ("failure", "timed_out", "cancelled", "action_required", "startup_failure")
+
+
+def checks(repo: str, number: int, gh: GitHubApi | None = None) -> Json:
+    """A pull request's state and the checks on its head commit (docs/roadmap.md,
+    A7): `red` and `pending` name the checks, never their logs. Not cached:
+    a babysitter needs it fresh."""
+    owner, name = split_repo(repo)
+    gh = gh or GitHubApi.from_settings()
+    pr = gh.pr(owner, name, number)
+    if pr is None:
+        raise hand.Refused(f"{owner}/{name} has no pull request {number}", rule="not_found")
+    runs = gh.check_runs(owner, name, pr["head_sha"]) if pr.get("head_sha") else []
+    red = sorted({str(r["name"]) for r in runs if r.get("conclusion") in RED})
+    pending = sorted({str(r["name"]) for r in runs if r.get("status") != "completed"})
+    green = sorted({str(r["name"]) for r in runs if r.get("conclusion") in ("success", "neutral", "skipped")})
+    return {"repo": f"{owner}/{name}", "number": number, "state": pr.get("state"), "merged": pr.get("merged"),
+            "head_ref": pr.get("head_ref"), "head_sha": pr.get("head_sha"), "user": pr.get("user"),
+            "red": red, "pending": pending, "green": green}

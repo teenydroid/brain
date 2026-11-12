@@ -8,6 +8,7 @@ and DRY_RUN itself.
   R  issues OWNER/REPO [--label L] [--max N]   open issues (not pull requests)
   R  pr OWNER/REPO NUMBER                one pull request
   R  contributing OWNER/REPO             whether its policy forbids AI contributions
+  R  checks OWNER/REPO NUMBER            a pull request's state and its red, pending and green checks
   R  activity [--days N]                 Teeny's own PRs, merged PRs and commits
   A  create-repo   {name, description?, private?}       under GITHUB_USER only
   A  push          {workdir, repo, branch, message}     from state/workbench/, to an own repo
@@ -84,6 +85,9 @@ def parser() -> argparse.ArgumentParser:
     one = verb("pr", _pr, "one pull request")
     one.add_argument("repo", metavar="OWNER/REPO")
     one.add_argument("number", type=_bounded(1, 10**9, "NUMBER"))
+    checked = verb("checks", lambda a, _: reads.checks(a.repo, a.number), "a pull request's checks")
+    checked.add_argument("repo", metavar="OWNER/REPO")
+    checked.add_argument("number", type=_bounded(1, 10**9, "NUMBER"))
     verb("contributing", _contributing, "whether a repo's policy forbids AI contributions").add_argument(
         "repo", metavar="OWNER/REPO"
     )

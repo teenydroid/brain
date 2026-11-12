@@ -12,7 +12,11 @@
            build/selfclone.py)
   status   claimed  the builder has it
            ok       built and tested, waiting for `ship`
-           failed   the builder gave up, or shipping failed MAX_SHIP_ATTEMPTS times
+           failed   the builder said it failed, the ship step's own test run
+                    failed (`verified`), or shipping failed MAX_SHIP_ATTEMPTS times
+           gave_up  the builder said it could not do it, and why: an honest
+                    answer, never counted as a failure; its request goes back
+                    as `skipped` with the reason
            shipped  pushed to GitHub as GITHUB_USER/<repo> (a self job: its
                     branch pushed and a pull request opened, `pr_url`)
 
@@ -21,7 +25,14 @@ A job's folder is state/workbench/<slug>/; the builder works only there, and
 folder is the clone, state/workbench/brain/, on the branch teeny/<slug>.
 
 This hand reads `build_requests` and writes back only to a request it
-built: `shipped` with the repository, or `failed` with the reason.
+built: `shipped` with the repository, `failed` with the reason, or `skipped`
+when the builder gave up.
+
+`ship` trusts its own test run, never the builder's report (docs/roadmap.md,
+A6): before a job is pushed, build/verify.py runs the job's tests in a
+Landlock jail (the job's folder only, no network), and only a pass ships. The
+run is kept on the job (`verified`), and a failure fails the job with the
+output and tells the mind why.
 """
 
 from __future__ import annotations
@@ -36,10 +47,13 @@ from typing import Any, Mapping
 from .. import desk as _desk
 from .. import hand
 from .. import requests as build_requests
+from . import verify
 from . import selfclone
 
-KINDS = ("request", "daily", "self")
-STATUSES = ("claimed", "ok", "failed", "shipped")
+KINDS = ("request", "daily", "self", "fix")
+#: Fix jobs one pull request gets before it is left to a person (docs/roadmap.md, A7).
+MAX_FIX_ATTEMPTS = 3
+STATUSES = ("claimed", "ok", "failed", "shipped", "gave_up")
 #: A claim older than this is abandoned: the builder run that took it ended
 #: without reporting (a crash, a timeout). It is failed and the queue moves on.
 STALE_CLAIM_SECONDS = 6 * 3600
@@ -110,13 +124,14 @@ def db() -> sqlite3.Connection:
     and the columns added since a table was first made."""
     conn = hand.open_db(SCHEMA + build_requests.SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(build_jobs)")}
-    if "pr_url" not in have:
-        try:
-            conn.execute("ALTER TABLE build_jobs ADD COLUMN pr_url TEXT")
-            conn.commit()
-        except sqlite3.OperationalError as exc:
-            if "duplicate column" not in str(exc):
-                raise
+    for column, kind in (("pr_url", "TEXT"), ("verified", "TEXT"), ("parent_id", "INTEGER"), ("branch", "TEXT")):
+        if column not in have:
+            try:
+                conn.execute(f"ALTER TABLE build_jobs ADD COLUMN {column} {kind}")
+                conn.commit()
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):
+                    raise
     return conn
 
 
@@ -128,6 +143,11 @@ def _row(row: sqlite3.Row | None) -> Json | None:
     if row is None:
         return None
     out = {k: row[k] for k in row.keys() if row[k] is not None}
+    if isinstance(out.get("verified"), str):
+        try:
+            out["verified"] = json.loads(out["verified"])
+        except ValueError:
+            pass
     if "tests" in out:
         try:
             out["tests"] = json.loads(out["tests"])
@@ -164,9 +184,9 @@ def _offer(job: Json, resumed: bool = False) -> Json:
         "repo": job["repo"],
         "resumed": resumed,
     }
-    if job["kind"] != "self":
+    if job["kind"] not in ("self", "fix"):
         return {"job": offer, "rules": RULES}
-    branch = self_branch(job)
+    branch = job["branch"] if job["kind"] == "fix" else self_branch(job)
     instructions = hand.root() / SELF_INSTRUCTIONS
     offer.update(branch=branch, base=selfclone.base_of(branch),
                  instructions=instructions.read_text() if instructions.is_file() else None)
@@ -183,6 +203,10 @@ def self_status(branch: str) -> str | None:
         return None
     conn = db()
     try:
+        fixing = conn.execute("SELECT status FROM build_jobs WHERE kind = 'fix' AND branch = ? AND status IN ('claimed', 'ok')"
+                              " ORDER BY id DESC LIMIT 1", (branch,)).fetchone()
+        if fixing is not None:
+            return fixing["status"]  # a fix in progress keeps the branch checked out
         row = conn.execute("SELECT status FROM build_jobs WHERE kind = 'self' AND slug = ?",
                            (branch[len(selfclone.BRANCH_PREFIX):],)).fetchone()
     finally:
@@ -331,8 +355,8 @@ def done(body: Any) -> Json:
     if isinstance(job_id, bool) or not isinstance(job_id, int):
         raise hand.HandError('"job_id" must be the number build_next gave')
     status = body.get("status")
-    if status not in ("ok", "failed"):
-        raise hand.HandError('"status" must be "ok" or "failed"')
+    if status not in ("ok", "failed", "gave_up"):
+        raise hand.HandError('"status" must be "ok", "failed" or "gave_up"')
     summary = _text(body, "summary")
     tests = _tests(body.get("tests"))
     repo = body.get("repo")
@@ -351,9 +375,10 @@ def done(body: Any) -> Json:
             if row["status"] != "claimed":
                 raise hand.Refused(f"job {job_id} is {row['status']}, not claimed", job_id=job_id, status=row["status"])
             folder = hand.root() / row["workdir"]
-            if row["kind"] == "self":
+            if row["kind"] in ("self", "fix"):
                 repo = None  # a self job ships to Teeny's own repository, whatever the report says
-                if status == "ok" and not selfclone.has_changes():
+                since = f"refs/remotes/origin/{row['branch']}" if row["kind"] == "fix" else selfclone.ORIGIN_BASE
+                if status == "ok" and not selfclone.has_changes(since):
                     raise hand.Refused("the clone has no change; an ok self job has something to ship", job_id=job_id)
             elif status == "ok" and not (folder.is_dir() and any(folder.iterdir())):
                 raise hand.Refused("the workdir is empty; an ok job has something to ship", job_id=job_id)
@@ -364,6 +389,10 @@ def done(body: Any) -> Json:
             )
             if status == "failed" and row["request_id"] is not None:
                 _mark_request(conn, row["request_id"], "failed", summary or "the build failed")
+            if status == "gave_up" and row["request_id"] is not None:
+                # An honest "I can't" is not a failure: the request is set
+                # aside with the reason, never marked failed.
+                _mark_request(conn, row["request_id"], "skipped", f"the builder gave up: {summary}")
     finally:
         conn.close()
     # The summary and tests ride along so the mind hears why, not just
@@ -373,8 +402,10 @@ def done(body: Any) -> Json:
 
 #: What the builder writes to state/workbench/desk/build-done.json.
 REPORT_SHAPE = (
-    '{"job_id": <the job_id above>, "status": "ok" or "failed", "summary": "<one line first: what it is, or why it '
-    'failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional better name>"}'
+    '{"job_id": <the job_id above>, "status": "ok", "failed" or "gave_up", "summary": "<one line first: what it is, '
+    'or why it failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional '
+    'better name>"}. "gave_up" is an honest answer when the job cannot be done: say why; it is never held against '
+    'you. "ok" is checked: the tests in workdir are run again before anything ships, and only a pass ships'
 )
 
 
@@ -446,6 +477,113 @@ def _tell_the_mind(kind: str, job: Json, text: str, payload: Mapping[str, Any]) 
         print(f"build: could not tell the mind about job {job['id']}: {exc}", file=__import__("sys").stderr)
 
 
+def _verify(job: Json) -> Json:
+    """The ship step's own run of the job's tests (build/verify.py). A
+    failure fails the job, its request, and tells the mind why, with the
+    output; under DRY_RUN it is only reported. The builder's own report is
+    never the evidence."""
+    checked = verify.run(hand.root() / job["workdir"])
+    if hand.dry_run():
+        return checked
+    note = "its tests did not pass when the ship step ran them"
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            if checked["ok"]:
+                conn.execute("UPDATE build_jobs SET verified = ? WHERE id = ?", (json.dumps(checked), job["id"]))
+            else:
+                conn.execute("UPDATE build_jobs SET verified = ?, status = 'failed', ship_error = ? WHERE id = ?",
+                             (json.dumps(checked), note, job["id"]))
+                if job.get("request_id") is not None:
+                    _mark_request(conn, job["request_id"], "failed", note)
+    finally:
+        conn.close()
+    if not checked["ok"]:
+        _tell_the_mind("tests_failed", job,
+                       f"your build {job['repo']} (job {job['id']}) was not shipped: you reported it ok, but when the "
+                       f"ship step ran its tests ({checked['ran']} ran) they did not pass. what they printed:\n"
+                       f"{checked['output']}",
+                       {"job_id": job["id"], "ran": checked["ran"], "jailed": checked["jailed"]})
+    return checked
+
+
+_PR_NUMBER = re.compile(r"/pull/(\d+)$")
+
+
+def babysit(gh: Any = None) -> Json:
+    """Teeny's own open pull requests with red checks back on the builder's
+    desk (docs/roadmap.md, A7). For each shipped self job whose pull request
+    is still open and has a failed check on its head, with no fix of it in
+    progress and fewer than MAX_FIX_ATTEMPTS fixes so far, the clone checks
+    out the pull request's branch as origin has it and a `fix` job is
+    claimed there: the names of the failed checks, never their logs or a
+    reviewer's words (the builder holds tools; what strangers write reaches
+    only the tool-less mind). The fix ships to the same branch (`ship`).
+    Off unless secrets/teeny.env sets BUILD_BABYSIT=1."""
+    from ..gh import reads
+    from ..gh.client import GitHubApi
+
+    if not hand.flag("BUILD_BABYSIT", False):
+        return {"skipped": "babysitting is off (BUILD_BABYSIT in secrets/teeny.env)"}
+    gh = gh or GitHubApi.from_settings()
+    conn = db()
+    try:
+        parents = [_row(r) for r in conn.execute(
+            "SELECT * FROM build_jobs WHERE kind = 'self' AND status = 'shipped' AND pr_url IS NOT NULL ORDER BY id")]
+        busy = conn.execute("SELECT 1 FROM build_jobs WHERE status = 'claimed'").fetchone() is not None
+    finally:
+        conn.close()
+    out: Json = {"checked": [], "fixes": [], "waiting": None}
+    for parent in parents:
+        assert parent is not None
+        found = _PR_NUMBER.search(parent["pr_url"] or "")
+        if not found:
+            continue
+        branch = self_branch(parent)
+        got = reads.checks(f"{selfclone.repo()}", int(found.group(1)), gh=gh)
+        conn = db()
+        try:
+            tries = conn.execute("SELECT count(*) FROM build_jobs WHERE kind = 'fix' AND parent_id = ?",
+                                 (parent["id"],)).fetchone()[0]
+            active = conn.execute("SELECT 1 FROM build_jobs WHERE kind = 'fix' AND parent_id = ? AND status IN"
+                                  " ('claimed', 'ok')", (parent["id"],)).fetchone() is not None
+        finally:
+            conn.close()
+        entry = {"job_id": parent["id"], "pr": got["number"], "state": got["state"], "red": got["red"], "fixes": tries}
+        out["checked"].append(entry)
+        if got["state"] != "open" or not got["red"] or active or got.get("head_ref") != branch:
+            continue
+        if tries >= MAX_FIX_ATTEMPTS:
+            entry["left_to_a_person"] = True
+            continue
+        if busy:
+            out["waiting"] = "the builder has a job claimed"
+            continue
+        try:
+            selfclone.resume(branch)
+        except (hand.Refused, hand.HandError) as exc:
+            out["waiting"] = f"pull request {got['number']}: {exc.reason if isinstance(exc, hand.Refused) else exc}"
+            continue
+        n = tries + 1
+        text = (f"Your pull request {parent['pr_url']} (branch {branch}) has failing checks: {', '.join(got['red'])}. "
+                f"Make them pass on this branch and change nothing else. The clone is on the branch as GitHub has it. "
+                f"Attempt {n} of {MAX_FIX_ATTEMPTS}.")
+        conn = db()
+        try:
+            with hand.transaction(conn):
+                cursor = conn.execute(
+                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, parent_id, branch, pr_url)"
+                    " VALUES ('fix', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"fix-{parent['id']}-{n}", selfclone.REPO_NAME, text, f"state/workbench/{selfclone.REPO_NAME}",
+                     hand.now(), parent["id"], branch, parent["pr_url"]))
+        finally:
+            conn.close()
+        out["fixes"].append({"job_id": cursor.lastrowid, "parent_id": parent["id"], "branch": branch, "attempt": n,
+                             "red": got["red"]})
+        busy = True  # one job on the builder's desk at a time
+    return out
+
+
 def ship(gh: Any = None) -> Json:
     """Every ok job not yet shipped, oldest first. A refusal or an error is
     kept on the job and retried next run, up to MAX_SHIP_ATTEMPTS; a self
@@ -461,9 +599,18 @@ def ship(gh: Any = None) -> Json:
     with hand.lock("build-ship"):
         for job in jobs:
             assert job is not None
-            is_self = job["kind"] == "self"
+            is_self = job["kind"] in ("self", "fix")
+            if not is_self:
+                checked = _verify(job)
+                if not checked["ok"]:
+                    results.append({"job_id": job["id"], "error": "its tests did not pass when the ship step ran them",
+                                    "verified": checked})
+                    continue
             try:
-                result = selfclone.ship(job, gh) if is_self else _ship_one(job, gh)
+                if job["kind"] == "fix":
+                    result = selfclone.ship_fix(job, gh)
+                else:
+                    result = selfclone.ship(job, gh) if is_self else _ship_one(job, gh)
             except (hand.Refused, hand.HandError) as exc:
                 reason = exc.reason if isinstance(exc, hand.Refused) else str(exc)
                 attempts = int(job.get("ship_attempts") or 0) + 1
@@ -485,6 +632,9 @@ def ship(gh: Any = None) -> Json:
                 if is_self and give_up:
                     _tell_the_mind("ship_refused", job, f"your change to yourself (job {job['id']}) was not "
                                    f"shipped: {reason}", {"job_id": job["id"], "reason": reason})
+                elif give_up:
+                    _tell_the_mind("ship_refused", job, f"your build {job['repo']} (job {job['id']}) was not shipped: "
+                                   f"{reason}", {"job_id": job["id"], "reason": reason})
                 continue
             if not result.get("dry_run"):
                 conn = db()
@@ -499,7 +649,11 @@ def ship(gh: Any = None) -> Json:
                             _mark_request(conn, job["request_id"], "shipped", result.get("pr_url") or result["repo_url"])
                 finally:
                     conn.close()
-                if is_self:
+                if job["kind"] == "fix":
+                    _tell_the_mind("fix_pushed", job, f"your fix (job {job['id']}) is pushed to {job['branch']}; the "
+                                   f"pull request's checks run again: {job.get('pr_url')}",
+                                   {"job_id": job["id"], "branch": job["branch"], "parent_id": job.get("parent_id")})
+                elif is_self:
                     _tell_the_mind("pull_request", job, f"your change to yourself (job {job['id']}) is a pull request "
                                    f"now: {result.get('pr_url')}. The operator merges it or closes it.",
                                    {"job_id": job["id"], "pr_url": result.get("pr_url"), "branch": result["branch"]})
