@@ -61,9 +61,9 @@ them.
    │                           a frozen path fails the job; nothing is pushed
    │
    ├──► CI `frozen` job ───► bin/frozen-check, checker and list from the base  built
-   │      (.github/workflows/check.yml: PRs opened by teenydroid
-   │       or from a gen/<n> branch; a generation's
-   │       teeny/gen-<n> branch is matched by its author)
+   │      (.github/workflows/check.yml: PRs opened by teenydroid,
+   │       and any PR from a teeny/ branch whoever opened it:
+   │       teeny/gen-<n>, teeny/revert-gen-<n>, teeny/<slug>)
    │
    └──► bin/evolve ────────► frozen.check(worktree, main) on each candidate,  built
                                then frozen.check(worktree, main, branch) on

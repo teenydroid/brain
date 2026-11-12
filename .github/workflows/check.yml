@@ -7,8 +7,10 @@
 # - scripts: shellcheck over bin/, the reconciliation tests, and the hands'
 #   unit tests on Python 3.11 (the image's version); none needs a core.
 # - web: the Next.js site.
-# - frozen: on Teeny's own pull requests only (opened by teenydroid, or a
-#   gen/<n> branch), refuse any change to a path in evals/frozen.txt
+# - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
+#   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
+#   revert's teeny/revert-gen-<n>, a self job's teeny/<slug>), refuse any
+#   change to a path in evals/frozen.txt
 #   (docs/evolve.md, "What Teeny may change"). The operator's PRs skip it.
 #
 # Nothing here deploys. There is no deploy-on-merge: the box runs
@@ -76,7 +78,7 @@ jobs:
   frozen:
     if: >-
       github.event_name == 'pull_request' &&
-      (github.event.pull_request.user.login == 'teenydroid' || startsWith(github.head_ref, 'gen/'))
+      (github.event.pull_request.user.login == 'teenydroid' || startsWith(github.head_ref, 'teeny/'))
     runs-on: ubuntu-latest
     steps:
       # Full history: the check diffs the head from its merge base with main.
