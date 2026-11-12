@@ -115,7 +115,7 @@ never lands.
 
 All of this is in files Teeny may edit, or in one input.
 
-- `self-improve` takes `hands/world report` (§6) as an input and must name
+- `self-improve` takes `hands/world report` (§2) as an input and must name
   which component of W its change moves, and by how much it expects to move
   it.
 - It also takes the archive of its past self-changes and what happened to W
