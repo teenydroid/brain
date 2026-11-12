@@ -18,6 +18,7 @@ and Teeny's promises.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
@@ -64,8 +65,15 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
 def key(who: str) -> str:
-    """A handle as the ledgers compare it: trimmed, no leading @, lowercase."""
+    """A handle as the ledgers compare it: trimmed, no leading @, lowercase;
+    for a "Name <address>" sender, the address."""
+    found = _EMAIL.search(who)
+    if found:
+        return found.group(0).lower()
     return who.strip().lstrip("@").strip().lower()
 
 
@@ -91,22 +99,22 @@ def _clip(text: str, n: int) -> str:
 
 
 def _messages(conn: sqlite3.Connection, surface: str, who: str) -> list[sqlite3.Row]:
-    return conn.execute(
-        "SELECT kind, ref, text, at FROM stimuli WHERE surface = ? AND who IS NOT NULL"
-        " AND lower(ltrim(trim(who), '@')) = ? ORDER BY at",
-        (surface, who),
+    rows = conn.execute(
+        "SELECT kind, ref, who, text, at FROM stimuli WHERE surface = ? AND who IS NOT NULL AND trim(who) != '' ORDER BY at",
+        (surface,),
     ).fetchall()
+    return [r for r in rows if key(r["who"]) == who]
 
 
 def _requests(conn: sqlite3.Connection, surface: str, who: str) -> list[Json]:
     try:
         rows = conn.execute(
-            "SELECT id, source, text, status, created_at FROM build_requests"
-            " WHERE status != 'skipped' AND lower(ltrim(trim(author), '@')) = ? ORDER BY created_at",
-            (who,),
+            "SELECT id, source, author, text, status, created_at FROM build_requests"
+            " WHERE status != 'skipped' AND author IS NOT NULL ORDER BY created_at"
         ).fetchall()
     except sqlite3.OperationalError:
         return []
+    rows = [r for r in rows if key(r["author"]) == who]
     # A request's source is "<surface>:<channel>" (x:mentions, mail:inbox).
     return [
         {"id": r["id"], "asked": _clip(r["text"], REQUEST_CHARS), "status": r["status"], "at": _day(r["created_at"])}
@@ -170,19 +178,21 @@ def listing(regulars_only: bool = True) -> Json:
     conn = db()
     try:
         marks = ",".join("?" * len(SURFACES))
-        rows = conn.execute(
-            f"SELECT surface, lower(ltrim(trim(who), '@')) AS who, count(*) AS n, max(at) AS last FROM stimuli"
-            f" WHERE surface IN ({marks}) AND who IS NOT NULL AND trim(who) != ''"
-            f" GROUP BY surface, lower(ltrim(trim(who), '@')) ORDER BY last DESC",
+        last: dict[tuple[str, str], float] = {}
+        for r in conn.execute(
+            f"SELECT surface, who, at FROM stimuli WHERE surface IN ({marks}) AND who IS NOT NULL AND trim(who) != ''",
             SURFACES,
-        ).fetchall()
+        ):
+            pair = (r["surface"], key(r["who"]))
+            if pair[1]:
+                last[pair] = max(last.get(pair, 0.0), r["at"])
         people = []
         seen = set()
-        for r in rows:
-            got = record(r["surface"], r["who"], conn)
+        for pair in sorted(last, key=lambda p: -last[p]):
+            got = record(pair[0], pair[1], conn)
             if got and (got["regular"] or not regulars_only or any(p["status"] == "open" for p in got.get("promises", []))):
                 people.append(_summary(got))
-                seen.add((r["surface"], r["who"]))
+                seen.add(pair)
         for r in conn.execute("SELECT DISTINCT surface, who FROM people_promises WHERE status = 'open'"):
             if (r["surface"], r["who"]) not in seen:
                 got = record(r["surface"], r["who"], conn)
@@ -270,21 +280,20 @@ def close(body: Any, status: str) -> Json:
 
 
 def forget(surface: str, who: str) -> Json:
-    """The operator's: a person asked to be forgotten. Their promises go, and
-    their messages leave the inbox's text (the rows stay, as counts)."""
+    """The operator's: a person asked to be forgotten. Their promises go. What
+    they wrote stays in the inbox, the stimuli hand's to keep."""
     surface, who = _surface(surface), _who(who)
     conn = db()
     try:
         with hand.transaction(conn):
+            rows = conn.execute("SELECT follow_up_id FROM people_promises WHERE surface = ? AND who = ?", (surface, who)).fetchall()
             gone = conn.execute("DELETE FROM people_promises WHERE surface = ? AND who = ?", (surface, who)).rowcount
-            wiped = conn.execute(
-                "UPDATE stimuli SET text = '(forgotten)', who = NULL WHERE surface = ? AND lower(ltrim(trim(who), '@')) = ?"
-                " AND status != 'pending' AND status != 'taken'",
-                (surface, who),
-            ).rowcount
     finally:
         conn.close()
-    return {"forgot": who, "surface": surface, "promises": gone, "messages": wiped}
+    for r in rows:
+        if r["follow_up_id"]:
+            stimuli.drop_follow_up(id=r["follow_up_id"])
+    return {"forgot": who, "surface": surface, "promises": gone}
 
 
 # --- the prompt: records for the people in one beat, and nobody else ---------------
