@@ -275,6 +275,67 @@ class ReflectTest(unittest.TestCase):
         self.assertEqual(filed, ["2026-09-14.md"])
         self.assertTrue((self.root / "state" / "diary" / "2026-09-14.md").read_text().startswith("# Monday 14 September 2026\n"))
 
+    def goal(self, instruction, status="open", proposed=0.0, resolved=None, deadline=7):
+        from teeny_hands.goals import ledger
+
+        conn = ledger.db()
+        try:
+            conn.execute("INSERT INTO goals (instruction, component, channel, family, check_kind, check_params, status,"
+                         " proposed_at, deadline_at, resolved_at) VALUES (?, 'attention', 'x', 'f', 'stats_delta',"
+                         " '{}', ?, ?, ?, ?)",
+                         (instruction, status, T0 + proposed, T0 + proposed + deadline * 86400,
+                          None if resolved is None else T0 + resolved))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_the_goals_weekday_page_lists_the_weeks_goals_and_the_verdicts(self):
+        """docs/roadmap.md, A15: T0 is a Monday, the goals day."""
+        self.goal("ten more followers on x", proposed=-3600)                       # set this week, open
+        self.goal("first merged pr in openhuman", status="solved", proposed=-5 * 86400, resolved=-86400)
+        self.goal("a build shipped", status="failed", proposed=-12 * 86400, resolved=-2 * 86400)
+        self.goal("an old one", status="solved", proposed=-30 * 86400, resolved=-20 * 86400)  # decided long ago
+        self.goal("still going", proposed=-10 * 86400, deadline=20)
+        self.answer({"memory": NEW_MEMORY, "diary": "a good monday."})
+        got = self.reflect()
+        self.assertTrue(got["goals_page"], got)
+        page = (self.root / "state" / "diary" / "2026-09-14.md").read_text()
+        self.assertIn("a good monday.", page)
+        week = page.split("## the week's goals", 1)[1]
+        set_now, rest = week.split("decided this week", 1)
+        self.assertIn("ten more followers on x (attention on x, checked by stats_delta, due Mon 21 Sep)", set_now)
+        self.assertIn("first merged pr in openhuman", set_now)
+        decided, running = rest.split("still running:", 1)
+        self.assertIn("- solved: first merged pr in openhuman (Sun 13 Sep)", decided)
+        self.assertIn("- failed: a build shipped (Sat 12 Sep)", decided)
+        self.assertNotIn("an old one", page)
+        self.assertIn("still going", running)
+        # The verdicts come from the ledger, not the model: the diary
+        # teaching the core is the model's words only.
+        learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
+        self.assertNotIn("the week's goals", learned[0]["text"])
+
+    def test_the_goals_page_is_written_even_without_a_diary_and_only_on_the_goals_day(self):
+        self.goal("ten more followers on x", proposed=-3600)
+        self.answer({"memory": NEW_MEMORY})
+        self.answer('{"memory": ' + json.dumps(NEW_MEMORY) + '}')
+        got = self.reflect()
+        if got.get("ok"):
+            page = (self.root / "state" / "diary" / "2026-09-14.md").read_text()
+            self.assertTrue(page.startswith("# Monday 14 September 2026\n"))
+            self.assertIn("ten more followers on x", page)
+        os.environ["TEENY_NOW"] = str(T0 + 86400)  # Tuesday
+        self.answer({"memory": NEW_MEMORY, "diary": "tuesday."})
+        got = self.reflect()
+        self.assertNotIn("goals_page", got)
+        self.assertNotIn("the week's goals", (self.root / "state" / "diary" / "2026-09-15.md").read_text())
+
+    def test_no_goals_no_section(self):
+        self.answer({"memory": NEW_MEMORY, "diary": "a good monday."})
+        got = self.reflect()
+        self.assertNotIn("goals_page", got)
+        self.assertNotIn("goals", (self.root / "state" / "diary" / "2026-09-14.md").read_text())
+
     def test_a_page_too_long_or_empty_or_not_json_changes_nothing(self):
         before = (self.brain / "MEMORY.md").read_text()
         for bad in ({"memory": "x" * 20_000, "diary": "d"}, {"memory": "  ", "diary": "d"}, "i am tired", {"diary": "d"}):
