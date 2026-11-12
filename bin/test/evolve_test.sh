@@ -137,7 +137,7 @@ check "--hold stops after the gate" test "$(jq -r '.held | length > 0' <<<"$out"
 check "and keeps the candidate's worktree" test -d "$root/state/evolve/2/cand-1/brain"
 out="$("$evolve" evaluate 2 1 --oh-url-candidate http://lab.invalid:7788 2>"$scratch/err")"
 check "evaluate measures it on the lab core" test "$(jq -r .verdict <<<"$out")" = won
-check "with the visible tasks' win rate" test "$(jq -r .scores.win_rate <<<"$out")" = 1
+check "with the visible tasks' win rate" test "$(jq -r '.scores.win_rate == 1' <<<"$out")" = true
 check "and the held-out tasks apart" test "$(jq -r .scores.heldout.wins <<<"$out")" = 1
 check "the baseline drafted on the live core" test "$(jq -r .draft.text "$root/state/evolve/2/eval/base/drafts.jsonl" | grep -c 'from the base')" -gt 0
 check "the candidate on the lab core" test "$(jq -r .draft.text "$root/state/evolve/2/eval/cand-1/drafts.jsonl" | grep -c 'from the CAND')" -gt 0
@@ -171,7 +171,7 @@ check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n'
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"
 check "evolve is pinned, daily and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.command)|\(.enabled)"' <<<"$jobs")" = "30 3 * * *|bin/evolve run --detach|true"
 check "evolve-credit is pinned, daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
-check "and the schedule passes seed-cron --check" "$repo/bin/seed-cron" --check
+check "and the schedule passes seed-cron --check" env -u TEENY_ROOT "$repo/bin/seed-cron" --check --file "$repo/brain/cron.toml"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
