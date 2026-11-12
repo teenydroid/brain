@@ -59,7 +59,7 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # the operator's merge all still stand between and main. The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
-    "build": ("self",),
+    "build": ("self", "upstream"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
     # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
