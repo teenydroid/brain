@@ -161,6 +161,7 @@ secrets/core.token, secrets/openhuman.key ◄── written by the spine on firs
 | `LADDER_API_KEY` | Stored in the core's encrypted store on boot. Can be removed afterwards. |
 | `SPINE_MODEL` | The model id every workload uses. |
 | `SPINE_CONTEXT_WINDOW` | Optional. Otherwise it's read from the endpoint's `/models`. The core trims prompts to this. |
+| `SPINE_NATIVE_TOOLS` | Optional, default `1`: agents get native OpenAI `tools`. `0` falls back to the core's JSON-in-tag text protocol, for a model that cannot take `tools`. On Surplus the text protocol fails: the server reads each `<tool_call>` body as the tool's name. |
 | `CORTEX_API_URL`, `CORTEX_API_KEY` | Optional memory engine. |
 
 ### `secrets/teeny.env`
