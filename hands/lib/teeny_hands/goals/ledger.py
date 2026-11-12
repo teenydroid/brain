@@ -293,6 +293,20 @@ def listing(status: str | None = None, limit: int = 50) -> Json:
 def ranking() -> Json:
     out = rank.rank(all_goals(), hand.now())
     out["max_open"] = MAX_OPEN
+    out["world"] = world()
+    return out
+
+
+def world() -> Json:
+    """W per component and J from `hands/world report`, when that hand is
+    there; otherwise says it is absent, and the ranking stands without it."""
+    try:
+        report = checks.world_report()
+    except checks.Unavailable as exc:
+        return {"available": False, "why": str(exc)}
+    out: Json = {"available": True, "W": checks.parse_world(report)}
+    if checks._finite(report.get("J")):
+        out["J"] = report["J"]
     return out
 
 

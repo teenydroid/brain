@@ -74,3 +74,9 @@ hands/lib/teeny_hands/telegram/
 hands/lib/teeny_hands/wallet/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
+
+# The goal ledger: the checks that decide whether a goal Teeny proposed was
+# solved. A goal names a checker kind and its parameters; the kinds are code
+# here, so a proposal cannot redefine how success is checked.
+hands/goals
+hands/lib/teeny_hands/goals/

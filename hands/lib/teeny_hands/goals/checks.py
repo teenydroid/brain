@@ -133,9 +133,9 @@ def usdc_paid_out(since: float) -> int:
     return int(row[0])
 
 
-def world_components() -> dict[str, float]:
-    """W per component from `hands/world report` (built beside this hand).
-    Absent, or an answer without numbers, is Unavailable."""
+def world_report() -> Json:
+    """`hands/world report --days 7` (built beside this hand), or Unavailable
+    while that hand is absent or its answer is not a JSON object."""
     exe = hand.root() / "hands" / "world"
     if not exe.is_file():
         raise Unavailable("hands/world is not installed")
@@ -145,7 +145,14 @@ def world_components() -> dict[str, float]:
         out = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {}
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, IndexError) as exc:
         raise Unavailable(f"hands/world report: {exc}") from None
-    found = parse_world(out)
+    if not isinstance(out, dict) or out.get("ok") is False:
+        raise Unavailable("hands/world report did not answer")
+    return out
+
+
+def world_components() -> dict[str, float]:
+    """W per component, from the world report. No numbers is Unavailable."""
+    found = parse_world(world_report())
     if not found:
         raise Unavailable("hands/world report gave no component values")
     return found

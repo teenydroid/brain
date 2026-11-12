@@ -222,6 +222,18 @@ class WorldDeltaTest(Scratch):
         moved = ledger.check()["moved"]
         self.assertEqual((moved[0]["id"], moved[0]["status"]), (out["goal_id"], "failed"))
 
+    def test_rank_carries_the_world_report_when_there_is_one(self):
+        self.assertFalse(ledger.ranking()["world"]["available"])
+        with mock.patch.object(checks, "world_report", return_value={"J": 0.4, "W": {"attention": 3}}):
+            self.assertEqual(ledger.ranking()["world"], {"available": True, "W": {"attention": 3.0}, "J": 0.4})
+
+    def test_a_real_hands_world_is_run_through_its_cli(self):
+        exe = self.root / "hands" / "world"
+        exe.parent.mkdir()
+        exe.write_text("#!/bin/sh\necho '{\"ok\": true, \"J\": 1, \"W\": {\"money\": 4}}'\n")
+        exe.chmod(0o755)
+        self.assertEqual(checks.world_components(), {"money": 4.0})
+
     def test_the_world_report_shapes_it_reads(self):
         self.assertEqual(checks.parse_world({"W": {"attention": 3, "money": {"value": 1.5}, "junk": 9}}),
                          {"attention": 3.0, "money": 1.5})
