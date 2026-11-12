@@ -21,7 +21,7 @@ import json
 import re
 import sqlite3
 import subprocess
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -150,7 +150,7 @@ def _stat_rows(conn: sqlite3.Connection) -> dict[str, list[tuple[str, float]]]:
 def rounds_due(conn: sqlite3.Connection, announced: Mapping[str, Any]) -> list[Json]:
     """Round numbers crossed in the last ROUND_WINDOW_DAYS, per metric: the
     highest one only, and never one already announced."""
-    today = date.fromtimestamp(hand.now()).isoformat()
+    today = datetime.fromtimestamp(hand.now(), timezone.utc).date().isoformat()
     due = []
     for name, series in _stat_rows(conn).items():
         series = [(d, v) for d, v in series if d <= today]
