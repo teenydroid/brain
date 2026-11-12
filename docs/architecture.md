@@ -508,6 +508,7 @@ are built at boot (§4a).
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
 | `operator` | the pinned `operator` cron job (§6a) | `browser`, `file_read`, `file_write` |
+| `evolver` | `bin/evolve` with `EVOLVE_PROPOSER=evolver`, on a lab spine over one candidate's worktree ([`evolve.md`](evolve.md)) | file tools only, rooted in that worktree |
 
 `bin/ask` without `--agent` runs as the core's default orchestrator. Whoever
 can run it holds the core token, so it is the operator's way in and is never
