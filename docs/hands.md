@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `bounty`, `goals`, `vps` and `firsts`. Each is an executable in `hands/`, with its code in
+`wallet`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -695,6 +695,32 @@ docs/architecture.md, 4a).
 
 It writes only `state/hands.db` (`stimuli`, `follow_ups`, `mind_notes`) and
 tells nobody, so `DRY_RUN` does not apply.
+
+## `people`: who Teeny talks to, and what it promised them
+
+One record per person who writes to Teeny (docs/roadmap.md, A9). It holds
+what they said to Teeny and Teeny's promises, nothing else: their messages
+in the inbox (`stimuli`, already through `guard inbound`, so a held message
+is never there), their build requests (`build_requests`, not `skipped`, so
+none the guard held), and `people_promises`. Nothing is scraped, and Teeny's
+own notes about someone (`remember`) are not part of a record. A regular
+wrote on at least two days. Handles compare without `@` and case; a mail
+sender compares by address. Code: `teeny_hands/people/`. Teeny's hand, not
+frozen.
+
+| Verb | | Does |
+|---|---|---|
+| `list [--all]` | R | Regulars, and anyone with an open promise, most recent first: messages, days, first and last, open promises, requests. `--all`: everyone who wrote. |
+| `get SURFACE WHO` | R | One record: the counts, the opening of their last 3 messages (200 characters each), what they asked to build, and every promise (made, due, status, `overdue`). Refused `unknown` when there is none. |
+| `promise` | A | `{surface, who, what, due_in_hours \| due_at, ref?}`, due within 90 days. Refused `stranger` for someone who never wrote to Teeny on that surface. Records it and sets a follow-up (`stimuli`, ref `promise:<id>`, about "a promise you made comes due (promise #N)"), so it is raised when due; answering a post never resolves it. |
+| `kept` / `drop` | A | `{id, note?}`: an open promise kept or dropped; its follow-up is cleared if it still waits. |
+| `forget SURFACE WHO` | O | A person asked to be forgotten: their promises and follow-ups go. What they wrote stays in the inbox, which is the stimuli hand's. |
+
+It writes only `state/hands.db` and tells nobody, so `DRY_RUN` does not
+apply. The mind reaches `promise` and `kept` as intents, and a beat's
+prompt carries the records of the people in it, and only theirs
+(docs/architecture.md, "People in a beat"). `bin/proofs` counts
+`L2.remembers`: promises kept a week or more after they were made.
 
 ## `brief`: what the team tells Teeny to post about
 

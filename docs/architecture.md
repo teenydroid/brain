@@ -273,6 +273,18 @@ as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
 returns when due. `journal` writes a line in Teeny's private journal.
 
+**People in a beat.** `promise` (`{surface, who, what, due_in_hours, ref?}`)
+and `kept` (`{id, note?}`) go to `hands/people`, which takes a promise only
+to someone who wrote to Teeny on that surface and sets a follow-up for when
+it comes due. Below the batch, `render` adds `## people in this batch`
+(`_people`, `teeny_hands.people.records.prompt_block`): the record of each
+person the batch is from, or whose promise just came due, if they are a
+regular (wrote on two days or more) or hold a promise. A record is what
+they asked Teeny to build and what Teeny promised them, when and by when;
+never Teeny's own notes about them, and never the record of anyone who is
+not in the batch. A promise's follow-up names no one ("a promise you made
+comes due (promise #N)"), because the waiting list rides in every beat.
+
 One beat, end to end (`_beat` in `bin/lib/tick.py`):
 
 ```
@@ -296,7 +308,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             ┌──────────────────────┴──────────────────────────┐
             ▼                                                 ▼
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
-   comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip
+   comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip,
+                                                     promise, kept (hands/people)
    reply_mail, say_telegram, comment_gh,                      │
    open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
