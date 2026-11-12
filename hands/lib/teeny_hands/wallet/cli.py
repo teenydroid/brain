@@ -5,8 +5,8 @@
   R  tiny                          Teeny's $TINY: {mint, owner, raw, decimals, amount}, read only
   R  ledger [--max N]              this hand's payments and the core's spend ledger
   R  costs [--days N]              what keeping Teeny running cost: models, x402, bills
-  R  receipt ID                    one payment: amount, recipient, purpose, signature, Solscan
-  R  receipts [--max N]            paid payments no X post has carried the signature of yet
+  R  receipt ID                    one payment (or buy-N, one $TINY buy): amount, purpose, signature, Solscan
+  R  receipts [--max N]            paid payments and buys no X post has carried the signature of yet
   R  caps                          the caps it pays under
   R  conversions [--max N]         the swaps and bridges, newest first
   R  x402 log [--max N]            the paid HTTP requests, newest first
@@ -14,15 +14,17 @@
   A  swap                          {chain, from, to, amount}: one chain, through deBridge (convert.py)
   A  bridge                        {from_chain, from, to_chain, to, amount}: across chains, deBridge DLN
   A  x402 fetch                    {url, method?, headers?, body?, max_usd?}: an HTTP request that may pay (x402.py)
+  J  buy-tiny                      a share of net inflows into $TINY, buy only (buy.py; bin/tiny-buy)
   O  bills add NAME --usd N --period month|year [--note T], bills list, bills remove NAME
   O  vendors add NAME ADDRESS [--chain C] [--note T], vendors list, vendors remove NAME
   O  x402 hosts add HOST [--note T], x402 hosts list, x402 hosts remove HOST
 
-`pay`, `swap`, `bridge` and `x402 fetch` are never a playbook's output
-(bin/lib/playbook.py), and the drafting agents have no tools. The mind
-reaches them only through its intents (bin/lib/tick.py: `transfer`, `swap`,
-`bridge`, `x402_fetch`), off until WALLET_MIND_ACTIONS=1, with the fields
-each takes and nothing more.
+`pay`, `swap`, `bridge`, `x402 fetch` and `buy-tiny` are never a
+playbook's output (bin/lib/playbook.py), and the drafting agents have no
+tools. The mind reaches the first four only through its intents
+(bin/lib/tick.py: `transfer`, `swap`, `bridge`, `x402_fetch`), off until
+WALLET_MIND_ACTIONS=1, with the fields each takes and nothing more.
+`buy-tiny` is never given to a model: only the pinned tiny-buy job runs it.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import convert, pay, reads, x402
+from . import buy, convert, pay, reads, x402
 
 
 def _bounded(low: int, high: int, what: str):
@@ -58,10 +60,11 @@ def parser() -> argparse.ArgumentParser:
     verb("tiny", lambda a, _: reads.tiny(), "Teeny's $TINY balance, in tokens")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)
-    verb("receipt", lambda a, _: reads.receipt(a.id), "one payment's receipt").add_argument("id", type=int, metavar="ID")
+    verb("receipt", lambda a, _: reads.receipt_for(a.id), "one payment's receipt, or buy-N").add_argument("id", metavar="ID")
     verb("receipts", lambda a, _: reads.receipts_due(a.max), "paid payments still owed a receipt post").add_argument("--max", type=_bounded(1, 50, "--max"), default=5)
     verb("caps", lambda a, _: reads.caps_status(), "the caps it pays under")
     verb("pay", lambda a, body: pay.pay(body), "pay a bounty winner or an allowlisted vendor", body=True)
+    verb("buy-tiny", lambda a, _: buy.buy_tiny(), "buy $TINY with a share of net inflows (the pinned job only)")
     verb("swap", lambda a, body: convert.convert("swap", body), "swap on one chain, to Teeny's own address (deBridge)", body=True)
     verb("bridge", lambda a, body: convert.convert("bridge", body), "bridge to Teeny's own address on another chain (deBridge DLN)", body=True)
     verb("conversions", lambda a, _: convert.conversions(a.max), "swaps and bridges, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
