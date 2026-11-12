@@ -102,6 +102,21 @@ def guard_surfaces() -> tuple[str, ...]:
     return tuple(SURFACES)
 
 
+#: An input that runs a data job Teeny wrote (docs/roadmap.md, A17;
+#: bin/lib/datajob.py): `datajob:<name>` runs brain/datajobs/<name>.py in its
+#: jail, fed the inputs before it, and its JSON is the input.
+DATAJOB = "datajob:"
+
+
+def _datajob_argv(run: str, where: str, brain: Path) -> list[str]:
+    name = run[len(DATAJOB):]
+    if not NAME.fullmatch(name):
+        raise PlaybookError(f"{where}: a data job input is datajob:<name>, got {run!r}")
+    if not (brain / "datajobs" / f"{name}.py").is_file():
+        raise PlaybookError(f"{where}: no data job datajobs/{name}.py")
+    return ["datajob", name]
+
+
 def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
     try:
         argv = shlex.split(run)
@@ -190,7 +205,8 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
         parsed.append(
             {
                 "name": input_name,
-                "argv": _hand_argv(entry["run"], where, hands_dir),
+                "argv": _datajob_argv(entry["run"], where, brain) if entry["run"].startswith(DATAJOB)
+                else _hand_argv(entry["run"], where, hands_dir),
                 "required": entry.get("required", False),
             }
         )

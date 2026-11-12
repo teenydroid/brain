@@ -130,8 +130,13 @@ while IFS= read -r input; do
   input_name="$(jq -r .name <<<"$input")"
   argv=()
   while IFS= read -r arg; do argv+=("$arg"); done < <(jq -r '.argv[]' <<<"$input")
-  argv[0]="$hands/${argv[0]#hands/}"
-  if ! got="$(cd "$TEENY_ROOT" && DRY_RUN=1 "${argv[@]}" </dev/null 2>"$dir/input.err")"; then
+  if [ "${argv[0]}" = datajob ]; then
+    # A data job Teeny wrote (bin/lib/datajob.py, A17): jailed, no network,
+    # fed the inputs gathered so far; its JSON is this input.
+    got="$(cd "$TEENY_ROOT" && python3 "$TEENY_ROOT/bin/lib/datajob.py" "$TEENY_BRAIN" "${argv[1]}" <<<"$inputs" 2>"$dir/input.err")" ||
+      { record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg o "${got:0:500}" \
+        '{ok: false, playbook: $p, error: "input \($i) failed", stdout: $o}')"; exit 1; }
+  elif ! got="$(cd "$TEENY_ROOT" && DRY_RUN=1 "$hands/${argv[0]#hands/}" "${argv[@]:1}" </dev/null 2>"$dir/input.err")"; then
     record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg e "$(tail -c 500 "$dir/input.err")" --arg o "${got:0:500}" \
       '{ok: false, playbook: $p, error: "input \($i) failed", stderr: $e, stdout: $o}')"
     exit 1
