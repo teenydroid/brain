@@ -89,7 +89,7 @@ def world(brain: Path) -> str:
         if len(memory) > MEMORY_MAX_CHARS:
             memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
         memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
-        # First, though it changes most often: reflection rewrites it twice a
+        # First, though it changes most often: reflection updates it twice a
         # day, so the cache it costs is small, and it is what happened.
         parts.append(
             "## what you keep in mind (MEMORY.md)\n\n"

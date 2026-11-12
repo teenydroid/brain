@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Teeny's end of day: rewrite MEMORY.md from the day, on the teeny:mind
-# thread, and keep a diary entry (bin/lib/reflect.py; docs/architecture.md,
-# 4a). The pinned `reflect` job runs it once a night; `reflect-midday` runs
-# it with --light at 14:00, which rewrites the page only.
+# Teeny's end of day: bring MEMORY.md up to date from the day, item by item
+# (add, edit, retire against the items' ids, under a shrink check), on the
+# teeny:mind thread, and keep a diary entry (bin/lib/reflect.py;
+# docs/architecture.md, 4a). The pinned `reflect` job runs it once a night;
+# `reflect-midday` runs it with --light at 14:00, which updates the page only.
 #
 #   bin/reflect [--light]            # in the foreground; prints its result
 #   bin/reflect [--light] --detach   # start it in the background, return at once
