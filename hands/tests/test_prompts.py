@@ -133,6 +133,18 @@ class PromptsTest(unittest.TestCase):
             self.assertIn("### running bits", text)
             self.assertNotIn("## latent", text)
 
+    def test_the_real_brain_does_not_retell_the_origin(self):
+        # Teeny was born; it does not need the waking-up story (the notes,
+        # the blue crayon, the day count) in every prompt it speaks from.
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "CONTEXT.md").symlink_to(REPO / "brain" / "CONTEXT.md")
+            text = prompts.render(brain, "act").lower()
+            for retold in ("crayon", "1,095 days", "the night i woke up", "in teeny's own hand"):
+                self.assertNotIn(retold, text)
+
 
 if __name__ == "__main__":
     unittest.main()
