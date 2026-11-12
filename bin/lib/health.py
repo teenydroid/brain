@@ -55,6 +55,18 @@ holds by direction and category. Counts and names Teeny's own code chose
 (job, playbook, check and category names), never the text of a hold, an
 error or anything a stranger wrote. A second run the same day adds nothing.
 
+The fallback route (docs/roadmap.md, A18; `reroute`): with
+SPINE_FALLBACK_MODEL in secrets/spine.env (a second model on the same
+endpoint), FAILURES_TO_FALLBACK failed probes in a row and a fallback that
+answers its own probe (`model_override`) move every workload of the running
+core to it (`config_update_model_settings`, as bin/spine does at boot), so
+the next beat runs on it. While on the fallback each run also asks the main
+model, and the first answer moves the core back. Each move leaves a line in
+state/diary-notes.jsonl, which the night's reflection puts on the diary page
+(bin/lib/reflect.py, `diary_notes`), and a `health · route` stimulus. A
+reboot starts on the main model again. The alarm still follows the probe of
+whatever model the core is on.
+
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
 model judge (`check_fields(judge=False)`; the lexicon and the links still
