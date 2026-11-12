@@ -27,8 +27,8 @@ from teeny_hands.ladder import cli  # noqa: E402
 
 PROPOSAL = {
     "fence": "browser-allow",
-    "title": "add docs.github.com to the browser's allowed websites",
-    "ask": "add docs.github.com to deploy/browser-allow.txt",
+    "title": "allow the GitHub docs website for the browser",
+    "ask": "add the GitHub docs host to the allowed websites list",
     "evidence": "three news tasks this week stopped at a GitHub docs link (L3.browser_week 4/7)",
     "would_do": "read the Actions docs before babysitting my own pull requests",
     "risk": "a docs page could carry injected instructions; the operator task stays read-only and its notes are data",
