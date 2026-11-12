@@ -59,6 +59,11 @@ hands/x
 hands/world
 hands/lib/teeny_hands/world/
 
+# The gate a milestone or a first goes through (docs/roadmap.md, P3): what
+# counts as proven is frozen code, like the scorer.
+hands/firsts
+hands/lib/teeny_hands/firsts/
+
 # What spends money on servers stays the operator's, like the wallet.
 hands/vps
 
