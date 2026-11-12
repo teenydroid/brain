@@ -236,6 +236,11 @@ def mail_started(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "mails Teeny started (mail_sent, kind send); that one began a thread with a vendor is read by a person"
 
 
+def promise_kept(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM people_promises WHERE status = 'kept' AND closed_at - made_at >= ?", (7 * DAY,)) or 0
+    return n, "promises kept at least a week after they were made (hands/people); that it was unprompted is read by a person"
+
+
 def moltbook_week(db: Ledgers, t: float) -> tuple[float, str]:
     marks = ",".join("?" * len(MOLTBOOK_VISIBLE))
     days: set[dt.date] = set()
@@ -357,6 +362,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L1.no_repeats", 1, "Its own recent posts fed back in", "30 days with no near-duplicate post", 30, no_repeats),
     ("L2.x_replies", 2, "Answers mentions, replies and quotes on X live", "50 real replies in the ledger", 50, x_replies),
     ("L2.mail_started", 2, "Answers mail live, and starts mail to known contacts", "a thread it began", 1, mail_started),
+    ("L2.remembers", 2, "Remembers people", "a follow-up on a promise made a week earlier", 1, promise_kept),
     ("L2.moltbook_week", 2, "Lives on Moltbook", "a week of Moltbook activity", 7, moltbook_week),
     ("L2.audience", 2, "Grows an audience", "four weeks in a row the total went up", 4, audience),
     ("L3.browser_week", 3, "Headless browsing proven on the box", "a week of ok tasks", 7, browser_week),
@@ -379,7 +385,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
 )
 
 #: The proofs whose last step is outside the ledgers: never `met` here.
-OUTSIDE = {"L1.gh_inbox", "L2.mail_started", "L3.own_issues", "L3.upstream", "L3.outside", "L5.ten_promoted"}
+OUTSIDE = {"L1.gh_inbox", "L2.mail_started", "L2.remembers", "L3.own_issues", "L3.upstream", "L3.outside", "L5.ten_promoted"}
 
 #: DIRECTIVE items no ledger counts yet, and what they wait for.
 NOT_COUNTED: tuple[tuple[str, str], ...] = (
@@ -390,7 +396,6 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L1 notices its own health", "health stimuli as counts (A4); the issue filed first is read by a person"),
     ("L2 the audience is people", "hands/world report splits the reach (P2); a shipped request that won a vote waits for P5"),
     ("L2 says what it is", "the doctor's x profile check (P1) is read in state/doctor.json; the rejection evals in bin/eval (P4)"),
-    ("L2 remembers people", "no people records (A9)"),
     ("L2 runs the lore", "no episode trigger (A13)"),
     ("L2 more channels", "a conversation on a second platform is read by a person"),
     ("L3 signs itself up", "no accounts ledger (A12)"),
