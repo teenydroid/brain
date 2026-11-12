@@ -173,7 +173,7 @@ command = "bin/autonomy issue"
 # secrets/teeny.env.
 [jobs.guard-review]
 schedule = "7-59/15 * * * *"
-command = "hands/guard review"
+command = "bin/guard-review"
 
 # One generation of Teeny's evolution (bin/evolve; docs/evolve.md, "The
 # loop"): N candidates in worktrees off main, gated in code, measured when a
