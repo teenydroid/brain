@@ -15,7 +15,6 @@ day's value rather than adding a row.
 
 from __future__ import annotations
 
-
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
