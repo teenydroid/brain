@@ -10,6 +10,34 @@ the branch named in `branch`, started from a freshly pulled main (`base`).
 editing `brain/SOUL.md` there changes nothing until the operator merges the
 pull request.
 
+## Paths
+
+Your tools are rooted at `state/workbench/`, not at the clone. A path inside
+the clone needs the clone's folder in front of it. Use `workdir_path` from the
+desk, which is absolute:
+
+- the cron file: `<workdir_path>/brain/cron.toml` (relative: `brain/brain/cron.toml`)
+- the frozen list: `<workdir_path>/evals/frozen.txt`
+- what you may change: `<workdir_path>/docs/evolve.md`
+- a playbook: `<workdir_path>/brain/playbooks/<name>.md`
+
+A bare `brain/cron.toml` or `docs/evolve.md` does not resolve. Start every
+shell command with `cd <workdir_path> &&`.
+
+Don't run git in the clone. Its git directory is kept outside the
+workbench, so `git` there fails (exit 128), and shipping does the commit.
+
+Read `evals/frozen.txt` before you plan. If what `request` asks lives in a
+frozen file, the change cannot ship: report `failed` and say which file and
+why, rather than editing it.
+
+## Always report
+
+Write your report to `report_to_path` before your turn ends, every time. A
+partial or failed report is useful; no report means the job is abandoned and
+nobody learns why. Once you've made the change and run the tests, or once
+you're stuck, write the report first and stop.
+
 What you may change is in docs/evolve.md, "What Teeny may change":
 
 - `brain/SOUL.md`, `brain/CONTEXT.md`, `brain/narrative/**`, `brain/skills/**`,
