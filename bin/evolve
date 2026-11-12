@@ -25,13 +25,14 @@ set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need git python3 jq
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 args=()
 detach=0
 for arg in "$@"; do
   if [ "$arg" = --detach ]; then detach=1; else args+=("$arg"); fi
 done
 if [ "$detach" = 1 ]; then
-  exec python3 "$TEENY_ROOT/bin/lib/detach.py" --log evolve/evolve.log --lock evolve -- \
-    "$TEENY_ROOT/bin/evolve" ${args[@]+"${args[@]}"}
+  exec python3 "$here/lib/detach.py" --log evolve/evolve.log --lock evolve -- \
+    "$here/evolve" ${args[@]+"${args[@]}"}
 fi
-exec python3 "$TEENY_ROOT/bin/lib/evolve.py" ${args[@]+"${args[@]}"}
+exec python3 "$here/lib/evolve.py" ${args[@]+"${args[@]}"}

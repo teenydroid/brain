@@ -1759,9 +1759,7 @@ def status() -> Json:
 def run_lock():
     """state/locks/evolve.lock, as bin/lib/detach.py --lock evolve reads it:
     True while held by this run, False when another holds it."""
-    from teeny_hands import hand as _hand
-
-    locks = _hand.state_dir() / "locks"
+    locks = state_dir() / "locks"
     locks.mkdir(parents=True, exist_ok=True)
     with open(locks / "evolve.lock", "a+") as fh:
         try:
