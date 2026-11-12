@@ -41,14 +41,24 @@ in the dark until the world trips them, and narrative/VOICE.md and
 EDITOR.md are prompts for other workflows (the terminal episodes, the
 editor); none of them is copied.
 
+Last comes what Teeny said lately (docs/roadmap.md, A2): its newest own
+posts on X and the titles of its newest Moltbook posts, from the hands'
+ledgers (state/hands.db, read-only), so a draft knows what it would be
+repeating. The posting rules refuse a near-duplicate all the same
+(teeny_hands.guard.repeats); this is so it rarely has to. It is last
+because it changes most often.
+
 The output only changes when one of its sources does, so a thread's prompt
-prefix (and the provider's cache of it) holds from boot to boot.
+prefix (and the provider's cache of it) holds from boot to boot, and the
+prompts are rebuilt at every boot and every reflection.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -65,6 +75,13 @@ MEMORY_SEED = "MEMORY.seed.md"
 LORE_SECTIONS = ("cast", "running bits")
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+#: How many of its own posts per surface the prompt carries, and how long a
+#: line of one may run.
+SAID_X = 10
+SAID_MOLTBOOK = 5
+SAID_CHARS = 300
+#: Moltbook writes that went out and can be seen (teeny_hands.moltbook.rules.ACCEPTED).
+MOLTBOOK_VISIBLE = ("posted", "verified")
 
 
 def sections(text: str, level: int = 2) -> tuple[str, dict[str, str]]:
@@ -116,6 +133,48 @@ def seed_memory(brain: Path) -> Path:
     return live
 
 
+def _ledgers(brain: Path) -> Path:
+    root = Path(os.environ["TEENY_ROOT"]) if os.environ.get("TEENY_ROOT") else brain.parent
+    return root / "state" / "hands.db"
+
+
+def said_lately(brain: Path) -> str:
+    """Teeny's newest own posts per surface, newest first; "" when there are
+    none or the ledger cannot be read."""
+    path = _ledgers(brain)
+    if not path.is_file():
+        return ""
+    lines: list[str] = []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            for table, sql, params, label in (
+                ("x", "SELECT created_at, text FROM x_posts WHERE kind IN ('post', 'quote') ORDER BY created_at DESC LIMIT ?",
+                 (SAID_X,), "X"),
+                ("moltbook", "SELECT at, title FROM moltbook_posts WHERE status IN (?, ?) ORDER BY at DESC LIMIT ?",
+                 (*MOLTBOOK_VISIBLE, SAID_MOLTBOOK), "Moltbook"),
+            ):
+                try:
+                    rows = conn.execute(sql, params).fetchall()
+                except sqlite3.OperationalError:  # that hand has never written
+                    continue
+                for at, text in rows:
+                    words = " ".join(str(text).split())
+                    if len(words) > SAID_CHARS:
+                        words = words[:SAID_CHARS].rstrip() + "..."
+                    day = dt.datetime.fromtimestamp(float(at), dt.timezone.utc).strftime("%Y-%m-%d")
+                    lines.append(f"- {label}, {day}: {words}")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    if not lines:
+        return ""
+    return ("## what you said lately\n\n"
+            "Your newest posts, newest first (Moltbook by title). Say something new: a post too close to one you "
+            "made in the last weeks is refused.\n\n" + "\n".join(lines))
+
+
 def world(brain: Path) -> str:
     """The "# your world" section every speaking agent carries: MEMORY.md
     first, then DRIVE.md, CONTEXT.md, the lore and the arcs."""
@@ -158,6 +217,9 @@ def world(brain: Path) -> str:
         # One level down, under this section's own heading.
         arcs = re.sub(r"^(#{2,5}) ", r"#\1 ", arcs, flags=re.M)
         parts.append("## how far each goal has got (narrative/ARCS.md)\n\n" + arcs)
+    said = said_lately(brain)
+    if said:
+        parts.append(said)
     if not parts:
         return ""
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)

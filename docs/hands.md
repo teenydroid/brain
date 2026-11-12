@@ -35,7 +35,7 @@ report they leave beside it.
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post, which makes it too expensive. |
-| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock; for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. |
+| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post or quote of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Likes a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
@@ -55,7 +55,7 @@ guard check ───── hold ─────► guard_holds row, refused as 
   │                           reply only: never to the account's own post
   ▼
 lock "posting" (post) or "replying" (reply)
-  │  post:   the gap since the last own post
+  │  post:   the gap since the last own post; no near-duplicate of one of the last 30 days
   │  reply:  never twice to one post, 30 to 60 s pacing
   │  both:   the daily link-post budget
   ▼
@@ -166,6 +166,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field)`. |
 | `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `bounty entries`. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
+| `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
 
 **Surfaces and limits** (lengths in UTF-16 code units, refused over, never
@@ -1309,7 +1310,7 @@ creates its own tables:
 | Hand | Tables |
 |---|---|
 | `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
-| `guard` | `guard_holds`, `guard_approved_links` |
+| `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |

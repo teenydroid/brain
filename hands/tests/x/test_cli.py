@@ -62,6 +62,8 @@ class Cli(Scratch):
         (lib / "x").symlink_to(LIB / "teeny_hands" / "x", target_is_directory=True)
         (lib / "guard" / "__init__.py").write_text("")
         (lib / "guard" / "gate.py").write_text(FAKE_GATE)
+        # The gate is the stand-in; the repeat measure the posting rules use is the real one.
+        (lib / "guard" / "repeats.py").symlink_to(LIB / "teeny_hands" / "guard" / "repeats.py")
         shutil.copy(SHIM, shim)
         return shim
 

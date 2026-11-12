@@ -223,6 +223,34 @@ def check_gap(conn: sqlite3.Connection) -> None:
         )
 
 
+def check_repeat(conn: sqlite3.Connection, text: str) -> None:
+    """Whether an own post says something Teeny has not already said
+    (docs/roadmap.md, A2): refused when it is a near-duplicate
+    (teeny_hands.guard.repeats) of an own post or quote of the last
+    REPEAT_WINDOW_DAYS. The refusal is counted (`hands/guard repeats`)."""
+    from ..guard import repeats
+
+    since = hand.now() - repeats.window_days() * 86400.0
+    earlier = conn.execute(
+        "SELECT id, text, created_at FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?"
+        " ORDER BY created_at DESC",
+        (since,),
+    ).fetchall()
+    hit = repeats.closest(text, ((r["id"], r["text"]) for r in earlier))
+    if hit is None:
+        return
+    post_id, score = hit
+    when = next(iso(r["created_at"]) for r in earlier if r["id"] == post_id)
+    repeats.record("x", score, post_id)
+    raise hand.Refused(
+        f"repeat: this says what post {post_id} ({when}) already said. Nothing was published; say something new.",
+        rule="repeat",
+        similar_to=post_id,
+        similar_at=when,
+        score=score,
+    )
+
+
 def record_post(
     conn: sqlite3.Connection,
     post_id: str,

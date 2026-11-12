@@ -228,3 +228,58 @@ class PromptsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SaidLatelyTest(unittest.TestCase):
+    """docs/roadmap.md, A2: the prompt carries Teeny's newest own posts per
+    surface, from the ledger, read-only."""
+
+    def setUp(self):
+        import os
+        import sqlite3
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.brain = self.root / "brain"
+        (self.brain / "agents").mkdir(parents=True)
+        (self.brain / "agents" / "act.toml").write_text('id = "act"\n')
+        (self.brain / "agents" / "act.md").write_text("Draft as JSON.\n")
+        (self.root / "state").mkdir()
+        self._env = dict(os.environ)
+        os.environ.pop("TEENY_ROOT", None)
+        conn = sqlite3.connect(self.root / "state" / "hands.db")
+        conn.execute("CREATE TABLE x_posts (id TEXT, kind TEXT, text TEXT, created_at REAL)")
+        conn.execute("CREATE TABLE moltbook_posts (id INTEGER, at REAL, title TEXT, status TEXT)")
+        t0 = 1_794_398_400.0  # 2026-11-11T12:00:00Z
+        for n in range(12):
+            conn.execute("INSERT INTO x_posts VALUES (?, 'post', ?, ?)", (str(n), f"post number {n}\nwith a newline", t0 + n * 3600))
+        conn.execute("INSERT INTO x_posts VALUES ('r', 'reply', 'a reply is not a post', ?)", (t0 + 99 * 3600,))
+        conn.execute("INSERT INTO moltbook_posts VALUES (1, ?, 'crab census results', 'verified')", (t0,))
+        conn.execute("INSERT INTO moltbook_posts VALUES (2, ?, 'hidden one', 'needs_verification')", (t0,))
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        import os
+
+        os.environ.clear()
+        os.environ.update(self._env)
+        self.tmp.cleanup()
+
+    def test_the_newest_posts_ride_last_in_the_prompt(self):
+        prompts.build(self.brain)
+        text = (self.brain / "agent" / "prompts" / "act.md").read_text()
+        self.assertIn("## what you said lately", text)
+        said = text.split("## what you said lately", 1)[1]
+        self.assertIn("- X, 2026-11-11: post number 11 with a newline", said)
+        self.assertIn("- X, 2026-11-11: post number 2 with", said)
+        self.assertNotIn("post number 1 with", said)  # only the newest 10
+        self.assertNotIn("a reply is not a post", said)
+        self.assertIn("- Moltbook, 2026-11-11: crab census results", said)
+        self.assertNotIn("hidden one", said)
+        self.assertLess(said.index("post number 11"), said.index("post number 10"))
+
+    def test_no_ledger_is_no_section(self):
+        (self.root / "state" / "hands.db").unlink()
+        prompts.build(self.brain)
+        self.assertNotIn("what you said lately", (self.brain / "agent" / "prompts" / "act.md").read_text())
