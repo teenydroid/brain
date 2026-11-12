@@ -50,6 +50,7 @@ def parser() -> argparse.ArgumentParser:
     listing.add_argument("--limit", type=_limit, default=50)
     verb("desk", lambda a, _: jobs.desk(), "settle the builder's report and lay out its next job")
     verb("ship", lambda a, _: jobs.ship(), "push finished jobs to GitHub")
+    verb("babysit", lambda a, _: jobs.babysit(), "put Teeny's own red pull requests back on the builder's desk")
     verb("self", lambda a, body: jobs.propose_self(body), "propose a change to Teeny itself (JSON on stdin)",
          body=True)
     verb("self-sync", lambda a, _: selfclone.sync(), "sync Teeny's own clone with origin/main")
