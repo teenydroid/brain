@@ -604,13 +604,19 @@ class RoutingCore:
         self.server.server_close()
 
 
-class FallbackRouteTest(HealthTest):
+class FallbackRouteTest(unittest.TestCase):
     """docs/roadmap.md, A18: two failed checks in a row and a fallback model
     that answers move the core to it, with a diary note; the main model
-    answering again moves it back."""
+    answering again moves it back. HealthTest's scratch and helpers, not its
+    tests."""
+
+    tearDown = HealthTest.tearDown
+    configure = HealthTest.configure
+    at = HealthTest.at
+    inbox = HealthTest.inbox
 
     def setUp(self):
-        super().setUp()
+        HealthTest.setUp(self)
         self.core.close()
         self.core = RoutingCore("main-model", {"backup-model"})
         self.addCleanup(self.core.close)
