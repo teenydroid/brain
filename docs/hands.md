@@ -529,7 +529,7 @@ These are honest proxies, not the whole idea. Follower counts include
 accounts that never engaged, because no source tells them apart; the
 engaged accounts from the stimuli are the part that does. A hand counts by
 having tests, not by passing them: the tests gate the merge (CI, `bin/doctor
---full`), not a daily job. There is no inflow ledger, so money is the
+--full`), not a daily job. W does not read the inflow ledger (`wallet inflows`), so money is the
 wallet's value with the team's own money taken out by hand. Teeny writes
 `ARCS.md` itself, which is why the world weighs least. GitHub stars count as
 shipped, not attention, so nothing counts twice.
