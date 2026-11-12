@@ -78,9 +78,9 @@ The whole path, with the cron job that drives each step:
 self-improve   15:00 IST   bin/act self-improve ──► hand:build self
                              └─► build request: pending, source self
 pick-request   09:20/15:20 bin/act pick-request ──► the request is picked
-build-ship     every 30 m  hands/build self-sync ──► the clone's main = origin/main
+build-ship     every 30 m  hands/build self-sync ──► a clean main fast-forwarded
                            hands/build desk      ──► the job on the builder's desk
-builder        :10, 2-hrly the builder agent     ──► edits the clone on teeny/<slug>,
+builder        every 2 h   the builder agent     ──► edits the clone on teeny/<slug>,
                                                      runs the offline tests
 build-ship     every 30 m  hands/build ship      ──► guard ─► commit ─► frozen.check
                                                      ─► push ─► ready PR into main
@@ -353,7 +353,8 @@ spec below.
 
 The budgets live in `secrets/evolve.env`: generations a day (default 1),
 tokens per generation, a wall-clock cap, and `EVOLVE=0` as the kill switch. A
-cron shell job may run 30 minutes (`[cron] shell_timeout_secs`); a longer
+cron shell job may run 30 minutes (`[cron] shell_timeout_secs`), but TinyBox
+cuts a shell call off at 300 s ([`oh-gaps.md`](oh-gaps.md), G12), so a longer
 generation detaches.
 
 ## Risks
