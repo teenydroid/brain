@@ -1,6 +1,12 @@
 # Developing Teeny
 
-DEVINTRO
+How to run Teeny, operate it, configure it, test it and bump OpenHuman. The
+[README](../README.md) says what Teeny is; [`architecture.md`](architecture.md)
+says why it is built this way.
+
+Everything here works the same on a laptop and on the box. `DRY_RUN` is on
+until `secrets/teeny.env` says `DRY_RUN=0`, so nothing you run below reaches X,
+GitHub, mail or the wallet until then.
 
 ## Run it
 
@@ -32,6 +38,9 @@ bin/spine          # mints secrets/core.token and secrets/openhuman.key on first
 ```
 
 ## Operate it
+
+The `bin/` scripts drive the core and the mind. The `hands/` programs are the
+capabilities, each with read verbs you can call by hand.
 
 ```sh
 bin/crons                          # every cron job, its next run and last result (a sqlite query)
@@ -98,10 +107,17 @@ hands/wallet costs --days 30                          # models, x402 and bills: 
 hands/bounty get 1                                    # a bounty's entries, winner and claim
 ```
 
-Every hand prints one JSON object. The exit code is `0` when it's done, `2`
-when a rule refused (the JSON says which), and `1` on an error. Add `--help` to
-any hand or verb for its flags. [`docs/hands.md`](hands.md) lists every
+Every hand prints one JSON object and exits with one of three codes:
+
+```
+0   done
+2   a rule refused (the JSON says which)
+1   an error
+```
+ Add `--help` to any hand or verb for its flags. [`hands.md`](hands.md) lists every
 verb.
+
+## Schedule a job
 
 To schedule something, write a playbook in `brain/playbooks/`, add a job that
 runs it to `brain/cron.toml`, and restart the spine:
@@ -174,6 +190,19 @@ stores). **Back up `brain/storage.db` and `secrets/openhuman.key` together.**
 The database is unreadable without its key.
 
 ## Layout
+
+```
+                 ┌──────────────── frozen: Teeny cannot edit (evals/frozen.txt) ───────────────┐
+                 │ spine/  vendor/  bin/  deploy/  evals/  Cargo.*  DIRECTIVE.md               │
+                 │ hands/guard  hands/x  the existing hand library  brain/agents/*.toml        │
+                 └─────────────────────────────────────────────────────────────────────────────┘
+                 ┌──────────────── Teeny's own: it may change these through a PR ──────────────┐
+                 │ brain/ (SOUL, CONTEXT, playbooks, skills, narrative, agent prompts)         │
+                 │ new hands it writes under hands/lib/teeny_hands/<name>/                     │
+                 └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+[`evolve.md`](evolve.md) covers what Teeny may change and how the check works.
 
 ```
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
