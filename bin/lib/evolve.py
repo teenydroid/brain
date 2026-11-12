@@ -2557,12 +2557,12 @@ def status() -> Json:
 
 
 @contextlib.contextmanager
-def run_lock():
-    """state/locks/evolve.lock, as bin/lib/detach.py --lock evolve reads it:
+def run_lock(name: str = "evolve"):
+    """state/locks/NAME.lock, as bin/lib/detach.py --lock NAME reads it:
     True while held by this run, False when another holds it."""
     locks = state_dir() / "locks"
     locks.mkdir(parents=True, exist_ok=True)
-    with open(locks / "evolve.lock", "a+") as fh:
+    with open(locks / f"{name}.lock", "a+") as fh:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -2628,7 +2628,8 @@ def main(argv: list[str]) -> int:
         elif args.verb == "promote":
             out = promote_cmd(cfg, args.gen)
         elif args.verb == "watch":
-            out = watch(cfg)
+            with run_lock("evolve-watch") as held:
+                out = watch(cfg) if held else {"ok": True, "kind": "busy", "detail": "evolve-watch is already running"}
         elif args.verb == "probe":
             out = probe_cmd(cfg, args.baseline, args.force)
         elif args.verb == "credit":
