@@ -190,6 +190,19 @@ command = "bin/evolve watch --detach"
 schedule = "35 * * * *"
 command = "bin/goals-check"
 
+# A lore episode when something real happened (docs/roadmap.md, A13): once a
+# day, `bin/act episode` reads the day's proof events (hands/lore events: a
+# generation merged, a pull request merged elsewhere, a bounty paid) and,
+# only when there is one, drafts one post through hands/x and the guard. A day
+# with no event skips before any model turn. Pinned because brain/cron.toml
+# is at its 24-job limit; the playbook (brain/playbooks/episode.md) stays
+# Teeny's. OFF: it posts in public. The operator sets `enabled = true` after
+# a rehearsal (DRY_RUN=1 bin/act episode).
+[jobs.episode]
+schedule = "50 17 * * *"
+command = "bin/act episode"
+enabled = false
+
 # Buy $TINY with a share of what Teeny earned (bin/tiny-buy): once a day,
 # TINY_BUY_SHARE of the USDC that reached the wallet since the last buy from
 # anyone but the team, less what running Teeny cost, under the wallet's caps
