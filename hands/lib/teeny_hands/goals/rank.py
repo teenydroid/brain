@@ -202,7 +202,7 @@ def annecs(goals: list[Mapping[str, Any]], channels: tuple[str, ...]) -> Json:
         if cell["best"] is None or q > cell["best"]["quality"]:
             cell["best"] = {"id": g["id"], "instruction": g["instruction"], "family": g["family"], "quality": q,
                             "check": g["check_kind"], "solved_at": g["resolved_at"]}
-    empty = [f"{c} x {ch}" for c in checks.COMPONENTS for ch in channels if (c, ch) not in niches]
+    empty = [f"{c}/{ch}" for c in checks.COMPONENTS for ch in channels if (c, ch) not in niches]
     return {
         "annecs": len(counted),
         "counted": [g["id"] for g in counted],
