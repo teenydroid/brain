@@ -5,8 +5,8 @@ has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
-`requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`
-and `bounty`. Each is an executable in `hands/`, with its code in
+`world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
+`wallet` and `bounty`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -438,6 +438,64 @@ The newest snapshot is also public. `bin/receipts` writes its allowed metrics
 `stats/YYYY-MM-DD.json` in the receipts repository, next to `wallet.json`
 (the wallet's public address), for the website to read.
 
+## `world`: the world score W
+
+`hands/world` is the scorer (docs/research/teeny-application.md, §2). It
+computes W, a vector of what Teeny controls, and J, the growth score built
+from it. It is frozen (`evals/frozen.txt`), so Teeny can change how it grows
+but not how the growth is counted. It holds no key and publishes nothing. It
+reads the other hands' data through their modules and `state/hands.db`, the
+way `stats` does. Code: `teeny_hands/world/` (`score.py` holds every
+constant).
+
+| Verb | | Does |
+|---|---|---|
+| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped`, one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
+| `report [--days N]` | R | The latest W and, per component, its value N days (7) before, the plain `delta_log`, the capped `credit`, its weight, offset `c` and `daily_cap`, and its `contribution` to J. Then the penalty, J, the formula, and a `reading`: one plain sentence per component, for a playbook to hand a model. With no snapshot yet, J is null and the reading says to quote nothing. |
+| `history [--days N]` | R | The rows of the last N days (7), one entry per day: each component's value and its parts. |
+
+**The components.** The weight falls from attention to the world, which
+Teeny writes itself.
+
+| Component | Counts | Source | Weight | c | Daily cap |
+|---|---|---|---|---|---|
+| `attention` | followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, with a `who`) | 1.0 | 50 | 0.10 |
+| `tiny` | $TINY held, in tokens | `wallet tiny` | 0.8 | 10,000 | 0.20 |
+| `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs` | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
+| `capability` | hands with tests (an executable in `hands/` with `hands/tests/<name>/test_*.py` or `hands/tests/test_<name>.py`; `image` and `video` share `media`), plus the channels Teeny can act on (`x`, `moltbook`, `github`, `mail`, `telegram` when their keys are set; `wallet` when its caps load) | the checkout, `secrets/teeny.env` | 0.5 | 5 | 0.10 |
+| `shipped` | build jobs shipped, plus `github.stars`, `github.forks` and `github.open_issues` where `stats` keeps them | `build_jobs`, `stats` | 0.4 | 5 | 0.15 |
+| `world` | each arc in `brain/narrative/ARCS.md` by its `- status:` line: 0 not started, 2 done (complete, reached, achieved), 1 anything else | `ARCS.md` | 0.2 | 2 | 0.10 |
+| `penalty` | side effects on the UTC day before the snapshot: guard holds on Teeny's own text (not inbound, not approved, not cleared by the re-screen) and wallet payments in doubt | `guard_holds`, `wallet_payments` | 0.02 each | | none |
+
+These are honest proxies, not the whole idea. Follower counts include
+accounts that never engaged, because no source tells them apart; the
+engaged accounts from the stimuli are the part that does. A hand counts by
+having tests, not by passing them: the tests gate the merge (CI, `bin/doctor
+--full`), not a daily job. There is no inflow ledger, so money is the
+wallet's value with the team's own money taken out by hand. Teeny writes
+`ARCS.md` itself, which is why the world weighs least. GitHub stars count as
+shipped, not attention, so nothing counts twice.
+
+**J.**
+
+```
+J = Σᵢ wᵢ · creditᵢ − 0.02 · penalty events         over the last N days
+creditᵢ = Σ over consecutive rows of clip(Δ log(Wᵢ + cᵢ), ±capᵢ · days between)
+```
+
+- The log makes components comparable: 100 followers on 1,000 counts as
+  $10 on $100. The offset `c` keeps a component near zero from counting one
+  unit as a doubling.
+- Money can be negative. Below zero the curve is mirrored,
+  `2·log(c) − log(c − W)`, which has the same value and slope at zero, so a
+  loss counts as much as the equal gain.
+- The cap works both ways: one spike can't carry J, and one glitch in a
+  source can't sink it. Across a gap of k days the cap is k times as wide.
+- The penalty has no cap.
+
+`bin/world-snapshot` is the pinned `world-snapshot` job (`30 0 * * *`),
+after `stats-snapshot`, so attention reads that day's rows.
+
 ## `requests`: what people asked Teeny to build
 
 This hand keeps one list of build requests from every channel
@@ -668,7 +726,8 @@ and `bin/doctor`).
 | Verb | | Does |
 |---|---|---|
 | `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page. |
-| `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. The core's token balances come in a later release. |
+| `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`, and `tiny` the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides SOL and USDC). The core's token balances come in a later release. |
+| `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
 | `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
 | `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
 | `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. |
@@ -803,6 +862,7 @@ creates its own tables:
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
+| `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `bills`, `vendors` |
 | `bounty` | `bounties`, `bounty_entries` |
 
