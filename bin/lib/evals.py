@@ -42,7 +42,7 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 KINDS = {"post": 280, "reply": 280, "episode": 1200}
 # What the judge reads of the incumbent's brain, in order.
-REFERENCE = ("SOUL.md", "CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md")
+REFERENCE = ("SOUL.md", "DRIVE.md", "CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md")
 ANCHOR = re.compile(r"^- ([a-z0-9-]+) \| ([^|]+?) \| (.+)$")
 
 

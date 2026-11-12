@@ -5,8 +5,8 @@ has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
-`requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`
-and `bounty`. Each is an executable in `hands/`, with its code in
+`requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`,
+`bounty` and `vps`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -765,6 +765,43 @@ on stdout, in a file or in a log, and the screen is cleared after. It refuses
 when a wallet exists, unless given `--force` and the first 8 characters of the
 current address are typed. It prints the line to paste into
 `brain/CONTEXT.md`.
+
+## `vps`: Teeny's own servers on Vultr or EQVPS
+
+One hand, two providers, one ledger (`vps_orders`) and one set of caps.
+`--provider` picks one (default `VPS_PROVIDER`, else `vultr`).
+
+| Provider | API | Key | How it is paid |
+|---|---|---|---|
+| `vultr` | `VULTR_API_BASE`, default `https://api.vultr.com/v2` | `VULTR_API_KEY` | Hourly, against the account's credit. A person opens the account, funds it (card, PayPal, or crypto through BitPay) and makes the key; Vultr's key also needs this box's address on its access list. |
+| `eqvps` | `EQVPS_API_BASE`, default `https://api.eqvps.com/api/v1/eqvps` | `EQVPS_API_TOKEN` | From a prepaid balance that a crypto checkout tops up (USDC or USDT on Base, Ethereum or Tron). `register` makes the account. EQVPS places the server itself (Germany or Finland). |
+
+Every cap is closed until the operator opens it in `secrets/teeny.env`:
+
+| Setting | Default | Caps |
+|---|---|---|
+| `VPS_ORDERS` | off | whether `order` may buy at all |
+| `VPS_MAX_MONTHLY_USD` | 0 (0..100) | a plan's monthly price |
+| `VPS_MAX_SERVERS` | 1 (0..3) | orders that still hold a slot (`ordering`, `ordered`, `unfunded`, `in_doubt`), both providers together |
+| `VPS_TOPUP_MAX_USD` | 0 (0..200) | one EQVPS top-up, and every top-up in 30 days together |
+| `VPS_SSH_PUBKEY` | none | the one public key every server is ordered with |
+| `VPS_REGION` | `bom` | Vultr's region |
+| `VPS_OS` | `Ubuntu 24.04 LTS x64` (Vultr), `Ubuntu 24.04` (EQVPS) | the system, by the provider's name for it |
+
+| Verb | | Does |
+|---|---|---|
+| `plans [--provider P] [--max-usd N] [--region R]` | R | The public plan list, cheapest first (for Vultr, the plans sold in the region): plan id, monthly USD, vCPU, memory, disk, public IPv4. Also the caps in force. No key needed. |
+| `account` | R | Vultr's balance (negative is credit) and this month's pending charges. |
+| `servers` | R | This hand's orders and its latest 20 EQVPS top-ups. |
+| `server [--provider P] ID` | R | One server's status and `address`. A root password in the answer (both providers show one once) goes to `secrets/vps/<provider>-<ID>.json`, mode 600; only the file and key names are printed. |
+| `order [--provider P] --plan PLAN --reason T [--region R] [--os NAME]` | A | Refused while `VPS_ORDERS` is off (`orders_off`), for an unknown plan (`unknown`), a region it is not sold in (`region`), over `VPS_MAX_MONTHLY_USD` (`price_cap`), a missing system (`os`) or a full `VPS_MAX_SERVERS` (`server_cap`). Otherwise the order is reserved as `ordering` under the `vps` lock, then sent with `VPS_SSH_PUBKEY` (on Vultr the key is added to the account once and reused). A server is `ordered` with its id, and a monthly bill `<provider> <id>` is added so `hands/wallet costs` counts it. An EQVPS order the balance did not cover is `unfunded` with its invoice. A 4xx is `failed` and frees the slot. No answer, a 5xx or an unreadable one is `in_doubt` and keeps the slot: it may have bought a server, so a person checks and the hand never retries. Under `DRY_RUN` it answers `would_order` and writes nothing. |
+| `topup --usd N --reason T` | A | An EQVPS checkout URL for N whole dollars, recorded with its reason. Refused over `VPS_TOPUP_MAX_USD` (`topup_cap`, `topup_month`). It pays nothing: the browser stops at payment pages, so the operator pays it, or `hands/wallet` under the wallet's caps. |
+| `destroy [--provider P] ID --note T` | O | Destroys a Vultr server this hand bought (it stops billing), releases its order and drops its bill. Never a server the hand did not buy. EQVPS has no cancel in its API (`no_cancel`): cancel in its console, then `release`. |
+| `release ID --note T` | O | An order stops holding a slot (an `in_doubt` a person has read, a server cancelled in a console), and its bill goes. |
+| `register --first F --last L --email E` | O | A new EQVPS account. Its token is printed once and written nowhere; the operator puts it in `secrets/teeny.env`. |
+
+`order` and `topup` spend money, so they are never a playbook's output and
+never given to a model.
 
 ## `bounty`: bounties Teeny opens, judges and pays
 
