@@ -60,10 +60,13 @@ def _targets(conn) -> list[Json]:
     since = hand.now() - WINDOW_DAYS * DAY
     counted = ",".join("?" * len(rules.COUNTED))
     rows = conn.execute(
-        f"SELECT 'post' AS kind, post_id AS target_id, NULL AS post_id, at FROM moltbook_posts"
+        f"SELECT 'post' AS kind, post_id AS target_id, post_id, at FROM moltbook_posts"
         f" WHERE post_id IS NOT NULL AND at >= ? AND status IN ({counted})"
+        " UNION ALL"
+        f" SELECT 'comment', comment_id, post_id, at FROM moltbook_comments"
+        f" WHERE comment_id IS NOT NULL AND at >= ? AND status IN ({counted})"
         " ORDER BY at DESC",
-        (since, *rules.COUNTED),
+        (since, *rules.COUNTED, since, *rules.COUNTED),
     ).fetchall()
     return [dict(r) for r in rows]
 
