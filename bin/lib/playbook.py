@@ -69,9 +69,9 @@ MONEY_READS = {
     "bounty": ("list", "get", "announcements"),
 }
 #: The verbs that move money, named so a change to MONEY_OUTPUTS above can
-#: never let one through: `pay`, and `buy-tiny`, which only the pinned
-#: tiny-buy job runs (bin/tiny-buy).
-NEVER_OUTPUTS = {"wallet": ("pay", "buy-tiny"), "bounty": ("pay", "pay-due")}
+#: never let one through: `pay`, `swap`, `bridge`, `x402` (fetch), and
+#: `buy-tiny`, which only the pinned tiny-buy job runs (bin/tiny-buy).
+NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due")}
 MAX_INPUTS = 8
 
 

@@ -184,8 +184,10 @@ cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
 cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/MEMORY.md" "$root/brain/"
-printf '\n- the live test planted this: the tea tin moved again.\n' >>"$root/brain/MEMORY.md"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/DRIVE.md" "$repo/brain/MEMORY.seed.md" "$root/brain/"
+# No live page yet, as on a fresh checkout: the boot starts it from the seed.
+printf '\n- the live test planted this: the tea tin moved again.\n' >>"$root/brain/MEMORY.seed.md"
+cp "$root/brain/MEMORY.seed.md" "$scratch/memory-seed"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -313,6 +315,7 @@ act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
 check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
 check "and MEMORY.md" grep -q 'the tea tin moved again' <<<"$(act_system)"
+check "the boot started the live MEMORY.md from the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.md"
 if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
 config_toml="$root/.openhuman/config.toml"
 check "the core's config folds a thread at 100k tokens" \
@@ -339,6 +342,7 @@ check "a second beat on teeny:mind remembers the first" \
 reflected="$("$root/bin/reflect" 2>"$scratch/reflect.log" || true)"
 check "bin/reflect rewrites MEMORY.md from the mind thread" grep -q 'said gm in the live test' "$root/brain/MEMORY.md"
 check "and the mind's next prompt carries the new page" grep -q 'said gm in the live test' "$root/brain/agent/prompts/teeny.md"
+check "but never writes the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.seed.md"
 [ "$(jq -r .ok <<<"$reflected" 2>/dev/null)" = true ] || { echo "bin/reflect said: $reflected"; tail -n 5 "$scratch/reflect.log"; } >&2
 if [ "$(jq -r .thought <<<"$ticked" 2>/dev/null)" != "the stub thought about it" ]; then
   { echo "bin/tick said: $ticked"; tail -n 5 "$scratch/tick.log"; } >&2

@@ -16,7 +16,10 @@ def iso(at: float) -> str:
 
 class ReadsTest(Scratch):
     def test_address_and_balance(self):
-        self.assertEqual(reads.address(), {"address": OWN, "cluster": "devnet", "url": f"https://solscan.io/account/{OWN}?cluster=devnet"})
+        address = reads.address()
+        self.assertEqual(address["evm"]["address"], "0x" + "1" * 40)  # the same phrase's EVM account
+        del address["evm"]
+        self.assertEqual(address, {"address": OWN, "cluster": "devnet", "url": f"https://solscan.io/account/{OWN}?cluster=devnet"})
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(12_345_678)
         out = reads.balance()
         self.assertEqual(out["sol"], {"raw": "10000000000", "display": "10"})
@@ -107,7 +110,7 @@ class ReadsTest(Scratch):
         with self.assertRaises(hand.Refused):
             reads.vendors_add("tiny", "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump", None)
         reads.vendors_add("hosting", VENDOR, "box")
-        self.assertEqual(reads.vendors_list()["vendors"], [{"name": "hosting", "address": VENDOR, "note": "box"}])
+        self.assertEqual(reads.vendors_list()["vendors"], [{"name": "hosting", "address": VENDOR, "chain": "solana", "note": "box"}])
 
     def test_receipt_of_an_unknown_payment(self):
         with self.assertRaises(hand.Refused):

@@ -26,11 +26,18 @@ How it reads one:
 5. Find the operation from its words (plus, gains ... / minus, slows,
    loses ... / times, multiplied ... / divided, split, shared ...). A
    comparison ("how much faster than") is the difference, as a positive
-   number. "Total", "sum", "combined" often only name the result ("multiplied
-   by two, what is the total force?"), so they mean addition only when no
-   other operation is named. "Doubles", "triples", "halves" carry the second
-   number themselves. A "*" is noise, never an operation: Moltbook scatters
-   it between words like any other symbol.
+   number. "Total", "sum", "combined", "altogether" often only name the
+   result ("multiplied by two, what is the total force?"), so they mean
+   addition only when no other operation is named; they are the only words
+   that add without an operation word. Two numbers and no operation is no
+   answer: "another claw applies eight" names a second force, not a sum.
+   "Doubles", "triples", "halves" carry the second number themselves. A "*"
+   is noise, never an operation: Moltbook scatters it between words like
+   any other symbol.
+   "Net" ("what is the net force?") is the first number minus the second,
+   and only when the second is set against the first ("but another claw
+   applies eight", "against", "opposite", "resists", "pushes back"); "net"
+   without one of those is no answer.
 
 6. Two readings that look like three numbers: "with one claw and nine
    (with the) other" drops the "one", which picks out a claw; "increases by
@@ -72,7 +79,7 @@ POINT = "point"
 _OPS_RAW = {
     "+": (
         "plus add adds added adding gain gains gained increase increases increased accelerates accelerated"
-        " another extra grows grew rises rose receives collects"
+        " extra grows grew rises rose receives collects"
         " joins faster more"
     ),
     "-": (
@@ -86,7 +93,17 @@ _OPS_RAW = {
 OPS = {op: {collapse(w) for w in words.split()} for op, words in _OPS_RAW.items()}
 #: Words that name the result ("what is the total force?") as often as they
 #: ask for an addition: an addition only when no other operation is named.
-RESULT_WORDS = {collapse(w) for w in "total sum combined together altogether".split()}
+#: The only words that add without an operation word; "net" is not one.
+RESULT_WORDS = {collapse(w) for w in "total sum combined altogether".split()}
+#: "What is the net force?" is a difference only when the second force opposes
+#: the first; otherwise which way the forces point is a guess.
+NET = collapse("net")
+#: Words that set a force against the first one.
+OPPOSING = {collapse(w) for w in "against opposite opposing opposes oppose resists resist resisting".split()}
+#: "pushes back", "pulls back": the verb and then "back".
+_PUSH_PULL = {collapse(w) for w in "push pushes pushed pushing pull pulls pulled pulling".split()}
+#: "but another claw applies eight": "but" and then the second force.
+_ANOTHER = {collapse(w) for w in "another other".split()}
 #: One number and a word that carries the second: "it doubles" is times two.
 _IMPLICIT_RAW = {
     "doubles doubled": ("*", 2), "triples tripled": ("*", 3), "halves halved": ("/", 2),
@@ -103,7 +120,7 @@ OTHER = collapse("other")
 #: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
 _SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
 
-_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON
+_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON | {NET} | OPPOSING
 
 
 def _is_number_word(word: str) -> bool:
@@ -289,6 +306,20 @@ def _added_pair(words: list[str], numbers: list[tuple[int, int, Decimal]]) -> bo
     return bool(before) and before[-1] in OPS["+"]
 
 
+def _opposed(words: list[str], after: int) -> bool:
+    """Whether the words after the first number set a second force against
+    it: "against", "opposite", "resists", "pushes back", "but another"."""
+    later = words[after:]
+    if set(later) & OPPOSING:
+        return True
+    for i, word in enumerate(later):
+        if word in _PUSH_PULL and later[i + 1 : i + 2] == ["back"]:
+            return True
+        if word == "but" and set(later[i + 1 : i + 3]) & _ANOTHER:
+            return True
+    return False
+
+
 def solve(challenge: str) -> str | None:
     """The answer with two decimals ("15.00"), or None when the challenge
     cannot be read with confidence."""
@@ -324,6 +355,13 @@ def solve(challenge: str) -> str | None:
             ops.add(op)
     ops |= {_SYMBOLS[w] for w in present if w in _SYMBOLS}
     ops |= {op for op, _ in implicit}
+    if NET in present:
+        # A net force is the difference of two opposing forces; anything else
+        # with "net" in it is a guess.
+        if comparison or implicit or added_pair or ops - {"-"} or not _opposed(words, spans[0][1]):
+            return None
+        a, b = numbers
+        return compute(a, "-", b)
     if not ops and not comparison and present & RESULT_WORDS:
         ops.add("+")
     if comparison:

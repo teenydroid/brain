@@ -66,11 +66,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from .. import hand
-from . import caps, jupiter, reads, solana, store
+from . import caps, chains, jupiter, reads, solana, store
 from .pay import Core, load_caps, own_address
 
 #: deBridge's chain id for Solana, the core's `web3_swap_quote` chainId.
-SOLANA_CHAIN_ID = 7565164
+SOLANA_CHAIN_ID = chains.debridge_id(chains.SOLANA)
 #: The only output, ever. Not a setting, not an argument.
 OUTPUT_MINT = caps.TINY_MINT
 
@@ -454,7 +454,7 @@ def buy_tiny(core: Core = hand.core) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     _check(checks, "off", "TINY_BUY=1")
     _check(checks, "caps", "set and within their ceilings")
-    own = own_address(core)
+    own = own_address(core, chains.SOLANA)
     with hand.lock("wallet-pay"):
         conn = store.db()
         try:

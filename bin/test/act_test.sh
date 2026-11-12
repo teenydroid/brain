@@ -369,11 +369,59 @@ run morning >/dev/null
 check "reads a draft inside a code fence" grep -q '"text":"fenced gm"' "$FAKE_HANDS"
 
 # --- one run at a time ---------------------------------------------------------------
+# A lock names its owner: bin/act's pid, the host (in the spine, the
+# container) it ran on, and the pid's start time where /proc has one. A
+# container recreated mid-run leaves its lock behind; the next run must not
+# wait an hour for it.
+lock="$scratch/state/locks/act-morning"
+start_of() { # PID -> its start time from /proc/PID/stat, or nothing
+  local stat fields
+  [ -r "/proc/$1/stat" ] || return 0
+  stat="$(cat "/proc/$1/stat")"
+  read -ra fields <<<"${stat##*) }"
+  printf '%s' "${fields[19]}"
+}
+own() { # PID HOST [START]: leave a lock owned by PID on HOST
+  mkdir -p "$lock"
+  printf '%s %s %s\n' "$1" "$2" "${3-$(start_of "$1")}" >"$lock/owner"
+}
+ran() { jq -e 'has("skipped") | not' <<<"$1" >/dev/null; }
 reset
-mkdir -p "$scratch/state/locks/act-morning"
+mkdir -p "$lock"
 out="$(run morning)"
-check "skips while another run of the playbook holds the lock" test "$(jq -r .skipped <<<"$out")" = "already running"
-rmdir "$scratch/state/locks/act-morning"
+check "skips while a fresh lock without an owner is held" test "$(jq -r .skipped <<<"$out")" = "already running"
+reset
+mkdir -p "$lock"
+touch -t 202001010000 "$lock"
+out="$(run morning)"
+check "takes over a lock without an owner after an hour" ran "$out"
+reset
+sleep 300 &
+live=$!
+own "$live" "$HOSTNAME"
+out="$(run morning)"
+check "skips while the lock's owner is alive" test "$(jq -r .skipped <<<"$out")" = "already running"
+check "and leaves that owner's lock alone" test -s "$lock/owner"
+reset
+own "$live" "another-container"
+out="$(run morning)"
+check "takes over a lock left by another host (a recreated container)" ran "$out"
+if [ -r /proc/self/stat ]; then
+  reset
+  own "$live" "$HOSTNAME" 1
+  out="$(run morning)"
+  check "takes over a lock whose pid now belongs to a newer process" ran "$out"
+fi
+kill "$live" 2>/dev/null || true
+wait "$live" 2>/dev/null || true
+reset
+sleep 0 &
+dead=$!
+wait "$dead"
+own "$dead" "$HOSTNAME"
+out="$(run morning)"
+check "takes over a lock whose owner died" ran "$out"
+check "and releases the lock when it is done" test ! -e "$lock"
 
 # --- what a playbook may name ---------------------------------------------------------
 refuses() {
