@@ -1,0 +1,17 @@
+# What Teeny sells, and what it may give back (docs/roadmap.md, S3 and S4;
+# hands/lib/teeny_hands/wallet/sales.py). Frozen with the evals: Teeny cannot
+# change its own prices or loosen its own refund limits.
+#
+# Prices are in USDC. Refund limits are in dollars and sit under the wallet's
+# four caps (WALLET_MAX_PER_TX_USD and the rest), never above them.
+
+[prices]
+# A build request with a deposit of at least this, whose memo names the
+# request ("request 12" or "#12"), is built before any request without one.
+build_request_usdc = "5"
+
+[refunds]
+# The most one refund may be: a deposit above it is refunded by a person.
+max_per_refund_usd = "50"
+# The most refunded in any 24 hours, together.
+max_per_day_usd = "50"
