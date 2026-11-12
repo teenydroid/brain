@@ -39,7 +39,7 @@ npm run build
 The rule: a number on the page is a count of something anyone can check, read
 server-side at render time and cached (ISR). When its source cannot be read,
 the widget says so or is left out; it never shows a default, a zero or a
-sample in its place. The page never reads the box; every source is public:
+sample in its place. Every source is public:
 
 ```
 DIARY_REPO (teenydroid/diary) ────► / and /brain: receipts, the numbers, the wallet address
