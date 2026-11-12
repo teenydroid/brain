@@ -40,7 +40,11 @@ Every run:
    not.
 6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
-   did not run), and `stale_crons`, `rearmed` and `cron_alarm`.
+   did not run), `stale_crons`, `rearmed` and `cron_alarm`, and
+   `moltbook_unverified`: how many of the last day's Moltbook writes are
+   still hidden behind an unsolved challenge, when fewer than nine in ten
+   of at least three are visible (null otherwise). That one is a count on
+   the line only; it raises no alarm.
 
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
