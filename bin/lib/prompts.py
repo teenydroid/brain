@@ -15,7 +15,7 @@ for "one running bit from the lore" drafted blind.
 Each speaking agent keeps its own instructions in brain/agents/<id>.md and
 points its definition at the built file (`[system_prompt] file = "<id>.md"`).
 This writes brain/agent/prompts/<id>.md, where the core looks for a prompt
-file (`<workspace>/agent/prompts/`): the instructions, then "## your world".
+file (`<workspace>/agent/prompts/`): the instructions, then "# your world".
 
 MEMORY.md leads the world, ahead of DRIVE.md, CONTEXT.md, the lore and the
 arcs. It is what actually happened, and where it disagrees with the context,
