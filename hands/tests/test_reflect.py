@@ -33,7 +33,12 @@ with open(os.environ["FAKE_CALLS"], "a") as fh:
 if method == "inference_agent_chat":
     if os.environ.get("FAKE_TURN_FAIL"):
         sys.exit("the core is down")
-    print(json.dumps({"response": open(os.environ["FAKE_ANSWER"]).read()}))
+    # The nth turn answers FAKE_ANSWER.<n> when there is one, else FAKE_ANSWER.
+    with open(os.environ["FAKE_CALLS"]) as fh:
+        n = sum(1 for line in fh if '"inference_agent_chat"' in line)
+    path = os.environ["FAKE_ANSWER"]
+    path = f"{path}.{n}" if os.path.exists(f"{path}.{n}") else path
+    print(json.dumps({"response": open(path).read()}))
 elif method == "memory_learn":
     print(json.dumps({"id": "m1"}))
 else:
@@ -51,6 +56,25 @@ what i keep in mind.
 ## promises and open threads
 
 - look at ana's cli when it ships.
+
+## what i am in the middle of
+
+## what i have decided
+"""
+
+#: What the mind actually answered the night of 2026-11-11: the page itself,
+#: as plain markdown, its title's `#` lost.
+LIVE_PAGE = """ MEMORY.md
+
+what i keep in mind from one day to the next...
+
+## people
+
+- **enamakel** (telegram dm, owner): built me. wants the diary kept honest.
+
+## promises and open threads
+
+- send enamakel the moltbook write-up.
 
 ## what i am in the middle of
 
@@ -105,6 +129,12 @@ class ReflectTest(unittest.TestCase):
 
     def answer(self, value):
         self.answer_file.write_text(value if isinstance(value, str) else json.dumps(value))
+
+    def answers(self, *values):
+        """The turns answer these in order (the last one from then on)."""
+        for n, value in enumerate(values, 1):
+            Path(f"{self.answer_file}.{n}").write_text(value if isinstance(value, str) else json.dumps(value))
+        self.answer(values[-1])
 
     def reflect(self, *args) -> dict:
         proc = subprocess.run([str(REPO / "bin" / "reflect"), *args], capture_output=True, text=True, env=os.environ)
@@ -192,6 +222,88 @@ class ReflectTest(unittest.TestCase):
         self.answer({"memory": "## people\n\n- ana\n", "diary": "d"})
         self.reflect()
         self.assertTrue((self.brain / "MEMORY.md").read_text().startswith("# MEMORY.md\n"))
+
+
+    # --- an answer that is not the JSON asked for -------------------------
+
+    def test_a_markdown_answer_is_asked_again_for_the_json_on_the_same_thread(self):
+        self.answers(LIVE_PAGE, {"memory": NEW_MEMORY, "diary": "a good day."})
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        first, again = self.chats()
+        self.assertEqual((again["agent_id"], again["thread_id"]), ("teeny", "teeny:mind"))
+        self.assertIn("JSON object only", again["message"])
+        self.assertIn('"memory"', again["message"])
+        self.assertIn('"diary"', again["message"])
+        self.assertLess(len(again["message"]), 600)
+        self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
+        self.assertIn("a good day.", (self.root / "state" / "diary" / "2026-09-14.md").read_text())
+
+    def test_the_page_answered_twice_is_kept_as_the_page_and_the_missing_diary_recorded(self):
+        self.answers(LIVE_PAGE, LIVE_PAGE)
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(len(self.chats()), 2)
+        page = (self.brain / "MEMORY.md").read_text()
+        self.assertTrue(page.startswith("# MEMORY.md\n\nwhat i keep in mind from one day to the next"), page[:80])
+        self.assertEqual(page.count("MEMORY.md"), 1)
+        self.assertIn("**enamakel** (telegram dm, owner)", page)
+        self.assertEqual((got["diary"], got["diary_missing"]), (False, True))
+        self.assertFalse((self.root / "state" / "diary").exists())
+        self.assertEqual(len(list((self.root / "state" / "reflect").glob("MEMORY-*.md"))), 1)
+        self.assertIn("**enamakel**", (self.brain / "agent" / "prompts" / "teeny.md").read_text())
+
+    def test_the_page_with_a_trailing_diary_section_keeps_the_diary_apart(self):
+        answer = LIVE_PAGE + "\n## diary\n\na long tuesday. the page fought me.\n"
+        self.answers(answer, answer)
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(got["diary"])
+        page = (self.brain / "MEMORY.md").read_text()
+        self.assertNotIn("diary", page.lower().split("## what i have decided")[1])
+        self.assertIn("a long tuesday. the page fought me.", (self.root / "state" / "diary" / "2026-09-14.md").read_text())
+
+    def test_midday_keeps_the_page_answered_twice_and_writes_no_diary(self):
+        self.answers(LIVE_PAGE, LIVE_PAGE)
+        got = self.reflect("--light")
+        self.assertTrue(got["ok"], got)
+        self.assertNotIn("diary_missing", got)
+        self.assertTrue((self.brain / "MEMORY.md").read_text().startswith("# MEMORY.md\n\nwhat i keep"))
+        self.assertFalse((self.root / "state" / "diary").exists())
+        self.assertNotIn('"diary"', self.chats()[1]["message"])
+
+    def test_garbage_answered_twice_changes_nothing(self):
+        before = (self.brain / "MEMORY.md").read_text()
+        self.answers("i am tired", "still tired, sorry")
+        got = self.reflect()
+        self.assertFalse(got["ok"])
+        self.assertEqual(len(self.chats()), 2)
+        self.assertEqual((self.brain / "MEMORY.md").read_text(), before)
+        self.assertFalse((self.root / "state" / "reflect" / "last.at").exists())
+
+    def test_a_page_answered_twice_too_long_changes_nothing(self):
+        before = (self.brain / "MEMORY.md").read_text()
+        long_page = LIVE_PAGE + "- more\n" * 3000
+        self.answers(long_page, long_page)
+        self.assertFalse(self.reflect()["ok"])
+        self.assertEqual((self.brain / "MEMORY.md").read_text(), before)
+
+    def test_a_title_that_lost_its_hash_is_normalised(self):
+        for title in ("MEMORY.md", "#MEMORY.md", "## MEMORY.md"):
+            with self.subTest(title=title):
+                self.answer({"memory": f"{title}\n\n## people\n\n- ana\n", "diary": "d"})
+                self.assertTrue(self.reflect()["ok"])
+                page = (self.brain / "MEMORY.md").read_text()
+                self.assertTrue(page.startswith("# MEMORY.md\n\n## people\n"), page[:40])
+                self.assertEqual(page.count("MEMORY.md"), 1)
+
+    def test_json_wrapped_in_prose_and_a_fence_is_read_the_first_time(self):
+        self.answer("here is tonight's page {as asked}:\n\n```json\n"
+                    + json.dumps({"memory": NEW_MEMORY, "diary": "a good day."}) + "\n```\n\nsleep well.")
+        got = self.reflect()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(len(self.chats()), 1)
+        self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
 
 
     def beats(self, *lines):
