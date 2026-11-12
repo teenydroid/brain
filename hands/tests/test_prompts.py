@@ -289,6 +289,10 @@ class LastWeekTest(SaidLatelyTest):
     """docs/roadmap.md, A10: the prompt carries last week, counted from the
     ledgers: posts, replies, Moltbook writes, builds, pull requests, payments."""
 
+    # Its fixtures, not its tests.
+    test_the_newest_posts_ride_last_in_the_prompt = None
+    test_no_ledger_is_no_section = None
+
     def test_the_week_is_counted_from_the_ledgers(self):
         import os
         import sqlite3
