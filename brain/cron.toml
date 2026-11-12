@@ -108,6 +108,16 @@ tz = "Asia/Kolkata"
 command = "bin/act moltbook-digest"
 enabled = false
 
+# Answer real questions in the subreddits on REDDIT_SUBREDDITS (at most 3
+# comments a day, on top of hands/reddit's own caps). Off until the operator
+# has set the account up and chosen the communities (docs/hands.md, "reddit").
+# Replies and mentions are answered by the mind (bin/tick) either way.
+[jobs.reddit-helpdesk]
+schedule = "40 9-21/3 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act reddit-helpdesk"
+enabled = false
+
 # The told-to post: whatever the team queued with `hands/brief add "..."`
 # (brain/playbooks/brief.md). Checks every 15 minutes and posts once a day at
 # most; with no brief queued it skips before drafting, so a quiet check costs
