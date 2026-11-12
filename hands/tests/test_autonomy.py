@@ -280,7 +280,7 @@ class ModelChangeTest(Scratch):
     def test_changing_the_model_drops_self_edit_a_level_and_prepares_the_issue(self):
         autonomy.record_models(self.root, self.secrets, at=1795000000)
         out = self.change_model("model-b")
-        self.assertIn({"at": "2026-11-30T20:53:20Z", "kind": "change", "role": "evolver", "from": "model-a",
+        self.assertIn({"at": "2026-11-30T00:53:20Z", "kind": "change", "role": "evolver", "from": "model-a",
                        "to": "model-b"}, out["changes"])
         report = {c["capability"]: c for c in autonomy.report(self.root, self.secrets, self.state)["capabilities"]}
         self.assertEqual((report["self-edit"]["level"], report["self-edit"]["effective"]), (4, 3))
