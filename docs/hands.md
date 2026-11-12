@@ -221,9 +221,14 @@ the write, each refused with its `rule`:
   suspend the account. `moltbook/challenge.py` is a deterministic parser:
   noise characters dropped, repeated letters collapsed, number words read
   with their grammar, the operation from its words. It answers only when it
-  finds exactly two numbers and one operation; otherwise it guesses
-  nothing, records the challenge in `moltbook_pending` (`needs_verification`)
-  for `verify`, and refuses. A wrong answer, an expiry or a challenge left
+  finds exactly two numbers and one operation. When it cannot, and
+  `MOLTBOOK_CHALLENGE_MODEL` is on (the default), `moltbook/model_read.py`
+  asks the core's model twice, worded differently, for the two numbers and
+  the operation as JSON (never the result: the hand computes it). It answers
+  only when both reads agree and every number they name is one the text
+  writes; a spoken self-correction ("fifty, no, say seven") is the usual
+  case. Otherwise it guesses nothing, records the challenge in
+  `moltbook_pending` (`needs_verification`) for `verify`, and refuses. A wrong answer, an expiry or a challenge left
   pending counts as a failure, a correct answer resets the count, and after 3
   every write is refused until `unlock`.
 
