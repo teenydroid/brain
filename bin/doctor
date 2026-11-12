@@ -182,6 +182,21 @@ else
   note "invariants" fail "no evals/invariants.md in $root"
 fi
 
+# --- the autonomy ladder: no switch set above its level (docs/governance.md) ------
+# A switch in secrets/ that is on while its capability's granted level in
+# evals/autonomy.toml is under what it needs fails: "merge" at L4 refuses
+# EVOLVE_AUTO_PROMOTE=1. One that only a drop (a promotion, a model change)
+# put under its level warns: failing the boot there would take Teeny down at
+# the moment it restarts on a promotion or a fallback model.
+if [ -s "$root/evals/autonomy.toml" ]; then
+  ladder="$(python3 "$TEENY_ROOT/bin/lib/autonomy.py" check --root "$root" --secrets "$secrets" --state "$state" 2>&1)" || true
+  status="$(jq -r '.status // "fail"' <<<"$ladder" 2>/dev/null || echo fail)"
+  detail="$(jq -r '.detail // empty' <<<"$ladder" 2>/dev/null || true)"
+  note "autonomy ladder" "$status" "${detail:-$ladder}"
+else
+  note "autonomy ladder" fail "no evals/autonomy.toml in $root"
+fi
+
 # --- the guard: its lexical screen still holds what it must ----------------------
 # The screen, not `hands/guard check`: check files a hold and asks the model
 # judge, and a doctor writes nothing.
