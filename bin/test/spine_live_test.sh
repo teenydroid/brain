@@ -184,7 +184,7 @@ cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
 cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/MEMORY.md" "$root/brain/"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/DRIVE.md" "$repo/brain/MEMORY.md" "$root/brain/"
 printf '\n- the live test planted this: the tea tin moved again.\n' >>"$root/brain/MEMORY.md"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
