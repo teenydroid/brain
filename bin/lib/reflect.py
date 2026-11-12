@@ -15,11 +15,15 @@ a night this rewrites it, from inside the day:
 2. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
    still in context) for the whole new page and a diary entry, as JSON.
 3. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one
-   (titled, at most prompts.MEMORY_MAX_CHARS), writes the diary to
+   (titled, at most prompts.MEMORY_MAX_CHARS) to brain/MEMORY.md, writes the diary to
    state/diary/<date>.md (the day it looks back on: before 06:00 that is
    yesterday) and teaches it to the core's memory, then rebuilds
    the prompts so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
+
+brain/MEMORY.md is the live page, never committed; the first reflection on
+a checkout without one starts it from the committed brain/MEMORY.seed.md,
+which is never written.
 
 The JSON is found wherever it sits in the answer (in a fence, after a line
 of prose). An answer that is not usable (no JSON, a page empty or too long)
@@ -165,7 +169,7 @@ def render(since: float, light: bool = False) -> str:
     notes = [n for n in stimuli.notes(since=since)["notes"] if n["at"] > since]
     waiting = stimuli.follow_ups()["follow_ups"]
     beats = _beats(since)
-    page = prompts._read(BRAIN / "MEMORY.md") or "(empty)"
+    page = prompts._read(prompts.memory_page(BRAIN)) or "(empty)"
     if light:
         lines = [f"# midday ({_clock():%A %d %B, %H:%M} your time)", "",
                  "A pause to bring MEMORY.md, the page you carry into every conversation, up to date with the day so far.", ""]
@@ -316,7 +320,7 @@ def reflect(light: bool = False) -> Json:
         except ValueError as exc:
             return {"ok": False, "error": str(exc), "answer": again[:500]}
     now = _clock()
-    page = BRAIN / "MEMORY.md"
+    page = prompts.seed_memory(BRAIN)
     if page.is_file():
         (_state("reflect") / f"MEMORY-{now:%Y%m%dT%H%M}.md").write_text(page.read_text(encoding="utf-8"), encoding="utf-8")
     tmp = page.with_suffix(".md.tmp")
