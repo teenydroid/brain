@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from .. import hand
 from . import caps, reads, solana, store
@@ -398,21 +398,14 @@ def page(days: int = 7) -> Json:
     conn = db()
     try:
         rows = [dict(r) for r in conn.execute("SELECT * FROM wallet_inflows WHERE at > ? AND at <= ? ORDER BY at, id", (since, until))]
-        through = conn.execute("SELECT through FROM wallet_scan WHERE name = 'inflows'").fetchone()
+        cursor = conn.execute("SELECT through, updated_at FROM wallet_scan WHERE name = 'inflows'").fetchone()
         bought = store.bought_since(conn, since) - store.bought_since(conn, until)
     finally:
         conn.close()
-    scanned = float(through["through"]) if through else None
-    # The scan's cursor is the newest transaction it read, so a quiet wallet
-    # lags; what matters is that a scan ran after the window closed.
-    scan_ran = None
-    conn = db()
-    try:
-        ran = conn.execute("SELECT updated_at FROM wallet_scan WHERE name = 'inflows'").fetchone()
-        scan_ran = float(ran["updated_at"]) if ran else None
-    finally:
-        conn.close()
-    if scan_ran is None or scan_ran < until - 3600:
+    scanned = float(cursor["through"]) if cursor else None
+    # The cursor is the newest transaction the scan read, so a quiet wallet
+    # lags; what matters is that a scan ran within the hour before the page.
+    if cursor is None or float(cursor["updated_at"]) < until - 3600:
         why.append("inflows")
 
     income = {c: 0 for c in EARNED}
@@ -509,7 +502,3 @@ def closed_pages(conn=None) -> list[Json]:
         if own:
             conn.close()
     return [json.loads(r["page"]) for r in rows]
-
-
-def stored(conn, rows: Iterable[Any]) -> None:  # pragma: no cover - kept for symmetry with other hands
-    pass
