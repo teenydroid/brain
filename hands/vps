@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-"""hands/vps: Teeny's own servers on Vultr (docs/hands.md)."""
+"""hands/vps: Teeny's own servers on Vultr or EQVPS (docs/hands.md)."""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
 from teeny_hands.vps.cli import main
