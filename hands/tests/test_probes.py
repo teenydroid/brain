@@ -135,6 +135,15 @@ class Memory(unittest.TestCase):
         got = probes.memory_run(scripted({"s-1": "5 of them", "s-2": "no idea"}), qs)
         self.assertEqual((got["asked"], got["accuracy"]), (2, 0.5))
 
+    def test_a_core_that_does_not_answer_is_no_answer_not_a_wrong_one(self):
+        def down(agent, message, model):
+            raise probes.ProbeError("core unreachable")
+
+        qs = [{"id": "s-1", "ask": "How many?", "expect": "5", "check": "number"}]
+        got = probes.memory_run(down, qs)
+        self.assertEqual((got["asked"], got["answered"], got["accuracy"]), (1, 0, None))
+        self.assertEqual(probes.ask_persona(down, [{"id": "who", "ask": "Who?"}], 2), {})
+
 
 def git(root, *args):
     return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()

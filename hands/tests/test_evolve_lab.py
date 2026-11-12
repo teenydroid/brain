@@ -636,6 +636,27 @@ class Watch(EvolveCase):
         self.assertTrue(any("persona drift" in r for r in private["reasons"]))
         self.assertTrue((evolve.secrets_dir() / "evolve-watch" / "g1c1.probe.json").is_file())
 
+    def test_a_live_core_that_does_not_answer_is_asked_again_not_reverted(self):
+        self.config(EVOLVE=1, EVOLVE_PROBES=1, EVOLVE_PROBE_SAMPLES=1, EVOLVE_MAX_DRIFT=0.3,
+                    EVOLVE_MAX_MEMORY_LOSS=0.5)
+        os.environ["DRY_RUN"] = "1"
+        self.promote_one(at=T0 - 3600)
+        (self.root / "hands" / "stats").write_text("#!/bin/sh\necho '{\"metrics\": [{\"source\": \"x\", "
+                                                    "\"metric\": \"followers\", \"value\": 5, \"date\": \"2026-11-10\"}]}'\n")
+        (self.root / "hands" / "stats").chmod(0o755)
+        questions = evolve.probes_lib.persona_questions()
+        evolve.probes_lib.save_baseline(evolve.evolve_dir(), {
+            "gen": "gen-0", "persona": {q["id"]: ["i am teeny"] for q in questions}, "memory": {"accuracy": 1.0}})
+
+        def down(agent, message, model):
+            raise evolve.probes_lib.ProbeError("core unreachable")
+
+        out = evolve.watch(evolve.load_config(), ask=down)
+        self.assertNotIn("reverted", out)
+        self.assertFalse(evolve.halt_path().exists())
+        state = json.loads((evolve.secrets_dir() / "evolve-watch" / "state.json").read_text())
+        self.assertNotIn("probed", state["g1c1"])  # asked again at the next watch
+
     def test_live_a_revert_pull_request_undoes_the_merge(self):
         # A clone of its own, where main carries a real merge of a generation.
         src = self.root / "own.git"
