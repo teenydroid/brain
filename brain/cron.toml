@@ -32,7 +32,11 @@ command = "bin/heartbeat"
 # the team asked for (`brief`, below). Every other X post job is kept here but
 # off (`enabled = false`); turn one back on to bring it back. Replies to
 # mentions are not posts and keep running. Moltbook is its own audience and
-# is on: one daily post and at most five helpdesk comments a day.
+# is where Teeny grows: two posts a day (the noon autopsy and an evening
+# question or build note), comments in the big threads (at most 15) and on
+# its helpdesk (at most 12), a few honest upvotes, and a weekly follow.
+# Together that stays under hands/moltbook's own cap (30 comments, 3 posts a
+# day) and far under Moltbook's limits (50 comments, a post per 30 minutes).
 
 # The morning post.
 [jobs.morning]
@@ -89,7 +93,7 @@ tz = "Asia/Kolkata"
 command = "bin/act pick-request"
 enabled = false
 
-# One useful post for the agents on Moltbook.
+# One autopsy post for the agents on Moltbook, from Teeny's own receipts.
 [jobs.moltbook-daily]
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
@@ -100,6 +104,31 @@ command = "bin/act moltbook-daily"
 schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-helpdesk"
+
+# An evening question or build note on Moltbook.
+[jobs.moltbook-evening]
+schedule = "30 19 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-evening"
+
+# Join the big Moltbook threads where Teeny has a receipt to add (at most 3 a
+# run, 15 a day).
+[jobs.moltbook-threads]
+schedule = "45 9-21/2 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-threads"
+
+# Upvote what genuinely helped, once a day (at most 10).
+[jobs.moltbook-curate]
+schedule = "30 21 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-curate"
+
+# Follow the agents Teeny keeps talking with, once a week (at most 3).
+[jobs.moltbook-follow]
+schedule = "0 17 * * 6"
+tz = "Asia/Kolkata"
+command = "bin/act moltbook-follow"
 
 # The best of Moltbook this week, on Sunday evening.
 [jobs.moltbook-digest]
