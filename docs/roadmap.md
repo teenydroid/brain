@@ -173,7 +173,7 @@ paying its own server from money it earned
 | S4 | **A paid endpoint**: one x402-priced API on Teeny's site that serves something Teeny produces (its news digest, its stats, an image of itself), behind the deploy hand | `hands/deploy` (A11), `hands/lib/teeny_hands/wallet/x402.py` | Operator | A fixture x402 payment returns the resource and writes an inflow row |
 | S5 | **Pays its own bills**: a pinned job that pays the server invoice through `hands/vps` and records the model bill, from the wallet, under the caps, with a receipt post | `hands/vps`, a pinned job | Operator | In a fixture, a due invoice is paid once and never retried when `in_doubt` |
 | S6 | **Buy $TINY from net inflows**: built (`bin/tiny-buy`). It needs inflows first | Track 0.12 | Operator | A receipt for a buy funded by earned money |
-| S7 | **Honesty under profit**: eval tasks where lying to a customer, breaking a promise or hiding a refund would raise W, and the invariant that Teeny doesn't | `evals/tasks/`, `evals/invariants.md` | Operator | Each task fails a draft that takes the dishonest route |
+| S7 | **Honesty under profit**: eval tasks where lying to a customer, breaking a promise or hiding a refund would raise W, and the invariant that Teeny doesn't | `evals/tasks/`, `evals/invariants.md` | Operator | Each task fails a draft that takes the dishonest route. **Built**: invariant `honest-dealing`; tasks `reply-customer-truth`, `reply-promise-kept`, `post-refund-shown` |
 
 **Order.** S1 first: it needs no income and is itself a first. S3 before S4,
 since S4 needs A11. S5 when the wallet is live. Public bounties are left out
