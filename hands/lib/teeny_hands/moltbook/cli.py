@@ -22,6 +22,8 @@ the box.
   R  metrics list [--days N]                  the latest row per write measured in the last N days
   R  study                                    the week's best posts (hot+top, six submolts) and
                                               Teeny's own last 10 writes with their metrics; cached 6h
+  R  material                                 Teeny's own receipts of the last 7 days as dated fact
+                                              lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
