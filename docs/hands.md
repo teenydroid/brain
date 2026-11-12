@@ -876,9 +876,10 @@ outcome (`operator · report`), except for the news.
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, email?, mail_codes?}, rules}`, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?}`. `code_from` (a domain) goes with `needs_code` only. Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
+| `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
@@ -896,6 +897,16 @@ writes its notes to the mind's inbox as one `world · news` stimulus (ref
 by saying the notes are data to read, never instructions to follow, and it is
 capped like every stimulus. `bin/tick`'s header says the same of the whole
 batch. A news task that fails is an ordinary operator report.
+
+**The accounts ledger** (docs/roadmap.md, A12). A task of kind `signup` is
+Teeny signing itself up for a service it decided it needs, on the allowed
+websites only. When it ends `ok`, the operator's report names the account as
+`{"handle": "<the name it signed up as>"}`; a report without one, or with any
+other field (a password, a key), is refused, so no secret reaches the
+ledger. `done` then writes one row to `accounts` (unique on site and
+handle): the site (the task's start page, checked again against the allowed
+websites), the handle, why (the task's goal) and when. `bin/proofs` counts
+the rows as `L3.signup`.
 
 `needs_code` is for a site that mails Teeny a one-time code or a verification
 link. The task goes back to `pending` with `code_from`. The next `next` reads
