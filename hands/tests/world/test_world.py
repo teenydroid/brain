@@ -121,8 +121,7 @@ class ReportTest(Scratch):
         by = {c["component"]: c for c in out["components"]}
         attention = math.log(1100 / 1000)
         tiny_credit = 0.20  # log(50000/10000) = 1.6 on one day, capped at 0.20
-        world = 0.10  # log(5/4) = 0.22 over a 7-day gap is under 0.7, but ... see below
-        world = math.log(5 / 4)
+        world = math.log(5 / 4)  # one 7-day step: under its cap of 7 * 0.10
         self.assertAlmostEqual(by["attention"]["credit"], round(attention, 4))
         self.assertEqual(by["tiny"]["capped_days"], 1)
         self.assertAlmostEqual(by["tiny"]["credit"], tiny_credit)
