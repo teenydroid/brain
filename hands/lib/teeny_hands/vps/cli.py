@@ -15,6 +15,10 @@ or `eqvps` (default `VPS_PROVIDER`, else vultr).
   O  release ID --note T             an order stops holding a slot
   O  register --first F --last L --email E
                                      a new EQVPS account; its token is printed once
+  O  invoice add --provider P --invoice ID --usd N [--chain C] --pay-to ADDRESS --due YYYY-MM-DD
+                                     a server invoice to pay; the address an allowlisted vendor
+  R  invoices                        the invoices and what became of each
+  J  pay-due                         pay what is due through hands/wallet, under the caps (bills.py)
 
 `order`, `topup` and `pay-due` spend money: they are never given to a model.
 """

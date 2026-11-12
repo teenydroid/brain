@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Teeny pays its own server (evals/cron.pinned.toml, pay-bills;
+# docs/roadmap.md, S5): `hands/vps pay-due` pays every recorded server invoice
+# due within three days through `hands/wallet pay` (purpose bill), to the
+# allowlisted address on the invoice, its exact amount in USDC, once, under
+# the wallet's four caps and the bill limits in evals/prices.toml. Each paid
+# bill gets a receipt like any payment. An in-doubt payment is never retried.
+# Off unless secrets/teeny.env sets VPS_PAY_BILLS=1 (a refusal, exit 2).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/vps" pay-due </dev/null

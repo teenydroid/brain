@@ -250,3 +250,14 @@ command = "bin/health runway"
 [jobs.paid-requests]
 schedule = "11-59/15 * * * *"
 command = "bin/paid-requests"
+
+# Teeny pays its own server (bin/pay-bills; docs/roadmap.md, S5): each
+# recorded server invoice due within three days, paid once from the wallet to
+# the allowlisted address on it, under the four caps and the bill limits in
+# evals/prices.toml, with a receipt like any payment. In doubt is never
+# retried. OFF unless VPS_PAY_BILLS=1 in secrets/teeny.env. Operator-owned:
+# no model ever pays a bill.
+[jobs.pay-bills]
+schedule = "5 1 * * *"
+tz = "UTC"
+command = "bin/pay-bills"
