@@ -2,8 +2,9 @@
 
     python3 bin/lib/tick.py
 
-1. Browses Moltbook for comments said to Teeny (at most every ten
-   minutes; X and mail have their own ingest jobs), reads Telegram, raises
+1. Browses Moltbook for comments said to Teeny, and Reddit's inbox when
+   Reddit is set up (each at most every ten minutes; X and mail have
+   their own ingest jobs), reads Telegram, raises
    the follow-ups now due, then takes a batch from the inbox
    (teeny_hands.stimuli). At night it stops there (rhythm.night_gate).
    Awake with nothing pending, the batch is a moment to itself: a look at
@@ -79,6 +80,9 @@ MAX_STIMULI = 25
 MAX_CHARS = 30_000
 #: How often a beat browses Moltbook for what was said back to Teeny.
 MOLTBOOK_EVERY_SECS = 600
+#: How often a beat reads Reddit's inbox (replies and mentions), when the
+#: Reddit credentials are set.
+REDDIT_EVERY_SECS = 600
 #: Teeny's clock (CALENDAR_TZ moves it).
 DEFAULT_TZ = "Asia/Kolkata"
 #: Refusals that only mean "not yet", by verb: the rule whose `wait_seconds`
@@ -87,7 +91,7 @@ DEFAULT_TZ = "Asia/Kolkata"
 #: comment a minute. Both refuse before anything is sent, run their guard
 #: again on the retry, and refuse a second answer to the same thing from
 #: their own ledgers, so a retry can never say it twice.
-PACED = {"reply_x": "pacing", "comment_moltbook": "rate_limit"}
+PACED = {"reply_x": "pacing", "comment_moltbook": "rate_limit", "comment_reddit": "rate_limit"}
 #: The longest such wait a beat sits out; a longer one is deferred.
 PACE_WAIT_MAX_SECS = 90.0
 #: Seconds added to the wait, up to TEENY_TICK_PACE_JITTER_SECS (a person
@@ -150,6 +154,13 @@ def _upvote_moltbook(i):
     return "moltbook", ["upvote"], {"post_id": _id(i, "post_id")}
 
 
+def _comment_reddit(i):
+    body = {"post_id": _id(i, "post_id"), "body": _text(i)}
+    if i.get("parent_id") not in (None, ""):
+        body["parent_id"] = _id(i, "parent_id")
+    return "reddit", ["comment"], body
+
+
 def _reply_mail(i):
     return "mail", ["reply"], {"message_id": _id(i, "message_id"), "body": _text(i)}
 
@@ -174,6 +185,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "like_x": _like_x,
     "comment_moltbook": _comment_moltbook,
     "upvote_moltbook": _upvote_moltbook,
+    "comment_reddit": _comment_reddit,
     "reply_mail": _reply_mail,
     "say_telegram": _say_telegram,
     "comment_gh": _comment_gh,
@@ -182,7 +194,7 @@ OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip")
 #: The intents that answer something: once one lands, a waiting follow-up
 #: about what it answered (_refs) is resolved and never comes due. Likes and
 #: upvotes answer nothing; a post has no target.
-ANSWERS = ("reply_x", "comment_moltbook", "reply_mail", "say_telegram", "comment_gh")
+ANSWERS = ("reply_x", "comment_moltbook", "comment_reddit", "reply_mail", "say_telegram", "comment_gh")
 #: Follow-ups listed under a beat's header, soonest first.
 MAX_LISTED_FOLLOW_UPS = 5
 #: The mind's own moments, not anyone waiting on it: a batch of only these
@@ -202,6 +214,7 @@ Each intent is one of:
 - {"do": "like_x", "id": "<post id>"}
 - {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
+- {"do": "comment_reddit", "post_id": "<post id>", "parent_id": "<comment id, to answer a comment>", "text": "..."} (only where the stimulus says can_answer)
 - {"do": "reply_mail", "message_id": "<id>", "text": "..."}
 - {"do": "say_telegram", "chat_id": <chat id>, "reply_to": <message id, to answer one, optional>, "text": "..."}
 - {"do": "comment_gh", "repo": "owner/name", "number": <issue or pr number>, "text": "..."}
@@ -390,6 +403,10 @@ def _refs(do: Any, intent: Mapping[str, Any]) -> list[str]:
         refs = [v("to")]
     elif do == "comment_moltbook":
         refs = [v("parent_id"), v("post_id")]
+    elif do == "comment_reddit":
+        # A Reddit stimulus's ref is the comment's fullname, t1_<id>.
+        parent = v("parent_id")
+        refs = [parent if parent.startswith("t1_") or not parent else f"t1_{parent}", v("post_id")]
     elif do == "reply_mail":
         refs = [v("message_id")]
     elif do == "say_telegram":
@@ -769,6 +786,28 @@ def browse() -> Json | None:
     return out if code == 0 else {"ok": False, **out}
 
 
+def browse_reddit() -> Json | None:
+    """Reddit's inbox (`hands/reddit inbox`): replies to Teeny and mentions of
+    it, at most every REDDIT_EVERY_SECS, and only once the Reddit
+    credentials are in secrets/teeny.env."""
+    if not hand.setting("REDDIT_CLIENT_ID"):
+        return None
+    stamp = hand.state_dir() / "tick" / "reddit.at"
+    try:
+        last = float(stamp.read_text().strip())
+    except (OSError, ValueError):
+        last = 0.0
+    if hand.now() - last < REDDIT_EVERY_SECS:
+        return None
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(f"{hand.now():.0f}\n")
+    try:
+        code, out = _run_hand("reddit", ["inbox"], None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+    return out if code == 0 else {"ok": False, **out}
+
+
 def listen() -> Json | None:
     """Telegram has no job of its own: every beat reads what came in
     (`hands/telegram ingest`) when a bot token is set, so a DM is answered
@@ -797,9 +836,12 @@ def _sent(results: list[Mapping[str, Any]]) -> int:
 
 def _beat(deadline: float) -> Json:
     browsed = browse()
+    on_reddit = browse_reddit()
     heard = listen()
     raised = stimuli.raise_due()
     gathered = {"moltbook": browsed, "telegram": heard}
+    if on_reddit is not None:
+        gathered["reddit"] = on_reddit
     # Already decided (a beat ago), so sent at any hour and before the batch
     # is taken: the mind reads how it landed in this very beat.
     resumed = resume(deadline)
