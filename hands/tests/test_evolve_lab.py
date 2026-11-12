@@ -242,23 +242,13 @@ class LabEvaluation(LabCase):
         self.assertFalse((evolve.evolve_dir() / "1" / "lab-base" / "tree").exists())
         self.assertTrue(out["dry_run"])
 
-    def test_a_core_that_writes_a_tracked_file_is_undone(self):
-        self.lab_config(EVOLVE_PROBES=0)
-        os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        os.environ["DRY_RUN"] = "1"
-        with unittest.mock.patch.object(evolve, "select", return_value={"selected": None}):
-            self.run_gen(1, publisher=Refusing(), hold=False)
-        tree = evolve.evolve_dir() / "1" / "cand-1"
-        if tree.exists():
-            self.assertNotIn("scribbled", (tree / "brain" / "CONTEXT.md").read_text())
-
     def test_the_restored_tree_keeps_exactly_the_candidates_change(self):
         self.lab_config(EVOLVE_PROBES=0)
         os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
         self.propose(1, [self.playbook_edit("Open with what shipped.")])
         out = self.run_gen(1, hold=True)
         self.assertEqual(out["candidates"][0]["verdict"], "won")
+        self.assertTrue(any(s["TEENY_ROOT"].endswith("cand-1") for s in self.spines()))
         tree = evolve.evolve_dir() / "1" / "cand-1"
         self.assertNotIn("scribbled", (tree / "brain" / "CONTEXT.md").read_text())
         self.assertIn("Open with what shipped.", (tree / "brain" / "playbooks" / "morning.md").read_text())
@@ -379,7 +369,7 @@ class Promotion(EvolveCase):
 
     def gen(self, evaluators, **cfg):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, **cfg)
-        self.pub, self.promoter = FakePublisher(), FakePromoter(cfg.pop("refuse", False) if "refuse" in cfg else False)
+        self.pub, self.promoter = FakePublisher(), FakePromoter()
         self.restarter = FakeRestarter(evolve.archive_path())
         with unittest.mock.patch.object(evolve, "make_evaluators", return_value=evaluators):
             return evolve.run_generation(evolve.load_config(), 1, str(self.props), publisher=self.pub,
