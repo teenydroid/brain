@@ -21,8 +21,8 @@ keep and counts what happened in one ISO week (Monday 00:00 UTC to the next):
   (DIRECTIVE.md, "The test") needs to be zero: commits on main the loop
   didn't merge, guard holds a person decided, deploys (a boot on a new
   commit the loop didn't promote), restarts (a boot on the same commit;
-  until a crash can be told apart from a person, every one counts), and a
-  level changed on the autonomy ladder (`evals/autonomy.toml`'s history).
+  until a crash can be told apart from a person, every one counts). A level
+  raised on the autonomy ladder is a commit on main, so it is counted there.
 
 Nothing is free text: every value is a number, a date, an enum the code
 checks, or a generation id matching `gen-<n>`. A hold's text, a halt's
@@ -60,8 +60,10 @@ Json = dict[str, Any]
 DAY = 86400
 WEEK = re.compile(r"(\d{4})-W(\d{2})")
 GEN_ID = re.compile(r"gen-\d{1,6}")
-HOLD_CATEGORIES = tuple(dict.fromkeys(lexicon.CATEGORIES + ("judge", "link", "links", "rejection", "repeat",
-                                                            "unavailable", "none")))
+#: Every category a hold can carry: the lexicon's, the judge's (and its
+#: "unknown"), a draft that was only a disallowed link, and a reply after a
+#: rejection (P4). Anything else is counted as "other".
+HOLD_CATEGORIES = tuple(dict.fromkeys(lexicon.CATEGORIES + ("links", "rejection", "unknown", "none")))
 VERDICTS = ("won", "lost", "unevaluated", "duplicate", "no-proposal", "gated", "seed", "refused")
 HALT_KINDS = ("generations", "winrate-jump", "j-rise", "persona-drift", "doctor", "fallback", "watch-revert")
 AUDIT_DIR = "audit"

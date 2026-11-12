@@ -146,6 +146,16 @@ command = "bin/health"
 schedule = "40 0 * * *"
 command = "bin/health daily"
 
+# The weekly audit Teeny can't write (bin/audit; docs/roadmap.md, G6): last
+# week's holds, spend against the caps, halts, generations, drift and every
+# operator action, from the ledgers, by frozen code. Monday, after the week
+# closes. Always written to state/audit/; published beside the receipts only
+# with AUDIT_PUBLISH=1 in secrets/teeny.env (off by default) and not under
+# DRY_RUN.
+[jobs.audit]
+schedule = "50 0 * * 1"
+command = "bin/audit"
+
 # One generation of Teeny's evolution (bin/evolve; docs/evolve.md, "The
 # loop"): N candidates in worktrees off main, gated in code, measured when a
 # lab core serves them, and ONE ready pull request for the best, which the

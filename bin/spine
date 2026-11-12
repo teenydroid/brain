@@ -165,6 +165,9 @@ printf '%s\n' "$OPENHUMAN_CORE_URL" >"$TEENY_STATE/core.url"
 "$TEENY_ROOT/bin/doctor" >/dev/null ||
   fall_back "bin/doctor failed" ||
   die "bin/doctor failed (state/doctor.json); not booting this checkout"
+# Every boot goes in state/boots.jsonl, which the weekly audit reads to count
+# deploys and restarts (bin/audit; docs/roadmap.md, G6). Never stops a boot.
+"$TEENY_ROOT/bin/audit" boot >/dev/null 2>&1 || log "could not record this boot for the audit"
 
 log "serving $TEENY_BRAIN on $host:$port (storage $TEENY_STORAGE)"
 "$core_bin" serve &
