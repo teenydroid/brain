@@ -182,12 +182,19 @@ mkdir -p "$root/secrets" "$root/state"
 printf 'X_API_KEY=k\nX_API_SECRET=s\nX_ACCESS_TOKEN=t\nX_ACCESS_TOKEN_SECRET=ts\nX_OPERATOR_HANDLE=steven\n' >"$root/secrets/teeny.env"
 check "passes with X keys and no cached profile" doctor
 check "but warns that the bio is unchecked" grep -q '^warn x profile: no cached profile' "$scratch/doctor.log"
-sqlite3 "$root/state/hands.db" "create table x_profile (handle text primary key, user_id text, name text, description text not null default '', read_at real not null);
-  insert into x_profile values ('teenydroid', '1', 'teeny', 'a tiny crab', strftime('%s','now'));"
+bio() { python3 -c '
+import sqlite3, sys, time
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("create table if not exists x_profile (handle text primary key, user_id text, name text, description text not null default \x27\x27, read_at real not null)")
+conn.execute("insert or replace into x_profile values (\x27teenydroid\x27, \x271\x27, \x27teeny\x27, ?, ?)", (sys.argv[2], time.time()))
+conn.commit()
+' "$root/state/hands.db" "$1"; }
+bio "a tiny crab"
 check "passes a bio without the disclosure line" doctor
 check "but warns that it does not say automated" grep -q '^warn x profile: @teenydroid: the bio does not say' "$scratch/doctor.log"
-sqlite3 "$root/state/hands.db" "update x_profile set description = 'a tiny crab. automated, run by @steven'"
-check "names the X profile ok once the bio says it" grep -q '^ok   x profile: @teenydroid' <(doctor; cat "$scratch/doctor.log")
+bio "a tiny crab. automated, run by @steven"
+check "passes a bio with the disclosure line" doctor
+check "and names the X profile ok" grep -q '^ok   x profile: @teenydroid' "$scratch/doctor.log"
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/lib/agent_check.py'"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
