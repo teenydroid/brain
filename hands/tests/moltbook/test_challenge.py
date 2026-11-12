@@ -51,6 +51,57 @@ class SolveTest(unittest.TestCase):
             with self.subTest(text=text[:60]):
                 self.assertIsNone(solve(text))
 
+    def test_live_multiplication_challenge_with_total_and_noise_star(self):
+        text = (
+            "A] Lo.oB-StEr LooobSsTeR ClAw] FoRcE Is^ ThIrTy SiX] NeWoTtOnS~ MuLtI-pLiEd\\ By^ TwO,"
+            " UmMm WhAt] Is* ToTaL FoR(cE)?"
+        )
+        self.assertEqual(solve(text), "72.00")
+
+    def test_total_names_the_result_not_an_addition(self):
+        cases = {
+            "A cRaB^ hAs FoRtY] sHeLlS~ aNd LoOoSeS NiNe, WhAt Is ThE ToTaL?": "31.00",
+            "a lobster claw force is twelve newtons divided by four, what is the total force": "3.00",
+            "a crab carries seven shells multiplied by six, what is the sum": "42.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_star_in_the_noise_is_not_an_operation(self):
+        cases = {
+            "A] LoBbStEr~ HaS^ TwEnTy-ThReE] PeArLs AnD* GaInS\\ ElEvEn MoRe, WhAt] Is ThE ToTaL?": "34.00",
+            "A] lOoBsTeR hAs^ NiNeTy* SiX~ PeArLs DiViDeD bY EiGhT, hOw MaNy EaCh?": "12.00",
+            "A LoBsTeR SwImS* 3.5 MeTeRs AnD AcCeLeRaTeS bY 2.25, wHaT Is ThE ToTaL SpEeD?": "5.75",
+            "OnE] HuNdReD aNd* TwEnTy-FiVe~ sHeLlS mInUs^ FoRtY] tWo": "83.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_shared_by_is_a_division(self):
+        self.assertEqual(solve("fIfTy] sHeLlS ShArEd^ bY FiVe~ LoBsTeRs, HoW mAnY eAcH?"), "10.00")
+
+    def test_doubling_tripling_and_halving_one_number(self):
+        cases = {
+            "a lobster claw force is twenty one newtons and it doubles, what is the total force": "42.00",
+            "A] cRaB^ hAs SeVeN~ sHeLlS aNd ThE cOuNt TrIpLeS": "21.00",
+            "a lobster has thirty pearls and halves them": "15.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_still_refuses_what_it_cannot_read(self):
+        for text in (
+            "LoBsTeR^ cLaW] fOrCe Is ThIrTy SiX~ aNd* TwElVe, wHaT] iS iT?",  # only a noise star, no operation word
+            "UmMm] wHaT~ iS^ tHe ToTaL?",  # no numbers
+            "a lobster has twenty pearls, it doubles and gains five",  # doubling and a second number
+            "a lobster has twenty pearls and doubles them, then loses some",  # two operations
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
     def test_collapse(self):
         self.assertEqual(collapse("twennttyy"), "twenty")
         self.assertEqual(collapse("three"), "thre")
