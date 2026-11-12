@@ -72,6 +72,21 @@ class CliTest(Scratch):
         self.assertEqual((code, out["consecutive_failures"], out["lockout_after"]), (0, 0, 3))
         self.assertEqual(self.run_hand("unlock")[1]["unlocked"], True)
 
+    def test_metrics_refresh_and_list(self):
+        from teeny_hands.moltbook import rules
+
+        rules.db().execute(
+            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('p1', ?, 'general', 't', 'verified')",
+            (T0,),
+        )
+        self.mb.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 6, "comment_count": 2}})
+        self.at(T0 + 2 * HOUR)
+        code, out = self.run_hand("metrics", "refresh")
+        self.assertEqual((code, out["recorded"]), (0, [{"kind": "post", "target_id": "p1", "checkpoint": 1}]))
+        code, out = self.run_hand("metrics", "list", "--days", "3")
+        self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
+        self.assertEqual(self.run_hand("metrics")[0], 1)
+
     def test_register_prints_the_key_on_stdout_only(self):
         self.configure(MOLTBOOK_API_KEY=None)
         self.mb.route("POST", "/agents/register", {"agent": {"api_key": KEY, "claim_url": "c", "verification_code": "v"}})
