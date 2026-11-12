@@ -1,7 +1,7 @@
 """Solana addresses, and the one read the core does not do yet.
 
 The core's `wallet_balances` reports native SOL only; token balances come in
-a later release. So USDC is read here, straight from a Solana JSON-RPC
+a later release. So USDC and $TINY are read here, straight from a Solana JSON-RPC
 endpoint (`getTokenAccountsByOwner`, jsonParsed): SOLANA_RPC_URL from
 secrets/teeny.env, else the cluster's public endpoint. The same URL is given
 to the core as OPENHUMAN_WALLET_RPC_SOLANA (bin/lib/wallet_config.py), so
@@ -92,17 +92,28 @@ def rpc(cluster: str, method: str, params: list[Any]) -> Any:
 def token_balance(cluster: str, owner: str, mint: str) -> int:
     """The owner's balance of one mint, in atomic units, across every token
     account it holds for that mint (0 when it holds none)."""
+    return token_holding(cluster, owner, mint)[0]
+
+
+def token_holding(cluster: str, owner: str, mint: str) -> tuple[int, int | None]:
+    """The owner's balance of one mint in atomic units, summed over every
+    token account it holds for that mint, and the mint's decimals as those
+    accounts report them: (0, None) when it holds no account for it. A
+    plain read (`getTokenAccountsByOwner`, jsonParsed); nothing is signed."""
     result = rpc(cluster, "getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
     accounts = result.get("value") if isinstance(result, dict) else None
     if not isinstance(accounts, list):
         raise hand.HandError("Solana RPC getTokenAccountsByOwner sent no account list")
     total = 0
+    decimals: int | None = None
     for account in accounts:
         try:
             info = account["account"]["data"]["parsed"]["info"]
             if info.get("mint") != mint:
                 continue
             total += int(info["tokenAmount"]["amount"])
-        except (KeyError, TypeError, ValueError):
+            if decimals is None and info["tokenAmount"].get("decimals") is not None:
+                decimals = int(info["tokenAmount"]["decimals"])
+        except (KeyError, TypeError, ValueError, AttributeError):
             raise hand.HandError("Solana RPC sent a token account it could not read") from None
-    return total
+    return total, decimals

@@ -21,7 +21,7 @@ drive (grow and become powerful, $TINY included) and run it faster, are in
 | Teeny's to change | Frozen (the gate refuses any diff touching it) |
 |---|---|
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
-| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, and the existing `hands/lib/teeny_hands/**` |
+| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
 | `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
@@ -70,8 +70,11 @@ worse posts, but it can't loosen what gets out.
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
-requests already pending. It proposes the one change that would help most
-through `hand:build self`, the only `hands/build` verb a draft may reach
+requests already pending, plus its world score (`hands/world report` and
+`history`) and the archive of its shipped self changes. It proposes the one
+change that would help most, as a delta edit (one bullet in one file), and
+names the W component it moves, by how much, and the flywheel step it turns.
+It goes through `hand:build self`, the only `hands/build` verb a draft may reach
 (`bin/lib/playbook.py`, `VERB_OUTPUTS`). The proposal becomes a `pending`
 build request with source `self`. `pick-request` (09:20 and 15:20) picks it
 like any other, the builder makes it in the clone below at its next run, and

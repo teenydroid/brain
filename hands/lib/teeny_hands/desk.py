@@ -20,7 +20,9 @@ put on the next offer and never told to the mind.
 
 Either way the outcome goes into Teeny's mind's inbox (teeny_hands.stimuli)
 as a `builder` or `operator` report: the mind asked for the work, so it
-hears how it went.
+hears how it went. A settled report that already wrote its own stimulus
+(`stimulus` in what `done` answered, as a finished news task does) is not
+told twice.
 """
 
 from __future__ import annotations
@@ -112,7 +114,7 @@ def _nothing_to_report(name: str, offer_path: Path, report_path: Path) -> bool:
 def _tell_the_mind(name: str, settled: Mapping[str, Any] | None, rejected: str | None) -> None:
     """A report that landed (or was turned away) becomes one stimulus. The
     inbox is a side channel: failing to write it never fails the desk."""
-    if settled is None and rejected is None:
+    if (settled is None and rejected is None) or (settled is not None and settled.get("stimulus")):
         return
     from . import stimuli
 

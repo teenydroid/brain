@@ -72,6 +72,16 @@ command = "bin/receipts"
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
 
+# Today's world score W into state/hands.db (bin/world-snapshot): attention,
+# $TINY held, money, capability, shipped, the lore arcs, and the penalty for
+# side effects, one row each per UTC day, read from the other hands' data by
+# the frozen hands/world. After stats-snapshot, so attention reads today's
+# stats rows. Operator-owned: Teeny does not get to decide when, or whether,
+# it is scored.
+[jobs.world-snapshot]
+schedule = "30 0 * * *"
+command = "bin/world-snapshot"
+
 # The builder (brain/agents/builder.toml), an agent job: it reads one job
 # from its desk (state/workbench/desk/build.json: the oldest picked build
 # request, or a small daily thing of its own), writes and tests it in
@@ -117,3 +127,13 @@ command = "bin/bounty-pay"
 [jobs.health]
 schedule = "*/15 * * * *"
 command = "bin/health"
+
+# The goal ledger's checks (bin/goals-check): every open goal Teeny proposed
+# (brain/playbooks/goals.md) is evaluated against its check, one of the kinds
+# in frozen code, and moved to solved or, past its deadline, failed. Hourly,
+# after the stats snapshot's minute. Operator-owned: a goal Teeny proposes
+# cannot redefine how its success is checked, and the brain does not get to
+# switch the checker off.
+[jobs.goals-check]
+schedule = "35 * * * *"
+command = "bin/goals-check"
