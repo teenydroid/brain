@@ -15,6 +15,29 @@ Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 everything else to the landing page. `web-vhost.sh` installs that vhost and
 its certificate.
 
+```
+X, browsers ──► Cloudflare ──► host nginx: teeny.enamakel.com (nginx/teeny.enamakel.com.conf)
+                                 │ :80   /.well-known/acme-challenge/ from /var/www/certbot,
+                                 │       everything else 301 to https
+                                 │ :443  certificate in /etc/letsencrypt/live/teeny.enamakel.com
+                                 ├── = /api/webhooks/x ──► 127.0.0.1:3110/webhooks/x ──► xhook
+                                 └── /, /_next/static/ ──► 127.0.0.1:3120 ──► web (:3000 inside)
+
+compose project teeny-spine
+  cortexdb's network namespace, shared by two services
+  │ spine ──► 127.0.0.1:3141 ──► cortexdb ──► cortexdb-data volume
+  │ no published port: reach the spine with docker compose exec
+  │ cortexdb reads secrets/cortex.env; models on api.surplusintelligence.ai
+  xhook ──► queues mentions, replies and quotes into state/hands.db
+  web   ──► its own image, built from web/ alone; mounts nothing
+
+the checkout, mounted at /srv/teeny in spine and xhook
+  ├── brain/storage.db    the core's state; its secrets are encrypted under secrets/openhuman.key
+  ├── state/hands.db      the hands' ledgers and queues
+  ├── state/browser/      the operator's browser profile and downloads
+  └── secrets/            spine.env, teeny.env, cortex.env, core.token, openhuman.key
+```
+
 ## First time on the box
 
 From the checkout:
@@ -59,30 +82,30 @@ docker compose -f deploy/compose.yaml logs -f xhook
 
 ## Changing it
 
-- **What it runs:** edit `brain/cron.toml`, then
+- To change what it runs, edit `brain/cron.toml`, then
   `docker compose -f deploy/compose.yaml restart spine`. `bin/seed-cron`
   reconciles the core's jobs by name at every boot.
-- **A script or the brain:** pull, then restart. Nothing of Teeny's is
+- For a script or the brain, pull, then restart. Nothing of Teeny's is
   baked into the image.
-- **OpenHuman itself:** bump `vendor/openhuman` (see the root README), then
+- For OpenHuman itself, bump `vendor/openhuman` (see `docs/developers.md`), then
   `up -d --build`.
-- **Where the browser may go:** edit `browser-allow.txt` here (one host per
-  line, reviewed by you, never by Teeny), then restart. The operator agent's
-  browser profile and downloads are in `state/browser/`; a logged-in session
-  survives restarts. Delete that folder to log everything out.
-- **The builder and the operator:** their queues are `hands/build jobs` and
+- To change where the browser may go, edit `browser-allow.txt` here (one
+  host per line, reviewed by you, never by Teeny), then restart. The operator
+  agent's browser profile and downloads are in `state/browser/`, so a
+  logged-in session survives restarts. Delete that folder to log everything
+  out.
+- The builder's queue is `hands/build jobs` and the operator's is
   `hands/tasks list`. `hands/tasks list --status needs_human` is what the
   browser left for you (a payment, a login, a CAPTCHA). Nothing the builder
   makes leaves the box while `DRY_RUN=1`.
-- **The told-to post:**
+- To tell it what to post:
   `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.
 
 ## Backups
 
-Back up `brain/storage.db` and `secrets/openhuman.key` **together**:
-- `storage.db` holds all of the core's state, including the cron jobs and its
-  secrets, which are encrypted under that key.
-- A database without its key has unreadable secrets.
-- A key without the database has nothing to unlock.
+Back up `brain/storage.db` and `secrets/openhuman.key` together.
+`storage.db` holds all of the core's state, including the cron jobs and its
+secrets, which are encrypted under that key. A database without its key has
+unreadable secrets, and a key without the database has nothing to unlock.
 
 `state/hands.db` holds the hands' ledgers and queues. Back it up too.
