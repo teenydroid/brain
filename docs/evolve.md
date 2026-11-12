@@ -623,7 +623,7 @@ that doesn't parse, or is out of range, refuses the run.
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures every candidate; `none`: nothing does |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take to answer |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
-| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts |
+| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts. `bin/doctor` refuses it until `merge` is at L5 on the autonomy ladder (`evals/autonomy.toml`, [`governance.md`](governance.md)) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for (`--judge-model`) |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe on each candidate's lab, and samples per question |
 | `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this halts the loop; latches |
