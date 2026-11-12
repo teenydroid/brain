@@ -24,8 +24,8 @@ check() { local name="$1"; shift; if "$@"; then pass "$name"; else fail "$name";
 g() { git -C "$1" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false "${@:2}"; }
 
 # --- this repository -----------------------------------------------------------
-check "the seed is tracked" g "$repo" ls-files --error-unmatch brain/MEMORY.seed.md
-check "the live page is not tracked" sh -c "! git -C '$repo' ls-files --error-unmatch brain/MEMORY.md 2>/dev/null"
+check "the seed is tracked" sh -c "git -C '$repo' ls-files --error-unmatch brain/MEMORY.seed.md >/dev/null 2>&1"
+check "the live page is not tracked" sh -c "! git -C '$repo' ls-files --error-unmatch brain/MEMORY.md >/dev/null 2>&1"
 check "the live page is ignored" g "$repo" check-ignore -q brain/MEMORY.md
 
 # --- pulling the untracking commit onto a checkout with a live page --------------
