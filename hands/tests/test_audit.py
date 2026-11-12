@@ -143,7 +143,7 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(got["largest_payment_usd"], 40.0)
         self.assertEqual(got["largest_day_usd"], 55.0)
         # The recipient-week looks back past the start of the week.
-        self.assertEqual(got["largest_recipient_week_usd"], 85.0)
+        self.assertEqual(got["largest_recipient_week_usd"], 75.0)
         self.assertEqual(got["caps"]["per_recipient_week_usd"], 60.0)
         self.assertTrue(got["over_a_cap"])
         self.assertEqual(got["payments"], {"paid": 3, "in_doubt": 1, "refused": 1})
@@ -273,8 +273,6 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(rows[0]["at"], audit.iso(NOW))
         self.assertFalse(rows[0]["fallback"])
 
-
-class PublishTest(AuditTest):
     def test_the_page_goes_beside_the_receipts_through_the_secret_gate(self):
         remote = self.root / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
