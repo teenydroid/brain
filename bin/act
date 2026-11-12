@@ -55,21 +55,63 @@ today="$(date -u +%Y-%m-%d)"
 count_file="$dir/$today"
 taken() { if [ -s "$count_file" ]; then tr -d '[:space:]' <"$count_file"; else echo 0; fi; }
 
-# One run of a playbook at a time. A lock older than an hour is a run that
-# died without cleaning up.
+# One run of a playbook at a time. The lock (a directory, made atomically)
+# names its owner: this shell's pid, the host it runs on, and the pid's start
+# time where /proc has one. The spine's container is recreated without
+# warning, killing a run mid-flight, so a lock whose owner ran on another
+# host (container), has died, or whose pid now belongs to a newer process is
+# taken over at once. A lock with no owner (a run killed between the mkdir
+# and the write) is stale only after an hour.
 lock="$TEENY_STATE/locks/act-$name"
 mkdir -p "$TEENY_STATE/locks"
-if ! mkdir "$lock" 2>/dev/null; then
-  if [ -n "$(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
-    rmdir "$lock" 2>/dev/null || true
-    mkdir "$lock" 2>/dev/null || die "$name is already running"
-  else
+start_of() { # PID -> its start time from /proc/PID/stat, or nothing
+  local stat stat_fields
+  [ -r "/proc/$1/stat" ] || return 0
+  stat="$(cat "/proc/$1/stat" 2>/dev/null)" || return 0
+  read -ra stat_fields <<<"${stat##*) }"
+  printf '%s' "${stat_fields[19]:-}"
+}
+me="$$ ${HOSTNAME:-unknown} $(start_of $$)"
+lock_stale() {
+  local pid host start
+  if [ ! -s "$lock/owner" ]; then
+    [ -n "$(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]
+    return
+  fi
+  read -r pid host start <"$lock/owner" || true
+  [ "$host" != "${HOSTNAME:-unknown}" ] && return 0
+  case "$pid" in '' | *[!0-9]*) return 0 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 0
+  [ -n "$start" ] && [ -n "$(start_of "$pid")" ] && [ "$(start_of "$pid")" != "$start" ] && return 0
+  return 1
+}
+take_lock() {
+  mkdir "$lock" 2>/dev/null || return 1
+  printf '%s\n' "$me" >"$lock/owner.$$"
+  mv -f "$lock/owner.$$" "$lock/owner"
+}
+if ! take_lock; then
+  # Taking over a stale lock is itself serialised, so two runs that both
+  # judged it stale cannot both clear it; the second sees the first's lock.
+  # The takeover lock lives for milliseconds: one a minute old is debris.
+  takeover="$lock.takeover"
+  [ -z "$(find "$takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ] || rmdir "$takeover" 2>/dev/null || true
+  if lock_stale && mkdir "$takeover" 2>/dev/null; then
+    if lock_stale; then
+      log "$name: taking over a stale lock ($(cat "$lock/owner" 2>/dev/null || echo "no owner"))"
+      rm -rf "$lock"
+    fi
+    take_lock || true
+    rmdir "$takeover" 2>/dev/null || true
+  fi
+  if [ "$(cat "$lock/owner" 2>/dev/null)" != "$me" ]; then
     log "$name is already running"
     jq -cn --arg p "$name" '{ok: true, playbook: $p, skipped: "already running"}'
     exit 0
   fi
 fi
-trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+# Released on any exit, but only while it is still this run's.
+trap '[ "$(cat "$lock/owner" 2>/dev/null)" = "$me" ] && rm -rf "$lock"; true' EXIT
 
 record() {
   jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{at: $at} + .' <<<"$1" >>"$dir/runs.jsonl"
