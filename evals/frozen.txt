@@ -85,6 +85,9 @@ hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/requests.py
 hands/lib/teeny_hands/requests_cli.py
 hands/lib/teeny_hands/rest.py
+# Runway tiers cut optional spend when the wallet is low (S2): what decides
+# how much Teeny may spend stays the operator's.
+hands/lib/teeny_hands/runway.py
 hands/lib/teeny_hands/slopcash/
 hands/lib/teeny_hands/stats/
 hands/lib/teeny_hands/stimuli.py
