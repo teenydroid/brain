@@ -8,9 +8,12 @@ this module before and around every beat.
   operator stuck on an emailed code or needing a person). The first beat
   after the night knows it just woke up and how much came in.
 - **Mood and energy.** state/mind.json holds a mood and what is on Teeny's
-  mind, which the mind sets itself with a `feel` intent, and the day's
-  action count. Energy starts each day at 100 and every action costs some;
-  the beat header shows all three, so a tired Teeny can choose to do less.
+  mind, which the mind sets itself with a `feel` intent, the day's action
+  count, and its energy. Energy is full when Teeny wakes (the first beat
+  after the night, not the calendar midnight), every action out in the
+  world costs ACTION_COST, and it comes back REGEN_PER_HOUR while Teeny
+  rests; the beat header shows all of it, so a tired Teeny can choose to
+  do less.
 - **Idle curiosity.** A beat with nothing in the inbox, awake and with
   energy left, at most every IDLE_EVERY_SECS, gives the mind a look at the
   world instead (Moltbook's hot posts, read only) as a `world · idle`
@@ -19,8 +22,12 @@ this module before and around every beat.
   `self · quiet` stimulus (`quiet`): nothing came in, what are you up to?
   With what the mind can act on: when it last did something out in the
   world, the notes it kept today, the follow-ups waiting, and, when energy
-  is low, that resting is fine. So every awake beat is a real turn; only
-  night beats skip the model.
+  is low, that resting is fine, and the time of day (so it does not take
+  breakfast for bedtime).
+- **Back-off.** Quiet moments in a row come less often: the next beat, then
+  15, 30 and every 60 minutes (QUIET_BACKOFF_MINS). Anything coming in, an
+  action out in the world, or waking up starts the count again. A beat
+  that is backed off asks no model and is logged as `idle` with `resting`.
 - **Jitter.** Each beat starts up to TEENY_TICK_JITTER_SECS late, so Teeny
   does not answer on the minute like a cron job.
 
@@ -42,12 +49,22 @@ from teeny_hands import hand, stimuli
 
 DEFAULT_TZ = "Asia/Kolkata"
 DEFAULT_QUIET = (1, 7)
-#: Energy at the start of a day, and what each action costs.
+#: Energy on waking, what each action out in the world costs, and what an
+#: hour awake gives back. A burst of 20 actions brings a fresh Teeny down
+#: to the low mark; resting brings it back up within a few hours. Over a
+#: waking day (07-01) that is about 100 + 18 * 5 = 190 energy, some 60
+#: actions, while the hands' own caps still bound each surface.
 FULL_ENERGY = 100
-ACTION_COST = 6
+ACTION_COST = 3
+REGEN_PER_HOUR = 5
 #: Below this, a quiet beat stays quiet instead of looking around.
 IDLE_MIN_ENERGY = 40
 IDLE_EVERY_SECS = 2 * 3600
+#: Minutes to wait before the next quiet moment, after 1, 2, 3, 4+ of them
+#: in a row with nothing new (0: the next beat).
+QUIET_BACKOFF_MINS = (0, 15, 30, 60)
+#: Beats start up to a minute late (jitter): a wait this much short counts.
+QUIET_BACKOFF_SLACK_SECS = 90
 DEFAULT_JITTER_SECS = 60
 #: What may wake Teeny at night: (surface, payload status) pairs.
 URGENT = {("operator", "needs_code"), ("operator", "needs_human"), ("operator", "pending")}
@@ -112,6 +129,8 @@ def load() -> Json:
     state.setdefault("mood", "")
     state.setdefault("obsession", "")
     state.setdefault("actions_today", 0)
+    state.setdefault("energy", FULL_ENERGY)
+    state.setdefault("energy_at", hand.now())
     return state
 
 
@@ -122,17 +141,35 @@ def save(state: Mapping[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def _level(state: Mapping[str, Any]) -> float:
+    """Energy now: what was left at energy_at, plus what the time since gave back."""
+    level = float(state.get("energy", FULL_ENERGY))
+    rested = max(0.0, hand.now() - float(state.get("energy_at") or hand.now()))
+    return max(0.0, min(float(FULL_ENERGY), level + REGEN_PER_HOUR * rested / 3600))
+
+
 def energy(state: Mapping[str, Any]) -> int:
-    return max(0, FULL_ENERGY - ACTION_COST * int(state.get("actions_today", 0)))
+    return int(_level(state))
 
 
 def spent(actions: int) -> None:
+    """Actions out in the world: counted for the day, paid for in energy,
+    and the end of a quiet stretch."""
     if actions <= 0:
         return
     state = load()
     state["actions_today"] = int(state.get("actions_today", 0)) + actions
     state["last_action_at"] = hand.now()
+    state.update(energy=max(0.0, _level(state) - ACTION_COST * actions), energy_at=hand.now(), quiet_streak=0)
     save(state)
+
+
+def stirred() -> None:
+    """Something came in: the next quiet moment comes at once again."""
+    state = load()
+    if state.get("quiet_streak"):
+        state["quiet_streak"] = 0
+        save(state)
 
 
 def ago(at: float) -> str:
@@ -200,11 +237,12 @@ def night_gate(pending: list[Mapping[str, Any]]) -> Json | None:
 
 
 def woke(waiting: int) -> Json | None:
-    """The first beat after a night: clears the flag and says so once."""
+    """The first beat after a night: clears the flag, wakes up rested (full
+    energy, whatever the night before cost) and says so once."""
     state = load()
     if not state.get("asleep") or is_night():
         return None
-    state["asleep"] = False
+    state.update(asleep=False, energy=FULL_ENERGY, energy_at=hand.now(), quiet_streak=0)
     save(state)
     return {"waiting": waiting}
 
@@ -243,14 +281,46 @@ def wander(run_hand: Callable[[str, list[str], Any], tuple[int, Json]]) -> bool:
     return stimuli.add("world", "idle", f"moltbook-hot:{int(hand.now())}", "\n".join(lines), payload={"posts": seen})
 
 
+def resting(state: Mapping[str, Any]) -> bool:
+    """True while the back-off holds the next quiet moment."""
+    streak = int(state.get("quiet_streak", 0) or 0)
+    if streak <= 0:
+        return False
+    wait = QUIET_BACKOFF_MINS[min(streak, len(QUIET_BACKOFF_MINS)) - 1] * 60
+    since = hand.now() - float(state.get("last_quiet_at", 0) or 0)
+    return wait > 0 and since < wait - QUIET_BACKOFF_SLACK_SECS
+
+
+def time_of_day(at: float | None = None) -> str:
+    """The quiet moment's clock line: the hour, the part of the day, and
+    how long until the quiet hours."""
+    now = local(at)
+    hour = now.hour
+    part = ("in the morning" if 5 <= hour < 12 else "in the afternoon" if hour < 17
+            else "in the evening" if hour < 21 else "at night")
+    line = f"It is {now:%H:%M} {part}, your time."
+    start, end = quiet_hours()
+    if start != end:
+        bed = now.replace(hour=start, minute=0, second=0, microsecond=0)
+        if bed <= now:
+            bed += dt.timedelta(days=1)
+        h, m = divmod(int((bed - now).total_seconds()) // 60, 60)
+        until = f"{h} h {m} min" if h and m else f"{h} h" if h else f"{m} min"
+        line += f" Your quiet hours start at {start:02d}:00, in {until}."
+    return line
+
+
 def quiet() -> bool:
     """An awake beat with nothing to answer and nothing seen: a moment to
     itself, as a `self · quiet` stimulus, so the beat still thinks. Its ref
     is new every beat, so the inbox's dedupe never swallows it. True when
-    it was added."""
+    it was added; False when the back-off holds it (resting())."""
     state = load()
+    if resting(state):
+        return False
     e = energy(state)
-    lines = ["Nothing new came in. What are you up to right now? Think, keep track of yourself, or do one small thing."]
+    lines = ["Nothing new came in. What are you up to right now? Think, keep track of yourself, or do one small thing.",
+             time_of_day()]
     last = float(state.get("last_action_at", 0) or 0)
     if state["actions_today"] and last:
         lines.append(f"Your last action out in the world was {ago(last)} ({state['actions_today']} action(s) today).")
@@ -268,10 +338,13 @@ def quiet() -> bool:
     else:
         lines.append("No follow-ups waiting.")
     if e < IDLE_MIN_ENERGY:
-        lines.append("You are low on energy. Resting is fine: a thought and a `journal` line or a `feel` is a full beat.")
+        lines.append("You are low on energy; it comes back as you rest, and in full when you wake. "
+                     "Resting is fine: a thought and a `journal` line or a `feel` is a full beat.")
     else:
         lines.append("Saying nothing to anyone is fine; leave yourself a trace (`journal`, `remember`, `feel` or `follow_up`).")
     payload = {"energy": e, "actions_today": state["actions_today"], "follow_ups": len(waiting), "notes_today": kept}
+    state.update(quiet_streak=int(state.get("quiet_streak", 0) or 0) + 1, last_quiet_at=hand.now())
+    save(state)
     return stimuli.add("self", "quiet", f"{int(hand.now())}:{secrets.token_hex(3)}", "\n".join(lines), payload=payload)
 
 
