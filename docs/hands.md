@@ -1304,6 +1304,18 @@ solved.
 The playbook `goals` (weekly) is its caller. It writes only `state/hands.db`
 and tells nobody, so `DRY_RUN` does not apply.
 
+## `ladder`: the autonomy ladder Teeny reads, and its fence proposals
+
+Teeny's view of `evals/autonomy.toml` and `docs/governance.md`, and the one way it asks for more freedom
+(docs/roadmap.md, G3). Frozen: the playbook that drafts a proposal (`brain/playbooks/fence-proposal.md`) is
+Teeny's; how one is built and capped is the operator's.
+
+| Verb | | Does |
+|---|---|---|
+| `report` | R | Each capability's level, its effective level after a drop (with the kinds of event only), what the next level still needs and the proof counts (`bin/lib/autonomy.py`). |
+| `fences` | R | The fence ids and fences `docs/governance.md` names, and `ladder:<capability>` for each level. |
+| `propose` | A | `{fence, title, ask, evidence, would_do, risk}`, each required and length-capped, nothing else. `fence` is an id from `fences`; anything else is refused (`rule: fence`). The body is built here: the fence in the charter's words, Teeny's ask, evidence, plan and risk in their own sections, and for `ladder:<capability>` the ladder's own count from frozen code. It opens through `gh open-issue` (guard on title and body) on `LADDER_ISSUE_REPO` (`teenydroid/brain`), titled `fence-proposal: ...`, then adds the label `fence-proposal`. One in seven days (`fence_proposals`; `rule: weekly`). Under `DRY_RUN` it answers with the issue it would open and records nothing. |
+
 ## `state/hands.db`
 
 One SQLite file, WAL, beside the checkout's other run-time state. Each hand

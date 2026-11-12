@@ -90,7 +90,8 @@ switch off, never on (`hands/tests/test_watchers.py`).
 ## How a fence changes
 
 1. **Teeny asks, in the open.** A fence proposal is an issue on
-   `teenydroid/brain` labelled `fence-proposal` (G3): which fence (an id
+   `teenydroid/brain` labelled `fence-proposal`, drafted by the
+   `fence-proposal` playbook and built and capped by `hands/ladder propose`: which fence (an id
    from the table above), what Teeny would do with the freedom, the evidence
    the autonomy ladder asks for, and the risk. At most one a week. Teeny
    never sends a diff to a frozen path: the frozen-path gate refuses it, and
