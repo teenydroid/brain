@@ -317,7 +317,7 @@ class NearDuplicateTest(Scratch):
         self.assertFalse(again["novel"])
 
     def test_words_and_jaccard(self):
-        self.assertEqual(rank.words("Gain the followers on X"), frozenset({"gain", "follower", "x"}) - {"gain"} | {"gain"})
+        self.assertEqual(rank.words("Gain the followers on X"), frozenset({"gain", "follower", "x"}))
         self.assertAlmostEqual(rank.jaccard({"a", "b"}, {"b", "c"}), 1 / 3)
 
 
