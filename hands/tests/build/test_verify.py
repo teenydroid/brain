@@ -14,7 +14,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from teeny_hands.build import verify
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+from teeny_hands.build import verify  # noqa: E402
 
 PASSING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
 JAILED = verify.landlock_abi() > 0
