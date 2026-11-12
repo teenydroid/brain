@@ -2116,7 +2116,8 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
 
 
 def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Config) -> dict[int, Evaluator]:
-    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"]) for i, url in cand_urls.items()}
+    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model)
+            for i, url in cand_urls.items()}
 
 
 def evaluate_one(evaluator: Evaluator, cand: Json, src: Source) -> None:
@@ -2211,7 +2212,7 @@ def evaluate_cmd(cfg: Config, gen: int, i: int, url: str, base_url: str | None) 
     cand = cands.get(i)
     if cand is None or not cand.get("gate", {}).get("ok"):
         raise EvolveError(f"generation {gen} has no gated candidate {i}")
-    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"]), cand, source())
+    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model), cand, source())
     record(cand)
     return {"ok": True, "id": cand["id"], "verdict": cand["verdict"], "scores": cand.get("scores")}
 
