@@ -1,10 +1,11 @@
-"""What hands/vps does. Spending is capped twice: a top-up by
-`VPS_TOPUP_MAX_USD` (one top-up, and every top-up in 30 days together), an
-order by `VPS_ORDERS`, `VPS_MAX_MONTHLY_USD` (the plan's monthly price) and
-`VPS_MAX_SERVERS` (orders not yet released). All of them default to nothing
-allowed, so the operator opens each one.
+"""What hands/vps does. Buying is capped three ways, all closed by default
+so the operator opens each one: `VPS_ORDERS` (whether it may buy at all),
+`VPS_MAX_MONTHLY_USD` (a plan's monthly price) and `VPS_MAX_SERVERS` (orders
+that still hold a slot). Vultr bills by the hour against the account's
+credit, so a server costs money until it is destroyed, and only the
+operator destroys one.
 
-The order is reserved in `vps_orders` before EQVPS is called, under a lock,
+An order is reserved in `vps_orders` before Vultr is called, under a lock,
 so two runs cannot both pass the server cap. A call that never got an answer
 is `in_doubt` and still counts: it may have bought a server. A person reads
 it and releases it (`release`); the hand never retries an order.
@@ -24,36 +25,34 @@ from . import client
 Json = dict[str, Any]
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS vps_topups (
-    id INTEGER PRIMARY KEY,
-    at REAL NOT NULL,
-    usd INTEGER NOT NULL,
-    reason TEXT NOT NULL,
-    checkout_url TEXT
-);
 CREATE TABLE IF NOT EXISTS vps_orders (
     id INTEGER PRIMARY KEY,
     at REAL NOT NULL,
-    product TEXT NOT NULL,
+    plan TEXT NOT NULL,
+    region TEXT NOT NULL,
     monthly_usd REAL NOT NULL,
     os_id INTEGER NOT NULL,
     os TEXT NOT NULL,
     reason TEXT NOT NULL,
     status TEXT NOT NULL,
-    service_id TEXT,
-    invoice_id TEXT,
+    instance_id TEXT,
+    main_ip TEXT,
     note TEXT,
     updated_at REAL NOT NULL
 );
 """
 
 #: Orders that hold a slot under VPS_MAX_SERVERS.
-HOLDING = ("ordering", "ordered", "unfunded", "in_doubt")
-MONTH = 30 * 86400.0
-_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-_SERVICE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+HOLDING = ("ordering", "ordered", "in_doubt")
+_PLAN = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+_REGION = re.compile(r"^[a-z]{3}$")
+_INSTANCE = re.compile(r"^[0-9a-f-]{8,64}$")
 _PUBKEY = re.compile(r"^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|ssh-rsa) [A-Za-z0-9+/=]{40,}( [^\s]{1,100})?$")
-_DEFAULT_OS = "Ubuntu 24.04"
+_DEFAULT_OS = "Ubuntu 24.04 LTS x64"
+_DEFAULT_REGION = "bom"
+_LABEL = "teeny"
+_SHOWN = ("id", "label", "status", "power_status", "server_status", "main_ip", "v6_main_ip", "region", "plan", "os",
+          "ram", "disk", "vcpu_count", "date_created", "tags")  # fmt: skip
 
 
 def _db():
@@ -67,47 +66,11 @@ def _reason(value: str | None) -> str:
     return text
 
 
-# --- reads ----------------------------------------------------------------------------------
-
-
-def _catalog(api: RestApi | None = None) -> list[Mapping[str, Any]]:
-    api = api or client.api(auth=False)
-    data = client.unwrap(api.call("GET", "/products", auth=False))
-    if not isinstance(data, list):
-        raise hand.HandError("EQVPS sent no product list")
-    return [p for p in data if isinstance(p, Mapping) and isinstance(p.get("slug"), str)]
-
-
-def _monthly(product: Mapping[str, Any]) -> float | None:
-    price = product.get("price")
-    if isinstance(price, Mapping) and price.get("period") == "month" and price.get("currency", "USD") == "USD":
-        amount = price.get("amount")
-        if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0:
-            return float(amount)
-    return None
-
-
-def _shape(product: Mapping[str, Any]) -> Json:
-    specs = product.get("specs") if isinstance(product.get("specs"), Mapping) else {}
-    return {
-        "slug": product["slug"],
-        "name": product.get("name"),
-        "monthly_usd": _monthly(product),
-        "vcpu": specs.get("vcpu"),
-        "memory_mb": specs.get("memory_mb"),
-        "disk_gb": specs.get("disk_gb"),
-        "public_ipv4": bool(specs.get("ipv4")),
-        "network": specs.get("network"),
-        "os": [o.get("name") for o in product.get("available_os") or [] if isinstance(o, Mapping)],
-    }
-
-
-def products(max_usd: float | None = None, api: RestApi | None = None) -> Json:
-    """Every plan, cheapest first; `max_usd` keeps those at or under it."""
-    shaped = [_shape(p) for p in _catalog(api)]
-    shaped = [p for p in shaped if p["monthly_usd"] is not None and (max_usd is None or p["monthly_usd"] <= max_usd)]
-    shaped.sort(key=lambda p: (p["monthly_usd"], p["slug"]))
-    return {"products": shaped, "caps": caps()}
+def _region(value: str | None) -> str:
+    region = (value or hand.setting("VPS_REGION", _DEFAULT_REGION) or _DEFAULT_REGION).strip()
+    if not _REGION.match(region):
+        raise hand.HandError("a region is Vultr's three-letter id (bom, fra, ewr, ...)")
+    return region
 
 
 def caps() -> Json:
@@ -115,26 +78,81 @@ def caps() -> Json:
         "orders": hand.flag("VPS_ORDERS", False),
         "max_monthly_usd": hand.number("VPS_MAX_MONTHLY_USD", 0, 0, 100),
         "max_servers": hand.number("VPS_MAX_SERVERS", 1, 0, 3),
-        "topup_max_usd": hand.number("VPS_TOPUP_MAX_USD", 0, 0, 200),
+        "region": _region(None),
     }
+
+
+# --- reads ----------------------------------------------------------------------------------
+
+
+def _catalog(api: RestApi) -> list[Mapping[str, Any]]:
+    answer = api.call("GET", "/plans", query=[("per_page", "500")], auth=False)
+    plans = answer.get("plans") if isinstance(answer, Mapping) else None
+    if not isinstance(plans, list):
+        raise hand.HandError("Vultr sent no plan list")
+    return [p for p in plans if isinstance(p, Mapping) and isinstance(p.get("id"), str)]
+
+
+def _monthly(plan: Mapping[str, Any]) -> float | None:
+    cost = plan.get("monthly_cost")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost > 0:
+        return float(cost)
+    return None
+
+
+def _shape(plan: Mapping[str, Any]) -> Json:
+    return {
+        "plan": plan["id"],
+        "type": plan.get("type"),
+        "monthly_usd": _monthly(plan),
+        "vcpu": plan.get("vcpu_count"),
+        "memory_mb": plan.get("ram"),
+        "disk_gb": plan.get("disk"),
+        "bandwidth_gb": plan.get("bandwidth"),
+    }
+
+
+def plans(max_usd: float | None = None, region: str | None = None, api: RestApi | None = None) -> Json:
+    """The plans sold in `region`, cheapest first; `max_usd` keeps those at or
+    under it. Free and promotional plans (no monthly price) are left out."""
+    where = _region(region)
+    api = api or client.api(auth=False)
+    found = [
+        _shape(p) for p in _catalog(api)
+        if where in (p.get("locations") or []) and _monthly(p) is not None
+        and (max_usd is None or _monthly(p) <= max_usd)
+    ]  # fmt: skip
+    found.sort(key=lambda p: (p["monthly_usd"], p["plan"]))
+    return {"region": where, "plans": found, "caps": caps()}
+
+
+def account(api: RestApi | None = None) -> Json:
+    """The credit and what is owed so far this month (Vultr's own numbers;
+    a negative balance is credit)."""
+    api = api or client.api()
+    answer = api.call("GET", "/account")
+    acct = answer.get("account") if isinstance(answer, Mapping) else None
+    if not isinstance(acct, Mapping):
+        raise hand.HandError("Vultr sent no account")
+    return {"balance": acct.get("balance"), "pending_charges": acct.get("pending_charges"),
+            "last_payment_date": acct.get("last_payment_date")}  # fmt: skip
 
 
 def servers() -> Json:
     conn = _db()
     try:
         rows = conn.execute("SELECT * FROM vps_orders ORDER BY id DESC").fetchall()
-        topups = conn.execute("SELECT id, at, usd, reason FROM vps_topups ORDER BY id DESC LIMIT 20").fetchall()
     finally:
         conn.close()
-    return {"servers": [dict(r) for r in rows], "topups": [dict(t) for t in topups], "caps": caps()}
+    return {"servers": [dict(r) for r in rows], "caps": caps()}
 
 
-def _store_secrets(service_id: str, taken: Mapping[str, str]) -> str:
-    """What EQVPS showed once (a root password), kept for the operator in
-    secrets/vps/<service>.json, mode 600. Returns the path, relative."""
+def _store_secrets(instance_id: str, taken: Mapping[str, str]) -> str:
+    """What Vultr showed once (the root password), kept for the operator in
+    secrets/vps/<instance>.json, mode 600. Returns the path, relative."""
     folder = hand.secrets_dir() / "vps"
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = folder / f"{service_id}.json"
+    path = folder / f"{instance_id}.json"
     old: dict[str, str] = {}
     if path.exists():
         try:
@@ -146,28 +164,34 @@ def _store_secrets(service_id: str, taken: Mapping[str, str]) -> str:
     with os.fdopen(fd, "w") as fh:
         json.dump(old, fh, sort_keys=True)
     os.chmod(path, 0o600)
-    return f"secrets/vps/{service_id}.json"
+    return f"secrets/vps/{instance_id}.json"
 
 
-def service(service_id: str, api: RestApi | None = None) -> Json:
-    """One server's status and how to reach it. A password EQVPS shows once
-    is stored, never printed."""
-    if not _SERVICE.match(service_id or ""):
-        raise hand.HandError("a service id is letters, digits, - and _")
+def _instance_id(value: str) -> str:
+    if not _INSTANCE.match(value or ""):
+        raise hand.HandError("an instance id is Vultr's UUID")
+    return value
+
+
+def server(instance_id: str, api: RestApi | None = None) -> Json:
+    """One server's status and address. A password in the answer is
+    stored, never printed."""
+    instance_id = _instance_id(instance_id)
     api = api or client.api()
-    data = client.unwrap(api.call("GET", f"/services/{quote(service_id)}"))
-    shown, taken = client.scrub(data)
-    out: Json = {"service": shown}
+    answer = api.call("GET", f"/instances/{quote(instance_id)}")
+    instance = answer.get("instance") if isinstance(answer, Mapping) else None
+    if not isinstance(instance, Mapping):
+        raise hand.HandError("Vultr sent no instance")
+    shown, taken = client.scrub(instance)
+    out: Json = {"server": {k: shown[k] for k in _SHOWN if k in shown}}
     if taken:
-        out["stored_secrets"] = {"file": _store_secrets(service_id, taken), "keys": sorted(taken)}
+        out["stored_secrets"] = {"file": _store_secrets(instance_id, taken), "keys": sorted(taken)}
     conn = _db()
     try:
-        status = shown.get("status") if isinstance(shown, Mapping) else None
-        if isinstance(status, str):
-            conn.execute(
-                "UPDATE vps_orders SET note = ?, updated_at = ? WHERE service_id = ?",
-                (f"eqvps status {status[:40]}", hand.now(), service_id),
-            )
+        conn.execute(
+            "UPDATE vps_orders SET main_ip = COALESCE(NULLIF(?, '0.0.0.0'), main_ip), note = ?, updated_at = ? WHERE instance_id = ?",
+            (shown.get("main_ip"), f"vultr {shown.get('status')}/{shown.get('server_status')}"[:80], hand.now(), instance_id),
+        )
     finally:
         conn.close()
     return out
@@ -176,57 +200,34 @@ def service(service_id: str, api: RestApi | None = None) -> Json:
 # --- acting ----------------------------------------------------------------------------------
 
 
-def topup(usd: int, reason: str, api: RestApi | None = None) -> Json:
-    """A checkout for `usd` dollars. Nothing is paid here: the checkout URL
-    is for the operator (or a wallet payment under the wallet's caps)."""
-    reason = _reason(reason)
-    cap = hand.number("VPS_TOPUP_MAX_USD", 0, 0, 200)
-    if not 1 <= usd <= 200:
-        raise hand.HandError("--usd is 1..200 whole dollars")
-    if usd > cap:
-        raise hand.Refused(f"a top-up of ${usd} is over VPS_TOPUP_MAX_USD (${cap})", rule="topup_cap", cap_usd=cap)
-    with hand.lock("vps"):
-        conn = _db()
-        try:
-            spent = conn.execute("SELECT COALESCE(SUM(usd), 0) FROM vps_topups WHERE at > ?", (hand.now() - MONTH,)).fetchone()[0]
-            if spent + usd > cap:
-                raise hand.Refused(
-                    f"${spent} topped up in the last 30 days; ${usd} more is over VPS_TOPUP_MAX_USD (${cap})",
-                    rule="topup_month", spent_usd=spent, cap_usd=cap,
-                )  # fmt: skip
-            if hand.dry_run():
-                return {"dry_run": True, "would_topup_usd": usd, "reason": reason}
-            api = api or client.api()
-            answer = client.unwrap(api.call("POST", "/balance/topup", body={"amount": usd}))
-            url = answer.get("checkout_url") if isinstance(answer, Mapping) else None
-            if not isinstance(url, str) or not url.startswith("https://"):
-                raise hand.HandError("EQVPS sent no checkout URL")
-            conn.execute(
-                "INSERT INTO vps_topups (at, usd, reason, checkout_url) VALUES (?, ?, ?, ?)",
-                (hand.now(), usd, reason, url),
-            )
-        finally:
-            conn.close()
-    return {
-        "topup_usd": usd,
-        "checkout_url": url,
-        "next": "Pay it in USDC or USDT (Base, Ethereum or Tron). The browser stops at payment pages; "
-        "the operator pays it, or hands/wallet under its caps.",
-    }
+def _ssh_key(api: RestApi, pubkey: str) -> str:
+    """The id of Teeny's key on the account, adding it once."""
+    body = " ".join(pubkey.split()[:2])
+    answer = api.call("GET", "/ssh-keys", query=[("per_page", "500")])
+    for key in (answer.get("ssh_keys") or []) if isinstance(answer, Mapping) else []:
+        if isinstance(key, Mapping) and " ".join(str(key.get("ssh_key", "")).split()[:2]) == body and key.get("id"):
+            return str(key["id"])
+    made = api.call("POST", "/ssh-keys", body={"name": _LABEL, "ssh_key": pubkey})
+    key = made.get("ssh_key") if isinstance(made, Mapping) else None
+    if not isinstance(key, Mapping) or not key.get("id"):
+        raise hand.HandError("Vultr did not add the SSH key")
+    return str(key["id"])
 
 
-def _pick_os(product: Mapping[str, Any], wanted: str) -> tuple[int, str]:
-    for option in product.get("available_os") or []:
+def _os_id(api: RestApi, wanted: str) -> int:
+    answer = api.call("GET", "/os", query=[("per_page", "500")], auth=False)
+    for option in (answer.get("os") or []) if isinstance(answer, Mapping) else []:
         if isinstance(option, Mapping) and option.get("name") == wanted and isinstance(option.get("id"), int):
-            return option["id"], wanted
-    raise hand.Refused(f"{product['slug']} has no {wanted!r}", rule="os", available=_shape(product)["os"])
+            return option["id"]
+    raise hand.Refused(f"Vultr has no system named {wanted!r}", rule="os")
 
 
-def order(product_slug: str, reason: str, os_name: str | None = None, api: RestApi | None = None) -> Json:
-    """Buys one server from the prepaid balance, under every cap."""
+def order(plan_id: str, reason: str, region: str | None = None, os_name: str | None = None, api: RestApi | None = None) -> Json:
+    """Buys one server, under every cap."""
     reason = _reason(reason)
-    if not _SLUG.match(product_slug or ""):
-        raise hand.HandError("--product is a plan slug (see `products`)")
+    where = _region(region)
+    if not _PLAN.match(plan_id or ""):
+        raise hand.HandError("--plan is a Vultr plan id (see `plans`)")
     if not hand.flag("VPS_ORDERS", False):
         raise hand.Refused("VPS_ORDERS is off: the operator has not opened ordering", rule="orders_off")
     pubkey = (hand.setting("VPS_SSH_PUBKEY") or "").strip()
@@ -235,18 +236,21 @@ def order(product_slug: str, reason: str, os_name: str | None = None, api: RestA
     ceiling = hand.number("VPS_MAX_MONTHLY_USD", 0, 0, 100)
     most = hand.number("VPS_MAX_SERVERS", 1, 0, 3)
     api = api or client.api()
-    found = next((p for p in _catalog(api) if p["slug"] == product_slug), None)
+    found = next((p for p in _catalog(api) if p["id"] == plan_id), None)
     if found is None:
-        raise hand.Refused(f"EQVPS has no plan {product_slug!r}", rule="unknown")
+        raise hand.Refused(f"Vultr has no plan {plan_id!r}", rule="unknown")
+    if where not in (found.get("locations") or []):
+        raise hand.Refused(f"{plan_id} is not sold in {where}", rule="region")
     monthly = _monthly(found)
     if monthly is None:
-        raise hand.Refused(f"{product_slug} has no monthly USD price", rule="price")
+        raise hand.Refused(f"{plan_id} has no monthly price", rule="price")
     if monthly > ceiling:
         raise hand.Refused(
-            f"{product_slug} is ${monthly:g}/month, over VPS_MAX_MONTHLY_USD (${ceiling})",
+            f"{plan_id} is ${monthly:g}/month, over VPS_MAX_MONTHLY_USD (${ceiling})",
             rule="price_cap", monthly_usd=monthly, cap_usd=ceiling,
         )  # fmt: skip
-    os_id, os_label = _pick_os(found, os_name or hand.setting("VPS_OS", _DEFAULT_OS) or _DEFAULT_OS)
+    os_label = os_name or hand.setting("VPS_OS", _DEFAULT_OS) or _DEFAULT_OS
+    os_id = _os_id(api, os_label)
     with hand.lock("vps"):
         conn = _db()
         try:
@@ -260,58 +264,63 @@ def order(product_slug: str, reason: str, os_name: str | None = None, api: RestA
                         rule="server_cap", holding=holding, cap=most,
                     )  # fmt: skip
                 if hand.dry_run():
-                    return {"dry_run": True, "would_order": product_slug, "monthly_usd": monthly, "os": os_label, "reason": reason}
+                    return {"dry_run": True, "would_order": plan_id, "region": where, "monthly_usd": monthly,
+                            "os": os_label, "reason": reason}  # fmt: skip
                 at = hand.now()
                 row = conn.execute(
-                    "INSERT INTO vps_orders (at, product, monthly_usd, os_id, os, reason, status, updated_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 'ordering', ?)",
-                    (at, product_slug, monthly, os_id, os_label, reason, at),
+                    "INSERT INTO vps_orders (at, plan, region, monthly_usd, os_id, os, reason, status, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, 'ordering', ?)",
+                    (at, plan_id, where, monthly, os_id, os_label, reason, at),
                 ).lastrowid
             try:
-                answer = client.unwrap(api.call("POST", "/orders", body={"product": product_slug, "os_id": os_id, "ssh_key": pubkey}))
+                key_id = _ssh_key(api, pubkey)
+                answer = api.call("POST", "/instances", body={
+                    "region": where, "plan": plan_id, "os_id": os_id, "label": _LABEL, "hostname": _LABEL,
+                    "sshkey_id": [key_id], "backups": "disabled", "enable_ipv6": True, "tags": [_LABEL],
+                })  # fmt: skip
             except RestError as exc:
                 status = "in_doubt" if exc.status is None or exc.status >= 500 else "failed"
                 conn.execute("UPDATE vps_orders SET status = ?, note = ?, updated_at = ? WHERE id = ?", (status, str(exc)[:300], hand.now(), row))
                 if status == "in_doubt":
-                    raise hand.HandError(f"{exc}; order {row} is in_doubt: a person checks EQVPS before anything else") from None
+                    raise hand.HandError(f"{exc}; order {row} is in_doubt: a person checks Vultr before anything else") from None
                 raise
-            answer = answer if isinstance(answer, Mapping) else {}
-            sid = answer.get("service_id")
-            invoice = answer.get("invoice") if isinstance(answer.get("invoice"), Mapping) else None
-            if sid is not None:
-                conn.execute(
-                    "UPDATE vps_orders SET status = 'ordered', service_id = ?, updated_at = ? WHERE id = ?",
-                    (str(sid), hand.now(), row),
-                )
-                bill = _bill(str(sid), monthly, product_slug)
-                return {"ordered": product_slug, "order": row, "service_id": str(sid), "monthly_usd": monthly, "bill": bill,
-                        "next": f"hands/vps service {sid} until it is active"}  # fmt: skip
-            if invoice is not None and invoice.get("id") is not None:
-                conn.execute(
-                    "UPDATE vps_orders SET status = 'unfunded', invoice_id = ?, updated_at = ? WHERE id = ?",
-                    (str(invoice["id"]), hand.now(), row),
-                )
-                return {"unfunded": product_slug, "order": row, "invoice_id": str(invoice["id"]),
-                        "next": "The balance did not cover it. Top up, then the operator pays the invoice."}  # fmt: skip
-            conn.execute("UPDATE vps_orders SET status = 'in_doubt', note = 'unreadable answer', updated_at = ? WHERE id = ?", (hand.now(), row))
-            raise hand.HandError(f"EQVPS answered the order unreadably; order {row} is in_doubt")
+            instance = answer.get("instance") if isinstance(answer, Mapping) else None
+            if not isinstance(instance, Mapping) or not instance.get("id"):
+                conn.execute("UPDATE vps_orders SET status = 'in_doubt', note = 'unreadable answer', updated_at = ? WHERE id = ?", (hand.now(), row))
+                raise hand.HandError(f"Vultr answered the order unreadably; order {row} is in_doubt")
+            iid = str(instance["id"])
+            shown, taken = client.scrub(instance)
+            conn.execute(
+                "UPDATE vps_orders SET status = 'ordered', instance_id = ?, updated_at = ? WHERE id = ?",
+                (iid, hand.now(), row),
+            )
         finally:
             conn.close()
+    out: Json = {"ordered": plan_id, "order": row, "instance_id": iid, "region": where, "monthly_usd": monthly,
+                 "status": shown.get("status"), "bill": _bill(iid, monthly, plan_id),
+                 "next": f"hands/vps server {iid} until it is active and has its address"}  # fmt: skip
+    if taken:
+        out["stored_secrets"] = {"file": _store_secrets(iid, taken), "keys": sorted(taken)}
+    return out
 
 
-def _bill(service_id: str, monthly: float, product: str) -> Json | None:
+def _bill_name(instance_id: str) -> str:
+    return f"vultr {instance_id[:8]}"
+
+
+def _bill(instance_id: str, monthly: float, plan: str) -> Json | None:
     """The server as a monthly bill, so `hands/wallet costs` counts it."""
     from ..wallet import reads as wallet_reads
 
     try:
-        return wallet_reads.bills_add(f"eqvps {service_id}", f"{monthly:.2f}", "month", f"EQVPS {product}")["bill"]
+        return wallet_reads.bills_add(_bill_name(instance_id), f"{monthly:.2f}", "month", f"Vultr {plan}")["bill"]
     except Exception:  # noqa: BLE001 - a bill never undoes an order
         return None
 
 
 def release(order_id: int, note: str) -> Json:
-    """The operator: an order no longer holds a slot (cancelled at EQVPS, a
-    failed in_doubt read by a person)."""
+    """The operator: an order no longer holds a slot (an in_doubt a person
+    has read, a server destroyed outside this hand)."""
     note = _reason(note)
     conn = _db()
     try:
@@ -326,23 +335,26 @@ def release(order_id: int, note: str) -> Json:
     return {"released": order_id}
 
 
-def register(first: str, last: str, email: str, api: RestApi | None = None) -> Json:
-    """The operator: a new EQVPS account. Its token is printed once, for
-    secrets/teeny.env; this hand never writes it anywhere."""
-    for value, what in ((first, "--first"), (last, "--last")):
-        if not 1 <= len((value or "").strip()) <= 40:
-            raise hand.HandError(f"{what} is 1-40 characters")
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email or ""):
-        raise hand.HandError("--email must be an e-mail address")
-    if hand.dry_run():
-        return {"dry_run": True, "would_register": email}
-    api = api or client.api(auth=False)
-    got = api.call("POST", "/auth/register", body={"first_name": first.strip(), "last_name": last.strip(), "email": email}, auth=False)
-    token = got.get("token") if isinstance(got, Mapping) else None
-    if not isinstance(token, str) or not token:
-        raise hand.HandError("EQVPS did not return a token")
-    return {
-        "registered": email,
-        "token": token,
-        "next": "Shown once and not saved. Put it in secrets/teeny.env as EQVPS_API_TOKEN=<token>",
-    }
+def destroy(instance_id: str, note: str, api: RestApi | None = None) -> Json:
+    """The operator: destroys one of this hand's servers (it stops billing),
+    releases its order and drops its bill. Never a server it did not buy."""
+    instance_id = _instance_id(instance_id)
+    note = _reason(note)
+    conn = _db()
+    try:
+        row = conn.execute("SELECT id FROM vps_orders WHERE instance_id = ? AND status = 'ordered'", (instance_id,)).fetchone()
+        if row is None:
+            raise hand.Refused(f"{instance_id} is not a server this hand holds", rule="unknown")
+        if hand.dry_run():
+            return {"dry_run": True, "would_destroy": instance_id}
+        (api or client.api()).call("DELETE", f"/instances/{quote(instance_id)}")
+        conn.execute("UPDATE vps_orders SET status = 'released', note = ?, updated_at = ? WHERE id = ?", (f"destroyed: {note}", hand.now(), row["id"]))
+    finally:
+        conn.close()
+    from ..wallet import reads as wallet_reads
+
+    try:
+        wallet_reads.bills_remove(_bill_name(instance_id))
+    except (hand.HandError, hand.Refused):
+        pass
+    return {"destroyed": instance_id, "order": row["id"]}
