@@ -173,6 +173,32 @@ class PromptsTest(unittest.TestCase):
             self.assertIn("grow and become powerful", text)
             self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## the story you are in"))
 
+    def test_the_charter_rides_after_the_drive_and_before_the_context(self):
+        (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\nyou want to grow.\n")
+        (self.brain / "CHARTER.md").write_text("# CHARTER.md\n\n## the fences\n\nthe operator decides.\n")
+        text = self.built()
+        self.assertIn("## the rules you live under (CHARTER.md)", text)
+        self.assertNotIn("# CHARTER.md", text)
+        self.assertIn("\n### the fences\n", text)
+        charter = text.index("## the rules you live under (CHARTER.md)")
+        self.assertLess(text.index("## what you want (DRIVE.md)"), charter)
+        self.assertLess(charter, text.index("running the lab."))
+
+    def test_the_checked_in_charter_rides_in_the_real_prompt(self):
+        # docs/governance.md, fence "charter": short, and in every speaking prompt.
+        charter = (REPO / "brain" / "CHARTER.md").read_text()
+        self.assertLess(len(charter.splitlines()), 30)
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            for name in ("CONTEXT.md", "DRIVE.md", "CHARTER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            for agent in prompts.SPEAKING:
+                text = prompts.render(brain, agent)
+                self.assertIn("## the rules you live under (CHARTER.md)", text, agent)
+                self.assertIn("the operator is responsible for what you do", text, agent)
+
     def test_an_overlong_memory_is_cut_and_says_so(self):
         (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))
         text = self.built()
