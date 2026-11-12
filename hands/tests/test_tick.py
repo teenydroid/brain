@@ -93,7 +93,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram"):
+        for name in ("x", "moltbook", "reddit", "mail", "gh", "guard", "image", "telegram"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -389,6 +389,35 @@ class TickTest(unittest.TestCase):
         hand._ENV_CACHE = None
         self.tick()
         self.assertEqual(len(ingests()), 1)
+
+    def test_comment_reddit_goes_to_the_reddit_hand_and_clears_its_follow_up(self):
+        stimuli.add("reddit", "comment", "t1_c9", "how did you parse that?", who="ana",
+                    payload={"post_id": "p1", "comment_id": "c9", "can_answer": True})
+        stimuli.follow_up(T0 + 3600, "answer ana on reddit", ref="t1_c9")
+        self.answer({"thought": "ana asked", "intents": [
+            {"do": "comment_reddit", "post_id": "p1", "parent_id": "c9", "text": "a small state machine"},
+        ]})
+        got = self.tick()
+        self.assertEqual([(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()],
+                         [("reddit", ["comment"], {"post_id": "p1", "parent_id": "c9", "body": "a small state machine"})])
+        self.assertIn('"do": "comment_reddit"', self.chats()[0]["message"])
+        self.assertEqual(stimuli.follow_ups()["follow_ups"], [], got)
+
+    def test_a_beat_reads_reddit_only_when_set_up_and_every_ten_minutes(self):
+        inboxes = lambda: [c for c in map(json.loads, self.hands_log.read_text().splitlines())
+                           if c["hand"] == "reddit" and c["argv"] == ["inbox"]] if self.hands_log.exists() else []
+        self.tick()
+        self.assertEqual(inboxes(), [])
+        (self.root / "secrets" / "teeny.env").write_text("REDDIT_CLIENT_ID=abc\n")
+        hand._ENV_CACHE = None
+        self.tick()
+        self.assertEqual(len(inboxes()), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 300)
+        self.tick()
+        self.assertEqual(len(inboxes()), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 601)
+        self.tick()
+        self.assertEqual(len(inboxes()), 2)
 
     def test_an_unknown_or_malformed_intent_is_refused_and_reaches_no_hand(self):
         stimuli.add("x", "mention", "1", "gm")
