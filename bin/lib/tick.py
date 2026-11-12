@@ -29,7 +29,8 @@
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
-them), `failed`, and the no-ops `asleep`, `busy` and `idle`, which are also
+them), `failed`, and the no-ops `asleep`, `busy` and `idle` (`resting` when
+the quiet back-off held the beat, bin/lib/rhythm.py), which are also
 `idle: true` so the reflection passes over them. Each beat that
 thought is also an entry in Teeny's private journal,
 state/journal/<local date>.md, and in the core's memory (journal()).
@@ -509,11 +510,15 @@ def _beat() -> Json:
     if asleep:
         return _idle("asleep", raised, gathered, **asleep)
     came_in = len(waiting)  # before the mind's own moment is added
-    if not waiting and (rhythm.wander(_run_hand) or rhythm.quiet()):
+    # Woken (and rested) before the quiet moment is written, so it sees the
+    # morning's energy, not last night's.
+    woke = rhythm.woke(came_in)
+    if waiting:
+        rhythm.stirred()
+    elif rhythm.wander(_run_hand) or rhythm.quiet():
         waiting = stimuli.pending()
     if not waiting:
-        return _idle("idle", raised, gathered)
-    woke = rhythm.woke(came_in)
+        return _idle("idle", raised, gathered, resting=True)
     batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
