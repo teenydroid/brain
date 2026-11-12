@@ -186,6 +186,7 @@ diary entry, are taught to the core's memory with `openhuman.memory_learn`.
 brain/
   SOUL.md  CONTEXT.md                  who Teeny is, what it may treat as known
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
+  CHARTER.md                           the charter's short version (docs/governance.md): who decides what, the fences, how freedom is earned; frozen
   MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
   narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
@@ -217,7 +218,9 @@ handed four things beyond the message:
 - Its prompt: the agent's instructions (`brain/agents/<id>.md`), then
   "# your world": `MEMORY.md` first (what happened, which wins over the
   context, the lore and the arcs), then `DRIVE.md` (the one drive and its
-  rules, which memory does not outrank), `CONTEXT.md`, the parts of
+  rules, which memory does not outrank), `CHARTER.md` (who decides what
+  and the fences, the short version of [`governance.md`](governance.md);
+  frozen), `CONTEXT.md`, the parts of
   `narrative/LORE.md` Teeny reads (the premise, the cast, the running bits;
   never `## latent`, which is the producer's), `narrative/ARCS.md`, and
   last "what you said lately": its newest own posts on X and the titles of
