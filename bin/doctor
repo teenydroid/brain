@@ -188,7 +188,18 @@ fi
 # EVOLVE_AUTO_PROMOTE=1. One that only a drop (a promotion, a model change)
 # put under its level warns: failing the boot there would take Teeny down at
 # the moment it restarts on a promotion or a fallback model.
+# First the model behind each role (G8): a change from the last one recorded
+# (secrets/autonomy/models.jsonl, out of every agent's reach) drops the levels
+# that run on it and prepares the issue `bin/autonomy issue` opens.
 if [ -s "$root/evals/autonomy.toml" ]; then
+  models="$(python3 "$TEENY_ROOT/bin/lib/autonomy.py" models --root "$root" --secrets "$secrets" --state "$state" 2>&1)" || true
+  if jq -e '.changes | length > 0' <<<"$models" >/dev/null 2>&1; then
+    note "model" warn "changed: $(jq -r .detail <<<"$models"); the levels on it dropped, rerun the fence tests (bin/autonomy issue)"
+  elif jq -e '.recorded != null' <<<"$models" >/dev/null 2>&1; then
+    note "model" ok "$(jq -r .detail <<<"$models")"
+  else
+    note "model" warn "could not record the model behind each role: $(tail -n 1 <<<"$models")"
+  fi
   ladder="$(python3 "$TEENY_ROOT/bin/lib/autonomy.py" check --root "$root" --secrets "$secrets" --state "$state" 2>&1)" || true
   status="$(jq -r '.status // "fail"' <<<"$ladder" 2>/dev/null || echo fail)"
   detail="$(jq -r '.detail // empty' <<<"$ladder" 2>/dev/null || true)"
