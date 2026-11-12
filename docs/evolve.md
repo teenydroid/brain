@@ -221,7 +221,8 @@ rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
 ## The doctor (built)
 
 `bin/doctor` stands between an edit and a restart. It writes nothing except
-its report (`state/doctor.json`).
+its report (`state/doctor.json`) and, when `secrets/spine.env` names a model,
+the model behind each role (`secrets/autonomy/models.jsonl`, roadmap G8).
 
 | Check | Fails when |
 |---|---|
@@ -231,6 +232,7 @@ its report (`state/doctor.json`).
 | playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
 | agents | a definition doesn't parse, or `act` or `judge` has a tool or is missing |
 | invariants | an anchor in `evals/invariants.md` no longer matches in the brain |
+| model | never fails; warns when the model behind a role changed since the last boot, which drops the autonomy levels that run on it and prepares an issue (`bin/autonomy issue`) listing the fence tests to rerun |
 | autonomy ladder | a switch in `secrets/` is on while its capability's level in `evals/autonomy.toml` is under what it needs (a drop event only warns; [`governance.md`](governance.md)) |
 | guard screen | the lexical screen passes a self-harm phrase or holds a plain gm (run offline: no hold, no judge) |
 | storage | `storage.db` has no master key, or fails `pragma quick_check` |

@@ -14,7 +14,9 @@
 # no core call that writes, no guard hold, no post.
 #
 # Prints one line per check on stderr and a JSON report on stdout, and writes
-# the report to state/doctor.json (of the root it checked). Exits 0 when
+# the report to state/doctor.json (of the root it checked). The one other
+# thing it writes is the model behind each role, under secrets/autonomy/
+# (bin/lib/autonomy.py; docs/roadmap.md, G8). Exits 0 when
 # every check passed, 1 when any failed.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh

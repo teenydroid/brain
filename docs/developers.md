@@ -60,6 +60,7 @@ bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
 bin/proofs --text                  # how far each countable DIRECTIVE.md proof has got (read-only)
 bin/proofs --ladder --text         # the autonomy ladder: each capability's level, and what the next one needs
+bin/autonomy issue                 # open the issue a model change prepared (off unless LADDER_ISSUES=1)
 bin/audit --json                   # last week's audit page (holds, spend, halts, generations, operator actions)
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
@@ -193,6 +194,7 @@ environment forces a rehearsal.
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
+| `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
 | `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |
 
 ### `deploy/browser-allow.txt`

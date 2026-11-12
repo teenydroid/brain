@@ -129,8 +129,10 @@ for each:
   `bin/proofs --ladder --text` says what each capability still needs.
 - **the events that drop it a step**: a promotion (from
   `state/evolve/archive.jsonl`), a model change behind one of its roles
-  (G8), a guard escape. A drop counts when the event is after the level's
-  `confirmed` date. A switch that only a drop puts above its level makes the
+  (G8), a guard escape. A drop counts when the event falls on a day after
+  the level's `confirmed` date. On a model change the doctor also prepares
+  an issue listing every fence test this page cites, and the pinned
+  `ladder-issue` job opens it once `LADDER_ISSUES=1` is set. A switch that only a drop puts above its level makes the
   doctor **warn**, not fail: a promotion restarts the spine, and a fallback
   model changes the model at boot, so failing the boot then would stop Teeny
   at the moment it is being watched. The operator reruns the fence tests and
