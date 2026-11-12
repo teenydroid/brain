@@ -12,6 +12,8 @@
   holds list [--status S] [--limit N] | approve ID [--note T] | reject ID [--note T]
   holds release ID [--note T]
   links list | approve HOST[/PATH]
+  repeats [--days N] -> {"repeats", "by_surface"}: near-duplicate posts the
+            posting rules refused over the last N days (default 30)
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -204,6 +206,19 @@ def links_approve(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"entry": entry}
 
 
+def repeats_count(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    from . import repeats
+
+    return repeats.count(args.days)
+
+
+def _days(value: str) -> int:
+    days = int(value)
+    if not 1 <= days <= 365:
+        raise argparse.ArgumentTypeError("--days is 1..365")
+    return days
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="hands/guard", description="Teeny's content filter.")
     verbs = p.add_subparsers(dest="verb")
@@ -234,6 +249,10 @@ def parser() -> argparse.ArgumentParser:
     approve = links_p.add_parser("approve")
     approve.add_argument("entry", metavar="HOST[/PATH]")
     approve.set_defaults(handler=links_approve)
+
+    counted = verbs.add_parser("repeats")
+    counted.add_argument("--days", type=_days, default=30)
+    counted.set_defaults(handler=repeats_count)
     return p
 
 
