@@ -97,6 +97,45 @@ def _measure(target: Mapping[str, Any], api: RestApi | None) -> Json | None:
     return {"score": _score(node), "comment_count": count, "verification_status": node.get("verification_status")}
 
 
+_COLUMNS = ("checkpoint", "at", "score", "comment_count", "verification_status")
+
+
+def latest(conn, kind: str, target_id: str) -> Json | None:
+    """The newest metrics row of one write, or None."""
+    row = conn.execute(
+        f"SELECT {', '.join(_COLUMNS)} FROM moltbook_post_metrics WHERE kind = ? AND target_id = ?"
+        " ORDER BY checkpoint DESC LIMIT 1",
+        (kind, target_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def listing(days: int = 7) -> Json:
+    """The latest row of each write measured in the last `days`, newest
+    write first: a post with its title, a comment with its post's id."""
+    conn = rules.db()
+    try:
+        rows = conn.execute(
+            "SELECT m.kind, m.target_id, m.checkpoint, m.at, m.score, m.comment_count, m.verification_status,"
+            "       p.title, c.post_id, coalesce(p.at, c.at) AS written_at"
+            " FROM moltbook_post_metrics m"
+            " JOIN (SELECT kind, target_id, max(checkpoint) AS checkpoint FROM moltbook_post_metrics"
+            "       GROUP BY kind, target_id) newest USING (kind, target_id, checkpoint)"
+            " LEFT JOIN moltbook_posts p ON m.kind = 'post' AND p.post_id = m.target_id"
+            " LEFT JOIN moltbook_comments c ON m.kind = 'comment' AND c.comment_id = m.target_id"
+            " WHERE m.at >= ? ORDER BY written_at DESC, m.id DESC",
+            (hand.now() - days * DAY,),
+        ).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for row in rows:
+        item = {k: row[k] for k in ("kind", "target_id", *_COLUMNS)}
+        item.update({"title": row["title"]} if row["kind"] == "post" else {"post_id": row["post_id"]})
+        out.append(item)
+    return {"days": days, "metrics": out}
+
+
 def refresh(api: RestApi | None = None) -> Json:
     """Measures the writes with a checkpoint due: `recorded` (kind, id,
     checkpoint), `missing` (not there to read), `errors`, `left` (due but
