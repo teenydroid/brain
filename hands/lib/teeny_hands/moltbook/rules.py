@@ -107,6 +107,18 @@ CREATE TABLE IF NOT EXISTS moltbook_state (
     value TEXT NOT NULL,
     at    REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS moltbook_post_metrics (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind                TEXT NOT NULL CHECK (kind IN ('post', 'comment')),
+    target_id           TEXT NOT NULL,
+    checkpoint          INTEGER NOT NULL,
+    at                  REAL NOT NULL,
+    score               INTEGER,
+    comment_count       INTEGER,
+    verification_status TEXT,
+    UNIQUE (kind, target_id, checkpoint)
+);
+CREATE INDEX IF NOT EXISTS moltbook_post_metrics_at ON moltbook_post_metrics (at);
 CREATE TABLE IF NOT EXISTS collabs (
     name         TEXT PRIMARY KEY COLLATE NOCASE,
     consent_note TEXT NOT NULL,
