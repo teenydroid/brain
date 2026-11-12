@@ -593,7 +593,7 @@ Phase B leaves these seams for Phase C:
 - **A judge of its own**: `EVOLVE_JUDGE_MODEL`, set in the frozen `judge.toml`,
   ideally not `SPINE_MODEL`.
 
-## Phase C, steps 5 to 7: the spec
+## Phase C: promote, restart, watch (not built)
 
 1. Promote. The candidate's win rate must be at least 0.6 over at least 12
    decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
