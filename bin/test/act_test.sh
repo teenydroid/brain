@@ -466,6 +466,11 @@ refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\nou
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
 check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
 rm -f "$brain/playbooks/selfprop.md"
+# An upstream contribution (docs/roadmap.md, A8): a draft names one gap; the
+# hand gates the rest (BUILD_UPSTREAM, the gap list, the external PR rules).
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build upstream"\n+++\ngo' >"$brain/playbooks/upprop.md"
+check "allows proposing an upstream contribution (build upstream) as an output" bash -c "'$act' --check upprop >/dev/null"
+rm -f "$brain/playbooks/upprop.md"
 # The goal ledger: a draft may only propose a goal. Its checks are the
 # pinned goals-check job's.
 [ -e "$scratch/hands/goals" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/goals"
