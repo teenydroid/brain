@@ -77,11 +77,21 @@ def _recorded(conn) -> dict[tuple[str, str], int]:
 
 
 def _measure(target: Mapping[str, Any], api: RestApi | None) -> Json | None:
-    got = reads.post(str(target["target_id"]), api).get("post")
-    if not isinstance(got, Mapping):
+    """The target's numbers as Moltbook shows them now; None when it is not
+    there to read (a comment beyond the latest COMMENTS_READ of a thread)."""
+    if target["kind"] == "post":
+        got = reads.post(str(target["target_id"]), api).get("post")
+        if not isinstance(got, Mapping):
+            return None
+        return {"score": _score(got), "comment_count": _int(got.get("comment_count")),
+                "verification_status": got.get("verification_status")}
+    tree = reads.comments(str(target["post_id"]), "new", COMMENTS_READ, api).get("comments")
+    node = next((n for n, _ in _walk(tree) if str(n.get("id")) == str(target["target_id"])), None)
+    if node is None:
         return None
-    return {"score": _score(got), "comment_count": _int(got.get("comment_count")),
-            "verification_status": got.get("verification_status")}
+    replies = node.get("replies")
+    count = len(replies) if isinstance(replies, list) else _int(node.get("reply_count"))
+    return {"score": _score(node), "comment_count": count, "verification_status": node.get("verification_status")}
 
 
 def refresh(api: RestApi | None = None) -> Json:
