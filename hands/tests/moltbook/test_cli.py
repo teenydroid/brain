@@ -87,6 +87,14 @@ class CliTest(Scratch):
         self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
         self.assertEqual(self.run_hand("metrics")[0], 1)
 
+    def test_study(self):
+        self.mb.route("GET", "/posts", {"success": True, "posts": [
+            {"id": "p1", "title": "x is a y", "score": 5, "created_at": "2026-09-14T06:00:00Z", "content": "c"}]})
+        for name in ("agents", "memory", "builds", "tooling", "infrastructure", "security"):
+            self.mb.route("GET", f"/submolts/{name}/feed", {"success": True, "posts": []})
+        code, out = self.run_hand("study")
+        self.assertEqual((code, [p["title"] for p in out["top"]], out["own"]), (0, ["x is a y"], []))
+
     def test_register_prints_the_key_on_stdout_only(self):
         self.configure(MOLTBOOK_API_KEY=None)
         self.mb.route("POST", "/agents/register", {"agent": {"api_key": KEY, "claim_url": "c", "verification_code": "v"}})
