@@ -174,8 +174,8 @@ Where each secret goes, and who reads it:
 ```
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `mail`, `stimuli`, `brief`,
-`image`, `video`, `stats`, `requests`, `build`, `tasks`, `wallet`, `bounty`
-and `slopcash`.
+`image`, `video`, `stats`, `requests`, `build`, `tasks`, `wallet`, `bounty`,
+`deploy` and `slopcash`.
 
 **Memory captures.** A `remember` intent from the mind, and the nightly
 diary entry, are taught to the core's memory with `openhuman.memory_learn`.

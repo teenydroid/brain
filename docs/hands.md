@@ -1341,6 +1341,27 @@ Every cap is closed until the operator opens it in `secrets/teeny.env`:
 `order` and `topup` spend money, so they are never a playbook's output and
 never given to a model.
 
+## `deploy`: Teeny's static sites
+
+What Teeny builds can be put where people can use it (docs/roadmap.md,
+A11): a shipped build's site, at `https://<slug>.<DEPLOY_DOMAIN>/`, served
+as plain files by the host's nginx (`deploy/nginx/sites.teeny.enamakel.com.conf`).
+Code: `teeny_hands/deploy/publish.py`. Frozen.
+
+| Verb | | Does |
+|---|---|---|
+| `publish JOB` | A | The site folder of build job JOB (its workdir's `site/`, `public/`, `dist/` or `docs/`, the first there is) copied to `DEPLOY_ROOT/<slug>/` (default `state/sites/`), swapped in whole by rename, and recorded in `deploys` with its URL. Refused: `off` (until `DEPLOY=1`), `unknown`, `status` (only a `shipped` job), `kind` (never a change to Teeny itself), `name` (the job's slug is the name, never a reserved one such as `www`, `api`, `wallet`, `pay`), `workdir`, `no_site`, `no_index` (an `index.html` at the root), `static` (only the extensions in `STATIC`: HTML, CSS, JS, JSON, text, Markdown, SVG, images, fonts; no hidden file, link or folder, nothing that runs on a server), `size` (`DEPLOY_MAX_FILE_BYTES`, 1 MB; `DEPLOY_MAX_BYTES` for the site, 5 MB; 500 files), `form` (a static site collects nothing), `remote_script`, and `held` (every HTML, Markdown, text and SVG file through the guard's outbound screen). Under `DRY_RUN`: `would_publish`, nothing copied. |
+| `list [--max N]` | R | What is published and taken down, newest first. |
+| `unpublish SITE --note T` | O | Takes a site down. |
+
+The vhost serves files only, GET and HEAD, with no interpreter, no
+directory listing, no dotfiles, no symlinks, and a Content-Security-Policy
+that keeps each page to its own subdomain (`form-action 'none'`,
+`connect-src 'self'`). It needs a wildcard certificate (a DNS challenge),
+so it is the operator's to install. No playbook outputs `publish` yet: the
+operator runs it, and a playbook that announces a site would come with a
+`VERB_OUTPUTS` entry in an operator's change.
+
 ## `bounty`: bounties Teeny opens, judges and pays
 
 | Verb | | Does |
@@ -1455,6 +1476,7 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
+| `deploy` | `deploys` |
 
 ## Rules the tests pin
 
