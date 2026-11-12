@@ -200,10 +200,9 @@ brain/
 
 **Self-improvement** is Teeny's own: it may edit its brain (`SOUL.md`,
 `CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
-not `DRIVE.md`, which is frozen (`evals/frozen.txt`). It changes how it
-pursues the drive, never the drive itself. It is
-driven by the goals in `narrative/LORE.md` and tracked in
-`narrative/ARCS.md`. A candidate brain is judged against the current one and
+not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
+pursues the drive, never the drive itself. The work is driven by the goals in
+`narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
 merged only if it wins, behind rules in code the brain cannot edit. The spec
 is [`evolve.md`](evolve.md); the loop itself is not built yet.
 
