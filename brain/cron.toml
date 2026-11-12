@@ -95,6 +95,23 @@ schedule = "0 15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act self-improve"
 
+# Propose one goal of my own, once a week (brain/playbooks/goals.md): in the
+# learnability band, naming the W component it moves, with a check from the
+# fixed kinds that the pinned goals-check job runs. At most three tries a day,
+# since a near-duplicate is refused and costs nothing.
+[jobs.goals]
+schedule = "0 11 * * 1"
+tz = "Asia/Kolkata"
+command = "bin/act goals"
+
+# The news sense: one browser task a day that reads the AI and agent news
+# (brain/playbooks/news-scan.md). The operator does it at its next run, and
+# what it found comes back to the mind as a `world · news` stimulus.
+[jobs.news-scan]
+schedule = "5 8 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act news-scan"
+
 # Pick the next build request for the builder, one at a time: people's asks
 # and my own self-improve proposals. Twenty past, so a proposal made at the
 # hour is picked the same afternoon and built at the builder's next run.
@@ -162,6 +179,16 @@ command = "bin/act brief"
 [jobs.wallet-receipt]
 schedule = "17 */3 * * *"
 command = "bin/act wallet-receipt"
+enabled = false
+
+# The weekly growth diary (growth.md): W from hands/world and the stats
+# table, what grew and what failed, real numbers only. Sunday evening, after
+# the week's last world-snapshot. Off until it has been watched in rehearsal,
+# like the other new X posts.
+[jobs.growth]
+schedule = "0 19 * * 0"
+tz = "Asia/Kolkata"
+command = "bin/act growth"
 enabled = false
 
 # The weekly cost of keeping Teeny running, real numbers only (cost-of-living.md).
