@@ -133,8 +133,14 @@ def _jail(scratch: str, abi: int) -> None:
 # --- the run -------------------------------------------------------------------------------------
 
 
+def _state() -> Path:
+    """bin/lib/teeny.sh's TEENY_STATE when bin/act runs this, else hands'."""
+    env = os.environ.get("TEENY_STATE")
+    return Path(env) if env else hand.state_dir()
+
+
 def _record(row: Json) -> None:
-    folder = hand.state_dir() / "datajobs"
+    folder = _state() / "datajobs"
     folder.mkdir(parents=True, exist_ok=True)
     with (folder / "runs.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, sort_keys=True) + "\n")
@@ -159,7 +165,7 @@ def run(brain: Path, name: str, stdin: str, timeout: float = MAX_SECS) -> Json:
     if abi < 1 or not seccomp_supported():
         return {"ok": False, "error": "no Landlock or seccomp here: a data job never runs unjailed"}
     started = time.monotonic()
-    scratch = Path(tempfile.mkdtemp(prefix=f"datajob-{name}-", dir=hand.state_dir()))
+    scratch = Path(tempfile.mkdtemp(prefix=f"datajob-{name}-", dir=_state()))
     out: Json = {"ok": False}
     try:
         shutil.copyfile(script, scratch / "job.py")
