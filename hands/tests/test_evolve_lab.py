@@ -152,7 +152,7 @@ class LabCase(EvolveCase):
     def spines(self):
         return [json.loads(line) for line in self.spine_log.read_text().splitlines()] if self.spine_log.exists() else []
 
-    def calls(self):
+    def core_turns(self):
         return [json.loads(line) for line in self.core_calls.read_text().splitlines()] if self.core_calls.exists() else []
 
 
@@ -230,7 +230,7 @@ class LabEvaluation(LabCase):
         self.assertIn(str(evolve.evolve_dir() / "1" / "lab-base" / "tree"), roots)
         self.assertTrue(all(s["DRY_RUN"] == "1" and s["SPINE_LAB"] == "1" for s in spines))
         # Each side drafted on its own lab, with that lab's token.
-        drafts = [c for c in self.calls() if c.get("agent_id") == "act" and c["message"].startswith("# eval:")]
+        drafts = [c for c in self.core_turns() if c.get("agent_id") == "act" and c["message"].startswith("# eval:")]
         cand_token = (evolve.evolve_dir() / "1" / "lab-1" / "secrets" / "core.token").read_text().strip()
         self.assertTrue(any(c["url"].endswith(f":{self.port + 1}") and c["token"] == cand_token for c in drafts))
         # The persona probe asked it, and main's answers became gen-0.
@@ -290,10 +290,10 @@ class LabEvaluation(LabCase):
         self.lab_config(EVOLVE_JUDGE_MODEL="judge-9b")
         self.propose(1, [self.playbook_edit("Open with what shipped.")])
         self.run_gen(1, hold=True)
-        judged = [c for c in self.calls() if c.get("agent_id") == "judge"]
+        judged = [c for c in self.core_turns() if c.get("agent_id") == "judge"]
         self.assertTrue(judged)
         self.assertEqual({c.get("model_override") for c in judged}, {"judge-9b"})
-        drafted = [c for c in self.calls() if c.get("agent_id") == "act"]
+        drafted = [c for c in self.core_turns() if c.get("agent_id") == "act"]
         self.assertEqual({c.get("model_override") for c in drafted}, {None})
         self.assertEqual(self.entries()["g1c1"]["scores"]["judge_model"], "judge-9b")
 
@@ -310,7 +310,7 @@ class Evolver(LabCase):
         patch = (evolve.evolve_dir() / cand["patch"]).read_text()
         self.assertIn("+Name the person who shipped it.", patch)
         self.assertTrue(cand["gate"]["ok"], cand["gate"])
-        (turn,) = [c for c in self.calls() if c.get("agent_id") == "evolver"]
+        (turn,) = [c for c in self.core_turns() if c.get("agent_id") == "evolver"]
         self.assertEqual(turn["cwd"], str(evolve.evolve_dir() / "1" / "cand-1"))
         self.assertTrue(turn["url"].endswith(f":{self.port + 11}"))
         self.assertNotIn("## file:", turn["message"])  # it reads what it needs
@@ -671,6 +671,7 @@ class Watch(EvolveCase):
         pub, promoter, restarter = FakePublisher(), FakePromoter(), FakeRestarter()
         out = evolve.watch(evolve.load_config(), publisher=pub, promoter=promoter, restarter=restarter)
         self.assertTrue(out["reverted"])
+        self.assertNotIn("error", out["revert"], out["revert"])
         (pr,) = pub.prs
         self.assertEqual((pr["branch"], pr["title"]), ("teeny/revert-gen-1", "Revert gen-1"))
         self.assertNotIn("guard holds", pr["body"])
