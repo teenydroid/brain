@@ -1,8 +1,10 @@
 """bin/reflect: Teeny's end of day. On the teeny:mind thread it looks back
-over the day (its notes, its beats, its open follow-ups) and rewrites
-MEMORY.md, the page that rides in every prompt; the old page is kept, the
-prompts are rebuilt so the next beat reads the new one, and an answer that
-would wreck the page changes nothing."""
+over the day (its notes, its beats, its open follow-ups) and brings
+MEMORY.md, the page that rides in every prompt, up to date item by item
+(add, edit, retire against the items' ids); the old page is kept, retired
+items go to a log, the prompts are rebuilt so the next beat reads the new
+page, and an answer that would wreck the page (or shrink it too far)
+changes nothing."""
 
 import json
 import os
@@ -159,7 +161,7 @@ class ReflectTest(unittest.TestCase):
         [chat] = self.chats()
         self.assertEqual((chat["agent_id"], chat["thread_id"]), ("teeny", "teeny:mind"))
         for bit in ("# end of the day", "builds a cli for crabs", "about ana", "did ana ship?", "ana seems fun",
-                    "- nobody yet", '"memory"'):
+                    "- [m1] nobody yet", '"ops"', '"retire"'):
             self.assertIn(bit, chat["message"])
 
     def test_the_night_may_retire_lore_the_day_has_moved_past(self):
@@ -240,7 +242,7 @@ class ReflectTest(unittest.TestCase):
         first, again = self.chats()
         self.assertEqual((again["agent_id"], again["thread_id"]), ("teeny", "teeny:mind"))
         self.assertIn("JSON object only", again["message"])
-        self.assertIn('"memory"', again["message"])
+        self.assertIn('"ops"', again["message"])
         self.assertIn('"diary"', again["message"])
         self.assertLess(len(again["message"]), 600)
         self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
