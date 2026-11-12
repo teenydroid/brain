@@ -49,8 +49,8 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    verb("address", lambda a, _: reads.address(), "Teeny's Solana address")
-    verb("balance", lambda a, _: reads.balance(), "SOL and USDC, raw and display")
+    verb("address", lambda a, _: reads.address(), "Teeny's Solana and EVM addresses")
+    verb("balance", lambda a, _: reads.balance(), "balances on Solana and the EVM networks")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)
     verb("receipt", lambda a, _: reads.receipt(a.id), "one payment's receipt").add_argument("id", type=int, metavar="ID")
