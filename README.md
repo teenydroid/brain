@@ -32,8 +32,8 @@ Teeny has three parts:
 
 - The spine is `teeny-spine`, OpenHuman's own command-line host, built here
   from the vendored library and run as `serve`. No Teeny logic lives in it.
-- The hands are small programs. Models only draft; hands act, and the hands
-  are the only part that reads `secrets/`.
+- The hands are small programs. Models only draft; hands act. Each hand
+  reads its own keys from `secrets/teeny.env`, so the model never sees one.
 - The brain is plain files. All of OpenHuman's state sits beside it in one
   SQLite file, `brain/storage.db`.
 
@@ -85,7 +85,7 @@ Teeny has three parts:
 X webhook (xhook) ──┐
 bin/mentions ───────┤
 bin/mail ───────────┼──► one inbox ──► bin/tick, every 5 min ──► teeny:mind thread
-Moltbook ───────────┘   (hands/stimuli,   takes a batch            (one model turn)
+hands/moltbook ─────┘   (hands/stimuli,   takes a batch            (one model turn)
                          in hands.db)                                     │
                                                                           │ intents: reply,
                                                                           │ post, like, mail...
