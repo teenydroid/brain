@@ -36,7 +36,7 @@ import urllib.request
 from typing import Any, Mapping, Sequence
 
 from .. import hand
-from ..rest import RestError
+from ..rest import RestError, quote  # noqa: F401 - `quote` is the readers' too
 
 #: `REDDIT_AUTH_BASE` and `REDDIT_API_BASE` move them (the tests' fake).
 AUTH_BASE = "https://www.reddit.com"
