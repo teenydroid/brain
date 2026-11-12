@@ -1,7 +1,10 @@
 """hands/brief: what the team tells Teeny to post about (docs/hands.md, "brief").
 
-  O  add TEXT           queue a brief: what the next told-to post is about
-  R  next               the oldest open brief, or {"brief": null}
+  O  add [--surface x|moltbook] TEXT
+                        queue a brief: what the next told-to post is about
+                        (x, the default), or a Moltbook lead (moltbook)
+  R  next               the oldest open X brief, or {"brief": null}
+  R  leads              the open Moltbook leads of the last 48 hours
   R  list [--max N]     the briefs, newest first
   A  post {id, text, media_ids?}  post `text` (Teeny's draft of brief `id`),
                         with any picture bin/act attached, through hands/x
@@ -15,6 +18,14 @@ words: the playbook drafts the post in Teeny's voice, bin/act runs it past the
 guard, and hands/x applies the posting rules, pacing and DRY_RUN as it does to
 every post. A brief is marked posted only when X took the post; a dry run, a
 pacing refusal or an error leaves it open for the next run.
+
+A Moltbook lead is the operator scouting for Teeny: a Moltbook thread worth
+joining, or a topic seen on Reddit, X or Moltbook, with a note. It is never
+an X brief. The Moltbook playbooks read `leads` as one input among others and
+decide for themselves whether a lead is worth a post or a comment, under the
+same guard and caps as anything else they write. A lead is never marked used:
+it drops out after LEAD_HOURS, or when the operator cancels it, and the
+Moltbook comment rules already refuse a second comment on one post.
 """
 
 from __future__ import annotations
@@ -22,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -36,28 +48,44 @@ CREATE TABLE IF NOT EXISTS briefs (
   created_at REAL NOT NULL,
   post_id    TEXT,
   post_text  TEXT,
-  done_at    REAL
+  done_at    REAL,
+  surface    TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook'))
 );
 CREATE INDEX IF NOT EXISTS briefs_status ON briefs (status, created_at);
 """
 
 MAX_TEXT = 2000
+SURFACES = ("x", "moltbook")
+#: How long a Moltbook lead is offered: a thread two days old has moved on.
+LEAD_HOURS = 48
+MAX_LEADS = 10
 
 Json = dict[str, Any]
 
 
 def _db():
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    # A ledger from before surfaces: every brief in it was an X brief.
+    if "surface" not in {r[1] for r in conn.execute("PRAGMA table_info(briefs)")}:
+        try:
+            conn.execute("ALTER TABLE briefs ADD COLUMN surface TEXT NOT NULL DEFAULT 'x'")
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
+    return conn
 
 
 def _public(row) -> Json:
-    out = {"id": row["id"], "text": row["text"], "status": row["status"], "created_at": row["created_at"]}
+    out = {"id": row["id"], "text": row["text"], "status": row["status"], "surface": row["surface"], "created_at": row["created_at"]}
     if row["post_id"]:
         out["post_id"] = row["post_id"]
     return out
 
 
-def add(text: str) -> Json:
+def add(text: str, surface: str = "x") -> Json:
+    if surface not in SURFACES:
+        raise hand.Refused(f"a brief is for one of {', '.join(SURFACES)}")
     text = (text or "").strip()
     if not text:
         raise hand.Refused("a brief needs some text")
@@ -66,7 +94,7 @@ def add(text: str) -> Json:
     conn = _db()
     try:
         with hand.transaction(conn):
-            cur = conn.execute("INSERT INTO briefs (text, created_at) VALUES (?, ?)", (text, hand.now()))
+            cur = conn.execute("INSERT INTO briefs (text, created_at, surface) VALUES (?, ?, ?)", (text, hand.now(), surface))
         return {"brief": _public(conn.execute("SELECT * FROM briefs WHERE id = ?", (cur.lastrowid,)).fetchone())}
     finally:
         conn.close()
@@ -75,10 +103,25 @@ def add(text: str) -> Json:
 def next_open() -> Json:
     conn = _db()
     try:
-        row = conn.execute("SELECT * FROM briefs WHERE status = 'open' ORDER BY created_at, id LIMIT 1").fetchone()
+        row = conn.execute(
+            "SELECT * FROM briefs WHERE status = 'open' AND surface = 'x' ORDER BY created_at, id LIMIT 1"
+        ).fetchone()
         if row is None:
             return {"brief": None}
         return {"brief": {"id": row["id"], "text": row["text"]}}
+    finally:
+        conn.close()
+
+
+def leads() -> Json:
+    conn = _db()
+    try:
+        rows = conn.execute(
+            "SELECT id, text, created_at FROM briefs WHERE status = 'open' AND surface = 'moltbook' AND created_at >= ?"
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (hand.now() - LEAD_HOURS * 3600, MAX_LEADS),
+        ).fetchall()
+        return {"leads": [{"id": r["id"], "text": r["text"], "created_at": r["created_at"]} for r in rows]}
     finally:
         conn.close()
 
@@ -177,8 +220,11 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    verb("add", lambda a, _: add(" ".join(a.text)), "queue a brief (operator)").add_argument("text", nargs="+")
-    verb("next", lambda a, _: next_open(), "the oldest open brief")
+    adding = verb("add", lambda a, _: add(" ".join(a.text), a.surface), "queue a brief or a Moltbook lead (operator)")
+    adding.add_argument("--surface", choices=SURFACES, default="x")
+    adding.add_argument("text", nargs="+")
+    verb("next", lambda a, _: next_open(), "the oldest open X brief")
+    verb("leads", lambda a, _: leads(), "the open Moltbook leads of the last 48 hours")
     verb("list", lambda a, _: listing(a.max), "the briefs, newest first").add_argument(
         "--max", type=_bounded(1, 100, "--max"), default=20
     )
