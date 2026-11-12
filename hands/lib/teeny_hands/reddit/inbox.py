@@ -35,8 +35,11 @@ def _screen(text: str, context: Mapping[str, Any]) -> Any:
 
 def _payload(item: Mapping[str, Any]) -> Json:
     sub = str(item.get("subreddit") or "")
-    link = str(item.get("link_id") or "") or str(item.get("context") or "")
-    post_id = link[3:] if link.startswith("t3_") else None
+    # A comment in the inbox names its post in `link_id` when Reddit sends
+    # one, and always in its `context` permalink (/r/x/comments/<post>/...).
+    link = str(item.get("link_id") or "")
+    found = _POST_IN_PERMALINK.search(str(item.get("context") or ""))
+    post_id = link[3:] if link.startswith("t3_") else found.group(1) if found else None
     return {
         "post_id": post_id,
         "comment_id": str(item.get("id")),
