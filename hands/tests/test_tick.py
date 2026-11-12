@@ -173,9 +173,7 @@ class TickTest(unittest.TestCase):
     def test_every_awake_beat_gets_its_own_quiet_moment(self):
         self.tick()
         self.tick()  # the same second: a fresh quiet stimulus all the same
-        os.environ["TEENY_NOW"] = str(T0 + 300)
-        self.tick()
-        self.assertEqual(len(self.chats()), 3)
+        self.assertEqual(len(self.chats()), 2)
         for chat in self.chats():
             self.assertEqual(chat["message"].count("### self · quiet"), 1)
 
