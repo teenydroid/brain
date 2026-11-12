@@ -190,7 +190,6 @@ cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
 SPINE_MODEL=stub
-SPINE_NATIVE_TOOLS=${SPINE_NATIVE_TOOLS_TEST:-1}
 CORTEX_API_URL=http://127.0.0.1:$(free_port)
 CORTEX_API_KEY=stub-cortex-key
 ENV
