@@ -200,10 +200,12 @@ class AccountsTest(Scratch):
         task = self.signup()
         with self.assertRaises(hand.HandError):
             queue.done({"task_id": task, "outcome": "failed", "notes": "n", "account": {"handle": "teeny"}})
+        queue.done({"task_id": task, "outcome": "failed", "notes": "n"})
         self.add()
         other = queue.next_task()["task"]["task_id"]
         with self.assertRaises(hand.HandError):
             queue.done({"task_id": other, "outcome": "ok", "notes": "n", "account": {"handle": "teeny"}})
+        self.assertNotEqual(other, task)
         self.assertEqual(queue.accounts()["accounts"], [])
 
     def test_the_report_shape_asks_for_the_account(self):

@@ -114,6 +114,8 @@ conn.execute("INSERT INTO wallet_payments (created_at, updated_at, cluster, asse
 # the same day, one still open. Read by a person, so never met.
 from teeny_hands.people import records as people
 conn.executescript(people.SCHEMA)
+# The accounts ledger (hands/tasks): one signup with its reason.
+conn.execute("INSERT INTO accounts (site, handle, why, task_id, created_at) VALUES ('github.com', 'teenydroid', 'to ship builds', 1, ?)", (T,))
 # The weekly vote (hands/requests): one honoured vote whose winner shipped.
 from teeny_hands import votes
 conn.executescript(votes.SCHEMA)
@@ -159,6 +161,7 @@ expect L2.x_replies met 52
 expect L2.mail_started none 0
 expect L2.remembers progress 1
 expect L2.voted_ship met 1
+expect L3.signup met 1
 expect L2.moltbook_week progress 3
 expect L2.audience met 5
 expect L3.browser_week met 7

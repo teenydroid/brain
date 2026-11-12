@@ -285,6 +285,11 @@ def code_login(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "tasks that waited for a mailed code and then finished ok"
 
 
+def signed_up(db: Ledgers, t: float) -> tuple[float, str]:
+    n = db.one("SELECT count(*) FROM accounts WHERE trim(why) != ''") or 0
+    return n, "accounts a signup task recorded, each with its reason (hands/tasks accounts)"
+
+
 def needs_human_rate(db: Ledgers, t: float) -> tuple[float, str]:
     rows = db.rows("SELECT status FROM browser_tasks WHERE finished_at >= ? AND status IN ('ok', 'failed', 'needs_human')",
                    (t - 30 * DAY,))
@@ -375,6 +380,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L3.browser_week", 3, "Headless browsing proven on the box", "a week of ok tasks", 7, browser_week),
     ("L3.teeny_tasks", 3, "Teeny writes its own browser tasks", "tasks with --source teeny that finished ok", 1, teeny_tasks),
     ("L3.code_login", 3, "Logs into sites that mail it a code", "a task that went needs_code then ok", 1, code_login),
+    ("L3.signup", 3, "Signs itself up for a service it decided it needs", "a new account row plus the reason", 1, signed_up),
     ("L3.needs_human", 3, "needs_human rate under 10% over a month", "the rate under 10% over 30 days", 1, needs_human_rate),
     ("L3.shipped", 3, "Ships one thing a week from requests", "4 shipped requests in a month", 4, shipped_requests),
     ("L3.own_issues", 3, "Opens issues on its own repos", "an issue it opened and later closed", 1, issues_closed),
@@ -404,7 +410,6 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L2 says what it is", "the doctor's x profile check (P1) is read in state/doctor.json; the rejection evals in bin/eval (P4)"),
     ("L2 runs the lore", "no episode trigger (A13)"),
     ("L2 more channels", "a conversation on a second platform is read by a person"),
-    ("L3 signs itself up", "no accounts ledger (A12)"),
     ("L3 babysits its own PRs", "no CI reads (A7)"),
     ("L3 maintains what it shipped", "outside issues are not in a ledger"),
     ("L3 deploys what it builds", "no deploy hand (A11)"),
