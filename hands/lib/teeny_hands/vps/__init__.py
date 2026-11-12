@@ -1,13 +1,12 @@
-"""hands/vps: Teeny's own servers on EQVPS (docs/hands.md, "vps").
+"""hands/vps: Teeny's own servers on Vultr (docs/hands.md, "vps").
 
-EQVPS sells VPSes to agents over a REST API: an account is one bearer token,
-a prepaid balance is topped up through a crypto checkout, and an order is
-paid from that balance. This hand is the only holder of the token. It may
-spend only what the operator's caps in secrets/teeny.env allow, it never
-pays a checkout itself, and nothing it prints carries the token or a root
-password.
+Vultr bills servers hourly against the account's credit; the operator opens
+the account, funds it (card, PayPal, or crypto through BitPay) and makes the
+API key. This hand is the only holder of that key. It may buy only what the
+operator's caps in secrets/teeny.env allow, and nothing it prints carries
+the key or a root password.
 
-  client   where EQVPS is, the token, the shapes it answers in
-  actions  products, topup, order, service, servers, register
+  client   where Vultr is, the key, secrets kept out of answers
+  actions  plans, account, servers, server, order, destroy, release
   cli      the verbs
 """

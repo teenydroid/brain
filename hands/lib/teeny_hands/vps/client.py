@@ -1,4 +1,4 @@
-"""Where EQVPS is, Teeny's token, and the shapes it answers in."""
+"""Where Vultr is, Teeny's key, and what is kept out of its answers."""
 
 from __future__ import annotations
 
@@ -8,33 +8,26 @@ from typing import Any, Mapping
 from .. import hand
 from ..rest import RestApi
 
-#: `EQVPS_API_BASE` moves it (the tests' fake).
-API_BASE = "https://api.eqvps.com/api/v1/eqvps"
+#: `VULTR_API_BASE` moves it (the tests' fake).
+API_BASE = "https://api.vultr.com/v2"
 _LOCAL = ("127.0.0.1", "localhost", "::1")
 
-#: Keys whose values never leave this hand: a one-time root password, a
-#: fresh token, anything that unlocks a server or the account.
-SECRET_KEYS = frozenset({"password", "root_password", "token", "api_token", "access_token", "private_key"})
+#: Keys whose values never leave this hand: the root password Vultr shows
+#: once at creation, and anything else that unlocks a server or the account.
+SECRET_KEYS = frozenset({"default_password", "password", "root_password", "api_key", "token", "private_key"})
 
 
 def base() -> str:
-    value = hand.setting("EQVPS_API_BASE", API_BASE) or API_BASE
+    value = hand.setting("VULTR_API_BASE", API_BASE) or API_BASE
     parts = urllib.parse.urlsplit(value)
     if parts.scheme != "https" and (parts.hostname or "") not in _LOCAL:
-        raise hand.HandError("EQVPS_API_BASE must be https")
+        raise hand.HandError("VULTR_API_BASE must be https")
     return value
 
 
 def api(auth: bool = True) -> RestApi:
-    key = hand.require("EQVPS_API_TOKEN") if auth else None
-    return RestApi("EQVPS", base(), key, "teeny-hands-vps")
-
-
-def unwrap(answer: Any) -> Any:
-    """EQVPS answers some calls as {"data": ...} and some bare."""
-    if isinstance(answer, Mapping) and set(answer) >= {"data"} and len(answer) <= 3:
-        return answer["data"]
-    return answer
+    key = hand.require("VULTR_API_KEY") if auth else None
+    return RestApi("Vultr", base(), key, "teeny-hands-vps")
 
 
 def scrub(value: Any) -> tuple[Any, dict[str, str]]:
