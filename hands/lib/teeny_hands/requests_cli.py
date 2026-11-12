@@ -7,6 +7,9 @@ picks for the builder.
   A  pick  {id, reason}            the one to build next; one at a time
   A  skip  {id, reason}            not doing it
   O  reset ID [--note T]           back to pending, whatever it was
+  R  vote                          the weekly vote: open with the count so far,
+                                   or its result, and the winner pick takes next
+  A  vote-open {text, options}     post a vote on 2-4 pending requests (hands/x)
 
 `pick` and `skip` write only state/hands.db and tell nobody, so DRY_RUN does
 not stop them; whatever is built from a pick goes out through hands that keep
@@ -18,7 +21,7 @@ from __future__ import annotations
 import argparse
 
 from . import hand
-from . import requests
+from . import requests, votes
 
 
 def _bounded(low: int, high: int, what: str):
@@ -48,6 +51,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb("pick", lambda a, body: requests.pick(body), "pick a pending request to build (JSON on stdin)", body=True)
     verb("skip", lambda a, body: requests.skip(body), "skip a pending request (JSON on stdin)", body=True)
+    verb("vote", lambda a, _: votes.current(), "the weekly vote and its count")
+    verb("vote-open", lambda a, body: votes.open_vote(body), "post a weekly vote (JSON on stdin)", body=True)
     resetting = verb("reset", lambda a, _: requests.reset(a.id, a.note), "put a request back to pending (operator)")
     resetting.add_argument("id", type=_bounded(1, 2**62, "ID"), metavar="ID")
     resetting.add_argument("--note", default=None)
