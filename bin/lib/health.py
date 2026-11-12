@@ -98,22 +98,12 @@ MOLTBOOK_WINDOW_SECS = 86400
 
 Json = dict[str, Any]
 
-_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
-_HOST = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
-_KEYISH = re.compile(r"\b(?:sk|pk|ghp|gho|github_pat|xox[a-z]?|AKIA)[-_A-Za-z0-9]{6,}|[A-Za-z0-9_-]{32,}")
-
-
 # --- the probe and the signals --------------------------------------------------------
 
 
 def scrub(error: str) -> str:
-    """One line of an error, safe to keep and to publish: no URL, no
-    address, nothing that looks like a key, and not too long."""
-    line = " ".join(str(error).split())
-    line = _URL.sub("[url]", line)
-    line = _HOST.sub("[host]", line)
-    line = _KEYISH.sub("[redacted]", line)
-    return line if len(line) <= MAX_ERROR_CHARS else line[:MAX_ERROR_CHARS].rstrip() + "..."
+    """One line of an error, safe to keep and to publish (teeny_hands.scrub)."""
+    return _scrub(error, MAX_ERROR_CHARS)
 
 
 def _words(reply: Any) -> str:
