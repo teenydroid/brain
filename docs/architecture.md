@@ -4,7 +4,7 @@ Teeny is three things:
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour. | `spine/`, `vendor/openhuman` |
+| **Spine** | `teeny-spine`, OpenHuman's own command-line host (`openhuman_rpc::host::cli`, which is what upstream's `openhuman-core` binary is), built here from `vendor/openhuman` at a pinned `upstream/main` commit and run as `serve`. It provides the agent loop, model routing, cron, memory (CortexDB), browser, shell and JSON-RPC. It holds no Teeny behaviour beyond answering the wallet module's swap and bridge quotes from deBridge's public API (`spine/src/debridge.rs`), which upstream answers through a TinyHumans session Teeny does not have. | `spine/`, `vendor/openhuman` |
 | **Hands** | Small executables, one per outside capability. Every hard rule (gap, caps, filter, dry run) is enforced inside a hand, never in a prompt. | `hands/` |
 | **Brain** | Identity, known facts, the memory page, skills, agent definitions, playbooks and the schedule. Memory is OpenHuman's CortexDB engine. All of OpenHuman's own state is in one SQLite file. | `brain/` |
 
@@ -120,7 +120,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
 | Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer and tinywallet are linked into `teeny-spine` (`spine/Cargo.toml`). |
-| Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`). |
+| Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; swaps and bridges go through deBridge (`spine/src/debridge.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
 and the rest), and OpenHuman's own `http_request` for anything that needs a
@@ -205,8 +205,9 @@ brain/
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
 `narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
-merged only if it wins, behind rules in code the brain cannot edit. The spec
-is [`evolve.md`](evolve.md); the loop itself is not built yet.
+merged only if it wins, behind rules in code the brain cannot edit. The loop
+is `bin/evolve`, documented in [`evolve.md`](evolve.md): the operator merges
+what it proposes unless `EVOLVE_AUTO_PROMOTE=1`.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -513,6 +514,7 @@ are built at boot (§4a).
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
 | `operator` | the pinned `operator` cron job (§6a) | `browser`, `file_read`, `file_write` |
+| `evolver` | `bin/evolve` with `EVOLVE_PROPOSER=evolver`, on a lab spine over one candidate's worktree ([`evolve.md`](evolve.md)) | file tools only, rooted in that worktree |
 
 `bin/ask` without `--agent` runs as the core's default orchestrator. Whoever
 can run it holds the core token, so it is the operator's way in and is never
@@ -537,8 +539,10 @@ Every scheduled job is in one of two files:
     ingest);
   - `reflect` (`bin/reflect --detach`, 02:00 IST);
   - `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST);
-  - `receipts` and `stats-snapshot`;
+  - `receipts`, `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
+    proposed against checks in frozen code (docs/hands.md, "goals");
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the

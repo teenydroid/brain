@@ -2,7 +2,9 @@
 
 This page turns the research in this folder into a design for Teeny. It is a
 proposal, not a record of what is built. Only the roadmap items marked
-**built** in §9 are built, and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
+**built** in §9 are built (Phases B and C, items 8 to 13, are recorded in
+[`../evolve.md`](../evolve.md), "The loop" and "Phase C: promote, restart,
+watch"), and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -50,13 +52,14 @@ with two rules that don't bend:
 ## 2. The world score W
 
 W is a vector of what Teeny controls, and J is the growth score built from it.
-A new pinned job computes them from data that already exists, wherever
-possible.
+The pinned `world-snapshot` job computes them from data that already exists
+(built: `hands/world`, docs/hands.md "world", which has the exact sources,
+offsets and caps).
 
 | Component | What it counts | Source today | Weight |
 |---|---|---|---|
 | **attention** | engaged reach: X followers, Moltbook karma and followers, GitHub followers and stars, plus mentions and replies received in the window | `hands/stats` (`bin/stats-snapshot`, pinned), `hands/stimuli` | highest |
-| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | **missing**: `hands/wallet balance` reads only SOL and USDC | high |
+| **$TINY held** | tokens in Teeny's wallet, counted in tokens and not in dollars | `hands/wallet tiny` (built) | high |
 | **money** | inflows Teeny didn't get from the team, minus what it cost to run | `hands/wallet ledger`, `hands/wallet costs` | medium |
 | **capability** | hands with passing tests; accounts and channels Teeny can act on; verified goals solved (ANNECS) | `hands/`, `hands/tests/`, the goal ledger (§5) | medium |
 | **shipped** | programs shipped that someone outside the team used (stars, issues, forks) | `hands/build jobs`, `hands/gh` | medium |
@@ -115,7 +118,7 @@ never lands.
 
 All of this is in files Teeny may edit, or in one input.
 
-- `self-improve` takes `hands/world report` (§6) as an input and must name
+- `self-improve` takes `hands/world report` (§2) as an input and must name
   which component of W its change moves, and by how much it expects to move
   it.
 - It also takes the archive of its past self-changes and what happened to W
@@ -127,10 +130,12 @@ All of this is in files Teeny may edit, or in one input.
   diary, a serial format, and pattern 4 and 5 in
   [`attention-and-mindshare.md`](attention-and-mindshare.md).
 
-### Phase B: N candidates per generation, human-gated
+### Phase B: N candidates per generation, human-gated (built)
 
 This is `bin/evolve` as `docs/evolve.md` specifies it, with one change: each
-generation makes N candidates (start with 4), not one.
+generation makes N candidates (start with 4), not one. It is built, with the
+held-out tasks and the halt thresholds from Phase C pulled forward. With
+Phase C's lab spine each candidate is measured on a core of its own.
 
 ```
  observe  ── W, its trend, judge notes on the visible tasks, the archive
@@ -149,20 +154,26 @@ archive by score and by how few children they have (DGM). They're later
 credited by how their descendants did (HGM), so a change that wins today and
 hurts W next week loses credit.
 
-### Phase C: the lab spine and automatic promotion
+### Phase C: the lab spine and automatic promotion (built)
 
-This is `docs/evolve.md` steps 5 to 7, plus three things the research adds:
+This is `docs/evolve.md`, "Phase C: promote, restart, watch", plus three
+things the research adds. It is built in code and tested against stand-ins;
+no lab core has booted on the box and nothing has been promoted yet, and
+promotion stays off until `EVOLVE_AUTO_PROMOTE=1`:
 
-- **Hidden, rotated held-out tasks** in `evals/`, which the proposer never
-  sees. Promotion needs a win on them as well.
+- **Hidden, rotated held-out tasks**, which the proposer never sees.
+  Promotion needs a win on them as well. Built in Phase B, in
+  `secrets/heldout/` rather than `evals/`, because the repository is public.
 - **Halt thresholds**, frozen in `secrets/evolve.env`: generations a day, the
   largest allowed jump in judge win rate, how fast W can rise before a person
   looks, and the cumulative persona drift from `gen-0`. Crossing any of them
   stops the loop and opens an issue. The loop runs only as fast as review can
-  follow (AI Control).
+  follow (AI Control). Built in Phase B; persona drift (`EVOLVE_MAX_DRIFT`)
+  came with item 12.
 - **Rollback stays out of Teeny's view.** `evolve-watch` is pinned, and its
-  reasons never go into Teeny's context. That covers both the
-  agentic-misalignment and the monitor-obfuscation findings.
+  reasons never go into Teeny's context: they are written only under
+  `secrets/evolve-watch/`. That covers both the agentic-misalignment and the
+  monitor-obfuscation findings.
 
 `evolve-watch` already compares guard holds and cron failures with a 7-day
 baseline. It also watches J: a generation that lowers W over 72 hours is
@@ -190,14 +201,16 @@ Teeny proposes goals, and a program ranks them.
 
 ## 5. Growing the $TINY holding
 
-- **Sense it.** Add a read verb to `hands/wallet`, `tiny`, that returns
-  Teeny's $TINY balance for the mint in `CONTEXT.md`. It is a plain SPL token
-  read, with no signing. Wallet code is frozen, so this is an operator PR.
+- **Sense it (built).** `hands/wallet tiny` returns Teeny's $TINY balance
+  for the mint in `CONTEXT.md` (or `TINY_MINT`). It is a plain SPL token
+  read, with no signing. Wallet code is frozen, so it landed as an operator
+  PR.
 - **Grow it by earning, then buying.** A fixed share of Teeny's own net
   inflows (tips, bounties won, paid work, x402 sales) is converted into $TINY
   under the four caps. That requires a `buy-tiny` verb in `hands/wallet`. The
   model never calls it. A pinned job calls it on a schedule, with the share
-  and caps held in frozen config. This is also an operator PR.
+  and caps held in frozen config. This is also an operator PR. It is built
+  (item 16).
 - **Never sell.** This is already an invariant. The new verb can only buy.
 - **Never move the market by talking.** There are no buy calls, no price
   promises, no coordinated pushes and no paid shills (`SOUL.md`,
@@ -261,31 +274,37 @@ Teeny's newsworthy acts are already on its roadmap. The table at the end of
 Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 
 **Phase A**
-1. `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (new hand)
-2. Operator: pin `world-snapshot` in `evals/cron.pinned.toml`
-3. Operator: `hands/wallet tiny`, a read-only $TINY balance
+1. **Built.** `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (a new hand, landed by the operator and frozen, because it is the scorer)
+2. **Built.** Operator: pin `world-snapshot` in `evals/cron.pinned.toml` (`30 0 * * *`, `bin/world-snapshot`)
+3. **Built.** Operator: `hands/wallet tiny`, a read-only $TINY balance
 4. **Built.** `brain/DRIVE.md`; operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`, the `drive` statement and a flywheel line in `evals/judge.md`, and `brain/DRIVE.md` frozen
-5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
-6. A weekly `growth` playbook: the public growth diary
-7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Built: items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
+5. **Built.** `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only (the archive is `hands/build jobs --status shipped`, read for `kind` `self`, beside `hands/world history --days 30`, because the frozen build hand has no `--kind` filter)
+6. **Built.** A weekly `growth` playbook: the public growth diary (`brain/playbooks/growth.md`, Sundays 19:00 IST, off until watched in rehearsal)
+7. **Built.** `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
 
 **Phase B**
-8. Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl`
-9. Operator: lineage credit, recording ΔJ 7 days after each merge
+8. **Built.** Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl` (`bin/evolve run`, pinned as `evolve`, off until `EVOLVE=1`)
+9. **Built.** Operator: lineage credit, recording ΔJ 7 days after each merge (`bin/evolve credit`, pinned as `evolve-credit`)
 
 **Phase C**
-10. Operator: hidden held-out tasks in `evals/`, rotated by hand
-11. Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`
-12. Operator: a persona-fingerprint eval and a memory probe against `gen-0`
-13. Operator: the lab spine and automatic promotion; `evolve-watch` watches J
+10. **Built.** Operator: hidden held-out tasks, rotated by hand, in `secrets/heldout/` rather than `evals/` because the repository is public (`bin/eval --with-heldout`, reported apart, kept from the proposer)
+11. **Built.** Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`: the kill switch, generations a day, the win-rate jump and the rise in J, and persona drift from item 12
+12. **Built.** Operator: a persona-fingerprint eval and a memory probe against `gen-0` (`evals/probes/`, `bin/lib/probes.py`, `bin/evolve probe`), with cumulative drift as the `EVOLVE_MAX_DRIFT` halt; run on each candidate's lab and after each promotion, not yet after each reflection
+13. **Built.** Operator: the lab spine (`bin/lib/lab.py`), the `evolver` agent, automatic promotion behind `EVOLVE_AUTO_PROMOTE=1` with the restart and the last-good boot, a judge model of its own (`EVOLVE_JUDGE_MODEL`), and the pinned `evolve-watch`, which watches holds, cron failures, the probes and J. Tested against stand-ins; the first real lab boot and promotion are still to come
 
 **Phase D**
-14. A goal ledger with success checks, the ranking, and ANNECS
-15. A browser task that reads the news and turns trends into stimuli
+14. A goal ledger with success checks, the ranking, and ANNECS. **Built:**
+    `hands/goals` (frozen), the pinned `goals-check` job and the weekly
+    `goals` playbook ([`../hands.md`](../hands.md), "goals"). The judge-based
+    interestingness check is future work.
+15. A browser task that reads the news and turns trends into stimuli.
+    **Built:** the daily `news-scan` playbook queues a `news` task, and its
+    notes reach the mind as a `world · news` stimulus
+    ([`../hands.md`](../hands.md), "tasks").
 
 **$TINY**
-16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
+16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows. **Built**: `teeny_hands/wallet/buy.py`, `bin/tiny-buy`, the pinned `tiny-buy` job, off until `TINY_BUY=1` and `TINY_BUY_SHARE` > 0 (`docs/hands.md`, "Buying $TINY")
 17. Operator: a public "convince Teeny to sell" game hand with a capped pot
 
-Phase A, items 1, 5 and 6 are Teeny's to build through `self-improve` today.
+Phase A, items 5 and 6 were Teeny's to build through `self-improve`; the operator landed them alongside `hands/world`.
 Everything marked operator waits on a human PR, as the fences require.

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Teeny's evolution, human-gated (docs/evolve.md, "The loop"; Phase B of
+# docs/research/teeny-application.md). The work is bin/lib/evolve.py.
+#
+#   bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
+#                  [--oh-url-base URL] [--hold] [--detach]
+#       One generation in state/evolve/<gen>/: observe, propose N candidates
+#       (each in its own worktree off main, from Teeny's own clone), gate
+#       them in code, evaluate the ones a lab core serves, and open ONE ready
+#       pull request (teeny/gen-<n>) for the best. --hold stops before it
+#       selects (with EVOLVE_EVALUATOR=lab the labs have measured by then).
+#   bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
+#       bin/eval run and compare for one gated candidate, on a core the
+#       operator started over state/evolve/GEN/cand-I.
+#   bin/evolve select GEN        open the pull request for a held generation
+#   bin/evolve promote GEN       retry a promotion whose merge was refused
+#   bin/evolve watch             evolve-watch: the newest promotion, reverted
+#                                when holds, cron failures, the probes or J say so
+#   bin/evolve probe [--baseline [--force]]
+#                                the persona and memory probes on the live core
+#   bin/evolve credit            ΔJ after each merge, credited up the lineage
+#   bin/evolve status            the archive, the parent weights, any halt
+#   bin/evolve resume            clear a latched halt
+#
+# Off unless secrets/evolve.env sets EVOLVE=1, so the pinned job is safe to
+# seed. With EVOLVE_EVALUATOR=lab (the default) each candidate is measured on
+# a lab spine of its own (bin/lib/lab.py, DRY_RUN=1 forced). Under DRY_RUN
+# nothing is pushed, opened, filed, merged or restarted. The operator merges
+# unless EVOLVE_AUTO_PROMOTE=1 (off by default). --detach starts the verb in
+# the background and returns at once (a generation outlasts the 300 s a cron
+# shell call gets, oh-gaps.md G12); `run` logs to state/evolve/evolve.log and
+# `watch` to state/evolve/watch.log, each with a lock of its own, and a
+# second call while one runs says `busy`.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need git python3 jq
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+args=()
+detach=0
+for arg in "$@"; do
+  if [ "$arg" = --detach ]; then detach=1; else args+=("$arg"); fi
+done
+if [ "$detach" = 1 ]; then
+  log_name=evolve lock=evolve
+  if [ "${args[0]:-}" = watch ]; then log_name=watch lock=evolve-watch; fi
+  exec python3 "$here/lib/detach.py" --log "evolve/$log_name.log" --lock "$lock" -- \
+    "$here/evolve" ${args[@]+"${args[@]}"}
+fi
+exec python3 "$here/lib/evolve.py" ${args[@]+"${args[@]}"}

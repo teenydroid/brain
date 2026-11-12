@@ -27,6 +27,7 @@ don't move.
 | [`attention-and-mindshare.md`](attention-and-mindshare.md) | How agents won attention, how long it lasted, what backfired on X, twelve patterns, and the newsworthy firsts on Teeny's own roadmap |
 | [`rsi-theory-and-safety.md`](rsi-theory-and-safety.md) | Gödel machines, seed AI, takeoff, Goodhart, reward hacking, alignment faking, goal drift, AI Control, and the fence each one argues for |
 | [`memory-and-continuity.md`](memory-and-continuity.md) | MemGPT, sleep-time compute, ACE's context collapse, Reflexion, Zep, memory injection, and identity drift across self-edits |
+| [`why-no-agi-yet.md`](why-no-agi-yet.md) | Why nothing has made the news as AGI: no agreed test, jagged reliability, no learning on the job, bounded self-improvement loops, retracted discoveries, slow diffusion, gated releases, and the four events that would make the headline |
 
 ## The ten ideas with the most leverage
 

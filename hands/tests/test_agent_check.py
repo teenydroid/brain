@@ -47,5 +47,35 @@ class ScheduledAgentIdleRunTest(unittest.TestCase):
                 self.assertIn("nothing to do", str(caught.exception), name)
 
 
+class EvolverPostureTest(unittest.TestCase):
+    """The evolver edits a lab worktree with file tools and nothing else."""
+
+    def variant(self, old: str, new: str) -> Path:
+        text = (REPO / "brain" / "agents" / "evolver.toml").read_text()
+        self.assertIn(old, text)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        path = Path(self.tmp.name) / "evolver.toml"
+        path.write_text(text.replace(old, new, 1))
+        return path
+
+    def test_the_checked_in_evolver_passes(self):
+        self.assertEqual(agent_check.check(REPO / "brain" / "agents" / "evolver.toml"), "evolver")
+
+    def test_a_shell_is_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            agent_check.check(self.variant('    "file_read",', '    "shell",\n    "file_read",'))
+        self.assertIn("shell", str(caught.exception))
+
+    def test_a_schedule_is_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            agent_check.check(self.variant('id = "evolver"', 'id = "evolver"\nscheduled_actions = true'))
+        self.assertIn("scheduled_actions", str(caught.exception))
+
+    def test_the_wildcard_is_refused(self):
+        with self.assertRaises(SystemExit):
+            agent_check.check(self.variant('    "file_read",', '    "*",'))
+
+
 if __name__ == "__main__":
     unittest.main()

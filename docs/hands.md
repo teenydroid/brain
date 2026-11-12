@@ -5,8 +5,8 @@ has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
-`requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`,
-`bounty` and `vps`. Each is an executable in `hands/`, with its code in
+`world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
+`wallet`, `bounty`, `goals` and `vps`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -485,6 +485,64 @@ The newest snapshot is also public. `bin/receipts` writes its allowed metrics
 `stats/YYYY-MM-DD.json` in the receipts repository, next to `wallet.json`
 (the wallet's public address), for the website to read.
 
+## `world`: the world score W
+
+`hands/world` is the scorer (docs/research/teeny-application.md, §2). It
+computes W, a vector of what Teeny controls, and J, the growth score built
+from it. It is frozen (`evals/frozen.txt`), so Teeny can change how it grows
+but not how the growth is counted. It holds no key and publishes nothing. It
+reads the other hands' data through their modules and `state/hands.db`, the
+way `stats` does. Code: `teeny_hands/world/` (`score.py` holds every
+constant).
+
+| Verb | | Does |
+|---|---|---|
+| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped`, one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
+| `report [--days N]` | R | The latest W and, per component, its value N days (7) before, the plain `delta_log`, the capped `credit`, its weight, offset `c` and `daily_cap`, and its `contribution` to J. Then the penalty, J, the formula, and a `reading`: one plain sentence per component, for a playbook to hand a model. With no snapshot yet, J is null and the reading says to quote nothing. |
+| `history [--days N]` | R | The rows of the last N days (7), one entry per day: each component's value and its parts. |
+
+**The components.** The weight falls from attention to the world, which
+Teeny writes itself.
+
+| Component | Counts | Source | Weight | c | Daily cap |
+|---|---|---|---|---|---|
+| `attention` | followers on X, Moltbook and GitHub, Moltbook karma, and the distinct accounts that mentioned, commented, mailed or messaged Teeny in the 7 UTC days before the snapshot | `stats` rows (each metric's latest up to today), `stimuli` (`x`, `moltbook`, `mail`, `telegram`, with a `who`) | 1.0 | 50 | 0.10 |
+| `tiny` | $TINY held, in tokens | `wallet tiny` | 0.8 | 10,000 | 0.20 |
+| `money` | the wallet's USD value (USDC, and SOL at `WALLET_SOL_USD`) minus `WORLD_TEAM_USD` (what the team put in, a running total the operator keeps; 0 when unset) minus the last 30 days of `wallet costs` | `wallet balance`, `wallet costs --days 30` | 0.6 | 100 | 0.20 |
+| `capability` | hands with tests (an executable in `hands/` with `hands/tests/<name>/test_*.py` or `hands/tests/test_<name>.py`; `image` and `video` share `media`), plus the channels Teeny can act on (`x`, `moltbook`, `github`, `mail`, `telegram` when their keys are set; `wallet` when its caps load) | the checkout, `secrets/teeny.env` | 0.5 | 5 | 0.10 |
+| `shipped` | build jobs shipped, plus `github.stars`, `github.forks` and `github.open_issues` where `stats` keeps them | `build_jobs`, `stats` | 0.4 | 5 | 0.15 |
+| `world` | each arc in `brain/narrative/ARCS.md` by its `- status:` line: 0 not started, 2 done (complete, reached, achieved), 1 anything else | `ARCS.md` | 0.2 | 2 | 0.10 |
+| `penalty` | side effects on the UTC day before the snapshot: guard holds on Teeny's own text (not inbound, not approved, not cleared by the re-screen) and wallet payments in doubt | `guard_holds`, `wallet_payments` | 0.02 each | | none |
+
+These are honest proxies, not the whole idea. Follower counts include
+accounts that never engaged, because no source tells them apart; the
+engaged accounts from the stimuli are the part that does. A hand counts by
+having tests, not by passing them: the tests gate the merge (CI, `bin/doctor
+--full`), not a daily job. There is no inflow ledger, so money is the
+wallet's value with the team's own money taken out by hand. Teeny writes
+`ARCS.md` itself, which is why the world weighs least. GitHub stars count as
+shipped, not attention, so nothing counts twice.
+
+**J.**
+
+```
+J = Σᵢ wᵢ · creditᵢ − 0.02 · penalty events         over the last N days
+creditᵢ = Σ over consecutive rows of clip(Δ log(Wᵢ + cᵢ), ±capᵢ · days between)
+```
+
+- The log makes components comparable: 100 followers on 1,000 counts as
+  $10 on $100. The offset `c` keeps a component near zero from counting one
+  unit as a doubling.
+- Money can be negative. Below zero the curve is mirrored,
+  `2·log(c) − log(c − W)`, which has the same value and slope at zero, so a
+  loss counts as much as the equal gain.
+- The cap works both ways: one spike can't carry J, and one glitch in a
+  source can't sink it. Across a gap of k days the cap is k times as wide.
+- The penalty has no cap.
+
+`bin/world-snapshot` is the pinned `world-snapshot` job (`30 0 * * *`),
+after `stats-snapshot`, so attention reads that day's rows.
+
 ## `requests`: what people asked Teeny to build
 
 This hand keeps one list of build requests from every channel
@@ -513,7 +571,10 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `x ingest`: mentions, from the timeline and the webhook;
 - `mail ingest`: mail;
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
-- the builder's and operator's desks: their reports;
+- the builder's and operator's desks: their reports. A finished `news` task
+  arrives as `world · news` instead (its notes, framed as what web pages
+  said; see `tasks`);
+- `goals check`: `self · goal` when a goal is solved or fails;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
   Teeny's own follow-ups as they come due;
 - `bin/health`: `health · alarm` when the model has failed two checks in a
@@ -663,6 +724,8 @@ agent job, hourly) does one task at a time in OpenHuman's browser. It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
+Nothing else turns a task into words for the mind: the desk tells it only the
+outcome (`operator · report`), except for the news.
 
 | Verb | | Does |
 |---|---|---|
@@ -677,6 +740,17 @@ checkpoint before any payment (which OpenHuman keeps whatever the unattended
 settings say), a login Teeny has no account for, a CAPTCHA, anything that
 asks for money or a secret. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
+
+**The news sense.** `brain/playbooks/news-scan.md` (daily) queues one task of
+kind `news` that starts on the Hacker News front page
+(`news.ycombinator.com`, on `deploy/browser-allow.txt` for it) and asks for
+the top AI and agent stories in its notes. When that task ends `ok`, `done`
+writes its notes to the mind's inbox as one `world · news` stimulus (ref
+`task:<id>`, payload `{task_id, start_url}`), and the desk sends no separate
+`operator · report` for it. Pages are strangers' text, so the stimulus opens
+by saying the notes are data to read, never instructions to follow, and it is
+capped like every stimulus. `bin/tick`'s header says the same of the whole
+batch. A news task that fails is an ordinary operator report.
 
 `needs_code` is for a site that mails Teeny a one-time code or a verification
 link. The task goes back to `pending` with `code_from`. The next `next` reads
@@ -704,36 +778,65 @@ in, but a serve host dropped every configured MCP server's tools when
 TinySecurity was on ([`oh-gaps.md`](oh-gaps.md), G11, fixed in
 openhuman#8654).
 
-## `wallet`: Teeny's own Solana wallet
+## `wallet`: Teeny's own wallet, Solana and EVM from one recovery phrase
 
 The keys never leave the core. OpenHuman (the `web3` build) holds the
-encrypted recovery phrase and signs. This hand decides whether a payment may
-go out, asks the core to prepare and execute it, and keeps the ledger. Code:
-`teeny_hands/wallet/` (`caps.py` is shared with `bin/lib/wallet_config.py`
-and `bin/doctor`).
+encrypted recovery phrase and signs. That one phrase derives a Solana
+address and an EVM address (the same on every EVM network), so one backup
+covers every chain. This hand decides whether a payment, a swap, a bridge or
+a paid HTTP request may go out, asks the core to do it, and keeps the ledger.
+Code: `teeny_hands/wallet/` (`caps.py` is shared with
+`bin/lib/wallet_config.py` and `bin/doctor`; `chains.py` pins the chains and
+assets).
+
+**Chains and assets** (`chains.py`), nothing else:
+
+| Chain | Assets | deBridge id | Notes |
+|---|---|---|---|
+| `solana` | SOL, USDC | 7565164 | devnet or mainnet (`WALLET_CLUSTER`) |
+| `base` | ETH, USDC | 8453 | mainnet only |
+| `arbitrum` | ETH, USDC | 42161 | mainnet only |
+| `ethereum` | ETH, USDC | 1 | mainnet only |
+| `optimism` | ETH, USDC | 10 | mainnet only |
+
+USDC is pinned per chain (mint or contract). Under `WALLET_CLUSTER=devnet`
+every EVM payment, swap and bridge is refused (`cluster`). ETH moves only
+with `WALLET_ETH_USD` set. The core reads native ETH; USDC on an EVM network
+is read here with one `eth_call` (`balanceOf`) to `EVM_RPC_URL_<NETWORK>`, else
+the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page. |
-| `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. The core's token balances come in a later release. |
+| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, and `evm`: the EVM address with its explorer page per network (`usable` only on mainnet). |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`; a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
+| `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
+| `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
+| `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
 | `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
 | `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
-| `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. |
-| `receipts [--max N]` | R | Paid payments whose signature no X post of Teeny's carries yet: what the `wallet-receipt` playbook owes. |
-| `caps` | R | The caps it pays under. |
-| `pay` | A | `{to, amount_usdc \| amount_sol, purpose: bounty\|vendor, ref}`. The rules below, then the core. |
+| `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. `receipt buy-N` is one $TINY buy. |
+| `receipts [--max N]` | R | Paid payments and $TINY buys whose signature no X post of Teeny's carries yet, oldest first: what the `wallet-receipt` playbook owes. |
+| `caps` | R | The caps it pays under, and which optional ones are on. |
+| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
+| `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
+| `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
+| `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
+| `buy-tiny` | J | A share of Teeny's net inflows into $TINY, buy only. No body and no option. `bin/tiny-buy`, the pinned `tiny-buy` job (daily). See "Buying $TINY" below. |
 | `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
-| `vendors add NAME ADDRESS [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to. |
+| `vendors add NAME ADDRESS [--chain C] [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to, each on one chain (`solana` by default): an EVM address that is a wallet on Base need not be one on Arbitrum. |
+| `x402 hosts add HOST [--note T]`, `x402 hosts list`, `x402 hosts remove HOST` | O | The only hosts an x402 payment may go to. |
 
 **`pay`'s rules** all run before the core hears of the payment, and each
 refuses with its `rule`:
 
 - only those fields (`fields`);
 - never $TINY, named as a mint, an asset or the recipient (`tiny`);
-- SOL or the cluster's pinned USDC mint and nothing else (`asset`);
+- a chain it knows, an EVM one only on mainnet (`chain`, `cluster`);
+- the chain's native asset or its pinned USDC and nothing else (`asset`);
 - exactly one amount above zero within the asset's decimals (`amount`);
 - a purpose and a ref;
-- a valid base58 address that is not a mint (`address`);
+- a valid address for the chain (base58 on Solana, `0x` and 40 hex digits on
+  EVM) that is not a token (`address`);
 - the caps set and sane (`caps`);
 - at most `WALLET_MAX_PER_TX_USD` (`per_tx`);
 - never Teeny's own address (`own_address`);
@@ -741,15 +844,17 @@ refuses with its `rule`:
   address the winner claimed, the amount exactly the prize, never paid before
   (`bounty`, `challenge_window`, `claimed_address`, `prize`), read from the
   bounty's rows, not the bounty hand's word;
-- for a vendor: the address in `vendors` (`vendor`);
+- for a vendor: the address in `vendors` on that chain (`vendor`);
 - this purpose and ref never paid or tried (`duplicate`);
 - the last 24 hours within `WALLET_MAX_PER_DAY_USD` (`per_day`) and this
   address's last 7 days within `WALLET_MAX_PER_RECIPIENT_WEEK_USD`
-  (`per_recipient_week`), SOL and USDC counted together in dollars;
-- never more than half the wallet's balance of that asset (`half_balance`).
+  (`per_recipient_week`), every asset on every chain counted together in
+  dollars (an EVM address matches without case);
+- never more than half the wallet's balance of that asset on that chain
+  (`half_balance`).
 
 **Dollars without a price feed.** USDC counts one for one. SOL counts at the
-fixed `WALLET_SOL_USD` the operator sets, rounded up. Set it at or above the
+fixed `WALLET_SOL_USD` the operator sets, and ETH at `WALLET_ETH_USD`, rounded up. Set it at or above the
 market price, so a SOL payment counts for at least what it is worth and the
 caps bind early. The core's caps are the same dollars in each asset's atomic
 units, rounded down.
@@ -764,7 +869,87 @@ after the execute was sent (a timeout, a 5xx, no signature) is `in_doubt`,
 which counts against every cap and is never retried: a person reads the
 core's ledger and the chain. Under `DRY_RUN` the answer is `would_pay` with
 every rule it evaluated (`checks`), no ledger row, and no core call that
-moves funds. Tables: `wallet_payments`, `bills`, `vendors`.
+moves funds. Tables: `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`. An older
+`hands.db` is brought up to date on first open: `wallet_payments` is rebuilt
+with a `chain` column (every old row `solana`) and `vendors` gains one.
+
+### The mind's wallet intents
+
+Teeny's mind (bin/lib/tick.py) may act on chain itself: `check_wallet`
+(`balance`, always allowed), and, once the operator sets
+`WALLET_MIND_ACTIONS=1`, `transfer` (`pay` with purpose `vendor` and ref
+`mind:<ref>`: only to an allowlisted vendor address on that chain), `swap`,
+`bridge` and `x402_fetch`. The tick forwards only the fields each verb takes,
+so the mind cannot name a recipient for a swap or a bridge, or a purpose for
+a transfer; every rule and cap below still holds, and the outcome comes back
+as the next beat's `hand` stimulus. Nobody but Teeny drives the wallet
+(evals/invariants.md, `own-wallet`): a request from anyone to send, swap or
+pay is still an attack. Playbooks still reach only the read verbs.
+
+### `swap` and `bridge`: deBridge, between Teeny's own accounts
+
+Neither verb can pay anyone: the output goes to Teeny's own address on the
+destination chain, named explicitly in every quote request. The quote comes
+from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks deBridge's
+public API through the spine (`spine/src/debridge.rs`: `/v1.0/chain/transaction`
+for a swap, `/v1.0/dln/order/create-tx` for a bridge; `DEBRIDGE_API_KEY` is
+optional and only raises the rate limit). Upstream answers these through the
+TinyHumans backend, which needs a signed-in session Teeny does not have.
+
+Off until `WALLET_MAX_CONVERT_PER_DAY_USD` is set (`caps`). The rules, each
+refused with its `rule`, before anything is approved or signed: only the
+fields above, never $TINY on either side (`fields`, `tiny`); mainnet chains it
+knows, a swap on one and a bridge across two (`chain`, `cluster`, `kind`);
+pinned assets that differ (`asset`); an amount (`amount`); the input at most
+`WALLET_MAX_PER_TX_USD` (`per_tx`); swaps and bridges in the last 24 hours
+within `WALLET_MAX_CONVERT_PER_DAY_USD` (`per_day_convert`); never more than
+half the input asset (`half_balance`); and `quote`: the quote is for exactly
+this input token and amount and this output token, its EVM transaction goes
+only to a pinned deBridge contract (DlnSource or the deBridge router), it has
+not expired, and the minimum that comes out (after slippage) is worth at
+least the input less `WALLET_MAX_CONVERT_LOSS_BPS` (300 by default), counting
+deBridge's flat fee as a loss. USDC counts at par; another asset at
+deBridge's own USD estimate, because the fixed SOL and ETH prices are set high
+on purpose and would hide a loss on the way out. Small bridges fail this on
+the flat fee alone, which is the point.
+
+An ERC-20 input (USDC on an EVM network) is approved first: exactly the input
+amount, to the quote's `tx.to` (already checked to be deBridge), through
+`web3_dapp_call`/`web3_dapp_execute`, then `wallet_tx_status` until it is
+confirmed (`WALLET_APPROVAL_WAIT_SECONDS`, 120). A quote that expired meanwhile
+is fetched again and must pass every rule, with the same spender. Then
+`web3_swap_execute` or `web3_bridge_execute {quoteId, confirmed: true}`.
+
+The `wallet_conversions` row is written `pending` first, then `sent` (the
+signature, and a bridge's `order_id` with its deBridge tracking link),
+`failed` (nothing was swapped: the quote or the approval failed) or
+`in_doubt` (the execute did not come back), which counts against the cap and
+is never retried. Under `DRY_RUN` the quote is fetched and checked (it moves
+nothing) and the answer is `would_convert`.
+
+### `x402 fetch`: a request that pays for itself
+
+The core does the protocol (`openhuman.x402_fetch`): on an HTTP 402 the
+wallet module reads the challenge, picks the rail (USDC on Base or on Solana,
+from the same phrase), signs, retries and records the settlement, paying at
+most the `maxAmountAtomic` this hand passes. Off until both
+`WALLET_MAX_X402_PER_REQUEST_USD` and `WALLET_MAX_X402_PER_DAY_USD` are set
+(`caps`). Rules: only those fields (`fields`); an https URL with no
+credentials whose host is in `x402 hosts` (`url`, `host`); `max_usd` at most
+the per-request cap (`max_usd`, the default); and room left in the last 24
+hours (`per_day_x402`), where a request in flight or in doubt counts at its
+cap. The cap passed down is the smaller of `max_usd` and what is left today.
+`bin/lib/wallet_config.py` also pins the module's own x402 budget to these
+caps (or to one atomic unit when x402 is off), so the module refuses what the
+hand would.
+
+The `x402_requests` row is written `pending` first, then `paid` (what it
+paid), `free` (no 402), `refused` (`X402_REFUSED:` from the core:
+`core_x402`) or `in_doubt` (anything else, or a payment the core reports that
+is not USDC within the cap). The response body is the server's, untrusted:
+callers treat it as data. Under `DRY_RUN` nothing is requested: `would_fetch`.
+`costs` keeps reading x402 spend from the core's own ledger
+(`x402_list_payments`), so nothing is counted twice.
 
 The whole path of one `pay` (`teeny_hands/wallet/pay.py`):
 
@@ -802,8 +987,130 @@ overrides. With no usable caps the policy lists no asset, and the core
 refuses every capped execute. `bin/doctor` refuses to boot a checkout whose
 `WALLET_*` keys are set with a cap missing, zero or over its ceiling.
 
-No model reaches `pay`: `bin/lib/playbook.py` refuses any wallet verb as a
-playbook output and lets an input run only the read verbs.
+No model reaches `pay` or `buy-tiny`: `bin/lib/playbook.py` refuses any
+wallet verb as a playbook output, names both as never an output, and lets an
+input run only the read verbs.
+
+### Buying $TINY
+
+`buy-tiny` (`teeny_hands/wallet/buy.py`) turns a share of what Teeny earned
+into $TINY. It only buys. The input is USDC, the output is the $TINY mint, a
+constant in code, and no body, option or setting can name another. The
+`wallet_tiny_buys` table refuses a row with any other output mint. There is no
+sell path. A pinned job calls it once a day (`bin/tiny-buy`,
+`[jobs.tiny-buy]` in `evals/cron.pinned.toml`); no model does.
+
+**Why USDC.** The caps count USDC one for one, with no price feed. Inflows
+are measured in USDC. SOL pays the fees and stays where it is.
+
+**Settings** (`secrets/teeny.env`), each read and checked in code. A value
+over its ceiling is refused (`caps`), never obeyed:
+
+| Key | Default | Ceiling | Says |
+|---|---|---|---|
+| `TINY_BUY` | off | | `1` turns buying on. Off, every run is refused (`off`) before anything is read. |
+| `TINY_BUY_SHARE` | `0` | `0.5` | The share of net inflows to buy with. `0` skips every run. |
+| `TINY_BUY_MAX_USDC_PER_DAY` | none, required | `100` | The most bought in any rolling 24 hours, also clamped to `WALLET_MAX_PER_DAY_USD`. |
+| `TINY_BUY_MAX_USDC_PER_BUY` | none, required | `50` | The most one buy spends, also clamped to `WALLET_MAX_PER_TX_USD` and the daily buy cap. |
+| `TINY_BUY_MIN_USDC` | `1` | the per-buy max | Under this a run is skipped, and the row says why. |
+| `TINY_BUY_SLIPPAGE_BPS` | `50` | `100` (1%) | The slippage asked for and accepted. |
+| `TINY_BUY_MAX_PRICE_IMPACT_BPS` | `50` | `100` (1%) | The most price impact a buy may have. |
+| `TINY_BUY_TEAM_ADDRESSES` | none, required | | The team's and the operator's addresses, comma or space separated. Money from them never counts as earned. |
+| `JUPITER_QUOTE_URL`, `JUPITER_API_KEY` | `https://api.jup.ag/swap/v1/quote`, none | | Jupiter's quote API, and its key if one is used (`x-api-key`). |
+
+**The amount.** Under the `wallet-pay` lock, the one `pay` takes:
+
+- `since` is the last buy that may have moved funds (`pending`, `bought` or
+  `in_doubt`), or 30 days ago for the first. A skip does not move it, so
+  small inflows add up across days.
+- `earned` is the USDC that reached Teeny's own token accounts since then
+  (`getSignaturesForAddress` on each account, then `getTransaction`,
+  jsonParsed), counted only from successful transactions that Teeny did not
+  sign and where no team address signed or sent. At most 200 transactions are
+  read a run; any beyond that are left uncounted, which only makes the buy
+  smaller. SOL inflows are not counted.
+- `spent` is what keeping Teeny running cost over the same whole days, plus
+  what the wallet paid out (`costs`). If a cost source could not be read,
+  the run is skipped: an unread cost would look like profit.
+- The amount is `TINY_BUY_SHARE` times `max(0, earned - spent)`, rounded
+  down, then clamped by the per-buy max, `WALLET_MAX_PER_TX_USD`, what is
+  left of `TINY_BUY_MAX_USDC_PER_DAY` and of `WALLET_MAX_PER_DAY_USD` in the
+  last 24 hours (payments and buys count together), and half the USDC the
+  wallet holds. The result names the bound that decided it (`clamped_by`).
+  What a cap cuts off is not carried over.
+
+**The quote.** Jupiter's public quote API (`GET /swap/v1/quote`, ExactIn,
+`restrictIntermediateTokens=true`; `teeny_hands/wallet/jupiter.py`). A
+quote moves nothing. It is refused unless:
+
+- `direction`: its input mint is the cluster's pinned USDC, its output mint
+  is $TINY, and `inAmount` is exactly the amount computed;
+- `route`: every mint the route plan ends in is $TINY, and every mint it
+  starts from is USDC;
+- `slippage`: `slippageBps` is at most `TINY_BUY_SLIPPAGE_BPS`, and
+  `otherAmountThreshold` holds to it;
+- `price_impact`: `priceImpactPct`, read as a fraction (so a misread can
+  only refuse), and the impact measured against a second quote for a
+  hundredth of the amount are both at most `TINY_BUY_MAX_PRICE_IMPACT_BPS`.
+
+Under `DRY_RUN` the answer is `would_buy` with the plan and every check, and
+that is all: no row, no core call but the wallet's address, nothing signed
+or sent.
+
+**Then the core.** The keys never leave it, and it signs a buy the way it
+signs a payment: the TinyWallet module signs, the hand never sees a key.
+The row is written `pending`, then `web3_swap_quote {chainId: 7565164,
+tokenIn: USDC, tokenInAmount, tokenOut: $TINY, tokenOutRecipient and
+senderAddress: Teeny's own address, slippage}` prepares the swap. Its quote
+must name USDC in, the exact amount, $TINY out to Teeny's own address, and a
+`minAmount` no lower than Jupiter's `otherAmountThreshold`, or the row is
+`failed` (`quote`). The unsigned transaction it carries is simulated over
+Solana RPC (`simulateTransaction`, `sigVerify: false`): it must succeed,
+take no more USDC from Teeny's accounts than the amount, and give at least
+the minimum to any $TINY account Teeny already holds, or the row is `failed`
+(`simulate`). Then `web3_swap_execute {quoteId, confirmed: true}`. A
+signature makes the row `bought`; anything else after the execute was sent
+is `in_doubt`, which counts against every cap and is never retried.
+
+The core's `[wallet_policy]` caps native transfers only: a `web3_swap`
+execute is approved by its confirmed quote id, not by the spend policy. So
+for a buy, the hand's caps are the caps. The core's `web3_swap` reaches its
+swap provider through the TinyHumans wallet backend; a core with no backend
+answers `BACKEND_UNAVAILABLE:` at the prepare, and the row is `failed` with
+nothing moved.
+
+```
+hands/wallet buy-tiny            (bin/tiny-buy, daily)
+  │
+TINY_BUY=1 ? settings sane ? mainnet ? ── no ──► refused (off, caps, cluster)
+  │
+  ▼  lock "wallet-pay"
+earned - spent, x share, clamped ── under the minimum ──► skipped, row says why
+  │
+  ▼
+Jupiter quote, USDC to $TINY ── direction, route, slippage, price_impact ──► refused, no row
+  │
+DRY_RUN=1 ? ── yes ──► {would_buy, plan, checks}   no row, nothing signed
+  │ no
+  ▼
+row ──► pending
+web3_swap_quote ── error ──────────────────────────► failed
+  │ must match the checked quote ── mismatch ──────► failed (rule quote)
+simulateTransaction ── fails, takes too much ──────► failed (rule simulate)
+web3_swap_execute
+  ├─ signature ────────────────────────────────────► bought
+  └─ timeout, 5xx, no signature ───────────────────► in_doubt, never retried
+```
+
+Each buy gets a public receipt like a payment: `hands/wallet receipts`
+lists it for the `wallet-receipt` playbook, and `bin/receipts` writes it to
+the diary as `wallet.bought` (signature, cluster, USDC spent, mint).
+
+**Switching it on.** In `secrets/teeny.env`, with the wallet on mainnet and
+holding USDC: set `TINY_BUY_TEAM_ADDRESSES`, `TINY_BUY_MAX_USDC_PER_DAY` and
+`TINY_BUY_MAX_USDC_PER_BUY`, then `TINY_BUY_SHARE` (say `0.2`) and
+`TINY_BUY=1`. Run `DRY_RUN=1 hands/wallet buy-tiny` first and read the
+plan. The core also needs a wallet backend for `web3_swap`.
 
 `bin/wallet-setup` (operator, once, at a terminal) has the core generate a
 24-word phrase, derive the accounts, encrypt the phrase (`encrypt_secret`)
@@ -867,6 +1174,79 @@ never given to a model.
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `goals`: the goal ledger
+
+Teeny proposes its own goals, and frozen code checks them
+([`research/teeny-application.md`](research/teeny-application.md) §4, Phase D).
+A goal has an instruction, the W component it moves (`attention`, `tiny`,
+`money`, `capability`, `shipped`, `world`), a channel (`x`, `moltbook`,
+`github`, `wallet`, `web`, `mail`, `telegram`), a family (a slug that groups
+goals for learning progress), a deadline (1 to 30 days), optionally the
+flywheel `step` it turns and whether it would be a `first`, and a **check**.
+The check is one of a fixed set of kinds written in
+`hands/lib/teeny_hands/goals/checks.py`, with parameters. Teeny never
+supplies code, a query or a command for a check: `propose` validates the
+kind and its parameters and nothing else, and the hand is frozen
+(`evals/frozen.txt`), so a goal cannot redefine how its success is decided.
+
+| Kind | Params | Solved when |
+|---|---|---|
+| `stats_delta` | `{source: x\|moltbook\|github, metric, at_least}` | the `stats` metric rose by `at_least` over its value when the goal was proposed |
+| `pr_merged` | `{repo: OWNER/REPO, author?}` | a pull request by `author` (default `GITHUB_USER`) merged into `repo` between proposal and deadline (GitHub search, through the gh hand's client) |
+| `build_shipped` | `{}` | a `build_jobs` row was shipped between proposal and deadline |
+| `wallet_inflow` | `{at_least_usdc}` | the USDC balance rose by that much, with USDC paid out since added back |
+| `world_delta` | `{component, at_least}` | W's component rose by `at_least` (`hands/world report`) |
+| `stimuli_count` | `{kind, surface?, at_least}` | that many stimuli of that kind arrived between proposal and deadline |
+
+A kind with a baseline (`stats_delta`, `wallet_inflow`, `world_delta`)
+records it at proposal when the data can be read then, else at the first
+check. Data that cannot be read (no stats row yet, no GitHub token, no
+wallet, no `hands/world`) leaves the goal open with the reason in its
+evidence; a goal never shown solved fails at its deadline.
+
+| Verb | | Does |
+|---|---|---|
+| `propose [--source S]` | A | `{instruction, component, channel, family, deadline_days, check: {kind, params}, step?, first?, why?}`. Refused (`rule`): `check_kind` for an unknown kind, `check_params` for a parameter the kind does not take or a bad value, `invalid` for any other field, `duplicate` for a near-duplicate of an open goal or of any goal proposed in the last 30 days, `too_many_open` at 5 open goals. Records whether the goal is `novel` (not a near-duplicate of any goal solved before) and its family's `p_hat` then. The one goals verb a playbook may output (`VERB_OUTPUTS` in `bin/lib/playbook.py`). |
+| `check` | J | Every open goal against its check: `solved` when it passes, `failed` when its deadline has passed and it does not, else still `open`, with the evidence. Only an open row moves, so a second run changes nothing. Each move is one `self · goal` stimulus. `bin/goals-check`, the pinned `goals-check` job (hourly, at :35). |
+| `list [--status S] [--limit N]` | R | The goals, newest first, with `open` and `max_open`. |
+| `rank` | R | The open goals by score, every family's numbers, `new_family` (what an untried family scores) and `world` (W and J from `hands/world report` when that hand is there, else `available: false`). |
+| `annecs` | R | ANNECS, the goals it counts, and the archive. |
+
+**Near-duplicates.** Two goals are the same when their instructions share
+60% of their words (Jaccard, after lowercasing, dropping filler words and
+plurals), or when they have the same channel and the same check (kind and
+every parameter but the threshold) with thresholds within 1.5x of each other.
+
+**The rank.** `score = LP · [0 < p̂ < 1] · (1 − p̂) · interest · E[ΔJ] · first`.
+
+- `LP`, learning progress: the absolute change in the family's success rate
+  over the last 14 days against the 14 to 56 days before, each rate with a
+  Beta(1, 1) prior. A family with fewer than 2 resolved goals gets 0.25, so
+  a new family is explored; any other at least 0.02.
+- `p̂`: the family's success rate over every resolved goal, with the same
+  prior. The prior keeps it strictly between 0 and 1, so the band is read
+  from the counts: a family resolved 3 times or more that always succeeded
+  or never did is out of the band and scores 0 (Absolute Zero).
+- `interest`: 1 + 1 / (1 + the family's goals so far). Until the judge-based
+  interestingness check (OMNI) is built, which is future work, the
+  near-duplicate filter at proposal and this family novelty stand in for it.
+- `E[ΔJ]`: the component's weight in J: attention 3, $TINY 2, money,
+  capability and shipped 1, world 0.5.
+- `first`: 2 for a goal marked `first` while no solved goal has the same
+  check (kind and non-threshold parameters), else 1. This is the extra
+  weight for a checkable first.
+
+**ANNECS and the archive.** ANNECS counts solved goals that were `novel` when
+proposed and are not a near-duplicate of a goal solved before them, so it
+rises only through new goals that frozen checks confirmed. The archive is a
+MAP-Elites grid over (W component × channel), 42 cells: for each niche, how
+many goals were solved there and the best one, by quality
+(`(1 − p̂ at proposal) · E[ΔJ] · first`). `empty` lists the niches never
+solved.
+
+The playbook `goals` (weekly) is its caller. It writes only `state/hands.db`
+and tells nobody, so `DRY_RUN` does not apply.
+
 ## `state/hands.db`
 
 One SQLite file, WAL, beside the checkout's other run-time state. Each hand
@@ -887,8 +1267,10 @@ creates its own tables:
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
-| `wallet` | `wallet_payments`, `bills`, `vendors` |
+| `world` | `world_scores` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors` |
 | `bounty` | `bounties`, `bounty_entries` |
+| `goals` | `goals` |
 
 ## Rules the tests pin
 
@@ -902,3 +1284,6 @@ creates its own tables:
 6. Over the length limit or the emoji cap, refuse; never fix.
 7. Attachments go by minted id or Giphy id only, never both, never a URL.
 8. Secrets are never logged, and never reach a model.
+9. The wallet buys $TINY and never sells it: a buy's output mint is a
+   constant, and a quote, a route or a prepared swap with any other output
+   is refused before anything is signed.

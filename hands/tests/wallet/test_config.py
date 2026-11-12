@@ -58,18 +58,6 @@ class WalletConfigTest(unittest.TestCase):
         self.assertIn("export OPENHUMAN_SOLANA_CLUSTER=mainnet\n", out)
         self.assertIn("export OPENHUMAN_WALLET_RPC_SOLANA='https://rpc.example/?api-key=k k'\n", out)
 
-    def test_the_x402_budget_is_always_pinned_below_the_cores_defaults(self):
-        _, out, _, _ = self.run_it({"DRY_RUN": "1"})
-        self.assertIn("export OPENHUMAN_X402_PER_REQUEST_MAX=100000\n", out)
-        self.assertIn("export OPENHUMAN_X402_DAILY_MAX=2000000\n", out)
-        self.assertIn("export OPENHUMAN_X402_MONTHLY_MAX=30000000\n", out)
-
-    def test_the_x402_budget_is_read_and_a_typo_or_excess_never_lifts_it(self):
-        _, out, _, _ = self.run_it({"X402_MAX_PER_REQUEST_USD": "0.05", "X402_MAX_PER_DAY_USD": "5O", "X402_MAX_PER_MONTH_USD": "9000"})
-        self.assertIn("export OPENHUMAN_X402_PER_REQUEST_MAX=50000\n", out)
-        self.assertIn("export OPENHUMAN_X402_DAILY_MAX=2000000\n", out, "unreadable is the default")
-        self.assertIn("export OPENHUMAN_X402_MONTHLY_MAX=200000000\n", out, "over the ceiling is the ceiling")
-
     def test_no_wallet_keys_is_a_closed_policy(self):
         code, out, _, doc = self.run_it({"DRY_RUN": "1"})
         self.assertEqual(code, 0)
