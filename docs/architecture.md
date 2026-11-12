@@ -537,7 +537,7 @@ Every scheduled job is in one of two files:
     ingest);
   - `reflect` (`bin/reflect --detach`, 02:00 IST);
   - `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST);
-  - `receipts` and `stats-snapshot`;
+  - `receipts`, `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:

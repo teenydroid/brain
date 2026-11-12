@@ -3,7 +3,7 @@ living (models + x402 + bills prorated), from a fake core and chain."""
 
 from __future__ import annotations
 
-from wallet.support import DAY, OWN, T0, USDC_DEVNET, VENDOR, Failure, Scratch, token_accounts
+from wallet.support import DAY, OWN, T0, TINY, USDC_DEVNET, VENDOR, Failure, Scratch, token_accounts
 from teeny_hands import hand  # noqa: E402
 from teeny_hands.wallet import pay, reads, store  # noqa: E402
 
@@ -24,10 +24,45 @@ class ReadsTest(Scratch):
         out = reads.balance()
         self.assertEqual(out["sol"], {"raw": "10000000000", "display": "10"})
         self.assertEqual(out["usdc"], {"raw": "12345678", "display": "12.345678", "mint": USDC_DEVNET})
-        [call] = self.chain.calls
-        self.assertEqual(call["params"][:2], [OWN, {"mint": USDC_DEVNET}])
-        self.assertEqual(call["params"][2]["encoding"], "jsonParsed")
+        usdc_call, tiny_call = self.chain.calls
+        self.assertEqual(usdc_call["params"][:2], [OWN, {"mint": USDC_DEVNET}])
+        self.assertEqual(usdc_call["params"][2]["encoding"], "jsonParsed")
+        self.assertEqual(tiny_call["params"][:2], [OWN, {"mint": TINY}])
+        self.assertEqual(out["tiny"], {"raw": "0", "display": "0", "mint": TINY})
         self.assertEqual(self.moved(), [])
+
+    def test_tiny_reads_the_token_account_and_signs_nothing(self):
+        self.chain.answers["getTokenAccountsByOwner"] = token_accounts(1_234_567_890, mint=TINY)
+        out = reads.tiny()
+        self.assertEqual(out, {"mint": TINY, "owner": OWN, "cluster": "devnet", "raw": "1234567890", "decimals": 6, "amount": 1234.56789})
+        [call] = self.chain.calls
+        self.assertEqual(call["method"], "getTokenAccountsByOwner")
+        self.assertEqual(call["params"][:2], [OWN, {"mint": TINY}])
+        self.assertEqual(self.moved(), [])
+        self.assertEqual(self.core.methods(), ["openhuman.wallet_status"])
+
+    def test_tiny_is_zero_without_a_token_account(self):
+        self.chain.answers["getTokenAccountsByOwner"] = {"context": {"slot": 1}, "value": []}
+        out = reads.tiny()
+        self.assertEqual((out["raw"], out["amount"], out["decimals"]), ("0", 0.0, 6))
+
+    def test_tiny_sums_accounts_and_honours_the_mint_setting(self):
+        other = "So11111111111111111111111111111111111111112"
+        accounts = token_accounts(5_000_000, mint=other)
+        accounts["value"] += token_accounts(7_000_000, mint=other)["value"]
+        self.chain.answers["getTokenAccountsByOwner"] = accounts
+        self.configure(TINY_MINT=other)
+        out = reads.tiny()
+        self.assertEqual((out["mint"], out["raw"], out["amount"]), (other, "12000000", 12.0))
+        self.configure(TINY_MINT="not-a-mint")
+        with self.assertRaises(hand.HandError):
+            reads.tiny()
+
+    def test_balance_survives_a_failed_tiny_read(self):
+        self.configure(TINY_MINT="not-a-mint")
+        out = reads.balance()
+        self.assertIn("error", out["tiny"])
+        self.assertEqual(out["sol"]["display"], "10")
 
     def test_ledger_has_both_ledgers_and_survives_a_missing_core_one(self):
         reads.vendors_add("hosting", VENDOR, None)
