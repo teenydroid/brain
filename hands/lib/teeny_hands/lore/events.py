@@ -11,8 +11,10 @@ model said:
                (hands/gh activity)
   bounty_paid  a bounty whose prize the wallet paid (the `bounties` table)
 
-A source that can't be read is named in `unavailable`, and the rest are
-still answered: no event is ever made up to fill a gap. Nothing here is
+A source that can't be read is named in `unavailable` (and on stderr), and
+the rest are still answered: no event is ever made up to fill a gap. With no
+event the answer is only `{"events": []}`, so the episode playbook, which
+requires it, skips without a model turn. Nothing here is
 written, so DRY_RUN does not apply.
 """
 
@@ -22,6 +24,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -132,4 +135,10 @@ def recent(days: int = 1) -> Json:
         except Exception as exc:  # noqa: BLE001 - one unreadable source never hides the others
             unavailable.append(f"{name}: {type(exc).__name__}")
     found.sort(key=lambda e: _when(e.get("at")) or 0.0, reverse=True)
+    if unavailable:
+        print(f"hands/lore: could not read {', '.join(unavailable)}", file=sys.stderr)
+    if not found:
+        # Only `events`, so a playbook that requires it skips without a
+        # model turn (bin/act: a required input of only blanks is empty).
+        return {"events": []}
     return {"days": days, "since": _iso(since), "events": found, **({"unavailable": unavailable} if unavailable else {})}
