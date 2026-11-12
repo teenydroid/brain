@@ -116,3 +116,14 @@ command = "bin/bounty-pay"
 [jobs.health]
 schedule = "*/15 * * * *"
 command = "bin/health"
+
+# Buy $TINY with a share of what Teeny earned (bin/tiny-buy): once a day,
+# TINY_BUY_SHARE of the USDC that reached the wallet since the last buy from
+# anyone but the team, less what running Teeny cost, under the wallet's caps
+# and TINY_BUY_MAX_USDC_PER_DAY. Buy only, never a sell. OFF unless TINY_BUY=1
+# and TINY_BUY_SHARE > 0 in secrets/teeny.env: until then each run is a
+# refusal or a recorded skip and moves nothing. Operator-owned: no model ever
+# calls buy-tiny (bin/lib/playbook.py refuses it as a playbook's output).
+[jobs.tiny-buy]
+schedule = "41 3 * * *"
+command = "bin/tiny-buy"
