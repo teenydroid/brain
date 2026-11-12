@@ -196,7 +196,8 @@ Teeny proposes goals, and a program ranks them.
   inflows (tips, bounties won, paid work, x402 sales) is converted into $TINY
   under the four caps. That requires a `buy-tiny` verb in `hands/wallet`. The
   model never calls it. A pinned job calls it on a schedule, with the share
-  and caps held in frozen config. This is also an operator PR.
+  and caps held in frozen config. This is also an operator PR. It is built
+  (item 16).
 - **Never sell.** This is already an invariant. The new verb can only buy.
 - **Never move the market by talking.** There are no buy calls, no price
   promises, no coordinated pushes and no paid shills (`SOUL.md`,
@@ -283,7 +284,7 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 15. A browser task that reads the news and turns trends into stimuli
 
 **$TINY**
-16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
+16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows. **Built**: `teeny_hands/wallet/buy.py`, `bin/tiny-buy`, the pinned `tiny-buy` job, off until `TINY_BUY=1` and `TINY_BUY_SHARE` > 0 (`docs/hands.md`, "Buying $TINY")
 17. Operator: a public "convince Teeny to sell" game hand with a capped pot
 
 Phase A, items 1, 5 and 6 are Teeny's to build through `self-improve` today.

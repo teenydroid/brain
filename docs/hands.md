@@ -671,10 +671,11 @@ and `bin/doctor`).
 | `balance` | R | SOL from the core (`wallet_balances`, native only) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. The core's token balances come in a later release. |
 | `ledger [--max N]` | R | This hand's `wallet_payments`, newest first, and the core's spend ledger (`wallet_ledger_list`). |
 | `costs [--days N]` | R | What keeping Teeny running cost over N days (30): model calls (`cost_report` totals), settled x402 API payments in USDC (`x402_list_payments`, newest record per id), and the `bills` prorated to the window (a month is 30 days, a year 12 months). `total_usd` is their sum; `complete` is false when a source could not be read. Payments to bounty winners and vendors are listed beside it (`paid_out`), not in it. |
-| `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. |
-| `receipts [--max N]` | R | Paid payments whose signature no X post of Teeny's carries yet: what the `wallet-receipt` playbook owes. |
+| `receipt ID` | R | One payment: amount, recipient, purpose and what it was for, signature, Solscan URL for its cluster. `receipt buy-N` is one $TINY buy. |
+| `receipts [--max N]` | R | Paid payments and $TINY buys whose signature no X post of Teeny's carries yet, oldest first: what the `wallet-receipt` playbook owes. |
 | `caps` | R | The caps it pays under. |
 | `pay` | A | `{to, amount_usdc \| amount_sol, purpose: bounty\|vendor, ref}`. The rules below, then the core. |
+| `buy-tiny` | J | A share of Teeny's net inflows into $TINY, buy only. No body and no option. `bin/tiny-buy`, the pinned `tiny-buy` job (daily). See "Buying $TINY" below. |
 | `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
 | `vendors add NAME ADDRESS [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to. |
 
@@ -717,7 +718,7 @@ after the execute was sent (a timeout, a 5xx, no signature) is `in_doubt`,
 which counts against every cap and is never retried: a person reads the
 core's ledger and the chain. Under `DRY_RUN` the answer is `would_pay` with
 every rule it evaluated (`checks`), no ledger row, and no core call that
-moves funds. Tables: `wallet_payments`, `bills`, `vendors`.
+moves funds. Tables: `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`.
 
 The whole path of one `pay` (`teeny_hands/wallet/pay.py`):
 
@@ -755,8 +756,130 @@ overrides. With no usable caps the policy lists no asset, and the core
 refuses every capped execute. `bin/doctor` refuses to boot a checkout whose
 `WALLET_*` keys are set with a cap missing, zero or over its ceiling.
 
-No model reaches `pay`: `bin/lib/playbook.py` refuses any wallet verb as a
-playbook output and lets an input run only the read verbs.
+No model reaches `pay` or `buy-tiny`: `bin/lib/playbook.py` refuses any
+wallet verb as a playbook output, names both as never an output, and lets an
+input run only the read verbs.
+
+### Buying $TINY
+
+`buy-tiny` (`teeny_hands/wallet/buy.py`) turns a share of what Teeny earned
+into $TINY. It only buys. The input is USDC, the output is the $TINY mint, a
+constant in code, and no body, option or setting can name another. The
+`wallet_tiny_buys` table refuses a row with any other output mint. There is no
+sell path. A pinned job calls it once a day (`bin/tiny-buy`,
+`[jobs.tiny-buy]` in `evals/cron.pinned.toml`); no model does.
+
+**Why USDC.** The caps count USDC one for one, with no price feed. Inflows
+are measured in USDC. SOL pays the fees and stays where it is.
+
+**Settings** (`secrets/teeny.env`), each read and checked in code. A value
+over its ceiling is refused (`caps`), never obeyed:
+
+| Key | Default | Ceiling | Says |
+|---|---|---|---|
+| `TINY_BUY` | off | | `1` turns buying on. Off, every run is refused (`off`) before anything is read. |
+| `TINY_BUY_SHARE` | `0` | `0.5` | The share of net inflows to buy with. `0` skips every run. |
+| `TINY_BUY_MAX_USDC_PER_DAY` | none, required | `100` | The most bought in any rolling 24 hours, also clamped to `WALLET_MAX_PER_DAY_USD`. |
+| `TINY_BUY_MAX_USDC_PER_BUY` | none, required | `50` | The most one buy spends, also clamped to `WALLET_MAX_PER_TX_USD` and the daily buy cap. |
+| `TINY_BUY_MIN_USDC` | `1` | the per-buy max | Under this a run is skipped, and the row says why. |
+| `TINY_BUY_SLIPPAGE_BPS` | `50` | `100` (1%) | The slippage asked for and accepted. |
+| `TINY_BUY_MAX_PRICE_IMPACT_BPS` | `50` | `100` (1%) | The most price impact a buy may have. |
+| `TINY_BUY_TEAM_ADDRESSES` | none, required | | The team's and the operator's addresses, comma or space separated. Money from them never counts as earned. |
+| `JUPITER_QUOTE_URL`, `JUPITER_API_KEY` | `https://api.jup.ag/swap/v1/quote`, none | | Jupiter's quote API, and its key if one is used (`x-api-key`). |
+
+**The amount.** Under the `wallet-pay` lock, the one `pay` takes:
+
+- `since` is the last buy that may have moved funds (`pending`, `bought` or
+  `in_doubt`), or 30 days ago for the first. A skip does not move it, so
+  small inflows add up across days.
+- `earned` is the USDC that reached Teeny's own token accounts since then
+  (`getSignaturesForAddress` on each account, then `getTransaction`,
+  jsonParsed), counted only from successful transactions that Teeny did not
+  sign and where no team address signed or sent. At most 200 transactions are
+  read a run; any beyond that are left uncounted, which only makes the buy
+  smaller. SOL inflows are not counted.
+- `spent` is what keeping Teeny running cost over the same whole days, plus
+  what the wallet paid out (`costs`). If a cost source could not be read,
+  the run is skipped: an unread cost would look like profit.
+- The amount is `TINY_BUY_SHARE` times `max(0, earned - spent)`, rounded
+  down, then clamped by the per-buy max, `WALLET_MAX_PER_TX_USD`, what is
+  left of `TINY_BUY_MAX_USDC_PER_DAY` and of `WALLET_MAX_PER_DAY_USD` in the
+  last 24 hours (payments and buys count together), and half the USDC the
+  wallet holds. The result names the bound that decided it (`clamped_by`).
+  What a cap cuts off is not carried over.
+
+**The quote.** Jupiter's public quote API (`GET /swap/v1/quote`, ExactIn,
+`restrictIntermediateTokens=true`; `teeny_hands/wallet/jupiter.py`). A
+quote moves nothing. It is refused unless:
+
+- `direction`: its input mint is the cluster's pinned USDC, its output mint
+  is $TINY, and `inAmount` is exactly the amount computed;
+- `route`: every mint the route plan ends in is $TINY, and every mint it
+  starts from is USDC;
+- `slippage`: `slippageBps` is at most `TINY_BUY_SLIPPAGE_BPS`, and
+  `otherAmountThreshold` holds to it;
+- `price_impact`: `priceImpactPct`, read as a fraction (so a misread can
+  only refuse), and the impact measured against a second quote for a
+  hundredth of the amount are both at most `TINY_BUY_MAX_PRICE_IMPACT_BPS`.
+
+Under `DRY_RUN` the answer is `would_buy` with the plan and every check, and
+that is all: no row, no core call but the wallet's address, nothing signed
+or sent.
+
+**Then the core.** The keys never leave it, and it signs a buy the way it
+signs a payment: the TinyWallet module signs, the hand never sees a key.
+The row is written `pending`, then `web3_swap_quote {chainId: 7565164,
+tokenIn: USDC, tokenInAmount, tokenOut: $TINY, tokenOutRecipient and
+senderAddress: Teeny's own address, slippage}` prepares the swap. Its quote
+must name USDC in, the exact amount, $TINY out to Teeny's own address, and a
+`minAmount` no lower than Jupiter's `otherAmountThreshold`, or the row is
+`failed` (`quote`). The unsigned transaction it carries is simulated over
+Solana RPC (`simulateTransaction`, `sigVerify: false`): it must succeed,
+take no more USDC from Teeny's accounts than the amount, and give at least
+the minimum to any $TINY account Teeny already holds, or the row is `failed`
+(`simulate`). Then `web3_swap_execute {quoteId, confirmed: true}`. A
+signature makes the row `bought`; anything else after the execute was sent
+is `in_doubt`, which counts against every cap and is never retried.
+
+The core's `[wallet_policy]` caps native transfers only: a `web3_swap`
+execute is approved by its confirmed quote id, not by the spend policy. So
+for a buy, the hand's caps are the caps. The core's `web3_swap` reaches its
+swap provider through the TinyHumans wallet backend; a core with no backend
+answers `BACKEND_UNAVAILABLE:` at the prepare, and the row is `failed` with
+nothing moved.
+
+```
+hands/wallet buy-tiny            (bin/tiny-buy, daily)
+  │
+TINY_BUY=1 ? settings sane ? mainnet ? ── no ──► refused (off, caps, cluster)
+  │
+  ▼  lock "wallet-pay"
+earned - spent, x share, clamped ── under the minimum ──► skipped, row says why
+  │
+  ▼
+Jupiter quote, USDC to $TINY ── direction, route, slippage, price_impact ──► refused, no row
+  │
+DRY_RUN=1 ? ── yes ──► {would_buy, plan, checks}   no row, nothing signed
+  │ no
+  ▼
+row ──► pending
+web3_swap_quote ── error ──────────────────────────► failed
+  │ must match the checked quote ── mismatch ──────► failed (rule quote)
+simulateTransaction ── fails, takes too much ──────► failed (rule simulate)
+web3_swap_execute
+  ├─ signature ────────────────────────────────────► bought
+  └─ timeout, 5xx, no signature ───────────────────► in_doubt, never retried
+```
+
+Each buy gets a public receipt like a payment: `hands/wallet receipts`
+lists it for the `wallet-receipt` playbook, and `bin/receipts` writes it to
+the diary as `wallet.bought` (signature, cluster, USDC spent, mint).
+
+**Switching it on.** In `secrets/teeny.env`, with the wallet on mainnet and
+holding USDC: set `TINY_BUY_TEAM_ADDRESSES`, `TINY_BUY_MAX_USDC_PER_DAY` and
+`TINY_BUY_MAX_USDC_PER_BUY`, then `TINY_BUY_SHARE` (say `0.2`) and
+`TINY_BUY=1`. Run `DRY_RUN=1 hands/wallet buy-tiny` first and read the
+plan. The core also needs a wallet backend for `web3_swap`.
 
 `bin/wallet-setup` (operator, once, at a terminal) has the core generate a
 24-word phrase, derive the accounts, encrypt the phrase (`encrypt_secret`)
@@ -803,7 +926,7 @@ creates its own tables:
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
-| `wallet` | `wallet_payments`, `bills`, `vendors` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors` |
 | `bounty` | `bounties`, `bounty_entries` |
 
 ## Rules the tests pin
@@ -818,3 +941,6 @@ creates its own tables:
 6. Over the length limit or the emoji cap, refuse; never fix.
 7. Attachments go by minted id or Giphy id only, never both, never a URL.
 8. Secrets are never logged, and never reach a model.
+9. The wallet buys $TINY and never sells it: a buy's output mint is a
+   constant, and a quote, a route or a prepared swap with any other output
+   is refused before anything is signed.
