@@ -62,6 +62,12 @@ def _release_moltbook(held: dict[str, Any]) -> bool:
     return inbox.release_held(held["context"], held["text"])
 
 
+def _release_reddit(held: dict[str, Any]) -> bool:
+    from ..reddit import inbox
+
+    return inbox.release_held(held["context"], held["text"])
+
+
 def _release_mail(held: dict[str, Any]) -> bool:
     from ..mail import inbox
 
@@ -75,17 +81,20 @@ def _release_mail(held: dict[str, Any]) -> bool:
 RELEASERS: dict[str, tuple[str, Callable[[dict[str, Any]], bool]]] = {
     "x": ("post_id", _release_x),
     "moltbook": ("comment_id", _release_moltbook),
+    "reddit": ("comment_id", _release_reddit),
     "mail": ("message_id", _release_mail),
 }
 
 _RELEASED = {
     "x": "the mention went back to pending, for the next ingest to offer",
     "moltbook": "the comment went into Teeny's inbox",
+    "reddit": "the comment went into Teeny's inbox",
     "mail": "the message went back to pending, for the next ingest to offer",
 }
 _NOT_RELEASED = {
     "x": "nothing released: the mention is no longer held",
     "moltbook": "nothing released: the comment is already in Teeny's inbox",
+    "reddit": "nothing released: the comment is already in Teeny's inbox",
     "mail": "nothing released: the message is no longer held",
 }
 _EXPIRED = (

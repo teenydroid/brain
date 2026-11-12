@@ -53,6 +53,8 @@ MAX_EMOJI_LIMIT = 10
 LIMITS: dict[str, dict[str, int]] = {
     "x": {"text": MAX_POST_LENGTH},
     "moltbook": {"title": 300, "body": 10000},
+    # Reddit takes a 300-character title; a comment's body is capped at 10000.
+    "reddit": {"title": 300, "body": 10000},
     # A repo's description and a commit message are GitHub's too (hands/gh).
     "github": {"title": 256, "body": 20000, "description": 350, "message": 5000},
     "mail": {"subject": 200, "body": 10000},
@@ -62,7 +64,7 @@ LIMITS: dict[str, dict[str, int]] = {
 # Where a title, a body or a subject is written rather than a post: the emoji
 # cap there is LONG_FORM_MAX_EMOJI per field, not MAX_EMOJI_PER_POST, and a
 # leading @handle is an address, not a tag X adds back.
-LONG_FORM_SURFACES = ("github", "moltbook", "mail")
+LONG_FORM_SURFACES = ("github", "moltbook", "reddit", "mail")
 LONG_FORM_MAX_EMOJI = 3
 
 
