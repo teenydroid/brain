@@ -230,7 +230,7 @@ def check_quote(c: Conversion, envelope: Any, cluster: str, the_caps: caps.Caps,
         min_raw = _int(token_out.get("minAmount", token_out.get("amount")), "the minimum output")
     else:
         min_raw = _int(token_out.get("recommendedAmount", token_out.get("amount")), "the recommended output")
-    if min_raw <= 0 or min_raw > max(expected, min_raw):
+    if min_raw <= 0:
         raise _bad("its output is zero")
 
     # What goes in, at market: USDC at par, anything else at deBridge's estimate.
