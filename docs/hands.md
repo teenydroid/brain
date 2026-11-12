@@ -1675,11 +1675,11 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
+| `deploy` | `deploys` |
+| `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
 | `ladder` | `fence_proposals` |
 | `upstream` | `pin_proposals` |
 | `guard` (review) | `guard_reviews` |
-| `deploy` | `deploys` |
-| `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
 
 ## Rules the tests pin
 

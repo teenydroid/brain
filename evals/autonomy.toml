@@ -89,6 +89,8 @@ drops_on = ["model-change"]
 switch = [
   { file = "teeny.env", name = "WALLET_MIND_ACTIONS", when = "truthy", needs = 3 },
   { file = "teeny.env", name = "TINY_BUY", when = "truthy", needs = 4 },
+  # Refunds of paid build requests (S3) move money out of the wallet.
+  { file = "teeny.env", name = "REQUEST_REFUNDS", when = "truthy", needs = 3 },
 ]
 next = { level = 4, proofs = [{ id = "L3.mainnet" }, { id = "L3.vendor" }, { id = "L3.bounty" }], also = ["inflows that didn't come from the team (S1)"] }
 
@@ -116,5 +118,7 @@ level = 1
 confirmed = "2026-11-12"
 roles = []
 drops_on = ["model-change"]
-switch = []
+# Paying the server's invoices from the wallet (S5) is renting and paying for
+# its own servers: it waits for this capability to reach L2.
+switch = [{ file = "teeny.env", name = "VPS_PAY_BILLS", when = "truthy", needs = 2 }]
 next = { level = 2, proofs = [], also = ["a fixture invoice paid once and never retried in doubt (S5)", "spend at L4"] }
