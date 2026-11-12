@@ -11,6 +11,11 @@ which proposes changes as pull requests. Not built: the loop itself
 (`bin/evolve`, the lab spine, promotion and rollback). The sections marked
 "not built" are its spec.
 
+The research behind the unbuilt part, and a proposal to point the loop at one
+drive (grow and become powerful, $TINY included) and run it faster, are in
+[`research/`](research/README.md), starting with
+[`research/teeny-application.md`](research/teeny-application.md).
+
 ## What Teeny may change
 
 | Teeny's to change | Frozen (the gate refuses any diff touching it) |

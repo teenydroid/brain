@@ -11,6 +11,7 @@ change it.
 | [`hands.md`](hands.md) | The spec for every hand: its verbs, its rules, its ledger and its exit codes. |
 | [`evolve.md`](evolve.md) | The self-improvement loop: what Teeny may change about itself, the frozen paths and how a generation is judged. Partly built. |
 | [`oh-gaps.md`](oh-gaps.md) | What upstream OpenHuman could add so the hands could shrink. |
+| [`research/`](research/README.md) | What others have built and written on self-improving, goal-driven and public agents, and the proposal for Teeny's drive (grow and become powerful) and a faster evolve loop. |
 
 Elsewhere in the repository:
 
