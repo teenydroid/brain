@@ -586,7 +586,14 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
   Teeny's own follow-ups as they come due;
 - `bin/health`: `health · alarm` when the model has failed two checks in a
-  row, and `health · recovered` when it answers again.
+  row, and `health · recovered` when it answers again; `bin/health daily`
+  (the pinned `health-daily` job, 00:40 UTC): one `health · daily` a day
+  about the UTC day before, with what the model cost (the core's
+  `cost_report`), failed cron runs by job, failed `bin/act` runs by
+  playbook, failed beats of the mind, the doctor's checks that are not ok
+  (names only) and guard holds by direction and category. Counts and names
+  only: never a hold's text or reason, an error's words or a check's detail.
+  A name that is not a plain name is counted as `other`.
 
 `TEENY_INBOX=core` sends mentions and mail back to the core's inbound queue
 instead, the old per-surface agents.

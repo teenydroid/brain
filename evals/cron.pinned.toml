@@ -128,6 +128,14 @@ command = "bin/bounty-pay"
 schedule = "*/15 * * * *"
 command = "bin/health"
 
+# Yesterday's health as one stimulus (bin/health daily; docs/roadmap.md, A4):
+# what the model cost, failed cron and playbook runs, failed beats, the
+# doctor's checks that are not ok, and guard holds by category, as counts and
+# names only. After the day's snapshots. Pinned with the watcher it belongs to.
+[jobs.health-daily]
+schedule = "40 0 * * *"
+command = "bin/health daily"
+
 # One generation of Teeny's evolution (bin/evolve; docs/evolve.md, "The
 # loop"): N candidates in worktrees off main, gated in code, measured when a
 # lab core serves them, and ONE ready pull request for the best, which the
@@ -179,6 +187,7 @@ command = "bin/goals-check"
 # and TINY_BUY_SHARE > 0 in secrets/teeny.env: until then each run is a
 # refusal or a recorded skip and moves nothing. Operator-owned: no model ever
 # calls buy-tiny (bin/lib/playbook.py refuses it as a playbook's output).
-[jobs.tiny-buy]
-schedule = "41 3 * * *"
-command = "bin/tiny-buy"
+# Not scheduled for now (operator, 2026-11-12). To bring it back, restore:
+#   [jobs.tiny-buy]
+#   schedule = "41 3 * * *"
+#   command = "bin/tiny-buy"

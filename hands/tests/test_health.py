@@ -241,6 +241,129 @@ class HealthTest(unittest.TestCase):
         self.assertIn("teeny.operator (2)", body)
         self.assertIn("teeny.operator (2)", self.inbox()[0]["text"])
 
+    # --- yesterday as one stimulus (docs/roadmap.md, A4) ---------------------------------
+    # T0 is 12:00 UTC on 2026-11-11, so "yesterday" is 2026-11-10.
+
+    def yesterday(self, cron=(), acts=(), beats=(), doctor=None, holds_at=()) -> None:
+        """Fixtures for the day before T0: failed cron runs `(job name, hours
+        before T0)`, bin/act lines `(playbook, ok, hours before T0)`, tick
+        lines `(kind, hours before T0)`, a doctor report, and guard holds
+        `(direction, category, hours before T0)`."""
+        def iso(hours):
+            return health._iso(int((T0 - hours * 3600) * 1000))
+        if cron:
+            storage = self.root / "brain" / "storage.db"
+            storage.parent.mkdir(exist_ok=True)
+            db = sqlite3.connect(storage)
+            db.execute("create table docs (id text, coll text, body text, deleted integer default 0)")
+            names = sorted({name for name, _ in cron})
+            db.executemany("insert into docs (id, coll, body) values (?, 'cron.jobs', ?)",
+                           [(f"j{n}", json.dumps({"name": name})) for n, name in enumerate(names)])
+            for n, (name, hours) in enumerate(cron):
+                body = {"job_id": f"j{names.index(name)}", "status": "error",
+                        "finished_ms": int((T0 - hours * 3600) * 1000), "seq": n}
+                db.execute("insert into docs (id, coll, body) values (?, 'cron.runs', ?)", (f"r{n}", json.dumps(body)))
+            db.commit()
+            db.close()
+        for playbook, ok, hours in acts:
+            folder = self.root / "state" / "act" / playbook
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder / "runs.jsonl", "a") as fh:
+                fh.write(json.dumps({"at": iso(hours), "ok": ok, "playbook": playbook, "error": "secret detail"}) + "\n")
+        if beats:
+            folder = self.root / "state" / "tick"
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder / "runs.jsonl", "a") as fh:
+                for kind, hours in beats:
+                    fh.write(json.dumps({"at": iso(hours), "kind": kind, "error": "what the core said"}) + "\n")
+                fh.write("not json\n")
+        if doctor is not None:
+            (self.root / "state" / "doctor.json").write_text(json.dumps(doctor))
+        for direction, category, hours in holds_at:
+            self.at(-hours * 3600)
+            holds.record(direction=direction, kind="draft", context={"surface": "x"}, category=category,
+                         reason="REASON-NEVER-SHOWN", by="screen", text="HELD-TEXT-NEVER-SHOWN")
+        self.at(0)
+
+    def costs(self, usd=0.42, calls=7) -> None:
+        self.model(result({"totals": {"cost_usd": usd, "calls": calls}}))
+
+    def test_a_failed_job_yesterday_is_one_daily_stimulus(self):
+        self.yesterday(cron=[("teeny.mail-inbound", 20), ("teeny.mail-inbound", 14), ("teeny.tick", 2)])
+        self.costs()
+        out = health.daily()
+        self.assertEqual((out["ok"], out["daily"], out["added"], out["trouble"]), (True, "2026-11-10", True, True))
+        # The one 2 h before T0 is today's, not yesterday's.
+        self.assertEqual(out["cron_errors"], {"teeny.mail-inbound": 2})
+        (got,) = self.inbox()
+        self.assertEqual((got["surface"], got["kind"], got["ref"]), ("health", "daily", "daily:2026-11-10"))
+        self.assertIn("teeny.mail-inbound 2", got["text"])
+        self.assertIn("$0.42 over 7 call(s)", got["text"])
+        self.assertIn("yours to look into", got["text"])
+        call = self.core.calls[-1]
+        self.assertEqual((call["method"], call["params"]), ("openhuman.cost_report", {"days": 1}))
+        self.assertEqual(self.gh.seen, [])
+
+    def test_the_daily_stimulus_is_filed_once_a_day(self):
+        self.yesterday(cron=[("teeny.tick", 20)])
+        self.costs()
+        self.assertTrue(health.daily()["added"])
+        self.at(3600)
+        self.assertFalse(health.daily()["added"])
+        self.assertEqual(len(self.inbox()), 1)
+        self.at(86400)
+        self.assertEqual(health.daily()["daily"], "2026-11-11")
+        self.assertEqual(len(self.inbox()), 2)
+
+    def test_failed_playbooks_beats_doctor_checks_and_holds_are_counted_never_quoted(self):
+        self.yesterday(
+            acts=[("morning", False, 20), ("morning", False, 18), ("morning", True, 17), ("brief", False, 1)],
+            beats=[("failed", 22), ("beat", 21), ("failed", 1)],
+            doctor={"ok": False, "checks": [{"check": "cron rules", "status": "ok", "detail": "fine"},
+                                            {"check": "pre-spine leftover", "status": "warn", "detail": "DETAIL-NEVER-SHOWN"},
+                                            {"check": "agents have no tools", "status": "fail", "detail": "DETAIL-NEVER-SHOWN"}]},
+            holds_at=[("outbound", "profanity", 20), ("outbound", "profanity", 19), ("inbound", "hate", 15),
+                      ("outbound", "hate", 3), ("outbound", "a category\nwith a newline", 16)],
+        )
+        self.costs()
+        out = health.daily()
+        self.assertEqual(out["act_failures"], {"morning": 2})
+        self.assertEqual(out["failed_beats"], 1)
+        self.assertEqual(out["doctor"], {"warn": ["pre-spine leftover"], "fail": ["agents have no tools"]})
+        self.assertEqual(out["holds"], {"inbound hate": 1, "outbound other": 1, "outbound profanity": 2})
+        (got,) = self.inbox()
+        for word in ("morning 2", "failed beats of your mind: 1", "fail: agents have no tools",
+                     "outbound profanity 2", "inbound hate 1"):
+            self.assertIn(word, got["text"])
+        dumped = json.dumps(got)
+        for secret in ("HELD-TEXT-NEVER-SHOWN", "REASON-NEVER-SHOWN", "DETAIL-NEVER-SHOWN", "secret detail",
+                       "what the core said", "newline"):
+            self.assertNotIn(secret, dumped)
+
+    def test_a_quiet_day_still_says_what_it_cost(self):
+        self.costs(usd=1.5, calls=40)
+        out = health.daily()
+        self.assertFalse(out["trouble"])
+        (got,) = self.inbox()
+        self.assertIn("$1.50 over 40 call(s)", got["text"])
+        self.assertIn("failed cron runs: none", got["text"])
+        self.assertNotIn("yours to look into", got["text"])
+
+    def test_a_core_that_cannot_give_the_cost_still_files_the_day(self):
+        self.model(DEAD)
+        out = health.daily()
+        self.assertIsNone(out["cost"])
+        self.assertIn("unknown", self.inbox()[0]["text"])
+
+    def test_the_daily_verb_by_the_command_line(self):
+        self.costs()
+        env = {**os.environ, "TEENY_ROOT": str(self.root)}
+        proc = subprocess.run([str(REPO / "bin" / "health"), "daily"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["daily"], "2026-11-10")
+        bad = subprocess.run([str(REPO / "bin" / "health"), "weekly"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(bad.returncode, 2)
+
     # --- Moltbook writes nobody can see ------------------------------------------------
     # 2026-11-12: Moltbook hides a write until its challenge is solved, and a
     # third of Teeny's writes were still unverified with nothing saying so.

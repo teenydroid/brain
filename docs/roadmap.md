@@ -98,9 +98,10 @@ In order. Each step unlocks the proofs after it.
 | 0.11 | After five human-merged generations that measured well: `EVOLVE_AUTO_PROMOTE=1` | L5 promotion and rollback |
 | 0.12 | `TINY_BUY=1` once there are inflows that didn't come from the team | L3 "moves the lore goals" |
 
-Things an agent can do for Track 0 without touching the box: a
-`bin/proofs` report that reads the ledgers and says, for each `DIRECTIVE.md`
-item with a countable proof, how far along it is (A0 below).
+Things an agent can do for Track 0 without touching the box: the
+`bin/proofs` report reads the ledgers and says, for each `DIRECTIVE.md`
+item with a countable proof, how far along it is (A0 below, built). Run
+`bin/proofs --text` on the box before ticking an item.
 
 ## Track A: agentic
 
@@ -112,11 +113,11 @@ act on it.
 
 | ID | Item | Where | Frozen | Done when | DIRECTIVE |
 |---|---|---|---|---|---|
-| A0 | **`bin/proofs`**: one report of how far each countable proof has got (replies in the ledger, weeks of rising stats, days of diary, `ok` tasks, shipped requests, generations) | new `bin/proofs`, `bin/lib/proofs.py`, `bin/test/proofs_test.sh` | Operator | The report runs offline on fixture ledgers and names every item it can count | all |
+| A0 | **`bin/proofs`**: one report of how far each countable proof has got (replies in the ledger, weeks of rising stats, days of diary, `ok` tasks, shipped requests, generations). **Built**: 24 proofs counted, the rest named under `not_counted` with what they wait for | new `bin/proofs`, `bin/lib/proofs.py`, `bin/test/proofs_test.sh` | Operator | The report runs offline on fixture ledgers and names every item it can count | all |
 | A1 | **GitHub notifications as stimuli**: issues, review comments, mentions and stars on Teeny's repos reach the inbox through `hands/guard inbound` | `hands/lib/teeny_hands/gh/` (a `notifications` read), `hands/lib/teeny_hands/stimuli.py`, a pinned ingest job | Operator | A fixture review comment becomes a `gh` stimulus, once, and a hostile one is held | L1 GitHub notifications; L3 "maintains what it shipped" |
 | A2 | **Its own posts fed back, and a near-duplicate check**: the last N posts per surface in the mind's prompt, and a guard check that refuses a draft too close to a recent one and counts refusals | `bin/lib/prompts.py`, `hands/lib/teeny_hands/guard/`, `hands/lib/teeny_hands/x/posting_rules.py` | Operator | A repeat of yesterday's post is refused; `hands/guard` reports the 30-day count | L1 "never repeats itself" |
 | A3 | **Three new mind intents**: `open_issue` (own repos, through `hands/gh open-issue` and the guard), `queue_task` (a browser task with `--source teeny`, allowed websites only), `start_mail` (known contacts only). **Built**, off until the operator sets `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY`; playbooks are held to the same verbs of `gh`, `tasks` and `mail` | `bin/lib/tick.py`, `bin/lib/playbook.py` (`VERB_OUTPUTS`) | Operator | Each intent acts through its hand, is refused outside its limits, and has a daily cap | L3 "opens issues", "writes its own browser tasks"; L2 "starts mail" |
-| A4 | **Its own health as stimuli**: yesterday's cost, failed cron and `bin/act` runs, doctor warnings and guard holds as counts by category (never their text) | `bin/health`, `bin/lib/health.py` | Operator | A failed job yesterday produces one `health` stimulus; with A3, Teeny can file the issue | L1 "notices its own health" |
+| A4 | **Its own health as stimuli**: yesterday's cost, failed cron and `bin/act` runs, doctor warnings and guard holds as counts by category (never their text). **Built**: `bin/health daily`, the pinned `health-daily` job (00:40 UTC), one `health · daily` stimulus a day; failed beats of the mind are counted too | `bin/health`, `bin/lib/health.py` | Operator | A failed job yesterday produces one `health` stimulus; with A3, Teeny can file the issue | L1 "notices its own health" |
 | A5 | **On-chain senses**: a deposit watcher that files a stimulus per inflow, and a daily $TINY balance and holder-count read | `hands/lib/teeny_hands/wallet/`, a pinned job | Operator | A fixture deposit becomes one stimulus with the sender and amount; nothing is signed | L1 on-chain senses |
 | A6 | **A separate check on "done"**: `hands/build ship` trusts its own test run and never the builder's report, a failed job tells the mind why, and the builder has a `gave_up` report that is never penalised | `hands/lib/teeny_hands/build/`, `brain/agents/builder*.md` | Operator (hand), Teeny (prompt) | A builder report of success with failing tests is recorded as failed, with the test output | L3 "ships one thing a week" |
 | A7 | **Babysit its own PRs**: read CI status and review comments through `hands/gh`, and a build kind `fix` that puts a failing PR back on the builder's desk | `hands/lib/teeny_hands/gh/`, `hands/lib/teeny_hands/build/` | Operator | A fixture PR with a red check becomes a `fix` job on its own branch; at most 3 attempts per PR | L3 "babysits its own PRs" |
