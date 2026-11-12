@@ -10,6 +10,10 @@ key.pem.pub
 worktrees/
 target/
 /brain/storage.db*
+# Teeny's live page: bin/reflect rewrites it on the box twice a day. The
+# repository keeps where it started, brain/MEMORY.seed.md, and the prompts
+# build starts the live page from it when there is none.
+/brain/MEMORY.md
 /brain/artifacts/
 /brain/audit.log
 /.openhuman/

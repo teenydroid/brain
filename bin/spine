@@ -75,8 +75,10 @@ eval "$wallet_env"
 python3 "$TEENY_ROOT/bin/lib/core_config.py" "$config_dir/config.toml" "$TEENY_ROOT" ||
   die "could not write Teeny's core settings into $config_dir/config.toml"
 # The speaking agents' prompts: their instructions (brain/agents/<id>.md) and
-# Teeny's world (CONTEXT.md, the lore it reads, the arcs), built into
-# brain/agent/prompts/ where the core reads a prompt file (bin/lib/prompts.py).
+# Teeny's world (MEMORY.md, CONTEXT.md, the lore it reads, the arcs), built
+# into brain/agent/prompts/ where the core reads a prompt file
+# (bin/lib/prompts.py). A checkout without the live MEMORY.md (gitignored)
+# gets one started from brain/MEMORY.seed.md first.
 python3 "$TEENY_ROOT/bin/lib/prompts.py" "$TEENY_BRAIN" >/dev/null ||
   die "could not build the agents' prompts into $TEENY_BRAIN/agent/prompts"
 # It holds the model key in plain text ([secrets] in bin/lib/core_sections/secrets.py).

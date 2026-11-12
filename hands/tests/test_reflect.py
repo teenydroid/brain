@@ -230,6 +230,28 @@ class ReflectTest(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertIn("nobody yet", kept[0].read_text())
 
+    # --- the live page and its committed seed ------------------------------
+
+    def test_the_first_night_starts_the_live_page_from_the_seed(self):
+        (self.brain / "MEMORY.md").rename(self.brain / "MEMORY.seed.md")
+        seed = (self.brain / "MEMORY.seed.md").read_text()
+        self.answer({"memory": NEW_MEMORY, "diary": "a good day."})
+        self.assertTrue(self.reflect()["ok"])
+        self.assertIn("nobody yet", self.chats()[0]["message"])
+        self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
+        self.assertEqual((self.brain / "MEMORY.seed.md").read_text(), seed)
+        [kept] = (self.root / "state" / "reflect").glob("MEMORY-*.md")
+        self.assertEqual(kept.read_text(), seed)
+
+    def test_the_seed_is_never_written(self):
+        (self.brain / "MEMORY.seed.md").write_text("# MEMORY.md\n\n## people\n\n- the seed\n")
+        for light in ((), ("--light",)):
+            with self.subTest(light=light):
+                self.answer({"memory": NEW_MEMORY, "diary": "a good day."})
+                self.assertTrue(self.reflect(*light)["ok"])
+                self.assertEqual((self.brain / "MEMORY.seed.md").read_text(), "# MEMORY.md\n\n## people\n\n- the seed\n")
+                self.assertIn("builds a cli for crabs", (self.brain / "MEMORY.md").read_text())
+
     def test_the_prompts_are_rebuilt_so_the_next_beat_reads_the_new_page(self):
         self.answer({"memory": NEW_MEMORY, "diary": "a good day."})
         self.reflect()
