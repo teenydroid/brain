@@ -15,7 +15,7 @@ from teeny_hands.guard.links import DEFAULT_LINK_ALLOWLIST, filter_links, parse_
 
 class SurfacesTest(support.Scratch):
     def test_the_long_form_surfaces_are_hold_surfaces(self):
-        for surface in ("github", "moltbook", "mail"):
+        for surface in ("github", "moltbook", "reddit", "mail"):
             self.assertIn(surface, holds.SURFACES)
 
     def test_limits_per_surface_and_field(self):
@@ -24,6 +24,7 @@ class SurfacesTest(support.Scratch):
         self.assertEqual(field_limit("telegram", "text"), 4096)
         self.assertEqual(field_limit("task", "text"), 280)
         self.assertEqual((field_limit("moltbook", "title"), field_limit("moltbook", "body")), (300, 10000))
+        self.assertEqual((field_limit("reddit", "title"), field_limit("reddit", "body")), (300, 10000))
         self.assertEqual((field_limit("github", "title"), field_limit("github", "body")), (256, 20000))
         self.assertEqual((field_limit("mail", "subject"), field_limit("mail", "body")), (200, 10000))
         # A long-form surface's text is its body.
