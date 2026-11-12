@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `bounty`, `goals` and `vps`. Each is an executable in `hands/`, with its code in
+`wallet`, `bounty`, `goals`, `vps` and `firsts`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -605,6 +605,27 @@ creditᵢ = Σ over consecutive rows of clip(Δ log(Wᵢ + cᵢ), ±capᵢ · da
 
 `bin/world-snapshot` is the pinned `world-snapshot` job (`30 0 * * *`),
 after `stats-snapshot`, so attention reads that day's rows.
+
+## `firsts`: a milestone is posted only when the ledger proves it
+
+A first gets an audience only when anyone can check it, and a fake one is
+the fastest way to lose one (docs/research/attention-and-mindshare.md). The
+calendar, `brain/narrative/FIRSTS.md`, is Teeny's: each `## id` names what
+it would say (`- first:`), the `bin/proofs` id that proves it (`- proof:`,
+or `none`) and where anyone can check it (`- verify:`). Whether a proof is
+met is frozen code (`bin/lib/proofs.py`), and so is this hand, so the check
+can't be edited away. It holds no key: a post goes out through
+`hands/x post`, which keeps the guard, the posting rules and `DRY_RUN`.
+Code: `teeny_hands/firsts/`.
+
+| Verb | | Does |
+|---|---|---|
+| `list` | R | Every first in the calendar with its proof's `status`, `has` and `need` from `bin/proofs`, and `announced` once it was posted. A first with a missing line, a bad id or an unknown proof is `invalid`; `proof: none` is `uncounted`. |
+| `due` | R | `{firsts, rounds}`: the firsts whose proof is `met` and never announced, and the round numbers (100, 250, 500, 1000, 2500, ...) that `x.followers`, `moltbook.karma`, `github.stars` or `github.followers` crossed in the last 7 days of `stats` and never announced (the highest per metric). Nothing due is two empty lists, so a `required` input skips the run. A proof whose last step lives outside the ledgers (an upstream merge) is never `met` in `bin/proofs`, so never due here. |
+| `announce` | A | `{text, first}` or `{text, round}`. Checks again, under a lock: refused `rule: unproven` when it is not due now, and `rule: number` when the text quotes any number but the proof's `has` or `need` (a first) or the round number or exact value (a round). Then `hands/x post`; its refusal comes back as this refusal. Only a post that went out (an id, not a dry run) is recorded in `firsts_announced`, so a rehearsal can run any number of times. |
+
+The `milestone` playbook (`output = "hand:firsts announce"`, `hands/firsts
+due` as its required input) is its caller; its cron job ships off.
 
 ## `requests`: what people asked Teeny to build
 
