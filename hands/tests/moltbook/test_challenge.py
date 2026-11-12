@@ -193,11 +193,7 @@ class LiveChallengesTest(unittest.TestCase):
                 self.assertEqual(solve(text), answer)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-class LiveChallengesTest(unittest.TestCase):
+class LiveChallengesUnansweredTest(unittest.TestCase):
     """Challenges Moltbook set Teeny on 2026-11-12 that went unanswered."""
 
     def test_the_parser_reads_them(self):
@@ -223,3 +219,7 @@ class ComputeTest(unittest.TestCase):
         self.assertIsNone(compute(Decimal(5), "/", Decimal(0)))
         self.assertIsNone(compute(Decimal(5), "^", Decimal(2)))
         self.assertIsNone(numbers_in("a lobster swims five twenty"))
+
+
+if __name__ == "__main__":
+    unittest.main()
