@@ -136,7 +136,9 @@ def _jail(scratch: str, abi: int) -> None:
 def _state() -> Path:
     """bin/lib/teeny.sh's TEENY_STATE when bin/act runs this, else hands'."""
     env = os.environ.get("TEENY_STATE")
-    return Path(env) if env else hand.state_dir()
+    path = Path(env) if env else hand.state_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _record(row: Json) -> None:

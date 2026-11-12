@@ -124,6 +124,29 @@ check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY
 check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
 
+# --- a data job (A17): Teeny's script, jailed, fed the inputs before it --------------
+if python3 -c "import sys; sys.path[:0] = ['$here/../lib', '$here/../../hands/lib']; import datajob
+from teeny_hands.build import verify; sys.exit(0 if verify.landlock_abi() >= 1 and datajob.seccomp_supported() else 1)"; then
+  reset
+  mkdir -p "$brain/datajobs"
+  printf '%s\n' 'import json, sys' 'd = json.load(sys.stdin)' 'print(json.dumps({"inputs_seen": sorted(d), "marker": "datajob-ran"}))' \
+    >"$brain/datajobs/count.py"
+  printf '+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nname = "feed"\nrun = "hands/x search q"\n[[inputs]]\nname = "count"\nrun = "datajob:count"\n+++\ngo\n' \
+    >"$brain/playbooks/withjob.md"
+  answer '{"action": "skip", "reason": "test"}'
+  out="$(run withjob)"
+  check "a data job's JSON is a playbook input, fed the inputs before it" grep -q '"inputs_seen":\["feed"\],"marker":"datajob-ran"' <<<"$(jq -r .message "$FAKE_CALLS")"
+  check "and its run is recorded" test "$(jq -r .ok "$scratch/state/datajobs/runs.jsonl")" = true
+  printf '%s\n' 'import socket' 'socket.socket().connect(("1.1.1.1", 443))' >"$brain/datajobs/count.py"
+  reset
+  out="$(run withjob)" || true
+  check "a data job that tries the network is killed and the playbook drafts nothing" test ! -s "$FAKE_CALLS"
+  check "and the run says so" test "$(jq -r .killed "$scratch/state/datajobs/runs.jsonl")" = true
+  rm -rf "$brain/datajobs" "$brain/playbooks/withjob.md"
+else
+  echo "skip: no Landlock or seccomp here, so no data job runs"
+fi
+
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
 printf '%s' '": "post", "text": "gm"}' >"$scratch/first.txt"
