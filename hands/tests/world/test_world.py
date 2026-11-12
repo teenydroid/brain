@@ -108,8 +108,9 @@ class ReportTest(Scratch):
         self.assertIn("Quote no", out["reading"][0])
 
     def test_report_computes_j_from_the_rows(self):
-        for day, att, tiny_held in (("2026-09-07", 950, 0), ("2026-09-10", 1000, 0), ("2026-09-14", 1050, 40_000)):
+        for day, att in (("2026-09-07", 950), ("2026-09-10", 1000), ("2026-09-14", 1050)):
             self.put(day, "attention", att)
+        for day, tiny_held in (("2026-09-07", 0), ("2026-09-13", 0), ("2026-09-14", 40_000)):
             self.put(day, "tiny", tiny_held)
         self.put("2026-09-07", "world", 2)
         self.put("2026-09-14", "world", 3)
