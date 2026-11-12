@@ -65,6 +65,18 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(len(self.rows()), 8)
         self.assertNotIn("impressions", out["written"]["x"])
 
+    def test_the_snapshot_keeps_the_x_bio_for_the_doctor(self):
+        self.fake.route("GET", "/2/users/by/username/teenydroid",
+                        {"data": {"id": "1", "username": "teenydroid", "description": "an automated bot, run by @op",
+                                  "public_metrics": {"followers_count": 120}}})
+        collect.snapshot()
+        conn = hand.db()
+        row = conn.execute("SELECT handle, description, read_at FROM x_profile").fetchone()
+        conn.close()
+        self.assertEqual(tuple(row), ("teenydroid", "an automated bot, run by @op", T0))
+        # one lookup per snapshot, as before: the bio rode along on it
+        self.assertEqual(len(self.fake.requests("GET", "/2/users/by/username/teenydroid")), 1)
+
     def test_idempotent_per_day(self):
         collect.snapshot()
         self.fake.route("GET", "/agents/me", {"success": True, "agent": {"karma": 50}})
