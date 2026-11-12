@@ -45,6 +45,34 @@ OUTPUT_CHARS = 3000
 READ_ROOTS = ("/usr", "/lib", "/lib64", "/lib32", "/bin", "/sbin", "/etc", "/dev/null", "/dev/urandom",
               "/proc/self", "/sys/devices/system/cpu")
 
+
+def interpreter_roots(writes: Any = ()) -> list[str]:
+    """The install of the Python that runs the jailed child, when it lives
+    outside READ_ROOTS (a CI runner's /opt/hostedtoolcache, a virtualenv):
+    read only, so the interpreter can start. A candidate is kept only if it
+    looks like a Python install (a lib/python3* folder or a pyvenv.cfg), sits
+    at least two folders deep, is not already under READ_ROOTS, and holds none
+    of the folders the child may write (so never a checkout with state/ or
+    secrets/ in it)."""
+    candidates = [sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix,
+                  os.path.dirname(os.path.dirname(os.path.realpath(sys.executable)))]
+    held = [os.path.realpath(w) for w in writes]
+    out: list[str] = []
+    for c in candidates:
+        if not c:
+            continue
+        root = os.path.realpath(c)
+        if root in out or len(Path(root).parts) < 3:
+            continue
+        if any(root == r or root.startswith(r.rstrip("/") + "/") for r in READ_ROOTS):
+            continue
+        if any(w == root or w.startswith(root.rstrip("/") + "/") for w in held):
+            continue
+        if not (os.path.isfile(os.path.join(root, "pyvenv.cfg")) or any(Path(root, "lib").glob("python3*"))):
+            continue
+        out.append(root)
+    return out
+
 # --- Landlock, through the raw system calls (linux/landlock.h) ---------------------------------
 
 _SYS_CREATE_RULESET = 444
@@ -151,6 +179,8 @@ def confine(reads: Any, writes: Any, abi: int) -> None:
         allow(root, _READ)
     allow("/dev/null", _READ | _FS_WRITE_FILE)
     for path in reads:
+        allow(path, _READ)
+    for path in interpreter_roots(writes):
         allow(path, _READ)
     for path in writes:
         allow(path, handled)
