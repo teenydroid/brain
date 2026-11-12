@@ -434,6 +434,78 @@ def write_numbers(root: Path, stats: Json | None, wallet: Json | None) -> list[s
     return list(files)
 
 
+# --- the weekly accounts (docs/roadmap.md, S1) -----------------------------------------------------------
+
+ACCOUNTS_DIR = "accounts"
+WEEK = re.compile(r"\d{4}-W\d{2}")
+DOLLARS = re.compile(r"-?\d{1,12}\.\d{2}")
+ISO_AT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+LAMPORTS = re.compile(r"\d{1,20}")
+INFLOW_ASSETS = ("SOL", "USDC")
+INFLOW_CATEGORIES = ("team", "tip", "sale", "bounty", "unclassified")
+COST_LINES = ("models", "server", "tools", "total")
+INCOME_LINES = ("tip", "sale", "bounty", "total")
+NOT_COUNTED = ("network fees", "SOL in dollars", "EVM networks")
+
+
+def public_accounts(conn: sqlite3.Connection) -> dict[str, Json]:
+    """The closed weekly profit-and-loss pages (hands/wallet accounts close),
+    rebuilt field by field from what may be published: dollars as `0.00`
+    strings, enums, timestamps and transaction signatures. A page with any
+    other value is withheld whole. Off unless ACCOUNTS_PUBLISH=1."""
+    if not hand.flag("ACCOUNTS_PUBLISH", False):
+        return {}
+    out: dict[str, Json] = {}
+    for row in _rows(conn, "SELECT week, page FROM wallet_accounts ORDER BY week"):
+        try:
+            page = json.loads(row["page"])
+            clean = _public_page(page)
+        except (Withheld, ValueError, TypeError, KeyError, AttributeError):
+            continue
+        out[f"{ACCOUNTS_DIR}/{clean['week']}.json"] = clean
+    return out
+
+
+def _public_page(page: Json) -> Json:
+    dollars = lambda value: _match(DOLLARS, value)  # noqa: E731
+    clean: Json = {
+        "week": _match(WEEK, page["week"]), "from": _match(ISO_AT, page["from"]), "to": _match(ISO_AT, page["to"]),
+        "days": _int(page["days"], 1),
+        "costs": {k: dollars(page["costs"][k]) for k in COST_LINES},
+        "income": {k: dollars(page["income"][k]) for k in INCOME_LINES},
+        "net": dollars(page["net"]), "team": dollars(page["team"]), "unclassified": dollars(page["unclassified"]),
+        "paid_out": {_one_of(PURPOSES, k): dollars(v) for k, v in page["paid_out"].items()},
+        "tiny_bought": dollars(page["tiny_bought"]),
+        "sol_received_lamports": {_one_of(INFLOW_CATEGORIES, k): _match(LAMPORTS, v) for k, v in page["sol_received_lamports"].items()},
+        "team_known": page["team_known"] is True,
+        "not_counted": [_one_of(NOT_COUNTED, v) for v in page["not_counted"]],
+        "inflows": [],
+    }
+    for item in page["inflows"]:
+        asset = _one_of(INFLOW_ASSETS, item["asset"])
+        clean["inflows"].append({
+            "signature": _match(SOLANA_SIG, item["signature"]), "at": _match(ISO_AT, item["at"]), "asset": asset,
+            "amount_raw": _match(LAMPORTS, item["amount_raw"]), "category": _one_of(INFLOW_CATEGORIES, item["category"]),
+            "usd": dollars(item["usd"]) if asset == "USDC" else None})
+    if page.get("complete") is not True:
+        raise Withheld
+    return clean
+
+
+def write_accounts(root: Path, pages: dict[str, Json]) -> list[str]:
+    """Writes the pages not yet in the repository. A published page is never
+    rewritten: the week's numbers are what they were when it closed."""
+    written = []
+    for name, value in pages.items():
+        path = root / name
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(canonical(value) + "\n", encoding="ascii")
+        written.append(name)
+    return written
+
+
 def _as_int(value: Any) -> int | None:
     try:
         return int(str(value))
@@ -581,7 +653,8 @@ def _issued_db() -> sqlite3.Connection:
     return hand.open_db(ISSUED_SCHEMA)
 
 
-def publish(actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
+def publish(actions: list[Action], stats: Json | None = None, wallet: Json | None = None,
+            accounts: dict[str, Json] | None = None) -> Json:
     token = hand.setting("RECEIPTS_GITHUB_TOKEN") or hand.setting("DIARY_GITHUB_TOKEN") or hand.setting("GITHUB_TOKEN")
     if not token:
         raise hand.HandError("no token: set RECEIPTS_GITHUB_TOKEN (or GITHUB_TOKEN) in secrets/teeny.env")
@@ -597,7 +670,8 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
         fresh = [a for a in actions if a.key and a.key not in published]
         issued = append(repo, fresh, seq, prev, _iso(hand.now())[:10]) if fresh else []
         write_numbers(repo, stats, wallet)
-        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE) if (repo / p).exists()]
+        write_accounts(repo, accounts or {})
+        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, ACCOUNTS_DIR) if (repo / p).exists()]
         if paths:
             _git(repo, "add", "--", *paths)
         if not _git(repo, "diff", "--cached", "--name-only").strip():
@@ -607,7 +681,7 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
         except hand.Refused as why:
             _git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the receipts carry a secret, nothing committed", why=why.reason) from None
-        message = f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}" if issued else "receipts: stats and wallet"
+        message = f"receipts: {issued[0]['seq']}-{issued[-1]['seq']}" if issued else "receipts: stats, wallet and accounts"
         _git(repo, "commit", "-q", "-m", message)
         try:
             _git(repo, "push", "-q", "origin", f"HEAD:{branch}", token=token)
@@ -626,12 +700,14 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1}
 
 
-def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
+def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None,
+            accounts: dict[str, Json] | None = None) -> Json:
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)
     issued = append(root, [a for a in actions if a.key], 0, GENESIS, _iso(hand.now())[:10])
     write_numbers(root, stats, wallet)
+    write_accounts(root, accounts or {})
     return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0}
 
 
@@ -664,16 +740,17 @@ def main(argv: list[str]) -> int:
         try:
             actions, withheld = gather(conn)
             stats = public_stats(conn)
+            accounts = public_accounts(conn)
         finally:
             conn.close()
         wallet = public_wallet(_core, hand.secrets())
-        numbers = {"stats": stats["date"] if stats else None, "wallet": wallet is not None}
+        numbers = {"stats": stats["date"] if stats else None, "wallet": wallet is not None, "accounts": sorted(accounts)}
         if args.preview or hand.dry_run():
             root = Path(args.preview) if args.preview else hand.state_dir() / "receipts-preview"
             hand.emit({"ok": True, "dry_run": True, "preview": str(root), "withheld": withheld, **numbers, "pushed": 0,
-                       **preview(root, actions, stats, wallet)})
+                       **preview(root, actions, stats, wallet, accounts)})
             return 0
-        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **numbers, **publish(actions, stats, wallet)})
+        hand.emit({"ok": True, "dry_run": False, "withheld": withheld, **numbers, **publish(actions, stats, wallet, accounts)})
         return 0
     except hand.Refused as refused:
         hand.emit({"ok": False, "refused": refused.reason, **refused.detail})
