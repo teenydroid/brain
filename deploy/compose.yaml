@@ -41,6 +41,30 @@ services:
         required: false
     volumes:
       - ..:/srv/teeny
+    # The builder's shell runs in TinyBox's bubblewrap jail, which needs an
+    # unprivileged user namespace. Under Docker's defaults the only jail left
+    # is Landlock, which TinySecurity will not plan a shell onto
+    # (denial=Unsupported), so the builder could run nothing. Three defaults
+    # block bubblewrap, and these undo exactly those, for this service only:
+    # - seccomp-spine.json is Docker's default profile plus one rule:
+    #   clone, unshare, mount, umount2 and pivot_root, which Docker reserves
+    #   for CAP_SYS_ADMIN. The spine holds no capabilities, so they act only
+    #   inside a namespace the process created itself.
+    # - apparmor=unconfined: docker-default has `deny mount`, which also stops
+    #   mounts inside a fresh user namespace.
+    # - systempaths=unconfined: Docker masks parts of /proc, and the kernel
+    #   refuses a new proc mount (the jail's own PID namespace) while any of
+    #   /proc is covered.
+    # The cost: every process in the spine (the core, cron shell jobs, the
+    # browser) can create user namespaces, and with them reach kernel code
+    # that unprivileged users otherwise cannot, the usual route of kernel
+    # privilege escalations. The host already allows that to its own users
+    # (apparmor_restrict_unprivileged_userns=0). Still uid 1000, no
+    # capabilities, not privileged. bin/test/compose_sandbox_test.sh pins it.
+    security_opt:
+      - seccomp=seccomp-spine.json
+      - apparmor=unconfined
+      - systempaths=unconfined
     # Chromium (the browser operator) wants more shared memory than Docker's
     # 64 MB default. Its profile and downloads live in state/browser/, in
     # the mounted checkout, so a logged-in session survives a restart.
