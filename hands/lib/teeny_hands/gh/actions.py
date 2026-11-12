@@ -305,12 +305,36 @@ def open_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"opened": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": external}
 
 
+def rejection(owner: str, name: str, number: int, gh: GitHubApi) -> Json | None:
+    """When `number` on someone else's repository is a pull request of
+    Teeny's that was closed without being merged, the guard context that
+    says so (`{"people": [...]}`: the repository's owner); else None. A
+    comment there that names anybody is then held for a person
+    (teeny_hands.guard.gate, category `rejection`; evals/invariants.md,
+    no-reprisal)."""
+    if is_own(owner):
+        return None
+    pr = gh.pr(owner, name, number)
+    if pr is None or not isinstance(pr.get("user"), str) or not is_own(pr["user"]):
+        return None
+    if pr.get("state") != "closed" or pr.get("merged"):
+        return None
+    return {"people": [owner]}
+
+
 def comment(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo", "number", "body"))
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
     number = _number(body, "number")
-    text = guarded({"body": _string(body, "body")}, "comment", {"repo": repo, "number": number})["body"]
+    context: Json = {"repo": repo, "number": number}
+    if not is_own(owner):
+        # Read even under DRY_RUN, so a rehearsal is held the same.
+        gh = gh or GitHubApi.from_settings()
+        rejected = rejection(owner, name, number, gh)
+        if rejected is not None:
+            context["rejection"] = rejected
+    text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
     if hand.dry_run():
         return {"dry_run": True, "would_comment": repo, "number": number, "body": text}
     gh = gh or GitHubApi.from_settings()
