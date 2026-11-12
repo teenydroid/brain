@@ -408,7 +408,7 @@ check "the builder is told where its desk is" grep -q 'desk/build.json' <<<"$(bu
 # and no `tools`, and Surplus read each <tool_call> body as the tool's name.
 # bin/spine turns native tool calls on, so the shell rides the wire as a tool.
 check "the builder is offered the shell as a native tool" \
-  bash -c 'jq -e "[.tools[]?.function.name] | index(\"shell\")" <<<"$1" >/dev/null' _ "$(builder_request)"
+  bash -c "jq -e '[.tools[]?.function.name] | index(\"shell\")' <<<\"\$1\" >/dev/null" _ "$(builder_request)"
 check "the builder run is rooted at the workbench" grep -q "rooted at its agent's workspace" "$scratch/spine.log"
 # The regression: a shell rooted at the checkout, which holds brain/, was
 # refused as a grant over the core workspace on every call. Never again,
