@@ -2039,16 +2039,21 @@ def pr_text(gen: int, cand: Json, others: list[Json]) -> tuple[str, str]:
     return title, body
 
 
-def commit_branch(tree: Path, branch: str, title: str) -> str:
-    """Commits the candidate on BRANCH (or BRANCH-<n> when a branch of that
-    name is left from an earlier state/evolve); returns the branch."""
+def new_branch(tree: Path, branch: str) -> str:
+    """Switches TREE to a new BRANCH (or BRANCH-<n> when a branch of that
+    name is left from an earlier state/evolve); returns its name."""
     taken = set(git(in_tree(tree), "for-each-ref", "--format=%(refname:short)", f"refs/heads/{branch}*").split())
     name, n = branch, 1
     while name in taken:
         n += 1
         name = f"{branch}-{n}"
-    branch = name
-    git(in_tree(tree), "switch", "-q", "-c", branch)
+    git(in_tree(tree), "switch", "-q", "-c", name)
+    return name
+
+
+def commit_branch(tree: Path, branch: str, title: str) -> str:
+    """Commits the candidate on a new BRANCH; returns the branch."""
+    branch = new_branch(tree, branch)
     stage(tree)
     git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
     return branch
@@ -2441,8 +2446,9 @@ def revert(cfg: Config, gen: int, cand: Json, publisher: Publisher | None, promo
         try:
             parents = git(in_tree(tree), "rev-list", "--parents", "-n", "1", sha).split()
             mainline = ["-m", "1"] if len(parents) > 2 else []
+            branch = new_branch(tree, branch)
             git(in_tree(tree), "revert", "--no-commit", *mainline, sha)
-            branch = commit_branch(tree, branch, title)
+            git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
             hits = [h.path for h in frozen.check(tree, main, branch)]
             if hits:
                 raise EvolveError(f"the revert touches frozen paths: {', '.join(hits)}")
