@@ -114,8 +114,9 @@ Every hand prints one JSON object and exits with one of three codes:
 2   a rule refused (the JSON says which)
 1   an error
 ```
- Add `--help` to any hand or verb for its flags. [`hands.md`](hands.md) lists every
-verb.
+
+Add `--help` to any hand or verb for its flags. [`hands.md`](hands.md) lists
+every verb.
 
 ## Schedule a job
 
@@ -139,7 +140,15 @@ always added and do not count toward the 24. These rules live in
 ## Configure it
 
 Everything secret lives in `secrets/`. That folder is gitignored and outside
-the brain.
+the brain. Two env files feed two different readers:
+
+```
+secrets/spine.env ──► bin/spine, at every boot ──► the core (model endpoint, CortexDB;
+                                                    the API key goes into its encrypted store)
+secrets/teeny.env ──► each hand, read by the hand itself ──► X, GitHub, mail, wallet, ...
+                      (the model never sees it)
+secrets/core.token, secrets/openhuman.key ◄── written by the spine on first boot
+```
 
 **`secrets/spine.env`** (what `bin/spine` gives the core at every boot;
 example: `deploy/spine.env.example`):
@@ -175,9 +184,9 @@ Reviewed by the operator, outside the brain Teeny edits. `bin/spine` writes it
 into the core's config at every boot, and `hands/tasks add` refuses a task that
 starts anywhere else.
 
-**What `bin/spine` writes into the core's config at every boot**
-(`bin/lib/core_config.py` runs each module in `bin/lib/core_sections/`; each
-table is replaced whole): `[cron]` (a shell job may run 30 minutes),
+At every boot `bin/spine` also writes these tables into the core's config
+(`bin/lib/core_config.py` runs each module in `bin/lib/core_sections/`, and
+each table is replaced whole): `[cron]` (a shell job may run 30 minutes),
 `[autonomy]`, `[browser]`, `[http_request]`, `[modules]` (TinyComputer and
 tinywallet from the spine's own executable), `[context]` (when a thread
 folds) and `[secrets]` (config secrets unencrypted, since a headless core has
@@ -196,7 +205,7 @@ The database is unreadable without its key.
                  │ spine/  vendor/  bin/  deploy/  evals/  Cargo.*  DIRECTIVE.md               │
                  │ hands/guard  hands/x  the existing hand library  brain/agents/*.toml        │
                  └─────────────────────────────────────────────────────────────────────────────┘
-                 ┌──────────────── Teeny's own: it may change these through a PR ──────────────┐
+                 ┌──────────────── Teeny's own: it changes these in PRs and generations ───────┐
                  │ brain/ (SOUL, CONTEXT, playbooks, skills, narrative, agent prompts)         │
                  │ new hands it writes under hands/lib/teeny_hands/<name>/                     │
                  └─────────────────────────────────────────────────────────────────────────────┘
