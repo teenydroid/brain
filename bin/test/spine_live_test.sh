@@ -113,7 +113,11 @@ class Model(BaseHTTPRequestHandler):
             else:
                 with open(sys.argv[5]) as desk:
                     workdir = json.load(desk)["job"]["workdir_path"]
-                command = f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
+                # The jail confines files, not the network: the shell shares the
+                # host's, so it reaches this model on loopback (a printed status,
+                # computed by the shell like the marker).
+                command = (f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
+                           f" && echo \"teeny-net-$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{sys.argv[1]}/v1/models)\"")
                 answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
         if body.get("stream"):
             self.send_response(200)
@@ -398,6 +402,8 @@ else
   check "the builder's shell is not refused" bash -c "! grep -q 'refused the spawn' '$scratch/spine.log'"
   check "the builder's shell ran in its job's folder" test -n "$workdir" -a -e "$workdir/shell-ran"
   check "the builder saw the shell's output" grep -qF "teeny-shell-2-ran:$workdir" "$scratch/model-bodies.jsonl"
+  # builder.toml and docs/architecture.md say it plainly: files jailed, network not.
+  check "the builder's shell has the host's network" grep -qF "teeny-net-200" "$scratch/model-bodies.jsonl"
 fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
