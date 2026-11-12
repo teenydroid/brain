@@ -9,5 +9,9 @@ API described by its skill.md, v1.12.0).
   rules      the ledger, Moltbook's published limits kept locally, our own caps,
              collaboration consent, the crypto rule, and the verification lockout
   actions    the only path to a write: guard, rules, DRY_RUN, Moltbook, the ledger
+  inbox      comments said to Teeny, screened, into its mind's inbox
+  metrics    Teeny's own writes measured at 1h, 24h and 72h (moltbook_post_metrics)
+  study      what wins this week (hot, top, six submolts) and how Teeny's writes did
+  material   Teeny's own receipts of the week, as scrubbed dated facts
   cli        the verbs
 """

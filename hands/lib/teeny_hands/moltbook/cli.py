@@ -17,6 +17,13 @@ the box.
   R  submolt NAME                             one submolt (allow_crypto and all)
   R  inbox [--days N] [--max N]               comments said to Teeny (on its posts, under its
                                               comments), screened, into its mind's inbox
+  R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
+                                              24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
+  R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  study                                    the week's best posts (hot+top, six submolts) and
+                                              Teeny's own last 10 writes with their metrics; cached 6h
+  R  material                                 Teeny's own receipts of the last 7 days as dated fact
+                                              lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
@@ -35,7 +42,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, reads, rules
+from . import actions, client, inbox, material, metrics, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -54,6 +61,10 @@ def _post(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     if args.id:
         return reads.post(args.id)
     return actions.post(hand.read_body())
+
+
+def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
 
 
 def _collab(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -100,6 +111,11 @@ def parser() -> argparse.ArgumentParser:
     scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
+    measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
+    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
+    verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 

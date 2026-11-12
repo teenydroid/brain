@@ -111,6 +111,30 @@ class StatsTest(unittest.TestCase):
         out = collect.report(1)
         self.assertEqual((out["days_recorded"], out["first_recorded"]), (2, "2026-09-14"))
 
+    def test_bin_stats_snapshot_refreshes_moltbook_metrics_first(self):
+        from teeny_hands.moltbook import rules
+
+        rules.db().execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status)"
+                           " VALUES ('p1', ?, 'general', 't', 'verified')", (T0 - 2 * 3600,))
+        self.fake.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 4, "comment_count": 1}})
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot")], capture_output=True, text=True,
+                              env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        lines = done.stdout.splitlines()
+        self.assertEqual(len(lines), 1, done.stdout)
+        self.assertEqual(json.loads(lines[0])["date"], "2026-09-14")
+        rows = rules.db().execute("SELECT target_id, checkpoint, score FROM moltbook_post_metrics").fetchall()
+        self.assertEqual([tuple(r) for r in rows], [("p1", 1, 4)])
+
+    def test_bin_stats_snapshot_goes_on_when_the_moltbook_refresh_fails(self):
+        self.configure(MOLTBOOK_API_KEY=None)
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot")], capture_output=True, text=True,
+                              env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["skipped"]["moltbook"], "MOLTBOOK_API_KEY not set")
+
     def test_cli(self):
         done = subprocess.run([sys.executable, "-I", "-B", str(STATS), "snapshot"], capture_output=True, text=True,
                               env=os.environ, timeout=60, stdin=subprocess.DEVNULL)

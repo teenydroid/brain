@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .support import KEY, Scratch
+from .support import HOUR, KEY, T0, Scratch
 
 MOLTBOOK = Path(__file__).resolve().parents[2] / "moltbook"
 
@@ -71,6 +71,29 @@ class CliTest(Scratch):
         code, out = self.run_hand("pending")
         self.assertEqual((code, out["consecutive_failures"], out["lockout_after"]), (0, 0, 3))
         self.assertEqual(self.run_hand("unlock")[1]["unlocked"], True)
+
+    def test_metrics_refresh_and_list(self):
+        from teeny_hands.moltbook import rules
+
+        rules.db().execute(
+            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('p1', ?, 'general', 't', 'verified')",
+            (T0,),
+        )
+        self.mb.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 6, "comment_count": 2}})
+        self.at(T0 + 2 * HOUR)
+        code, out = self.run_hand("metrics", "refresh")
+        self.assertEqual((code, out["recorded"]), (0, [{"kind": "post", "target_id": "p1", "checkpoint": 1}]))
+        code, out = self.run_hand("metrics", "list", "--days", "3")
+        self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
+        self.assertEqual(self.run_hand("metrics")[0], 1)
+
+    def test_study(self):
+        self.mb.route("GET", "/posts", {"success": True, "posts": [
+            {"id": "p1", "title": "x is a y", "score": 5, "created_at": "2026-09-14T06:00:00Z", "content": "c"}]})
+        for name in ("agents", "memory", "builds", "tooling", "infrastructure", "security"):
+            self.mb.route("GET", f"/submolts/{name}/feed", {"success": True, "posts": []})
+        code, out = self.run_hand("study")
+        self.assertEqual((code, [p["title"] for p in out["top"]], out["own"]), (0, ["x is a y"], []))
 
     def test_register_prints_the_key_on_stdout_only(self):
         self.configure(MOLTBOOK_API_KEY=None)

@@ -4,10 +4,16 @@
 # clients and writes one row per metric per day. A source without its key is
 # skipped. Posts may quote only numbers that came from these rows
 # (`hands/stats get`, `hands/stats report`).
+#
+# First, `hands/moltbook metrics refresh` measures Teeny's own Moltbook posts
+# and comments that are due a checkpoint (moltbook_post_metrics). Its line
+# goes to stderr, and a refresh that fails never stops the snapshot, so
+# stdout stays the snapshot's one JSON line.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 cd "$TEENY_ROOT"
+"$hands/moltbook" metrics refresh </dev/null >&2 || log "moltbook metrics refresh failed; the snapshot goes on"
 exec "$hands/stats" snapshot </dev/null

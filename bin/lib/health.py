@@ -40,7 +40,11 @@ Every run:
    not.
 6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
-   did not run), and `stale_crons`, `rearmed` and `cron_alarm`.
+   did not run), `stale_crons`, `rearmed` and `cron_alarm`, and
+   `moltbook_unverified`: how many of the last day's Moltbook writes are
+   still hidden behind an unsolved challenge, when fewer than nine in ten
+   of at least three are visible (null otherwise). That one is a count on
+   the line only; it raises no alarm.
 
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
@@ -55,7 +59,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -67,6 +70,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.gh import actions as gh  # noqa: E402
 from teeny_hands.guard import rescreen  # noqa: E402
+from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
@@ -85,25 +89,21 @@ STALE_SECS = 600
 #: A run in flight renews the claim on its slot (the core's occurrence lease)
 #: every 30 s; a claim nobody renewed for this long is a gone process's.
 LEASE_FRESH_SECS = 120
+#: Moltbook hides a write until its challenge is solved: the share of the
+#: last MOLTBOOK_WINDOW_SECS's writes that must be visible, once at least
+#: MOLTBOOK_MIN_WRITES went out.
+MOLTBOOK_VERIFIED_SHARE = 0.9
+MOLTBOOK_MIN_WRITES = 3
+MOLTBOOK_WINDOW_SECS = 86400
 
 Json = dict[str, Any]
-
-_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
-_HOST = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
-_KEYISH = re.compile(r"\b(?:sk|pk|ghp|gho|github_pat|xox[a-z]?|AKIA)[-_A-Za-z0-9]{6,}|[A-Za-z0-9_-]{32,}")
-
 
 # --- the probe and the signals --------------------------------------------------------
 
 
 def scrub(error: str) -> str:
-    """One line of an error, safe to keep and to publish: no URL, no
-    address, nothing that looks like a key, and not too long."""
-    line = " ".join(str(error).split())
-    line = _URL.sub("[url]", line)
-    line = _HOST.sub("[host]", line)
-    line = _KEYISH.sub("[redacted]", line)
-    return line if len(line) <= MAX_ERROR_CHARS else line[:MAX_ERROR_CHARS].rstrip() + "..."
+    """One line of an error, safe to keep and to publish (teeny_hands.scrub)."""
+    return _scrub(error, MAX_ERROR_CHARS)
 
 
 def _words(reply: Any) -> str:
@@ -141,6 +141,36 @@ def judge_holds(since: float) -> int:
     except sqlite3.OperationalError:  # no holds table yet
         return 0
     return int(row[0])
+
+
+def moltbook_unverified(since: float) -> int | None:
+    """Teeny's Moltbook writes since `since` that nobody can see yet (any
+    accepted status but `verified` or `posted`), when at least
+    MOLTBOOK_MIN_WRITES went out and fewer than MOLTBOOK_VERIFIED_SHARE of
+    them are visible; None otherwise. A count on the line, never an alarm:
+    the model is fine, and the issue is filed by nothing."""
+    from teeny_hands.moltbook import rules as moltbook
+
+    counted = ",".join("?" * len(moltbook.COUNTED))
+    visible = ",".join("?" * len(moltbook.ACCEPTED))
+    try:
+        conn = hand.db()
+        try:
+            total, seen = 0, 0
+            for table in ("moltbook_posts", "moltbook_comments"):
+                row = conn.execute(
+                    f"SELECT count(*), coalesce(sum(status IN ({visible})), 0) FROM {table}"
+                    f" WHERE at >= ? AND status IN ({counted})",
+                    (*moltbook.ACCEPTED, since, *moltbook.COUNTED),
+                ).fetchone()
+                total, seen = total + int(row[0]), seen + int(row[1])
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:  # Moltbook never written to
+        return None
+    if total < MOLTBOOK_MIN_WRITES or seen >= MOLTBOOK_VERIFIED_SHARE * total:
+        return None
+    return total - seen
 
 
 def _storage() -> Path:
@@ -498,7 +528,8 @@ def check() -> Json:
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
-                     "alarm": None, "issue": None, "rescreen": None}
+                     "alarm": None, "issue": None, "rescreen": None,
+                     "moltbook_unverified": moltbook_unverified(now - MOLTBOOK_WINDOW_SECS)}
         alarm = state.get("alarm")
         if error is None:
             if alarm:
