@@ -136,6 +136,9 @@ class EvolveCase(unittest.TestCase):
     # --- helpers -------------------------------------------------------------------
 
     def config(self, **values):
+        # No test boots a real core: the lab evaluator is switched off
+        # unless a test asks for it (and then its spine is a stand-in).
+        values.setdefault("EVOLVE_EVALUATOR", "none")
         text = "".join(f"{k}={v}\n" for k, v in values.items())
         (self.root / "secrets" / "evolve.env").write_text(text)
 

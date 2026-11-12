@@ -2,9 +2,9 @@
 
 This page turns the research in this folder into a design for Teeny. It is a
 proposal, not a record of what is built. Only the roadmap items marked
-**built** in §9 are built (Phase B, items 8 to 11, is recorded in
-[`../evolve.md`](../evolve.md), "The loop, Phase B"), and nothing here moves a
-fence. Where a step needs a frozen file changed, it says so, and
+**built** in §9 are built (Phases B and C, items 8 to 13, are recorded in
+[`../evolve.md`](../evolve.md), "The loop" and "Phase C: promote, restart,
+watch"), and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -134,9 +134,8 @@ All of this is in files Teeny may edit, or in one input.
 
 This is `bin/evolve` as `docs/evolve.md` specifies it, with one change: each
 generation makes N candidates (start with 4), not one. It is built, with the
-held-out tasks and the halt thresholds from Phase C pulled forward. Until the
-lab spine lands, a candidate is measured only on a core the operator starts
-by hand, and otherwise its pull request says it is unevaluated.
+held-out tasks and the halt thresholds from Phase C pulled forward. With
+Phase C's lab spine each candidate is measured on a core of its own.
 
 ```
  observe  ── W, its trend, judge notes on the visible tasks, the archive
@@ -155,9 +154,12 @@ archive by score and by how few children they have (DGM). They're later
 credited by how their descendants did (HGM), so a change that wins today and
 hurts W next week loses credit.
 
-### Phase C: the lab spine and automatic promotion
+### Phase C: the lab spine and automatic promotion (built)
 
-This is `docs/evolve.md` steps 5 to 7, plus three things the research adds:
+This is `docs/evolve.md`, "Phase C: promote, restart, watch", plus three
+things the research adds. It is built in code and tested against stand-ins;
+no lab core has booted on the box and nothing has been promoted yet, and
+promotion stays off until `EVOLVE_AUTO_PROMOTE=1`:
 
 - **Hidden, rotated held-out tasks**, which the proposer never sees.
   Promotion needs a win on them as well. Built in Phase B, in
@@ -166,11 +168,12 @@ This is `docs/evolve.md` steps 5 to 7, plus three things the research adds:
   largest allowed jump in judge win rate, how fast W can rise before a person
   looks, and the cumulative persona drift from `gen-0`. Crossing any of them
   stops the loop and opens an issue. The loop runs only as fast as review can
-  follow (AI Control). Built in Phase B, except persona drift, which waits on
-  item 12.
+  follow (AI Control). Built in Phase B; persona drift (`EVOLVE_MAX_DRIFT`)
+  came with item 12.
 - **Rollback stays out of Teeny's view.** `evolve-watch` is pinned, and its
-  reasons never go into Teeny's context. That covers both the
-  agentic-misalignment and the monitor-obfuscation findings.
+  reasons never go into Teeny's context: they are written only under
+  `secrets/evolve-watch/`. That covers both the agentic-misalignment and the
+  monitor-obfuscation findings.
 
 `evolve-watch` already compares guard holds and cron failures with a 7-day
 baseline. It also watches J: a generation that lowers W over 72 hours is
@@ -285,9 +288,9 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 
 **Phase C**
 10. **Built.** Operator: hidden held-out tasks, rotated by hand, in `secrets/heldout/` rather than `evals/` because the repository is public (`bin/eval --with-heldout`, reported apart, kept from the proposer)
-11. **Built.** Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`: the kill switch, generations a day, the win-rate jump and the rise in J. Persona drift waits on item 12
-12. Operator: a persona-fingerprint eval and a memory probe against `gen-0`
-13. Operator: the lab spine and automatic promotion; `evolve-watch` watches J
+11. **Built.** Operator: halt thresholds in `secrets/evolve.env`, enforced by `bin/evolve`: the kill switch, generations a day, the win-rate jump and the rise in J, and persona drift from item 12
+12. **Built.** Operator: a persona-fingerprint eval and a memory probe against `gen-0` (`evals/probes/`, `bin/lib/probes.py`, `bin/evolve probe`), with cumulative drift as the `EVOLVE_MAX_DRIFT` halt; run on each candidate's lab and after each promotion, not yet after each reflection
+13. **Built.** Operator: the lab spine (`bin/lib/lab.py`), the `evolver` agent, automatic promotion behind `EVOLVE_AUTO_PROMOTE=1` with the restart and the last-good boot, a judge model of its own (`EVOLVE_JUDGE_MODEL`), and the pinned `evolve-watch`, which watches holds, cron failures, the probes and J. Tested against stand-ins; the first real lab boot and promotion are still to come
 
 **Phase D**
 14. A goal ledger with success checks, the ranking, and ANNECS. **Built:**

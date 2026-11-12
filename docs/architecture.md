@@ -205,8 +205,9 @@ brain/
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
 `narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
-merged only if it wins, behind rules in code the brain cannot edit. The spec
-is [`evolve.md`](evolve.md); the loop itself is not built yet.
+merged only if it wins, behind rules in code the brain cannot edit. The loop
+is `bin/evolve`, documented in [`evolve.md`](evolve.md): the operator merges
+what it proposes unless `EVOLVE_AUTO_PROMOTE=1`.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -513,6 +514,7 @@ are built at boot (§4a).
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |
 | `operator` | the pinned `operator` cron job (§6a) | `browser`, `file_read`, `file_write` |
+| `evolver` | `bin/evolve` with `EVOLVE_PROPOSER=evolver`, on a lab spine over one candidate's worktree ([`evolve.md`](evolve.md)) | file tools only, rooted in that worktree |
 
 `bin/ask` without `--agent` runs as the core's default orchestrator. Whoever
 can run it holds the core token, so it is the operator's way in and is never

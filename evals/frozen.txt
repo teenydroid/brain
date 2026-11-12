@@ -46,6 +46,8 @@ brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
 brain/agents/builder.toml
 brain/agents/operator.toml
+# The agent bin/evolve's lab spine proposes with: file tools in a worktree.
+brain/agents/evolver.toml
 
 # Every public word goes through the guard, every X action through x.
 hands/guard

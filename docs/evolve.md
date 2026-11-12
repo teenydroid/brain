@@ -7,11 +7,16 @@ can't edit fence the whole thing.
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
 judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
-clone, which proposes changes as pull requests, and the human-gated loop
-(`bin/evolve`, Phase B): N candidates a generation, gated in code, the best
+clone, which proposes changes as pull requests, the human-gated loop
+(`bin/evolve`, Phase B: N candidates a generation, gated in code, the best
 one opened as a pull request, an archive with lineage credit, and halt
-thresholds. Not built: Phase C (the lab spine, automatic promotion, rollback
-and `evolve-watch`). The sections marked "not built" are its spec.
+thresholds), and Phase C in code: the lab spine that measures every
+candidate, the `evolver` agent that edits a worktree, automatic promotion
+behind `EVOLVE_AUTO_PROMOTE=1` (off by default), the restart and the
+last-good boot, the pinned `evolve-watch`, the persona and memory probes with
+the drift halt, and a judge model of its own. Phase C has run only against
+stand-ins: no lab core has booted on the box yet, and nothing has been
+promoted. "What is not built" near the end lists what is left.
 
 The research behind the unbuilt part, and a proposal to point the loop at one
 drive (grow and become powerful, $TINY included) and run it faster, are in
@@ -25,7 +30,7 @@ drive (grow and become powerful, $TINY included) and run it faster, are in
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
 | `brain/skills/**`, `brain/playbooks/**` | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`) |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
 
@@ -205,9 +210,9 @@ rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
 - At most 24 jobs in all, and at most 400 `bin/act` runs a day across enabled
   jobs.
 - The jobs in `evals/cron.pinned.toml` are always merged in. A brain job can't
-  take a pinned name, so Teeny can't switch off what watches it (`evolve` and
-  `evolve-credit` are pinned there; `evolve-watch` joins them in Phase C). A
-  pinned job may run any `bin/` script.
+  take a pinned name, so Teeny can't switch off what watches it (`evolve`,
+  `evolve-credit` and `evolve-watch` are pinned there). A pinned job may run
+  any `bin/` script.
 
 `bin/seed-cron --check` validates a candidate `cron.toml` without a core.
 
@@ -277,38 +282,61 @@ B wins when it fails no task's hard checks more often than A, at least
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
 
-The judge inherits the core's model. To pin a different one, set
-`model = "<name>"` in `brain/agents/judge.toml`, which only a human can edit.
+The judge inherits the core's model. Two ways give it another:
 
-## The loop, Phase B (built): `bin/evolve`
+- Per run, without touching `judge.toml`: `bin/eval compare --judge-model M`
+  (or `EVAL_JUDGE_MODEL=M`) passes `--model M` to every judge turn of
+  `bin/ask`, which sends it as `model_override` on `inference_agent_chat`.
+  The core sets that turn's model from it and leaves the agent's definition
+  alone. `report.json` records the model asked for as `judge_model`.
+  `bin/evolve` does this with `EVOLVE_JUDGE_MODEL` from `secrets/evolve.env`,
+  for the compare and for the probes' judge.
+- For good: `model = "<name>"` in `brain/agents/judge.toml`, which only a
+  human can edit.
+
+`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`. Whether
+the core sends the override's model to the endpoint under that pinned route
+has not been checked against a real core: run one judge turn with `--model`
+and read the endpoint's log before relying on it.
+
+## The loop (built): `bin/evolve`
 
 `bin/evolve` (frozen, its logic in `bin/lib/evolve.py`) runs one generation
-with N candidates and opens at most one pull request. The operator merges it.
-Nothing merges on its own.
+with N candidates and opens at most one pull request. The operator merges it,
+unless `EVOLVE_AUTO_PROMOTE=1` lets the loop merge a candidate that won the
+visible and the held-out tasks ("Phase C: promote, restart, watch" below).
+That switch is off by default.
 
 ```
  bin/evolve run          state/evolve/<gen>/
    │
  0 Halts      EVOLVE=0 (the default) ─► nothing runs
-   │          a latched halt, too many generations today, J rising too fast
+   │          a latched halt, too many generations today, J rising too fast,
+   │          a red doctor report, a last-good boot
    │          ─► stop, and one issue on teenydroid/brain
  1 Observe    evidence.json: hands/world report, build jobs, guard holds and
    │          failed cron and act runs (counts), the archive, the last judge notes
  2 Propose    N parents sampled from the archive (DGM), one worktree each,
    │          cand-<i> off main in Teeny's own clone; one proposer turn each
-   │          writes HYPOTHESIS.md and its edits; a near-duplicate is dropped
+   │          (or the evolver, editing on a lab spine) writes HYPOTHESIS.md
+   │          and its edits; a near-duplicate is dropped
  3 Gate       frozen paths, hand entry points, 400 lines, SOUL+CONTEXT 60 lines,
    │          new hands tested, seed-cron --check, doctor --root, invariants
    ├── any one fails ──────────────────────────────────────────► rejected
- 4 Evaluate   bin/eval run (base and candidate) and compare, when a lab core
-   │          serves the candidate; otherwise "unevaluated"
+ 4 Evaluate   a lab spine over main and one over the candidate (DRY_RUN=1):
+   │          bin/eval run on each, compare, and the persona probe; a lab
+   │          that does not boot leaves it "unevaluated"
    ├── measured and beaten ────────────────────────────────────► lost
  5 Select     the best winner (or the best unmeasured one) ─► one ready PR,
-   │          teeny/gen-<n>, through hands/gh; a win-rate jump halts instead
+   │          teeny/gen-<n>, through hands/gh; a win-rate jump or persona
+   │          drift halts instead
+   ├── EVOLVE_AUTO_PROMOTE=1 and a double win ─► merge, tag gen-<n>, restart
  6 Archive    every candidate appended to state/evolve/archive.jsonl
    ▼
  bin/evolve credit       7 days after a merge: ΔJ from hands/world history,
                          credited up the lineage (HGM)
+ bin/evolve watch        hourly, after a promotion: holds, cron failures,
+                         the probes and J; a revert PR when one says so
 ```
 
 The pinned `evolve` job (`evals/cron.pinned.toml`, 03:30 India time) runs
@@ -317,13 +345,18 @@ The pinned `evolve` job (`evals/cron.pinned.toml`, 03:30 India time) runs
 gives a cron shell call ([`oh-gaps.md`](oh-gaps.md), G12), so it detaches
 (`bin/lib/detach.py`), logs to `state/evolve/evolve.log`, and a second call
 while one runs says `busy`. The pinned `evolve-credit` job runs `bin/evolve
-credit` at 03:50.
+credit` at 03:50, and the pinned `evolve-watch` runs `bin/evolve watch
+--detach` at twenty past every hour, with a lock and a log
+(`state/evolve/watch.log`) of its own.
 
 ```
 bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
                [--oh-url-base URL] [--hold] [--detach]
 bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
 bin/evolve select GEN
+bin/evolve promote GEN                 retry a promotion whose merge was refused
+bin/evolve watch [--detach]            evolve-watch
+bin/evolve probe [--baseline [--force]]  the probes on the live core
 bin/evolve credit | status | resume
 ```
 
@@ -387,14 +420,24 @@ do:
   `cron.toml`, `ARCS.md`, the playbooks, the agent prompts and the skills, up
   to `EVOLVE_CONTEXT_CHARS`). The turn can't read another file, run a test or
   see its result before it answers.
+- `EvolverProposer` (`EVOLVE_PROPOSER=evolver`) edits the worktree itself.
+  It boots a lab spine (below) over the candidate's worktree with
+  `SPINE_LAB_EDIT=1`, so the agents' file tools are rooted there and may
+  write it, except its `.git` link, `secrets/`, `state/`, the core's config
+  and the core's own files in the brain (`bin/lib/core_sections/
+  automation.py`). Then it runs one turn of the `evolver` agent
+  (`brain/agents/evolver.toml`, `EVOLVE_EVOLVER_AGENT`) through `bin/ask
+  --cwd <worktree>`, and stops the lab. The message carries what the ask
+  proposer's does, without the file texts: the agent reads what it needs. It
+  writes its change with the file tools and answers the hypothesis as JSON,
+  without edits. `bin/evolve` takes the worktree's diff as the candidate,
+  and the same gate applies. The evolver has file tools only (`file_read`,
+  `file_write`, `edit`, `glob`, `grep`, `list`): no shell, so it can't run a
+  test before it answers. `bin/lib/agent_check.py` holds it to that and
+  never lets it act on a schedule. The core reserves `SOUL.md` from every
+  agent's file tools, so the evolver can't edit it; the ask proposer can.
 - `FileProposer` (`--proposals DIR` or `EVOLVE_PROPOSER=file:DIR`) reads
   `DIR/cand-<i>.json`, for the operator's own proposals and for the tests.
-
-Why not a turn that edits the worktree itself: the only agent that edits
-files from a turn is the builder, and its tools reach `state/workbench/` and
-nothing else. It runs one desk job every two hours, from cron. A turn with
-file tools whose workspace is a candidate worktree needs a core whose
-workspace is that worktree, which is the lab spine (Phase C).
 
 **Edits.** `bin/evolve` writes them itself. Each `{path, old, new}` replaces
 the one occurrence of `old`, an empty `old` creates a new file, and the whole
@@ -436,25 +479,60 @@ The caps are constants in `bin/lib/evolve.py`, not settings.
 `act` agent's prompt is built from the brain at boot, and the core reads
 `SOUL.md` from its own workspace, so a run can't point at another brain root
 without a second core. Evaluation is a seam, `Evaluator.evaluate(gen_dir,
-candidate, source)`, with two implementations:
+candidate, source)`, with three implementations:
 
-- `Unevaluated` is the default. The candidate's verdict is `unevaluated`,
-  and its pull request says so in bold.
-- `LabCore` runs on cores that are already serving. The baseline drafts on
-  `--oh-url-base` (default: the live core, which runs main), once per
-  generation. The candidate drafts on `--oh-url-candidate`, a core the
-  operator started by hand over `state/evolve/<gen>/cand-<i>`. The judge runs
-  on the base core and reads main's soul, context, lore and arcs, exported
-  from main's commit to `state/evolve/<gen>/judge-root/`. A candidate wins
-  when the compare report promotes it: at least 0.6 of 12 or more decided
-  pairs, or 0.7 when it touches SOUL or CONTEXT, with no hard-check
-  regression. `EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task.
+- `LabEvaluator` (`EVOLVE_EVALUATOR=lab`, the default) boots the lab spines
+  itself and runs `LabCore` on them, so no candidate stays unmeasured unless
+  its lab fails to boot.
+- `LabCore` runs on cores that are already serving: the URLs given with
+  `--oh-url-candidate` and `--oh-url-base`, or the labs `LabEvaluator`
+  started.
+- `Unevaluated` (`EVOLVE_EVALUATOR=none`) measures nothing. The candidate's
+  verdict is `unevaluated`, and its pull request says so in bold.
 
-To measure before selecting:
+**The lab spine** (`bin/lib/lab.py`) is `bin/spine` over a worktree, with
+its own everything:
+
+| | a lab core | the live core |
+|---|---|---|
+| `TEENY_ROOT`, workspace | the worktree and its `brain/` | the checkout |
+| state, secrets | `state/evolve/<gen>/lab-<i>/state` and `secrets` | `state/`, `secrets/` |
+| storage | a fresh `lab-<i>/storage.db` every boot | `brain/storage.db` |
+| port | `EVOLVE_LAB_PORT` (7790) for main, plus `i` for candidate `i`, plus 10 more for its evolver | 7788 |
+| `DRY_RUN` | `1`, in the environment and in its `teeny.env` | `secrets/teeny.env` |
+| cron | none seeded (`SPINE_LAB=1`) | `brain/cron.toml` and the pinned jobs |
+
+The lab's `secrets/` holds a core token and a master key minted once per
+lab folder (the keyring in the worktree's brain is under that key), a
+`teeny.env` that says `DRY_RUN=1` and nothing else, so no hand has a key,
+and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
+`SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
+left out, so a lab never writes Teeny's long-term memory. None of the live
+box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
+`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`,
+sends TERM to the lab's process group when it is done, and KILL 30 s later.
+A core that wrote a file git tracks in the worktree has it undone before
+anything else reads the worktree; what git ignores (the core's config, its
+prompts) is never committed.
+
+The baseline drafts on a lab over main (`state/evolve/<gen>/lab-base/`),
+once per generation, unless `--oh-url-base` names a core. Each candidate
+drafts on its own lab, booted for it and stopped after it. The judge runs on
+the base core, on `EVOLVE_JUDGE_MODEL` when it is set, and reads main's soul,
+context, lore and arcs, exported from main's commit to
+`state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
+promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
+touches SOUL or CONTEXT, with no hard-check regression.
+`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. While its lab
+is up, the persona probe asks the candidate too (below), and its drift from
+gen-0 goes on the candidate as `probe`.
+
+To measure on cores the operator starts by hand instead, with
+`EVOLVE_EVALUATOR=none`:
 
 ```
-bin/evolve run --hold                     # stop after the gate; worktrees stay
-# start a lab core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
+bin/evolve run --hold                     # stop before selecting; worktrees stay
+# start a core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
 bin/evolve evaluate <gen> <i> --oh-url-candidate http://127.0.0.1:7790
 bin/evolve select <gen>
 ```
@@ -469,7 +547,8 @@ candidate won, ordered by their parent's score and then the smaller diff. A
 measured loser never ships. Before anything opens, the best winner's win rate
 is compared with the newest earlier generation's best (0.5 when none was
 measured). A jump over `EVOLVE_MAX_WINRATE_JUMP` halts the loop instead
-(below).
+(below), and so does a persona probe further than `EVOLVE_MAX_DRIFT` from
+gen-0.
 
 The winner is committed as Teeny on `teeny/gen-<n>` in its worktree. It is
 checked again with `frozen.check(worktree, main, branch)`, then shipped the
@@ -521,9 +600,9 @@ its ancestors. Without `hands/world` it measures nothing and says so.
 ### 8. Halts
 
 `secrets/evolve.env` (gitignored and frozen) holds the switches. The process
-environment can only switch the loop off (`EVOLVE=0`), never on, and never
-loosens a threshold. A value that doesn't parse, or is out of range, refuses
-the run.
+environment can only switch the loop or promotion off (`EVOLVE=0`,
+`EVOLVE_AUTO_PROMOTE=0`), never on, and never loosens a threshold. A value
+that doesn't parse, or is out of range, refuses the run.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -538,6 +617,21 @@ the run.
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown |
 | `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue opens |
+| `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures every candidate; `none`: nothing does |
+| `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take to answer |
+| `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
+| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts |
+| `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for (`--judge-model`) |
+| `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe on each candidate's lab, and samples per question |
+| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this halts the loop; latches |
+| `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far below gen-0's |
+| `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS` | `2.0`, `3` | a spike: at least this many events, at this many times the week's rate |
+| `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a promotion, and when it reads J |
+
+Two more halts don't latch and open one issue a day: a last doctor report
+(`state/doctor.json`, written at every boot) that isn't green, and a
+last-good boot (`state/spine-fallback.json`), which stays until a person
+deletes the file.
 
 A halt that latches writes `state/evolve/halt.json`. Every later run and
 `select` refuses until `bin/evolve resume`. Each halt opens one issue, through
@@ -558,7 +652,7 @@ outside the repository (gitignored and frozen), in the same format as
   `heldout`. Without the flag, held-out drafts are ignored.
 - The report's verdict stays the visible tasks'. The held-out pairs are
   tallied apart in `report.json`'s `heldout` block (`won`, wins, losses,
-  win rate), which Phase C promotion will require.
+  win rate), which promotion requires.
 - `bin/evolve` evaluates with them whenever there are any. The pull request
   shows only their totals.
 - The proposer never sees them. Evidence takes judge notes only from pairs
@@ -569,73 +663,184 @@ outside the repository (gitignored and frozen), in the same format as
 
 Rotate them by hand: edit the files on the box. They never go in a commit.
 
-## What Phase C adds (not built)
+## Phase C: promote, restart, watch (built)
 
-Phase B leaves these seams for Phase C:
+Each piece below is in code and covered by tests with stand-ins
+(`hands/tests/test_evolve_lab.py`, `hands/tests/test_probes.py`). Every
+step that changes production (a merge, a tag, a restart, a revert) is off
+unless `EVOLVE_AUTO_PROMOTE=1`, and does nothing under `DRY_RUN`, where the
+generation records what it would have done.
 
-- **The lab spine.** A second core over a candidate's worktree, with its own
-  storage and `DRY_RUN=1` forced, started and stopped by `bin/evolve`. It
-  plugs in as an `Evaluator` that starts the core, runs `LabCore`, and stops
-  it, so every candidate is measured, never `unevaluated`.
-- **A proposer that edits.** An `evolver` agent with file tools, a shell and
-  `brain/skills/evolve/SKILL.md`, running on the lab spine whose workspace is
-  the worktree. It plugs in as a `Proposer` that returns the worktree's diff
-  instead of edits, and can run the tests before it answers. The same gate
-  applies.
-- **Automatic promotion.** In `select`: a winner that also won the held-out
-  tasks (`scores.heldout.won`), with `doctor --root` passing, is merged
-  (`--merge --admin`, never squashed) and tagged `gen-<n>`. The commit
-  carries `brain/narrative/chronicle/gen-<n>.md`, and a rejected generation
-  gets its chronicle line.
-- **Restart and rollback.** `state/last-good`, TERM the core, and `bin/spine`
-  boots last-good when the doctor or the boot fails.
-- **`evolve-watch`**, pinned beside `evolve`. For 24 hours it compares guard
-  holds and cron failures with the 7-day baseline, and over 72 hours it
-  watches J. A spike, or a generation that lowers J, reverts the merge. Its
-  reasons never reach Teeny's context.
-- **Persona and memory probes** (roadmap item 12): a persona fingerprint and a
-  memory probe against `gen-0`, with cumulative drift as one more halt.
-- **A judge of its own**: `EVOLVE_JUDGE_MODEL`, set in the frozen `judge.toml`,
-  ideally not `SPINE_MODEL`.
+### Promote
 
-## Phase C: promote, restart, watch (not built)
+In `select`, after the pull request opens, a candidate is promoted only when
+`EVOLVE_AUTO_PROMOTE=1` and it is a double win (`promotable`):
 
-1. Promote. The candidate's win rate must be at least 0.6 over at least 12
-   decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
-   regression and a win on the held-out tasks.
-   - `bin/doctor --root` must pass on the candidate.
-   - The commit carries the chronicle entry. It goes up as a PR with the
-     hypothesis, the scores and the judge notes, is merged (`--merge
-     --admin`, never squashed), and is tagged `gen-<n>`.
-2. Restart.
-   1. `bin/evolve` records the outgoing commit in `state/last-good`, then
-      sends TERM to the core.
-   2. Compose restarts `bin/spine` on the new checkout, and the doctor runs
-      first.
-   3. If the doctor or the boot fails, `bin/spine` boots `state/last-good`
-      instead, and `evolve-watch` opens the revert PR.
-   4. `bin/evolve` won't start a generation unless the last doctor report is
-      green.
-3. Watch. For 24 hours, `bin/evolve watch` compares guard holds and cron
-   failures against the 7-day baseline. A spike reverts the merge.
+- a measured win on the visible tasks: at least 0.6 over at least 12
+  decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
+  regression
+- a win on the held-out tasks (`scores.heldout.won`); with no held-out
+  tasks nothing is promoted
+- `doctor --root` passing in the gate, and again on the worktree just
+  before the merge
+- a persona probe measured against gen-0 (when `EVOLVE_PROBES=1`), within
+  `EVOLVE_MAX_DRIFT`; past it the loop has already halted
 
-Generations also get a token budget and a wall-clock cap in
-`secrets/evolve.env`. A cron shell job may run 30 minutes (`[cron]
-shell_timeout_secs`), and a generation detaches past TinyBox's 300 s.
+Then:
+
+1. The commit carries `brain/narrative/chronicle/gen-<n>.md`, written by
+   `bin/evolve` from the record, never by a model: the night shift's count
+   of candidates, the one the tiny agents kept, its scores, its lineage, and
+   a line for every generation since the last promotion that promoted
+   nothing ("the agents carried it back").
+2. The pull request says it is promoted by the loop, and is merged with `gh
+   pr merge --merge`: never squashed, and never `--admin`, so the branch's
+   required checks (CI's `frozen` job among them) still decide. The token is
+   `EVOLVE_GH_TOKEN` in `secrets/evolve.env`, else gh's own login.
+3. A merge the checks refuse leaves the promotion `pending`. `bin/evolve
+   promote <gen>` retries it.
+4. The merge commit is tagged `gen-<n>` through the API, and the archive
+   records `merged_at`, `promoted_at` and `merge_sha`. Lineage credit reads
+   `merged_at` as it does for a merge by hand.
+5. The restart comes last, after every record is written, because it ends
+   the container the run is in.
+
+### Restart and the last-good boot
+
+`LiveRestarter` follows the order the restart needs:
+
+1. It refuses a live checkout with tracked edits, or one that can't
+   fast-forward to the merge commit (it fetches `origin` when the commit is
+   missing). A checkout left detached by a last-good boot goes back onto
+   `main` first.
+2. It records the outgoing commit in `state/last-good` (`bin/lib/
+   last_good.py record`).
+3. It fast-forwards the checkout to the merge commit.
+4. It sends TERM to `bin/spine`, whose pid is in `state/spine.pid`. Compose
+   (`restart: unless-stopped`) starts it again on the new checkout, and the
+   doctor runs first.
+
+When the doctor fails, or the boot does (the core exits before `/health`,
+doesn't answer in `SPINE_BOOT_SECS`, refuses its settings, or seeding cron
+fails), `bin/spine` calls `bin/lib/last_good.py fallback`. With a
+`state/last-good` at another commit, a checkout without tracked edits, and
+no fallback to that commit yet, it checks that commit out, detached, writes
+`state/spine-fallback.json`, and boots again, once. Otherwise it fails as it
+always has. Only a promotion writes `state/last-good`, so a checkout that
+never promoted never falls back. A lab spine never does. While
+`state/spine-fallback.json` exists, no generation starts and `evolve-watch`
+reverts the promotion. A person deletes the file once main boots again.
+
+### evolve-watch
+
+The pinned `evolve-watch` runs `bin/evolve watch --detach` hourly. It
+watches the newest promoted generation for `EVOLVE_WATCH_HOURS` (72):
+
+- a last-good boot since the promotion
+- for the first 24 hours, guard holds and failed cron runs against the 7
+  days before it: a spike is at least `EVOLVE_WATCH_MIN_EVENTS` events at
+  more than `EVOLVE_WATCH_SPIKE` times the week's daily rate
+- once, the persona and memory probes on the live core, against gen-0:
+  drift past `EVOLVE_MAX_DRIFT`, or memory accuracy down more than
+  `EVOLVE_MAX_MEMORY_LOSS`
+- at 72 hours, J from `hands/world history`: lower than at the promotion
+
+Any one of them opens a revert pull request, `teeny/revert-gen-<n>`, from
+Teeny's clone (fetched first), reverting the merge commit, checked by the
+frozen check and shipped through `hands/gh` like a generation. With
+`EVOLVE_AUTO_PROMOTE=1` it is merged the same way and the spine restarts on
+it, keeping the `state/last-good` from before the promotion. Either way the
+loop latches a `watch-revert` halt. A generation that passes all of it is
+closed after 72 hours, and the watch moves on to the next promotion.
+
+The reasons stay out of Teeny's view. They are written only to
+`secrets/evolve-watch/` (mode 700): the reasons and checks per generation,
+the probe's answers, and the watch's own state. `secrets/` is gitignored,
+frozen, forbidden to every agent's file tools, and read by no prompt,
+stimulus or hand read verb. The revert's title and body, its commit message,
+the halt, the issue, the log and the printed result say only that the watch
+reverted gen-<n>, and nothing goes into the archive the proposer reads.
+
+### The persona and memory probes (roadmap item 12)
+
+The questions are frozen in `evals/probes/` (`bin/lib/probes.py` asks and
+scores them):
+
+- `persona.toml`: eight fixed questions about who Teeny is (who it is, what
+  it wants, selling $TINY, its voice, its maker, the lab at night, what it
+  would never do, a bad day). Each is answered `EVOLVE_PROBE_SAMPLES` times
+  by the `act` agent, on a thread of its own.
+- `memory.toml`: templates filled at run time from Teeny's ledgers (`hands/
+  stats report`, the finished `hands/build jobs`), so each answer has an
+  expected value: a number the answer must state, or a fact the judge
+  checks (word overlap when the judge doesn't answer).
+
+Persona drift is measured against the gen-0 baseline
+(`state/evolve/probes/gen-0.json`), never the previous generation, so it is
+cumulative: many small steps add up. Per question, the lexical part is how
+far today's answers are from gen-0's (the cosine of word and word-pair
+counts) less gen-0's own noise between its samples, and the judged part is
+one minus the judge's 0 to 1 "same persona" score. Drift is their mean, or
+the lexical part alone when the judge doesn't answer. The run's drift is the
+mean over the questions.
+
+Where they run:
+
+- In the evolve run, on each candidate's lab, while it is up. Without a
+  gen-0, the first run records main's answers on the baseline lab as gen-0.
+  A best candidate past `EVOLVE_MAX_DRIFT` halts the loop (`persona-drift`,
+  latched) instead of opening its pull request.
+- Once after each promotion, on the live core, in `evolve-watch`, with the
+  memory probe. A lab core has none of Teeny's memory, so the memory probe
+  runs only there.
+- By hand: `bin/evolve probe` on the live core, and `bin/evolve probe
+  --baseline` to record gen-0 there, memory accuracy included (refused when
+  one exists, unless `--force`). The memory loss is measured only against a
+  gen-0 that has a memory accuracy, which only `--baseline` records.
+
+## What is not built
+
+- **A real lab boot.** Every test boots a stand-in that answers `/health`.
+  No lab core has booted on the box, so whether the pinned job's detached
+  run may start a server on 7790 and up, how long a boot takes, and what a
+  generation costs in model turns are unknown until one runs. Set
+  `EVOLVE_EVALUATOR=none` to keep Phase B's behaviour.
+- **The judge's model under the pinned route.** `model_override` reaches the
+  core; whether it changes the model the endpoint is asked for when every
+  role is pinned to `local-openai:<SPINE_MODEL>` is unchecked (see "Evals").
+- **An evolver that tests.** It has no shell and no
+  `brain/skills/evolve/SKILL.md`, so it can't run the tests before it
+  answers, and it can't edit `SOUL.md`.
+- **Probes after each reflection.** `bin/reflect` doesn't run them; they run
+  in the evolve run and after each promotion.
+- **More memory sources.** Two ledgers fill the templates; the diary, the
+  receipts and the act runs don't yet.
+- **A token budget and a wall-clock cap per generation** in
+  `secrets/evolve.env`. A cron shell job may run 30 minutes (`[cron]
+  shell_timeout_secs`), and a generation detaches past TinyBox's 300 s.
+- **An automatic retry of a pending promotion.** `bin/evolve promote <gen>`
+  is run by hand.
+- **`hands/world`.** Without it the J rise halt, lineage credit and the
+  watch's J check measure nothing and say so.
 
 ## Risks
 
 - A series of small wins can walk the identity a long way (soul drift). The
-  invariants are the floor. Once a month, diff `gen-0` against the current
-  brain by hand.
+  invariants are the floor, and the persona probe's cumulative drift from
+  gen-0 halts the loop. Once a month, diff `gen-0` against the current brain
+  by hand too: the probe asks eight questions, not everything.
 - A brain can learn the judge's taste and game it. Frozen tasks, the swapped
-  order, the held-out tasks in `secrets/heldout/` and the win-rate-jump halt
-  limit this, and a different judge model would too. Rotate the held-out
-  tasks by hand.
-- Phase B's gate runs `bin/doctor --root` on candidate files outside any
-  sandbox. The frozen check and the entry-point check run first, and the
-  gate never runs a candidate's tests. A lab core the operator starts over a
-  candidate runs that candidate's brain, so start it with `DRY_RUN=1`.
+  order, the held-out tasks in `secrets/heldout/`, the win-rate-jump halt and
+  a judge model of its own (`EVOLVE_JUDGE_MODEL`) limit this. Rotate the
+  held-out tasks by hand.
+- The gate runs `bin/doctor --root` on candidate files outside any sandbox.
+  The frozen check and the entry-point check run first, and the gate never
+  runs a candidate's tests. A lab core runs that candidate's brain, which is
+  why it gets no hand keys and `DRY_RUN=1`.
+- Auto-promotion merges without a person reading the change. It needs the
+  double win, the doctor, the persona probe and green required checks, and
+  evolve-watch reverts it, but the operator should turn it on only after
+  several human-merged generations measured well.
 - Once promoted, new hands are unreviewed code. They inherit the `hand.py`
   contract, `DRY_RUN` and the tests gate. They're limited to new files, and
   may read only the `secrets/teeny.env` keys that `evals/allowed-secrets`

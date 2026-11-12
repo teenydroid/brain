@@ -112,7 +112,9 @@ done
 check "and the detached run found the loop off" grep -q 'EVOLVE=0' "$root/state/evolve/evolve.log"
 
 # --- a dry-run generation -----------------------------------------------------------------
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVAL_SAMPLES=1\nEVOLVE_MAX_WINRATE_JUMP=0.6\n' >"$root/secrets/evolve.env"
+# No lab spine boots here (the unit tests cover it with a stand-in): a
+# candidate is measured only on the "lab core" URL given below.
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVAL_SAMPLES=1\nEVOLVE_MAX_WINRATE_JUMP=0.6\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\n' >"$root/secrets/evolve.env"
 propose 1 "Open with what shipped, never with the weather."
 propose 2 "Name the person who shipped it."
 out="$("$evolve" run --candidates 2 --proposals "$root/props" 2>"$scratch/err")"
@@ -153,6 +155,8 @@ check "its pull request carries the compare report" grep -q 'Compare report' <<<
 check "and the held-out totals" grep -q 'Held-out tasks' <<<"$body"
 check "but never a held-out task" bash -c "! grep -qiE 'lighthouse|hold-lighthouse|tide clock' <<<\"\$1\"" _ "$body"
 check "select twice opens nothing more" grep -q 'already opened' <<<"$("$evolve" select 2 2>/dev/null)"
+check "and no promotion was asked for" test "$(jq -r .would_promote <<<"$out")" = false
+check "promote with EVOLVE_AUTO_PROMOTE off merges nothing" grep -q 'EVOLVE_AUTO_PROMOTE=0' <<<"$("$evolve" promote 2 2>/dev/null)"
 
 # --- the next generation's evidence ----------------------------------------------------------
 "$evolve" run --candidates 1 --proposals "$root/props" >/dev/null 2>&1 || true
@@ -160,10 +164,22 @@ evidence="$root/state/evolve/3/evidence.json"
 check "the next evidence carries the judge's notes" grep -q 'the CAND draft is warmer' "$evidence"
 check "and none about a held-out task" bash -c "! grep -qiE 'lighthouse|tide clock' '$evidence'"
 
+# --- evolve-watch -------------------------------------------------------------------------------
+out="$("$evolve" watch 2>/dev/null)"
+check "evolve-watch with nothing promoted watches nothing" test "$(jq -r .watching <<<"$out")" = null
+out="$("$evolve" watch --detach 2>/dev/null)"
+check "evolve-watch --detach logs to state/evolve/watch.log" test "$(jq -r .log <<<"$out")" = state/evolve/watch.log
+for _ in $(seq 1 50); do
+  grep -q '"watching"' "$root/state/evolve/watch.log" 2>/dev/null && break
+  sleep 0.2
+done
+check "and the detached watch ran" grep -q '"watching": null' "$root/state/evolve/watch.log"
+check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
+
 # --- status, halts, resume --------------------------------------------------------------------
 out="$("$evolve" status 2>/dev/null)"
 check "status lists the parent weights" test "$(jq -r '.weights | has("main")' <<<"$out")" = true
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\n' >"$root/secrets/evolve.env"
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
 out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
 check "too many generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
 check "and under DRY_RUN files no issue" test "$(jq -r '.halts[0].dry_run' <<<"$out")" = true
@@ -175,6 +191,7 @@ check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n'
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"
 check "evolve is pinned, daily and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.command)|\(.enabled)"' <<<"$jobs")" = "30 3 * * *|bin/evolve run --detach|true"
 check "evolve-credit is pinned, daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
+check "evolve-watch is pinned, hourly and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve-watch") | "\(.expr)|\(.command)"' <<<"$jobs")" = "20 * * * *|bin/evolve watch --detach"
 check "and the schedule passes seed-cron --check" env -u TEENY_ROOT "$repo/bin/seed-cron" --check --file "$repo/brain/cron.toml"
 
 if [ "$failures" -gt 0 ]; then
