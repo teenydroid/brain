@@ -667,3 +667,36 @@ class AskProposerTurn(EvolveCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProposerPromptFitsTheScreenTest(unittest.TestCase):
+    """The core's prompt screen holds any input over 64 KiB as
+    `input.oversized`, so a proposer turn whose message is bigger never runs
+    (generation 1 on the box: four candidates, four `no-proposal`)."""
+
+    def request(self, files):
+        return {"gen": 1, "cand": 1, "focus": "reach", "frozen": ["bin/**"], "evidence": {"j": 1},
+                "parent": "main", "parent_title": None, "parent_patch": "", "siblings": [],
+                "editable": sorted(files), "files": dict(files)}
+
+    def test_an_oversized_request_is_cut_to_fit_dropping_the_largest_files_first(self):
+        files = {"brain/playbooks/big.md": "x" * 50_000, "brain/playbooks/mid.md": "y" * 20_000,
+                 "brain/playbooks/small.md": "z" * 500}
+        fitted = evolve.fit_request(self.request(files))
+        rendered = evolve.render_request(fitted).encode("utf-8")
+        self.assertLessEqual(len(rendered), evolve.MAX_PROPOSER_PROMPT_BYTES)
+        self.assertNotIn("brain/playbooks/big.md", fitted["files"])
+        self.assertIn("brain/playbooks/small.md", fitted["files"])
+        # A path it can no longer see is still one it may change, and the
+        # message says what was left out.
+        self.assertIn("brain/playbooks/big.md", fitted["editable"])
+        self.assertIn("brain/playbooks/big.md", evolve.render_request(fitted))
+
+    def test_multibyte_text_is_measured_in_bytes(self):
+        files = {"brain/SOUL.md": "é" * 40_000}  # 80 KB of UTF-8 in 40k characters
+        fitted = evolve.fit_request(self.request(files))
+        self.assertLessEqual(len(evolve.render_request(fitted).encode("utf-8")), evolve.MAX_PROPOSER_PROMPT_BYTES)
+
+    def test_a_request_that_fits_is_left_as_it_is(self):
+        request = self.request({"brain/playbooks/small.md": "z" * 500})
+        self.assertEqual(evolve.fit_request(request), request)

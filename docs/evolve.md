@@ -61,9 +61,9 @@ them.
    │                           a frozen path fails the job; nothing is pushed
    │
    ├──► CI `frozen` job ───► bin/frozen-check, checker and list from the base  built
-   │      (.github/workflows/check.yml: PRs opened by teenydroid
-   │       or from a gen/<n> branch; a generation's
-   │       teeny/gen-<n> branch is matched by its author)
+   │      (.github/workflows/check.yml: PRs opened by teenydroid,
+   │       and any PR from a teeny/ branch whoever opened it:
+   │       teeny/gen-<n>, teeny/revert-gen-<n>, teeny/<slug>)
    │
    └──► bin/evolve ────────► frozen.check(worktree, main) on each candidate,  built
                                then frozen.check(worktree, main, branch) on
@@ -616,7 +616,7 @@ that doesn't parse, or is out of range, refuses the run.
 | `EVOLVE_EVAL_SAMPLES` | `2` | samples per task when a lab core measures |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
-| `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown |
+| `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown; the message is then cut to fit the core's 64 KiB prompt screen, largest files first (`fit_request`) |
 | `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue opens |
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures every candidate; `none`: nothing does |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take to answer |

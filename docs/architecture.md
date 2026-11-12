@@ -256,13 +256,18 @@ The sealed generation stays on disk.
   10 minutes (`hands/moltbook inbox`);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
+- GitHub: issues, pull requests, comments, review comments and mentions
+  from the token's notifications, and new stars (`hands/gh ingest`, the
+  pinned `gh-inbound` job, every 15 minutes, off until `GH_INBOUND=1`);
 - the builder's and operator's reports (their desks).
 
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
 agent answers with a `thought` and JSON intents (`reply_x`,
 `comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
-and the rest). Each intent goes only to the hand verb it names, and that
+and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
+daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
+"The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
@@ -292,7 +297,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             ▼                                                 ▼
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
    comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip
-   reply_mail, say_telegram, comment_gh                       │
+   reply_mail, say_telegram, comment_gh,                      │
+   open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
    one hand verb each: guard, caps, DRY_RUN          state/mind.json, the journal
@@ -546,6 +552,9 @@ Every scheduled job is in one of two files:
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
+  - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
+    notifications and new stars into the inbox through the inbound guard,
+    off until `GH_INBOUND=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the

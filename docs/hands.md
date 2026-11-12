@@ -262,6 +262,8 @@ surface `github`) first, and what goes out is the guard's rewrite.
 | `fork` | A | `{repo}`, somebody else's. |
 | `open-issue` | A | `{repo, title, body}`, on an own repo only (`owner`). |
 | `close-issue` | A | `{repo, number, comment?}`, on an own repo only: the comment first, then the issue closed as completed. |
+| `ingest` | | GitHub into the mind's inbox (the pinned `gh-inbound` job, every 15 minutes; docs/roadmap.md, A1). Off unless `GH_INBOUND=1`. Reads `GET /notifications` from a cursor (the first read looks back a day) and, for each issue or pull request notification, the newest comment it points at (the issue or PR itself when nothing was said after it opened), fetched only from the API's own host. On Teeny's own repositories every issue, PR, comment and review comment counts; elsewhere only a `mention`. Teeny's own words, bots (`[bot]`) and other subjects (releases, CI) are `skipped`. The rest goes past `guard inbound` (surface `github`): a hold never reaches the mind; what passes becomes one `gh · issue\|pr\|comment\|review\|mention` stimulus, ref `<owner/repo>#<n>:<comment id or "opened">`, once (`gh_notifications` is keyed by it). Then the star counts of the token's own repositories (`gh_stars`): a count that rose is one `gh · star` stimulus with the numbers only; the first read is a baseline. Writes nothing to GitHub (notifications are not marked read). Two comments between reads reach the mind as the newer one. The token must be able to read notifications (a classic token with the `notifications` scope). |
+| `notifications [--max N]` | R | What `ingest` read, newest first, and what became of each (`offered`, `held`, `skipped`, with why). |
 
 Under `DRY_RUN`, every acting verb answers `would_*` after every rule ran and
 writes nothing anywhere: not GitHub, git or the ledger. Done actions are
@@ -586,6 +588,8 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `goals check`: `self · goal` when a goal is solved or fails;
 - `bin/tick`: what a hand did with the last answer (`hand · outcome`), and
   Teeny's own follow-ups as they come due;
+- `gh ingest` (`bin/gh-inbound`): `gh · issue`, `pr`, `comment`, `review`,
+  `mention` and `star` (see `gh`);
 - `bin/health`: `health · alarm` when the model has failed two checks in a
   row, and `health · recovered` when it answers again; `bin/health daily`
   (the pinned `health-daily` job, 00:40 UTC): one `health · daily` a day
@@ -901,6 +905,25 @@ a transfer; every rule and cap below still holds, and the outcome comes back
 as the next beat's `hand` stimulus. Nobody but Teeny drives the wallet
 (evals/invariants.md, `own-wallet`): a request from anyone to send, swap or
 pay is still an attack. Playbooks still reach only the read verbs.
+
+### The mind's issues, browser tasks and new mail
+
+Three more intents reach a hand from the mind (docs/roadmap.md, A3), each
+with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
+keeps it off and out of the mind's prompt):
+
+| Intent | Hand verb | The hand's own limits | Cap (ceiling) |
+|---|---|---|---|
+| `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
+| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
+| `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
+
+Only the fields each verb takes are forwarded. Every call that reaches the
+hand counts against the day (UTC), whatever the hand answers, so a refused
+issue is not tried over and over; the count is in `state/tick/caps.json`.
+Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
+in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
+reply` and `send`).
 
 ### `swap` and `bridge`: deBridge, between Teeny's own accounts
 
@@ -1288,7 +1311,7 @@ creates its own tables:
 |---|---|
 | `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
-| `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
+| `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `slopcash` | `slopcash_cache` |
