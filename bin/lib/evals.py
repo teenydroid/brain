@@ -483,6 +483,9 @@ def main(argv: list[str]) -> int:
             clash = sorted(set(ids) & set(task_ids(Path(args[0]))))
             if clash:
                 raise EvalError(f"held-out task(s) share an id with evals/tasks: {', '.join(clash)}")
+            os.environ[HELDOUT_ENV] = args[1]
+            for task_id in ids:
+                load_task(Path(args[0]), task_id)
             out = ids
         elif cmd == "render" and len(args) == 2:
             print(render(load_task(Path(args[0]), args[1])))
