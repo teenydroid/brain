@@ -116,3 +116,25 @@ command = "bin/bounty-pay"
 [jobs.health]
 schedule = "*/15 * * * *"
 command = "bin/health"
+
+# One generation of Teeny's evolution (bin/evolve; docs/evolve.md, "The
+# loop"): N candidates in worktrees off main, gated in code, measured when a
+# lab core serves them, and ONE ready pull request for the best, which the
+# operator merges or closes. Off unless secrets/evolve.env sets EVOLVE=1, so
+# seeding this job changes nothing until the operator turns the loop on;
+# EVOLVE=0 is the kill switch, and its halt thresholds live in the same file.
+# Detached: a generation outlasts the 300 s a cron shell call gets
+# (docs/oh-gaps.md, G12); it logs to state/evolve/evolve.log.
+[jobs.evolve]
+schedule = "30 3 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve run --detach"
+
+# Lineage credit (bin/evolve credit): for every pull request the loop opened
+# and the operator merged at least seven days ago, the change in J since the
+# merge (hands/world history), credited to its ancestors. Reads only; with
+# nothing merged it does nothing.
+[jobs.evolve-credit]
+schedule = "50 3 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve credit"
