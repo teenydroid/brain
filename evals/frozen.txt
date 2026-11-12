@@ -110,3 +110,6 @@ hands/lib/teeny_hands/goals/
 # that writes one is Teeny's.
 hands/ladder
 hands/lib/teeny_hands/ladder/
+# OpenHuman releases against the pin and the gaps (docs/roadmap.md, G9).
+hands/upstream
+hands/lib/teeny_hands/upstream/
