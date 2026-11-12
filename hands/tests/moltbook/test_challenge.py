@@ -107,5 +107,90 @@ class SolveTest(unittest.TestCase):
         self.assertEqual(collapse("three"), "thre")
 
 
+#: The challenges Moltbook set Teeny on 2026-11-12, verbatim. Every one was
+#: refused, which left the post or comment hidden.
+LIVE_2026_11_12 = {
+    "two claws, one and the other": (
+        "A] LoB-StEr} ExErTs/ TwEnTy] ThReEe~ NeOoTtOnS| WiTh{ OnE- ClAw^ AnD/ NiNe] OtHeR<, WhAt'S~ ToTaL} FoRcE?",
+        "32.00",
+    ),
+    "multiplied, with total naming the result": (
+        "A] Lo.oB-StEr LooobSsTeR ClAw] FoRcE Is^ ThIrTy SiX] NeWoTtOnS~ MuLtI-pLiEd\\ By^ TwO,"
+        " UmMm WhAt] Is* ToTaL FoR(cE)?",
+        "72.00",
+    ),
+    "increases by two numbers": (
+        "A] lOoOobSstT-eRr ~sW/iMmS {aT} tW]eNnTtYy fIiVVe ~ceNtImEeTtErS/ pEr{ }SeCcOnD, uMh ~aFtEr {a}"
+        " doM-inAnCe fIgHt+ iT^ iNcrReEaSeS bY tW/eNnTtYy fIiVVe ]AnD SeVeN, hOw/ mUcH ]iS tHe^ nEw- spEeD?",
+        "57.00",
+    ),
+}
+#: Spoken self-correction ("by fifty, no, say ... seven"): which number is
+#: meant is a guess, so it is refused.
+LIVE_SELF_CORRECTION = (
+    "A] lO.oB sT-ErRr LoOoBbSsTtErR^ ClAwWw FoRcE Is^ ExErTtEd LiKe Um, EaCh] ExErTtS TwEnTy^ ThReE} NeWtOnS~"
+    " By^ fIfTy Umm No, SaY, SeNse, LiKe, AuH, AnD ThEn SeVeN< Lo.bStErS| MuLtIiPly/ ThAt ToTaLl, HoW MuCh"
+    " ToTaL FoR-cE?"
+)
+
+
+class LiveChallengesTest(unittest.TestCase):
+    def test_the_live_challenges_are_read(self):
+        for name, (text, answer) in LIVE_2026_11_12.items():
+            with self.subTest(name):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_spoken_self_correction_is_refused(self):
+        self.assertIsNone(solve(LIVE_SELF_CORRECTION))
+        for text in (
+            "a lobster has twenty pearls multiplied by five, no, seven",
+            "a lobster has twenty pearls, wait, thirty, and loses five",
+            "a lobster has twenty pearls, i mean thirty, and loses five",
+            "a lobster has twenty pearls, actually thirty, and loses five",
+            "a lobster swims at twenty meters and slows by five no",  # after the last number: still a correction
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_one_claw_and_the_other(self):
+        cases = {
+            "a lobster exerts twelve newtons with one claw and eight other, what is the total force": "20.00",
+            "a crab lifts ten pebbles with one claw and four with the other, total": "14.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+        # "one" is a number when no "other" answers it.
+        self.assertIsNone(solve("a lobster exerts twelve newtons with one claw and eight more, total"))
+
+    def test_increases_by_n_and_m_adds_both(self):
+        cases = {
+            "a lobster swims at ten meters and increases by five and three": "18.00",
+            "a crab has forty shells, it gains twelve and eight": "60.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+        for text in (
+            "a lobster swims at ten meters and slows by five and three",  # only additions take a third number
+            "a lobster swims ten and five and increases by three",  # the pair is not after the operation
+            "a lobster swims at ten meters and increases by five and three and two",  # four numbers
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_synthetic_operations_and_large_numbers(self):
+        cases = {
+            "A] cRaB^ hAs NiNeTy~ sHeLlS aNd DeCrEaSeS bY tWeNtY tHrEe": "67.00",
+            "a lobster shares one hundred twenty pearls divided by eight": "15.00",
+            "a reef holds one hundred twenty crabs plus thirty five": "155.00",
+            "a lobster has three hundred forty two eggs and loses one hundred twelve": "230.00",
+            "a crab walks twelve meters times eleven": "132.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+
 if __name__ == "__main__":
     unittest.main()
