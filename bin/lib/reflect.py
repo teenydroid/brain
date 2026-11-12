@@ -43,6 +43,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -180,26 +181,81 @@ def render(since: float, light: bool = False) -> str:
     return "\n".join(lines)
 
 
-def parse(text: str) -> tuple[str, str]:
+#: Asked once, on the same thread, after an answer that was not usable.
+AGAIN = """That answer was not usable ({error}). Answer again with the JSON object only, nothing before or after it:
+
+{shape}"""
+AGAIN_SHAPE = '{"memory": "<the whole new MEMORY.md, markdown>", "diary": "<tonight\'s diary entry>"}'
+AGAIN_LIGHT_SHAPE = '{"memory": "<the whole new MEMORY.md, markdown>"}'
+
+#: The page's title, however the model wrote it: "# MEMORY.md", "MEMORY.md",
+#: "#MEMORY.md", "## MEMORY.md".
+_TITLE = re.compile(r"\A\s*#*\s*MEMORY\.md[ \t]*(?:\n|\Z)", re.IGNORECASE)
+#: The sections a page always has: an answer with one of them is the page.
+_SECTION = re.compile(r"^##[ \t]+(people|promises and open threads)[ \t]*$", re.IGNORECASE | re.MULTILINE)
+#: A diary written after the page, as its own section or a "diary:" line.
+_DIARY = re.compile(r"^(?:#{1,3}[ \t]*diary\b[^\n]*|diary:)", re.IGNORECASE | re.MULTILINE)
+
+
+class NoJSON(ValueError):
+    """The answer carries no JSON object with a `memory` in it."""
+
+
+def _unfence(text: str) -> str:
     raw = text.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else ""
         raw = raw.rsplit("```", 1)[0]
-    start = raw.find("{")
-    if start < 0:
-        raise ValueError("no JSON object in the answer")
-    value, _ = json.JSONDecoder().raw_decode(raw[start:])
-    if not isinstance(value, dict):
-        raise ValueError("the answer is not an object")
-    memory, diary = value.get("memory"), value.get("diary")
-    if not isinstance(memory, str) or not memory.strip():
+    return raw.strip()
+
+
+def _page(memory: str) -> str:
+    """The page, titled `# MEMORY.md` once, if it is fit to keep."""
+    memory = _TITLE.sub("", memory.strip(), count=1).strip()
+    if not memory:
         raise ValueError("no memory page in the answer")
-    memory = memory.strip()
-    if not memory.startswith("# MEMORY.md"):
-        memory = "# MEMORY.md\n\n" + memory
+    memory = "# MEMORY.md\n\n" + memory
     if len(memory) > prompts.MEMORY_MAX_CHARS:
         raise ValueError(f"the page is {len(memory)} characters; the most is {prompts.MEMORY_MAX_CHARS}")
-    return memory + "\n", diary.strip() if isinstance(diary, str) else ""
+    return memory + "\n"
+
+
+def parse(text: str) -> tuple[str, str]:
+    """The page and the diary from the JSON answer asked for: the first
+    object with a `memory`, wherever it sits (in a fence, after prose)."""
+    raw, decoder = text.strip(), json.JSONDecoder()
+    value = None
+    at = raw.find("{")
+    while at >= 0:
+        try:
+            got, _ = decoder.raw_decode(raw, at)
+        except ValueError:
+            got = None
+        if isinstance(got, dict) and "memory" in got:
+            value = got
+            break
+        at = raw.find("{", at + 1)
+    if value is None:
+        raise NoJSON("no JSON object in the answer")
+    memory, diary = value.get("memory"), value.get("diary")
+    if not isinstance(memory, str):
+        raise ValueError("no memory page in the answer")
+    return _page(memory), diary.strip() if isinstance(diary, str) else ""
+
+
+def parse_page(text: str) -> tuple[str, str]:
+    """The page and the diary from an answer that is the page itself, in
+    markdown: titled MEMORY.md, or carrying the page's own sections. A
+    trailing "## diary" section (or "diary:" line) is the diary, apart."""
+    raw = _unfence(text)
+    if not (_TITLE.match(raw) or _SECTION.search(raw)):
+        raise ValueError("the answer is neither the JSON asked for nor the page")
+    diary = ""
+    marks = list(_DIARY.finditer(raw))
+    if marks:
+        mark = marks[-1]
+        raw, diary = raw[:mark.start()], raw[mark.end():].strip()
+    return _page(raw), diary
 
 
 def ask(message: str) -> str:
@@ -224,10 +280,32 @@ def reflect(light: bool = False) -> Json:
         said = ask(render(since, light))
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "error": f"the turn failed: {exc}"}
+    as_page = False
     try:
         memory, diary = parse(said)
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc), "answer": said[:500]}
+    except ValueError as first:
+        # Once more on the same thread, the day still in context: a short
+        # reminder of the shape costs far less than losing the night.
+        try:
+            again = ask(AGAIN.format(error=first, shape=AGAIN_LIGHT_SHAPE if light else AGAIN_SHAPE))
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
+        try:
+            memory, diary = parse(again)
+        except NoJSON as exc:
+            # Still no JSON: the page itself (the newer answer first) is
+            # kept as the page; anything else changes nothing.
+            for answer in (again, said):
+                try:
+                    memory, diary = parse_page(answer)
+                    as_page = True
+                    break
+                except ValueError:
+                    continue
+            else:
+                return {"ok": False, "error": str(exc), "answer": again[:500]}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "answer": again[:500]}
     now = _clock()
     page = BRAIN / "MEMORY.md"
     if page.is_file():
@@ -239,14 +317,22 @@ def reflect(light: bool = False) -> Json:
     if light:
         rebuilt = [p.name for p in prompts.build(BRAIN)]
         (_state("reflect") / "light.at").write_text(f"{hand.now():.0f}\n")
-        return {"ok": True, "light": True, "memory_chars": len(memory), "diary": False, "prompts": rebuilt}
+        out = {"ok": True, "light": True, "memory_chars": len(memory), "diary": False, "prompts": rebuilt}
+        if as_page:
+            out["as_page"] = True
+        return out
     if diary:
         day = _day_of(now)
         (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(f"# {day:%A %d %B %Y}\n\n{diary}\n", encoding="utf-8")
         learned = _learn(f"diary, {day:%Y-%m-%d}: {diary}")
     rebuilt = [p.name for p in prompts.build(BRAIN)]
     (_state("reflect") / "last.at").write_text(f"{hand.now():.0f}\n")
-    return {"ok": True, "memory_chars": len(memory), "diary": bool(diary), "learned": learned, "prompts": rebuilt}
+    out = {"ok": True, "memory_chars": len(memory), "diary": bool(diary), "learned": learned, "prompts": rebuilt}
+    if as_page:
+        out["as_page"] = True
+    if not diary:
+        out["diary_missing"] = True
+    return out
 
 
 def reflect_once(light: bool = False) -> Json:
