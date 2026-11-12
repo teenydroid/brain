@@ -46,6 +46,15 @@ Every run:
    of at least three are visible (null otherwise). That one is a count on
    the line only; it raises no alarm.
 
+Once a day (`python3 bin/lib/health.py daily`, the pinned `health-daily`
+job; docs/roadmap.md, A4) it also tells Teeny how yesterday (the UTC day
+before this one) went, as one `health · daily` stimulus: what the model
+cost, failed cron runs by job, failed playbook runs (bin/act) by playbook,
+failed beats of the mind, the doctor's checks that are not ok, and guard
+holds by direction and category. Counts and names Teeny's own code chose
+(job, playbook, check and category names), never the text of a hold, an
+error or anything a stranger wrote. A second run the same day adds nothing.
+
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
 model judge (`check_fields(judge=False)`; the lexicon and the links still
@@ -59,6 +68,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -181,9 +191,10 @@ def _storage() -> Path:
     return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
 
 
-def cron_errors(since: float) -> dict[str, int]:
-    """Failed cron runs since `since`, by job name. Read-only; bin/crons'
-    query, narrowed to valid JSON in the cron collections first."""
+def cron_errors(since: float, until: float | None = None) -> dict[str, int]:
+    """Failed cron runs since `since` (and before `until`), by job name.
+    Read-only; bin/crons' query, narrowed to valid JSON in the cron
+    collections first."""
     path = _storage()
     if not path.is_file():
         return {}
@@ -202,9 +213,10 @@ def cron_errors(since: float) -> dict[str, int]:
                 from runs join jobs on jobs.id = json_extract(runs.body, '$.job_id')
                 where json_extract(runs.body, '$.status') = 'error'
                   and json_extract(runs.body, '$.finished_ms') >= ?
+                  and json_extract(runs.body, '$.finished_ms') < ?
                 group by name order by name
                 """,
-                (int(since * 1000),),
+                (int(since * 1000), int((until if until is not None else 1e12) * 1000)),
             ).fetchall()
         finally:
             conn.close()
@@ -508,6 +520,154 @@ def _watch_crons(state: Json, now: float) -> Json:
     return out
 
 
+# --- yesterday, as one stimulus (docs/roadmap.md, A4) ------------------------------------------
+
+#: A name that may go into the stimulus as it is: a job, playbook, check or
+#: category name Teeny's own code chose. Anything else is counted as "other".
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}")
+
+
+def _named(name: Any) -> str:
+    return name if isinstance(name, str) and _NAME.fullmatch(name) else "other"
+
+
+def _stamp(at: float) -> str:
+    return dt.datetime.fromtimestamp(at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _in(line: Mapping[str, Any], since: float, until: float) -> bool:
+    """Whether a runs.jsonl line's `at` (ISO, UTC) falls in [since, until)."""
+    at = line.get("at")
+    if not isinstance(at, str):
+        return False
+    try:
+        when = dt.datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return since <= when.timestamp() < until
+
+
+def _lines(path: Path) -> list[Json]:
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in raw:
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            out.append(value)
+    return out
+
+
+def act_failures(since: float, until: float) -> dict[str, int]:
+    """Playbook runs (state/act/<name>/runs.jsonl, bin/act) that failed in
+    [since, until), by playbook."""
+    out: dict[str, int] = {}
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        n = sum(1 for line in _lines(path) if line.get("ok") is False and _in(line, since, until))
+        if n:
+            out[_named(path.parent.name)] = out.get(_named(path.parent.name), 0) + n
+    return out
+
+
+def failed_beats(since: float, until: float) -> int:
+    """Beats of the mind (state/tick/runs.jsonl) that failed in [since, until)."""
+    return sum(1 for line in _lines(hand.state_dir() / "tick" / "runs.jsonl")
+               if line.get("kind") == "failed" and _in(line, since, until))
+
+
+def doctor_checks() -> dict[str, list[str]]:
+    """The last doctor report's checks that are not ok, by status (`fail`,
+    `warn`): their names only, never their detail."""
+    try:
+        report = json.loads((hand.state_dir() / "doctor.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for c in report.get("checks", []) if isinstance(report, dict) else []:
+        if isinstance(c, dict) and c.get("status") not in ("ok", None):
+            out.setdefault(_named(c.get("status")), []).append(_named(c.get("check")))
+    return out
+
+
+def holds_by_category(since: float, until: float) -> dict[str, int]:
+    """Guard holds made in [since, until), as `<direction> <category>`: never
+    their text or reason."""
+    try:
+        conn = hand.db()
+        try:
+            rows = conn.execute(
+                "SELECT direction, category, count(*) FROM guard_holds WHERE at >= ? AND at < ?"
+                " GROUP BY direction, category ORDER BY direction, category",
+                (_stamp(since), _stamp(until)),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:  # no holds table yet
+        return {}
+    out: dict[str, int] = {}
+    for direction, category, n in rows:
+        key = f"{_named(direction)} {_named(category)}"
+        out[key] = out.get(key, 0) + int(n)
+    return out
+
+
+def model_cost() -> Json | None:
+    """What the model cost over the last day, from the core's cost report
+    (as hands/wallet costs reads it); None when the core could not say."""
+    try:
+        report = hand.core("cost_report", {"days": 1}, timeout=PROBE_TIMEOUT)
+    except Exception:  # noqa: BLE001 - a cost the core cannot give is left out, not fatal
+        return None
+    totals = report.get("totals") if isinstance(report, Mapping) else None
+    if not isinstance(totals, Mapping):
+        return None
+    try:
+        return {"usd": round(float(totals.get("cost_usd") or 0.0), 4), "calls": int(totals.get("calls") or 0)}
+    except (TypeError, ValueError):
+        return None
+
+
+def _counts(counts: Mapping[str, int]) -> str:
+    return ", ".join(f"{name} {n}" for name, n in counts.items()) or "none"
+
+
+def daily() -> Json:
+    """Yesterday (UTC) as one `health · daily` stimulus, once per day."""
+    with hand.lock("health"):
+        until = hand.day_start()
+        since = until - 86400
+        day = dt.datetime.fromtimestamp(since, dt.timezone.utc).strftime("%Y-%m-%d")
+        cost = model_cost()
+        crons = cron_errors(since, until)
+        acts = act_failures(since, until)
+        beats = failed_beats(since, until)
+        doctor = doctor_checks()
+        holds = holds_by_category(since, until)
+        trouble = bool(crons or acts or beats or doctor.get("fail") or holds)
+        spent = (f"the model cost ${cost['usd']:.2f} over {cost['calls']} call(s)" if cost
+                 else "what the model cost is unknown (the core did not say)")
+        doctor_line = "; ".join(f"{status}: {', '.join(names)}" for status, names in doctor.items()) or "all ok"
+        text = (
+            f"health, yesterday ({day} UTC): {spent}. failed cron runs: {_counts(crons)}."
+            f" failed playbook runs: {_counts(acts)}. failed beats of your mind: {beats}."
+            f" the doctor: {doctor_line}. guard holds: {_counts(holds)}."
+            " these are counts and names only, never what was held or said."
+        )
+        if trouble:
+            text += " if one of these is yours to look into, it is in your own logs and ledgers."
+        payload = {"day": day, "cost": cost, "cron_errors": crons, "act_failures": acts, "failed_beats": beats,
+                   "doctor": doctor, "holds": holds, "trouble": trouble}
+        added = stimuli.add("health", "daily", f"daily:{day}", text, payload=payload)
+        return {"ok": True, "daily": day, "added": added, **payload}
+
+
 # --- the check ------------------------------------------------------------------------------------
 
 
@@ -558,9 +718,13 @@ def check() -> Json:
         return out
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv not in ([], ["daily"]):
+        hand.emit({"ok": False, "error": "usage: bin/health [daily]"})
+        return 2
     try:
-        out = check()
+        out = daily() if argv == ["daily"] else check()
     except Exception as error:  # noqa: BLE001 - one JSON line, whatever happened
         hand.emit({"ok": False, "error": scrub(f"{type(error).__name__}: {error}")})
         return 1
