@@ -143,6 +143,36 @@ def judge_holds(since: float) -> int:
     return int(row[0])
 
 
+def moltbook_unverified(since: float) -> int | None:
+    """Teeny's Moltbook writes since `since` that nobody can see yet (any
+    accepted status but `verified` or `posted`), when at least
+    MOLTBOOK_MIN_WRITES went out and fewer than MOLTBOOK_VERIFIED_SHARE of
+    them are visible; None otherwise. A count on the line, never an alarm:
+    the model is fine, and the issue is filed by nothing."""
+    from teeny_hands.moltbook import rules as moltbook
+
+    counted = ",".join("?" * len(moltbook.COUNTED))
+    visible = ",".join("?" * len(moltbook.ACCEPTED))
+    try:
+        conn = hand.db()
+        try:
+            total, seen = 0, 0
+            for table in ("moltbook_posts", "moltbook_comments"):
+                row = conn.execute(
+                    f"SELECT count(*), coalesce(sum(status IN ({visible})), 0) FROM {table}"
+                    f" WHERE at >= ? AND status IN ({counted})",
+                    (*moltbook.ACCEPTED, since, *moltbook.COUNTED),
+                ).fetchone()
+                total, seen = total + int(row[0]), seen + int(row[1])
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:  # Moltbook never written to
+        return None
+    if total < MOLTBOOK_MIN_WRITES or seen >= MOLTBOOK_VERIFIED_SHARE * total:
+        return None
+    return total - seen
+
+
 def _storage() -> Path:
     """The core's storage.db, found as bin/lib/teeny.sh finds it."""
     if os.environ.get("TEENY_STORAGE"):
