@@ -219,7 +219,10 @@ handed four things beyond the message:
   context, the lore and the arcs), then `DRIVE.md` (the one drive and its
   rules, which memory does not outrank), `CONTEXT.md`, the parts of
   `narrative/LORE.md` Teeny reads (the premise, the cast, the running bits;
-  never `## latent`, which is the producer's), and `narrative/ARCS.md`. The
+  never `## latent`, which is the producer's), `narrative/ARCS.md`, and
+  last "what you said lately": its newest own posts on X and the titles of
+  its newest Moltbook posts, from the ledger, so a draft knows what it would
+  be repeating (the posting rules refuse a near-duplicate all the same). The
   drive is rebuilt into every turn, so it survives a compaction of a thread
   without help. `bin/spine` builds
   it into `brain/agent/prompts/<id>.md` at every boot (`bin/lib/prompts.py`).
