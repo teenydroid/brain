@@ -6,8 +6,8 @@
 # Checks that the live page is ignored and the seed tracked, then, in a
 # throwaway pair of repositories, what pulling the commit that stopped
 # tracking it does to a checkout that already has a live page (the box): a
-# plain pull refuses and touches nothing, and the deploy note's steps
-# (docs/developers.md) bring the checkout up to date with the live page kept.
+# plain pull refuses and touches nothing, and the steps in deploy/README.md
+# bring the checkout up to date with the live page kept.
 #
 #   bin/test/memory_page_test.sh
 set -euo pipefail

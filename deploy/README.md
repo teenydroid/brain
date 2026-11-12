@@ -86,7 +86,20 @@ docker compose -f deploy/compose.yaml logs -f xhook
   `docker compose -f deploy/compose.yaml restart spine`. `bin/seed-cron`
   reconciles the core's jobs by name at every boot.
 - For a script or the brain, pull, then restart. Nothing of Teeny's is
-  baked into the image.
+  baked into the image. `brain/MEMORY.md` is Teeny's live page and not in
+  git, so a pull never touches it; the repository keeps where it started,
+  `brain/MEMORY.seed.md`, and the boot starts the live page from it when
+  there is none.
+- Once, on a checkout from before the live page left git: a plain pull
+  refuses (Teeny has rewritten the page since). Move the page aside, pull,
+  and put it back, where it is now ignored
+  (`bin/test/memory_page_test.sh` checks these steps):
+
+  ```sh
+  mv brain/MEMORY.md state/MEMORY.live.md
+  git pull --ff-only
+  mv state/MEMORY.live.md brain/MEMORY.md
+  ```
 - For OpenHuman itself, bump `vendor/openhuman` (see `docs/developers.md`), then
   `up -d --build`.
 - To change where the browser may go, edit `browser-allow.txt` here (one
