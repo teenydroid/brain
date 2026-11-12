@@ -61,7 +61,7 @@ DAILY_BRIEF = (
 RULES = (
     "Work only inside workdir. Write small, working code with tests and run them. Never read or "
     "write anything outside workdir, never open secrets/, and never push: shipping happens later "
-    "and is not yours to do. When finished, write your report to report_to, once."
+    "and is not yours to do. When finished, write your report to report_to_path, once."
 )
 
 #: The build_requests source of a change Teeny proposes to itself.

@@ -370,7 +370,7 @@ Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
 
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
-| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
+| `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
 | `operator` (`brain/agents/operator.toml`) | pinned `operator`, `40 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
@@ -400,8 +400,16 @@ the next offer carries), then writes the next job or task to
 This was the simplest safe choice, and the one that works at this pin:
 - the operator has no shell, so a shell wrapper could not serve it;
 - the builder's shell runs sandboxed (`sandbox_mode = "sandboxed"`: TinyBox's
-  namespace jail, a private mount tree and no network); a shell that could
-  run `hands/build` could also run `hands/gh push`;
+  namespace jail, a private mount tree and no network), rooted at
+  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`):
+  the jail is granted that folder read-write and nothing else of the
+  checkout, so it can reach neither `hands/` nor `secrets/` (a shell that
+  could run `hands/build` could also run `hands/gh push`). It cannot be
+  rooted at the checkout: the checkout is the core's action dir and holds
+  `brain/`, the core workspace, and TinySecurity refuses any grant that
+  overlaps it (every call failed `denial=Path` until openhuman#8674 let a
+  cron run carry its own root). OpenHuman resolves the root at each run and
+  refuses to start one over `brain/` or the keyring;
 - the file tools are ones both agents need anyway, scoped by OpenHuman's
   own path policy to the workbench;
 - the hand that acts on a report runs outside any model turn;

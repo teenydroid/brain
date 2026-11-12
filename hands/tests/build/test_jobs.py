@@ -231,6 +231,9 @@ class DeskTest(Scratch):
         offer = json.loads(self.desk("build.json").read_text())
         self.assertEqual(offer["job"]["request"], "build me a coin flipper")
         self.assertEqual(offer["report_to"], "state/workbench/desk/build-done.json")
+        # Absolute too: the builder works rooted at the workbench, where the
+        # checkout-relative report_to does not resolve.
+        self.assertEqual(offer["report_to_path"], str(self.desk("build-done.json").resolve()))
         self.assertIn("job_id", offer["report_shape"])
         self.assertIn("Work only inside workdir", offer["rules"])
         # Laying it out again before a report is the same claim, resumed.

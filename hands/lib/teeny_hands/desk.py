@@ -81,6 +81,9 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     _tell_the_mind(name, settled, rejected)
     offer = dict(claim())
     offer["report_to"] = _relative(report_path)
+    # The same file, absolute: an agent rooted elsewhere (the builder works
+    # from state/workbench/) resolves no checkout-relative path.
+    offer["report_to_path"] = str(report_path.resolve())
     offer["report_shape"] = shape
     if rejected:
         offer["last_report_rejected"] = rejected

@@ -445,7 +445,7 @@ hands/gh's own actions.
 |---|---|---|
 | `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. A claim older than 6 hours is failed as abandoned (and its request marked `failed`) before anything is handed out. |
 | `done` | A | `{job_id, status: ok\|failed, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. |
-| `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. A report left while `build.json` offered no job (`job: null`) that names no `job_id` only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then claims: `next`, written to `build.json` with `report_to` and `report_shape`. |
+| `desk` | J | The builder's desk. Settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above; a report `done` refuses (or that is not JSON) is moved to `build-done.rejected.json` and the reason is put on the next offer as `last_report_rejected`. A report left while `build.json` offered no job (`job: null`) that names no `job_id` only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then claims: `next`, written to `build.json` with `report_to`, `report_to_path` (the same file, absolute, for an agent rooted at the workbench) and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
 | `self` | A | `{text}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). |
 | `self-sync` | J | Teeny's own clone (docs/evolve.md, "Teeny's own clone"): clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing, else fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
@@ -512,9 +512,12 @@ task waits for a code twice at most (`rule: code_waits`).
 
 ## Why a desk, and not a hand the agent calls
 
-The operator has no shell, and the builder's shell runs sandboxed in its
-job's folder: neither should be able to reach a hand, least of all one that
-holds a secret (a shell that can run `hands/build` can run `hands/gh push`).
+The operator has no shell, and the builder's shell runs sandboxed, rooted at
+`state/workbench/` (its agent's `scheduled_workspace`): the jail is granted
+that folder and nothing else of the checkout, and every command starts with
+a `cd` into the job's folder. Neither agent should be able to reach a hand,
+least of all one that holds a secret (a shell that can run `hands/build` can
+run `hands/gh push`).
 The two file tools both agents already need reach `state/workbench/` and
 nothing else of the checkout (the trusted root `bin/spine` grants), so the
 work goes back and forth as two files there, and the hand that acts on a

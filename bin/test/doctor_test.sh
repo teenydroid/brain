@@ -105,6 +105,14 @@ fresh; perl -pi -e 's/^    "browser",/    "browser",\n    "mcp_github_create_iss
 fails "fails an operator that was given an MCP tool" "agent operator.toml"
 fresh; perl -ni -e 'print unless /^    "file_write",/' "$root/brain/agents/builder.toml"
 fails "fails a builder that cannot write its report" "agent builder.toml"
+# The builder's shell is rooted at the workbench (scheduled_workspace), never
+# the checkout that holds brain/ and secrets/; no other agent picks a root.
+fresh; perl -ni -e 'print unless /^scheduled_workspace/' "$root/brain/agents/builder.toml"
+fails "fails a builder whose shell is not rooted at the workbench" "agent builder.toml"
+fresh; sed -i.bak 's|^scheduled_workspace = .*|scheduled_workspace = "."|' "$root/brain/agents/builder.toml"
+fails "fails a builder rooted at the whole checkout" "agent builder.toml"
+fresh; perl -pi -e 's/^id = "operator"/id = "operator"\nscheduled_workspace = "state\/workbench"/' "$root/brain/agents/operator.toml"
+fails "fails an operator that picks a workspace root" "agent operator.toml"
 fresh; perl -pi -e 's/^id = "teeny-mentions"/id = "teeny-mentions"\nscheduled_actions = true/' "$root/brain/agents/teeny-mentions.toml"
 fails "fails a drafting agent that opts into scheduled actions" "agent teeny-mentions.toml"
 fresh; printf 'example.com\n*\n' >"$root/deploy/browser-allow.txt"
