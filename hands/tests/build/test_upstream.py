@@ -261,10 +261,11 @@ class ShipTest(UpstreamScratch):
         self.github()
         proposed, job = self.built()
         self.configure(BUILD_UPSTREAM="0")
+        before = len(self.gh.seen)
         out = jobs.ship()
         self.assertIn("BUILD_UPSTREAM", out["results"][0]["waiting"])
         self.assertEqual(int(jobs.listing("ok")["jobs"][0].get("ship_attempts") or 0), 0)
-        self.assertEqual(self.gh.seen, [])
+        self.assertEqual(self.gh.seen[before:], [])
 
     def test_the_next_gap_starts_after_the_last_one_shipped(self):
         self.github()
