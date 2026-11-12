@@ -18,6 +18,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 LIB = HERE.parent.parent / "lib"
@@ -25,6 +26,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 from teeny_hands import hand  # noqa: E402
+from teeny_hands.guard import judge  # noqa: E402
 
 # The gate logs what it holds and cuts, as the Rust traced it. The tests that
 # care assert it with assertLogs; the rest keep the run's output clean.
@@ -118,6 +120,10 @@ class WithCore(Scratch):
     def core(self, *replies: Any) -> FakeCore:
         fake = FakeCore(*replies)
         self.addCleanup(fake.close)
+        # A failed call is asked again after a pause; the fake core needs none.
+        backoff = mock.patch.object(judge, "RETRY_BACKOFF", 0.0)
+        backoff.start()
+        self.addCleanup(backoff.stop)
         (self.root / "state").mkdir(exist_ok=True)
         (self.root / "state" / "core.url").write_text(fake.url + "\n")
         (self.root / "secrets" / "core.token").write_text("tok\n")

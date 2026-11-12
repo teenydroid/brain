@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,6 +36,23 @@ MAX_JUDGED_LENGTH = 6_000
 # How long the judge may take before it counts as unreachable. Every draft
 # waits on it, so a stuck model is a hold, not a hang.
 JUDGE_TIMEOUT = 60.0
+
+# How long the judge waits before asking again after a failed call, so a
+# provider that has just dropped a stream is not hit again the same instant.
+# With two asks of at most JUDGE_TIMEOUT each, a draft waits at most
+# 2 * JUDGE_TIMEOUT + RETRY_BACKOFF on the judge (121.5 s).
+RETRY_BACKOFF = 1.5
+
+# A failed call whose error says one of these will fail the same way when
+# asked again (a missing token, a refused key, a method or model the core
+# does not have), so it holds at once. Anything else (a cut provider stream,
+# a timeout, a dropped connection, a 5xx) is asked once more.
+_PERMANENT = re.compile(
+    r"no core token|unknown method|method not found|invalid params"
+    r"|\b(?:401|402|403|404)\b|unauthori[sz]ed|forbidden|api key|authentication|permission denied"
+    r"|not configured|no model configured|unknown model|model not found",
+    re.IGNORECASE,
+)
 
 # How a failure to judge reads, on the hold it makes: an unreachable core or
 # model (the error follows the colon), or an answer that could not be read.
@@ -209,14 +227,25 @@ def judge(text: str, direction: str) -> JudgeVerdict:
         params["model_override"] = model
     # An unreadable answer is asked once more before it holds: some models
     # (glm-5.3-flash through Surplus, about one answer in eight) come back
-    # with the opening of the JSON cut off. A second unreadable answer, or
-    # any failure to ask, still holds; nothing here ever turns into a pass.
-    for _ in range(2):
+    # with the opening of the JSON cut off. So is a call that failed for a
+    # reason that may pass (the same provider drops its stream now and then:
+    # "provider stream ended before a completion signal"), after a short
+    # wait. Both share the two asks. A second failure of either kind, or a
+    # failure that will not pass, still holds; nothing here ever turns into a
+    # pass.
+    failure = UNREADABLE
+    for attempt in range(2):
+        if attempt and failure != UNREADABLE:
+            time.sleep(RETRY_BACKOFF)
         try:
             reply = hand.core("inference_agent_chat_simple", params, timeout=JUDGE_TIMEOUT)
         except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
-            return _fail_closed(f"{UNREACHABLE}: {error}")
+            failure = f"{UNREACHABLE}: {error}"
+            if _PERMANENT.search(str(error)):
+                break
+            continue
         verdict = read(_answer(reply))
         if verdict is not None:
             return verdict
-    return _fail_closed(UNREADABLE)
+        failure = UNREADABLE
+    return _fail_closed(failure)
