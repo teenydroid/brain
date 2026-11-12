@@ -200,6 +200,14 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(op["boots"], 4)
         self.assertEqual(op["total"], 4)
 
+    def test_a_hold_the_reviewer_released_is_not_an_operator_action(self):
+        self.hold(at(1), "profanity", "approved", decided=at(1.1))
+        self.hold(at(1), "profanity", "approved", decided=at(1.2))
+        self.db.execute("INSERT INTO guard_reviews (at, hold_id, category, outcome, sampled) VALUES (?, 1, 'profanity', 'released', 0)",
+                        (at(1.1),))
+        self.db.commit()
+        self.assertEqual(self.page()["operator"]["hold_decisions"], 1)
+
     def test_a_quiet_week_has_zero_operator_actions(self):
         self.git("init", "-q", "-b", "main")
         self.git("commit", "-q", "--allow-empty", "-m", "old", when=at(-3))
