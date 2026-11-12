@@ -19,12 +19,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO / "bin" / "lib"))
+sys.path.insert(0, str(REPO / "hands" / "lib"))
 
 import autonomy  # noqa: E402
+from teeny_hands import hand  # noqa: E402
 import proofs  # noqa: E402
 
 
@@ -236,3 +239,114 @@ class ReportTest(Scratch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelChangeTest(Scratch):
+    """G8: a model change drops the levels that run on it and prepares the
+    issue that lists the fence tests to rerun."""
+
+    def setUp(self):
+        super().setUp()
+        shutil.copytree(REPO / "docs", self.root / "docs")
+        self.env("spine.env", SPINE_MODEL="model-a")
+        self.patch = mock.patch.dict(os.environ, {"TEENY_ROOT": str(self.root)})
+        self.patch.start()
+        os.environ.pop("DRY_RUN", None)
+        hand._ENV_CACHE = None
+
+    def tearDown(self):
+        self.patch.stop()
+        hand._ENV_CACHE = None
+        super().tearDown()
+
+    def change_model(self, model: str) -> dict:
+        (self.secrets / "spine.env").write_text(f"SPINE_MODEL={model}\n")
+        return autonomy.record_models(self.root, self.secrets, at=1796000000)
+
+    def test_the_first_record_is_a_baseline_and_drops_nothing(self):
+        out = autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.assertTrue(out["recorded"])
+        self.assertEqual(out["changes"], [])
+        self.env("evolve.env", EVOLVE="1")
+        self.assertEqual(self.check()["status"], "ok")
+        self.assertFalse((self.secrets / "autonomy" / "issue-pending.json").exists())
+        self.assertEqual(oct((self.secrets / "autonomy").stat().st_mode & 0o777), "0o700")
+
+    def test_no_model_configured_records_nothing(self):
+        (self.secrets / "spine.env").write_text("")
+        self.assertFalse(autonomy.record_models(self.root, self.secrets)["recorded"])
+        self.assertFalse((self.secrets / "autonomy").exists())
+
+    def test_changing_the_model_drops_self_edit_a_level_and_prepares_the_issue(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        out = self.change_model("model-b")
+        self.assertIn({"at": "2026-11-30T20:53:20Z", "kind": "change", "role": "evolver", "from": "model-a",
+                       "to": "model-b"}, out["changes"])
+        report = {c["capability"]: c for c in autonomy.report(self.root, self.secrets, self.state)["capabilities"]}
+        self.assertEqual((report["self-edit"]["level"], report["self-edit"]["effective"]), (4, 3))
+        self.assertEqual(report["servers"]["effective"], 1)  # never below L1
+        self.env("evolve.env", EVOLVE="1")
+        got = self.check()
+        self.assertEqual(got["status"], "warn")
+        self.assertIn("EVOLVE=1", got["detail"])
+        issue = json.loads((self.secrets / "autonomy" / "issue-pending.json").read_text())
+        self.assertIn("self-edit: L4 -> L3 (switches held back above L3: EVOLVE)", issue["body"])
+        self.assertIn("`evolver`: `model-a` -> `model-b`", issue["body"])
+        # Every fence test the charter cites is listed to rerun.
+        for ref in autonomy.fence_tests(self.root):
+            self.assertIn(ref, issue["body"])
+        self.assertIn("hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5",
+                      issue["body"])
+
+    def test_the_same_model_again_is_no_new_change(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.change_model("model-b")
+        self.assertEqual(self.change_model("model-b")["changes"], [])
+
+    def test_a_role_with_its_own_model_drops_only_what_runs_on_it(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.env("evolve.env", EVOLVE_JUDGE_MODEL="judge-b")
+        out = autonomy.record_models(self.root, self.secrets, at=1796000000)
+        self.assertEqual([c["role"] for c in out["changes"]], ["judge"])
+        report = {c["capability"]: c for c in autonomy.report(self.root, self.secrets, self.state)["capabilities"]}
+        self.assertEqual(report["merge"]["effective"], 3)
+        self.assertEqual(report["post"]["effective"], 4)
+
+    def test_confirming_again_after_the_change_restores_the_level(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.change_model("model-b")
+        text = (self.root / "evals" / "autonomy.toml").read_text().replace('confirmed = "2026-11-12"', 'confirmed = "2026-12-01"')
+        (self.root / "evals" / "autonomy.toml").write_text(text)
+        self.env("evolve.env", EVOLVE="1")
+        self.assertEqual(self.check()["status"], "ok")
+
+    def test_the_issue_is_off_until_the_operator_switches_it_on(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.change_model("model-b")
+        out = autonomy.open_issue(self.root, self.secrets)
+        self.assertFalse(out["opened"])
+        self.assertIn("LADDER_ISSUES", out["why"])
+
+    def test_a_dry_run_says_what_it_would_open_and_keeps_it_pending(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.change_model("model-b")
+        self.env("teeny.env", LADDER_ISSUES="1")
+        hand._ENV_CACHE = None
+        out = autonomy.open_issue(self.root, self.secrets)
+        self.assertEqual((out["opened"], out["dry_run"], out["would_open_issue"]), (False, True, "teenydroid/brain"))
+        self.assertTrue((self.secrets / "autonomy" / "issue-pending.json").exists())
+
+    def test_live_it_opens_once(self):
+        autonomy.record_models(self.root, self.secrets, at=1795000000)
+        self.change_model("model-b")
+        self.env("teeny.env", LADDER_ISSUES="1", DRY_RUN="0", GITHUB_TOKEN="x")
+        hand._ENV_CACHE = None
+        gh = mock.Mock()
+        gh.open_issue.return_value = {"number": 7, "html_url": "https://github.com/teenydroid/brain/issues/7"}
+        out = autonomy.open_issue(self.root, self.secrets, gh)
+        self.assertEqual((out["opened"], out["number"]), (True, 7))
+        owner, name, title, body = gh.open_issue.call_args.args
+        self.assertEqual((owner, name), ("teenydroid", "brain"))
+        self.assertTrue(title.startswith("Model changed: rerun the fence tests"))
+        self.assertEqual(autonomy.open_issue(self.root, self.secrets, gh)["why"], "nothing pending")
+        self.assertEqual(gh.open_issue.call_count, 1)
