@@ -22,8 +22,9 @@ The x402 exchange, from the seller's side (protocol version 1, scheme
   3. Settled: 200 with the resource and `X-PAYMENT-RESPONSE`, and one row in
      the inflow ledger (`wallet_inflows`, category `sale`, ref
      `x402:stats`) and one in `x402_sales`. A settlement whose transaction
-     was seen before is refused (`replay`), and so is one that does not
-     pay Teeny's address the price.
+     was seen before is refused, and so is one the chain shows does not
+     pay Teeny's address the price (read back with getTransaction; a chain
+     that cannot be read leaves it to the facilitator's own check).
 
 Off until X402_ENDPOINT=1 (404 until then). The buyer's payload is a
 stranger's data: it is passed to the facilitator and never read for
@@ -171,6 +172,25 @@ def _record(resource: str, settled: Mapping[str, Any], req: Mapping[str, Any]) -
         conn.close()
 
 
+def _paid_on_chain(signature: str, req: Mapping[str, Any]) -> bool:
+    """The settled transaction, read back from the chain, gives Teeny's
+    address at least the price in USDC. A chain that cannot be read leaves
+    it to the facilitator, which checked the same requirements; one that
+    reads and shows less is a refusal."""
+    from . import solana
+
+    cluster = reads._cluster()
+    try:
+        tx = solana.rpc(cluster, "getTransaction", [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
+                                                                "commitment": "confirmed"}])
+    except hand.HandError:
+        return True
+    if not isinstance(tx, Mapping):
+        return True
+    legs = accounts.read_deposit(tx, req["payTo"], req["asset"])
+    return any(leg["asset"] == "USDC" and leg["amount_raw"] >= int(req["maxAmountRequired"]) for leg in legs)
+
+
 def _seen(signature: str) -> bool:
     conn = accounts.db()
     try:
@@ -217,6 +237,8 @@ def handle(method: str, path: str, headers: Mapping[str, str]) -> tuple[int, dic
         return refuse("settled on the wrong network")
     if _seen(signature):
         return refuse("that payment was already used")
+    if not _paid_on_chain(signature, req):
+        return refuse("the settled transaction does not pay this price to this address")
     _record(path, settled, req)
     receipt = base64.b64encode(json.dumps({"success": True, "transaction": signature, "network": req["network"],
                                            "payer": settled.get("payer")}).encode()).decode()

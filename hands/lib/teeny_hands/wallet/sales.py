@@ -72,10 +72,15 @@ def db():
     return conn
 
 
+def prices_raw(path: Path | None = None) -> Json:
+    """evals/prices.toml as it is (paywall.py reads its endpoint price here)."""
+    return tomllib.loads((path or PRICES_FILE).read_text())
+
+
 def prices(path: Path | None = None) -> Json:
     """The frozen price list and refund limits, in micro-dollars. A missing
     or bad value is an error: frozen config never fails open."""
-    data = tomllib.loads((path or PRICES_FILE).read_text())
+    data = prices_raw(path)
     try:
         out = {
             "build_request": caps.dollars_to_micro(data["prices"]["build_request_usdc"], "build_request_usdc"),

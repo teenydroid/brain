@@ -9,6 +9,9 @@
 # A build request with a deposit of at least this, whose memo names the
 # request ("request 12" or "#12"), is built before any request without one.
 build_request_usdc = "5"
+# One read of Teeny's latest public stats snapshot from its paid endpoint
+# (x402, https://x402.<DEPLOY_DOMAIN>/stats; wallet/paywall.py).
+stats_endpoint_usdc = "0.01"
 
 [refunds]
 # The most one refund may be: a deposit above it is refunded by a person.
