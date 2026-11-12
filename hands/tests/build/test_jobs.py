@@ -16,6 +16,8 @@ from teeny_hands import requests as build_requests
 from teeny_hands.build import jobs
 
 BUILD = Path(__file__).resolve().parents[2] / "build"
+PASSING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
+FAILING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_greets(self):\n        self.assertEqual('hi', 'hello')\n"
 
 
 def request(text: str, status: str = "picked", source_id: str | None = None) -> int:
@@ -136,11 +138,27 @@ class DoneTest(Scratch):
                 jobs.done(bad)
 
 
+JAILED = __import__("teeny_hands.build.verify", fromlist=["verify"]).landlock_abi() > 0
+needs_landlock = __import__("unittest").skipUnless(JAILED, "this kernel has no Landlock: the ship step's test run cannot be jailed here")
+
+
 class ShipTest(Scratch):
+    def setUp(self):
+        super().setUp()
+        if not JAILED:
+            # Shipping itself is what these tests are about; on a kernel with no
+            # Landlock the jailed run is stood in for (the tests that need the
+            # real jail are skipped, below).
+            from unittest import mock
+            from teeny_hands.build import verify
+            patcher = mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": 1, "output": "OK"})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def finished(self, text="build me a greeter", files=None, repo=None):
         rid = request(text)
         job = jobs.next_job()["job"]
-        for rel, body in (files or {"greet.py": "print('hi')\n", "README.md": "# greeter\n"}).items():
+        for rel, body in (files or {"greet.py": "print('hi')\n", "README.md": "# greeter\n", "test_greet.py": PASSING}).items():
             (self.root / job["workdir"] / rel).write_text(body)
         jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "a tiny greeter\nmore detail",
                    "tests": "1 passed", **({"repo": repo} if repo else {})})
@@ -159,7 +177,7 @@ class ShipTest(Scratch):
         self.assertEqual(self.gh.requests("POST", "/user/repos")[0].json()["description"], "a tiny greeter")
         self.assertEqual(git("-C", str(remote), "log", "--format=%s", "main").strip(), "a tiny greeter")
         files = git("-C", str(remote), "ls-tree", "--name-only", "main").split()
-        self.assertEqual(sorted(files), [".gitignore", "README.md", "greet.py"])
+        self.assertEqual(sorted(files), [".gitignore", "README.md", "greet.py", "test_greet.py"])
         row = jobs.listing("shipped")["jobs"][0]
         self.assertEqual(row["repo_url"], "https://github.com/teenydroid/greeter")
         self.assertEqual(row["commit_url"], f"https://github.com/teenydroid/greeter/commit/{shipped['commit']}")
@@ -189,7 +207,7 @@ class ShipTest(Scratch):
 
     def test_a_secret_is_never_shipped_and_the_job_gives_up_after_retries(self):
         self.me()
-        rid, job = self.finished(files={"config.py": "KEY = 'ghp_" + "a" * 36 + "'\n"}, repo="leaky")
+        rid, job = self.finished(files={"config.py": "KEY = 'ghp_" + "a" * 36 + "'\n", "test_c.py": PASSING}, repo="leaky")
         self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/leaky"}, status=201)
         self.remote("teenydroid/leaky")
         for attempt in range(1, jobs.MAX_SHIP_ATTEMPTS + 1):
@@ -200,6 +218,80 @@ class ShipTest(Scratch):
         self.assertEqual(jobs.listing("failed")["jobs"][0]["ship_error"], "the push would publish what looks like a secret")
         self.assertEqual(request_row(rid)["status"], "failed")
         self.assertEqual(jobs.ship()["results"], [])
+
+    # --- the ship step's own test run (docs/roadmap.md, A6) --------------------------------
+
+    def stimuli_now(self):
+        from teeny_hands import stimuli
+        return stimuli.recent()["stimuli"]
+
+    @needs_landlock
+    def test_a_report_of_success_with_failing_tests_is_recorded_as_failed_with_the_output(self):
+        self.me()
+        rid, job = self.finished(files={"greet.py": "print('hi')\n", "test_greet.py": FAILING}, repo="greeter")
+        out = jobs.ship()
+        self.assertEqual(out["shipped"], [])
+        self.assertEqual(out["results"][0]["error"], "its tests did not pass when the ship step ran them")
+        self.assertEqual(self.gh.writes(), [])
+        row = jobs.listing("failed")["jobs"][0]
+        self.assertEqual((row["id"], row["ship_error"]), (job["job_id"], "its tests did not pass when the ship step ran them"))
+        self.assertFalse(row["verified"]["ok"])
+        self.assertTrue(row["verified"]["jailed"])
+        self.assertIn("AssertionError: 'hi' != 'hello'", row["verified"]["output"])
+        self.assertEqual(request_row(rid)["status"], "failed")
+        (told,) = self.stimuli_now()
+        self.assertEqual((told["surface"], told["kind"]), ("builder", "tests_failed"))
+        self.assertIn("you reported it ok", told["text"])
+        self.assertIn("'hi' != 'hello'", told["text"])
+        self.assertEqual(jobs.ship()["results"], [])  # failed is failed: not tried again
+
+    @needs_landlock
+    def test_no_tests_is_not_tested(self):
+        self.me()
+        self.finished(files={"greet.py": "print('hi')\n"}, repo="greeter")
+        out = jobs.ship()
+        self.assertEqual(out["results"][0]["verified"]["output"], "no tests were found to run")
+        self.assertEqual(self.gh.writes(), [])
+
+    @needs_landlock
+    def test_the_tests_run_jailed_away_from_secrets_and_the_network(self):
+        self.me()
+        (self.root / "secrets" / "probe.txt").write_text("SENTINEL")
+        probe = (
+            "import socket, unittest\n\nclass T(unittest.TestCase):\n"
+            f"    def test_secrets(self):\n        print(open({str(self.root / 'secrets' / 'probe.txt')!r}).read())\n"
+            "    def test_net(self):\n        socket.create_connection(('127.0.0.1', 9), timeout=2)\n"
+        )
+        self.finished(files={"test_probe.py": probe}, repo="probe")
+        out = jobs.ship()
+        checked = out["results"][0]["verified"]
+        self.assertFalse(checked["ok"])
+        self.assertIn("PermissionError", checked["output"])
+        self.assertNotIn("SENTINEL", checked["output"])
+        self.assertTrue("PermissionError" in checked["output"] and checked["output"].count("Error") >= 2)
+
+    @needs_landlock
+    def test_without_landlock_nothing_runs_and_nothing_ships(self):
+        from unittest import mock
+        from teeny_hands.build import verify
+
+        self.me()
+        self.finished(repo="greeter")
+        with mock.patch.object(verify, "landlock_abi", return_value=0):
+            out = jobs.ship()
+        self.assertFalse(out["results"][0]["verified"]["jailed"])
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_a_builder_that_gives_up_is_not_failed(self):
+        rid = request("build me a quantum computer")
+        job = jobs.next_job()["job"]
+        out = jobs.done({"job_id": job["job_id"], "status": "gave_up", "summary": "needs hardware I don't have",
+                         "tests": "none"})
+        self.assertEqual(out["status"], "gave_up")
+        self.assertEqual(jobs.listing("gave_up")["jobs"][0]["id"], job["job_id"])
+        self.assertEqual(jobs.listing("failed")["jobs"], [])
+        self.assertEqual((request_row(rid)["status"], request_row(rid)["note"]),
+                         ("skipped", "the builder gave up: needs hardware I don't have"))
 
     def test_the_cli_ships_with_the_contract(self):
         self.configure(DRY_RUN="1")

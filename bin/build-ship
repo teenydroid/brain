@@ -23,5 +23,6 @@ cd "$TEENY_ROOT"
 # that fails (a broken report is kept aside, not fatal) must not stop
 # what is already finished from shipping.
 "$hands/build" self-sync </dev/null >&2 || log "syncing Teeny's own clone failed; the desk and shipping go on"
+"$hands/build" babysit </dev/null >&2 || log "babysitting Teeny's own pull requests failed; the desk and shipping go on"
 "$hands/build" desk </dev/null >&2 || log "the builder's desk failed; shipping what is done anyway"
 exec "$hands/build" ship </dev/null

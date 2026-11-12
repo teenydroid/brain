@@ -46,12 +46,15 @@ in the dark until the world trips them, and narrative/VOICE.md and
 EDITOR.md are prompts for other workflows (the terminal episodes, the
 editor); none of them is copied.
 
-Last comes what Teeny said lately (docs/roadmap.md, A2): its newest own
+Near the end comes what Teeny said lately (docs/roadmap.md, A2): its newest own
 posts on X and the titles of its newest Moltbook posts, from the hands'
 ledgers (state/hands.db, read-only), so a draft knows what it would be
 repeating. The posting rules refuse a near-duplicate all the same
 (teeny_hands.guard.repeats); this is so it rarely has to. It is last
-because it changes most often.
+because it changes most often. Then what it did last week (A10): counts
+from the same ledgers (posts, replies, Moltbook writes, builds shipped, pull
+requests opened, payments), so a question about its own week has a true
+answer and nothing to invent.
 
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
@@ -180,6 +183,66 @@ def said_lately(brain: Path) -> str:
             "made in the last weeks is refused.\n\n" + "\n".join(lines))
 
 
+#: How far back "what you did last week" looks.
+WEEK_SECS = 7 * 86400
+#: The most builds, pull requests and payments it lists by name.
+WEEK_ITEMS = 5
+
+
+def _now() -> float:
+    pinned = os.environ.get("TEENY_NOW")
+    return float(pinned) if pinned else dt.datetime.now(dt.timezone.utc).timestamp()
+
+
+def last_week(brain: Path) -> str:
+    """What Teeny did over the last 7 days, counted from its own ledgers
+    (docs/roadmap.md, A10): posts and replies on X, visible Moltbook writes,
+    builds shipped, pull requests opened and payments made. Only rows the
+    hands wrote, never a model's account, so "what did you do last week"
+    has a true answer in the prompt. "" when there is no ledger."""
+    path = _ledgers(brain)
+    if not path.is_file():
+        return ""
+    since = _now() - WEEK_SECS
+    lines: list[str] = []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            def rows(sql: str, params: tuple = ()) -> list:
+                try:
+                    return conn.execute(sql, params).fetchall()
+                except sqlite3.OperationalError:  # that hand has never written
+                    return []
+
+            counts = dict(rows("SELECT kind, count(*) FROM x_posts WHERE created_at >= ? GROUP BY kind", (since,)))
+            posts, replies = counts.get("post", 0) + counts.get("quote", 0), counts.get("reply", 0)
+            marks = ",".join("?" * len(MOLTBOOK_VISIBLE))
+            molt = sum(r[0] for r in rows(f"SELECT count(*) FROM moltbook_posts WHERE at >= ? AND status IN ({marks})",
+                                          (since, *MOLTBOOK_VISIBLE)))
+            molt += sum(r[0] for r in rows(f"SELECT count(*) FROM moltbook_comments WHERE at >= ? AND status IN ({marks})",
+                                           (since, *MOLTBOOK_VISIBLE)))
+            lines.append(f"- X: {posts} post(s), {replies} repl(ies). Moltbook: {molt} post(s) and comment(s) people can see.")
+            built = rows("SELECT repo, summary FROM build_jobs WHERE status = 'shipped' AND shipped_at >= ?"
+                         " ORDER BY shipped_at DESC LIMIT ?", (since, WEEK_ITEMS))
+            lines.append("- builds shipped: " + ("; ".join(
+                f"{repo} ({(summary or '').splitlines()[0][:100] if summary else 'no summary'})" for repo, summary in built)
+                or "none"))
+            prs = rows("SELECT repo, ref FROM gh_actions WHERE verb = 'open-pr' AND at >= ? ORDER BY at DESC LIMIT ?",
+                       (since, WEEK_ITEMS))
+            lines.append("- pull requests opened: " + (", ".join(f"{repo}#{ref}" for repo, ref in prs) or "none"))
+            paid = rows("SELECT purpose, count(*), coalesce(sum(usd_micro), 0) FROM wallet_payments WHERE status = 'paid'"
+                        " AND created_at >= ? GROUP BY purpose ORDER BY purpose", (since,))
+            lines.append("- payments: " + (", ".join(f"{n} {purpose} (${micro / 1e6:.2f})" for purpose, n, micro in paid)
+                                           or "none"))
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+    return ("## what you did last week\n\n"
+            "Counted from your own ledgers over the last 7 days. Asked what you did, say this and only this: "
+            "never an event or a number that is not here.\n\n" + "\n".join(lines))
+
+
 def world(brain: Path) -> str:
     """The "# your world" section every speaking agent carries: MEMORY.md
     first, then DRIVE.md, CHARTER.md, CONTEXT.md, the lore and the arcs."""
@@ -234,6 +297,9 @@ def world(brain: Path) -> str:
     said = said_lately(brain)
     if said:
         parts.append(said)
+    week = last_week(brain)
+    if week:
+        parts.append(week)
     if not parts:
         return ""
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)

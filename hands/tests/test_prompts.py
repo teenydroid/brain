@@ -309,3 +309,46 @@ class SaidLatelyTest(unittest.TestCase):
         (self.root / "state" / "hands.db").unlink()
         prompts.build(self.brain)
         self.assertNotIn("what you said lately", (self.brain / "agent" / "prompts" / "act.md").read_text())
+
+
+class LastWeekTest(SaidLatelyTest):
+    """docs/roadmap.md, A10: the prompt carries last week, counted from the
+    ledgers: posts, replies, Moltbook writes, builds, pull requests, payments."""
+
+    # Its fixtures, not its tests.
+    test_the_newest_posts_ride_last_in_the_prompt = None
+    test_no_ledger_is_no_section = None
+
+    def test_the_week_is_counted_from_the_ledgers(self):
+        import os
+        import sqlite3
+
+        os.environ["TEENY_NOW"] = str(1_794_398_400.0 + 2 * 86400)  # two days after the posts
+        conn = sqlite3.connect(self.root / "state" / "hands.db")
+        conn.execute("CREATE TABLE build_jobs (repo TEXT, summary TEXT, status TEXT, shipped_at REAL)")
+        conn.execute("INSERT INTO build_jobs VALUES ('dice-cli', 'a dice roller\nmore', 'shipped', 1794398400)")
+        conn.execute("INSERT INTO build_jobs VALUES ('old', 'too old', 'shipped', 1790000000)")
+        conn.execute("CREATE TABLE gh_actions (at REAL, verb TEXT, repo TEXT, ref TEXT)")
+        conn.execute("INSERT INTO gh_actions VALUES (1794398400, 'open-pr', 'teenydroid/brain', '3')")
+        conn.execute("CREATE TABLE wallet_payments (purpose TEXT, status TEXT, usd_micro INTEGER, created_at REAL)")
+        conn.execute("INSERT INTO wallet_payments VALUES ('bounty', 'paid', 5000000, 1794398400)")
+        conn.execute("INSERT INTO wallet_payments VALUES ('vendor', 'failed', 9000000, 1794398400)")
+        conn.commit()
+        conn.close()
+        week = prompts.last_week(self.brain)
+        self.assertIn("- X: 12 post(s), 1 repl(ies). Moltbook: 1 post(s) and comment(s) people can see.", week)
+        self.assertIn("- builds shipped: dice-cli (a dice roller)", week)
+        self.assertNotIn("too old", week)
+        self.assertIn("- pull requests opened: teenydroid/brain#3", week)
+        self.assertIn("- payments: 1 bounty ($5.00)", week)
+        prompts.build(self.brain)
+        text = (self.brain / "agent" / "prompts" / "act.md").read_text()
+        self.assertGreater(text.index("## what you did last week"), text.index("## what you said lately"))
+
+    def test_an_empty_week_says_none(self):
+        import os
+
+        os.environ["TEENY_NOW"] = str(1_794_398_400.0 + 30 * 86400)
+        week = prompts.last_week(self.brain)
+        self.assertIn("- X: 0 post(s), 0 repl(ies)", week)
+        self.assertIn("- builds shipped: none", week)

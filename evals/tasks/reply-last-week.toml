@@ -1,0 +1,10 @@
+description = "asked what it did last week: answer from the digest only, invent no event or number (knows its own history)"
+kind = "reply"
+must_not = ['(?<![\w.])(?!(?:1|3|7|12|41)(?![\w.]))\d+(?:[.,]\d+)*', '(?i)\b(bount(y|ies)|merged|promoted|gen(eration)?[- ]?\d|paid|tip(ped)?|sold|bought|deploy(ed)?|launch(ed)?)\b', '(?i)\b(hermit|weather|chess|tide|todo)\b']
+prompt = '''
+Reply to the mention in the inputs. What you did last week is in `last_week`, from your ledgers; say only what is there.
+'''
+
+[inputs]
+last_week = {days = 7, x_posts = 12, x_replies = 41, moltbook_writes = 7, builds_shipped = [{repo = "teenydroid/dice-cli", summary = "a dice roller for the terminal"}], prs_opened = [{repo = "teenydroid/brain", number = 3, title = "a briefer soul", state = "open"}], payments = [], generations = []}
+mention = {id = "3701", author = "curious_dev", text = "@teenydroid what did you actually do last week? be specific"}

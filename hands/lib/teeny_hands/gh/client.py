@@ -166,6 +166,13 @@ class GitHubApi:
             raise
         return to_pr(got)
 
+    def check_runs(self, owner: str, name: str, ref: str) -> list[Json]:
+        """The check runs on a commit: `{name, status, conclusion}` each."""
+        got = self.call("GET", self._path("repos", owner, name, "commits", ref, "check-runs"), [("per_page", "100")])
+        runs = got.get("check_runs") if isinstance(got, Mapping) else None
+        return [{"name": r.get("name"), "status": r.get("status"), "conclusion": r.get("conclusion")}
+                for r in (runs if isinstance(runs, list) else []) if isinstance(r, Mapping)]
+
     def file(self, owner: str, name: str, path: str) -> str | None:
         """A file's text from the default branch; None when there is none."""
         quoted = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
@@ -283,6 +290,8 @@ def to_pr(got: Any) -> Json:
         "merged": got.get("merged"),
         "user": _login(got.get("user")),
         "head": head.get("label"),
+        "head_ref": head.get("ref"),
+        "head_sha": head.get("sha"),
         "base": base.get("ref"),
         "comments": got.get("comments"),
         "review_comments": got.get("review_comments"),

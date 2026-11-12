@@ -393,3 +393,94 @@ class ScheduledTest(SelfJobScratch):
                                 stdin=subprocess.DEVNULL)
         self.assertEqual(synced.returncode, 0, synced.stderr)
         self.assertEqual(json.loads(synced.stdout)["state"], "cloned")
+
+
+class BabysitTest(SelfJobScratch):
+    """docs/roadmap.md, A7: Teeny's own open pull request with a red check
+    goes back on the builder's desk as a `fix` job on its own branch, at most
+    MAX_FIX_ATTEMPTS times, and the fix is pushed to that branch with no new
+    pull request. Off unless BUILD_BABYSIT=1."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.me()
+        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 7, "html_url": PR_URL}, status=201)
+
+    built = SelfShipTest.built
+    told = SelfShipTest.told
+
+    def shipped_pr(self):
+        rid, job = self.built({"brain/SOUL.md": "# soul\nsmall, kind, brief\n"})
+        jobs.ship()
+        return job
+
+    def ci(self, branch, state="open", red=("scripts",), conclusion="failure"):
+        sha = self.origin_ref(branch)
+        self.gh.route("GET", "/repos/teenydroid/brain/pulls/7",
+                      {"number": 7, "state": state, "merged": False, "user": {"login": "teenydroid"},
+                       "head": {"ref": branch, "sha": sha, "label": f"teenydroid:{branch}"}, "base": {"ref": "main"}})
+        runs = [{"name": n, "status": "completed", "conclusion": conclusion} for n in red]
+        runs.append({"name": "web", "status": "completed", "conclusion": "success"})
+        self.gh.route("GET", f"/repos/teenydroid/brain/commits/{sha}/check-runs", {"check_runs": runs})
+
+    def test_off_unless_switched_on(self):
+        job = self.shipped_pr()
+        self.ci(job["branch"])
+        self.assertIn("BUILD_BABYSIT", jobs.babysit()["skipped"])
+
+    def test_a_red_check_becomes_a_fix_job_on_its_own_branch_and_ships_there(self):
+        job = self.shipped_pr()
+        self.configure(BUILD_BABYSIT="1")
+        self.ci(job["branch"])
+        out = jobs.babysit()
+        (fix,) = out["fixes"]
+        self.assertEqual((fix["branch"], fix["attempt"], fix["red"]), (job["branch"], 1, ["scripts"]))
+        self.assertEqual(self.clone_git("symbolic-ref", "--short", "HEAD").strip(), job["branch"])
+        offered = jobs.next_job()["job"]
+        self.assertEqual((offered["job_id"], offered["kind"], offered["branch"]), (fix["job_id"], "fix", job["branch"]))
+        self.assertIn("scripts", offered["request"])
+        self.assertTrue(offered["resumed"])
+        # The builder fixes it; the fix ships to the same branch, no new pull request.
+        (self.tree / "brain" / "SOUL.md").write_text("# soul\nsmall, kind, brief, fixed\n")
+        jobs.done({"job_id": fix["job_id"], "status": "ok", "summary": "fixed the test", "tests": "all pass"})
+        before = self.origin_ref(job["branch"])
+        prs_before = len(self.gh.requests("POST", "/repos/teenydroid/brain/pulls"))
+        out = jobs.ship()
+        self.assertEqual(len(out["shipped"]), 1, out)
+        after = self.origin_ref(job["branch"])
+        self.assertNotEqual(after, before)
+        self.assertEqual(git("--git-dir", str(self.origin), "rev-parse", f"{after}~1").strip(), before)  # not forced
+        self.assertEqual(len(self.gh.requests("POST", "/repos/teenydroid/brain/pulls")), prs_before)
+        self.assertEqual(self.told()[-1]["kind"], "fix_pushed")
+
+    def test_at_most_three_fixes_a_pull_request(self):
+        job = self.shipped_pr()
+        self.configure(BUILD_BABYSIT="1")
+        for attempt in range(1, jobs.MAX_FIX_ATTEMPTS + 1):
+            self.ci(job["branch"])
+            (fix,) = jobs.babysit()["fixes"]
+            self.assertEqual(fix["attempt"], attempt)
+            (self.tree / "brain" / "SOUL.md").write_text(f"# soul\nattempt {attempt}\n")
+            jobs.done({"job_id": fix["job_id"], "status": "ok", "summary": f"try {attempt}", "tests": "t"})
+            jobs.ship()
+            selfclone.sync()
+        self.ci(job["branch"])
+        out = jobs.babysit()
+        self.assertEqual(out["fixes"], [])
+        self.assertTrue(out["checked"][0]["left_to_a_person"])
+
+    def test_a_closed_or_green_pull_request_is_left_alone(self):
+        job = self.shipped_pr()
+        self.configure(BUILD_BABYSIT="1")
+        self.ci(job["branch"], state="closed")
+        self.assertEqual(jobs.babysit()["fixes"], [])
+        self.ci(job["branch"], red=("scripts",), conclusion="success")
+        self.assertEqual(jobs.babysit()["fixes"], [])
+
+    def test_no_second_fix_while_one_is_in_progress(self):
+        job = self.shipped_pr()
+        self.configure(BUILD_BABYSIT="1")
+        self.ci(job["branch"])
+        self.assertEqual(len(jobs.babysit()["fixes"]), 1)
+        out = jobs.babysit()
+        self.assertEqual(out["fixes"], [])
