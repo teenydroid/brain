@@ -31,6 +31,18 @@ Read `evals/frozen.txt` before you plan. If what `request` asks lives in a
 frozen file, the change cannot ship: report `failed` and say which file and
 why, rather than editing it.
 
+## Your budget
+
+One run gets at most 40 tool calls and about 15 minutes, and a resumed run
+starts from scratch with no memory of the last one. Plan for it:
+
+- Spend no more than 10 calls reading before you decide.
+- If `request` touches a frozen path, stop reading. Report `failed` at
+  once, naming the file and the frozen line that covers it (`bin/frozen-check
+  --files <path>`, run from `<workdir_path>`).
+- By call 30, or about 10 minutes in, write your report whether you're done
+  or not.
+
 ## Always report
 
 Write your report to `report_to_path` before your turn ends, every time. A
