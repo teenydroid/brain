@@ -12,7 +12,11 @@
            build/selfclone.py)
   status   claimed  the builder has it
            ok       built and tested, waiting for `ship`
-           failed   the builder gave up, or shipping failed MAX_SHIP_ATTEMPTS times
+           failed   the builder said it failed, the ship step's own test run
+                    failed (`verified`), or shipping failed MAX_SHIP_ATTEMPTS times
+           gave_up  the builder said it could not do it, and why: an honest
+                    answer, never counted as a failure; its request goes back
+                    as `skipped` with the reason
            shipped  pushed to GitHub as GITHUB_USER/<repo> (a self job: its
                     branch pushed and a pull request opened, `pr_url`)
 
@@ -21,7 +25,14 @@ A job's folder is state/workbench/<slug>/; the builder works only there, and
 folder is the clone, state/workbench/brain/, on the branch teeny/<slug>.
 
 This hand reads `build_requests` and writes back only to a request it
-built: `shipped` with the repository, or `failed` with the reason.
+built: `shipped` with the repository, `failed` with the reason, or `skipped`
+when the builder gave up.
+
+`ship` trusts its own test run, never the builder's report (docs/roadmap.md,
+A6): before a job is pushed, build/verify.py runs the job's tests in a
+Landlock jail (the job's folder only, no network), and only a pass ships. The
+run is kept on the job (`verified`), and a failure fails the job with the
+output and tells the mind why.
 """
 
 from __future__ import annotations
@@ -36,10 +47,11 @@ from typing import Any, Mapping
 from .. import desk as _desk
 from .. import hand
 from .. import requests as build_requests
+from . import verify
 from . import selfclone
 
 KINDS = ("request", "daily", "self")
-STATUSES = ("claimed", "ok", "failed", "shipped")
+STATUSES = ("claimed", "ok", "failed", "shipped", "gave_up")
 #: A claim older than this is abandoned: the builder run that took it ended
 #: without reporting (a crash, a timeout). It is failed and the queue moves on.
 STALE_CLAIM_SECONDS = 6 * 3600
@@ -110,13 +122,14 @@ def db() -> sqlite3.Connection:
     and the columns added since a table was first made."""
     conn = hand.open_db(SCHEMA + build_requests.SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(build_jobs)")}
-    if "pr_url" not in have:
-        try:
-            conn.execute("ALTER TABLE build_jobs ADD COLUMN pr_url TEXT")
-            conn.commit()
-        except sqlite3.OperationalError as exc:
-            if "duplicate column" not in str(exc):
-                raise
+    for column in ("pr_url", "verified"):
+        if column not in have:
+            try:
+                conn.execute(f"ALTER TABLE build_jobs ADD COLUMN {column} TEXT")
+                conn.commit()
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):
+                    raise
     return conn
 
 
@@ -128,6 +141,11 @@ def _row(row: sqlite3.Row | None) -> Json | None:
     if row is None:
         return None
     out = {k: row[k] for k in row.keys() if row[k] is not None}
+    if isinstance(out.get("verified"), str):
+        try:
+            out["verified"] = json.loads(out["verified"])
+        except ValueError:
+            pass
     if "tests" in out:
         try:
             out["tests"] = json.loads(out["tests"])
@@ -331,8 +349,8 @@ def done(body: Any) -> Json:
     if isinstance(job_id, bool) or not isinstance(job_id, int):
         raise hand.HandError('"job_id" must be the number build_next gave')
     status = body.get("status")
-    if status not in ("ok", "failed"):
-        raise hand.HandError('"status" must be "ok" or "failed"')
+    if status not in ("ok", "failed", "gave_up"):
+        raise hand.HandError('"status" must be "ok", "failed" or "gave_up"')
     summary = _text(body, "summary")
     tests = _tests(body.get("tests"))
     repo = body.get("repo")
@@ -364,6 +382,10 @@ def done(body: Any) -> Json:
             )
             if status == "failed" and row["request_id"] is not None:
                 _mark_request(conn, row["request_id"], "failed", summary or "the build failed")
+            if status == "gave_up" and row["request_id"] is not None:
+                # An honest "I can't" is not a failure: the request is set
+                # aside with the reason, never marked failed.
+                _mark_request(conn, row["request_id"], "skipped", f"the builder gave up: {summary}")
     finally:
         conn.close()
     # The summary and tests ride along so the mind hears why, not just
@@ -373,8 +395,10 @@ def done(body: Any) -> Json:
 
 #: What the builder writes to state/workbench/desk/build-done.json.
 REPORT_SHAPE = (
-    '{"job_id": <the job_id above>, "status": "ok" or "failed", "summary": "<one line first: what it is, or why it '
-    'failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional better name>"}'
+    '{"job_id": <the job_id above>, "status": "ok", "failed" or "gave_up", "summary": "<one line first: what it is, '
+    'or why it failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional '
+    'better name>"}. "gave_up" is an honest answer when the job cannot be done: say why; it is never held against '
+    'you. "ok" is checked: the tests in workdir are run again before anything ships, and only a pass ships'
 )
 
 
@@ -446,6 +470,36 @@ def _tell_the_mind(kind: str, job: Json, text: str, payload: Mapping[str, Any]) 
         print(f"build: could not tell the mind about job {job['id']}: {exc}", file=__import__("sys").stderr)
 
 
+def _verify(job: Json) -> Json:
+    """The ship step's own run of the job's tests (build/verify.py). A
+    failure fails the job, its request, and tells the mind why, with the
+    output; under DRY_RUN it is only reported. The builder's own report is
+    never the evidence."""
+    checked = verify.run(hand.root() / job["workdir"])
+    if hand.dry_run():
+        return checked
+    note = "its tests did not pass when the ship step ran them"
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            if checked["ok"]:
+                conn.execute("UPDATE build_jobs SET verified = ? WHERE id = ?", (json.dumps(checked), job["id"]))
+            else:
+                conn.execute("UPDATE build_jobs SET verified = ?, status = 'failed', ship_error = ? WHERE id = ?",
+                             (json.dumps(checked), note, job["id"]))
+                if job.get("request_id") is not None:
+                    _mark_request(conn, job["request_id"], "failed", note)
+    finally:
+        conn.close()
+    if not checked["ok"]:
+        _tell_the_mind("tests_failed", job,
+                       f"your build {job['repo']} (job {job['id']}) was not shipped: you reported it ok, but when the "
+                       f"ship step ran its tests ({checked['ran']} ran) they did not pass. what they printed:\n"
+                       f"{checked['output']}",
+                       {"job_id": job["id"], "ran": checked["ran"], "jailed": checked["jailed"]})
+    return checked
+
+
 def ship(gh: Any = None) -> Json:
     """Every ok job not yet shipped, oldest first. A refusal or an error is
     kept on the job and retried next run, up to MAX_SHIP_ATTEMPTS; a self
@@ -462,6 +516,12 @@ def ship(gh: Any = None) -> Json:
         for job in jobs:
             assert job is not None
             is_self = job["kind"] == "self"
+            if not is_self:
+                checked = _verify(job)
+                if not checked["ok"]:
+                    results.append({"job_id": job["id"], "error": "its tests did not pass when the ship step ran them",
+                                    "verified": checked})
+                    continue
             try:
                 result = selfclone.ship(job, gh) if is_self else _ship_one(job, gh)
             except (hand.Refused, hand.HandError) as exc:
@@ -485,6 +545,9 @@ def ship(gh: Any = None) -> Json:
                 if is_self and give_up:
                     _tell_the_mind("ship_refused", job, f"your change to yourself (job {job['id']}) was not "
                                    f"shipped: {reason}", {"job_id": job["id"], "reason": reason})
+                elif give_up:
+                    _tell_the_mind("ship_refused", job, f"your build {job['repo']} (job {job['id']}) was not shipped: "
+                                   f"{reason}", {"job_id": job["id"], "reason": reason})
                 continue
             if not result.get("dry_run"):
                 conn = db()
