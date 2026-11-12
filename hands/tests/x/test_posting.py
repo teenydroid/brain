@@ -344,3 +344,72 @@ class LinkBudgetTest(Posting):
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": "www.example.com"})
         self.assertEqual(caught.exception.detail["rule"], "links")
+
+
+class RepeatTest(Posting):
+    """docs/roadmap.md, A2: an own post that says what a recent one said is
+    refused, whatever the gap, and the refusal is counted by the guard."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    YESTERDAY = "shipped a tiny crab tracker today, it counts crabs on the beach and posts the total"
+
+    def setUp(self):
+        super().setUp()
+        self.created.body = None
+        self.ids = iter(range(100, 200))
+        self.x.routes.remove(self.created)
+        self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201)
+
+    def test_a_repeat_of_yesterdays_post_is_refused_and_counted(self):
+        from teeny_hands.guard import repeats
+
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 24 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "Shipped a tiny crab tracker today! It counts crabs on the beach and posts the total."})
+        refused = caught.exception
+        self.assertTrue(refused.reason.startswith("repeat: this says what post 100"), refused.reason)
+        self.assertEqual((refused.detail["rule"], refused.detail["similar_to"]), ("repeat", "100"))
+        self.assertGreaterEqual(refused.detail["score"], repeats.NEAR_DUPLICATE)
+        self.assertEqual(len(self.posted()), 1)
+        got = repeats.count(30)
+        self.assertEqual((got["repeats"], got["by_surface"]), (1, {"x": 1}))
+        # The count holds no text.
+        conn = hand.db()
+        self.assertEqual([tuple(r)[2:] for r in conn.execute("SELECT * FROM guard_repeats")], [("x", refused.detail["score"], "100")])
+
+    def test_something_new_goes_out(self):
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 24 * HOUR)
+        publish.post({"text": "the crab tracker found a hermit crab living in a bottle cap, which is the best news this week"})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_post_older_than_the_window_may_be_said_again(self):
+        self.configure(REPEAT_WINDOW_DAYS="7", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 8 * 24 * HOUR)
+        publish.post({"text": self.YESTERDAY})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_short_posts_repeat_only_when_they_are_the_same(self):
+        publish.post({"text": "gm"})
+        self.at(T0 + 24 * HOUR)
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "GM"})
+        publish.post({"text": "gn"})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_reply_is_never_the_post_a_draft_repeats(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "reply", self.YESTERDAY, in_reply_to="5", created_at=T0 - HOUR)
+        publish.post({"text": self.YESTERDAY})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_rehearsal_is_refused_the_same(self):
+        publish.post({"text": self.YESTERDAY})
+        self.configure(DRY_RUN="1", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": self.YESTERDAY})
+        self.assertEqual(caught.exception.detail["rule"], "repeat")
