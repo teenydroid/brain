@@ -711,6 +711,29 @@ def goals_week(day: dt.date) -> str | None:
     return "\n".join(lines) + "\n"
 
 
+def diary_notes(since: float, until: float) -> str | None:
+    """The notes operator scripts left for the diary since the last night's
+    reflection (state/diary-notes.jsonl: bin/lib/health.py's switch to the
+    fallback model and back, docs/roadmap.md A18), as a section. Their
+    words, never the model's. None when there are none."""
+    path = ROOT / "state" / "diary-notes.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    tz = ZoneInfo(os.environ.get("CALENDAR_TZ") or DEFAULT_TZ)
+    found = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        at = row.get("at") if isinstance(row, dict) else None
+        if isinstance(at, (int, float)) and since < at <= until and isinstance(row.get("text"), str):
+            found.append(f"- {dt.datetime.fromtimestamp(at, tz):%H:%M}: {row['text']}")
+    return "## notes\n\n" + "\n".join(found) + "\n" if found else None
+
+
 def reflect(light: bool = False) -> Json:
     since = _since(light)
     # The live page, started from the committed seed on a checkout without one.
@@ -748,10 +771,10 @@ def reflect(light: bool = False) -> Json:
     learned = None
     day = _day_of(now)
     goals = goals_week(day) if day.weekday() == GOALS_WEEKDAY else None
-    if got.diary or goals:
-        text = f"# {day:%A %d %B %Y}\n\n" + (f"{got.diary}\n" if got.diary else "")
-        if goals:
-            text += ("\n" if got.diary else "") + goals
+    notes = diary_notes(since, hand.now())
+    if got.diary or goals or notes:
+        parts = [part for part in (got.diary and f"{got.diary}\n", goals, notes) if part]
+        text = f"# {day:%A %d %B %Y}\n\n" + "\n".join(parts)
         (_state("diary") / f"{day:%Y-%m-%d}.md").write_text(text, encoding="utf-8")
     if got.diary:
         learned = _learn(f"diary, {day:%Y-%m-%d}: {got.diary}")
