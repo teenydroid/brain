@@ -93,6 +93,35 @@ class PromptsTest(unittest.TestCase):
         self.assertNotIn("## what you keep in mind", text)
         self.assertIn("running the lab.", text)
 
+    # --- the live page and its committed seed ------------------------------
+
+    def test_without_a_live_page_the_seed_is_what_teeny_keeps_in_mind(self):
+        (self.brain / "MEMORY.seed.md").write_text("# MEMORY.md\n\n## people\n\n- from the seed.\n")
+        self.assertIn("- from the seed.", prompts.world(self.brain))
+
+    def test_the_live_page_outranks_the_seed(self):
+        (self.brain / "MEMORY.seed.md").write_text("# MEMORY.md\n\n- from the seed.\n")
+        (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n- from the live page.\n")
+        text = self.built()
+        self.assertIn("- from the live page.", text)
+        self.assertNotIn("- from the seed.", text)
+
+    def test_a_build_starts_the_live_page_from_the_seed(self):
+        (self.brain / "MEMORY.seed.md").write_text("# MEMORY.md\n\n- from the seed.\n")
+        self.assertIn("- from the seed.", self.built())
+        self.assertEqual((self.brain / "MEMORY.md").read_text(), "# MEMORY.md\n\n- from the seed.\n")
+
+    def test_a_build_never_overwrites_the_live_page(self):
+        (self.brain / "MEMORY.seed.md").write_text("# MEMORY.md\n\n- from the seed.\n")
+        (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n- from the live page.\n")
+        self.built()
+        self.assertEqual((self.brain / "MEMORY.md").read_text(), "# MEMORY.md\n\n- from the live page.\n")
+        self.assertEqual((self.brain / "MEMORY.seed.md").read_text(), "# MEMORY.md\n\n- from the seed.\n")
+
+    def test_without_a_seed_a_build_writes_no_live_page(self):
+        self.built()
+        self.assertFalse((self.brain / "MEMORY.md").exists())
+
     def test_an_overlong_memory_is_cut_and_says_so(self):
         (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))
         text = self.built()
