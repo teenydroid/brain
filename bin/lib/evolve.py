@@ -1499,8 +1499,32 @@ def j_rise(history: list[tuple[float, float]] | None, window_days: int) -> float
     return inside[-1][1] - first
 
 
+def fallback_path() -> Path:
+    """bin/spine's record of a last-good boot (bin/lib/last_good.py)."""
+    return state_dir() / "spine-fallback.json"
+
+
+def doctor_red() -> str | None:
+    """Why the last doctor report (state/doctor.json, bin/spine's) is not
+    green, or None when it is or there is none."""
+    try:
+        report = json.loads((state_dir() / "doctor.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(report, dict) or report.get("ok") is not False:
+        return None
+    failed = [c.get("check") for c in report.get("checks", []) if isinstance(c, dict) and c.get("status") == "fail"]
+    return ", ".join(str(f) for f in failed[:5]) or "it failed"
+
+
 def halts_before(cfg: Config) -> list[Halt]:
     out = []
+    red = doctor_red()
+    if red:
+        out.append(Halt("doctor", f"the last doctor report (state/doctor.json) is not green: {red}", latch=False))
+    if fallback_path().exists():
+        out.append(Halt("fallback", "the spine booted state/last-good (state/spine-fallback.json); a person clears "
+                        "it once main boots again", latch=False))
     if generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
         out.append(Halt("generations", f"{generations_today()} generation(s) today; the most is "
                         f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)", latch=False))
@@ -1535,6 +1559,19 @@ def winrate_halt(cfg: Config, entries: Mapping[str, Json], cand: Mapping[str, An
                     "(EVOLVE_MAX_WINRATE_JUMP). A judge that suddenly agrees this much may be being gamed; a "
                     "person looks before it goes on.", latch=True, extra={"candidate": cand["id"], "jump": jump})
     return None
+
+
+def drift_halt(cfg: Config, cand: Mapping[str, Any]) -> Halt | None:
+    """The persona-drift halt: the candidate's answers to the persona
+    probe are further than EVOLVE_MAX_DRIFT from gen-0's. Cumulative by
+    construction, since every generation is compared with gen-0."""
+    probe = cand.get("probe")
+    drift = probe.get("drift") if isinstance(probe, Mapping) else None
+    if not isinstance(drift, (int, float)) or drift <= cfg["EVOLVE_MAX_DRIFT"]:
+        return None
+    return Halt("persona-drift", f"{cand['id']}'s persona probe drifted {drift:.2f} from gen-0, over "
+                f"{cfg['EVOLVE_MAX_DRIFT']} (EVOLVE_MAX_DRIFT). A person compares the answers before it goes on.",
+                latch=True, extra={"candidate": cand["id"], "drift": drift})
 
 
 def stop(cfg: Config, halt: Halt, publisher: "Publisher | None") -> Json:
@@ -1801,7 +1838,7 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
     if not ranked:
         return {"selected": None, "reason": "no candidate passed the gate and evaluation"}
     best = ranked[0]
-    halt = winrate_halt(cfg, entries, best)
+    halt = winrate_halt(cfg, entries, best) or drift_halt(cfg, best)
     if halt is not None:
         best["verdict"] = "flagged"
         return {"selected": best["id"], "halt": stop(cfg, halt, publisher)}
