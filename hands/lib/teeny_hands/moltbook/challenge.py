@@ -23,9 +23,14 @@ How it reads one:
    ("thirty two", "one hundred and five", "three point five"). Two numbers
    written next to each other ("five twenty") are not one number: that is
    ambiguous, so no answer.
-5. Find the operation from its words (plus, gains, total ... / minus, slows,
-   loses ... / times, multiplied ... / divided, split ...). A comparison
-   ("how much faster than") is the difference, as a positive number.
+5. Find the operation from its words (plus, gains ... / minus, slows,
+   loses ... / times, multiplied ... / divided, split, shared ...). A
+   comparison ("how much faster than") is the difference, as a positive
+   number. "Total", "sum", "combined" often only name the result ("multiplied
+   by two, what is the total force?"), so they mean addition only when no
+   other operation is named. "Doubles", "triples", "halves" carry the second
+   number themselves. A "*" is noise, never an operation: Moltbook scatters
+   it between words like any other symbol.
 
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
@@ -60,7 +65,7 @@ POINT = "point"
 _OPS_RAW = {
     "+": (
         "plus add adds added adding gain gains gained increase increases increased accelerates accelerated"
-        " total sum combined together altogether another extra grows grew rises rose receives collects"
+        " another extra grows grew rises rose receives collects"
         " joins faster more"
     ),
     "-": (
@@ -69,16 +74,25 @@ _OPS_RAW = {
         " difference decelerates decelerated spends gives"
     ),
     "*": "times multiply multiplied multiplies multiplying product",
-    "/": "divide divided divides dividing split splits quotient",
+    "/": "divide divided divides dividing split splits share shares shared quotient",
 }
 OPS = {op: {collapse(w) for w in words.split()} for op, words in _OPS_RAW.items()}
+#: Words that name the result ("what is the total force?") as often as they
+#: ask for an addition: an addition only when no other operation is named.
+RESULT_WORDS = {collapse(w) for w in "total sum combined together altogether".split()}
+#: One number and a word that carries the second: "it doubles" is times two.
+_IMPLICIT_RAW = {
+    "doubles doubled": ("*", 2), "triples tripled": ("*", 3), "halves halved": ("/", 2),
+}  # fmt: skip
+IMPLICIT = {collapse(w): (op, Decimal(n)) for words, (op, n) in _IMPLICIT_RAW.items() for w in words.split()}
 #: Words that turn "faster", "more", "less" ... into a comparison: the difference.
 COMPARISON = {collapse("than")}
 #: Comparative words that are not an operation of their own in a comparison.
 _COMPARATIVES = {collapse(w) for w in "faster slower more less fewer greater bigger smaller longer shorter heavier lighter".split()}
-_SYMBOLS = {"+": "+", "*": "*", "×": "*", "÷": "/"}
+#: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
+_SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
 
-_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | COMPARISON
+_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON
 
 
 def _is_number_word(word: str) -> bool:
@@ -237,9 +251,14 @@ def solve(challenge: str) -> str | None:
         numbers = _numbers(words)
     except _Ambiguous:
         return None
+    present = set(words)
+    implicit = {IMPLICIT[w] for w in present if w in IMPLICIT}
+    if implicit:
+        numbers.append(next(iter(implicit))[1])
+        if len(implicit) != 1 or len(numbers) != 2:
+            return None
     if len(numbers) != 2:
         return None
-    present = set(words)
     comparison = bool(present & COMPARISON)
     ops = set()
     for op, vocabulary in OPS.items():
@@ -249,6 +268,9 @@ def solve(challenge: str) -> str | None:
         if hits:
             ops.add(op)
     ops |= {_SYMBOLS[w] for w in present if w in _SYMBOLS}
+    ops |= {op for op, _ in implicit}
+    if not ops and not comparison and present & RESULT_WORDS:
+        ops.add("+")
     if comparison:
         if ops - {"-"}:
             return None
