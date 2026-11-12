@@ -568,6 +568,15 @@ pick is never a promise.
 | `pick` | A | `{id, reason}`. Picks the one to build next. Refused (`rule`) when the request is unknown (`unknown`), not `pending` (`status`), or another request is still being worked on (`one_at_a_time`, with `active`). Any status but `pending`, `skipped`, `shipped` and `failed` holds the slot, so a step the builder records on the way does too. Refused (`held`) when the guard held the message it came in (its `x_mentions` or `mail_messages` row is `held`) or the lexicon holds its words now; that request is set to `skipped`, with the reason. Otherwise it is `picked`, with the reason in its note and the ledger. The playbook `pick-request` is its caller. |
 | `skip` | A | `{id, reason}`. Not doing it; only a `pending` request (a picked one is the builder's). |
 | `reset ID [--note T]` | O | Back to `pending`, whatever it was, with the old status in the ledger. |
+| `prices` | R | What a paid build request costs and how to pay (frozen, `evals/prices.toml`). |
+
+**Paid requests** (docs/roadmap.md, S3; `wallet/sales.py`). Someone who
+sends at least the price in USDC to Teeny's Solana address, with the
+request's number in the memo (`request 12`, `#12`), has paid for it. `pick`
+refuses any other request while a paid one waits (`paid_first`, with
+`paid`), and `list` names them (`paid_first`). Teeny refunds what it does
+not build: a deposit for a request that was `skipped` or `failed`, or a paid
+request that later is, is due back (see `wallet`, "Paid build requests").
 
 `pick` and `skip` write only `state/hands.db` and tell nobody, so `DRY_RUN`
 does not stop them. Whatever is built from a pick goes out through hands that
@@ -843,11 +852,13 @@ the network's public endpoint, and the core is given the same URL.
 | `caps` | R | The caps it pays under, and which optional ones are on. |
 | `inflows scan` | J | Every deposit to Teeny's Solana address since the last scan, one row each in `wallet_inflows`. Read only. Below. |
 | `inflows list [--max N]` | R | The inflow ledger, newest first, and how far it has been scanned. Never a memo. |
+| `sales run` | J | Paid build requests: match deposits to the requests their memos name, then refund what is due. Below. |
+| `sales list [--max N]` | R | The deposits tied to build requests, and their refunds. |
 | `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
 | `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`. `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
-| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
+| `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund, ref}`, `chain` Solana by default. The rules below, then the core. |
 | `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
 | `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
 | `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?, network?, sign_in?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
@@ -875,6 +886,10 @@ refuses with its `rule`:
   (`bounty`, `challenge_window`, `claimed_address`, `prize`), read from the
   bounty's rows, not the bounty hand's word;
 - for a vendor: the address in `vendors` on that chain (`vendor`);
+- for a refund: a paid build request's deposit that is due back, to its
+  sender, its exact amount, within the refund limits (`refund`,
+  `refund_address`, `refund_amount`, `refund_max`, `refund_day`; "Paid
+  build requests" below), only with `REQUEST_REFUNDS=1` (`off`);
 - this purpose and ref never paid or tried (`duplicate`);
 - the last 24 hours within `WALLET_MAX_PER_DAY_USD` (`per_day`) and this
   address's last 7 days within `WALLET_MAX_PER_RECIPIENT_WEEK_USD`
@@ -1234,6 +1249,39 @@ look like profit. `bin/receipts` publishes each closed page as
 enums, timestamps and signatures only, written once and never rewritten. No
 sender address and no memo is ever published.
 
+### Paid build requests
+
+Something Teeny sells (docs/roadmap.md, S3; `teeny_hands/wallet/sales.py`).
+The price list and the refund limits are frozen config, `evals/prices.toml`:
+a build request costs 5 USDC; one refund is at most $50 and refunds in any
+24 hours at most $50 together, all under the wallet's four caps.
+
+`sales run` (the pinned `paid-requests` job, every 15 minutes) does two
+things, each off until its switch:
+
+- **Match** (`PAID_REQUESTS=1`). After `inflows scan`, every USDC `tip`
+  whose memo (kept only when the inbound guard allowed it) names a known
+  request becomes a `request_payments` row. At or over the price it is
+  `paid`: the deposit becomes a `sale` (`ref` `request:<id>`) and the
+  request goes first (`hands/requests`). Under the price it is
+  `under_price` and stays a tip. For a `skipped` or `failed` request it is
+  `refund_due`; so is a `paid` one whose request was since skipped or
+  failed. Code reads only a number out of the memo; team money is never a
+  sale.
+- **Refund** (`REQUEST_REFUNDS=1`). Each `refund_due` row is paid through
+  `pay` with purpose `refund` and ref `request-payment:<id>`. `pay`'s own
+  rules for it: that row is due (`refund`), the recipient is the address
+  that sent the deposit (`refund_address`), the amount is the deposit's,
+  exactly, in USDC (`refund_amount`), at most the per-refund limit
+  (`refund_max`) and within the day's (`refund_day`), and then every other
+  rule and cap as for any payment. A refusal leaves it due (nothing moved);
+  `in_doubt` marks it `refund_in_doubt`, never retried; a paid one is
+  `refunded`. Under `DRY_RUN` it says `would_refund`.
+
+No model reaches either: the mind's `transfer` is always purpose `vendor`,
+and no playbook may output a wallet verb. `sales list` shows the rows. A
+refund comes off the week's income in the accounts (`income.refunds`).
+
 ### Runway
 
 Runway as a sense (docs/roadmap.md, S2; `teeny_hands/runway.py`, frozen).
@@ -1404,7 +1452,7 @@ creates its own tables:
 | `tasks` | `browser_tasks` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
-| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts` |
+| `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 
