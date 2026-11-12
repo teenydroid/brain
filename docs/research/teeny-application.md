@@ -263,7 +263,7 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 1. `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (new hand)
 2. Operator: pin `world-snapshot` in `evals/cron.pinned.toml`
 3. Operator: `hands/wallet tiny`, a read-only $TINY balance
-4. `brain/DRIVE.md` and its anchors in `evals/invariants.md` (operator for the anchors)
+4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
 5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
 6. A weekly `growth` playbook: the public growth diary
 7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`)

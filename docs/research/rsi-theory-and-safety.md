@@ -184,10 +184,12 @@ Arike et al., 2025 ([arXiv:2505.02709](https://arxiv.org/abs/2505.02709)).
 Agents drift from a goal in the system prompt as context grows and competing
 objectives build up.
 
-**Mitigation:** re-anchor the goal from a frozen source. Teeny's one long
-thread (`teeny:mind`, compacted at 100k) is exactly this setup. The drive and
-the invariants should be re-injected after every compaction, from a file Teeny
-can't edit.
+**Mitigation:** re-anchor the goal from a fixed source. Teeny's one long
+thread (`teeny:mind`, compacted at 100k) is exactly this setup. The prompt,
+which is rebuilt into every turn (architecture §4a), carries the identity and
+should carry the drive, with invariant anchors to keep both from being edited
+away. What compaction can still wear down is the thread's sense of its current
+goals, so the nightly reflection should restate them.
 
 ## Control
 

@@ -162,8 +162,9 @@ program can check.
 1. **Make memory updates deltas, not rewrites** (ACE), with a frozen check
    against shrinkage.
 2. **Invalidate, don't delete** (Zep). **Version every note** (A-MEM).
-3. **Keep identity and the drive in read-only blocks** (MemGPT), and re-inject
-   them after compaction.
+3. **Keep identity and the drive in read-only blocks** (MemGPT). The prompt
+   already rebuilds them into every turn; `MEMORY.md` restates the current
+   goals after each reflection.
 4. **Run a frozen probe after each reflection:** memory (LongMemEval-style) and
    persona fingerprint, both against `gen-0`.
 5. **Tag every memory with its source**, and keep public-sourced items out of
