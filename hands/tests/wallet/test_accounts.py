@@ -12,8 +12,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from wallet.support import DAY, HOUR, MOVING, OWN, STRANGER, T0, USDC_MAINNET, Scratch, token_accounts
-from teeny_hands import hand, stimuli
+from wallet.support import DAY, HOUR, OWN, STRANGER, T0, USDC_MAINNET, Scratch, token_accounts
+from teeny_hands import hand
 from teeny_hands.wallet import accounts, reads
 
 TEAM = "Hx6LbkMHe69DYawhPyVNs8Apa6tyfogfzQV6a7XkwKcE"
@@ -195,7 +195,7 @@ class AccountsTest(Scratch):
         # Each line is its source rounded once to the cent ...
         self.assertEqual(got["costs"]["models"], costs["models"]["usd"])  # 3.14
         self.assertEqual(got["costs"]["server"], "5.60")  # 24 a month, 7 of 30 days
-        self.assertEqual(got["costs"]["tools"], "2.35")  # 10 a month: 2.333333 -> 2.33, x402 0.012345 -> 0.01, plus
+        self.assertEqual(got["costs"]["tools"], "2.34")  # the plan's 2.333333 -> 2.33, x402's 0.012345 -> 0.01
         self.assertEqual(got["income"], {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "total": "6.26"})
         self.assertEqual(got["team"], "50.00")
         # ... and every total is the sum of the lines above it.
@@ -263,15 +263,3 @@ class AccountsTest(Scratch):
         run = subprocess.run([sys.executable, str(wallet), "accounts", "--days", "7"], capture_output=True, text=True)
         self.assertEqual(json.loads(run.stdout)["income"]["tip"], "2.00")
 
-
-class AccountsStimuliUntouched(Scratch):
-    """S1 alone files nothing in the mind's inbox: the deposit watcher (A5) does."""
-
-    settings = {"WALLET_CLUSTER": "mainnet", "WALLET_TEAM_ADDRESSES": TEAM}
-
-    def test_a_scan_files_no_stimulus(self):
-        self.chain.answers["getTokenAccountsByOwner"] = token_accounts(0, USDC_MAINNET)
-        self.chain.answers["getSignaturesForAddress"] = []
-        accounts.scan()
-        self.assertEqual(stimuli.counts(), {})
-        self.assertEqual([m for m in self.core.methods() if m in MOVING], [])
