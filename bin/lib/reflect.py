@@ -15,10 +15,10 @@ a night this rewrites it, from inside the day:
 2. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
    still in context) for the whole new page and a diary entry, as JSON.
 3. Keeps the old page in state/reflect/MEMORY-<stamp>.md, writes the new one
-   (titled, at most prompts.MEMORY_MAX_CHARS) to brain/MEMORY.md, writes the diary to
-   state/diary/<date>.md (the day it looks back on: before 06:00 that is
-   yesterday) and teaches it to the core's memory, then rebuilds
-   the prompts so the next beat reads the new page (the agents set
+   (titled, at most prompts.MEMORY_MAX_CHARS) to brain/MEMORY.md, writes
+   the diary to state/diary/<date>.md (the day it looks back on: before
+   06:00 that is yesterday) and teaches it to the core's memory, then
+   rebuilds the prompts so the next beat reads the new page (the agents set
    `refresh_prompt_on_resume`).
 
 brain/MEMORY.md is the live page, never committed; the first reflection on
