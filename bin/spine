@@ -18,6 +18,19 @@
 #    secrets/spine.env, then makes cron match brain/cron.toml.
 # 5. Waits on the core, forwarding SIGTERM, and exits with its status.
 #
+# Its pid is in state/spine.pid: a promotion (bin/evolve) restarts the core by
+# sending it TERM, and compose starts it again on the new checkout.
+#
+# The last-good boot: when the doctor or the boot fails and state/last-good
+# names another commit (bin/evolve writes it just before it restarts on a
+# promotion), it checks that commit out, detached, and boots again, once
+# (bin/lib/last_good.py). Without state/last-good it fails as before.
+#
+# A lab spine (SPINE_LAB=1, started by bin/evolve over a candidate's worktree,
+# bin/lib/lab.py) refuses to run unless DRY_RUN=1, seeds no cron and never
+# falls back. SPINE_LAB_EDIT=1 lets its agents' file tools write the worktree
+# (bin/lib/core_sections/automation.py), for the evolver.
+#
 # secrets/spine.env is read in a subshell and never exported to the core:
 # shell jobs inherit the core's environment, and the model and memory keys
 # belong in the core's encrypted store, not in every job's `env`.
@@ -25,6 +38,11 @@ set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need curl jq python3 sqlite3
+
+lab="${SPINE_LAB:-0}"
+if [ "$lab" = 1 ] && [ "${DRY_RUN:-}" != 1 ]; then
+  die "a lab spine (SPINE_LAB=1) runs only with DRY_RUN=1"
+fi
 
 # The image sets OPENHUMAN_CORE_BIN; on a laptop it is the release build in
 # this checkout (`cargo build --release -p teeny-spine`).
@@ -39,6 +57,22 @@ port="${OPENHUMAN_CORE_PORT:-7788}"
 
 mkdir -p "$TEENY_BRAIN" "$TEENY_STATE"
 (umask 077 && mkdir -p "$TEENY_SECRETS")
+printf '%s\n' "$$" >"$TEENY_STATE/spine.pid"
+
+# Boot state/last-good instead of this checkout, once, when there is one
+# (bin/lib/last_good.py says when there is not). Returns only when it cannot.
+fall_back() {
+  [ "${SPINE_LAST_GOOD_TRIED:-0}" = 1 ] && return 1
+  python3 "$TEENY_ROOT/bin/lib/last_good.py" fallback "$TEENY_ROOT" "$TEENY_STATE" "$1" || return 1
+  log "$1; booting state/last-good instead"
+  exec env SPINE_LAST_GOOD_TRIED=1 "$TEENY_ROOT/bin/spine"
+}
+# The boot failed after the core started: stop it, then try last-good.
+boot_failed() {
+  kill -TERM "$core" 2>/dev/null || true
+  wait "$core" 2>/dev/null || true
+  fall_back "$1" || die "$1"
+}
 # The core's file keyring (in the brain) refuses a directory others can write,
 # and a clone under umask 002 leaves the checkout and brain/ group-writable.
 # Tighten what this user owns, from the brain up to the checkout; bin/doctor
@@ -126,7 +160,9 @@ printf '%s\n' "$OPENHUMAN_CORE_URL" >"$TEENY_STATE/core.url"
 # Teeny edits its own brain, so every boot starts with the doctor: a brain it
 # would not boot safely (a broken cron.toml, a playbook that does not parse, a
 # storage.db without its key, a guard that lets things through) never serves.
-"$TEENY_ROOT/bin/doctor" >/dev/null || die "bin/doctor failed (state/doctor.json); not booting this checkout"
+"$TEENY_ROOT/bin/doctor" >/dev/null ||
+  fall_back "bin/doctor failed" ||
+  die "bin/doctor failed (state/doctor.json); not booting this checkout"
 
 log "serving $TEENY_BRAIN on $host:$port (storage $TEENY_STORAGE)"
 "$core_bin" serve &
@@ -135,10 +171,10 @@ trap 'kill -TERM "$core" 2>/dev/null || true' TERM INT
 
 for _ in $(seq 1 "${SPINE_BOOT_SECS:-120}"); do
   curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" 2>/dev/null && break
-  kill -0 "$core" 2>/dev/null || { wait "$core" || exit $?; exit 1; }
+  kill -0 "$core" 2>/dev/null || boot_failed "the core exited before it answered /health"
   sleep 1
 done
-curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || die "the core did not answer /health in ${SPINE_BOOT_SECS:-120}s"
+curl -fsS -o /dev/null "$OPENHUMAN_CORE_URL/health" || boot_failed "the core did not answer /health in ${SPINE_BOOT_SECS:-120}s"
 
 # The cron agent turn budget (bin/lib/teeny.sh). Set over RPC rather than in
 # bin/lib/core_sections/, which would own the whole `[agent]` table and drop
@@ -216,9 +252,13 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
   else
     log "memory: not configured (no CORTEX_API_URL in $env_file)"
   fi
-) || { kill -TERM "$core"; wait "$core" || true; die "configuring the core failed"; }
+) || boot_failed "configuring the core failed"
 
-"$TEENY_ROOT/bin/seed-cron" || { kill -TERM "$core"; wait "$core" || true; die "seeding cron failed"; }
+if [ "$lab" = 1 ]; then
+  log "lab: no cron seeded"
+else
+  "$TEENY_ROOT/bin/seed-cron" || boot_failed "seeding cron failed"
+fi
 log "ready"
 
 # A trapped signal interrupts `wait` before the core has finished shutting
