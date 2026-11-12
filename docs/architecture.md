@@ -400,8 +400,16 @@ the next offer carries), then writes the next job or task to
 This was the simplest safe choice, and the one that works at this pin:
 - the operator has no shell, so a shell wrapper could not serve it;
 - the builder's shell runs sandboxed (`sandbox_mode = "sandboxed"`: TinyBox's
-  namespace jail, a private mount tree and no network); a shell that could
-  run `hands/build` could also run `hands/gh push`;
+  namespace jail, a private mount tree and no network), rooted at
+  `state/workbench/` (`scheduled_workspace` in `brain/agents/builder.toml`):
+  the jail is granted that folder read-write and nothing else of the
+  checkout, so it can reach neither `hands/` nor `secrets/` (a shell that
+  could run `hands/build` could also run `hands/gh push`). It cannot be
+  rooted at the checkout: the checkout is the core's action dir and holds
+  `brain/`, the core workspace, and TinySecurity refuses any grant that
+  overlaps it (every call failed `denial=Path` until openhuman#8674 let a
+  cron run carry its own root). OpenHuman resolves the root at each run and
+  refuses to start one over `brain/` or the keyring;
 - the file tools are ones both agents need anyway, scoped by OpenHuman's
   own path policy to the workbench;
 - the hand that acts on a report runs outside any model turn;

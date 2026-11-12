@@ -512,9 +512,12 @@ task waits for a code twice at most (`rule: code_waits`).
 
 ## Why a desk, and not a hand the agent calls
 
-The operator has no shell, and the builder's shell runs sandboxed in its
-job's folder: neither should be able to reach a hand, least of all one that
-holds a secret (a shell that can run `hands/build` can run `hands/gh push`).
+The operator has no shell, and the builder's shell runs sandboxed, rooted at
+`state/workbench/` (its agent's `scheduled_workspace`): the jail is granted
+that folder and nothing else of the checkout, and every command starts with
+a `cd` into the job's folder. Neither agent should be able to reach a hand,
+least of all one that holds a secret (a shell that can run `hands/build` can
+run `hands/gh push`).
 The two file tools both agents already need reach `state/workbench/` and
 nothing else of the checkout (the trusted root `bin/spine` grants), so the
 work goes back and forth as two files there, and the hand that acts on a
