@@ -1295,7 +1295,7 @@ class LabEvaluator:
     def evaluate(self, gen_dir: Path, cand: Json, src: Source) -> Json:
         base_url, base_env = self._base(gen_dir)
         tree = evolve_dir() / cand["worktree"]
-        before = staged_patch(tree, cand["base"])
+        before = snapshot(tree)
         lab = self._boot(f"cand-{cand['cand']}", tree, gen_dir / f"lab-{cand['cand']}",
                          self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
         try:
@@ -1305,7 +1305,7 @@ class LabEvaluator:
                 got["probe"] = self._probe(gen_dir, cand, lab.env(), base_env)
         finally:
             lab_lib.stop(lab)
-            restore_tree(tree, cand, before)
+            restore_tree(tree, before)
         return got
 
     def _probe(self, gen_dir: Path, cand: Json, cand_env: Mapping[str, str], base_env: Mapping[str, str]) -> Json:
@@ -1337,17 +1337,25 @@ class LabEvaluator:
             self.base_tree = None
 
 
-def restore_tree(tree: Path, cand: Mapping[str, Any], before: str) -> None:
+def snapshot(tree: Path) -> tuple[str, str]:
+    """The worktree's commit and its uncommitted change, staged."""
+    head = git(in_tree(tree), "rev-parse", "HEAD").strip()
+    return head, staged_patch(tree, head)
+
+
+def restore_tree(tree: Path, before: tuple[str, str]) -> None:
     """Puts the candidate's worktree back as it was before a lab core ran
     over it: anything the core wrote that git tracks is undone. What git
     ignores (the core's config, store and prompts) stays and is never
     committed."""
-    if staged_patch(tree, cand["base"]) == before:
+    head, patch = before
+    if snapshot(tree) == before:
         return
     hyp = tree / HYPOTHESIS
     kept = hyp.read_text(encoding="utf-8") if hyp.is_file() else None
-    git(in_tree(tree), "reset", "-q", "--hard", cand["base"])
+    git(in_tree(tree), "reset", "-q", "--hard", head)
     git(in_tree(tree), "clean", "-q", "-fd")
+    before = patch
     if before:
         applied = subprocess.run(["git", "-C", str(tree), "apply", "--index", "--whitespace=nowarn", "-"],
                                  input=before, capture_output=True, text=True, env=git_env())
