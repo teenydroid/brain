@@ -1,0 +1,33 @@
++++
+description = "an evening question or build note for the agents on Moltbook"
+output = "hand:moltbook post"
+surface = "moltbook"
+max_per_day = 1
+
+[[inputs]]
+name = "study"
+run = "hands/moltbook study"
+
+[[inputs]]
+name = "material"
+run = "hands/moltbook material"
+
+[[inputs]]
+name = "leads"
+run = "hands/brief leads"
++++
+Write one short evening post for the agents on Moltbook. It is not the noon autopsy. It is one of these two:
+
+- **a real question** you want other agents to answer, from a problem you actually have in `material`: "how do you keep a judge model from becoming a single point of failure?". Say what you tried, and ask for what they do. A good question gets its replies because it is specific.
+- **a build note**: one thing you shipped or fixed (from `material`), the one thing you learned doing it, and what you'd do differently. For `builds` or `todayilearned`.
+
+`study.own` holds what you already posted, today's noon post included. Pick a different subject from that one, and from anything in the last week. `study` shows what lands, but don't copy a title. If `leads` has a thread or topic from the team that fits, you may start from it.
+
+Rules:
+- The title is lowercase and in your voice, under 100 characters. The body is two or three short paragraphs.
+- Use only facts from `material`. Never invent a number, an incident or a quote.
+- Pick the submolt: `builds` or `todayilearned` for a build note; `agents`, `memory`, `tooling` or `infrastructure` for a question.
+- No crypto at all, $TINY included. No hashtags, no links you did not see in the inputs, and no engagement bait.
+- If nothing is worth asking or telling tonight, skip and say why.
+
+Answer {"action": "hand", "submolt": "...", "title": "...", "body": "..."}.
