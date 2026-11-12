@@ -266,7 +266,7 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
 5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
 6. A weekly `growth` playbook: the public growth diary
-7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`)
+7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Built: items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page
 
 **Phase B**
 8. Operator: `bin/evolve` with N candidates, a near-duplicate filter and `state/evolve/archive.jsonl`
