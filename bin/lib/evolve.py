@@ -43,7 +43,11 @@ evolution, with N candidates (docs/evolve.md, "The loop").
 `credit` (HGM) records, for every archived pull request merged at least
 EVOLVE_CREDIT_DAYS ago, the change in J since its merge (hands/world
 history), and credits each ancestor with a decayed sum of its descendants'
-changes. Parent sampling reads that credit.
+changes. Parent sampling reads that credit. When it finds a generation's
+pull request newly merged by a person, it writes that generation's chronicle
+page into the live brain (brain/narrative/chronicle/gen-<n>.md,
+`write_chronicle`): a promotion carries its page in its own commit, so every
+merged generation has one, whoever merged it (docs/roadmap.md, A13).
 
 The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
 the default. Too many generations today, a judge win-rate jump over
@@ -1833,16 +1837,46 @@ def promoted(entries: Mapping[str, Json]) -> list[Json]:
 
 
 def carried_back(entries: Mapping[str, Json], gen: int) -> list[int]:
-    """The generations since the last promotion (before GEN) that promoted
-    nothing: the chronicle's "the agents carried it back"."""
-    last = max((int(e["gen"]) for e in promoted(entries) if e.get("gen")), default=0)
+    """The generations since the last merged one (before GEN; promoted by
+    the loop or merged by a person) that merged nothing: the chronicle's
+    "the agents carried it back"."""
+    landed = {int(e["gen"]) for e in entries.values()
+              if isinstance(e.get("gen"), int) and (e.get("promoted_at") or e.get("merged_at"))}
+    last = max((g for g in landed if g < gen), default=0)
     gens = {int(e["gen"]) for e in entries.values() if isinstance(e.get("gen"), int) and last < e["gen"] < gen}
-    return sorted(gens)
+    return sorted(gens - landed)
 
 
-def chronicle_text(gen: int, cand: Mapping[str, Any], entries: Mapping[str, Json], tried: int) -> str:
+def brain_dir() -> Path:
+    """The live brain the core boots (bin/lib/teeny.sh's TEENY_BRAIN)."""
+    return Path(os.environ.get("OPENHUMAN_WORKSPACE") or root() / "brain")
+
+
+def chronicle_path(gen: int, brain: Path | None = None) -> Path:
+    return (brain or brain_dir()) / "narrative" / "chronicle" / f"gen-{gen}.md"
+
+
+def write_chronicle(entry: Mapping[str, Any], entries: Mapping[str, Json]) -> Path | None:
+    """The chronicle page of a generation a person merged, in the live brain
+    (docs/roadmap.md, A13). Written once: a page already there (the one a
+    promotion committed, or an earlier run's) is left as it is."""
+    gen = entry.get("gen")
+    if not isinstance(gen, int):
+        return None
+    path = chronicle_path(gen)
+    if path.exists():
+        return None
+    tried = sum(1 for e in entries.values() if e.get("gen") == gen)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(chronicle_text(gen, entry, entries, tried, merged_by="the operator"), encoding="utf-8")
+    return path
+
+
+def chronicle_text(gen: int, cand: Mapping[str, Any], entries: Mapping[str, Json], tried: int,
+                   merged_by: str = "the loop, on its own measure") -> str:
     """brain/narrative/chronicle/gen-<n>.md: a short entry under the night
-    shift engine, written by this script from the record, never by a model."""
+    shift engine, written by this script from the record, never by a model.
+    `merged_by` says who let it in: the loop (a promotion) or a person."""
     scores = cand.get("scores") or {}
     held = scores.get("heldout") or {}
     lines = [
@@ -1855,6 +1889,7 @@ def chronicle_text(gen: int, cand: Mapping[str, Any], entries: Mapping[str, Json
         f"- how it did: won {scores.get('wins')} of {scores.get('decided')} pairs against main, and "
         f"{held.get('wins')} of {held.get('decided')} on the tasks it never saw",
         f"- lineage: {cand['id']}, from {cand.get('parent')}",
+        f"- merged by: {merged_by}",
     ]
     for back in carried_back(entries, gen):
         lines.append(f"- gen-{back}: the agents carried it back")
@@ -2545,13 +2580,19 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
     entries = archive()
     history = world_history()
     window = cfg["EVOLVE_CREDIT_DAYS"] * 86400
-    updated, measured = [], []
+    updated, measured, chronicled = [], [], []
     for entry in entries.values():
         if entry.get("pr_number") and not entry.get("merged_at") and not entry.get("closed"):
             info = publisher.pr(int(entry["pr_number"])) or {}
             if info.get("merged_at"):
                 entry["merged_at"] = info["merged_at"]
                 updated.append(entry["id"])
+                if not entry.get("promoted_at"):
+                    page = write_chronicle(entry, entries)
+                    if page is not None:
+                        entry["chronicle"] = str(page.relative_to(brain_dir().parent)) \
+                            if brain_dir().parent in page.parents else str(page)
+                        chronicled.append(entry["id"])
             elif str(info.get("state", "")).lower() == "closed":
                 entry["closed"] = True
                 updated.append(entry["id"])
@@ -2574,7 +2615,7 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
             updated.append(entry_id)
     for entry_id in sorted(set(updated)):
         record(entries[entry_id])
-    return {"ok": True, "measured": measured, "updated": sorted(set(updated)),
+    return {"ok": True, "measured": measured, "updated": sorted(set(updated)), "chronicled": chronicled,
             "history": "available" if history is not None else "no hands/world history"}
 
 
