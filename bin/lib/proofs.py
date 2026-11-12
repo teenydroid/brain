@@ -350,6 +350,11 @@ def generation_prs(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "generations bin/evolve opened a pull request for (state/evolve/archive.jsonl)"
 
 
+def human_merged(db: Ledgers, t: float) -> tuple[float, str]:
+    n = sum(1 for e in _archive() if e.get("merged_at") and not e.get("promoted_at"))
+    return n, "generations a person merged (state/evolve/archive.jsonl); the autonomy ladder's merge evidence (G2)"
+
+
 def promoted(db: Ledgers, t: float) -> tuple[float, str]:
     n = sum(1 for e in _archive() if e.get("promoted_at"))
     return n, "generations the loop promoted itself"
@@ -392,6 +397,7 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L4.diary", 4, "Public diary, one page a day for 30 days", "30 diary pages in a row", 30, diary_days),
     ("L5.generation_pr", 5, "bin/evolve, human-gated first", "a generation PR with a compare report", 1, generation_prs),
     ("L5.promoted", 5, "Promotion and rollback", "one promoted generation", 1, promoted),
+    ("L5.human_merged", 5, "bin/evolve, human-gated first", "five generations a person merged", 5, human_merged),
     ("L5.rollback", 5, "Promotion and rollback", "one automatic rollback", 1, rolled_back),
     ("L5.chronicle", 5, "Chronicle", "a chronicle page per generation", 1, chronicle),
     ("L5.ten_promoted", 5, "Ten generations promoted with no human", "ten promoted generations", 10, promoted),
@@ -418,7 +424,7 @@ NOT_COUNTED: tuple[tuple[str, str], ...] = (
     ("L3 pays for its own APIs with x402, earns, sells, pays its own bills", "no inflow ledger yet (S1, S3, S5)"),
     ("L4 labelled memory, knows its own history, weekly goal pages", "gap G10; A10; A15"),
     ("L5 the frozen-path gate, the lab spine, fence proposals", "read on GitHub and the box"),
-    ("L6 the human leaves", "no audit or autonomy ladder yet (G2, G6)"),
+    ("L6 the human leaves", "the weekly audit (`bin/audit`, G6) and the autonomy ladder (`bin/proofs --ladder`, G2) are read by a person"),
 )
 
 
@@ -480,7 +486,19 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="bin/proofs", description="How far each countable DIRECTIVE.md proof has got.")
     parser.add_argument("--text", action="store_true", help="a table for a person instead of JSON")
     parser.add_argument("--only", nargs="+", default=(), metavar="ID", help="just these proofs, by id")
+    parser.add_argument("--ladder", action="store_true",
+                        help="the autonomy ladder instead: each capability's level and what the next one needs (G2)")
     args = parser.parse_args(argv)
+    if args.ladder:
+        import autonomy  # noqa: PLC0415 (bin/lib, beside this file)
+
+        try:
+            out = autonomy.report(root(), Path(os.environ.get("TEENY_SECRETS") or root() / "secrets"), state_dir())
+        except autonomy.LadderError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+            return 2
+        print(autonomy.text(out) if args.text else json.dumps(out, ensure_ascii=False))
+        return 0
     try:
         out = report(args.only)
     except KeyError as exc:

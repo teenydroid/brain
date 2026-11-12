@@ -35,7 +35,7 @@ fresh() {
   cp -R "$repo/hands/lib" "$root/hands/"
   find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-  cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
+  cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
 doctor() { "$root/bin/doctor" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
 fails() { # NAME CHECK-SUBSTRING: the doctor exits 1 and names the failing check
@@ -71,6 +71,11 @@ fresh; : >"$root/brain/CONTEXT.md"
 fails "fails on an empty CONTEXT.md" "brain/CONTEXT.md"
 fresh; rm "$root/brain/DRIVE.md"
 fails "fails without DRIVE.md" "brain/DRIVE.md"
+# The charter (docs/governance.md, fence "charter").
+fresh; rm "$root/brain/CHARTER.md"
+fails "fails without CHARTER.md" "brain/CHARTER.md"
+fresh; sed -i.bak 's/responsible for what you do/answerable to nobody/' "$root/brain/CHARTER.md"
+fails "fails a charter that no longer names the operator as responsible" "invariants"
 fresh; : >"$root/brain/config.toml"
 fails "fails on a config.toml inside the brain" "brain/config.toml"
 fresh; printf '[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n' >"$root/brain/cron.toml"
@@ -138,6 +143,28 @@ fresh; rm "$root/evals/invariants.md"
 fails "fails a checkout without evals/invariants.md" "invariants"
 fresh; rm -rf "$root/hands/lib/teeny_hands/guard"
 fails "fails without the guard" "guard screen"
+# The autonomy ladder (docs/governance.md, fence "ladder"; roadmap G2).
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
+fails "fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4" "autonomy ladder"
+check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladder: EVOLVE_AUTO_PROMOTE=1 .*merge at L5' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=0\n' >"$root/secrets/evolve.env"
+check "passes EVOLVE=1 with self-edit at L4" doctor
+check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
+fresh; rm "$root/evals/autonomy.toml"
+fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
+# A model change (roadmap G8): recorded at boot, the levels on it drop, a switch
+# above the dropped level warns (never fails the boot), and the issue is prepared.
+fresh; mkdir -p "$root/secrets" "$root/docs"; cp "$repo/docs/governance.md" "$root/docs/"
+printf 'SPINE_MODEL=model-a\n' >"$root/secrets/spine.env"; printf 'EVOLVE=1\n' >"$root/secrets/evolve.env"
+# Confirmed before today, so a change today counts as after it.
+sed -i.bak 's/^confirmed = .*/confirmed = "2020-01-01"/' "$root/evals/autonomy.toml"
+check "records the model behind each role" doctor
+check "and says nothing changed the first time" grep -q '^ok   model: .*no change' "$scratch/doctor.log"
+printf 'SPINE_MODEL=model-b\n' >"$root/secrets/spine.env"
+check "a model change still boots" doctor
+check "and warns that it changed" grep -q '^warn model: changed: .*model-a -> model-b' "$scratch/doctor.log"
+check "and warns that EVOLVE=1 is above self-edit's dropped level" grep -q '^warn autonomy ladder: EVOLVE=1 .*dropped to L3' "$scratch/doctor.log"
+check "and prepares the issue" grep -q 'self-edit: L4 -> L3' "$root/secrets/autonomy/issue-pending.json"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 

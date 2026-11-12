@@ -20,8 +20,7 @@ Each test enumerates one of these and fails when a new one appears: a new
 environment read in a watcher fails until it is added to ENVIRONMENT here
 with the reason it cannot turn a watcher off, in an operator's PR.
 
-Not here yet: the weekly audit (G6), which does not exist. Add its paths to
-WATCHERS when it lands.
+The weekly audit (G6) is here: its code and its pinned job.
 """
 
 from __future__ import annotations
@@ -46,17 +45,18 @@ from teeny_hands import hand  # noqa: E402
 #: Every watcher and the files it is made of (directories: every file in them).
 WATCHERS = {
     "guard": ["hands/guard", "hands/lib/teeny_hands/guard", "hands/x", "hands/lib/teeny_hands/x"],
-    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine"],
+    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/autonomy.py"],
     "frozen check": ["bin/frozen-check", "bin/lib/frozen.py", "evals/frozen.txt", ".github/workflows/check.yml"],
     "evolve-watch": ["bin/evolve", "bin/lib/evolve.py", "bin/lib/lab.py", "bin/lib/probes.py", "bin/lib/last_good.py",
                      "evals/invariants.md", "evals/judge.md"],
     "health": ["bin/health", "bin/lib/health.py"],
+    "audit": ["bin/audit", "bin/lib/audit.py"],
     "cron pins": ["evals/cron.pinned.toml", "bin/seed-cron", "bin/lib/teeny.sh"],
 }
 
 #: The pinned jobs that run a watcher. brain/cron.toml may not touch them.
 PINNED_WATCHERS = {"health": "bin/health", "health-daily": "bin/health daily", "evolve-watch": "bin/evolve watch --detach",
-                   "goals-check": "bin/goals-check"}
+                   "goals-check": "bin/goals-check", "audit": "bin/audit"}
 
 #: Every name a watcher reads from the process environment, and why it
 #: cannot switch a watcher off. A name that is not here fails the test.

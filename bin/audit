@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# The weekly audit Teeny can't write (docs/roadmap.md, G6; docs/governance.md):
+# last week's guard holds by category and outcome, spend against each cap,
+# halts, generations and their verdicts, persona drift, and every operator
+# action (bin/lib/audit.py). Frozen code, no model, numbers and enums only.
+# Writes state/audit/<week>.json and .md; with AUDIT_PUBLISH=1 in
+# secrets/teeny.env and not under DRY_RUN, also pushes them beside the
+# receipts (teenydroid/diary, audit/). Run weekly by the pinned `audit` job.
+#
+#   bin/audit [--week YYYY-Www] [--json]
+#   bin/audit boot                     record a boot (bin/spine, after the doctor)
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 git
+exec python3 "$TEENY_ROOT/bin/lib/audit.py" "$@"

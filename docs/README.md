@@ -10,6 +10,7 @@ change it.
 | [`architecture.md`](architecture.md) | The design: the spine, the hands and the brain, and why the model only drafts. Code and tests cite its sections by number (§4a, §6a), so keep the numbering stable. |
 | [`hands.md`](hands.md) | The spec for every hand: its verbs, its rules, its ledger and its exit codes. |
 | [`roadmap.md`](roadmap.md) | The work list. Where Teeny stands against `DIRECTIVE.md`, and what to build and switch on to make it agentic, popular, self-sustaining and self-governing, one pull request per item. Start here to pick up work. |
+| [`governance.md`](governance.md) | The charter: who decides what (the operator, Teeny, its followers), every fence with the code and the test that hold it, every kill switch, how a fence changes, and who answers for Teeny. Frozen. |
 | [`evolve.md`](evolve.md) | The self-improvement loop: what Teeny may change about itself, the frozen paths, how a generation is judged, and promotion, rollback and the probes. Built; it has not yet run a real generation. |
 | [`oh-gaps.md`](oh-gaps.md) | What upstream OpenHuman could add so the hands could shrink. |
 | [`research/`](research/README.md) | What others have built and written on self-improving, goal-driven and public agents, the state of agents and AGI in 2026, how agents govern and pay for themselves, and the proposal for Teeny's drive (grow and become powerful) and a faster evolve loop. |

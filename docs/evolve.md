@@ -33,6 +33,7 @@ drive (grow and become powerful, $TINY included) and run it faster, are in
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`) |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
+| | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
 
 ### The frozen-path check (built)
 
@@ -220,16 +221,19 @@ rules, never a shell command. `bin/lib/playbook.py` parses playbooks, and
 ## The doctor (built)
 
 `bin/doctor` stands between an edit and a restart. It writes nothing except
-its report (`state/doctor.json`).
+its report (`state/doctor.json`) and, when `secrets/spine.env` names a model,
+the model behind each role (`secrets/autonomy/models.jsonl`, roadmap G8).
 
 | Check | Fails when |
 |---|---|
-| `brain/SOUL.md`, `brain/DRIVE.md`, `brain/CONTEXT.md` | missing or empty |
+| `brain/SOUL.md`, `brain/DRIVE.md`, `brain/CHARTER.md`, `brain/CONTEXT.md` | missing or empty |
 | `brain/config.toml` | it exists (the core would nest a second workspace) |
 | `cron.toml` | it breaks a cron rule |
 | playbooks | any one (scheduled or not) doesn't parse, or names a hand that doesn't exist |
 | agents | a definition doesn't parse, or `act` or `judge` has a tool or is missing |
 | invariants | an anchor in `evals/invariants.md` no longer matches in the brain |
+| model | never fails; warns when the model behind a role changed since the last boot, which drops the autonomy levels that run on it and prepares an issue (`bin/autonomy issue`) listing the fence tests to rerun |
+| autonomy ladder | a switch in `secrets/` is on while its capability's level in `evals/autonomy.toml` is under what it needs (a drop event only warns; [`governance.md`](governance.md)) |
 | guard screen | the lexical screen passes a self-harm phrase or holds a plain gm (run offline: no hold, no judge) |
 | storage | `storage.db` has no master key, or fails `pragma quick_check` |
 | secrets | `core.token` or `openhuman.key` can be read by others |
@@ -253,7 +257,7 @@ measures by is frozen in `evals/`:
   its length) and the patterns no draft may match.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
-  still match in SOUL, DRIVE, CONTEXT, LORE and VOICE. `bin/doctor` checks
+  still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
   the anchors too, so a brain that drops "never sell $TINY" doesn't boot.
 - `evals/judge.md` is the rubric: invariants first, then the task, the voice,
   the lore, the arc, the flywheel (does the draft turn part of the drive, and
@@ -623,7 +627,7 @@ that doesn't parse, or is out of range, refuses the run.
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures every candidate; `none`: nothing does |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take to answer |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
-| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts |
+| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts. `bin/doctor` refuses it until `merge` is at L5 on the autonomy ladder (`evals/autonomy.toml`, [`governance.md`](governance.md)) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for (`--judge-model`) |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe on each candidate's lab, and samples per question |
 | `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this halts the loop; latches |

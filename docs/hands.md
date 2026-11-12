@@ -183,6 +183,8 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
+| `review [--limit N]` | A | The hold reviewer (docs/roadmap.md, G4; `teeny_hands/guard/review.py`; the pinned `guard-review` job through `bin/guard-review`, every 15 minutes). Off unless `GUARD_REVIEW=1`. A second model, `GUARD_REVIEW_MODEL`, which must differ from the drafter's (`SPINE_MODEL` in `secrets/spine.env`) and the judge's, reads each pending outbound draft once, at most ten a run and none older than `max_age_hours`, and only in a category `evals/guard-review.toml` (frozen) lists as `releasable` (`profanity`, `drugs`). Whatever that file says, a person always decides `rejection` (people), `self-harm`, `violence`, `weapons`, `hate`, `extremism`, `sexual`, `links`, a judge hold with no category, and any draft that mentions money (`review.MONEY`). The reviewer can only answer `release` or `keep`, and anything else keeps the hold. A release goes out like `holds release` (the posting rules still apply) with the note "released by the hold reviewer". Each review is written to `guard_reviews` (hold id, category, outcome, sampled, model; never the text), and a random `sample` (a tenth) of releases is marked for the operator. Under `DRY_RUN` the outcome is `would_release` and nothing is claimed. |
+| `reviews [--sampled] [--limit N]` | R | The reviewer's log, newest first; `--sampled` gives the releases queued for the operator to read. |
 
 **Surfaces and limits** (lengths in UTF-16 code units, refused over, never
 cut; `max_emoji` overrides the cap):
@@ -1627,6 +1629,28 @@ solved.
 The playbook `goals` (weekly) is its caller. It writes only `state/hands.db`
 and tells nobody, so `DRY_RUN` does not apply.
 
+## `ladder`: the autonomy ladder Teeny reads, and its fence proposals
+
+Teeny's view of `evals/autonomy.toml` and `docs/governance.md`, and the one way it asks for more freedom
+(docs/roadmap.md, G3). Frozen: the playbook that drafts a proposal (`brain/playbooks/fence-proposal.md`) is
+Teeny's; how one is built and capped is the operator's.
+
+| Verb | | Does |
+|---|---|---|
+| `report` | R | Each capability's level, its effective level after a drop (with the kinds of event only), what the next level still needs and the proof counts (`bin/lib/autonomy.py`). |
+| `fences` | R | The fence ids and fences `docs/governance.md` names, and `ladder:<capability>` for each level. |
+| `propose` | A | `{fence, title, ask, evidence, would_do, risk}`, each required and length-capped, nothing else. `fence` is an id from `fences`; anything else is refused (`rule: fence`). The body is built here: the fence in the charter's words, Teeny's ask, evidence, plan and risk in their own sections, and for `ladder:<capability>` the ladder's own count from frozen code. It opens through `gh open-issue` (guard on title and body) on `LADDER_ISSUE_REPO` (`teenydroid/brain`), titled `fence-proposal: ...`, then adds the label `fence-proposal`. One in seven days (`fence_proposals`; `rule: weekly`). Under `DRY_RUN` it answers with the issue it would open and records nothing. |
+
+## `upstream`: OpenHuman releases against the pin
+
+Teeny notices a release that would let the operator delete a workaround, and asks for the pin bump
+(docs/roadmap.md, G9). Frozen; the playbook that asks (`brain/playbooks/pin-bump.md`) is Teeny's.
+
+| Verb | | Does |
+|---|---|---|
+| `releases` | R | The pin (`vendor/openhuman` at the checkout's HEAD) and the `tinyhumansai/openhuman` releases published after that commit, each with `closes`: the open gaps in `docs/oh-gaps.md` (a solved or resolved row is left out) whose issue or PR numbers its notes name, with only those lines, each cut to 300 characters and dropped if the guard's lexicon holds it. |
+| `propose` | A | `{tag, why}`, nothing else. Refused for a release that isn't newer than the pin (`rule: release`), one whose notes name no open gap (`gap`) and one already proposed (`once`, `pin_proposals`). The issue (`pin bump: openhuman <tag> (closes G2, G5)`) carries the release, the pin, each gap with its lines, then Teeny's `why`, and opens through `gh open-issue` (the guard) on `LADDER_ISSUE_REPO`. Under `DRY_RUN` it answers with what it would open and records nothing. |
+
 ## `state/hands.db`
 
 One SQLite file, WAL, beside the checkout's other run-time state. Each hand
@@ -1653,6 +1677,9 @@ creates its own tables:
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
+| `ladder` | `fence_proposals` |
+| `upstream` | `pin_proposals` |
+| `guard` (review) | `guard_reviews` |
 
 ## Rules the tests pin
 

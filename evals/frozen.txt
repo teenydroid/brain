@@ -35,6 +35,12 @@ DIRECTIVE.md
 # drive (playbooks, skills, SOUL, CONTEXT) stays Teeny's.
 brain/DRIVE.md
 
+# The charter (docs/roadmap.md, G1): who decides what, every fence and kill
+# switch, how a fence changes. The short version rides in every prompt and is
+# anchored in invariants.md, like the drive.
+brain/CHARTER.md
+docs/governance.md
+
 # The tool-less agents bin/act drafts with and bin/eval judges with, and the
 # agent definitions that say "Frozen like act.toml": the posture of a turn
 # that reads strangers' text, or acts on a schedule. Their prompts (*.md) and
@@ -116,3 +122,12 @@ hands/lib/teeny_hands/xpost.py
 # here, so a proposal cannot redefine how success is checked.
 hands/goals
 hands/lib/teeny_hands/goals/
+
+# The autonomy ladder's reads and the fence-proposal issue (docs/roadmap.md,
+# G3): how a proposal is built and capped is the operator's; the playbook
+# that writes one is Teeny's.
+hands/ladder
+hands/lib/teeny_hands/ladder/
+# OpenHuman releases against the pin and the gaps (docs/roadmap.md, G9).
+hands/upstream
+hands/lib/teeny_hands/upstream/

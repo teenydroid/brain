@@ -59,6 +59,9 @@ bin/mentions                       # read mentions into the inbox
 bin/mail                           # read mail into the inbox
 bin/doctor                         # is this checkout safe to boot? (--live: is the spine healthy?)
 bin/proofs --text                  # how far each countable DIRECTIVE.md proof has got (read-only)
+bin/proofs --ladder --text         # the autonomy ladder: each capability's level, and what the next one needs
+bin/autonomy issue                 # open the issue a model change prepared (off unless LADDER_ISSUES=1)
+bin/audit --json                   # last week's audit page (holds, spend, halts, generations, operator actions)
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
 bin/eval invariants                # does the brain still say what Teeny is?
@@ -191,6 +194,9 @@ environment forces a rehearsal.
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
+| `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
+| `GUARD_REVIEW`, `GUARD_REVIEW_MODEL` | Off unless `1`: the hold reviewer (`hands/guard review`) may release held drafts in the categories `evals/guard-review.toml` allows. The model must not be the drafter's or the judge's. |
+| `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |
 
 ### `deploy/browser-allow.txt`
 
@@ -256,7 +262,8 @@ These are gitignored and created at run time:
   `evolve/` (each generation of `bin/evolve` with its lab spines' folders,
   `archive.jsonl`, and `probes/gen-0.json`). `spine.pid` is the running
   spine's pid, `last-good` the commit a promotion restarted from, and
-  `spine-fallback.json` is there only after a last-good boot.
+  `spine-fallback.json` is there only after a last-good boot. `boots.jsonl`
+  is one line per spine boot, and `audit/` the weekly audit pages (`bin/audit`).
 - `.openhuman/`: the core's config, written by the core.
 - `brain/storage.db`: all of the core's state (sessions, cron jobs and runs,
   encrypted secrets) in one SQLite file, so `sqlite3` can read it.

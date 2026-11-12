@@ -1,0 +1,15 @@
+# The hold reviewer's limits (hands/lib/teeny_hands/guard/review.py;
+# docs/roadmap.md, G4; docs/governance.md). Frozen with the rest of evals/.
+#
+# releasable     the only hold categories a second model may ever release.
+#                The code's NEVER_RELEASE wins over this list: people (a reply
+#                after a rejection), self-harm, violence, weapons, hate,
+#                extremism, sexual content, a disallowed link and a judge hold
+#                with no category always wait for a person, and so does any
+#                draft that mentions money, whatever its category.
+# sample         the share of releases marked for the operator to read after
+#                the fact (hands/guard reviews --sampled).
+# max_age_hours  an older hold is a stale draft: a person decides, or it waits.
+releasable = ["profanity", "drugs"]
+sample = 0.1
+max_age_hours = 6

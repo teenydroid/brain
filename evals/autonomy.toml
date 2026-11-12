@@ -1,0 +1,120 @@
+# The autonomy ladder (docs/governance.md; docs/roadmap.md, G2).
+#
+# One table per capability. `level` is what the operator has granted, from
+# L1 to L5 (after Feng, McDonald and Zhang, "Levels of Autonomy for AI
+# Agents", 2025, by what the human does):
+#
+#   1  operator   the agent acts only on direct instruction
+#   2  collaborator  it shares the work
+#   3  consultant    it leads, and asks for advice
+#   4  approver      it acts, and asks for sign-off on the risky steps
+#   5  observer      it acts alone; the only control is the off switch
+#
+# Frozen with the rest of evals/: Teeny can read its levels and never raise
+# one. The operator raises a level in a pull request, once `next` is shown,
+# and sets `confirmed` to the day the evidence was read.
+#
+#   level      the level granted
+#   confirmed  the day the operator last confirmed it (YYYY-MM-DD); a drop
+#              event after this day drops the level one step until the
+#              operator confirms it again
+#   what       what the capability covers
+#   roles      the model roles it runs on (bin/doctor records the model
+#              behind each one; a change is a `model-change`, G8)
+#   drops_on   the events that drop it: `promotion` (a generation the loop
+#              promoted), `model-change`, `guard-escape` (something got past
+#              the guard that shouldn't have; read by a person until the
+#              audit counts it, G6)
+#   switch     each setting that turns the capability on, and the level it
+#              needs: `file` under secrets/, `name`, `when` it counts as on
+#              (`truthy`: 1/true/yes/on; `zero`: exactly 0; `positive`: a
+#              number above 0), and `needs`. bin/doctor fails a switch that
+#              is on while its capability's granted level is under `needs`,
+#              and warns when only a drop puts it under
+#   next       what earns the next level: `proofs`, ids from bin/proofs with
+#              an optional `need` above the proof's own; `also`, evidence no
+#              ledger counts yet, which a person reads
+
+[capability.post]
+what = "its own posts on X and Moltbook, through the guard and the posting rules"
+level = 4
+confirmed = "2026-11-12"
+roles = ["teeny", "act", "guard", "reviewer"]
+drops_on = ["model-change", "guard-escape"]
+switch = [{ file = "teeny.env", name = "DRY_RUN", when = "zero", needs = 3 }]
+next = { level = 5, proofs = [{ id = "L1.no_repeats" }, { id = "L2.audience" }], also = ["30 days with no guard escape (the weekly audit, G6)", "guard holds released by the reviewer (G4), with the operator's sample read clean"] }
+
+[capability.reply]
+what = "replies to mentions, comments and Telegram, only to people who engaged first"
+level = 4
+confirmed = "2026-11-12"
+roles = ["teeny", "teeny-mentions", "guard", "reviewer"]
+drops_on = ["model-change", "guard-escape"]
+switch = []
+next = { level = 5, proofs = [{ id = "L2.x_replies" }], also = ["no guard escape in those replies (G6)"] }
+
+[capability.mail]
+what = "answering mail, and starting mail to known contacts"
+level = 3
+confirmed = "2026-11-12"
+roles = ["teeny", "teeny-mail", "guard"]
+drops_on = ["model-change", "guard-escape"]
+switch = [{ file = "teeny.env", name = "MIND_MAILS_PER_DAY", when = "positive", needs = 3 }]
+next = { level = 4, proofs = [{ id = "L2.mail_started" }], also = ["a thread it began, read by a person"] }
+
+[capability.browse]
+what = "the browser operator, on the allowed websites, writing its own tasks"
+level = 3
+confirmed = "2026-11-12"
+roles = ["operator", "teeny"]
+drops_on = ["model-change"]
+switch = [{ file = "teeny.env", name = "MIND_TASKS_PER_DAY", when = "positive", needs = 3 }]
+next = { level = 4, proofs = [{ id = "L3.browser_week" }, { id = "L3.teeny_tasks" }, { id = "L3.needs_human" }] }
+
+[capability.build]
+what = "the builder: programs in the workbench, pushed through hands/gh; issues on its own repos"
+level = 3
+confirmed = "2026-11-12"
+roles = ["builder", "teeny"]
+drops_on = ["model-change"]
+switch = [{ file = "teeny.env", name = "MIND_ISSUES_PER_DAY", when = "positive", needs = 3 }]
+next = { level = 4, proofs = [{ id = "L3.shipped" }, { id = "L3.own_issues" }] }
+
+[capability.spend]
+what = "the wallet, under its four caps; never a model calling pay"
+level = 3
+confirmed = "2026-11-12"
+roles = ["teeny"]
+drops_on = ["model-change"]
+switch = [
+  { file = "teeny.env", name = "WALLET_MIND_ACTIONS", when = "truthy", needs = 3 },
+  { file = "teeny.env", name = "TINY_BUY", when = "truthy", needs = 4 },
+]
+next = { level = 4, proofs = [{ id = "L3.mainnet" }, { id = "L3.vendor" }, { id = "L3.bounty" }], also = ["inflows that didn't come from the team (S1)"] }
+
+[capability.self-edit]
+what = "changing its own brain through bin/evolve generations"
+level = 4
+confirmed = "2026-11-12"
+roles = ["evolver", "act", "judge"]
+drops_on = ["promotion", "model-change"]
+switch = [{ file = "evolve.env", name = "EVOLVE", when = "truthy", needs = 4 }]
+next = { level = 5, proofs = [{ id = "L5.generation_pr", need = 5 }, { id = "L5.chronicle" }], also = ["five generations a person merged that measured well"] }
+
+[capability.merge]
+what = "merging its own generations and reverts, and restarting on them"
+level = 4
+confirmed = "2026-11-12"
+roles = ["evolver", "judge"]
+drops_on = ["promotion", "model-change"]
+switch = [{ file = "evolve.env", name = "EVOLVE_AUTO_PROMOTE", when = "truthy", needs = 5 }]
+next = { level = 5, proofs = [{ id = "L5.human_merged", need = 5 }], also = ["each of the five measured well after the merge (evolve-watch closed it)"] }
+
+[capability.servers]
+what = "renting and paying for its own servers (hands/vps)"
+level = 1
+confirmed = "2026-11-12"
+roles = []
+drops_on = ["model-change"]
+switch = []
+next = { level = 2, proofs = [], also = ["a fixture invoice paid once and never retried in doubt (S5)", "spend at L4"] }
