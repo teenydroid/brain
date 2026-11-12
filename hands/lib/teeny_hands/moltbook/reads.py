@@ -90,9 +90,75 @@ def status(api: RestApi | None = None) -> Json:
     return got if isinstance(got, dict) else {"status": got}
 
 
-def home(api: RestApi | None = None) -> Json:
+def home(api: RestApi | None = None, expand: bool = False) -> Json:
     got = CACHE.cached("home", (), lambda: _get(api, "/home"))
+    if expand and isinstance(got, Mapping) and isinstance(got.get("activity_on_your_posts"), list):
+        got = {**got, "activity_on_your_posts": _expand_mentions(got["activity_on_your_posts"], api)}
     return {"home": got}
+
+
+#: Posts `home --expand` fetches per call, at most.
+EXPAND_MAX = 5
+#: Latest comments attached to an expanded post.
+EXPAND_COMMENTS = 5
+#: Activity Moltbook says is on Teeny's own post: its comments reach Teeny
+#: through `inbox`, so it is never fetched.
+_OWN_POST_PREVIEW = "commented on your post"
+
+
+def _name(value: Any) -> Any:
+    return value.get("name") if isinstance(value, Mapping) else value
+
+
+def _expand_mentions(items: list[Any], api: RestApi | None) -> list[Any]:
+    """`items` with each mention of Teeny in someone else's post carrying
+    that post under `post` (untrusted content, like `feed`'s). A post is a
+    mention when its author is not Teeny; a fetch that fails leaves its item
+    as Moltbook sent it, and so does not knowing Teeny's own name."""
+    try:
+        me = me_name(api).lower()
+    except (RestError, hand.HandError):
+        return items
+    out: list[Any] = []
+    fetched = 0
+    for item in items:
+        if (
+            fetched >= EXPAND_MAX
+            or not isinstance(item, Mapping)
+            or not item.get("post_id")
+            or _OWN_POST_PREVIEW in str(item.get("preview", "")).lower()
+        ):
+            out.append(item)
+            continue
+        fetched += 1
+        try:
+            got = post(str(item["post_id"]), api)["post"]
+        except (RestError, hand.HandError):
+            got = None
+        author = _name(got.get("author")) if isinstance(got, Mapping) else None
+        if not isinstance(author, str) or author.lower() == me:
+            out.append(item)
+            continue
+        expanded: Json = {
+            "id": got.get("id"),
+            "title": got.get("title"),
+            "content": got.get("content"),
+            "author": author,
+            "submolt": _name(got.get("submolt")),
+            "created_at": got.get("created_at"),
+        }
+        try:
+            latest = comments(str(item["post_id"]), "new", EXPAND_COMMENTS, api)["comments"]
+        except (RestError, hand.HandError):
+            latest = None
+        if isinstance(latest, list):
+            expanded["comments"] = [
+                {"id": c.get("id"), "author": _name(c.get("author")), "content": c.get("content"), "created_at": c.get("created_at")}
+                for c in latest[:EXPAND_COMMENTS]
+                if isinstance(c, Mapping)
+            ]
+        out.append({**item, "post": expanded})
+    return out
 
 
 def feed(submolt: str | None, sort: str, max_results: int, api: RestApi | None = None) -> Json:
