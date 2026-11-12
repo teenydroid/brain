@@ -134,7 +134,7 @@ class VpsTest(unittest.TestCase):
         self.assertEqual((code, out["service_id"]), (0, "SV-9"))
         self.assertEqual(self.eq.requests("POST", "/orders")[0].json(), {"product": "ai-agent-ip", "os_id": 5, "ssh_key": PUBKEY})
         self.assertEqual([(r["status"], r["service_id"]) for r in self.held()], [("ordered", "SV-9")])
-        self.assertEqual(out["bill"], {"name": "eqvps SV-9", "usd": "15", "period": "month"})
+        self.assertEqual(out["bill"], {"name": "eqvps SV-9", "usd": "15.00", "period": "month"})
 
     def test_the_server_cap_holds_until_the_operator_releases(self):
         self.configure(**OPEN)
