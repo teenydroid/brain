@@ -93,7 +93,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -366,6 +366,43 @@ class TickTest(unittest.TestCase):
         # The surfaces' own queues hear what became of what was answered.
         self.assertIn(("x", ["mark", "111", "--status", "replied"]),
                       [(m["hand"], m["argv"][:4]) for m in self.marks()])
+
+    def test_wallet_intents_go_to_the_wallet_hands_own_verbs_when_switched_on(self):
+        (self.root / "secrets" / "teeny.env").write_text("WALLET_MIND_ACTIONS=1\n")
+        hand._ENV_CACHE = None
+        vendor = "0x" + "ab" * 20
+        self.answer({"thought": "tidy the treasury", "intents": [
+            {"do": "check_wallet"},
+            {"do": "transfer", "to": vendor, "chain": "base", "amount_usdc": "5", "ref": "server-nov", "purpose": "bounty"},
+            {"do": "swap", "chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01", "recipient": "0xevil"},
+            {"do": "bridge", "from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "20"},
+            {"do": "x402_fetch", "url": "https://api.example.com/q", "max_usd": "0.05"},
+        ]})
+        got = self.tick()
+        self.assertTrue(got["ok"], got)
+        calls = [(c["argv"], c["body"]) for c in self.hand_calls() if c["hand"] == "wallet"]
+        self.assertEqual(calls, [
+            (["balance"], None),
+            # a transfer is always a vendor payment: the allowlist decides, not the mind
+            (["pay"], {"to": vendor, "chain": "base", "amount_usdc": "5", "purpose": "vendor", "ref": "mind:server-nov"}),
+            # a recipient the mind names never reaches the hand
+            (["swap"], {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"}),
+            (["bridge"], {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "20"}),
+            (["x402", "fetch"], {"url": "https://api.example.com/q", "max_usd": "0.05"}),
+        ])
+
+    def test_wallet_actions_are_refused_until_the_operator_switches_them_on(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "transfer", "to": "x", "amount_usdc": "1", "ref": "r"},
+            {"do": "swap", "chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"},
+            {"do": "check_wallet"},
+        ]})
+        got = self.tick()
+        statuses = [r["status"] for r in got["results"]] if "results" in got else None
+        calls = [c["argv"] for c in self.hand_calls() if c["hand"] == "wallet"]
+        self.assertEqual(calls, [["balance"]], got)  # reading is always allowed
+        if statuses is not None:
+            self.assertEqual(statuses[:2], ["refused", "refused"])
 
     def test_say_telegram_goes_to_the_telegram_hand(self):
         stimuli.add("telegram", "dm", "42:7", "@steve in a DM:\nhey teeny", who="@steve")
