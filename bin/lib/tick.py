@@ -16,9 +16,13 @@
    100k tokens.
 3. Reads the answer: a `thought` and `intents`. Each intent goes to the one
    hand verb it names (ROUTES), never anywhere else; every acting hand keeps
-   its own guard, caps and DRY_RUN. `remember`, `follow_up`, `feel` and
-   `journal` are Teeny's own state: a note in `mind_notes` (and CortexDB,
-   when memory is on), a reminder in `follow_ups`, a mood, a journal line.
+   its own guard, caps and DRY_RUN. `remember`, `follow_up`,
+   `drop_follow_up`, `feel` and `journal` are Teeny's own state: a note in
+   `mind_notes` (and CortexDB, when memory is on), a reminder in
+   `follow_ups` (set or cleared), a mood, a journal line. An answer that
+   lands resolves the waiting follow-ups about what it answered (ANSWERS,
+   _refs), so a reply parked behind a cap and sent later never comes back
+   as a stale reminder; the entry's `resolved` says which.
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
