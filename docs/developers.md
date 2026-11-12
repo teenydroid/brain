@@ -98,6 +98,9 @@ bin/oh cron_run '{"job_id":"<id of teeny.builder>"}'  # run the builder now (bin
 
 hands/stats snapshot                                  # today's numbers (bin/stats-snapshot, daily)
 hands/stats report --days 7                           # latest values and their change
+hands/world snapshot                                  # today's world score W (bin/world-snapshot, daily)
+hands/world report --days 7                           # W, its growth per component, and J
+hands/wallet tiny                                     # Teeny's $TINY, in tokens (read only)
 
 bin/wallet-setup                                      # once, at a terminal: the core makes Teeny's wallet; the phrase is shown once
 hands/wallet address                                  # Teeny's Solana address

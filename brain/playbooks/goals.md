@@ -3,9 +3,10 @@ description = "propose one goal of my own, in the learnability band, with a chec
 output = "hand:goals propose"
 max_per_day = 3
 
-# Once hands/world lands, add its report here as an input:
-#   name = "world", run = "hands/world report --days 7"
-# Until then `hands/goals rank` carries it (its `world`), or says it is absent.
+[[inputs]]
+name = "world"
+run = "hands/world report --days 7"
+
 [[inputs]]
 name = "rank"
 run = "hands/goals rank"
@@ -25,6 +26,7 @@ run = "hands/stats report --days 7"
 Propose one goal for yourself this week: something you can do about half the time, that grows your world, and that frozen code can check without taking your word for it.
 
 Read the inputs:
+- `world`: your world score from frozen code: W per component, how much each grew, and J. Aim the goal at a component that is growing least.
 - `rank`: your families of goals, each with `p_hat` (how often you succeed), `lp` (how fast that is changing), `in_band` and `score`. Its `world` is W per component and J, when the world hand is there. `new_family` is what a family you have never tried looks like.
 - `annecs`: the goals you solved that were new, and the archive of niches (W component x channel). `empty` lists the niches you have never solved.
 - `open`: the goals still running, and `max_open`.
