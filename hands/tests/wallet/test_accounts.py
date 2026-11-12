@@ -263,3 +263,14 @@ class AccountsTest(Scratch):
         run = subprocess.run([sys.executable, str(wallet), "accounts", "--days", "7"], capture_output=True, text=True)
         self.assertEqual(json.loads(run.stdout)["income"]["tip"], "2.00")
 
+    def test_the_pinned_job_closes_the_week(self):
+        import os, subprocess  # noqa: E401
+        hands = Path(__file__).resolve().parents[2]
+        job = hands.parent / "bin" / "accounts"
+        self.fill_week()
+        done = subprocess.run([str(job)], capture_output=True, text=True, env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(json.loads(done.stdout)["week"], "2026-W37")
+        self.configure(WALLET_ACCOUNTS=None)
+        done = subprocess.run([str(job)], capture_output=True, text=True, env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
+        self.assertEqual((done.returncode, json.loads(done.stdout)["refused"]), (2, "the weekly accounts are off: WALLET_ACCOUNTS=1 in secrets/teeny.env"))
