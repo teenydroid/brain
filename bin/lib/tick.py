@@ -24,7 +24,9 @@
    `follow_ups` (set or cleared), a mood, a journal line. An answer that
    lands resolves the waiting follow-ups about what it answered (ANSWERS,
    _refs), so a reply parked behind a cap and sent later never comes back
-   as a stale reminder; the entry's `resolved` says which.
+   as a stale reminder; the entry's `resolved` says which. `open_issue`,
+   `queue_task` and `start_mail` (MIND_CAPS) each have a daily cap of
+   their own, 0 (off) unless secrets/teeny.env sets it.
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
@@ -218,6 +220,102 @@ def _check_wallet(i):
     return "wallet", ["balance"], None
 
 
+# --- issues, browser tasks and new mail (docs/roadmap.md, A3) -------------------------------
+#
+# Three reaches the mind did not have: an issue on its own repositories
+# (hands/gh open-issue: the owner rule and the guard), a browser task it
+# wrote (hands/tasks add --source teeny: the allowed websites, the queue's
+# limit, and its words past the guard here first), and a mail it starts
+# (hands/mail send: contacts only, the guard, the mail cap). Each is also
+# held to a daily cap of its own, a setting in secrets/teeny.env clamped to
+# MIND_CAPS; the default 0 keeps it off. Every call that reaches the hand
+# counts, whatever the hand answers, so a refused one is not tried over and
+# over; a refusal before the hand (the cap, a missing field) does not.
+
+#: do -> (the setting that caps it a day, the highest it may be set to)
+MIND_CAPS = {
+    "open_issue": ("MIND_ISSUES_PER_DAY", 5),
+    "queue_task": ("MIND_TASKS_PER_DAY", 10),
+    "start_mail": ("MIND_MAILS_PER_DAY", 5),
+}
+#: What a task the mind writes is filed as (hands/tasks KINDs: a short word).
+MIND_TASK_KIND = "research"
+#: Who a task the mind writes is from (DIRECTIVE.md, level 3: "--source teeny").
+MIND_TASK_SOURCE = "teeny"
+
+
+def mind_cap(do: str) -> int:
+    name, high = MIND_CAPS[do]
+    return hand.number(name, 0, 0, high)
+
+
+def _caps_path() -> Path:
+    return hand.state_dir() / "tick" / "caps.json"
+
+
+def _caps_today() -> dict[str, int]:
+    """Today's (UTC) count of each capped intent that reached its hand."""
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        saved = json.loads(_caps_path().read_text())
+    except (OSError, ValueError):
+        saved = {}
+    if not isinstance(saved, dict) or saved.get("day") != day:
+        return {}
+    counts = saved.get("counts")
+    return {k: int(v) for k, v in counts.items() if isinstance(v, int)} if isinstance(counts, dict) else {}
+
+
+def _count_capped(do: str) -> None:
+    day = dt.datetime.fromtimestamp(hand.now(), dt.timezone.utc).strftime("%Y-%m-%d")
+    counts = _caps_today()
+    counts[do] = counts.get(do, 0) + 1
+    path = _caps_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"day": day, "counts": counts}) + "\n")
+    os.replace(tmp, path)
+
+
+def _within_cap(do: str) -> None:
+    cap = mind_cap(do)
+    name = MIND_CAPS[do][0]
+    if cap == 0:
+        raise ValueError(f"{do} is off ({name} in secrets/teeny.env)")
+    used = _caps_today().get(do, 0)
+    if used >= cap:
+        raise ValueError(f"today's {cap} {do} intent(s) are spent ({name}, UTC day)")
+
+
+def _open_issue(i):
+    _within_cap("open_issue")
+    return "gh", ["open-issue"], {"repo": _id(i, "repo"), "title": _text(i, "title"), "body": _text(i)}
+
+
+def _queue_task(i):
+    _within_cap("queue_task")
+    start_url = _text(i, "start_url")
+    checked = {}
+    for key in ("goal", "done_when"):
+        code, verdict = _run_hand("guard", ["check"], {"text": _text(i, key), "surface": "task", "kind": "task"})
+        if code != 0 or not isinstance(verdict.get("text"), str):
+            why = verdict.get("refused") or verdict.get("error") or "it did not pass"
+            raise ValueError(f"the guard held the task's {key}: {why}")
+        checked[key] = verdict["text"]
+    body = {"goal": checked["goal"], "done_when": checked["done_when"], "start_url": start_url, "kind": MIND_TASK_KIND}
+    return "tasks", ["add", "--source", MIND_TASK_SOURCE], body
+
+
+def _start_mail(i):
+    _within_cap("start_mail")
+    to = i.get("to")
+    if isinstance(to, str):
+        to = [to]
+    if not isinstance(to, list) or not to or not all(isinstance(a, str) and a.strip() for a in to):
+        raise ValueError("needs to")
+    return "mail", ["send"], {"to": [a.strip() for a in to], "subject": _text(i, "subject"), "body": _text(i)}
+
+
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "reply_x": _reply_x,
     "post_x": _post_x,
@@ -232,6 +330,9 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "bridge": _bridge,
     "x402_fetch": _x402_fetch,
     "check_wallet": _check_wallet,
+    "open_issue": _open_issue,
+    "queue_task": _queue_task,
+    "start_mail": _start_mail,
 }
 OWN = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip")
 #: The intents that answer something: once one lands, a waiting follow-up
@@ -278,6 +379,26 @@ Your wallet is yours: one recovery phrase, an address on Solana and one on the E
 A post_x may carry a picture of you: add "image": "<what you are doing in it, and where>". Describe a scene, never text or a real person.
 
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
+
+#: The capped intents, offered only while their cap is above 0 (mind_cap).
+CAPPED_SHAPES = {
+    "open_issue": '- {"do": "open_issue", "repo": "<one of your own repos, owner/name>", "title": "...", "text": "<the issue body>"}: '
+                  "for your own bugs and ideas; at most %d today",
+    "queue_task": '- {"do": "queue_task", "goal": "<what to find out>", "start_url": "https://<an allowed website>/...", '
+                  '"done_when": "<how the browser knows it is done>"}: the browser operator does it and the result comes '
+                  "back to you; at most %d today",
+    "start_mail": '- {"do": "start_mail", "to": "<a known contact\'s address>", "subject": "...", "text": "..."}: '
+                  "a new thread, to your contacts only; at most %d today",
+}
+
+
+def shape() -> str:
+    """The answer's shape, with each capped intent listed while it is on."""
+    extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES if mind_cap(do) > 0]
+    if not extra:
+        return SHAPE
+    head, sep, tail = SHAPE.partition("\n\nA follow_up's ref")
+    return head + "\n" + "\n".join(extra) + sep + tail
 
 
 def _clock() -> dt.datetime:
@@ -338,7 +459,7 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         lines.append("")
         lines.append(s["text"])
         lines.append("")
-    lines.append(SHAPE)
+    lines.append(shape())
     return "\n".join(lines)
 
 
@@ -533,6 +654,8 @@ def _send(do: str, name: str, argv: list[str], body: Any, deadline: float) -> tu
     has the time. The third value says how it was paced (None when it was
     not); `deferred` there means it is still held and should wait for the
     next beat."""
+    if do in MIND_CAPS:
+        _count_capped(do)
     code, out = _run_hand(name, argv, body)
     wait = _paced_wait(do, code, out)
     if wait is None:

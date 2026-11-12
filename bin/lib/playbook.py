@@ -58,7 +58,16 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # pending request that pick-request, the builder, the frozen-path check and
 # the operator's merge all still stand between and main. The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
-VERB_OUTPUTS = {"build": ("self",), "goals": ("propose",)}
+VERB_OUTPUTS = {
+    "build": ("self",),
+    "goals": ("propose",),
+    # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
+    # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
+    # mail, never a push, a repository, a fork or a pull request of its own.
+    "gh": ("open-issue", "comment"),
+    "tasks": ("add",),
+    "mail": ("reply", "send"),
+}
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
