@@ -147,7 +147,8 @@ class CalendarTest(Scratch):
 
     def test_nothing_is_due_until_the_proof_is_met(self):
         self.replies(49)
-        self.assertEqual(calendar.due()["firsts"], [])
+        # exactly two empty lists, so the milestone playbook's required input skips before any model turn
+        self.assertEqual(calendar.due(), {"firsts": [], "rounds": []})
         self.assertEqual(self.refused({"text": "fifty replies!", "first": "fifty-replies"}).detail["rule"], "unproven")
         self.assertEqual(self.x_calls(), [])
 
