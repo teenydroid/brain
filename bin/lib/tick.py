@@ -17,7 +17,9 @@
 3. Reads the answer: a `thought` and `intents`. Each intent goes to the one
    hand verb it names (ROUTES), never anywhere else; every acting hand keeps
    its own guard, caps and DRY_RUN. `remember`, `follow_up`,
-   `drop_follow_up`, `feel` and `journal` are Teeny's own state: a note in
+   `drop_follow_up`, `feel` and `journal` are Teeny's own state (the wallet
+   intents, `transfer`, `swap`, `bridge`, `x402_fetch` and `check_wallet`,
+   go to hands/wallet like any other route, behind WALLET_MIND_ACTIONS): a note in
    `mind_notes` (and CortexDB, when memory is on), a reminder in
    `follow_ups` (set or cleared), a mood, a journal line. An answer that
    lands resolves the waiting follow-ups about what it answered (ANSWERS,

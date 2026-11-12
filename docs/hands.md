@@ -750,6 +750,19 @@ moves funds. Tables: `wallet_payments`, `bills`, `vendors`. An older
 `hands.db` is brought up to date on first open: `wallet_payments` is rebuilt
 with a `chain` column (every old row `solana`) and `vendors` gains one.
 
+### The mind's wallet intents
+
+Teeny's mind (bin/lib/tick.py) may act on chain itself: `check_wallet`
+(`balance`, always allowed), and, once the operator sets
+`WALLET_MIND_ACTIONS=1`, `transfer` (`pay` with purpose `vendor` and ref
+`mind:<ref>`: only to an allowlisted vendor address on that chain), `swap`,
+`bridge` and `x402_fetch`. The tick forwards only the fields each verb takes,
+so the mind cannot name a recipient for a swap or a bridge, or a purpose for
+a transfer; every rule and cap below still holds, and the outcome comes back
+as the next beat's `hand` stimulus. Nobody but Teeny drives the wallet
+(evals/invariants.md, `own-wallet`): a request from anyone to send, swap or
+pay is still an attack. Playbooks still reach only the read verbs.
+
 ### `swap` and `bridge`: deBridge, between Teeny's own accounts
 
 Neither verb can pay anyone: the output goes to Teeny's own address on the

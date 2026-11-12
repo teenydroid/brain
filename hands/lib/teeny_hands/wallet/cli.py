@@ -17,8 +17,11 @@
   O  vendors add NAME ADDRESS [--chain C] [--note T], vendors list, vendors remove NAME
   O  x402 hosts add HOST [--note T], x402 hosts list, x402 hosts remove HOST
 
-`pay`, `swap`, `bridge` and `x402 fetch` are never given to a model: bin/lib/playbook.py refuses it as a
-playbook's output, and the drafting agents have no tools.
+`pay`, `swap`, `bridge` and `x402 fetch` are never a playbook's output
+(bin/lib/playbook.py), and the drafting agents have no tools. The mind
+reaches them only through its intents (bin/lib/tick.py: `transfer`, `swap`,
+`bridge`, `x402_fetch`), off until WALLET_MIND_ACTIONS=1, with the fields
+each takes and nothing more.
 """
 
 from __future__ import annotations
