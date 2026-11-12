@@ -401,7 +401,11 @@ class BabysitTest(SelfJobScratch):
     MAX_FIX_ATTEMPTS times, and the fix is pushed to that branch with no new
     pull request. Off unless BUILD_BABYSIT=1."""
 
-    setUp = SelfShipTest.setUp
+    def setUp(self) -> None:
+        super().setUp()
+        self.me()
+        self.gh.route("POST", "/repos/teenydroid/brain/pulls", {"number": 7, "html_url": PR_URL}, status=201)
+
     built = SelfShipTest.built
     told = SelfShipTest.told
 
