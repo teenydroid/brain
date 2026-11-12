@@ -1,6 +1,6 @@
 """bin/lib/prompts.py: the speaking agents' prompts carry Teeny's world
-(CONTEXT.md, the lore Teeny reads, the arcs), and never the producer's
-secrets (LORE.md's latent reveals)."""
+(MEMORY.md, DRIVE.md, CONTEXT.md, the lore Teeny reads, the arcs), and never
+the producer's secrets (LORE.md's latent reveals)."""
 
 from __future__ import annotations
 
@@ -92,6 +92,57 @@ class PromptsTest(unittest.TestCase):
         text = self.built()
         self.assertNotIn("## what you keep in mind", text)
         self.assertIn("running the lab.", text)
+
+    def test_the_drive_rides_in_the_world_between_memory_and_context(self):
+        (self.brain / "MEMORY.md").write_text("# MEMORY.md\n\n- shipped a cli on friday.\n")
+        (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\n## your one drive\n\nyou want to grow.\n")
+        text = self.built()
+        self.assertIn("## what you want (DRIVE.md)", text)
+        self.assertIn("you want to grow.", text)
+        drive = text.index("## what you want (DRIVE.md)")
+        self.assertLess(text.index("## what you keep in mind (MEMORY.md)"), drive)
+        self.assertLess(drive, text.index("running the lab."))
+        self.assertLess(drive, text.index("## the story you are in"))
+
+    def test_the_drives_headings_sit_one_level_under_its_section(self):
+        (self.brain / "DRIVE.md").write_text("# DRIVE.md\n\n## the fences\n\n- no buy calls.\n\n### fine print\n\nnone.\n")
+        text = self.built()
+        # Its own title would read as a second document, and its sections
+        # would read as siblings of the world's.
+        self.assertNotIn("# DRIVE.md", text)
+        self.assertIn("\n### the fences\n", text)
+        self.assertIn("\n#### fine print\n", text)
+        self.assertNotIn("\n## the fences", text)
+
+    def test_without_a_drive_the_world_still_builds(self):
+        text = self.built()
+        self.assertNotIn("DRIVE.md", text)
+        self.assertIn("running the lab.", text)
+        self.assertIn("### mint my own currency", text)
+
+    def test_the_drive_alone_is_a_world(self):
+        for name in ("CONTEXT.md", "narrative/LORE.md", "narrative/ARCS.md"):
+            (self.brain / name).unlink()
+        (self.brain / "DRIVE.md").write_text("you want to grow.\n")
+        text = self.built()
+        self.assertIn("# your world", text)
+        self.assertIn("## what you want (DRIVE.md)\n\n", text)
+        self.assertIn("you want to grow.", text)
+
+    def test_the_checked_in_drive_is_short_and_in_the_real_prompt(self):
+        drive = (REPO / "brain" / "DRIVE.md").read_text()
+        # It rides in every prompt.
+        self.assertLess(len(drive.splitlines()), 40)
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            for name in ("CONTEXT.md", "DRIVE.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            text = prompts.render(brain, "act")
+            self.assertIn("## what you want (DRIVE.md)", text)
+            self.assertIn("grow and become powerful", text)
+            self.assertLess(text.index("## what you want (DRIVE.md)"), text.index("## the story you are in"))
 
     def test_an_overlong_memory_is_cut_and_says_so(self):
         (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))

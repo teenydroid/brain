@@ -28,8 +28,7 @@ it may treat as known: memory says what happened, the drive says what Teeny
 wants from what happens next, and CONTEXT.md is the ground both stand on.
 MEMORY.md does not outrank it. Teeny writes its memory every night, and the
 drive is frozen (evals/frozen.txt), so a note can never talk the drive away.
-It is short, and it changes only in an operator's PR, so it costs the prompt
-cache nothing.
+It is short (under 40 lines) and changes only in an operator's PR.
 
 LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
 in the dark until the world trips them, and narrative/VOICE.md and
