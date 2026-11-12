@@ -203,7 +203,7 @@ class TickTest(unittest.TestCase):
     def test_a_tired_teeny_is_told_resting_is_a_full_answer(self):
         state = self.root / "state"
         state.mkdir(parents=True, exist_ok=True)
-        (state / "mind.json").write_text(json.dumps({"day": "2026-09-14", "actions_today": 14}))
+        (state / "mind.json").write_text(json.dumps({"day": "2026-09-14", "actions_today": 30, "energy": 20, "energy_at": T0}))
         self.tick()
         quiet = self.chats()[0]["message"]
         self.assertIn("self · quiet", quiet)

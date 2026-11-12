@@ -14,6 +14,9 @@ needs; exits non-zero with the reason otherwise:
   (never the wildcard), and leave out the tools their role must not have;
 - each scheduled agent has the tools its desk needs (it reads its work from
   state/workbench/desk/ and writes its report there) and its role's own;
+- each scheduled agent's prompt says how a run with nothing queued ends:
+  no report, and its NOTHING_TO_DO line as the final message (an empty
+  final message is a failed run to the harness, every time the cron fires);
 - the builder's runs are rooted at the workbench (`scheduled_workspace`),
   so its sandboxed shell is granted that folder and never the checkout
   that holds brain/ and secrets/; no other agent picks a root;
@@ -48,6 +51,12 @@ SCHEDULED = {
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
 WORKSPACE = {"builder": "state/workbench"}
+
+#: agent -> the exact final message of a run with nothing queued.
+NOTHING_TO_DO = {
+    "builder": "nothing to do: no job waiting",
+    "operator": "nothing to do: no task waiting",
+}
 
 
 def check(path: Path) -> str:
@@ -94,6 +103,11 @@ def check(path: Path) -> str:
     missing = [t for t in needs if t not in named]
     if missing:
         raise SystemExit(f"the {agent} agent needs {', '.join(missing)}")
+    prompt = source.get("inline", "") if isinstance(source, dict) else ""
+    line = NOTHING_TO_DO[agent]
+    if f"`{line}`" not in prompt or "write no report" not in prompt or "Never end a run with an empty message." not in prompt:
+        raise SystemExit(f"the {agent} agent's prompt must end a run with nothing to do on `{line}`, write no report, "
+                         "and never end a run with an empty message")
     return agent
 
 

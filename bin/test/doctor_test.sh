@@ -105,6 +105,9 @@ fresh; perl -pi -e 's/^    "browser",/    "browser",\n    "mcp_github_create_iss
 fails "fails an operator that was given an MCP tool" "agent operator.toml"
 fresh; perl -ni -e 'print unless /^    "file_write",/' "$root/brain/agents/builder.toml"
 fails "fails a builder that cannot write its report" "agent builder.toml"
+# An idle cron run that ends on an empty message is a failed run, every hour.
+fresh; perl -pi -e 's/`nothing to do: no task waiting`/nothing/' "$root/brain/agents/operator.toml"
+fails "fails an operator whose idle run can end on an empty message" "agent operator.toml"
 # The builder's shell is rooted at the workbench (scheduled_workspace), never
 # the checkout that holds brain/ and secrets/; no other agent picks a root.
 fresh; perl -ni -e 'print unless /^scheduled_workspace/' "$root/brain/agents/builder.toml"
