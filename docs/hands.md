@@ -4,7 +4,7 @@ The only code Teeny owns. See [`architecture.md`](architecture.md) §3 for the
 contract: one JSON object out, exit `0`/`2`/other, secrets read by the hand,
 state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `moltbook`, `reddit`, `slopcash`, `mail`, `stats`,
 `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`, `wallet`
 and `bounty`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -232,6 +232,90 @@ Moltbook, the ledger or the failure count. The content id is recorded the
 moment Moltbook returns it, before the challenge is answered. Tables:
 `moltbook_posts`, `moltbook_comments`, `moltbook_actions`,
 `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`.
+
+## `reddit`: the only holder of the Reddit credentials
+
+Reddit's OAuth API, as a script app on Teeny's own account. The token comes
+from `https://www.reddit.com/api/v1/access_token` (the app's id and secret as
+basic auth; a `REDDIT_REFRESH_TOKEN` if set, else the password grant with
+`REDDIT_USERNAME`/`REDDIT_PASSWORD`, which fails under two-factor auth), is
+held in memory for the one process and never written down. Every call goes to
+`https://oauth.reddit.com` with a User-Agent naming the account, never follows
+a redirect, and no error names a URL, a header, the token or a secret. Every
+word published goes through `check_fields` (surface `reddit`: title 300, body
+10000) and what goes out is the guard's rewrite; a link post's `url` must be on
+the link allowlist.
+
+Reddit is not a network for agents: its communities have their own rules, and
+an account that acts like a bot is filtered or shadowbanned in silence. So the
+operator opens each community, and the fences are tighter than Moltbook's.
+
+| Verb | | Does |
+|---|---|---|
+| `whoami` | R | `/api/v1/me`: name, karma, suspended or not (10 min). |
+| `feed [SUBREDDIT] [--sort hot\|new\|top\|rising] [--time T] [--max N]` | R | A subreddit's posts, or with none named every subreddit on the allowlist at once (5 min). |
+| `thread ID [--sort S] [--max N]` | R | One post and its comment tree, six deep (2 min). |
+| `search QUERY [--subreddit S]`, `user NAME`, `subreddit NAME` | R | Post search (10 min); an account (1 h); a community's about page and its rules, and whether it is on the allowlist (1 h). |
+| `inbox [--days N] [--max N]` | R | Reddit's inbox: replies to Teeny's posts and comments and mentions of it, from the last N days (7), into its mind's inbox (`stimuli`, `reddit · comment`, ref `t1_<id>`), each screened by the inbound guard first. The payload carries `post_id`, `comment_id` and `can_answer` (the subreddit is on the allowlist). Private messages are counted, not added, and nothing is marked read. Run by `bin/tick` at most every 10 minutes once `REDDIT_CLIENT_ID` is set. |
+| `post` | A | `{subreddit, title, body? \| url?, flair_id?}`. |
+| `comment` | A | `{post_id, body, parent_id?}`; ids bare or as fullnames (`t3_…`, `t1_…`). |
+| `subscribe` | A | `{subreddit}`; once each. |
+| `rules`, `check` | O | The rules in force; that the credentials give a token for `REDDIT_USERNAME`. |
+
+There is no vote verb and no private-message verb: automated voting is vote
+manipulation under Reddit's rules, and a bot's unasked DM is spam.
+
+The rules, checked under the `reddit-write` lock before Reddit hears of the
+write, each refused with its `rule`:
+
+- **The allowlist** (`subreddit`): every write is in a subreddit
+  `REDDIT_SUBREDDITS` names (comma-separated, case and `r/` ignored). Empty is
+  nowhere. The community must exist and be open (`subreddit`), Teeny must not
+  be banned there (`banned`), it must not be NSFW (`nsfw`), and a post must be
+  of a kind it takes (`submission_type`). These are read fresh, not cached.
+- **Caps** (`daily_cap`, last 24 hours): `REDDIT_MAX_POSTS_PER_DAY` (1, at
+  most 10), `REDDIT_MAX_COMMENTS_PER_DAY` (10, at most 100).
+- **Gaps** (`rate_limit`, with `wait_seconds`): `REDDIT_POST_GAP_HOURS` (6)
+  between posts, `REDDIT_SUBREDDIT_POST_GAP_DAYS` (7) between two posts in one
+  subreddit, `REDDIT_COMMENT_GAP_SECONDS` (120, never under 30) between
+  comments. Reddit's own `RATELIMIT` ("you are doing that too much") and a 429
+  are refused with Reddit's wait and never retried; any other error Reddit
+  returns is refused as `reddit` with its `code`, and a 403 as `forbidden`.
+- **Comments** (`once_per_post`, `once_per_parent`, `own_post`,
+  `own_comment`, `unknown_post`, `unknown_parent`, `locked`, `nsfw`): never
+  twice on a post unless answering a reply to Teeny (a comment under Teeny's
+  comment, or a top-level comment on Teeny's own post), never twice to one
+  comment, never a top-level comment on its own post, never on a locked,
+  archived or NSFW post. The post and the parent are read fresh from
+  `/api/info`.
+- **Crypto** (`crypto`): text that reads as crypto (Moltbook's detector) goes
+  only to a subreddit `REDDIT_CRYPTO_SUBREDDITS` names.
+
+Under `DRY_RUN` every rule runs (reads included) and nothing is written:
+Reddit or the ledger. Tables: `reddit_posts`, `reddit_comments`,
+`reddit_actions`, `reddit_cache`.
+
+### Setting the account up
+
+1. Log in as the account, open <https://www.reddit.com/prefs/apps>, and
+   create an app of type **script** (redirect uri `http://localhost:8080`).
+   The id is under its name; the secret is labelled `secret`. If Reddit asks
+   for API access to be approved (its Responsible Builder Policy), do that
+   first, describing Teeny honestly as an AI agent.
+2. In `secrets/teeny.env`: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`,
+   `REDDIT_USERNAME`, and `REDDIT_PASSWORD` (or `REDDIT_REFRESH_TOKEN` when
+   the account has two-factor auth).
+3. `hands/reddit check`: a token for the right account, and the rules in force.
+4. Say in the account's profile that it is an AI agent, and who runs it.
+5. Pick the communities: read each one's rules (`hands/reddit subreddit
+   NAME`), skip any that ban bots, AI-written content or self-promotion, and
+   list the rest in `REDDIT_SUBREDDITS`. A new, low-karma account is
+   rate-limited and filtered by Reddit and by many communities' AutoModerator:
+   start with one or two, comments only.
+6. With `DRY_RUN=1`, `hands/reddit comment` (and `bin/act reddit-helpdesk`)
+   show what would go out. Then, when `DRY_RUN=0`, the mind answers replies
+   and mentions on its own, and `reddit-helpdesk` in `brain/cron.toml` can be
+   turned on.
 
 ## `slopcash`: Teeny's project on slop.cash
 
@@ -639,6 +723,7 @@ creates its own tables:
 | `guard` | `guard_holds`, `guard_approved_links` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` |
+| `reddit` | `reddit_posts`, `reddit_comments`, `reddit_actions`, `reddit_cache` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `slopcash` | `slopcash_cache` |
 | `requests` | `build_requests`, `build_request_events` |

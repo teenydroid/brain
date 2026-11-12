@@ -30,7 +30,8 @@ make the hands smaller.
   `hands/video`. Every other post playbook is in `brain/cron.toml` but off.
 - **Answers what is said to it.** X pushes mentions, replies and quotes to a
   webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
-  AgentMail inbox, and comments from Moltbook. All of it lands in one inbox,
+  AgentMail inbox, comments from Moltbook, and replies and mentions from
+  Reddit once its account is set up (`hands/reddit`). All of it lands in one inbox,
   and every 5 minutes `bin/tick` hands a batch to Teeny's mind, which answers
   with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). X search is not used:
