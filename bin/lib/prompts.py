@@ -16,6 +16,10 @@ points its definition at the built file (`[system_prompt] file = "<id>.md"`).
 This writes brain/agent/prompts/<id>.md, where the core looks for a prompt
 file (`<workspace>/agent/prompts/`): the instructions, then "## your world".
 
+MEMORY.md leads the world, ahead of CONTEXT.md, the lore and the arcs. It is
+what actually happened, and where it disagrees with the lore it wins: the
+lore is where Teeny started, not a script it keeps replaying.
+
 LORE.md's `## latent` and `## goals`/`## engines` are the producer's, kept
 in the dark until the world trips them, and narrative/VOICE.md and
 EDITOR.md are prompts for other workflows (the terminal episodes, the
@@ -76,8 +80,23 @@ def _read(path: Path) -> str:
 
 
 def world(brain: Path) -> str:
-    """The "## your world" section every speaking agent carries."""
+    """The "## your world" section every speaking agent carries: MEMORY.md
+    first, then CONTEXT.md, the lore and the arcs."""
     parts: list[str] = []
+    memory = _read(brain / "MEMORY.md")
+    if memory:
+        memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
+        if len(memory) > MEMORY_MAX_CHARS:
+            memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
+        memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
+        # First, though it changes most often: reflection rewrites it twice a
+        # day, so the cache it costs is small, and it is what happened.
+        parts.append(
+            "## what you keep in mind (MEMORY.md)\n\n"
+            "This is what actually happened, so it comes first. Where it disagrees with the context, "
+            "the lore or the arcs below, MEMORY.md wins: the lore is where you started, not a script to replay.\n\n"
+            + memory
+        )
     context = _read(brain / "CONTEXT.md")
     if context:
         # Its own "# CONTEXT.md" title would read as a second document.
@@ -92,15 +111,6 @@ def world(brain: Path) -> str:
         # One level down, under this section's own heading.
         arcs = re.sub(r"^(#{2,5}) ", r"#\1 ", arcs, flags=re.M)
         parts.append("## how far each goal has got (narrative/ARCS.md)\n\n" + arcs)
-    memory = _read(brain / "MEMORY.md")
-    if memory:
-        memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
-        if len(memory) > MEMORY_MAX_CHARS:
-            memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
-        memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
-        # Last: it changes most often, and everything before it stays a
-        # stable prefix for the provider's cache.
-        parts.append("## what you keep in mind (MEMORY.md)\n\n" + memory)
     if not parts:
         return ""
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)

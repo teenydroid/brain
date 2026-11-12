@@ -185,7 +185,7 @@ mkdir -p "$root/deploy"
 cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/MEMORY.md" "$root/brain/"
-printf '\n- the live test planted this: the blue crayon is under the kettle.\n' >>"$root/brain/MEMORY.md"
+printf '\n- the live test planted this: the tea tin moved again.\n' >>"$root/brain/MEMORY.md"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -312,7 +312,7 @@ act_request() { grep '# playbook: hello' "$scratch/model-bodies.jsonl" | tail -n
 act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .content | if type == "string" then . else tojson end] | join("\n")'; }
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
 check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
-check "and MEMORY.md" grep -q 'the blue crayon is under the kettle' <<<"$(act_system)"
+check "and MEMORY.md" grep -q 'the tea tin moved again' <<<"$(act_system)"
 if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
 config_toml="$root/.openhuman/config.toml"
 check "the core's config folds a thread at 100k tokens" \

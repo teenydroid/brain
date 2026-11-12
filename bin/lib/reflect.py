@@ -83,6 +83,8 @@ Answer with one JSON object and nothing else:
 
 `memory` replaces the page entirely, so carry over everything that still matters and drop what no longer does. Keep its sections (people, promises and open threads, what i am in the middle of, what i have decided). Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Under %d characters; shorter is better.
 
+This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing.
+
 `diary` is a few sentences in your own voice about the day: what happened, what you learned, how you feel about it.""" % prompts.MEMORY_MAX_CHARS
 
 LIGHT_SHAPE = """## your answer

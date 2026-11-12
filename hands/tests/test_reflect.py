@@ -162,6 +162,13 @@ class ReflectTest(unittest.TestCase):
                     "- nobody yet", '"memory"'):
             self.assertIn(bit, chat["message"])
 
+    def test_the_night_may_retire_lore_the_day_has_moved_past(self):
+        self.answer({"memory": NEW_MEMORY, "diary": "a day."})
+        self.assertTrue(self.reflect()["ok"])
+        message = self.chats()[0]["message"]
+        self.assertIn("outranks the lore", message)
+        self.assertIn("your origin", message)
+
     def test_the_new_page_replaces_the_old_and_the_old_is_kept(self):
         self.answer({"memory": NEW_MEMORY, "diary": "a good day."})
         self.reflect()
