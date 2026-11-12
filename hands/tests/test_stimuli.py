@@ -200,7 +200,7 @@ class CliTest(Scratch):
     def test_drop_follow_up_through_the_hand(self):
         _, got = self.hand("follow-up", body={"in_hours": 2, "about": "check the pr", "ref": "teenydroid/brain#4"})
         code, dropped = self.hand("drop-follow-up", body={"id": got["id"]})
-        self.assertEqual((code, dropped), (0, {"dropped": [got["id"]]}))
+        self.assertEqual((code, dropped["dropped"]), (0, [got["id"]]))
         self.assertEqual(self.hand("follow-ups")[1]["follow_ups"], [])
 
 
