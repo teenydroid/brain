@@ -67,6 +67,27 @@ class CoreConfigTest(unittest.TestCase):
                          [{"id": "tinycomputer", "source": "linked"}, {"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
 
+    def test_the_evolvers_lab_writes_its_worktree_and_nothing_of_the_core(self):
+        os.environ.update(SPINE_LAB="1", SPINE_LAB_EDIT="1")
+        autonomy = self.written()["autonomy"]
+        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root), "access": "readwrite"}])
+        brain = self.root / "brain"
+        forbidden = autonomy["forbidden_paths"]
+        for path in (self.root / "secrets", self.root / ".git", self.root / ".openhuman", self.root / "state",
+                     brain / "storage.db", brain / "agent", brain / "keyring"):
+            self.assertIn(str(path), forbidden)
+        # The files a candidate changes are its to edit there.
+        for path in (brain / "playbooks", brain / "cron.toml", brain / "narrative"):
+            self.assertNotIn(str(path), forbidden)
+        self.assertTrue(all(Path(p).is_absolute() for p in forbidden))
+
+    def test_edit_mode_needs_a_lab_spine(self):
+        os.environ.pop("SPINE_LAB", None)
+        os.environ["SPINE_LAB_EDIT"] = "1"
+        autonomy = self.written()["autonomy"]
+        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
+        self.assertIn(str(self.root / "brain" / "playbooks"), autonomy["forbidden_paths"])
+
     def test_context_compacts_at_100k_with_a_free_form_summary(self):
         doc = self.written()
         context = doc["context"]
