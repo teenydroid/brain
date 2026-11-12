@@ -383,7 +383,9 @@ source is missing:
 
 ### 2. Propose
 
-N comes from `EVOLVE_CANDIDATES` (default 4, at most 8) or `--candidates`.
+N comes from `EVOLVE_CANDIDATES` (default 4, at most 8) or `--candidates`,
+cut to the runway tier's most when the wallet is low (`evals/runway.toml`;
+docs/hands.md, "Runway"), with the reason in the result.
 
 **Parents.** Each candidate samples a parent from the archive, as DGM does:
 weight `sigmoid(10 · (score − 0.5)) / (1 + children)`. An entry's score is

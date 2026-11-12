@@ -4,7 +4,9 @@
 # one alarm, a `health` stimulus and one issue on teenydroid/brain, closed
 # again when it answers (bin/lib/health.py). Pinned, so the brain cannot
 # switch off its own watcher. `bin/health daily` (the pinned health-daily job)
-# files yesterday's counts as one `health · daily` stimulus instead. Prints
+# files yesterday's counts as one `health · daily` stimulus instead, and
+# `bin/health runway` (the pinned runway job) the runway (docs/roadmap.md,
+# S2) as one `health · runway` stimulus. Prints
 # one JSON line.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh

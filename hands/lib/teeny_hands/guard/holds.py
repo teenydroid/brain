@@ -72,6 +72,8 @@ SURFACES = (
     "github",
     "moltbook",
     "mail",
+    # The memo a stranger attached to a deposit (hands/wallet inflows).
+    "wallet",
 )
 
 DIRECTIONS = ("inbound", "outbound", "narrative", "article")

@@ -15,8 +15,12 @@ or `eqvps` (default `VPS_PROVIDER`, else vultr).
   O  release ID --note T             an order stops holding a slot
   O  register --first F --last L --email E
                                      a new EQVPS account; its token is printed once
+  O  invoice add --provider P --invoice ID --usd N [--chain C] --pay-to ADDRESS --due YYYY-MM-DD
+                                     a server invoice to pay; the address an allowlisted vendor
+  R  invoices                        the invoices and what became of each
+  J  pay-due                         pay what is due through hands/wallet, under the caps (bills.py)
 
-`order` and `topup` spend money: they are never given to a model.
+`order`, `topup` and `pay-due` spend money: they are never given to a model.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import actions, client
+from . import actions, bills, client
 
 
 def parser() -> argparse.ArgumentParser:
@@ -59,6 +63,18 @@ def parser() -> argparse.ArgumentParser:
     rel = verb("release", lambda a, _: actions.release(a.id, a.note), "an order stops holding a slot (operator)")
     rel.add_argument("id", type=int, metavar="ID")
     rel.add_argument("--note", required=True)
+    inv = verbs.add_parser("invoice", help="record a server invoice to pay (operator)").add_subparsers(dest="invoice_verb")
+    rec = inv.add_parser("add", help="record one invoice; its address must be an allowlisted vendor")
+    rec.set_defaults(handler=lambda a, _: bills.add(a.provider, a.invoice, a.usd, a.chain, a.pay_to, a.due, a.note), takes_body=False)
+    rec.add_argument("--provider", choices=client.PROVIDERS, required=True)
+    rec.add_argument("--invoice", required=True)
+    rec.add_argument("--usd", required=True)
+    rec.add_argument("--chain", default="solana")
+    rec.add_argument("--pay-to", required=True)
+    rec.add_argument("--due", required=True, help="YYYY-MM-DD")
+    rec.add_argument("--note")
+    verb("invoices", lambda a, _: bills.listing(), "the server invoices and what became of each")
+    verb("pay-due", lambda a, _: bills.pay_due(), "pay the invoices due, under the caps (the pinned pay-bills job)")
     reg = verb("register", lambda a, _: actions.register(a.first, a.last, a.email), "a new EQVPS account (operator)")
     reg.add_argument("--first", required=True)
     reg.add_argument("--last", required=True)

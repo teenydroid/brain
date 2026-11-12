@@ -201,6 +201,27 @@ fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"
 check "passes with pre-spine leftovers" doctor
 check "but warns about the old kernel env" grep -q '^warn secrets/kernel.env: pre-spine leftover' "$scratch/doctor.log"
 check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-spine leftover' "$scratch/doctor.log"
+# --- the X profile's disclosure line warns, never fails (P1) --------------------------
+fresh
+check "passes with no X keys" doctor
+check "and the X profile check is ok" grep -q '^ok   x profile: no X keys' "$scratch/doctor.log"
+mkdir -p "$root/secrets" "$root/state"
+printf 'X_API_KEY=k\nX_API_SECRET=s\nX_ACCESS_TOKEN=t\nX_ACCESS_TOKEN_SECRET=ts\nX_OPERATOR_HANDLE=steven\n' >"$root/secrets/teeny.env"
+check "passes with X keys and no cached profile" doctor
+check "but warns that the bio is unchecked" grep -q '^warn x profile: no cached profile' "$scratch/doctor.log"
+bio() { python3 -c '
+import sqlite3, sys, time
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("create table if not exists x_profile (handle text primary key, user_id text, name text, description text not null default \x27\x27, read_at real not null)")
+conn.execute("insert or replace into x_profile values (\x27teenydroid\x27, \x271\x27, \x27teeny\x27, ?, ?)", (sys.argv[2], time.time()))
+conn.commit()
+' "$root/state/hands.db" "$1"; }
+bio "a tiny crab"
+check "passes a bio without the disclosure line" doctor
+check "but warns that it does not say automated" grep -q '^warn x profile: @teenydroid: the bio does not say' "$scratch/doctor.log"
+bio "a tiny crab. automated, run by @steven"
+check "passes a bio with the disclosure line" doctor
+check "and names the X profile ok" grep -q '^ok   x profile: @teenydroid' "$scratch/doctor.log"
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/lib/agent_check.py'"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"

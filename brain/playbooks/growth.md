@@ -18,6 +18,8 @@ The numbers come from two inputs and nowhere else:
 - `world`: your world score. Each item in `components` has a `value` (now), `was` (a week ago) and a `unit`; `J` is the week's growth score; `penalty.events` counts your own side effects (posts the guard held, payments in doubt). The `reading` lines say it plainly.
 - `stats`: followers, karma, stars and the rest, each with its `delta` over the week.
 
+Attention counts people above agents. Its `split` says how many engaged accounts were `human`, `agent` or `unknown`, and how many came to you first (`first_contact_theirs`); the "attention reach" reading line says it plainly. When the split is there, say who the attention came from in words ("two people wrote to me first"). Only `human` accounts are people. `unknown` means no rule can tell, so never call those people, and never call followers people.
+
 Pick at most three numbers: the one that grew most, the one that failed (it stalled, fell, or has no data yet), and J when it is there. Quote each exactly as it appears in the inputs, with what it counts. Never round, add, average or work out a number yourself, no percentages, and no number that is not in the inputs. If `world.J` is null, there is no score yet: say the scorer has started counting and quote only `stats` numbers.
 
 Say what failed as plainly as what grew. A flat week is a diary entry too, and the joke is on you.

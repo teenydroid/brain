@@ -40,6 +40,16 @@ def b58decode(text: str) -> bytes | None:
     return b"\x00" * leading + body
 
 
+def b58encode(data: bytes) -> str:
+    """Bytes to base58 (Bitcoin alphabet): the inverse of b58decode."""
+    number = int.from_bytes(data, "big")
+    out = ""
+    while number:
+        number, digit = divmod(number, 58)
+        out = _ALPHABET[digit] + out
+    return "1" * (len(data) - len(data.lstrip(b"\x00"))) + out
+
+
 def is_address(text: object) -> bool:
     """A Solana public key: base58 that decodes to exactly 32 bytes."""
     if not isinstance(text, str) or not 32 <= len(text) <= 44:

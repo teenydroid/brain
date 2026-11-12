@@ -109,6 +109,21 @@ for w in range(6):
 # The wallet: a paid devnet payment only (none on mainnet).
 conn.execute("INSERT INTO wallet_payments (created_at, updated_at, cluster, asset, amount_raw, usd_micro, to_address, purpose, ref, status)"
              " VALUES (?, ?, 'devnet', 'USDC', 1, 1, 'a', 'vendor', 'r', 'paid')", (T, T))
+
+# People (hands/people): one promise kept 8 days after it was made, one kept
+# the same day, one still open. Read by a person, so never met.
+from teeny_hands.people import records as people
+conn.executescript(people.SCHEMA)
+# The accounts ledger (hands/tasks): one signup with its reason.
+conn.execute("INSERT INTO accounts (site, handle, why, task_id, created_at) VALUES ('github.com', 'teenydroid', 'to ship builds', 1, ?)", (T,))
+# The weekly vote (hands/requests): one honoured vote whose winner shipped.
+from teeny_hands import votes
+conn.executescript(votes.SCHEMA)
+cur = conn.execute("INSERT INTO build_requests (source, source_id, author, text, created_at, status) VALUES ('x:mentions', 'v1', 'ana', 'a timer', ?, 'shipped')", (T,))
+conn.execute("INSERT INTO votes (post_id, options, opened_at, closes_at, status, winner_id) VALUES ('1', '[]', ?, ?, 'honoured', ?)", (T - 9 * DAY, T - 2 * DAY, cur.lastrowid))
+for made, closed, status in ((T - 9 * DAY, T - DAY, "kept"), (T - DAY, T - DAY + 60, "kept"), (T - DAY, None, "open")):
+    conn.execute("INSERT INTO people_promises (surface, who, what, made_at, due_at, status, closed_at) VALUES ('x', 'ana', 'w', ?, ?, ?, ?)",
+                 (made, made + DAY, status, closed))
 conn.commit()
 conn.close()
 
@@ -144,6 +159,9 @@ expect L1.gh_inbox none 0
 expect L1.no_repeats met 30
 expect L2.x_replies met 52
 expect L2.mail_started none 0
+expect L2.remembers progress 1
+expect L2.voted_ship met 1
+expect L3.signup met 1
 expect L2.moltbook_week progress 3
 expect L2.audience met 5
 expect L3.browser_week met 7

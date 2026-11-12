@@ -16,6 +16,10 @@ A request is recorded once per (source, source_id). Nothing here answers the
 asker: the drafting agent may acknowledge a request ("noted, no promises"),
 never promise one.
 
+A request someone paid for (a deposit at the frozen price whose memo names
+it: wallet/sales.py, docs/roadmap.md S3) is built first: `pick` refuses any
+other while one waits (`paid_first`), and `list` names them.
+
 Picking is one at a time: `pick` refuses while another request is picked (or
 in any state the builder moves it through before shipped or failed), so the
 builder always has at most one thing to work on. Every decision is written to
@@ -118,9 +122,13 @@ def listing(status: str | None = None, limit: int = 50) -> Mapping[str, Any]:
             query += " WHERE status = ?"
             params = (status,)
         rows = conn.execute(query + " ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
+        from .wallet import sales
+
+        paid = set(sales.paid_waiting(conn))
+        out = [{**_row(r), **({"paid": True} if r["id"] in paid else {})} for r in rows]
     finally:
         conn.close()
-    return {"requests": [_row(r) for r in rows]}
+    return {"requests": out, **({"paid_first": sorted(paid)} if paid else {})}
 
 
 def get(request_id: int) -> Mapping[str, Any]:
@@ -224,6 +232,15 @@ def pick(body: Any) -> Mapping[str, Any]:
     tells nobody, so DRY_RUN does not stop it: what the builder does with the
     pick goes through hands that keep DRY_RUN themselves."""
     request_id, reason = _decision_body(body)
+    # The weekly vote (teeny_hands.votes): a winner still pending is the next
+    # pick, and nothing else is, until it is picked, skipped or built.
+    from . import votes
+
+    vconn = votes.db()
+    try:
+        winner = votes.waiting_winner(vconn)
+    finally:
+        vconn.close()
     conn = _db()
     try:
         with hand.transaction(conn):
@@ -232,6 +249,13 @@ def pick(body: Any) -> Mapping[str, Any]:
             ).fetchone()
             if row is None:
                 raise hand.Refused("unknown build request", rule="unknown", id=request_id)
+            if winner and winner["request"] != request_id:
+                raise hand.Refused(
+                    f"request {winner['request']} won the weekly vote and is still pending: pick it, or skip it with a reason",
+                    rule="vote",
+                    id=request_id,
+                    winner=winner["request"],
+                )
             if row["status"] != "pending":
                 raise hand.Refused(
                     f"request {request_id} is {row['status']}; only a pending request can be picked",
@@ -251,6 +275,17 @@ def pick(body: Any) -> Mapping[str, Any]:
                     id=request_id,
                     active=busy["id"],
                 )
+            # A request someone paid for is built first (docs/roadmap.md, S3).
+            from .wallet import sales
+
+            waiting = sales.paid_waiting(conn)
+            if waiting and request_id not in waiting:
+                raise hand.Refused(
+                    f"request {waiting[0]} is paid for and waiting; a paid request is built first",
+                    rule="paid_first",
+                    id=request_id,
+                    paid=waiting[0],
+                )
             held = _origin_held(conn, row["source"], row["source_id"])
             category = _screened(row["text"])
             if held or category:
@@ -268,6 +303,8 @@ def pick(body: Any) -> Mapping[str, Any]:
         with hand.transaction(conn):
             conn.execute("UPDATE build_requests SET status = 'picked', note = ? WHERE id = ?", (reason, request_id))
             _event(conn, request_id, "pick", "picked", reason)
+            if winner:
+                votes.honour(conn, request_id)
     finally:
         conn.close()
     return {"id": request_id, "status": "picked", "reason": reason}

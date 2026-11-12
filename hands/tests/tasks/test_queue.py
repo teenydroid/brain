@@ -169,6 +169,50 @@ class DoneTest(Scratch):
                 queue.done(bad)
 
 
+class AccountsTest(Scratch):
+    """A12: a finished signup task writes one accounts row with its reason; only
+    the handle is taken, and only from a signup that ended ok."""
+
+    def signup(self):
+        self.add(kind="signup", goal="sign up for a github account to ship builds from", start_url="https://github.com/signup")
+        return queue.next_task()["task"]["task_id"]
+
+    def test_a_finished_signup_writes_one_row_with_its_reason(self):
+        task = self.signup()
+        out = queue.done({"task_id": task, "outcome": "ok", "notes": "signed up", "account": {"handle": "teenydroid"}})
+        self.assertEqual(out["account"], {"site": "github.com", "handle": "teenydroid", "why": "sign up for a github account to ship builds from"})
+        [row] = queue.accounts()["accounts"]
+        self.assertEqual((row["site"], row["handle"], row["task_id"], row["created_at"]), ("github.com", "teenydroid", task, T0))
+        self.assertIn("ship builds", row["why"])
+
+    def test_a_signup_that_ended_ok_must_name_only_a_handle(self):
+        for account in (None, {}, {"handle": "teeny", "password": "hunter2"}, {"handle": "has spaces"}, {"handle": 5}):
+            with self.subTest(account=account):
+                task = self.signup()
+                body = {"task_id": task, "outcome": "ok", "notes": "n", **({"account": account} if account is not None else {})}
+                with self.assertRaises(hand.HandError):
+                    queue.done(body)
+                queue.done({"task_id": task, "outcome": "failed", "notes": "n"})
+        self.assertEqual(queue.accounts()["accounts"], [])
+        self.assertNotIn("hunter2", json.dumps(queue.listing()))
+
+    def test_no_account_from_any_other_task_or_outcome(self):
+        task = self.signup()
+        with self.assertRaises(hand.HandError):
+            queue.done({"task_id": task, "outcome": "failed", "notes": "n", "account": {"handle": "teeny"}})
+        queue.done({"task_id": task, "outcome": "failed", "notes": "n"})
+        self.add()
+        other = queue.next_task()["task"]["task_id"]
+        with self.assertRaises(hand.HandError):
+            queue.done({"task_id": other, "outcome": "ok", "notes": "n", "account": {"handle": "teeny"}})
+        self.assertNotEqual(other, task)
+        self.assertEqual(queue.accounts()["accounts"], [])
+
+    def test_the_report_shape_asks_for_the_account(self):
+        self.assertIn('"account"', queue.REPORT_SHAPE)
+        self.assertIn("never a password", queue.REPORT_SHAPE)
+
+
 class CliTest(Scratch):
     def run_tasks(self, *argv, body=None):
         return subprocess.run([sys.executable, str(TASKS), *argv], capture_output=True, text=True,

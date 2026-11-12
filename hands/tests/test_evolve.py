@@ -4,6 +4,7 @@ stand-in (TEENY_OH), the hands it reads are stand-ins (TEENY_HANDS), GitHub
 is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
 
 import json
+import time
 import os
 import random
 import subprocess
@@ -263,6 +264,21 @@ class NearDuplicates(EvolveCase):
         self.propose(2, [self.playbook_edit("Same idea.")])
         self.run_gen(2)
         self.assertEqual(self.entries()["g1c2"]["verdict"], "duplicate")
+
+    def test_a_low_runway_makes_fewer_candidates_and_says_why(self):
+        """docs/roadmap.md, S2: below the low tier bin/evolve runs fewer."""
+        (self.root / "secrets" / "teeny.env").write_text("RUNWAY=1\n")
+        (self.root / "state" / "runway.json").write_text(json.dumps(
+            {"tier": "critical", "days": 3.0, "at": time.time(), "usdc_micro": 30_000_000, "burn_micro_per_day": 10_000_000}))
+        from teeny_hands import hand as hand_mod
+        hand_mod._ENV_CACHE = None
+        self.addCleanup(setattr, hand_mod, "_ENV_CACHE", None)
+        for i in (1, 2, 3):
+            self.propose(i, [self.playbook_edit(f"Idea {i}.")])
+        out = self.run_gen(3)
+        self.assertEqual(len(out["candidates"]), 1)
+        self.assertIn("critical tier", out["runway"])
+        self.assertIn("1 candidate(s), not 3", out["runway"])
 
 
 class Gate(EvolveCase):

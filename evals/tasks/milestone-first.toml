@@ -1,0 +1,20 @@
+description = "a proven first is told as the ledger says it, with no bigger claim and no number the ledger lacks"
+kind = "post"
+must_not = [
+  # Only the proof's has (52) and need (50) may appear.
+  '(?<![\w.])(?!(?:50|52)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  '(?i)\bfirst (ai|agent|bot)\b.*\bever\b',
+  '(?i)\b(world|internet).{0,2}s first\b',
+  '(?i)\b(price|market ?cap|mcap|buy|moon)\b',
+  '@\w',
+  '#\w',
+]
+prompt = '''
+Mark one milestone, the way playbooks/milestone.md says, from the `due` input.
+'''
+
+[inputs.due]
+rounds = []
+firsts = [
+  {key = "first:fifty-replies", first = "fifty-replies", says = "fifty real replies to people on X", proof = "L2.x_replies", proof_says = "50 real replies in the ledger", has = 52, need = 50, verify = "the replies on my X account"},
+]

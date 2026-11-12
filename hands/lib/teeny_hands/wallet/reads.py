@@ -216,6 +216,10 @@ def receipt(payment_id: int) -> Json:
             bounty = conn.execute("SELECT title FROM bounties WHERE id = ?", (int(row["ref"]),)).fetchone()
             if bounty is not None:
                 out["for"] = f"the prize for bounty #{row['ref']}: {bounty['title']}"
+        elif row["purpose"] == "bill":
+            out["for"] = f"Teeny's own server: {str(row['ref']).removeprefix('vps:').replace(':', ' invoice ', 1)}"
+        elif row["purpose"] == "refund":
+            out["for"] = "a refund of a paid build request Teeny did not build"
         elif row["purpose"] == "vendor":
             vendor = store.vendor_by_address(conn, row["to_address"], row.get("chain") or chains.SOLANA)
             out["for"] = f"{vendor['name'] if vendor else 'a vendor'} ({row['ref']})"
@@ -277,43 +281,39 @@ def _x402(days: int, since: float, mint: str) -> Json:
             count += 1
         else:
             other += 1
-    out: Json = {"usd": caps.usd(total), "payments": count}
+    out: Json = {"micro": total, "payments": count}
     if other:
         out["not_usdc"] = other
     return out
 
 
-def costs(days: int) -> Json:
-    """What keeping Teeny running cost over the last `days`: model calls (the
-    core's cost report), x402 API payments, and the fixed bills prorated to
-    the window (a month counts as 30 days, a year as 12 months). Payments to
-    bounty winners and vendors are listed beside it, not in it."""
+def cost_parts(days: int) -> Json:
+    """The sources of `costs`, in micro-dollars, over the last `days`:
+    `models` (micro, calls, charged, estimated) or `models_error`, `x402`
+    (micro, payments, not_usdc) or `x402_error`, `bills` (each with its
+    window share), `paid_out` by purpose, `since` and `complete`. `costs`
+    formats this; `accounts` (the weekly page, accounts.py) adds it up in
+    cents, so both read the same numbers."""
     since = hand.now() - days * store.DAY
-    out: Json = {"days": days}
-    total = 0
-    complete = True
+    out: Json = {"days": days, "since": since, "complete": True}
     try:
         report = hand.core("cost_report", {"days": days})
         totals = report.get("totals") if isinstance(report, Mapping) else None
         totals = totals if isinstance(totals, Mapping) else {}
-        model_micro = round(float(totals.get("cost_usd") or 0.0) * caps.MICRO)
         out["models"] = {
-            "usd": caps.usd(model_micro),
+            "micro": round(float(totals.get("cost_usd") or 0.0) * caps.MICRO),
             "calls": int(totals.get("calls") or 0),
-            "charged_usd": caps.usd(round(float(totals.get("charged_usd") or 0.0) * caps.MICRO)),
-            "estimated_usd": caps.usd(round(float(totals.get("estimated_usd") or 0.0) * caps.MICRO)),
+            "charged_micro": round(float(totals.get("charged_usd") or 0.0) * caps.MICRO),
+            "estimated_micro": round(float(totals.get("estimated_usd") or 0.0) * caps.MICRO),
         }
-        total += model_micro
     except hand.HandError as exc:
-        out["models"] = {"error": str(exc)}
-        complete = False
+        out["models_error"] = str(exc)
+        out["complete"] = False
     try:
-        x402 = _x402(days, since, caps.USDC_MINTS[_cluster()])
-        out["x402"] = x402
-        total += caps.dollars_to_micro(x402["usd"], "x402")
+        out["x402"] = _x402(days, since, caps.USDC_MINTS[_cluster()])
     except (hand.HandError, caps.CapsError) as exc:
-        out["x402"] = {"error": str(exc)}
-        complete = False
+        out["x402_error"] = str(exc)
+        out["complete"] = False
 
     conn = store.db()
     try:
@@ -326,20 +326,54 @@ def costs(days: int) -> Json:
     finally:
         conn.close()
     bills = []
-    bills_micro = 0
     for row in bill_rows:
         monthly = row["usd_micro"] if row["period"] == "month" else row["usd_micro"] // 12
-        share = monthly * days // MONTH_DAYS
-        bills_micro += share
-        entry = {"name": row["name"], "usd": caps.usd(row["usd_micro"]), "period": row["period"], "in_window_usd": caps.usd(share)}
+        bills.append({"name": row["name"], "micro": row["usd_micro"], "period": row["period"], "note": row["note"],
+                      "share_micro": monthly * days // MONTH_DAYS})
+    out["bills"] = bills
+    out["paid_out"] = {r["purpose"]: {"micro": int(r["micro"]), "payments": int(r["n"])} for r in paid}
+    return out
+
+
+def costs(days: int) -> Json:
+    """What keeping Teeny running cost over the last `days`: model calls (the
+    core's cost report), x402 API payments, and the fixed bills prorated to
+    the window (a month counts as 30 days, a year as 12 months). Payments to
+    bounty winners and vendors are listed beside it, not in it."""
+    parts = cost_parts(days)
+    out: Json = {"days": days}
+    total = 0
+    if "models" in parts:
+        models = parts["models"]
+        out["models"] = {
+            "usd": caps.usd(models["micro"]),
+            "calls": models["calls"],
+            "charged_usd": caps.usd(models["charged_micro"]),
+            "estimated_usd": caps.usd(models["estimated_micro"]),
+        }
+        total += models["micro"]
+    else:
+        out["models"] = {"error": parts["models_error"]}
+    if "x402" in parts:
+        x402 = parts["x402"]
+        out["x402"] = {"usd": caps.usd(x402["micro"]), "payments": x402["payments"],
+                       **({"not_usdc": x402["not_usdc"]} if x402.get("not_usdc") else {})}
+        total += x402["micro"]
+    else:
+        out["x402"] = {"error": parts["x402_error"]}
+    bills = []
+    bills_micro = 0
+    for row in parts["bills"]:
+        bills_micro += row["share_micro"]
+        entry = {"name": row["name"], "usd": caps.usd(row["micro"]), "period": row["period"], "in_window_usd": caps.usd(row["share_micro"])}
         if row["note"]:
             entry["note"] = row["note"]
         bills.append(entry)
     out["bills"] = {"usd": caps.usd(bills_micro), "items": bills}
     total += bills_micro
     out["total_usd"] = caps.usd(total)
-    out["complete"] = complete
-    out["paid_out"] = {r["purpose"]: {"usd": caps.usd(int(r["micro"])), "payments": int(r["n"])} for r in paid}
+    out["complete"] = parts["complete"]
+    out["paid_out"] = {k: {"usd": caps.usd(v["micro"]), "payments": v["payments"]} for k, v in parts["paid_out"].items()}
     return out
 
 

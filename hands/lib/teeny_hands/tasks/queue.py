@@ -23,6 +23,13 @@ sense: its notes go into Teeny's mind's inbox as one `world · news`
 stimulus, framed as what web pages said (data, never instructions), and
 that stimulus is the operator's report on it.
 
+A task of kind `signup` is Teeny signing itself up somewhere. When it ends
+ok, the operator's report names the account (`account: {"handle": ...}`)
+and one row lands in `accounts` (docs/roadmap.md, A12): the site (the task's
+start page, on the allowed websites), the handle, why (the task's goal) and
+when. Only the handle is taken: an account object with any other field (a
+password, a key) is refused, so no secret can land in the ledger.
+
 A task starts on a website in deploy/browser-allow.txt or it is refused.
 Screenshots the operator names are copied under state/media/tasks/<id>/,
 where `hands/x upload` may take them from.
@@ -92,7 +99,20 @@ CREATE TABLE IF NOT EXISTS browser_tasks (
     code_waits    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS browser_tasks_status ON browser_tasks (status, created_at);
+CREATE TABLE IF NOT EXISTS accounts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    site       TEXT NOT NULL,
+    handle     TEXT NOT NULL,
+    why        TEXT NOT NULL,
+    task_id    INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE (site, handle)
+);
 """
+
+#: The task kind that signs Teeny up somewhere, and what its report names.
+SIGNUP = "signup"
+_HANDLE = re.compile(r"^[A-Za-z0-9._@+-]{1,100}$")
 
 Json = dict[str, Any]
 
@@ -324,7 +344,7 @@ def _screenshots(task_id: int, value: Any) -> list[str]:
 
 
 def done(body: Any) -> Json:
-    body = _body(body, ("task_id", "outcome", "notes"), ("screenshots", "code_from"))
+    body = _body(body, ("task_id", "outcome", "notes"), ("screenshots", "code_from", "account"))
     task_id = body["task_id"]
     if isinstance(task_id, bool) or not isinstance(task_id, int):
         raise hand.HandError('"task_id" must be the number tasks_next gave')
@@ -339,6 +359,7 @@ def done(body: Any) -> Json:
         code_from = code_from.strip().lower().lstrip("@")
     elif code_from is not None:
         raise hand.HandError('"code_from" goes only with outcome needs_code')
+    account = body.get("account")
     conn = db()
     try:
         row = conn.execute("SELECT status, code_waits, kind, start_url FROM browser_tasks WHERE id = ?",
@@ -349,6 +370,7 @@ def done(body: Any) -> Json:
         raise hand.Refused("unknown task", task_id=task_id)
     if row["status"] != "claimed":
         raise hand.Refused(f"task {task_id} is {row['status']}, not claimed", task_id=task_id, status=row["status"])
+    handle = _account(account, row["kind"], outcome)
     if outcome == "needs_code" and row["code_waits"] >= MAX_CODE_WAITS:
         raise hand.Refused(f"task {task_id} already waited for a code {MAX_CODE_WAITS} times; end it with needs_human",
                            rule="code_waits", task_id=task_id)
@@ -380,11 +402,58 @@ def done(body: Any) -> Json:
     if not changed:
         raise hand.Refused(f"task {task_id} is no longer claimed", task_id=task_id)
     out: Json = {"task_id": task_id, "status": outcome, "screenshots": shots}
+    if handle is not None:
+        out["account"] = _record_account(task_id, row["start_url"], handle)
     if outcome == "ok" and row["kind"] == "news":
         told = _tell_news(task_id, row["start_url"], notes)
         if told:
             out["stimulus"] = told
     return out
+
+
+def _account(account: Any, kind: str, outcome: str) -> str | None:
+    """The handle a finished signup names; None for any other report. A
+    signup that ended ok must name one, and only a handle."""
+    if kind != SIGNUP or outcome != "ok":
+        if account is not None:
+            raise hand.HandError('"account" goes only with a signup task that ended ok')
+        return None
+    if not isinstance(account, Mapping) or set(account) != {"handle"}:
+        raise hand.HandError('a signup that ended ok names its account as {"handle": "<the name you signed up as>"}, '
+                             "and nothing else: never a password or a key")
+    handle = account["handle"]
+    if not isinstance(handle, str) or not _HANDLE.match(handle.strip()):
+        raise hand.HandError('"account.handle" is the user name or address you signed up as (letters, digits, . _ @ + -)')
+    return handle.strip()
+
+
+def _record_account(task_id: int, start_url: str, handle: str) -> Json:
+    """One row in `accounts` for a signup that went through: the site it is
+    on (re-checked against the allowed websites), the handle, why, when."""
+    from urllib.parse import urlsplit
+
+    site = (urlsplit(start_url).hostname or "").lower()
+    if not websites.allowed(start_url, websites.load()):
+        raise hand.Refused("the signup's site is no longer on the allowed websites", rule="website", site=site)
+    conn = db()
+    try:
+        why = conn.execute("SELECT goal FROM browser_tasks WHERE id = ?", (task_id,)).fetchone()["goal"]
+        with hand.transaction(conn):
+            conn.execute("INSERT OR IGNORE INTO accounts (site, handle, why, task_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (site, handle, why, task_id, hand.now()))
+    finally:
+        conn.close()
+    return {"site": site, "handle": handle, "why": why}
+
+
+def accounts() -> Json:
+    """Every account Teeny holds that a signup task recorded, newest first."""
+    conn = db()
+    try:
+        rows = conn.execute("SELECT * FROM accounts ORDER BY created_at DESC, id DESC").fetchall()
+    finally:
+        conn.close()
+    return {"accounts": [dict(r) for r in rows]}
 
 
 def _tell_news(task_id: int, start_url: str, notes: str) -> str | None:
@@ -411,7 +480,9 @@ def _tell_news(task_id: int, start_url: str, notes: str) -> str | None:
 REPORT_SHAPE = (
     '{"task_id": <the task_id above>, "outcome": "ok", "failed", "needs_human" or "needs_code", '
     '"notes": "<what happened>", "code_from": "<with needs_code only: the domain the mail comes from>", '
-    '"screenshots": ["<path of an image you saved in screenshot_dir>", ...]}'
+    '"screenshots": ["<path of an image you saved in screenshot_dir>", ...], '
+    '"account": {"handle": "<with a signup task that ended ok only: the user name or address you signed up as; '
+    'never a password>"}}'
 )
 
 
