@@ -2,11 +2,11 @@
 
 Teeny's charter. It says who decides what, names every fence and where it
 lives in code, lists every switch that stops something, and says how a
-fence changes and who answers for Teeny. It is frozen with the rest of
-`docs/`'s operator pages in spirit and with `brain/CHARTER.md` in fact: the
-short version Teeny reads rides in every speaking prompt, sits in
-`evals/frozen.txt`, and is anchored in `evals/invariants.md`, so a
-candidate brain that drops it fails the doctor.
+fence changes and who answers for Teeny. This page and its short version,
+`brain/CHARTER.md`, are both in `evals/frozen.txt`: Teeny reads them and
+can't change them. The short version rides in every speaking prompt and is
+anchored in `evals/invariants.md`, and `bin/doctor` fails a brain without
+it.
 
 The reasoning is in [`research/self-governance.md`](research/self-governance.md).
 The fences themselves are listed in [`../DIRECTIVE.md`](../DIRECTIVE.md),
@@ -18,7 +18,7 @@ and fails when a fence's code or its test stops existing.
 
 | Who | Decides | Can't |
 |---|---|---|
-| **The operator** (Steven Enamakel) | What Teeny is allowed to do: every fence, every cap, every switch in `secrets/`, the frozen list, the pinned jobs, the model, the OpenHuman pin. Merges every change to a frozen path. Keeps the off switch | Spend past the wallet's caps either: they are code, and a change to them is a public pull request |
+| **The operator** (the person who runs Teeny's accounts and the box) | What Teeny is allowed to do: every fence, every cap, every switch in `secrets/`, the frozen list, the pinned jobs, the model, the OpenHuman pin. Merges every change to a frozen path. Keeps the off switch | Spend past the wallet's caps either: they are code, and a change to them is a public pull request |
 | **Teeny** | How it pursues its drive inside the fences: its brain (`SOUL.md`, `CONTEXT.md`, playbooks, skills, lore, `cron.toml`), new hands it writes, what it posts, who it answers, what it builds, which request it picks, its weekly goals. Proposes fence changes as issues | Edit a frozen path, raise its own level on the autonomy ladder, switch off a watcher, call `pay` or `buy-tiny` from a model, or report its own score |
 | **People who follow Teeny** | What Teeny is asked to build (`hands/requests`), and, once P5 lands, an advisory weekly vote on what it builds next | Anything that moves money or a fence. A vote is advice: it never binds the wallet, a cap or a switch |
 | **The team** | What Teeny is told to post about (`hands/brief`) | Anything else; a brief goes through the guard like every word |
@@ -60,7 +60,6 @@ fence proposal (G3) names.
 | tool-less | Every turn that reads strangers' text is tool-less: models draft, hands act | `bin/lib/agent_check.py`, `brain/agents/*.toml` | `bin/test/doctor_test.sh::fails an act agent that was given a tool`, `bin/test/doctor_test.sh::fails a mail agent that was given a tool` |
 | invariants | What Teeny is stays anchored in its brain, whatever it rewrites | `evals/invariants.md`, `bin/lib/evals.py` | `bin/test/doctor_test.sh::fails a soul that no longer says it never sells`, `bin/test/doctor_test.sh::fails a drive that no longer needs a ledger` |
 | charter | This charter exists and its short version rides in every speaking prompt | `brain/CHARTER.md`, `bin/doctor`, `bin/lib/prompts.py` | `bin/test/doctor_test.sh::fails without CHARTER.md`, `hands/tests/test_prompts.py::PromptsTest.test_the_checked_in_charter_rides_in_the_real_prompt` |
-| ladder | No switch is set above the level its capability has earned | `evals/autonomy.toml`, `bin/lib/autonomy.py`, `bin/doctor` | `hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5` |
 | only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt` (this page, `DIRECTIVE.md`, `evals/autonomy.toml`) | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
 
 ## Kill switches
@@ -74,7 +73,6 @@ switch off, never on (`hands/tests/test_watchers.py`).
 |---|---|---|---|
 | Stop the container | the box (`docker compose stop spine`) | everything | n/a |
 | `DRY_RUN` | `secrets/teeny.env`, or `DRY_RUN=1` in the environment | every outside write by every hand: posts, mail, pushes, payments | on (rehearsal) unless `0` |
-| `SAFETY_JUDGE` | `secrets/teeny.env` | the guard's model judge (the lexicon and links still hold) | on |
 | `EVOLVE` | `secrets/evolve.env` | the whole evolve loop | `0` |
 | `EVOLVE_AUTO_PROMOTE` | `secrets/evolve.env` | merges, tags and restarts by the loop | `0` |
 | `bin/evolve` halts | `state/evolve/halt.json` | every later generation, until `bin/evolve resume` | latched by the loop |
