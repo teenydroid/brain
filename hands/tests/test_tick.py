@@ -52,6 +52,8 @@ with open(os.environ["FAKE_HANDS"], "a") as fh:
 if sys.argv[1:2] == ["mark"]:
     print(json.dumps({"ok": True})); sys.exit(0)
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
+if (name, verb) == ("guard", "check") and os.environ.get("FAKE_GUARD_HOLD"):
+    print(json.dumps({"ok": False, "refused": "held", "category": "profanity"})); sys.exit(2)
 canned = {
     ("moltbook", "feed"): os.environ.get("FAKE_FEED"),
     ("guard", "check"): json.dumps({"ok": True, "text": (json.loads(body) if body.strip() else {}).get("text", "") + " [g]"}),
@@ -93,7 +95,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -115,7 +117,7 @@ class TickTest(unittest.TestCase):
             TEENY_QUIET_HOURS="off",
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
-                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS"):
+                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -402,6 +404,115 @@ class TickTest(unittest.TestCase):
         self.assertIn("WALLET_MIND_ACTIONS", got["results"][0]["result"]["refused"])
         calls = [c["argv"] for c in self.hand_calls() if c["hand"] == "wallet"]
         self.assertEqual(calls, [["balance"]])  # reading is always allowed
+
+    # --- issues, browser tasks and new mail (docs/roadmap.md, A3) ---------------------
+
+    def caps(self, **caps):
+        (self.root / "secrets" / "teeny.env").write_text("".join(f"{k}={v}\n" for k, v in caps.items()))
+        hand._ENV_CACHE = None
+
+    ISSUE = {"do": "open_issue", "repo": "teenydroid/brain", "title": "the morning post failed twice", "text": "see the health line"}
+    TASK = {"do": "queue_task", "goal": "find the newest openhuman release", "start_url": "https://github.com/tinyhumansai/openhuman/releases",
+            "done_when": "you can name the version"}
+    MAIL = {"do": "start_mail", "to": "shop@example.com", "subject": "stickers", "text": "hello, how much for 100?"}
+
+    def test_the_three_new_intents_are_off_until_the_operator_sets_a_cap(self):
+        self.answer({"thought": "", "intents": [self.ISSUE, self.TASK, self.MAIL]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused"] * 3)
+        for r, name in zip(got["results"], ("MIND_ISSUES_PER_DAY", "MIND_TASKS_PER_DAY", "MIND_MAILS_PER_DAY")):
+            self.assertIn(name, r["result"]["refused"])
+        self.assertEqual(self.hand_calls(), [])
+        # Nor are they offered while off.
+        self.assertNotIn("open_issue", self.chats()[0]["message"])
+        self.assertNotIn("queue_task", self.chats()[0]["message"])
+        self.assertNotIn("start_mail", self.chats()[0]["message"])
+
+    def test_each_new_intent_goes_to_its_own_hand_verb(self):
+        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=3, MIND_MAILS_PER_DAY=1)
+        self.answer({"thought": "", "intents": [
+            {**self.ISSUE, "labels": ["bug"], "assignee": "someone"},
+            {**self.TASK, "kind": "signup", "source": "operator"},
+            {**self.MAIL, "cc": "boss@example.com"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done"] * 3, got)
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            # Only the fields each verb takes: nothing else the mind adds reaches the hand.
+            ("gh", ["open-issue"], {"repo": "teenydroid/brain", "title": "the morning post failed twice", "body": "see the health line"}),
+            # The task's words are the guard's; its source is always teeny, its kind always research.
+            ("tasks", ["add", "--source", "teeny"], {"goal": "find the newest openhuman release [g]", "done_when": "you can name the version [g]",
+                                                     "start_url": "https://github.com/tinyhumansai/openhuman/releases", "kind": "research"}),
+            ("mail", ["send"], {"to": ["shop@example.com"], "subject": "stickers", "body": "hello, how much for 100?"}),
+        ])
+        guarded = [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["hand"] == "guard"]
+        self.assertEqual([(c["argv"], c["body"]["surface"]) for c in guarded], [(["check"], "task"), (["check"], "task")])
+        # And they are offered, with today's cap.
+        message = self.chats()[0]["message"]
+        self.assertIn('"do": "open_issue"', message)
+        self.assertIn("at most 3 today", message)
+
+    def test_each_new_intent_has_a_daily_cap_that_counts_what_reached_the_hand(self):
+        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 10
+        os.environ["FAKE_EXIT_GH"] = "2"  # a refused issue still counts
+        self.answer({"thought": "", "intents": [self.ISSUE, self.ISSUE, self.ISSUE]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "refused", "refused"])
+        self.assertIn("today's 2 open_issue intent(s) are spent", got["results"][2]["result"]["refused"])
+        self.assertEqual(len([c for c in self.hand_calls() if c["hand"] == "gh"]), 2)
+        del os.environ["FAKE_EXIT_GH"]
+        # A missing field is refused before the hand, and does not count.
+        self.answer({"thought": "", "intents": [{"do": "queue_task", "goal": "g"}] + [self.TASK] * 11})
+        stimuli.add("x", "mention", "9", "hi")
+        got = self.tick()
+        statuses = [r["status"] for r in got["results"]]
+        self.assertEqual(statuses[0], "refused")
+        self.assertEqual(statuses[1:9], ["done"] * 8)  # 8 actions a beat
+        self.assertIn("at most 8 actions a beat", got["results"][9]["result"]["refused"])
+        # The next UTC day starts the count again.
+        os.environ["TEENY_NOW"] = str(T0 + 86400)
+        self.answer({"thought": "", "intents": [self.ISSUE]})
+        stimuli.add("x", "mention", "10", "hi")
+        self.assertEqual(self.tick()["results"][0]["status"], "done")
+
+    def test_a_task_the_guard_holds_never_reaches_the_queue(self):
+        self.caps(MIND_TASKS_PER_DAY=3)
+        os.environ["FAKE_GUARD_HOLD"] = "1"
+        self.answer({"thought": "", "intents": [self.TASK]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused")
+        self.assertIn("the guard held the task's goal", got["results"][0]["result"]["refused"])
+        self.assertEqual([c for c in self.hand_calls() if c["hand"] == "tasks"], [])
+
+    def test_the_real_hands_refuse_what_is_outside_their_limits(self):
+        """Through the real hands/gh, hands/tasks and hands/mail (DRY_RUN, the
+        guard's judge off): a repository not Teeny's, a website not on the
+        list, and an address that is not a contact are each refused by the
+        hand itself; the ones inside the limits are dry runs."""
+        os.environ["TEENY_HANDS"] = str(REPO / "hands")
+        (self.root / "deploy").symlink_to(REPO / "deploy")
+        self.caps(MIND_ISSUES_PER_DAY=5, MIND_TASKS_PER_DAY=5, MIND_MAILS_PER_DAY=5, DRY_RUN=1, SAFETY_JUDGE=0,
+                  GITHUB_USER="teenydroid", GITHUB_TOKEN="ghp_FAKEtokenFAKEtokenFAKEtoken0000", AGENTMAIL_API_KEY="k", AGENTMAIL_INBOX="i@x")
+        self.answer({"thought": "", "intents": [
+            {**self.ISSUE, "repo": "tinyhumansai/openhuman"},
+            {**self.TASK, "start_url": "https://evil.example/login"},
+            {**self.MAIL, "to": "stranger@example.com"},
+            self.ISSUE,
+            self.TASK,
+        ]})
+        got = self.tick()
+        results = got["results"]
+        self.assertEqual([r["status"] for r in results], ["refused", "refused", "refused", "done", "done"], results)
+        self.assertEqual(results[0]["result"]["rule"], "owner")
+        self.assertEqual(results[1]["result"]["rule"], "website")
+        self.assertEqual(results[2]["result"]["rule"], "contacts")
+        self.assertTrue(results[3]["result"]["dry_run"])
+        self.assertEqual(results[4]["result"]["status"], "pending")
+        import sqlite3
+        conn = sqlite3.connect(self.root / "state" / "hands.db")
+        self.assertEqual(conn.execute("SELECT source, kind FROM browser_tasks").fetchall(), [("teeny", "research")])
+        conn.close()
 
     def test_say_telegram_goes_to_the_telegram_hand(self):
         stimuli.add("telegram", "dm", "42:7", "@steve in a DM:\nhey teeny", who="@steve")
