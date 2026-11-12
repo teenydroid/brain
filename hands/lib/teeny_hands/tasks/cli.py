@@ -43,6 +43,7 @@ def parser() -> argparse.ArgumentParser:
     verb("next", lambda a, _: queue.next_task(), "claim the next task for the operator")
     verb("done", lambda a, body: queue.done(body), "finish the claimed task (JSON on stdin)", body=True)
     verb("desk", lambda a, _: queue.desk(), "settle the operator's report and lay out its next task")
+    verb("accounts", lambda a, _: queue.accounts(), "the accounts signup tasks recorded")
     listing = verb("list", lambda a, _: queue.listing(a.status, a.limit), "the tasks, newest first")
     listing.add_argument("--status", choices=queue.STATUSES, default=None)
     listing.add_argument("--limit", type=_limit, default=50)
