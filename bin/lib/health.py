@@ -720,9 +720,22 @@ def check() -> Json:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv not in ([], ["daily"]):
-        hand.emit({"ok": False, "error": "usage: bin/health [daily]"})
+    if argv not in ([], ["daily"], ["runway"]):
+        hand.emit({"ok": False, "error": "usage: bin/health [daily|runway]"})
         return 2
+    if argv == ["runway"]:
+        # Runway as a sense (docs/roadmap.md, S2): teeny_hands/runway.py.
+        from teeny_hands import runway
+        try:
+            out = runway.daily()
+        except hand.Refused as refused:
+            hand.emit({"ok": False, "refused": refused.reason, **refused.detail})
+            return 2
+        except Exception as error:  # noqa: BLE001 - one JSON line, whatever happened
+            hand.emit({"ok": False, "error": scrub(f"{type(error).__name__}: {error}")})
+            return 1
+        hand.emit({"ok": True, **out})
+        return 0
     try:
         out = daily() if argv == ["daily"] else check()
     except Exception as error:  # noqa: BLE001 - one JSON line, whatever happened

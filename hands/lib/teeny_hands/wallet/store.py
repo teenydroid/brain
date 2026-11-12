@@ -22,8 +22,9 @@
                    `failed` or `refused`
   x402_hosts       the only hosts an x402 payment may go to; operator-kept
 
-Older checkouts made `wallet_payments` before it had a chain and before ETH:
-`db()` rebuilds it once, every old row on `solana`, and gives `vendors` its
+Older checkouts made `wallet_payments` before it had a chain and before ETH,
+and before the `refund` and `bill` purposes (docs/roadmap.md, S3 and S5):
+`db()` rebuilds it once, every old row kept (on `solana` when it had no chain), and gives `vendors` its
 chain column the same way.
 
 A `pending`, `in_doubt` or `paid` row counts against every cap, and a
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS wallet_payments (
     amount_raw  INTEGER NOT NULL CHECK (amount_raw > 0),
     usd_micro   INTEGER NOT NULL,
     to_address  TEXT NOT NULL,
-    purpose     TEXT NOT NULL CHECK (purpose IN ('bounty', 'vendor')),
+    purpose     TEXT NOT NULL CHECK (purpose IN ('bounty', 'vendor', 'refund', 'bill')),
     ref         TEXT NOT NULL,
     status      TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'in_doubt', 'failed', 'refused')),
     quote_id    TEXT,
@@ -166,15 +167,21 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def _purposes_current(conn: sqlite3.Connection) -> bool:
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wallet_payments'").fetchone()
+    return row is None or "'bill'" in (row[0] or "")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Brings tables made by an older hand up to SCHEMA, once."""
-    if "chain" not in _columns(conn, "wallet_payments"):
+    if "chain" not in _columns(conn, "wallet_payments") or not _purposes_current(conn):
         # The asset CHECK cannot be altered in place: rebuild the table.
         with hand.transaction(conn):
-            if "chain" not in _columns(conn, "wallet_payments"):
+            has_chain = "chain" in _columns(conn, "wallet_payments")
+            if not has_chain or not _purposes_current(conn):
                 create = SCHEMA.split("CREATE TABLE IF NOT EXISTS wallet_payments", 1)[1].split(");", 1)[0] + ");"
                 conn.execute("CREATE TABLE wallet_payments_new" + create)
-                old = _PAYMENT_COLUMNS.replace(" chain,", " 'solana',")
+                old = _PAYMENT_COLUMNS if has_chain else _PAYMENT_COLUMNS.replace(" chain,", " 'solana',")
                 conn.execute(f"INSERT INTO wallet_payments_new ({_PAYMENT_COLUMNS}) SELECT {old} FROM wallet_payments")
                 conn.execute("DROP TABLE wallet_payments")
                 conn.execute("ALTER TABLE wallet_payments_new RENAME TO wallet_payments")

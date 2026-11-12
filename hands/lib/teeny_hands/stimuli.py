@@ -38,7 +38,7 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health")
+SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet")
 STATUSES = ("pending", "taken", "done")
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000

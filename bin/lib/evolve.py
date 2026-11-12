@@ -2175,13 +2175,18 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
                 "halts": [stop(cfg, h, publisher) for h in halts]}
     n = n or cfg["EVOLVE_CANDIDATES"]
+    # Runway (docs/roadmap.md, S2): a low wallet makes fewer candidates.
+    from teeny_hands import runway
+    n, cut = runway.cap_candidates(n)
+    if cut:
+        say(f"runway: {cut}")
     src = source()
     base = git(of_source(src), "rev-parse", "--verify", f"{src.base_ref}^{{commit}}").strip()
     gen = next_gen()
     gdir = gen_dir(gen)
     gdir.mkdir(parents=True)
     write_json(gdir / "generation.json", {"gen": gen, "started_at": iso(now()), "base": base, "source": src.kind,
-                                          "candidates": n, "dry_run": dry_run()})
+                                          "candidates": n, "dry_run": dry_run(), **({"runway": cut} if cut else {})})
     entries = archive()
     evidence = observe(entries)
     write_json(gdir / "evidence.json", evidence)
@@ -2213,6 +2218,8 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
             close()
     result: Json = {"gen": gen, "base": base, "candidates": [{k: c.get(k) for k in ("id", "parent", "verdict", "title")}
                                                              for c in cands]}
+    if cut:
+        result["runway"] = cut
     if hold:
         result["held"] = "the gated candidates wait for `bin/evolve evaluate` and `bin/evolve select`"
     else:

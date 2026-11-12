@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Paid build requests (evals/cron.pinned.toml, paid-requests; docs/roadmap.md,
+# S3): `hands/wallet sales run` ties every new USDC deposit whose memo names a
+# build request ("request 12") to it, at or over the frozen price
+# (evals/prices.toml), so that request is built first; then pays back, through
+# `hands/wallet pay` under the four caps and the refund limits, every deposit
+# for a request Teeny did not build: to the address that sent it, its exact
+# amount, once. An in-doubt refund is never retried. Matching is off unless
+# PAID_REQUESTS=1, refunds unless REQUEST_REFUNDS=1, in secrets/teeny.env.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/wallet" sales run </dev/null
