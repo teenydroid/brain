@@ -63,7 +63,7 @@ import binascii
 import math
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from .. import hand
 from . import caps, jupiter, reads, solana, store
@@ -498,9 +498,12 @@ def buy_tiny(core: Core = hand.core) -> dict[str, Any]:
                 return {"dry_run": True, "would_buy": summary, "plan": public, "checks": checks}
 
             with hand.transaction(conn):
-                again = plan(conn, c, config, own)
-                if again.get("skip") or again["amount"] < amount:
-                    raise hand.Refused("the caps moved while the quote was read; nothing was bought", rule="per_day")
+                # The daily caps again, inside the transaction that writes the row.
+                now = hand.now()
+                if store.bought_since(conn, now - store.DAY) + amount > config.per_day_micro:
+                    raise hand.Refused("that would take the last 24 hours' buys over TINY_BUY_MAX_USDC_PER_DAY", rule="buy_per_day")
+                if store.spent_since(conn, now - store.DAY) + amount > c.per_day_micro:
+                    raise hand.Refused("that would take the last 24 hours over WALLET_MAX_PER_DAY_USD", rule="per_day")
                 buy_id = store.insert_buy(
                     conn,
                     **_row(
@@ -664,5 +667,3 @@ def _send(conn: Any, buy_id: int, c: caps.Caps, own: str, amount: int, terms: di
     store.update_buy(conn, buy_id, status="bought", signature=signature)
     return {"bought": {**summary, "buy_id": buy_id, "signature": signature, "url": solana.explorer_tx(signature, c.cluster)}}
 
-
-Answer = Callable[..., Any]
