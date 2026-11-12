@@ -20,7 +20,7 @@ tick an item.
 | 0 wired up | 3 | 1 | 1 | 1 |
 | 1 senses | 5 | 1 | 2 | 2 |
 | 2 voice | 7 | 5 | 2 | 0 |
-| 3 hands | 21 | 9 | 7 | 5 |
+| 3 hands | 21 | 9 | 8 | 4 |
 | 4 memory | 4 | 1 | 2 | 1 |
 | 5 self-evolution | 7 | 4 | 1 | 2 |
 | 6 the human leaves | 4 | 0 | 2 | 2 |
