@@ -368,7 +368,7 @@ def done(body: Any) -> Json:
         conn.close()
     # The summary and tests ride along so the mind hears why, not just
     # "failed": the desk puts them in the report stimulus's text.
-    return {"job_id": job_id, "status": status, "summary": summary, "tests": tests}
+    return {"job_id": job_id, "status": status, "summary": summary, "tests": body.get("tests")}
 
 
 #: What the builder writes to state/workbench/desk/build-done.json.
