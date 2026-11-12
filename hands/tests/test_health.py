@@ -282,7 +282,7 @@ class HealthTest(unittest.TestCase):
         for direction, category, hours in holds_at:
             self.at(-hours * 3600)
             holds.record(direction=direction, kind="draft", context={"surface": "x"}, category=category,
-                         reason="REASON-NEVER-SHOWN", by="lexicon", text="HELD-TEXT-NEVER-SHOWN")
+                         reason="REASON-NEVER-SHOWN", by="screen", text="HELD-TEXT-NEVER-SHOWN")
         self.at(0)
 
     def costs(self, usd=0.42, calls=7) -> None:
