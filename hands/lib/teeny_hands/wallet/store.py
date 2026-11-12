@@ -30,6 +30,7 @@ is looked at by a person, never retried by the hand.
 from __future__ import annotations
 
 import sqlite3
+import time
 from typing import Any
 
 from .. import hand
@@ -164,7 +165,7 @@ def db() -> sqlite3.Connection:
         except sqlite3.OperationalError as exc:
             if "locked" not in str(exc) or attempt == 19:
                 raise
-            hand.time.sleep(0.05 * (attempt + 1))
+            time.sleep(0.05 * (attempt + 1))
     raise AssertionError("unreachable")
 
 
