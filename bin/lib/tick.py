@@ -45,6 +45,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -72,6 +73,25 @@ MAX_CHARS = 30_000
 MOLTBOOK_EVERY_SECS = 600
 #: Teeny's clock (CALENDAR_TZ moves it).
 DEFAULT_TZ = "Asia/Kolkata"
+#: Refusals that only mean "not yet", by verb: the rule whose `wait_seconds`
+#: a beat may sit out and then send the same intent once more. hands/x paces
+#: replies (REPLY_MIN_INTERVAL_MS..REPLY_MAX_INTERVAL_MS); Moltbook takes one
+#: comment a minute. Both refuse before anything is sent, run their guard
+#: again on the retry, and refuse a second answer to the same thing from
+#: their own ledgers, so a retry can never say it twice.
+PACED = {"reply_x": "pacing", "comment_moltbook": "rate_limit"}
+#: The longest such wait a beat sits out; a longer one is deferred.
+PACE_WAIT_MAX_SECS = 90.0
+#: Seconds added to the wait, up to TEENY_TICK_PACE_JITTER_SECS (a person
+#: does not answer on the exact second either).
+DEFAULT_PACE_JITTER_SECS = 5.0
+#: The wall clock a beat may run to, from its start and jitter included
+#: (TEENY_TICK_BUDGET_SECS): a wait that would end past it is deferred, so a
+#: beat does not run into the next cron call.
+DEFAULT_BUDGET_SECS = 240.0
+#: A deferred intent still held this long after the mind decided it goes
+#: back to the mind as refused instead of being tried again.
+DEFERRED_MAX_AGE_SECS = 3600
 
 Json = dict[str, Any]
 
@@ -414,11 +434,141 @@ def _drop_follow_up(intent: Mapping[str, Any]) -> Json:
     return {"ok": True, "dropped": dropped}
 
 
-def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = ()) -> list[Json]:
+def _secs(name: str, default: float, cap: float | None = None) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        value = default
+    value = max(0.0, value)
+    return min(value, cap) if cap is not None else value
+
+
+def deadline_from(started: float) -> float:
+    """The monotonic time past which a beat defers rather than waits."""
+    return started + _secs("TEENY_TICK_BUDGET_SECS", DEFAULT_BUDGET_SECS)
+
+
+def _paced_wait(do: Any, code: int, out: Mapping[str, Any]) -> float | None:
+    """How long a refusal says to wait, when it is only "not yet" for this verb."""
+    wait = out.get("wait_seconds")
+    if code != 2 or do not in PACED or out.get("rule") != PACED[do]:
+        return None
+    if isinstance(wait, bool) or not isinstance(wait, (int, float)) or wait < 0:
+        return None
+    return float(wait)
+
+
+def _send(do: str, name: str, argv: list[str], body: Any, deadline: float) -> tuple[int, Json, Json | None]:
+    """The hand call, and once more after a short pacing wait when the beat
+    has the time. The third value says how it was paced (None when it was
+    not); `deferred` there means it is still held and should wait for the
+    next beat."""
+    code, out = _run_hand(name, argv, body)
+    wait = _paced_wait(do, code, out)
+    if wait is None:
+        return code, out, None
+    paced: Json = {"rule": out["rule"], "wait_seconds": wait}
+    cap = _secs("TEENY_TICK_PACE_JITTER_SECS", DEFAULT_PACE_JITTER_SECS, 30.0)
+    pause = wait + random.uniform(min(1.0, cap), cap)
+    if wait > PACE_WAIT_MAX_SECS or time.monotonic() + pause > deadline:
+        return code, out, {**paced, "deferred": True}
+    time.sleep(pause)
+    paced["waited"] = round(pause, 3)
+    code, out = _run_hand(name, argv, body)
+    if _paced_wait(do, code, out) is not None:
+        paced["deferred"] = True  # held again: one retry a beat, the next beat sends it
+    return code, out, paced
+
+
+def _deferred_path() -> Path:
+    return hand.state_dir() / "tick" / "deferred.json"
+
+
+def _load_deferred() -> list[Json]:
+    try:
+        items = json.loads(_deferred_path().read_text())
+    except (OSError, ValueError):
+        return []
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+
+def _save_deferred(items: list[Json]) -> None:
+    path = _deferred_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+
+
+def _defer(item: Json) -> None:
+    _save_deferred([*_load_deferred(), item])
+
+
+def _landed(entry: Json, do: str, intent: Mapping[str, Any], code: int, out: Json,
+            parked: list[str], set_now: list[int]) -> None:
+    """Writes a hand's answer into the intent's entry and tells the surface's
+    queue; an answer that went out resolves its waiting follow-ups."""
+    entry["status"] = "done" if code == 0 else "refused" if code == 2 else "error"
+    entry["result"] = out
+    if code == 0 and not out.get("dry_run"):
+        _mark(do, intent, "replied")
+        if do in ANSWERS:
+            refs = _refs(do, intent)
+            parked[:] = [r for r in parked if r not in refs]
+            resolved = stimuli.resolve(refs, keep=set_now)
+            if resolved:
+                entry["resolved"] = resolved
+    elif code == 0:
+        _mark(do, intent, "drafted")
+    elif code == 2:
+        _mark(do, intent, "refused")
+
+
+def resume(deadline: float) -> list[Json]:
+    """Sends what the last beat deferred, first and as the mind decided it,
+    without asking again: the outcome reaches the mind in this beat's batch.
+    The list is cleared before anything is sent (a beat that dies halfway
+    never sends it twice; the hands' ledgers refuse a second answer anyway).
+    One still held is kept for the next beat, until DEFERRED_MAX_AGE_SECS,
+    and then goes back to the mind as refused."""
+    items = _load_deferred()
+    if not items:
+        return []
+    _save_deferred([])
+    results: list[Json] = []
+    for item in items:
+        do, intent = item.get("do"), item.get("intent") or {}
+        entry: Json = {"do": do}
+        try:
+            name, argv, body = ROUTES[do](intent)
+            code, out, paced = _send(do, name, argv, body, deadline)
+            entry["paced"] = {**(paced or {}), "resumed": True, "deferred_at": item.get("deferred_at")}
+            held = bool(paced and paced.get("deferred"))
+            if held and hand.now() - float(item.get("deferred_at") or 0) < DEFERRED_MAX_AGE_SECS:
+                entry.update(status="deferred", result=out)
+                _defer(item)
+            else:
+                entry["paced"].pop("deferred", None)
+                _landed(entry, do, intent, code, out, [], [])
+        except (KeyError, ValueError) as exc:
+            entry.update(status="refused", result={"refused": str(exc)})
+        except (OSError, subprocess.SubprocessError, hand.HandError) as exc:
+            entry.update(status="error", result={"error": str(exc)[:300]})
+        entry["intent"] = dict(intent)
+        results.append(entry)
+        if entry["status"] != "deferred":
+            _report(str(item.get("tick")), item.get("n", 0), entry)
+    return results
+
+
+def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (),
+              deadline: float | None = None) -> list[Json]:
     results: list[Json] = []
     acted = 0
     parked = _parked(list(batch))
     set_now: list[int] = []  # follow-ups set this beat: an answer in the same beat leaves them be
+    if deadline is None:
+        deadline = deadline_from(time.monotonic())
     for n, intent in enumerate(intents):
         do = intent.get("do")
         entry: Json = {"do": do}
@@ -447,21 +597,17 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                         media_ids, entry["media"] = _picture(intent["image"].strip())
                         if media_ids:
                             body = {**body, "media_ids": media_ids}
-                    code, out = _run_hand(name, argv, body)
-                    entry["status"] = "done" if code == 0 else "refused" if code == 2 else "error"
-                    entry["result"] = out
-                    if code == 0 and not out.get("dry_run"):
-                        _mark(do, intent, "replied")
-                        if do in ANSWERS:
-                            refs = _refs(do, intent)
-                            parked = [r for r in parked if r not in refs]
-                            resolved = stimuli.resolve(refs, keep=set_now)
-                            if resolved:
-                                entry["resolved"] = resolved
-                    elif code == 0:
-                        _mark(do, intent, "drafted")
-                    elif code == 2:
-                        _mark(do, intent, "refused")
+                    code, out, paced = _send(do, name, argv, body, deadline)
+                    if paced:
+                        entry["paced"] = paced
+                    if paced and paced.get("deferred"):
+                        # Still held, but decided: the next beat sends it
+                        # first (resume), so nothing is reported or marked yet.
+                        entry.update(status="deferred", result=out)
+                        _defer({"tick": tick, "n": n, "do": do, "intent": dict(intent), "deferred_at": hand.now(),
+                                "wait_seconds": paced["wait_seconds"]})
+                    else:
+                        _landed(entry, do, intent, code, out, parked, set_now)
             else:
                 entry.update(status="refused", result={"refused": f"no such intent {do!r}"})
         except ValueError as exc:
@@ -491,6 +637,12 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         what = f"failed: {result.get('error') or result.get('stderr') or 'unknown'}"
     target = next((entry["intent"].get(k) for k in ("to", "post_id", "message_id", "repo", "id") if entry["intent"].get(k)), "")
     text = f"your {do}{' on ' + str(target) if target else ''}: {what}"
+    paced = entry.get("paced") or {}
+    if paced.get("resumed"):
+        text += ("; held by the pacing last beat, it went out by itself at the start of this one, as you wrote it"
+                 if entry["status"] == "done" else "; held by the pacing since last beat, so it was not sent")
+    elif paced.get("waited") and entry["status"] == "done":
+        text += f" (it waited {paced['waited']:.0f} s for the pacing)"
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
@@ -573,8 +725,9 @@ def beat(pause: float = 0.0) -> Json:
     it, so a cron call while a beat waits finds the beat already running."""
     try:
         with hand.lock("tick", timeout=5):
+            started = time.monotonic()
             time.sleep(pause)
-            return _beat()
+            return _beat(deadline_from(started))
     except hand.HandError as exc:
         if "lock" in str(exc):
             out = {"ok": True, "kind": "busy", "idle": True, "skipped": "another beat is still thinking"}
@@ -625,15 +778,25 @@ def _idle(kind: str, raised: int, gathered: Mapping[str, Any], **more: Any) -> J
     return {**line, **gathered}
 
 
-def _beat() -> Json:
+def _sent(results: list[Mapping[str, Any]]) -> int:
+    """How many of these went out into the world (what energy pays for)."""
+    return sum(1 for r in results if r["do"] in ROUTES and r["status"] == "done")
+
+
+def _beat(deadline: float) -> Json:
     browsed = browse()
     heard = listen()
     raised = stimuli.raise_due()
     gathered = {"moltbook": browsed, "telegram": heard}
+    # Already decided (a beat ago), so sent at any hour and before the batch
+    # is taken: the mind reads how it landed in this very beat.
+    resumed = resume(deadline)
+    rhythm.spent(_sent(resumed))
+    more: Json = {"resumed": resumed} if resumed else {}
     waiting = stimuli.pending()
     asleep = rhythm.night_gate(waiting)
     if asleep:
-        return _idle("asleep", raised, gathered, **asleep)
+        return _idle("asleep", raised, gathered, **asleep, **more)
     came_in = len(waiting)  # before the mind's own moment is added
     # Woken (and rested) before the quiet moment is written, so it sees the
     # morning's energy, not last night's.
@@ -643,11 +806,11 @@ def _beat() -> Json:
     elif rhythm.wander(_run_hand) or rhythm.quiet():
         waiting = stimuli.pending()
     if not waiting:
-        return _idle("idle", raised, gathered, resting=True)
+        return _idle("idle", raised, gathered, resting=True, **more)
     batch = stimuli.take(MAX_STIMULI, MAX_CHARS)
     tick, items = batch["tick"], batch["stimuli"]
     if not items:
-        return _idle("idle", raised, gathered)
+        return _idle("idle", raised, gathered, **more)
     kind = "quiet" if all((s["surface"], s["kind"]) in QUIET for s in items) else "beat"
     # Nobody waits on a quiet moment: a failed one is let go, not put back
     # to come round again stale.
@@ -659,7 +822,7 @@ def _beat() -> Json:
             said = ask(message)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             give_back(tick)
-            out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items)}
+            out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the turn failed: {exc}", "stimuli": len(items), **more}
             _record(out)
             return out
         try:
@@ -669,14 +832,14 @@ def _beat() -> Json:
             last_error = f"{exc}: {said[:300]}"
     if intents is None:
         give_back(tick)
-        out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items)}
+        out = {"ok": False, "kind": "failed", "tick": tick, "error": f"the answer is not usable JSON: {last_error}", "stimuli": len(items), **more}
         _record(out)
         return out
     # Settled before acting: a beat that dies halfway must not hand the same
     # batch to the next one and answer it twice.
     stimuli.settle(tick)
-    results = carry_out(intents, tick, items)
-    rhythm.spent(sum(1 for r in results if r["do"] in ROUTES and r["status"] == "done"))
+    results = carry_out(intents, tick, items, deadline)
+    rhythm.spent(_sent(results))
     if not any(r["do"] != "skip" for r in results):
         # Silence toward others is fine; silence inward is not. Without
         # asking again (a turn costs), the thought becomes the beat's act:
@@ -690,6 +853,7 @@ def _beat() -> Json:
         "stimuli": [{"surface": s["surface"], "kind": s["kind"], "ref": s["ref"]} for s in items],
         "thought": thought,
         "results": results,
+        **more,
         "journal": journal(kind, thought, results),
     }
     _record(out)

@@ -444,7 +444,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         message = self.chats()[1]["message"]
         self.assertIn("your reply_x on 222: done", message)
-        self.assertNotIn("refused", message)
+        self.assertNotIn("222: refused", message)
         self.assertEqual(len(self.chats()), 2)  # the paced reply cost no turn of its own
 
     def test_a_paced_retry_is_not_counted_as_another_action(self):
