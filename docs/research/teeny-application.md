@@ -1,8 +1,8 @@
 # Teeny's drive and a faster loop: the proposal
 
 This page turns the research in this folder into a design for Teeny. It is a
-proposal, not a record of what is built. Nothing here is built yet, and nothing
-here moves a fence. Where a step needs a frozen file changed, it says so, and
+proposal, not a record of what is built. Roadmap items 14 and 15 are built
+(§9); the rest is not yet. Nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -279,8 +279,14 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 13. Operator: the lab spine and automatic promotion; `evolve-watch` watches J
 
 **Phase D**
-14. A goal ledger with success checks, the ranking, and ANNECS
-15. A browser task that reads the news and turns trends into stimuli
+14. A goal ledger with success checks, the ranking, and ANNECS. **Built:**
+    `hands/goals` (frozen), the pinned `goals-check` job and the weekly
+    `goals` playbook ([`../hands.md`](../hands.md), "goals"). The judge-based
+    interestingness check is future work.
+15. A browser task that reads the news and turns trends into stimuli.
+    **Built:** the daily `news-scan` playbook queues a `news` task, and its
+    notes reach the mind as a `world · news` stimulus
+    ([`../hands.md`](../hands.md), "tasks").
 
 **$TINY**
 16. Operator: `hands/wallet buy-tiny`, buy-only, under the caps, called by a pinned job from a share of net inflows
