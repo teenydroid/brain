@@ -150,8 +150,10 @@ secrets/teeny.env ──► each hand, read by the hand itself ──► X, GitH
 secrets/core.token, secrets/openhuman.key ◄── written by the spine on first boot
 ```
 
-**`secrets/spine.env`** (what `bin/spine` gives the core at every boot;
-example: `deploy/spine.env.example`):
+### `secrets/spine.env`
+
+`bin/spine` gives these to the core at every boot. The example is
+`deploy/spine.env.example`.
 
 | Key | |
 |---|---|
@@ -161,9 +163,11 @@ example: `deploy/spine.env.example`):
 | `SPINE_CONTEXT_WINDOW` | Optional. Otherwise it's read from the endpoint's `/models`. The core trims prompts to this. |
 | `CORTEX_API_URL`, `CORTEX_API_KEY` | Optional memory engine. |
 
-**`secrets/teeny.env`** (read by each hand itself; example:
-`deploy/teeny.env.example`). The process environment can't override it,
-though `DRY_RUN=1` in the environment forces a rehearsal:
+### `secrets/teeny.env`
+
+Each hand reads this file itself. The example is `deploy/teeny.env.example`.
+The process environment can't override it, though `DRY_RUN=1` in the
+environment forces a rehearsal.
 
 | Key | |
 |---|---|
@@ -178,11 +182,15 @@ though `DRY_RUN=1` in the environment forces a rehearsal:
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
 
-**`deploy/browser-allow.txt`**: the websites the browser may open (and that
+### `deploy/browser-allow.txt`
+
+The websites the browser may open (and that
 OpenHuman's `http_request` shares), one host per line, subdomains included.
 Reviewed by the operator, outside the brain Teeny edits. `bin/spine` writes it
 into the core's config at every boot, and `hands/tasks add` refuses a task that
 starts anywhere else.
+
+### The core's config
 
 At every boot `bin/spine` also writes these tables into the core's config
 (`bin/lib/core_config.py` runs each module in `bin/lib/core_sections/`, and
