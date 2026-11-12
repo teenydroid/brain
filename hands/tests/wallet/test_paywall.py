@@ -137,7 +137,7 @@ class PaywallTest(Scratch):
             ("garbage", None, "X-PAYMENT is not base64 JSON"),
             (header("solana-devnet"), None, "wrong network"),
             (header(), {"verify": {"isValid": False}}, "the payment did not verify"),
-            (header(), {"settle": {"success": False}}, "the payment did not settle"),
+            (header(), {"verify": {"isValid": True}, "settle": {"success": False}}, "the payment did not settle"),
         ]
         for payment, fake, error in cases:
             with self.subTest(error=error):
@@ -169,6 +169,7 @@ class PaywallTest(Scratch):
         server = subprocess.Popen([sys.executable, str(Path(__file__).resolve().parents[3] / "bin" / "paywall"),
                                    "--host", "127.0.0.1", "--port", str(port)], env=os.environ,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(server.wait)
         self.addCleanup(server.kill)
         for _ in range(100):
             try:
@@ -179,5 +180,7 @@ class PaywallTest(Scratch):
         with self.assertRaises(urllib.error.HTTPError) as no:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/stats", timeout=5)
         self.assertEqual(no.exception.code, 402)
+        no.exception.close()
         got = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/stats", headers={"X-PAYMENT": header()}), timeout=10)
-        self.assertEqual(json.loads(got.read())["x"], {"followers": 120})
+        with got:
+            self.assertEqual(json.loads(got.read())["x"], {"followers": 120})
