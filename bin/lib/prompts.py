@@ -92,15 +92,6 @@ def world(brain: Path) -> str:
         # One level down, under this section's own heading.
         arcs = re.sub(r"^(#{2,5}) ", r"#\1 ", arcs, flags=re.M)
         parts.append("## how far each goal has got (narrative/ARCS.md)\n\n" + arcs)
-    memory = _read(brain / "MEMORY.md")
-    if memory:
-        memory = re.sub(r"\A#\s+MEMORY\.md\s*\n", "", memory).strip()
-        if len(memory) > MEMORY_MAX_CHARS:
-            memory = memory[:MEMORY_MAX_CHARS].rstrip() + "\n\n[MEMORY.md runs on past this; the rest was cut. keep it shorter.]"
-        memory = re.sub(r"^(#{2,5}) ", r"#\1 ", memory, flags=re.M)
-        # Last: it changes most often, and everything before it stays a
-        # stable prefix for the provider's cache.
-        parts.append("## what you keep in mind (MEMORY.md)\n\n" + memory)
     if not parts:
         return ""
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)
