@@ -1566,9 +1566,13 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
         return {"selected": best["id"], **result}
     tree = evolve_dir() / best["worktree"]
     commit_branch(tree, branch, title)
-    hits = frozen.check(tree, best["base"], branch)
+    try:
+        hits = [h.path for h in frozen.check(tree, best["base"], branch)]
+    except frozen.FrozenError as exc:
+        hits = [f"(the check could not run: {exc})"]
     if hits:
-        raise EvolveError(f"the committed branch touches frozen paths: {', '.join(h.path for h in hits)}")
+        best["pr_error"] = f"the committed branch touches frozen paths: {', '.join(hits)}"[:300]
+        return {"selected": best["id"], "pr_error": best["pr_error"]}
     assert publisher is not None
     try:
         opened = publisher.open_pr(src, tree, branch, best["base"], title, body)
