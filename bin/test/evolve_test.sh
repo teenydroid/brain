@@ -179,7 +179,7 @@ check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 # --- status, halts, resume --------------------------------------------------------------------
 out="$("$evolve" status 2>/dev/null)"
 check "status lists the parent weights" test "$(jq -r '.weights | has("main")' <<<"$out")" = true
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\n' >"$root/secrets/evolve.env"
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
 out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
 check "too many generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
 check "and under DRY_RUN files no issue" test "$(jq -r '.halts[0].dry_run' <<<"$out")" = true
