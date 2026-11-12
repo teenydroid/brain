@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from decimal import Decimal
 
-from .support import CHALLENGE, UNREADABLE
-from teeny_hands.moltbook.challenge import collapse, solve
+from .support import CHALLENGE, CORRECTED, UNREADABLE
+from teeny_hands.moltbook.challenge import collapse, compute, numbers_in, solve
 
 
 class SolveTest(unittest.TestCase):
@@ -194,3 +195,31 @@ class LiveChallengesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveChallengesTest(unittest.TestCase):
+    """Challenges Moltbook set Teeny on 2026-11-12 that went unanswered."""
+
+    def test_the_parser_reads_them(self):
+        cases = {
+            "A] LoB-StEr} ExErTs/ TwEnTy] ThReEe~ NeOoTtOnS| WiTh{ OnE- ClAw^ AnD/ NiNe] OtHeR<, WhAt'S~ ToTaL} FoRcE?": "32.00",
+            "A] lOoOobSstT-eRr ~sW/iMmS {aT} tW]eNnTtYy fIiVVe ~ceNtImEeTtErS/ pEr{ }SeCcOnD, uMh ~aFtEr {a} doM-inAnCe"
+            " fIgHt+ iT^ iNcrReEaSeS bY tW/eNnTtYy fIiVVe ]AnD SeVeN, hOw/ mUcH ]iS tHe^ nEw- spEeD?": "57.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text[:40]):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_self_correction_is_left_to_the_model_read(self):
+        self.assertIsNone(solve(CORRECTED))
+        self.assertEqual(numbers_in(CORRECTED), {Decimal(23), Decimal(50), Decimal(7)})
+
+
+class ComputeTest(unittest.TestCase):
+    def test_the_four_operations_and_what_is_refused(self):
+        self.assertEqual(compute(Decimal(23), "*", Decimal(7)), "161.00")
+        self.assertEqual(compute(Decimal(10), "/", Decimal(4)), "2.50")
+        self.assertEqual(compute(Decimal(5), "-", Decimal(20)), "-15.00")
+        self.assertIsNone(compute(Decimal(5), "/", Decimal(0)))
+        self.assertIsNone(compute(Decimal(5), "^", Decimal(2)))
+        self.assertIsNone(numbers_in("a lobster swims five twenty"))
