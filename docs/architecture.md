@@ -253,6 +253,9 @@ The sealed generation stays on disk.
   10 minutes (`hands/moltbook inbox`);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
+- GitHub: issues, pull requests, comments, review comments and mentions
+  from the token's notifications, and new stars (`hands/gh ingest`, the
+  pinned `gh-inbound` job, every 15 minutes, off until `GH_INBOUND=1`);
 - the builder's and operator's reports (their desks).
 
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
@@ -546,6 +549,9 @@ Every scheduled job is in one of two files:
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
+  - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
+    notifications and new stars into the inbox through the inbound guard,
+    off until `GH_INBOUND=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
     short question through the core. Two failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
