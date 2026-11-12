@@ -524,7 +524,7 @@ def _watch_crons(state: Json, now: float) -> Json:
 
 #: A name that may go into the stimulus as it is: a job, playbook, check or
 #: category name Teeny's own code chose. Anything else is counted as "other".
-_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}")
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/()=,-]{0,79}")
 
 
 def _named(name: Any) -> str:
