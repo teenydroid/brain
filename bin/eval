@@ -5,10 +5,14 @@
 #       Draft every task in evals/tasks/ on the core at OH_URL, as the `act`
 #       agent of whatever brain that core runs, N times each (default 2).
 #       Each draft gets the hard checks. Writes OUT/drafts.jsonl.
-#   bin/eval compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] BASE CAND OUT
+#   bin/eval compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout]
+#                    [--judge-model M] BASE CAND OUT
 #       Judge two runs pair by pair, blind, twice with the order swapped, as
 #       the `judge` agent on the core at OH_URL. Writes OUT/judged.jsonl and
 #       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not.
+#       --judge-model (or EVAL_JUDGE_MODEL) runs every judge turn on model M
+#       through the core's per-turn `model_override`, without editing the
+#       frozen judge.toml; report.json records the model asked for.
 #
 # --with-heldout also drafts (run) and judges (compare) the held-out tasks
 # in $EVAL_HELDOUT_DIR (default secrets/heldout/*.toml, outside the public
@@ -37,7 +41,7 @@ need jq python3
 evals="$TEENY_ROOT/evals"
 lib="$TEENY_ROOT/bin/lib/evals.py"
 usage() {
-  die "usage: bin/eval run [--samples N] [--only IDS] [--with-heldout] OUT | compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] BASE CAND OUT | invariants [--root DIR]"
+  die "usage: bin/eval run [--samples N] [--only IDS] [--with-heldout] OUT | compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] [--judge-model M] BASE CAND OUT | invariants [--root DIR]"
 }
 heldout_dir="${EVAL_HELDOUT_DIR:-$TEENY_SECRETS/heldout}"
 # The held-out tasks, switched on for evals.py; dies when there are none.
@@ -88,9 +92,11 @@ run() {
 
 compare() {
   local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out heldout=0
+  local judge_model="${EVAL_JUDGE_MODEL:-}"
   while [ $# -gt 0 ]; do
     case "$1" in
       --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
+      --judge-model) judge_model="$2"; shift 2 ;;
       --with-heldout) heldout=1; shift ;;
       --threshold) threshold="$2"; shift 2 ;;
       --min-pairs) min_pairs="$2"; shift 2 ;;
@@ -111,9 +117,12 @@ compare() {
   : >"$out/judged.jsonl"
   # Every pair both sides drafted, judged twice: the baseline shown first,
   # then the candidate. The judge never learns which is which.
+  local ask=("$TEENY_ROOT/bin/ask" --agent judge)
+  [ -z "$judge_model" ] || ask+=(--model "$judge_model")
   python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/judged.jsonl" \
-    -- "$TEENY_ROOT/bin/ask" --agent judge >/dev/null
-  python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" >"$out/report.json.tmp"
+    -- "${ask[@]}" >/dev/null
+  python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" |
+    jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
   jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}
          + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$out/report.json"
