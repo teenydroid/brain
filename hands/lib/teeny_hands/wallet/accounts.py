@@ -210,7 +210,7 @@ def _screen(memo: str | None, signature: str) -> tuple[str | None, int]:
     from ..guard import gate
 
     verdict = gate.inbound(memo, surface="wallet", context={"kind": "message", "signature": signature})
-    if verdict.decision != "allow":
+    if verdict.kind != "allow":
         return None, 1
     return memo, 0
 
