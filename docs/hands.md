@@ -656,7 +656,7 @@ creates its own tables:
 | `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
 | `guard` | `guard_holds`, `guard_approved_links` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache` |
-| `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache` |
+| `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `slopcash` | `slopcash_cache` |
 | `requests` | `build_requests`, `build_request_events` |
