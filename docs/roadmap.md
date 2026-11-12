@@ -98,9 +98,10 @@ In order. Each step unlocks the proofs after it.
 | 0.11 | After five human-merged generations that measured well: `EVOLVE_AUTO_PROMOTE=1` | L5 promotion and rollback |
 | 0.12 | `TINY_BUY=1` once there are inflows that didn't come from the team | L3 "moves the lore goals" |
 
-Things an agent can do for Track 0 without touching the box: a
-`bin/proofs` report that reads the ledgers and says, for each `DIRECTIVE.md`
-item with a countable proof, how far along it is (A0 below).
+Things an agent can do for Track 0 without touching the box: the
+`bin/proofs` report reads the ledgers and says, for each `DIRECTIVE.md`
+item with a countable proof, how far along it is (A0 below, built). Run
+`bin/proofs --text` on the box before ticking an item.
 
 ## Track A: agentic
 
@@ -112,7 +113,7 @@ act on it.
 
 | ID | Item | Where | Frozen | Done when | DIRECTIVE |
 |---|---|---|---|---|---|
-| A0 | **`bin/proofs`**: one report of how far each countable proof has got (replies in the ledger, weeks of rising stats, days of diary, `ok` tasks, shipped requests, generations) | new `bin/proofs`, `bin/lib/proofs.py`, `bin/test/proofs_test.sh` | Operator | The report runs offline on fixture ledgers and names every item it can count | all |
+| A0 | **`bin/proofs`**: one report of how far each countable proof has got (replies in the ledger, weeks of rising stats, days of diary, `ok` tasks, shipped requests, generations). **Built**: 24 proofs counted, the rest named under `not_counted` with what they wait for | new `bin/proofs`, `bin/lib/proofs.py`, `bin/test/proofs_test.sh` | Operator | The report runs offline on fixture ledgers and names every item it can count | all |
 | A1 | **GitHub notifications as stimuli**: issues, review comments, mentions and stars on Teeny's repos reach the inbox through `hands/guard inbound` | `hands/lib/teeny_hands/gh/` (a `notifications` read), `hands/lib/teeny_hands/stimuli.py`, a pinned ingest job | Operator | A fixture review comment becomes a `gh` stimulus, once, and a hostile one is held | L1 GitHub notifications; L3 "maintains what it shipped" |
 | A2 | **Its own posts fed back, and a near-duplicate check**: the last N posts per surface in the mind's prompt, and a guard check that refuses a draft too close to a recent one and counts refusals | `bin/lib/prompts.py`, `hands/lib/teeny_hands/guard/`, `hands/lib/teeny_hands/x/posting_rules.py` | Operator | A repeat of yesterday's post is refused; `hands/guard` reports the 30-day count | L1 "never repeats itself" |
 | A3 | **Three new mind intents**: `open_issue` (own repos, through `hands/gh open-issue` and the guard), `queue_task` (a browser task with `--source teeny`, allowed websites only), `start_mail` (known contacts only) | `bin/lib/tick.py`, `bin/lib/playbook.py` (`VERB_OUTPUTS`) | Operator | Each intent acts through its hand, is refused outside its limits, and has a daily cap | L3 "opens issues", "writes its own browser tasks"; L2 "starts mail" |
