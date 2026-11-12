@@ -1,8 +1,8 @@
 # Teeny's drive and a faster loop: the proposal
 
 This page turns the research in this folder into a design for Teeny. It is a
-proposal, not a record of what is built. Nothing here is built yet, and nothing
-here moves a fence. Where a step needs a frozen file changed, it says so, and
+proposal, not a record of what is built. Only the roadmap items marked
+**built** in §9 are built, and nothing here moves a fence. Where a step needs a frozen file changed, it says so, and
 that change is the operator's PR.
 
 ## 1. The drive
@@ -82,8 +82,9 @@ J = Σᵢ wᵢ · Δ log(Wᵢ + cᵢ)        over the last 7 days
 
 The drive goes into the prompt the same way the identity does. A new
 `brain/DRIVE.md` states it in Teeny's voice. `bin/lib/prompts.py` (frozen, so
-an operator PR) adds it to "# your world", next to `CONTEXT.md`. Until that
-lands, a `## drive` section in `CONTEXT.md` does the same job.
+an operator PR) adds it to "# your world", after `MEMORY.md` and before
+`CONTEXT.md`. `brain/DRIVE.md` is listed in `evals/frozen.txt`, and `bin/doctor`
+fails a brain without it.
 `evals/invariants.md` gets anchors for the drive's core lines, so `bin/doctor`
 refuses to boot a brain that drops them, the way "never sell $TINY" is held
 today. Teeny may rewrite how it pursues the drive (playbooks, skills), but not
@@ -263,7 +264,7 @@ Titles only. Nothing is filed yet. "Operator" marks a change to a frozen path.
 1. `hands/world`: compute W and J from stats, stimuli, wallet and builds; `report` and `history` verbs (new hand)
 2. Operator: pin `world-snapshot` in `evals/cron.pinned.toml`
 3. Operator: `hands/wallet tiny`, a read-only $TINY balance
-4. `brain/DRIVE.md` (a `## drive` section of `CONTEXT.md` until then); operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`
+4. **Built.** `brain/DRIVE.md`; operator: `bin/lib/prompts.py` reads it, anchors in `evals/invariants.md`, the `drive` statement and a flywheel line in `evals/judge.md`, and `brain/DRIVE.md` frozen
 5. `self-improve`: take W and the self-change archive as inputs, name the W component, make delta edits only
 6. A weekly `growth` playbook: the public growth diary
 7. `bin/reflect`: delta updates to `MEMORY.md` with a shrink check (operator, `bin/`). Built: items carry `[mN]` ids, the mind answers with `add`, `edit` and `retire` operations, retired items go to `state/reflect/retired.jsonl`, and `bin/lib/reflect.py` refuses more than 8 retires or a loss of more than 30% of the page

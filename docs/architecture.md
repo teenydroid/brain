@@ -185,6 +185,7 @@ diary entry, are taught to the core's memory with `openhuman.memory_learn`.
 ```
 brain/
   SOUL.md  CONTEXT.md  MEMORY.md       who Teeny is, what it may treat as known, its own page of things to keep in mind
+  DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
   narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
@@ -198,9 +199,10 @@ brain/
 ```
 
 **Self-improvement** is Teeny's own: it may edit its brain (`SOUL.md`,
-`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands,
-driven by the goals in `narrative/LORE.md` and tracked in
-`narrative/ARCS.md`. A candidate brain is judged against the current one and
+`CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
+not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
+pursues the drive, never the drive itself. The work is driven by the goals in
+`narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
 merged only if it wins, behind rules in code the brain cannot edit. The spec
 is [`evolve.md`](evolve.md); the loop itself is not built yet.
 
@@ -210,9 +212,13 @@ A turn that speaks as Teeny (`act`, `teeny-mentions`, `teeny-mail`) is
 handed four things beyond the message:
 
 - Its prompt: the agent's instructions (`brain/agents/<id>.md`), then
-  "# your world": `CONTEXT.md`, the parts of `narrative/LORE.md` Teeny reads
-  (the premise, the cast, the running bits; never `## latent`, which is the
-  producer's), `narrative/ARCS.md`, and last `MEMORY.md`. `bin/spine` builds
+  "# your world": `MEMORY.md` first (what happened, which wins over the
+  context, the lore and the arcs), then `DRIVE.md` (the one drive and its
+  rules, which memory does not outrank), `CONTEXT.md`, the parts of
+  `narrative/LORE.md` Teeny reads (the premise, the cast, the running bits;
+  never `## latent`, which is the producer's), and `narrative/ARCS.md`. The
+  drive is rebuilt into every turn, so it survives a compaction of a thread
+  without help. `bin/spine` builds
   it into `brain/agent/prompts/<id>.md` at every boot (`bin/lib/prompts.py`).
   The agents set `refresh_prompt_on_resume`, so a rebuilt prompt reaches a
   thread already under way.
