@@ -87,7 +87,7 @@ docker compose -f deploy/compose.yaml logs -f xhook
   reconciles the core's jobs by name at every boot.
 - For a script or the brain, pull, then restart. Nothing of Teeny's is
   baked into the image.
-- For OpenHuman itself, bump `vendor/openhuman` (see the root README), then
+- For OpenHuman itself, bump `vendor/openhuman` (see `docs/developers.md`), then
   `up -d --build`.
 - To change where the browser may go, edit `browser-allow.txt` here (one
   host per line, reviewed by you, never by Teeny), then restart. The operator
