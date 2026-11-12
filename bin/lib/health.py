@@ -534,7 +534,8 @@ def check() -> Json:
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
-                     "alarm": None, "issue": None, "rescreen": None}
+                     "alarm": None, "issue": None, "rescreen": None,
+                     "moltbook_unverified": moltbook_unverified(now - MOLTBOOK_WINDOW_SECS)}
         alarm = state.get("alarm")
         if error is None:
             if alarm:
