@@ -294,14 +294,14 @@ def _open_issue(i):
 
 def _queue_task(i):
     _within_cap("queue_task")
-    fields = {"goal": _text(i, "goal"), "done_when": _text(i, "done_when")}
     start_url = _text(i, "start_url")
-    code, verdict = _run_hand("guard", ["check", "--fields", "goal,done_when"],
-                              {**fields, "surface": "task", "kind": "task"})
-    checked = verdict.get("fields") if code == 0 else None
-    if not isinstance(checked, Mapping) or not all(isinstance(checked.get(k), str) for k in fields):
-        why = verdict.get("refused") or verdict.get("error") or "it did not pass"
-        raise ValueError(f"the guard held the task: {why}")
+    checked = {}
+    for key in ("goal", "done_when"):
+        code, verdict = _run_hand("guard", ["check"], {"text": _text(i, key), "surface": "task", "kind": "task"})
+        if code != 0 or not isinstance(verdict.get("text"), str):
+            why = verdict.get("refused") or verdict.get("error") or "it did not pass"
+            raise ValueError(f"the guard held the task's {key}: {why}")
+        checked[key] = verdict["text"]
     body = {"goal": checked["goal"], "done_when": checked["done_when"], "start_url": start_url, "kind": MIND_TASK_KIND}
     return "tasks", ["add", "--source", MIND_TASK_SOURCE], body
 
