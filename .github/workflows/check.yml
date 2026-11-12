@@ -48,6 +48,10 @@ jobs:
 
   scripts:
     runs-on: ubuntu-latest
+    # The job takes about five minutes (the hands' suite about 90 s). A hung
+    # test should fail the check in minutes, not hold a runner for GitHub's
+    # six-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       # The hands and bin/lib/*.py: Python 3.11 standard library only (tomllib),
