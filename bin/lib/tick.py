@@ -639,8 +639,12 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     text = f"your {do}{' on ' + str(target) if target else ''}: {what}"
     paced = entry.get("paced") or {}
     if paced.get("resumed"):
-        text += ("; held by the pacing last beat, it went out by itself at the start of this one, as you wrote it"
-                 if entry["status"] == "done" else "; held by the pacing since last beat, so it was not sent")
+        if entry["status"] == "done":
+            text += "; held by the pacing last beat, it went out by itself at the start of this one, as you wrote it"
+        elif result.get("rule") == PACED.get(do):
+            text += "; held by the pacing since last beat, so it was not sent"
+        else:
+            text += "; tried again by itself this beat, after the pacing held it last beat"
     elif paced.get("waited") and entry["status"] == "done":
         text += f" (it waited {paced['waited']:.0f} s for the pacing)"
     if entry.get("resolved"):
