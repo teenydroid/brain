@@ -524,10 +524,11 @@ touches SOUL or CONTEXT, with no hard-check regression.
 is up, the persona probe asks the candidate too (below), and its drift from
 gen-0 goes on the candidate as `probe`.
 
-To measure on cores the operator starts by hand instead:
+To measure on cores the operator starts by hand instead, with
+`EVOLVE_EVALUATOR=none`:
 
 ```
-bin/evolve run --hold                     # stop after the gate; worktrees stay
+bin/evolve run --hold                     # stop before selecting; worktrees stay
 # start a core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
 bin/evolve evaluate <gen> <i> --oh-url-candidate http://127.0.0.1:7790
 bin/evolve select <gen>

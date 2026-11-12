@@ -7,7 +7,8 @@
 #       One generation in state/evolve/<gen>/: observe, propose N candidates
 #       (each in its own worktree off main, from Teeny's own clone), gate
 #       them in code, evaluate the ones a lab core serves, and open ONE ready
-#       pull request (teeny/gen-<n>) for the best. --hold stops after the gate.
+#       pull request (teeny/gen-<n>) for the best. --hold stops before it
+#       selects (with EVOLVE_EVALUATOR=lab the labs have measured by then).
 #   bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
 #       bin/eval run and compare for one gated candidate, on a core the
 #       operator started over state/evolve/GEN/cand-I.

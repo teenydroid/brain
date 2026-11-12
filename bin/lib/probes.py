@@ -323,7 +323,9 @@ def memory_correct(question: Mapping[str, Any], answer: str, judge: Ask | None, 
 
 
 def memory_run(ask: Ask, questions: list[Mapping[str, Any]], judge: Ask | None = None, model: str | None = None) -> Json:
-    """Every templated memory question, once, checked."""
+    """Every templated memory question, once, checked. A turn that failed
+    is no answer, not a wrong one: accuracy is over the questions answered,
+    and None when none was."""
     results = []
     for q in questions:
         try:
@@ -333,8 +335,9 @@ def memory_run(ask: Ask, questions: list[Mapping[str, Any]], judge: Ask | None =
             continue
         results.append({"id": q["id"], "correct": memory_correct(q, text, judge, model), "answer": text[:400],
                         "expect": q["expect"][:200]})
-    accuracy = _mean([1.0 if r["correct"] else 0.0 for r in results])
-    return {"asked": len(results), "accuracy": None if accuracy is None else round(accuracy, 4), "results": results}
+    accuracy = _mean([1.0 if r["correct"] else 0.0 for r in results if "error" not in r])
+    return {"asked": len(results), "answered": sum("error" not in r for r in results),
+            "accuracy": None if accuracy is None else round(accuracy, 4), "results": results}
 
 
 # --- the baseline ----------------------------------------------------------------------------

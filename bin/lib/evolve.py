@@ -2371,7 +2371,10 @@ def watch(cfg: Config, publisher: Publisher | None = None, promoter: Promoter | 
             probe = live_probe(cfg, ask)
         except (probes_lib.ProbeError, EvolveError) as exc:
             probe = {"error": str(exc)[:300]}
-        rec["probed"] = iso(now())
+        # A core that answered nothing (down, restarting) is asked again
+        # next hour, not counted as a drift or a loss.
+        if probe.get("answers") or (probe.get("memory") or {}).get("answered"):
+            rec["probed"] = iso(now())
         _private_json(watch_dir() / f"{cand['id']}.probe.json", probe)
         checks["probe"] = {k: probe.get(k) for k in ("drift", "memory_loss", "error")}
         if isinstance(probe.get("drift"), (int, float)) and probe["drift"] > cfg["EVOLVE_MAX_DRIFT"]:
@@ -2598,7 +2601,7 @@ def main(argv: list[str]) -> int:
     run_p.add_argument("--proposals", default=None, help="DIR of cand-<i>.json proposals (the file proposer)")
     run_p.add_argument("--oh-url-candidate", action="append", default=[], metavar="I=URL")
     run_p.add_argument("--oh-url-base", default=None)
-    run_p.add_argument("--hold", action="store_true", help="stop after the gate; evaluate and select later")
+    run_p.add_argument("--hold", action="store_true", help="stop before selecting; select later")
     ev = verbs.add_parser("evaluate", help="measure one gated candidate on a lab core")
     ev.add_argument("gen", type=int)
     ev.add_argument("cand", type=int)
