@@ -907,7 +907,7 @@ class EvolverProposer:
         self.cfg = cfg
 
     def propose(self, request: Json) -> Any:
-        tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-evolver-{request['cand']}"
+        tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-{request['cand']}"
         port = self.cfg["EVOLVE_LAB_PORT"] + 10 + int(request["cand"])
         try:
             lab = lab_lib.start(f"evolver-{request['cand']}", tree, folder, port, secrets_dir(),

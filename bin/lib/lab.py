@@ -100,14 +100,19 @@ def _private(path: Path, text: str) -> None:
 
 
 def prepare(folder: Path, live_secrets: Path) -> str:
-    """LAB/secrets and LAB/state; returns the lab core's token."""
+    """LAB/secrets and LAB/state; returns the lab core's token. The token
+    and the master key are minted once per folder and kept: the core's
+    keyring sits in the worktree's brain, under that key, and one
+    candidate's lab boots twice (the evolver's, then the evaluation's)."""
     secrets = folder / "secrets"
     secrets.mkdir(parents=True, exist_ok=True)
     os.chmod(secrets, 0o700)
     (folder / "state").mkdir(parents=True, exist_ok=True)
-    token = _secrets.token_hex(32)
-    _private(secrets / "core.token", token + "\n")
-    _private(secrets / "openhuman.key", _secrets.token_hex(32) + "\n")
+    for name in ("core.token", "openhuman.key"):
+        path = secrets / name
+        if not path.is_file() or not path.read_text(encoding="utf-8").strip():
+            _private(path, _secrets.token_hex(32) + "\n")
+    token = (secrets / "core.token").read_text(encoding="utf-8").strip()
     _private(secrets / "teeny.env", "# A lab core: nothing it runs may act for real.\nDRY_RUN=1\n")
     model = [f"{k}={v}" for k, v in _read_env(live_secrets / "spine.env") if k in SPINE_KEYS]
     _private(secrets / "spine.env", "\n".join(model) + ("\n" if model else ""))
@@ -154,6 +159,10 @@ def start(name: str, tree: Path, folder: Path, port: int, live_secrets: Path, bo
         raise LabError(f"port {port} already answers /health: another core is there")
     folder.mkdir(parents=True, exist_ok=True)
     lab = Lab(name=name, tree=tree, folder=folder, port=port, token=prepare(folder, live_secrets))
+    # Every boot starts from an empty store: nothing one turn left (the
+    # evolver's transcript) reaches the next (the evaluation's drafts).
+    for leftover in folder.glob("storage.db*"):
+        leftover.unlink()
     log = lab.log.open("ab")
     try:
         lab.proc = subprocess.Popen(spine_command(), cwd=str(tree), env=lab_env(lab, edit), stdin=subprocess.DEVNULL,
