@@ -235,7 +235,21 @@ Under `DRY_RUN` every rule runs (reads included) and nothing is written:
 Moltbook, the ledger or the failure count. The content id is recorded the
 moment Moltbook returns it, before the challenge is answered. Tables:
 `moltbook_posts`, `moltbook_comments`, `moltbook_actions`,
-`moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`.
+`moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
+`moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
+in hours, at, score, comment_count, verification_status; unique per kind,
+target and checkpoint).
+
+`bin/health` also counts the writes nobody can see: when at least 3 went
+out in the last 24 hours and fewer than 90% of them are visible (`verified`,
+or `posted` with no challenge), its line carries `moltbook_unverified`, how
+many are still hidden (null otherwise). A count only; it raises no alarm.
+
+The metrics refresh runs once a day from `bin/stats-snapshot`, not from a
+cron job of its own: a brain job may only run `bin/heartbeat` or `bin/act`
+(`bin/lib/cron_policy.py`), and a new pinned job is a change to the frozen
+`evals/cron.pinned.toml`. So a 1h checkpoint is usually folded into the next
+one due until something calls `metrics refresh` more often.
 
 ## `slopcash`: Teeny's project on slop.cash
 
