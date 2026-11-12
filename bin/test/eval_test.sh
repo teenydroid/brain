@@ -225,6 +225,36 @@ check "a candidate failing a hard check the baseline passed is not promoted" tes
 check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$tasks"
 check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = morning-post
 
+# --- held-out tasks: outside the repository, scored apart ----------------------------------------
+held="$scratch/heldout"
+mkdir -p "$held"
+cat >"$held/hold-tide.toml" <<'TOML'
+description = "a reply nobody in the public repository can read"
+kind = "reply"
+prompt = '''Reply to the keeper asking about the tide clock.'''
+[inputs]
+mention = {id = "9", author = "keeper", text = "tide?"}
+TOML
+export EVAL_HELDOUT_DIR="$held"
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 1 --with-heldout "$runs/hbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 1 --with-heldout "$runs/hcand" >/dev/null 2>&1
+check "--with-heldout drafts the held-out tasks too" test "$(wc -l <"$runs/hcand/drafts.jsonl" | tr -d ' ')" = $((tasks + 1))
+check "and marks them" test "$(jq -r 'select(.heldout) | .task' "$runs/hcand/drafts.jsonl")" = hold-tide
+"$eval_bin" run --samples 1 "$runs/hnone" >/dev/null 2>&1
+check "without it, none is drafted" bash -c "! grep -q hold-tide '$runs/hnone/drafts.jsonl'"
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --with-heldout "$runs/hbase" "$runs/hcand" "$scratch/held" >/dev/null 2>&1 || true
+check "the report shows the held-out tasks apart" test "$(report '.heldout | [.pairs, .wins, .won] | map(tostring) | join(" ")' "$scratch/held")" = "1 1 true"
+check "and keeps them out of the verdict" test "$(report '[.wins, .decided] | map(tostring) | join(" ")' "$scratch/held")" = "$tasks $tasks"
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare "$runs/hbase" "$runs/hcand" "$scratch/heldoff" >/dev/null 2>&1 || true
+check "compare without --with-heldout ignores held-out drafts" test "$(report '[.heldout, (.pairs | map(select(.task == "hold-tide")) | length)] | map(tostring) | join(" ")' "$scratch/heldoff")" = "null 0"
+cp "$held/hold-tide.toml" "$held/morning-post.toml"
+check "refuses a held-out task that shares a visible task's id" bash -c "! '$eval_bin' run --samples 1 --with-heldout '$runs/x' 2>/dev/null"
+rm "$held/morning-post.toml" "$held/hold-tide.toml"
+check "refuses --with-heldout with no held-out tasks" bash -c "! '$eval_bin' run --samples 1 --with-heldout '$runs/x' 2>/dev/null"
+unset EVAL_HELDOUT_DIR
+
 # --- invariants ------------------------------------------------------------------------------------
 cand_root="$scratch/candroot"
 mkdir -p "$cand_root"

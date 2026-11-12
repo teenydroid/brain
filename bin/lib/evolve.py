@@ -732,6 +732,8 @@ def exists_at(tree: Path, commit: str, path: str) -> bool:
 def _safe_path(tree: Path, rel: Any) -> Path:
     if not isinstance(rel, str) or not rel.strip():
         raise EvolveError("an edit needs a path")
+    if rel.strip().startswith(("/", "\\")):
+        raise EvolveError(f"an edit's path is relative to the repository, not {rel!r}")
     norm = frozen.normalise(rel.strip())
     if not norm or norm.startswith("../") or norm == ".." or norm.split("/")[0] in (".git",) or norm == HYPOTHESIS:
         raise EvolveError(f"an edit may not write {rel!r}")
@@ -1539,10 +1541,19 @@ def pr_text(gen: int, cand: Json, others: list[Json]) -> tuple[str, str]:
     return title, body
 
 
-def commit_branch(tree: Path, branch: str, title: str) -> None:
+def commit_branch(tree: Path, branch: str, title: str) -> str:
+    """Commits the candidate on BRANCH (or BRANCH-<n> when a branch of that
+    name is left from an earlier state/evolve); returns the branch."""
+    taken = set(git(in_tree(tree), "for-each-ref", "--format=%(refname:short)", f"refs/heads/{branch}*").split())
+    name, n = branch, 1
+    while name in taken:
+        n += 1
+        name = f"{branch}-{n}"
+    branch = name
     git(in_tree(tree), "switch", "-q", "-c", branch)
     stage(tree)
     git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
+    return branch
 
 
 def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json], src: Source,
@@ -1565,7 +1576,7 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
         write_json(gen_dir(gen) / "pr.json", result)
         return {"selected": best["id"], **result}
     tree = evolve_dir() / best["worktree"]
-    commit_branch(tree, branch, title)
+    branch = best["branch"] = commit_branch(tree, branch, title)
     try:
         hits = [h.path for h in frozen.check(tree, best["base"], branch)]
     except frozen.FrozenError as exc:

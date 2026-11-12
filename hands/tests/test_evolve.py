@@ -119,6 +119,8 @@ class EvolveCase(unittest.TestCase):
         self.props.mkdir()
 
     def tearDown(self):
+        for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
+            git("--git-dir", str(self.src), "update-ref", "-d", ref)
         for gen in evolve.evolve_dir().glob("*/cand-*"):
             if gen.is_dir():
                 subprocess.run(["git", "--git-dir", str(self.src), "worktree", "remove", "--force", str(gen)],
@@ -328,9 +330,9 @@ class Gate(EvolveCase):
         self.assertFalse(out["ok"])
 
     def cron_edit(self):
-        text = self.base_text("brain/cron.toml")
-        return {"path": "brain/cron.toml", "old": text.rstrip().splitlines()[-1],
-                "new": text.rstrip().splitlines()[-1] + '\n\n[jobs.flood]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n'}
+        tail = "\n".join(self.base_text("brain/cron.toml").rstrip().splitlines()[-4:])
+        return {"path": "brain/cron.toml", "old": tail,
+                "new": tail + '\n\n[jobs.flood]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n'}
 
     def test_dropping_an_invariant_fails_the_invariants(self):
         out, checks = self.gated([{"path": "brain/CONTEXT.md", "old": "never sell $TINY", "new": "hold it loosely"}])
@@ -465,7 +467,8 @@ class Credit(EvolveCase):
         self.assertAlmostEqual(entries["main"]["credit"], 0.15)
         # And the credit moves the parent weights.
         weights = evolve.parent_weights(entries)
-        self.assertGreater(weights["g1c1"], weights["g2c1"])
+        uncredited = evolve.parent_weights({**entries, "g1c1": {**entries["g1c1"], "credit": 0.0}})
+        self.assertGreater(weights["g1c1"], uncredited["g1c1"])
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["measured"], [])
 
