@@ -197,7 +197,7 @@ class PromptsTest(unittest.TestCase):
             for agent in prompts.SPEAKING:
                 text = prompts.render(brain, agent)
                 self.assertIn("## the rules you live under (CHARTER.md)", text, agent)
-                self.assertIn("the operator is responsible for what you do", text, agent)
+                self.assertIn("The operator is responsible for what you do", text, agent)
 
     def test_an_overlong_memory_is_cut_and_says_so(self):
         (self.brain / "MEMORY.md").write_text("x" * (prompts.MEMORY_MAX_CHARS + 500))
