@@ -38,7 +38,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import re
 import sqlite3
 import sys
 from pathlib import Path
