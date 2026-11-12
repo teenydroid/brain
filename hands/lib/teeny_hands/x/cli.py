@@ -16,9 +16,12 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
   J  requests [--max N]     asks to build something in the stored mentions, into build_requests
+  O  twitr-connect HANDLE   start linking HANDLE to the wallet on twitr.sh: a link for the operator
+  O  twitr-accounts         the X accounts linked to the wallet on twitr.sh
 
 Job verbs (J) keep the mentions queue. They answer nobody, but they write
-state and call the core, so no drafting agent is given them.
+state and call the core, so no drafting agent is given them. Operator verbs
+(O) are run by a person once, when setting twitr.sh up (docs/hands.md).
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, mentions, publish
+from . import cache, media, mentions, publish, twitr
 from .client import number_setting
 from .model import SearchOptions
 
@@ -95,6 +98,14 @@ def _requests(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return mentions.note_requests(args.max)
 
 
+def _twitr_connect(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return twitr.TwitrApi.from_settings().connect(args.handle)
+
+
+def _twitr_accounts(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return twitr.TwitrApi.from_settings().accounts()
+
+
 def _max(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 100:
@@ -146,6 +157,8 @@ def parser() -> argparse.ArgumentParser:
     marking.add_argument("--note", default=None)
     noting = verb("requests", _requests, "asks to build something in the stored mentions, into build_requests")
     noting.add_argument("--max", type=_bounded_scan, default=200)
+    verb("twitr-connect", _twitr_connect, "start linking an X account to the wallet on twitr.sh").add_argument("handle")
+    verb("twitr-accounts", _twitr_accounts, "the X accounts linked to the wallet on twitr.sh")
     return root
 
 

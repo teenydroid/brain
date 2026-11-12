@@ -20,7 +20,7 @@ import sys
 from typing import Any, Mapping
 
 from .. import hand
-from . import open_db
+from . import open_db, twitr
 from . import cache, media
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
@@ -119,7 +119,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, kind)
-        x = x or XApi.from_settings()
+        x = x or twitr.client()
         # Only a real post fetches and uploads its GIF: a refused or
         # rehearsed one uploads nothing.
         if gif_id:
@@ -148,7 +148,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     if not rules.is_x_id(to):
         raise hand.HandError("--to must be a numeric X post id")
     text, media_ids, gif_id, _ = _draft(body, quote=False)
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     reads = cache.reads(x)
     target = reads.get_post(to)
     if target is None:
@@ -213,7 +213,7 @@ def like(post_id: str, x: XApi | None = None) -> Json:
         raise hand.HandError("the post to like must be a numeric X post id")
     if hand.dry_run():
         return {"dry_run": True, "would_like": post_id}
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     x.like_post(post_id, user_id=cache.reads(x).identity()["id"])
     # The like is out: a ledger that cannot record it is logged, not raised.
     try:
@@ -228,7 +228,7 @@ def unsay(post_id: str, confirm: bool, x: XApi | None = None) -> Json:
     shows what would go, so a deletion is always a second, deliberate call."""
     if not rules.is_x_id(post_id):
         raise hand.HandError("the post to unsay must be a numeric X post id")
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     reads = cache.reads(x)
     post = reads.get_post(post_id)
     if post is None:

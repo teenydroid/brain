@@ -39,6 +39,7 @@ report they leave beside it.
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Likes a mention (skipped under `DRY_RUN`). A like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
+| `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -63,6 +64,60 @@ DRY_RUN=1 ? ── yes ─► {"would_post": ...}   no X write, no ledger row
   ▼
 X API ─► id recorded at once (a reply: x_replies), then the x_posts ledger row
          a record that fails is logged on stderr, never retried
+```
+
+### twitr.sh
+
+[twitr.sh](https://twitr.sh) is a pay-per-call X API with no keys: every call
+is paid in USDC over x402 from Teeny's own wallet
+(`teeny_hands/x/twitr.py`). Each call goes through hands/wallet's `x402
+fetch`, the one gate for paid requests. That gate makes one
+`openhuman.x402_fetch`: the core sends the request, TinyWallet signs the 402
+within the cap given for the call, and the core retries and records the
+settlement. The keys never come near either hand.
+
+| Switch | Sends to twitr | Stays on the X API |
+|---|---|---|
+| `X_TWITR_READS` | `get`, `thread`, `user`, `search`, and the reads `reply` and `unsay` make first | the mentions timeline and `whoami`: an owned read on X is $0.001 a post, under twitr's $0.0024 floor |
+| `X_TWITR_WRITES` | `post`, `reply`, `like`, `unsay` | quotes and posts with media: `x_write` has no quote, and X's media ids are X's |
+
+Reads cost $0.0012 a record with a $0.0024 floor. A search or conversation
+read is an `upto` payment on Base: the signed amount is `resultsLimit` ×
+$0.0012, and only what comes back is charged (nothing for an empty answer).
+A write costs at most $0.036. A read that fails on twitr is read again from X.
+A write never is. A failed twitr write may still be out, so the publish path
+treats it exactly as a failed X write (`_in_doubt`). Each write carries an
+`Idempotency-Key` made from what it says, so a retry within ten minutes
+replays the first result rather than posting twice.
+
+Four limits stand between a call and the wallet:
+
+- **The hand's own cap.** Any call priced over `TWITR_MAX_PER_CALL_USD`
+  (5 cents) is refused here and never reaches the wallet.
+- **The wallet's gate.** `twitr.sh` must be in the operator's `x402 hosts`
+  allowlist, and each call is held to `WALLET_MAX_X402_PER_REQUEST_USD` and
+  `_PER_DAY_USD`. Each call is written to `x402_requests` (`hands/wallet x402
+  log`).
+- **The core.** It refuses a payment over the call's `maxAmountAtomic`.
+- **TinyWallet's own budget.** `bin/lib/wallet_config.py` pins it from the
+  same caps.
+
+Paid calls run one at a time under the wallet's `wallet-x402` lock. That is
+also what twitr asks of a wallet. Under `DRY_RUN` the gate calls nothing, so
+twitr reads come from X.
+
+Writes act as an X account that the wallet linked on twitr.sh, and twitr
+checks every write against the paying wallet. The link is signed with the
+wallet's EVM key (Sign-In-With-X), so every payment is pinned to
+`TWITR_NETWORK`, Base. The wallet therefore needs USDC on Base as well as on
+Solana. Linking is done once, by a person:
+
+```
+hands/wallet x402 hosts add twitr.sh --note "hands/x reads and writes"
+hands/x twitr-connect teenydroid   # → {connect_url, expires_in: 900}
+# open connect_url in a browser and sign in to X there; Teeny never sees the password
+hands/x twitr-accounts             # until teenydroid reads `linked`
+# then X_TWITR_WRITES=true in secrets/teeny.env
 ```
 
 ### The webhook
@@ -773,7 +828,7 @@ the network's public endpoint, and the core is given the same URL.
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor, ref}`, `chain` Solana by default. The rules below, then the core. |
 | `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
 | `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
-| `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
+| `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?, network?, sign_in?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
 | `buy-tiny` | J | A share of Teeny's net inflows into $TINY, buy only. No body and no option. `bin/tiny-buy`, the pinned `tiny-buy` job (daily). See "Buying $TINY" below. |
 | `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
 | `vendors add NAME ADDRESS [--chain C] [--note T]`, `vendors list`, `vendors remove NAME` | O | The only addresses a `vendor` payment may go to, each on one chain (`solana` by default): an EVM address that is a wallet on Base need not be one on Arbitrum. |
@@ -903,6 +958,22 @@ is not USDC within the cap). The response body is the server's, untrusted:
 callers treat it as data. Under `DRY_RUN` nothing is requested: `would_fetch`.
 `costs` keeps reading x402 spend from the core's own ledger
 (`x402_list_payments`), so nothing is counted twice.
+
+Two optional fields:
+
+- **`network`** pins the payment to one CAIP-2 network (`eip155:8453`) or
+  namespace (`eip155`, `solana`). The module refuses a challenge with no
+  option there. hands/x pins twitr.sh to Base, the chain its sign-in
+  identity lives on.
+- **`sign_in: true`** answers the 402 with a Sign-In-With-X credential
+  instead of a payment. The module builds the message, signs it with the EVM
+  key, and refuses any challenge that is not for the requested host. It pays
+  nothing: the cap passed down is one atomic unit, and `max_usd` is refused.
+  The answer names `signed_in_as`.
+
+Both need the TinyWallet release with contract 1.16 (`X402SignIn` and the
+prepare `network` field). Until the core is re-pinned to it, the core ignores
+both fields, so leave the twitr.sh writes switch (`X_TWITR_WRITES`) off.
 
 The whole path of one `pay` (`teeny_hands/wallet/pay.py`):
 

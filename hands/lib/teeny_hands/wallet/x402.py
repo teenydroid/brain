@@ -2,7 +2,8 @@
 from the same wallet, under hard caps (docs/hands.md, "wallet").
 
     {"url": "https://api.example.com/v1/thing", "method": "GET" | "POST",
-     "headers": {"accept": "application/json"}, "body": "...", "max_usd": "0.05"}
+     "headers": {"accept": "application/json"}, "body": "...", "max_usd": "0.05",
+     "network": "eip155:8453", "sign_in": false}
 
 The core does the protocol (`openhuman.x402_fetch`): it sends the request,
 and on a 402 the wallet module reads the challenge, picks the rail (USDC on
@@ -18,6 +19,13 @@ request may be made at all, each refusal with its `rule`:
   max_usd       at most WALLET_MAX_X402_PER_REQUEST_USD (the default)
   per_day_x402  the last 24 hours, counting a request in flight at its cap,
                 leave room for this one; the cap passed down is what is left
+  network       optional: pay only on this CAIP-2 network (`eip155:8453`) or
+                namespace (`eip155`, `solana`); the wallet module refuses a
+                challenge with no option there
+  sign_in       optional: answer a 402 with a Sign-In-With-X credential (the
+                wallet's EVM key, for a service's free wallet-identified
+                endpoints) instead of a payment. Nothing is paid: the cap
+                passed down is one atomic unit, and `max_usd` is not taken
 
 Under DRY_RUN nothing is requested (a request might pay): `would_fetch`.
 
@@ -40,7 +48,11 @@ from .pay import load_caps
 
 Core = Callable[..., Any]
 
-FIELDS = {"url", "method", "headers", "body", "max_usd"}
+FIELDS = {"url", "method", "headers", "body", "max_usd", "network", "sign_in"}
+_NETWORK = re.compile(r"[A-Za-z0-9_-]{1,32}(:[A-Za-z0-9_-]{1,64})?")
+#: The cap a sign-in passes down: the core needs one above zero, and one
+#: atomic unit of USDC covers no price.
+SIGN_IN_CAP = 1
 REFUSED = "X402_REFUSED:"
 #: The tokens an x402 payment may settle in: USDC, wherever the wallet holds it.
 USDC_ASSETS = {a.lower() for a in (*caps.USDC_MINTS.values(), *(n.usdc["mainnet"] for n in chains.NETWORKS.values()))}
@@ -86,7 +98,17 @@ def fetch(body: Any, core: Core = hand.core) -> dict[str, Any]:
     payload = body.get("body")
     if payload is not None and (method != "POST" or not isinstance(payload, str)):
         raise hand.Refused("body is a string, and only with POST", rule="fields")
-    if body.get("max_usd") is None:
+    network = body.get("network")
+    if network is not None and (not isinstance(network, str) or not _NETWORK.fullmatch(network)):
+        raise hand.Refused("network is a CAIP-2 id (eip155:8453) or a namespace (eip155, solana)", rule="fields")
+    sign_in = body.get("sign_in", False)
+    if not isinstance(sign_in, bool):
+        raise hand.Refused("sign_in is true or false", rule="fields")
+    if sign_in and body.get("max_usd") is not None:
+        raise hand.Refused("a sign-in pays nothing, so it takes no max_usd", rule="max_usd")
+    if sign_in:
+        cap = SIGN_IN_CAP
+    elif body.get("max_usd") is None:
         cap = the_caps.x402_request_micro
     else:
         try:
@@ -112,13 +134,28 @@ def fetch(body: Any, core: Core = hand.core) -> dict[str, Any]:
                 if hand.dry_run():
                     return {"dry_run": True, "would_fetch": {"url": url, "method": method, "max_usd": caps.usd(cap)}, "checks": checks}
                 row_id = store.insert_row(conn, "x402_requests", host=host, url=url[:500], max_micro=cap)
-            return _send(conn, row_id, url, method, headers, payload, cap, core)
+            return _send(conn, row_id, url, method, headers, payload, cap, core, network=network, sign_in=sign_in)
         finally:
             conn.close()
 
 
-def _send(conn: Any, row_id: int, url: str, method: str, headers: Mapping[str, str], payload: str | None, cap: int, core: Core) -> dict[str, Any]:
+def _send(
+    conn: Any,
+    row_id: int,
+    url: str,
+    method: str,
+    headers: Mapping[str, str],
+    payload: str | None,
+    cap: int,
+    core: Core,
+    network: str | None = None,
+    sign_in: bool = False,
+) -> dict[str, Any]:
     params: dict[str, Any] = {"url": url, "method": method, "maxAmountAtomic": cap}
+    if network:
+        params["network"] = network
+    if sign_in:
+        params["signIn"] = True
     if headers:
         params["headers"] = dict(headers)
     if payload is not None:
@@ -144,6 +181,8 @@ def _send(conn: Any, row_id: int, url: str, method: str, headers: Mapping[str, s
         "truncated": bool(result.get("truncated")),
         "paid": None,
     }
+    if isinstance(result.get("signedInAs"), str):
+        out["signed_in_as"] = result["signedInAs"]
     if not isinstance(payment, Mapping):
         store.update_row(conn, "x402_requests", row_id, status="free", http_status=status)
         return out
