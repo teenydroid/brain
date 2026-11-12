@@ -333,8 +333,13 @@ def solve(challenge: str) -> str | None:
         return _format(abs(a - b))
     if len(ops) != 1 or (added_pair and ops != {"+"}):
         return None
-    op = ops.pop()
     a, b = numbers
+    return compute(a, ops.pop(), b)
+
+
+def compute(a: Decimal, op: str, b: Decimal) -> str | None:
+    """`a op b` with two decimals, or None for an unknown operation or a
+    division by zero."""
     try:
         if op == "+":
             result = a + b
@@ -342,13 +347,25 @@ def solve(challenge: str) -> str | None:
             result = a - b
         elif op == "*":
             result = a * b
-        else:
-            if b == 0:
-                return None
+        elif op == "/" and b != 0:
             result = a / b
+        else:
+            return None
     except InvalidOperation:  # pragma: no cover - Decimal of two finite numbers
         return None
     return _format(result)
+
+
+def numbers_in(challenge: str) -> set[Decimal] | None:
+    """Every number the challenge writes, read as `solve` reads them, or None
+    when they cannot be told apart ("five twenty"). The model read
+    (model_read.py) may only use numbers from this set."""
+    if not isinstance(challenge, str) or len(challenge) > 2000:
+        return None
+    try:
+        return {value for _, _, value in _numbers(_tokens(challenge))}
+    except _Ambiguous:
+        return None
 
 
 def _format(value: Decimal) -> str:
