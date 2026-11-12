@@ -214,3 +214,19 @@ command = "bin/goals-check"
 schedule = "20 0 * * 1"
 tz = "UTC"
 command = "bin/accounts"
+
+# Teeny's on-chain senses (bin/wallet-watch; docs/roadmap.md, A5): every
+# deposit to the wallet into the inflow ledger and the mind's inbox, one
+# `wallet · deposit` stimulus each, so it can thank a sender within the hour;
+# a stranger's memo only through the inbound guard. Read only: nothing is
+# signed or paid. OFF unless WALLET_WATCH=1 in secrets/teeny.env.
+[jobs.wallet-watch]
+schedule = "7-59/15 * * * *"
+command = "bin/wallet-watch"
+
+# Once a day, Teeny's $TINY balance and how many accounts hold $TINY, as one
+# `wallet · tiny` stimulus (bin/wallet-watch daily). Same switch.
+[jobs.wallet-daily]
+schedule = "50 0 * * *"
+tz = "UTC"
+command = "bin/wallet-watch daily"

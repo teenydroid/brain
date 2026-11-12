@@ -11,6 +11,7 @@
   J  inflows scan                  record every deposit since the last scan (accounts.py), read only
   R  inflows list [--max N]        the inflow ledger, newest first
   O  inflows tag SIG --category C [--note T] [--ref R]   say what a deposit was (team, tip, sale, bounty)
+  J  watch [--daily]               new deposits as `wallet · deposit` stimuli; --daily: $TINY balance and holders (senses.py)
   R  accounts [--days N]           profit and loss over N days (7): costs against what it earned, team money apart
   J  accounts close                freeze last week's page, Mondays (bin/accounts); bin/receipts publishes it
   R  conversions [--max N]         the swaps and bridges, newest first
@@ -38,7 +39,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import accounts, buy, convert, pay, reads, x402
+from . import accounts, buy, convert, pay, reads, senses, x402
 
 
 def _bounded(low: int, high: int, what: str):
@@ -82,6 +83,7 @@ def parser() -> argparse.ArgumentParser:
     tagged.add_argument("--category", required=True, choices=accounts.TAGS)
     tagged.add_argument("--note")
     tagged.add_argument("--ref")
+    verb("watch", lambda a, _: senses.daily() if a.daily else senses.watch(), "on-chain senses into the inbox (the pinned jobs)").add_argument("--daily", action="store_true")
     book = verb("accounts", lambda a, _: accounts.close() if a.what == "close" else accounts.page(a.days), "profit and loss; `close` freezes last week's page")
     book.add_argument("what", nargs="?", choices=("close",))
     book.add_argument("--days", type=_bounded(1, 366, "--days"), default=7)

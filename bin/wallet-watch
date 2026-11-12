@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Teeny's on-chain senses (evals/cron.pinned.toml, wallet-watch and
+# wallet-daily; docs/roadmap.md, A5). `bin/wallet-watch`: `hands/wallet watch`
+# reads every deposit to the wallet since the last scan into the inflow ledger
+# and files one `wallet · deposit` stimulus each (who, how much, and a memo
+# only if the inbound guard let it through). `bin/wallet-watch daily`: one
+# `wallet · tiny` stimulus, Teeny's $TINY balance and how many accounts hold
+# $TINY. Read only: nothing is signed or paid. Off unless secrets/teeny.env
+# sets WALLET_WATCH=1 (a refusal, exit 2, when off).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+case "${1:-}" in
+  "") exec "$hands/wallet" watch </dev/null ;;
+  daily) exec "$hands/wallet" watch --daily </dev/null ;;
+  *) echo "usage: bin/wallet-watch [daily]" >&2; exit 64 ;;
+esac
