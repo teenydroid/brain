@@ -606,6 +606,13 @@ creditᵢ = Σ over consecutive rows of clip(Δ log(Wᵢ + cᵢ), ±capᵢ · da
 `bin/world-snapshot` is the pinned `world-snapshot` job (`30 0 * * *`),
 after `stats-snapshot`, so attention reads that day's rows.
 
+W and J are also public. `bin/receipts` writes `world/latest.json` and
+`world/YYYY-MM-DD.json` to the receipts repository from `report --days 7`:
+J, each component's value, `was`, `credit`, weight and unit (the unit from
+`score.py`, not the data), the penalty events and the reach counts by class,
+finite numbers only, and nothing before there is a J. The site's
+`/dashboard` reads it (web/README.md).
+
 ## `firsts`: a milestone is posted only when the ledger proves it
 
 A first gets an audience only when anyone can check it, and a fake one is
