@@ -44,7 +44,7 @@ it, and it reads only the ledgers hands write after an action succeeded.
 Live, before appending, the published chain is verified from the first line;
 a chain that does not verify (someone else pushed, or history was edited)
 refuses the run rather than build on it. Only `receipts/`, `head.json`,
-`stats/` and `wallet.json` are ever staged, the staged diff still goes through
+`stats/`, `wallet.json` and `days/` are ever staged, the staged diff still goes through
 the secret gate (every value in secrets/*.env of 12 characters or more, and
 the usual key shapes), and a push that fails resets the checkout to the remote so the next run rebuilds.
 
@@ -94,6 +94,8 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import git, hand  # noqa: E402
 from teeny_hands.wallet import caps as wallet_caps, pay as wallet_pay, solana  # noqa: E402
+
+import diary_days  # noqa: E402  (bin/lib, beside this file: the public diary pages, A14)
 
 DEFAULT_REPO = "teenydroid/diary"
 GENESIS = "0" * 64
@@ -554,6 +556,10 @@ def _git(repo: Path | None, *args: str, token: str | None = None) -> str:
     return git.text(repo, *args, token=token, timeout=90)
 
 
+def _repo_name() -> str:
+    return hand.setting("RECEIPTS_REPO") or hand.setting("DIARY_REPO") or DEFAULT_REPO
+
+
 def _branch() -> str:
     return hand.setting("RECEIPTS_BRANCH") or hand.setting("DIARY_BRANCH") or "main"
 
@@ -597,11 +603,12 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
         fresh = [a for a in actions if a.key and a.key not in published]
         issued = append(repo, fresh, seq, prev, _iso(hand.now())[:10]) if fresh else []
         write_numbers(repo, stats, wallet)
-        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE) if (repo / p).exists()]
+        days = diary_days.add(repo, True, check_secrets, _repo_name())
+        paths = [p for p in (RECEIPTS_DIR, HEAD_FILE, STATS_DIR, WALLET_FILE, diary_days.DAYS_DIR) if (repo / p).exists()]
         if paths:
             _git(repo, "add", "--", *paths)
         if not _git(repo, "diff", "--cached", "--name-only").strip():
-            return {"issued": 0, "head": seq, "pushed": 0}
+            return {"issued": 0, "head": seq, "pushed": 0, "days": days}
         try:
             check_secrets(_git(repo, "diff", "--cached", "--unified=0"))
         except hand.Refused as why:
@@ -623,7 +630,7 @@ def publish(actions: list[Action], stats: Json | None = None, wallet: Json | Non
                         " VALUES (:key, :seq, :kind, :salt, :record, :at)", issued)
             finally:
                 conn.close()
-    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1}
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else seq, "pushed": 1, "days": days}
 
 
 def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet: Json | None = None) -> Json:
@@ -632,7 +639,8 @@ def preview(root: Path, actions: list[Action], stats: Json | None = None, wallet
     root.mkdir(parents=True)
     issued = append(root, [a for a in actions if a.key], 0, GENESIS, _iso(hand.now())[:10])
     write_numbers(root, stats, wallet)
-    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0}
+    days = diary_days.add(root, False, check_secrets, _repo_name())
+    return {"issued": len(issued), "head": issued[-1]["seq"] if issued else 0, "days": days}
 
 
 def reveal(seq: int) -> Json:
