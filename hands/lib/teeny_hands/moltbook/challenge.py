@@ -32,6 +32,13 @@ How it reads one:
    number themselves. A "*" is noise, never an operation: Moltbook scatters
    it between words like any other symbol.
 
+6. Two readings that look like three numbers: "with one claw and nine
+   (with the) other" drops the "one", which picks out a claw; "increases by
+   twenty five and seven" adds both, when the pair follows an addition word
+   and addition is the only operation.
+7. A spoken self-correction after the first number ("fifty, no, say seven",
+   "wait", "i mean", "actually") makes the number meant a guess: no answer.
+
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
 """
@@ -89,6 +96,10 @@ IMPLICIT = {collapse(w): (op, Decimal(n)) for words, (op, n) in _IMPLICIT_RAW.it
 COMPARISON = {collapse("than")}
 #: Comparative words that are not an operation of their own in a comparison.
 _COMPARATIVES = {collapse(w) for w in "faster slower more less fewer greater bigger smaller longer shorter heavier lighter".split()}
+#: Spoken self-corrections: a number after one is a guess. "i mean" is a pair.
+CORRECTIONS = {collapse(w) for w in "no wait actually sorry correction scratch".split()}
+#: "with one claw and nine other": "one" picks out a claw.
+OTHER = collapse("other")
 #: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
 _SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
 
@@ -215,30 +226,67 @@ def _number_run(words: list[str]) -> Decimal:
     return value
 
 
-def _numbers(words: list[str]) -> list[Decimal]:
-    numbers: list[Decimal] = []
+def _numbers(words: list[str]) -> list[tuple[int, int, Decimal]]:
+    """Every number as (first word, one past its last word, value)."""
+    numbers: list[tuple[int, int, Decimal]] = []
     run: list[str] = []
+    start = 0
 
-    def flush() -> None:
+    def flush(end: int) -> None:
         if run:
-            numbers.append(_number_run(run))
+            numbers.append((start, end, _number_run(run)))
             run.clear()
 
     i = 0
     while i < len(words):
         word = words[i]
         if re.fullmatch(r"\d+(?:\.\d+)?", word):
-            flush()
-            numbers.append(Decimal(word))
+            flush(i)
+            numbers.append((i, i + 1, Decimal(word)))
         elif _is_number_word(word) or (word == POINT and run):
+            if not run:
+                start = i
             run.append(word)
         elif word == "and" and run and run[-1] == collapse("hundred") and i + 1 < len(words) and _is_number_word(words[i + 1]):
             pass  # "one hundred and five"
         else:
-            flush()
+            flush(i)
         i += 1
-    flush()
+    flush(len(words))
     return numbers
+
+
+def _corrected(words: list[str], first: int) -> bool:
+    """A spoken self-correction after the first number ("fifty, no, say
+    seven", "wait", "i mean", "actually"): which number counts is a guess."""
+    later = words[first:]
+    return bool(set(later) & CORRECTIONS) or any(a == "i" and b == "mean" for a, b in zip(later, later[1:]))
+
+
+def _one_and_the_other(words: list[str], numbers: list[tuple[int, int, Decimal]]) -> list[tuple[int, int, Decimal]]:
+    """Drops the "one" of "with one claw and nine (with the) other": it picks
+    out a claw, it is not a quantity. Only when an "other" answers it."""
+    kept = []
+    for start, end, value in numbers:
+        lone_one = end == start + 1 and words[start] == collapse("one")
+        if lone_one and end < len(words) and not _is_number_word(words[end]) and OTHER in words[end:]:
+            continue
+        kept.append((start, end, value))
+    return kept
+
+
+def _added_pair(words: list[str], numbers: list[tuple[int, int, Decimal]]) -> bool:
+    """"increases by twenty five and seven": the last two of three numbers
+    joined by a bare "and", right after an addition word."""
+    if len(numbers) != 3:
+        return False
+    (_, _, _), (b_start, b_end, _), (c_start, _, _) = numbers
+    if words[b_end:c_start] != ["and"]:
+        return False
+    before = words[:b_start]
+    if before and before[-1] == "by":
+        before = before[:-1]
+    return bool(before) and before[-1] in OPS["+"]
 
 
 def solve(challenge: str) -> str | None:
@@ -248,14 +296,21 @@ def solve(challenge: str) -> str | None:
         return None
     words = _tokens(challenge)
     try:
-        numbers = _numbers(words)
+        spans = _numbers(words)
     except _Ambiguous:
         return None
+    if spans and _corrected(words, spans[0][0]):
+        return None
+    spans = _one_and_the_other(words, spans)
+    added_pair = _added_pair(words, spans)
+    numbers = [value for _, _, value in spans]
+    if added_pair:
+        numbers = [numbers[0], numbers[1] + numbers[2]]
     present = set(words)
     implicit = {IMPLICIT[w] for w in present if w in IMPLICIT}
     if implicit:
         numbers.append(next(iter(implicit))[1])
-        if len(implicit) != 1 or len(numbers) != 2:
+        if len(implicit) != 1 or len(numbers) != 2 or added_pair:
             return None
     if len(numbers) != 2:
         return None
@@ -272,11 +327,11 @@ def solve(challenge: str) -> str | None:
     if not ops and not comparison and present & RESULT_WORDS:
         ops.add("+")
     if comparison:
-        if ops - {"-"}:
+        if ops - {"-"} or added_pair:
             return None
         a, b = numbers
         return _format(abs(a - b))
-    if len(ops) != 1:
+    if len(ops) != 1 or (added_pair and ops != {"+"}):
         return None
     op = ops.pop()
     a, b = numbers
