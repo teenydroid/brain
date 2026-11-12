@@ -100,6 +100,12 @@ check "and makes no generation" test ! -e "$root/state/evolve/1"
 out="$("$evolve" run --detach 2>/dev/null)"
 check "--detach returns at once" test "$(jq -r .kind <<<"$out")" = started
 check "and logs to state/evolve/evolve.log" test "$(jq -r .log <<<"$out")" = state/evolve/evolve.log
+# Wait for it to finish before the loop is switched on below.
+for _ in $(seq 1 50); do
+  grep -q 'EVOLVE=0' "$root/state/evolve/evolve.log" 2>/dev/null && break
+  sleep 0.2
+done
+check "and the detached run found the loop off" grep -q 'EVOLVE=0' "$root/state/evolve/evolve.log"
 
 # --- a dry-run generation -----------------------------------------------------------------
 printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVAL_SAMPLES=1\nEVOLVE_MAX_WINRATE_JUMP=0.6\n' >"$root/secrets/evolve.env"
