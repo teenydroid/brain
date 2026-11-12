@@ -70,6 +70,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -85,6 +86,9 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 import evals as evals_lib  # noqa: E402
 import frozen  # noqa: E402
+import lab as lab_lib  # noqa: E402
+import last_good  # noqa: E402
+import probes as probes_lib  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -180,7 +184,25 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_PROPOSER": ("ask", str, None, None),
     "EVOLVE_PROPOSER_AGENT": ("act", str, None, None),
     "EVOLVE_ISSUE_REPO": ("teenydroid/brain", str, None, None),
+    # Phase C: the lab spine, the evolver, promotion, the watch, the probes.
+    "EVOLVE_EVALUATOR": ("lab", str, None, None),
+    "EVOLVE_LAB_PORT": ("7790", int, 1024, 65000),
+    "EVOLVE_LAB_BOOT_SECS": ("180", int, 10, 1800),
+    "EVOLVE_EVOLVER_AGENT": ("evolver", str, None, None),
+    "EVOLVE_AUTO_PROMOTE": ("0", int, 0, 1),
+    "EVOLVE_JUDGE_MODEL": ("", str, None, None),
+    "EVOLVE_PROBES": ("1", int, 0, 1),
+    "EVOLVE_PROBE_SAMPLES": ("2", int, 1, 5),
+    "EVOLVE_MAX_DRIFT": ("0.35", float, 0.0, 1.0),
+    "EVOLVE_MAX_MEMORY_LOSS": ("0.5", float, 0.0, 1.0),
+    "EVOLVE_WATCH_SPIKE": ("2.0", float, 1.0, None),
+    "EVOLVE_WATCH_MIN_EVENTS": ("3", int, 1, 1000),
+    "EVOLVE_WATCH_HOURS": ("72", int, 24, 336),
 }
+#: The choices a str setting may take (anything, when it is not listed).
+CHOICES = {"EVOLVE_EVALUATOR": ("lab", "none")}
+#: What the process environment may switch off (to 0), never on.
+ENV_OFF = ("EVOLVE", "EVOLVE_AUTO_PROMOTE")
 
 
 def _read_env(path: Path) -> dict[str, str]:
@@ -213,6 +235,14 @@ class Config:
     def enabled(self) -> bool:
         return self.values["EVOLVE"] == 1
 
+    @property
+    def auto_promote(self) -> bool:
+        return self.values["EVOLVE_AUTO_PROMOTE"] == 1
+
+    @property
+    def judge_model(self) -> str | None:
+        return self.values["EVOLVE_JUDGE_MODEL"].strip() or None
+
 
 def load_config(path: Path | None = None) -> Config:
     """secrets/evolve.env over the defaults. The process environment can only
@@ -229,9 +259,12 @@ def load_config(path: Path | None = None) -> Config:
             raise EvolveError(f"secrets/evolve.env: {name}={text!r} is not a {kind.__name__}") from None
         if kind is not str and ((low is not None and value < low) or (high is not None and value > high)):
             raise EvolveError(f"secrets/evolve.env: {name}={text} is outside {low}..{high if high is not None else ''}")
+        if name in CHOICES and value not in CHOICES[name]:
+            raise EvolveError(f"secrets/evolve.env: {name} is one of {', '.join(CHOICES[name])}, not {text!r}")
         values[name] = value
-    if os.environ.get("EVOLVE", "").strip() == "0":
-        values["EVOLVE"] = 0
+    for name in ENV_OFF:
+        if os.environ.get(name, "").strip() == "0":
+            values[name] = 0
     return Config(values)
 
 
