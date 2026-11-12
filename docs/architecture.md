@@ -548,6 +548,10 @@ Every scheduled job is in one of two files:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
     guard holds an outage made (docs/hands.md, "Re-screening").
+  - `health-daily` (`bin/health daily`, 00:40 UTC), which tells Teeny how
+    the day before went as one `health · daily` stimulus: cost, failed cron
+    and playbook runs, failed beats, the doctor's checks that are not ok and
+    guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
   (`enabled = false`).
