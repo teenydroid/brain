@@ -644,6 +644,22 @@ def register(name: str, description: str, api: RestApi | None = None) -> Json:
     }
 
 
+def describe(description: str, api: RestApi | None = None) -> Json:
+    """Sets the profile text (PATCH /agents/me). Operator-run: the words go
+    past the guard like any others; no model path calls it."""
+    if not isinstance(description, str) or not description.strip():
+        raise hand.HandError("--description is required")
+    if len(description) > 1000:
+        raise hand.HandError("--description is at most 1000 characters")
+    description = guarded({"body": description}, "profile", {"describe": True})["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_describe": description}
+    api = api or client.api()
+    api.call("PATCH", "/agents/me", body={"description": description})
+    reads.CACHE.clear() if hasattr(reads.CACHE, "clear") else None
+    return {"described": description}
+
+
 def pending_list(status: str | None = None) -> Json:
     conn = rules.db()
     try:
