@@ -1235,7 +1235,15 @@ def _hand_name(path: str) -> str | None:
     return None
 
 
+#: How much of a check's output its archived detail keeps.
+MAX_CHECK_DETAIL = 600
+
+
 def _run_check(argv: list[str], env: Mapping[str, str], timeout: float = 600) -> tuple[bool, str]:
+    """A check's verdict and its detail. A check that fails is detailed by
+    its failing lines (bin/doctor's `FAIL ...`), not by its last ones: the
+    doctor prints a passing line for every check after the one that failed,
+    so its tail said "ok disk ... ok git" for every candidate of gen 4."""
     try:
         done = subprocess.run(argv, capture_output=True, text=True, env=dict(env), timeout=timeout,
                               stdin=subprocess.DEVNULL)
@@ -1243,11 +1251,30 @@ def _run_check(argv: list[str], env: Mapping[str, str], timeout: float = 600) ->
         return False, f"timed out after {int(timeout)} s"
     except OSError as exc:
         return False, str(exc)
-    tail = " ".join((done.stderr.strip() or done.stdout.strip()).splitlines()[-3:])
+    lines = (done.stderr.strip() or done.stdout.strip()).splitlines()
+    failing = [line.strip() for line in lines if line.startswith("FAIL")]
+    if done.returncode != 0 and failing:
+        detail = " | ".join(failing)
+    else:
+        detail = " ".join(lines[-3:])
     # The details go into a public pull request: no paths of the box.
-    for where, short in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
-        tail = tail.replace(where, short)
-    return done.returncode == 0, tail[-400:]
+    for where, to in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+        detail = detail.replace(where, to)
+    if done.returncode != 0 and failing:
+        return False, detail[:MAX_CHECK_DETAIL]
+    return done.returncode == 0, detail[-MAX_CHECK_DETAIL:]
+
+
+def tree_env(tree: Path) -> dict[str, str]:
+    """The environment the candidate's own frozen scripts run in: the
+    worktree is their root, brain, state and secrets, as `bin/doctor --root`
+    reads another checkout. Nothing of the live root's is in it."""
+    env = code_env()
+    for key in ("TEENY_STORAGE", "OPENHUMAN_CORE_URL", "OPENHUMAN_CORE_TOKEN"):
+        env.pop(key, None)
+    env.update(TEENY_ROOT=str(tree), OPENHUMAN_WORKSPACE=str(tree / "brain"), TEENY_STATE=str(tree / "state"),
+               TEENY_SECRETS=str(tree / "secrets"), TEENY_HANDS=str(tree / "hands"))
+    return env
 
 
 def gate(tree: Path, base: str) -> Json:
@@ -1291,16 +1318,25 @@ def gate(tree: Path, base: str) -> Json:
     note("new hands have tests", not untested,
          f"no hands/tests/test_<name>.py that parses for: {', '.join(untested)}" if untested
          else (f"{', '.join(new_hands)} (run by CI, never here)" if new_hands else "no new hand"))
-    env = code_env()
-    ok, detail = _run_check([str(CODE / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
-                             "--pinned", str(CODE / "evals" / "cron.pinned.toml")], env)
+    # The candidate is checked by the frozen code it would merge beside: its
+    # own bin/ and evals/, which the frozen check just proved are main's.
+    # This checkout's are whatever the box last pulled, and Teeny's clone can
+    # be ahead of it: on 2026-11-13 the box's older bin/lib/playbook.py
+    # refused a playbook verb main had added, and every candidate of gen 4
+    # failed `doctor --root` on a playbook none of them had touched. A
+    # candidate that touches a frozen path is rejected already, and its own
+    # scripts never run: this checkout's give the other checks their detail.
+    frozen_ok = all(c["ok"] for c in checks if c["check"] == "frozen paths")
+    code, env = (tree, tree_env(tree)) if frozen_ok else (CODE, code_env())
+    ok, detail = _run_check([str(code / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
+                             "--pinned", str(code / "evals" / "cron.pinned.toml")], env)
     note("seed-cron --check", ok, detail)
     if all(c["ok"] for c in checks if c["check"] in ("frozen paths", "existing hand entry points")):
-        ok, detail = _run_check([str(CODE / "bin" / "doctor"), "--root", str(tree)], env)
+        ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], env)
         note("doctor --root", ok, detail)
     else:
         note("doctor --root", False, "not run: the candidate touches a frozen path or a hand's entry point")
-    ok, detail = _run_check([str(CODE / "bin" / "eval"), "invariants", "--root", str(tree)], env)
+    ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
     return {"ok": all(c["ok"] for c in checks), "checks": checks, "lines": lines, "soul_context_lines": soul,
             "files": len(stats)}
