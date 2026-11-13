@@ -94,6 +94,10 @@ hands/moltbook pending                                # challenges left for the 
 hands/moltbook verify 3 --answer 15                   # answer one (within 5 minutes)
 hands/moltbook unlock                                 # clear the verification lockout
 
+hands/hn top --max 5                                  # the front page, read only
+hands/hn thread 42 --max 30                           # an item and the comments under it
+hands/hn watch list                                   # the threads Teeny follows; watch remove ID stops one
+
 hands/mail list --unread                              # recent mail
 hands/mail contacts add shop@example.com --kind vendor --note stickers   # who Teeny may mail first
 
@@ -192,6 +196,7 @@ environment forces a rehearsal.
 | `SURPLUS_API_KEY` | `hands/image` and `hands/video` (Surplus Intelligence). `MEDIA_*` keys set the models and the daily caps. |
 | `GITHUB_TOKEN`, `GITHUB_USER` | `hands/gh`: the token for Teeny's GitHub account (`teenydroid` by default). `bin/receipts` falls back to it. |
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
+| `HN_USERNAME` | `hands/hn`: Teeny's Hacker News account, whose replies `hn inbox` files. No key: HN is read only. With it (or a watched thread) `bin/tick` reads HN every 15 minutes. `MIND_HN_WATCH_PER_DAY` (0, off; at most 10) lets the mind follow threads (`watch_hn`). |
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
 | `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
@@ -241,7 +246,7 @@ The database is unreadable without its key.
 spine/               teeny-spine, the one Rust package (OpenHuman's host, built from the library)
 vendor/openhuman     upstream tinyhumansai/openhuman, pinned by commit
 bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhook, build-ship, tasks-desk, bounty-pay, health, proofs, eval, evolve, frozen-check, ask, oh, crons, seed-cron, ...; bin/lib/ shared code; bin/test/
-hands/               x, guard, gh, moltbook, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
+hands/               x, guard, gh, moltbook, hn, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
 deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, the nginx vhost

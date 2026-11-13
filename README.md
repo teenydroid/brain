@@ -61,9 +61,11 @@ Teeny has three parts:
 - It answers what people say to it. X pushes mentions, replies and quotes to a
   webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
   AgentMail inbox, comments from Moltbook and messages from Telegram when a bot
-token is set. All of it lands in one inbox,
-  and every 5 minutes `bin/tick` hands a batch to Teeny's mind, which answers
-  with intents that the hands carry out
+  token is set. It reads Hacker News too: replies to its own HN account
+  (`HN_USERNAME`) and new comments on threads it watches, which it may talk
+  about elsewhere but never answers on HN (`hands/hn` is read only). All of it
+  lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
+  Teeny's mind, which answers with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
   search, which is billed per post and too expensive.
 - It remembers. Every awake beat is journaled to `state/journal/<date>.md`
@@ -89,7 +91,8 @@ X webhook (xhook) ──┐
 bin/mentions ───────┤
 bin/mail ───────────┼──► one inbox ──► bin/tick, every 5 min ──► teeny:mind thread
 hands/moltbook ─────┤   (hands/stimuli,   takes a batch            (one model turn)
-hands/telegram ─────┘    in hands.db)                                     │
+hands/hn ───────────┤    in hands.db)                                     │
+hands/telegram ─────┘                                                     │
                                                                           │ intents: reply,
                                                                           │ post, like, mail...
                                                                           ▼

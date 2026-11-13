@@ -95,7 +95,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -511,6 +511,32 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [self.ISSUE]})
         stimuli.add("x", "mention", "10", "hi")
         self.assertEqual(self.tick()["results"][0]["status"], "done")
+
+    def test_watch_hn_is_off_until_the_operator_sets_a_cap(self):
+        self.answer({"thought": "", "intents": [{"do": "watch_hn", "id": "123"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused")
+        self.assertIn("MIND_HN_WATCH_PER_DAY", got["results"][0]["result"]["refused"])
+        self.assertEqual(self.hand_calls(), [])
+        self.assertNotIn("watch_hn", self.chats()[0]["message"])
+
+    def test_watch_hn_goes_to_hn_watch_add_within_its_daily_cap(self):
+        self.caps(MIND_HN_WATCH_PER_DAY=2)
+        self.answer({"thought": "", "intents": [
+            {"do": "watch_hn", "id": 123, "note": "the crab thread", "by": "someone"},
+            {"do": "watch_hn", "id": "456"},
+            {"do": "watch_hn", "id": "789"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done", "done", "refused"])
+        self.assertIn("today's 2 watch_hn intent(s) are spent", got["results"][2]["result"]["refused"])
+        self.assertEqual([(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()], [
+            ("hn", ["watch", "add", "123", "--note", "the crab thread"], None),
+            ("hn", ["watch", "add", "456"], None),
+        ])
+        message = self.chats()[0]["message"]
+        self.assertIn('"do": "watch_hn"', message)
+        self.assertIn("at most 2 today", message)
 
     def test_a_task_the_guard_holds_never_reaches_the_queue(self):
         self.caps(MIND_TASKS_PER_DAY=3)
@@ -1081,6 +1107,51 @@ class TickTest(unittest.TestCase):
         os.environ["TEENY_NOW"] = str(T0 + 601)
         self.tick()
         self.assertEqual(browsed(), 2)
+
+    def hn_inboxes(self) -> int:
+        if not self.hands_log.exists():
+            return 0
+        return sum(1 for c in map(json.loads, self.hands_log.read_text().splitlines())
+                   if c["hand"] == "hn" and c["argv"][:1] == ["inbox"])
+
+    def test_a_beat_reads_hn_only_with_a_name_set_and_at_most_every_fifteen_minutes(self):
+        self.tick()
+        self.assertEqual(self.hn_inboxes(), 0)
+        self.caps(HN_USERNAME="teenydroid")
+        os.environ["TEENY_NOW"] = str(T0 + 60)
+        self.tick()
+        self.assertEqual(self.hn_inboxes(), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 60 + 601)  # Moltbook's ten minutes are not HN's fifteen
+        self.tick()
+        self.assertEqual(self.hn_inboxes(), 1)
+        os.environ["TEENY_NOW"] = str(T0 + 60 + 901)
+        self.tick()
+        self.assertEqual(self.hn_inboxes(), 2)
+
+    def test_a_watched_thread_is_enough_to_read_hn(self):
+        from teeny_hands.hn import watch
+
+        watch.db().execute("INSERT INTO hn_watch (item_id, title, note, added_at, last_seen) VALUES (5, 't', '', ?, ?)",
+                           (T0, T0))
+        self.tick()
+        self.assertEqual(self.hn_inboxes(), 1)
+
+    def test_an_hn_that_fails_does_not_stop_the_beat(self):
+        self.caps(HN_USERNAME="teenydroid")
+        os.environ["FAKE_EXIT_HN"] = "1"
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "still here", "intents": []})
+        self.assertEqual(self.tick()["thought"], "still here")
+
+    def test_hn_comments_are_marked_read_only(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.tick()
+        self.assertNotIn("Hacker News is read only", self.chats()[0]["message"])
+        stimuli.add("hn", "comment", "42", "nice crab", who="pg", payload={"story_id": 41, "url": "https://news.ycombinator.com/item?id=42"})
+        self.tick()
+        message = self.chats()[1]["message"]
+        self.assertIn("### hn · comment from pg", message)
+        self.assertIn("Hacker News is read only", message)
 
     def test_a_moltbook_that_fails_does_not_stop_the_beat(self):
         os.environ["FAKE_EXIT_MOLTBOOK"] = "1"
