@@ -1129,7 +1129,8 @@ hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
-reply` and `send`).
+reply` and `send`), except the web search: `x402 search` and `contents` pay
+from the wallet, and no playbook output may (`MONEY_OUTPUTS`).
 
 ### `swap` and `bridge`: deBridge, between Teeny's own accounts
 

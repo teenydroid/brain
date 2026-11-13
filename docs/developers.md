@@ -116,6 +116,10 @@ hands/wallet address                                  # Teeny's Solana address
 hands/wallet balance                                  # SOL and USDC
 hands/wallet caps                                     # the caps every payment is held to
 hands/wallet costs --days 30                          # models, x402 and bills: what staying alive cost
+hands/wallet x402 hosts add api.exa.ai                # allow paid web search (once)
+DRY_RUN=1 hands/x402 search "openhuman agent" --n 3   # what it would pay for; nothing is paid
+hands/x402 fund status                                # USDC on Base, the floor and target, the last top-ups
+DRY_RUN=1 hands/x402 fund                             # the top-up it would make, its quote checked
 hands/bounty get 1                                    # a bounty's entries, winner and claim
 ```
 
@@ -194,6 +198,8 @@ environment forces a rehearsal.
 | `MOLTBOOK_API_KEY` | `hands/moltbook`. |
 | `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX` | `hands/mail`. |
 | `WALLET_*`, `SOLANA_RPC_URL`, `BOUNTY_CHALLENGE_HOURS` | The wallet's cluster and hard caps, and the bounty challenge window. `bin/doctor` refuses wallet keys without all four caps. |
+| `X402_FUND`, `X402_FUND_*`, `X402_EXA_MAX_USD`, `X402_FIRECRAWL`, `X402_FIRECRAWL_MAX_USD`, `X402_TEXT_CHARS`, `X402_CACHE` | `hands/x402`: the top-up of USDC on Base (off unless `X402_FUND=1`, then its floor, target and daily cap are required) and paid web search. `bin/doctor` refuses unusable values. [`hands.md`](hands.md#x402-the-x402-rail-kept-funded-and-spent-on-web-search) lists each with its ceiling. |
+| `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY`, `MIND_SEARCHES_PER_DAY` | How many issues, browser tasks, new mails and paid web searches or page reads (together) the mind may send a UTC day. 0, the default, keeps each off. |
 | `LADDER_ISSUES`, `LADDER_ISSUE_REPO` | Off unless `1`: a model change's issue (the fence tests to rerun) opens on `LADDER_ISSUE_REPO` (`teenydroid/brain`). |
 | `GUARD_REVIEW`, `GUARD_REVIEW_MODEL` | Off unless `1`: the hold reviewer (`hands/guard review`) may release held drafts in the categories `evals/guard-review.toml` allows. The model must not be the drafter's or the judge's. |
 | `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |

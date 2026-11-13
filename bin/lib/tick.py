@@ -26,7 +26,9 @@
    _refs), so a reply parked behind a cap and sent later never comes back
    as a stale reminder; the entry's `resolved` says which. `open_issue`,
    `queue_task` and `start_mail` (MIND_CAPS) each have a daily cap of
-   their own, 0 (off) unless secrets/teeny.env sets it.
+   their own, 0 (off) unless secrets/teeny.env sets it; `web_search` and
+   `read_page` (hands/x402, paid from the wallet) share one,
+   MIND_SEARCHES_PER_DAY, and what they found comes back as data.
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
