@@ -9,6 +9,7 @@
 //! what Teeny does lives in `brain/` and `bin/`. `bin/spine` runs it.
 
 mod debridge;
+mod lifi;
 
 use openhuman_rpc::embed::process;
 

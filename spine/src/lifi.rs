@@ -20,6 +20,11 @@ pub fn translate(_answer: Value) -> Result<Value, String> {
     Err("not built yet".to_string())
 }
 
+/// LI.FI's own message from an error body, cut short.
+pub fn error_message(status: u16, _body: &str) -> String {
+    format!("{status}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
