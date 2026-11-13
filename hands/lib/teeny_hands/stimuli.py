@@ -205,10 +205,18 @@ def counts() -> dict[str, int]:
     return {s: int(got.get(s, 0)) for s in STATUSES}
 
 
-def recent(max_items: int = 50) -> Json:
+def recent(max_items: int = 50, chars: int | None = None) -> Json:
+    """The newest stimuli, any status. With `chars`, each text is cut to
+    that length and the payload left out: small enough to be a playbook's
+    input (bin/act cuts an input at 20 000 characters, mid-JSON)."""
     conn = db()
     rows = conn.execute("SELECT * FROM stimuli ORDER BY at DESC, rowid DESC LIMIT ?", (max_items,)).fetchall()
-    return {"stimuli": [{**_row(r), "status": r["status"]} for r in rows]}
+    out = [{**_row(r), "status": r["status"]} for r in rows]
+    if chars is not None:
+        for item in out:
+            item.pop("payload", None)
+            item["text"] = item["text"][:chars]
+    return {"stimuli": out}
 
 
 # --- follow-ups -------------------------------------------------------------------------

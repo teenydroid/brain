@@ -33,7 +33,7 @@ run = "hands/build jobs --status shipped --limit 30"
 
 [[inputs]]
 name = "recent"
-run = "hands/stimuli recent --max 30"
+run = "hands/stimuli recent --max 30 --chars 300"
 
 [[inputs]]
 name = "ideas"

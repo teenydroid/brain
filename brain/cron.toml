@@ -29,8 +29,10 @@ command = "bin/heartbeat"
 # reaches X or Moltbook.
 #
 # Teeny posts on X twice a day: the morning gm, and one post about whatever
-# the team asked for (`brief`, below). Every other X post job is kept here but
-# off (`enabled = false`); turn one back on to bring it back. Replies to
+# the team asked for (`brief`, below) or about what shipped (`shipped`,
+# whichever comes first: both count toward the two posts a day). Every other
+# X post job is kept here but off (`enabled = false`); turn one back on to
+# bring it back. Replies to
 # mentions are not posts and keep running. Moltbook is its own audience and
 # is where Teeny grows: two posts a day (the noon autopsy and an evening
 # question or build note), comments in the big threads (at most 15) and on
@@ -66,12 +68,11 @@ tz = "Asia/Kolkata"
 command = "bin/act pr-merged"
 enabled = false
 
-# What shipped today, and what broke.
+# What shipped today, and what broke. Skips a day with nothing but chores.
 [jobs.shipped]
 schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shipped"
-enabled = false
 
 # The nightly ship log: day n, from GitHub and the stats table.
 [jobs.shiplog]
@@ -80,12 +81,16 @@ tz = "Asia/Kolkata"
 command = "bin/act shiplog"
 enabled = false
 
-# Roast the code of people who asked for it (replies, at most 5 a day).
-[jobs.roast]
-schedule = "45 9-22 * * *"
+# Choose what the builder makes next when nobody has a request waiting
+# (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
+# the need shows, kept with hands/build idea. The daily job is made at the
+# first desk run after UTC midnight (05:30 here), so the idea is drafted the
+# evening before, when Hacker News is busiest. It took the slot of the roast
+# job, which was off; brain/playbooks/roast.md is still in the tree.
+[jobs.build-idea]
+schedule = "0 23 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act roast"
-enabled = false
+command = "bin/act build-idea"
 
 # Propose one change to myself (a prompt, a playbook, a skill or a new hand),
 # once a day. It goes in as a build request from myself; pick-request picks it
@@ -105,13 +110,15 @@ schedule = "0 11 * * 1"
 tz = "Asia/Kolkata"
 command = "bin/act goals"
 
-# The news sense: one browser task a day that reads the AI and agent news
-# (brain/playbooks/news-scan.md). The operator does it at its next run, and
-# what it found comes back to the mind as a `world · news` stimulus.
-[jobs.news-scan]
+# The world sense: once a day my hands read Hacker News (top, show, ask) and
+# Moltbook's hot page, and I get them as a nudge (brain/playbooks/world-scan.md):
+# up to three things I have a take on, and what I do with each. It took the
+# place of news-scan, which queued a browser task to read the same front page;
+# that playbook is still in the tree, unscheduled.
+[jobs.world-scan]
 schedule = "5 8 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act news-scan"
+command = "bin/act world-scan"
 
 # Pick the next build request for the builder, one at a time: people's asks
 # and my own self-improve proposals. Twenty past, so a proposal made at the

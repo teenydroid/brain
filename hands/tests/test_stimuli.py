@@ -96,6 +96,16 @@ class InboxTest(Scratch):
         self.assertLessEqual(len(by_ref["world-scan:2"]), stimuli.NUDGE_TEXT_CHARS + 20)
         self.assertLessEqual(len(by_ref["big"]), stimuli.MAX_TEXT_CHARS + 20)
 
+    def test_recent_can_be_brief_enough_for_a_playbook_input(self):
+        stimuli.add("nudge", "world-scan", "world-scan:1", "n" * 9000, payload={"playbook": "world-scan"})
+        stimuli.add("x", "mention", "7", "gm teeny", who="ana")
+        full = stimuli.recent(10)["stimuli"]
+        self.assertEqual(len([s for s in full if s["ref"] == "world-scan:1"][0]["text"]), 9000)
+        brief = {s["ref"]: s for s in stimuli.recent(10, chars=300)["stimuli"]}
+        self.assertEqual(len(brief["world-scan:1"]["text"]), 300)
+        self.assertNotIn("payload", brief["world-scan:1"])
+        self.assertEqual((brief["7"]["text"], brief["7"]["who"], brief["7"]["status"]), ("gm teeny", "ana", "pending"))
+
     def test_a_failed_tick_puts_its_batch_back(self):
         stimuli.add("x", "mention", "1", "first")
         tick = stimuli.take(max_items=10, max_chars=10_000)["tick"]
