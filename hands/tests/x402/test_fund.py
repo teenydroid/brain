@@ -70,7 +70,7 @@ def dapp_call(p):
 class FundTest(Scratch):
     settings = {
         "WALLET_CLUSTER": "mainnet", "WALLET_ETH_USD": "4000", "WALLET_MAX_CONVERT_PER_DAY_USD": "100",
-        "WALLET_APPROVAL_POLL_SECONDS": "0",
+        "WALLET_APPROVAL_POLL_SECONDS": "0", "WALLET_CONVERT_PROVIDER": "debridge",
         "X402_FUND": "1", "X402_FUND_FLOOR_USD": "1", "X402_FUND_TARGET_USD": "5", "X402_FUND_MAX_PER_DAY_USD": "20",
     }
 
@@ -186,6 +186,29 @@ class FundTest(Scratch):
         self.assertEqual(params["tokenInAmount"], str(1125 * 10**12))  # $4.50 at $4000 a ETH, rounded down to wei
         self.assertNotIn("openhuman.web3_bridge_quote", self.core.methods())
         self.assertEqual(out["plan"]["source"], "base:ETH")
+
+    def test_a_top_up_goes_through_lifi_by_default(self):
+        from wallet.test_convert import envelope, recorded
+        self.configure(WALLET_CONVERT_PROVIDER=None)
+        self.eth["base"] = 10**18
+
+        def lifi_swap(p):
+            # The recorded 0.005 ETH quote on Base, for the amount asked.
+            raw, amount = recorded("base_eth_to_usdc_swap"), int(p["tokenInAmount"])
+            scale = lambda value: str(int(value) * amount // (5 * 10**15))
+            raw["action"]["fromAmount"] = raw["estimate"]["fromAmount"] = str(amount)
+            for key in ("toAmount", "toAmountMin"):
+                raw["estimate"][key] = scale(raw["estimate"][key])
+            for key in ("fromAmountUSD", "toAmountUSD"):
+                raw["estimate"][key] = str(float(raw["estimate"][key]) * amount / (5 * 10**15))
+            raw["transactionRequest"]["value"] = hex(amount)
+            return envelope(raw, "swap")
+
+        self.core.answers["openhuman.web3_swap_quote"] = lifi_swap
+        out = fund.fund()
+        self.assertEqual(out["kind"], "sent")
+        [params] = self.core.params("openhuman.web3_swap_quote")
+        self.assertEqual(params["slippage"], "lifi:1")
 
     def test_a_source_under_its_reserve_is_passed_over(self):
         self.eth["base"] = 6 * 10**14  # $2.40, and $2 of it is kept for gas
