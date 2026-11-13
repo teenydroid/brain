@@ -84,6 +84,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ BRAIN = Path(os.environ.get("OPENHUMAN_WORKSPACE") or ROOT / "brain")
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import outcomes  # noqa: E402
 import prompts  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 
@@ -469,7 +471,7 @@ _OPS = ('[{"op": "add", "section": "people", "text": "<a new item>"}, '
 
 _HOW = """You do not rewrite the page: you change it item by item, and whatever no operation names stays as it is. Every item on the page carries its id, like [m3]. `add` puts a new item at the end of a section (a name the page lacks opens a new section); do not write an id for it, it gets one. `edit` gives an item new text and keeps its id: use it when something moved on (a promise half kept, a person you know better now). `retire` takes an item off the page, and `reason` says why (kept, no longer true, merged into m4); a retired item goes to an archive, not away. Name only what changed; an empty list is fine.
 
-Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have decided). Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
+Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have shipped, what i have decided). What you shipped is what your ledgers say shipped: keep each build there with its link, the work you can point to when somebody asks what you do. The page is what you carry into every conversation, so it holds what you would need tomorrow, not the mechanics of today: no raw ids, retry counts or fuse numbers (a follow-up keeps those), and one line per person wherever you know them from. When the beats and the ledgers disagree, the ledgers are right: a send marked "not sent" did not happen, whatever the thought beside it says. Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
 
 _LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {shrink:.0%} off the page. An answer past either is refused, and the page stays as it was."""
 
@@ -531,7 +533,7 @@ def _did(result: dict) -> str:
     intent = result.get("intent") if isinstance(result.get("intent"), dict) else {}
     if result.get("do") == "journal" and isinstance(intent.get("text"), str) and intent["text"].strip():
         return f"journal: {intent['text'].strip()[:MAX_THOUGHT_CHARS]}"
-    return f"{result.get('do')}: {result.get('status')}"
+    return outcomes.line(result)
 
 
 def _beats(since: float) -> list[Json]:
@@ -552,6 +554,39 @@ def _beats(since: float) -> list[Json]:
                         "did": [_did(r) for r in beat.get("results", []) if isinstance(r, dict)
                                 and not (r.get("intent") or {}).get("auto")]})
     return out[-MAX_BEATS:]
+
+
+def _promises(since: float) -> list[str]:
+    """Promises made or closed since `since`, from hands/people's ledger."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            found = conn.execute("SELECT who, surface, what, status, made_at, closed_at FROM people_promises"
+                                 " WHERE made_at >= ? OR closed_at >= ? OR status = 'open' ORDER BY made_at",
+                                 (since, since)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    tz = _clock().tzinfo
+    return [f"- to {who} ({surface}), made {dt.datetime.fromtimestamp(made, tz):%a %d %b %H:%M}: "
+            f"{' '.join(str(what).split())[:160]} ({status})" for who, surface, what, status, made, _closed in found]
+
+
+def ledgers(since: float) -> list[str]:
+    """What the hands' ledgers hold since `since`: written by code, never by
+    the model, so a build that shipped reaches the page even when no beat
+    thought to mention it."""
+    counted = prompts.ledger(BRAIN, since)
+    promised = _promises(since)
+    if counted is None and not promised:
+        return []
+    return ["## what your ledgers say since then", "",
+            "Counted by your hands, not remembered: where a beat above says otherwise, this is right.", "",
+            *(counted or []), "- promises:" if promised else "- promises: none", *promised]
 
 
 def render(since: float, light: bool = False, page: str = "") -> str:
@@ -575,6 +610,7 @@ def render(since: float, light: bool = False, page: str = "") -> str:
         lines.append(f"- {b['at']}: {b['thought'] or '-'}{did}")
     if not beats:
         lines.append("- a quiet day")
+    lines += ["", *ledgers(since)]
     lines += ["", "## follow-ups still waiting", ""]
     for f in waiting:
         due = dt.datetime.fromtimestamp(f["due_at"], _clock().tzinfo)
@@ -597,8 +633,15 @@ AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 # --- the reflection -------------------------------------------------------
 
 
+#: The thread a reflection runs on. Not teeny:mind: a reflection is one turn
+#: of tens of thousands of characters in and out, and on the mind's thread it
+#: folded the generation every ten beats or so. Everything it reviews comes in
+#: the message, so it needs none of the mind's history.
+THREAD = "teeny:reflect"
+
+
 def ask(message: str) -> str:
-    thread = os.environ.get("TEENY_MIND_THREAD") or "teeny:mind"
+    thread = os.environ.get("TEENY_REFLECT_THREAD") or THREAD
     proc = subprocess.run([str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
                           input=message, capture_output=True, text=True, timeout=1800)
     if proc.returncode != 0:
