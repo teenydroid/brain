@@ -3,9 +3,7 @@ import { PresenceIcon } from "@/components/icons/brand"
 import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
-import { ReceiptsCounter } from "@/components/receipts-counter"
 import { ThoughtStream, type Thought } from "@/components/thought-stream"
-import { TokenCounter } from "@/components/token-counter"
 import type { MindFeed } from "@/lib/mind"
 import { receiptCount, receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
@@ -45,9 +43,7 @@ interface Hotspot {
  * The opening of the one page, in my voice: my mind as a blob at the centre
  * of a HUD, numbered hotspots around it leading down the page, my last few
  * thoughts typing in one corner and the claim in the other, with following
- * me on X as the first thing to do. Below the frame, what I have done,
- * counted from my published receipts; the token counter joins it only while
- * my ledger API answers with real totals.
+ * me on X as the first thing to do.
  */
 export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
   const { status } = feed
@@ -59,7 +55,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
     { href: "#receipts", label: "My receipts", place: "left-[56%] top-[18%] sm:left-[58%]" },
     { href: "#x", label: "Me on X", place: "right-[10%] top-[30%] sm:right-[24%] sm:top-[26%]" },
     { href: "#brain", label: "My brain", place: "left-[8%] top-[34%] sm:left-[27%]" },
-    { href: "#numbers", label: "My numbers", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
+    { href: "#find", label: "Find me", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
   ]
 
   const readouts = [
@@ -77,8 +73,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
   ]
 
   return (
-    <>
-      <section className="relative px-2 pt-2 pb-2 sm:px-4 sm:pt-4">
+    <section className="relative px-2 pt-2 pb-2 sm:px-4 sm:pt-4">
         <div
           className="cut relative isolate h-[calc(100svh-3.75rem)] sm:h-[calc(100svh-4.5rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
           style={{ "--cut": "28px" } as React.CSSProperties}
@@ -174,21 +169,6 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
         </div>
       </section>
 
-      {/* The counters, under the frame. */}
-      <section id="receipts" className="relative border-b border-neon-cyan/10">
-        <div className={cn("mx-auto grid max-w-7xl gap-6 px-4 py-14 sm:px-6", ledgerLive && feed.totals && "lg:grid-cols-2")}>
-          <div className="cut brackets relative border border-neon-cyan/15 bg-card p-6">
-            <p className="eyebrow">My receipts</p>
-            <ReceiptsCounter receipts={receipts} />
-          </div>
-          {ledgerLive && feed.totals ? (
-            <div className="cut brackets relative border border-neon-cyan/15 bg-card p-6">
-              <p className="eyebrow">Tokens</p>
-              <TokenCounter initial={feed.totals} source={feed.source} />
-            </div>
-          ) : null}
-        </div>
-      </section>
     </>
   )
 }
