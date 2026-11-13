@@ -36,6 +36,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -158,6 +159,19 @@ def _oh(method: str, params: Json) -> Json:
     return got.get("result", got) if isinstance(got, dict) else {}
 
 
+def _when(at: Any, tz: dt.tzinfo) -> str:
+    """The core's `observed_at` (RFC 3339, nanoseconds and all) in Teeny's
+    calendar, to the minute; "?" when it is not a time."""
+    text = re.sub(r"(\.\d{6})\d+", r"\1", str(at or "")).replace("Z", "+00:00")
+    try:
+        when = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return "?"
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return f"{when.astimezone(tz):%Y-%m-%d %H:%M}"
+
+
 def learnings(since: float) -> tuple[list[str], dict[str, Json]]:
     """The learnings the core's memory took in since `since`, newest first,
     each with its alias; and the aliases, to the items they stand for. Empty
@@ -192,12 +206,7 @@ def learnings(since: float) -> tuple[list[str], dict[str, Json]]:
         alias = f"c{n}"
         aliases[alias] = {"id": str(item["id"]), "text": str(item.get("text") or "")}
         at = (item.get("meta") or {}).get("observed_at") if isinstance(item.get("meta"), dict) else None
-        try:
-            when = dt.datetime.fromisoformat(str(at).replace("Z", "+00:00")[:26] + "+00:00"
-                                             if "." in str(at) else str(at).replace("Z", "+00:00"))
-            stamp = f"{when.astimezone(tz):%Y-%m-%d %H:%M}"
-        except ValueError:
-            stamp = "?"
+        stamp = _when(at, tz)
         lines.append(f"- [{alias}] {stamp}: {_clip(item.get('text'), LEARNING_CHARS)}")
     return ["\n".join(lines)], aliases
 

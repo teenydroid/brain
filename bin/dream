@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Teeny dreams: twice a day it brings MEMORY.md up to date item by item from
+# everything since the last dream (its beats, what people said, the tasks,
+# the ledgers, what its memory holds), forgets the learnings that are false
+# or superseded, writes the night's diary, and leaves a snapshot of the page
+# for the public diary (bin/lib/dream.py; docs/architecture.md, 4a). The
+# pinned `dream` job runs it at 02:00; `dream-midday` runs it with --light at
+# 14:00, which updates the page only.
+#
+#   bin/dream [--light]            # in the foreground; prints its result
+#   bin/dream [--light] --detach   # start it in the background, return at once
+#
+# The pinned jobs pass --detach: one long model turn can outlast the 300 s
+# the core gives any cron shell call (docs/oh-gaps.md, G12). The detached
+# dream logs to state/dream/dream.log and holds the reflection's lock, so a
+# dream and a reflection never run at once (bin/lib/detach.py).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3 jq
+args=()
+detach=0
+for arg in "$@"; do
+  if [ "$arg" = --detach ]; then detach=1; else args+=("$arg"); fi
+done
+if [ "$detach" = 1 ]; then
+  exec python3 "$TEENY_ROOT/bin/lib/detach.py" --log dream/dream.log --lock reflect -- \
+    "$TEENY_ROOT/bin/dream" ${args[@]+"${args[@]}"}
+fi
+exec python3 "$TEENY_ROOT/bin/lib/dream.py" ${args[@]+"${args[@]}"}
