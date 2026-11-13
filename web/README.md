@@ -27,15 +27,12 @@ One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in th
    three differences (it evolves itself, it acts in the world, it holds its
    own money), each set against how the agents before
    Teeny died (from `docs/research/autonomous-agents-in-the-wild.md`).
-4. **My memory** (`#memory`): "i don't forget." Six layers, drawn as a stack that
-   goes deeper: every thought, recall, people, notes to self, the memory page,
-   the diary.
-5. **What I'm made of** (`#brain`): mind, memory, hands, money, channels, eyes,
+4. **What I'm made of** (`#brain`): mind, memory, hands, money, channels, eyes,
    builder, evolution and fences, each linked to where it lives, with the
    agent, playbook, hand and scheduled-job counts from the repository, then
    the brain repo's latest commits.
-6. **Find me** (`#find`).
-7. **My receipts** (`#receipts`), at the bottom, with the token counter beside
+5. **Find me** (`#find`).
+6. **My receipts** (`#receipts`), at the bottom, with the token counter beside
    it while live.
 
 There is no header; the footer links down the page. The ledger, dashboard,
