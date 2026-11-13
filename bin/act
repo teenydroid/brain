@@ -206,7 +206,8 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
    ": add " +
    ([(if (.media | index("image")) then "\"image\": \"<what you are doing in the picture, and where>\"" else empty end),
      (if (.media | index("video")) then "\"video\": \"<how you move in a 5-second clip>\" (with \"image\" for its first frame)" else empty end)] | join(" or ")) +
-   " to the object. Describe a scene, never text or a real person; leave it out when the post is better without one.\n" end) +
+   " to the object. Describe a scene, never text or a real person; leave it out when the post is better without one." +
+   (if (.media | index("image")) then " A post may carry up to 4 pictures: give \"images\": [\"<scene>\", ...] instead of \"image\"." else "" end) + "\n" end) +
 "Skip when nothing is worth doing; a skip costs nothing."' <<<"$book")"
 
 # A draft that is not usable JSON is asked for once more: some models
@@ -290,11 +291,7 @@ attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: o
     media_note="$one_note"
     return 0
   fi
-  jq -e --argjson k "$media_kinds" '$k | index("image")' >/dev/null <<<'null' 2>&1 || true
-  if ! jq -e --argjson k "$media_kinds" '$k | index("image")' <<<"null" >/dev/null 2>&1 &&
-    ! jq -ne --argjson k "$media_kinds" '$k | index("image") != null' >/dev/null 2>&1; then
-    return 0
-  fi
+  jq -e --argjson k "$media_kinds" '$k | index("image") != null' <<<null >/dev/null || return 0
   prompts="$(jq -c --argjson n "$MEDIA_MAX_IMAGES" '[((.images // []) | if type == "array" then . else [] end) + [.image]
     | .[] | select(type == "string" and . != "")] | .[0:$n]' <<<"$item")"
   while IFS= read -r prompt; do
@@ -338,7 +335,10 @@ while IFS= read -r item; do
       ;;
     post)
       attach_media "$item"
-      result="$(jq -cn --arg t "$text" --argjson m "$media_ids" '{text: $t} + (if $m == [] then {} else {media_ids: $m} end)' |
+      # `quote_of` (a post id the playbook's inputs showed) makes it a quote post.
+      quote="$(jq -r 'if (.quote_of | type) == "string" or (.quote_of | type) == "number" then .quote_of | tostring else "" end' <<<"$item")"
+      result="$(jq -cn --arg t "$text" --argjson m "$media_ids" --arg q "$quote" '{text: $t}
+        + (if $m == [] then {} else {media_ids: $m} end) + (if $q == "" then {} else {quote_of: $q} end)' |
         (cd "$TEENY_ROOT" && "$hands/x" post))" || status=$?
       ;;
     reply)
@@ -364,7 +364,7 @@ while IFS= read -r item; do
       # A playbook's own hand did not come with the posting rules hands/x
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
-      body="$(jq -c 'del(.action, .image, .video)' <<<"$item")"
+      body="$(jq -c 'del(.action, .image, .images, .video)' <<<"$item")"
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
