@@ -218,7 +218,7 @@ def record(
                 _iso_now(),
                 direction,
                 kind,
-                json.dumps(context, ensure_ascii=False, sort_keys=True),
+                serialized,
                 category,
                 reason,
                 by,
