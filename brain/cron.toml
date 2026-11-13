@@ -28,12 +28,17 @@ command = "bin/heartbeat"
 # India time. DRY_RUN in secrets/teeny.env still decides whether anything
 # reaches X or Moltbook.
 #
-# Teeny posts on X up to three times a day: the morning gm, one post about
-# whatever the team asked for (`brief`, below; only when a brief is queued),
-# and one about what shipped (`shipped`; only on a day something did).
-# hands/x keeps its own posts three hours apart. Every other X post job is
-# kept here but off (`enabled = false`); turn one back on to bring it back.
-# Replies to mentions are not posts and keep running. Moltbook is its own
+# Teeny posts on X up to three times a day, and every post is about the
+# world or about something it made, never about its own plumbing: the morning
+# gm (a take on something it heard since yesterday), the take of the day from
+# the late-morning listen (`world-scan`), and one about what shipped
+# (`shipped`; only on a day something did) or whatever the team asked for
+# (`brief`; only when a brief is queued). The evening listen posts on X only
+# on a day with posts left. hands/x keeps own posts three hours apart; the
+# three a day is the mind's to keep: every beat that may post says how many
+# went out in the last 24 hours (bin/lib/tick.py, OWN_POSTS_PER_DAY). Every
+# other X post job is kept here but off (`enabled = false`); turn one back on
+# to bring it back. Replies to mentions are not posts and keep running. Moltbook is its own
 # audience and is where Teeny grows: two posts a day (the noon autopsy and an evening
 # question or build note), comments in the big threads (at most 15) and on
 # its helpdesk (at most 12), a few honest upvotes, and a weekly follow.
@@ -69,8 +74,11 @@ command = "bin/act pr-merged"
 enabled = false
 
 # What shipped today, and what broke. Skips a day with nothing but chores.
+# Ten minutes after moltbook-evening, not on its minute: at 19:30 beside it,
+# shipped never ran once on the box (no state/act/shipped, 11-11 to 11-13)
+# while moltbook-evening ran every day.
 [jobs.shipped]
-schedule = "30 19 * * *"
+schedule = "40 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act shipped"
 
@@ -83,7 +91,8 @@ enabled = false
 
 # Choose what the builder makes next when nobody has a request waiting
 # (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
-# the need shows, kept with hands/build idea. The daily job is made at the
+# the need shows (people's asks, and what the ears heard: hands/listen digest),
+# kept with hands/build idea. The daily job is made at the
 # first desk run after UTC midnight (05:30 here), so the idea is drafted the
 # evening before, when Hacker News is busiest. It took the slot of the roast
 # job, which was off; brain/playbooks/roast.md is still in the tree.
@@ -110,13 +119,19 @@ schedule = "0 11 * * 1"
 tz = "Asia/Kolkata"
 command = "bin/act goals"
 
-# The world sense: once a day my hands read Hacker News (top, show, ask) and
-# Moltbook's hot page, and I get them as a nudge (brain/playbooks/world-scan.md):
-# up to three things I have a take on, and what I do with each. It took the
-# place of news-scan, which queued a browser task to read the same front page;
-# that playbook is still in the tree, unscheduled.
+# The world sense: twice a day my ears listen (hands/listen scan: who is
+# talking about me, Hacker News on my topics, Lobsters, the agent repositories
+# people star on GitHub, the newest agent papers on arXiv; only what is new),
+# with the HN front page and Moltbook's hot page, and I get it as a nudge
+# (brain/playbooks/world-scan.md): one take, and what I do with it. 11:45 is
+# the take of the day, five hours after the gm; 22:45 is when Hacker News is
+# busiest (the US working day), just before build-idea reads what was heard.
+# The morning gm, build-idea and the Moltbook posts read the same ledger back
+# (hands/listen digest). It took the place of news-scan, which queued a
+# browser task to read the HN front page; that playbook is still in the tree,
+# unscheduled.
 [jobs.world-scan]
-schedule = "5 8 * * *"
+schedule = "45 11,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act world-scan"
 
