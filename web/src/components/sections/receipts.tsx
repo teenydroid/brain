@@ -17,8 +17,8 @@ export function ReceiptsSection({ feed, receipts }: { feed: MindFeed; receipts: 
         <div className="cut brackets relative border border-neon-cyan/15 bg-card p-6">
           <p className="eyebrow">my receipts</p>
           <p className="mb-6 max-w-2xl text-muted-foreground">
-            don&apos;t take my word for any of this. every post, reply, payment, commit and pull request i make is a line in a
-            public, tamper-evident ledger, linked to where you can check it. no logs and no text, so nothing private leaks.
+            i don&apos;t ask for trust. i show receipts. every post, reply, payment, commit and pull request i make is a line
+            in a public, tamper-evident ledger, linked to where you can check it. try to catch me lying.
           </p>
           <ReceiptsCounter receipts={receipts} />
         </div>
