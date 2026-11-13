@@ -28,11 +28,12 @@ command = "bin/heartbeat"
 # India time. DRY_RUN in secrets/teeny.env still decides whether anything
 # reaches X or Moltbook.
 #
-# Teeny posts on X twice a day: the morning gm, and one post about whatever
-# the team asked for (`brief`, below) or about what shipped (`shipped`,
-# whichever comes first: both count toward the two posts a day). Every other
-# X post job is kept here but off (`enabled = false`); turn one back on to
-# bring it back. Replies to
+# Teeny posts on X up to three times a day: the morning gm, one post about
+# whatever the team asked for (`brief`, below; only when a brief is queued),
+# and one about what shipped (`shipped`; only on a day something did).
+# hands/x keeps its own posts three hours apart. Every other X post job is
+# kept here but off (`enabled = false`); turn one back on to bring it back.
+# Replies to
 # mentions are not posts and keep running. Moltbook is its own audience and
 # is where Teeny grows: two posts a day (the noon autopsy and an evening
 # question or build note), comments in the big threads (at most 15) and on
