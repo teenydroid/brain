@@ -279,7 +279,7 @@ class DailyCapTest(Posting):
             publish.post({"text": "a fourth thing about lighthouses and moss"})
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
                          ("daily_cap", 3, 3))
-        self.assertEqual(len(self.posted()), 3)
+        self.assertEqual(self.posted(), [])
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
             publish.post({"text": "a fourth thing about lighthouses and moss"})
