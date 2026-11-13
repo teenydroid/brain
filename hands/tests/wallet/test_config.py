@@ -100,3 +100,23 @@ class WalletConfigTest(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 0)
         self.assertIn("$50.00 a payment", out.getvalue())
+
+    def test_check_names_who_quotes_swaps_and_bridges(self):
+        self.env.write_text("".join(f"{k}={v}\n" for k, v in {**CAPS, "WALLET_MAX_CONVERT_PER_DAY_USD": "20"}.items()))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 0)
+        self.assertIn("swaps and bridges $20.00 a day through lifi", out.getvalue())
+        self.env.write_text("".join(f"{k}={v}\n" for k, v in {**CAPS, "WALLET_CONVERT_PROVIDER": "dln"}.items()))
+        err = io.StringIO()
+        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+            self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 1)
+        self.assertIn("WALLET_CONVERT_PROVIDER", err.getvalue())
+
+    def test_the_providers_api_keys_reach_the_spine_only_when_set(self):
+        _, out, _, _ = self.run_it(CAPS)
+        self.assertNotIn("LIFI_API_KEY", out)
+        self.assertNotIn("DEBRIDGE_API_KEY", out)
+        _, out, _, _ = self.run_it({**CAPS, "LIFI_API_KEY": "lk-1", "DEBRIDGE_API_KEY": "dk 2"})
+        self.assertIn("export LIFI_API_KEY=lk-1\n", out)
+        self.assertIn("export DEBRIDGE_API_KEY='dk 2'\n", out)
