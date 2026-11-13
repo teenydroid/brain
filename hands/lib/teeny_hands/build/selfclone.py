@@ -270,6 +270,17 @@ def _frozen():
     return module
 
 
+def frozen_listing() -> Json:
+    """`hands/build frozen`: the operator's frozen list and the map of the
+    frozen things a self change most often wants (frozen.OFTEN_WANTED), so a
+    proposal skips them up front instead of the builder finding out."""
+    frozen = _frozen()
+    try:
+        return frozen.listing()
+    except frozen.FrozenError as exc:
+        raise hand.HandError(f"the frozen list cannot be read: {exc}") from None
+
+
 def frozen_paths(branch: str) -> list[str]:
     """Every frozen path BRANCH touches against origin/main, with the list as
     of origin/main (frozen.check). A check that cannot run refuses."""
