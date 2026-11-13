@@ -162,7 +162,31 @@ def _expand_mentions(items: list[Any], api: RestApi | None) -> list[Any]:
     return out
 
 
-def feed(submolt: str | None, sort: str, max_results: int, api: RestApi | None = None) -> Json:
+#: How much of a post's body a brief feed keeps.
+BRIEF_CHARS = 400
+
+
+def _brief(post: Mapping[str, Any]) -> Json:
+    """A post without the API's bulk (the author's profile, flags, labels)
+    and with its body cut: what a reader needs to have a take on it."""
+    content = post.get("content")
+    out = {
+        "id": post.get("id"),
+        "title": post.get("title"),
+        "content": content[:BRIEF_CHARS] if isinstance(content, str) else None,
+        "author": _name(post.get("author")),
+        "submolt": _name(post.get("submolt")),
+        "score": post.get("score"),
+        "comment_count": post.get("comment_count"),
+        "created_at": post.get("created_at"),
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def feed(submolt: str | None, sort: str, max_results: int, api: RestApi | None = None, brief: bool = False) -> Json:
+    """A feed as Moltbook sends it. `brief` keeps at most `max_results`
+    posts, each cut down (`_brief`), small enough to be a playbook's input
+    or ride in a nudge; Moltbook's own answer runs to kilobytes a post."""
     if sort not in SORTS:
         raise hand.HandError(f"--sort is one of {', '.join(SORTS)}")
     name = client.submolt_name(submolt, "--submolt") if submolt else None
@@ -170,7 +194,10 @@ def feed(submolt: str | None, sort: str, max_results: int, api: RestApi | None =
     path = f"/submolts/{quote(name)}/feed" if name else "/posts"
     got = CACHE.cached("feed", (name, sort, max_results), lambda: _get(api, path, query))
     out: Json = {"posts": _pick(got, "posts", "data")}
-    if isinstance(got, Mapping) and got.get("next_cursor"):
+    if brief:
+        posts = out["posts"] if isinstance(out["posts"], list) else []
+        out["posts"] = [_brief(p) for p in posts[:max_results] if isinstance(p, Mapping)]
+    elif isinstance(got, Mapping) and got.get("next_cursor"):
         out["next_cursor"] = got["next_cursor"]
     if name:
         out["submolt"] = name

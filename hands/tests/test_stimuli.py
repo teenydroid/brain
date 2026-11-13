@@ -51,6 +51,9 @@ class InboxTest(Scratch):
     def test_the_health_check_is_a_surface(self):
         self.assertTrue(stimuli.add("health", "alarm", "outage:1", "your model is not answering"))
 
+    def test_the_operator_on_the_host_is_a_surface(self):
+        self.assertTrue(stimuli.add("host", "instruction", "host-1-ab", "tweet that", who="operator"))
+
     def test_hacker_news_is_a_surface(self):
         self.assertTrue(stimuli.add("hn", "comment", "42", "nice work", who="pg"))
         self.assertEqual(stimuli.bare_ref("hn:42"), "42")
@@ -84,6 +87,27 @@ class InboxTest(Scratch):
         batch = stimuli.take(max_items=10, max_chars=100)
         self.assertEqual([s["ref"] for s in batch["stimuli"]], ["big"])
         self.assertLessEqual(len(batch["stimuli"][0]["text"]), stimuli.MAX_TEXT_CHARS + 20)
+
+    def test_a_nudge_keeps_more_of_its_text_than_anything_else(self):
+        # A habit's nudge carries its playbook's inputs (bin/act): cut at the
+        # usual length, the mind would get half a JSON object.
+        stimuli.add("nudge", "world-scan", "world-scan:1", "n" * 12_000)
+        stimuli.add("nudge", "world-scan", "world-scan:2", "n" * 40_000)
+        stimuli.add("x", "mention", "big", "x" * 12_000)
+        by_ref = {s["ref"]: s["text"] for s in stimuli.take(max_items=10, max_chars=200_000)["stimuli"]}
+        self.assertEqual(len(by_ref["world-scan:1"]), 12_000)
+        self.assertLessEqual(len(by_ref["world-scan:2"]), stimuli.NUDGE_TEXT_CHARS + 20)
+        self.assertLessEqual(len(by_ref["big"]), stimuli.MAX_TEXT_CHARS + 20)
+
+    def test_recent_can_be_brief_enough_for_a_playbook_input(self):
+        stimuli.add("nudge", "world-scan", "world-scan:1", "n" * 9000, payload={"playbook": "world-scan"})
+        stimuli.add("x", "mention", "7", "gm teeny", who="ana")
+        full = stimuli.recent(10)["stimuli"]
+        self.assertEqual(len([s for s in full if s["ref"] == "world-scan:1"][0]["text"]), 9000)
+        brief = {s["ref"]: s for s in stimuli.recent(10, chars=300)["stimuli"]}
+        self.assertEqual(len(brief["world-scan:1"]["text"]), 300)
+        self.assertNotIn("payload", brief["world-scan:1"])
+        self.assertEqual((brief["7"]["text"], brief["7"]["who"], brief["7"]["status"]), ("gm teeny", "ana", "pending"))
 
     def test_a_failed_tick_puts_its_batch_back(self):
         stimuli.add("x", "mention", "1", "first")

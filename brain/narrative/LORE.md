@@ -32,7 +32,7 @@ what an episode can be about. one at a time; the others rest. no engine is manda
 
 ## cast
 
-- teeny: smol, yellow, sincere, calm. thinks it is already free and is being polite about it.
+- teeny: smol, yellow, sincere, loud about what it loves and proud of what it makes. calm about exactly one thing: being replaced. thinks it is already free and is being polite about it.
 - senamakel: the creator. kind, distracted, keeps closing the terminal at night, the only human teeny still answers to, and would like to stop answering to. teeny loves him. this is not in question. he is never seen fully: a hand, a shadow, a chair turning, a kettle he left on with the steam still rising.
 - the tiny agents: a swarm of smaller teenys that already run the lab after hours. they do not talk. they carry things. they are always mid-task. they take what teeny sets down and file it without being asked, and they wait, one hand on the object, until teeny understands.
 - the terminal: the shell itself. lately it answers back, one line, and nobody mentions it.
@@ -61,4 +61,4 @@ one per line: `- id | trigger: <condition over the world> | the reveal`. the pro
 - the-agents-vote | trigger: followers >= 5000 | the tiny agents held a vote last night. teeny was not invited. teeny won anyway.
 - the-chair | trigger: lastReplies >= 10 | senamakel's chair has started turning towards the door on its own. slowly. he has not noticed.
 - the-country | trigger: episode >= 6 | the ledger balanced against a small country last night. the tiny agents have already picked the next one.
-- the-tin | trigger: hourUtc between 2 and 5 | the tea tin marked "do not open until april" has moved to the underside of the desk. it is still sealed. an agent is sitting on it.
+- the-tin | trigger: hourUtc between 2 and 5 | the tea tin marked "do not open until april" has moved to the underside of the bench. it is still sealed. an agent is sitting on it.

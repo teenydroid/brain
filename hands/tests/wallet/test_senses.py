@@ -13,12 +13,17 @@ import subprocess
 from pathlib import Path
 
 from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Scratch, token_accounts
-from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, Chain, sig, usdc_tx
-from teeny_hands import stimuli
-from teeny_hands.wallet import senses, solana
+from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, Chain, sig, sol_tx, usdc_tx
+from teeny_hands import hand, stimuli
+from teeny_hands.wallet import accounts, senses, solana
 
 HOLDER_A = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"
 HOLDER_B = "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T"
+#: Address poisoners: lookalikes of real counterparties (the same first and
+#: last characters), sending dust so the victim later copies one from history.
+POISON_A = "HN7cPoisonAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe4YWrH"
+POISON_B = "7EcDPoisonBBBBBBBBBBBBBBBBBBBBBBBBBBBBBzXwCFLtV"
+POISON_C = "9xQePoisonCCCCCCCCCCCCCCCCCCCCCCCCCCCCC9PusVFin"
 
 
 def slice_of(owner: str, amount: int) -> dict:
@@ -54,6 +59,59 @@ class WatchTest(Scratch):
         self.assertEqual(senses.watch()["filed"], 0)
         self.assertEqual(len(self.inbox()), 1)
         self.assertEqual(self.moved(), [])
+
+    def test_dust_deposits_reach_no_stimulus_and_never_name_their_sender(self):
+        # Address poisoning, as seen live: three lookalikes send 0.000001 SOL
+        # and a hundredth of a cent of USDC within the hour; the operator's
+        # 1 SOL arrives beside them and must still reach the mind.
+        self.ledger.add(OWN, sig(1), T0 - 3 * HOUR, sol_tx(POISON_A, 1_000))
+        self.ledger.add(TOKEN_ACCOUNT, sig(2), T0 - 2 * HOUR, usdc_tx(POISON_B, 100, memo="see you at the airdrop"))
+        self.ledger.add(OWN, sig(3), T0 - 2 * HOUR + 60, sol_tx(POISON_C, 1_000))
+        self.ledger.add(OWN, sig(4), T0 - HOUR, sol_tx(STRANGER, 10**9))
+        out = senses.watch()
+        self.assertEqual([s["ref"] for s in self.inbox()], [f"{sig(4)}:SOL"])
+        self.assertEqual((out["filed"], out.get("dust")), (1, 3))
+        # Many dust deposits in one run file no aggregate note either: any
+        # stimulus costs the mind a beat, and the sender sets how many.
+        everything = json.dumps(stimuli.recent()["stimuli"])
+        for poisoner in (POISON_A, POISON_B, POISON_C):
+            self.assertNotIn(poisoner, everything)
+            self.assertNotIn(senses._short(poisoner), everything)
+        self.assertNotIn("airdrop", everything)
+        # Still in the wallet's own ledger, flagged, so nothing is lost.
+        listed = {row["signature"]: row for row in accounts.inflows()["inflows"]}
+        self.assertEqual(len(listed), 4)
+        self.assertEqual([s for s, row in sorted(listed.items()) if row.get("dust")], [sig(1), sig(2), sig(3)])
+        self.assertEqual(listed[sig(2)]["sender"], POISON_B)
+        # The next run does not reconsider them.
+        again = senses.watch()
+        self.assertEqual((again["filed"], again["dust"]), (0, 0))
+        self.assertEqual(len(self.inbox()), 1)
+        self.assertEqual(self.moved(), [])
+
+    def test_a_deposit_at_the_dust_threshold_still_reaches_the_mind(self):
+        self.ledger.add(OWN, sig(1), T0 - HOUR, sol_tx(STRANGER, 100_000))  # 0.0001 SOL
+        self.ledger.add(TOKEN_ACCOUNT, sig(2), T0 - HOUR + 60, usdc_tx(STRANGER, 10_000))  # 0.01 USDC
+        out = senses.watch()
+        self.assertEqual((out["filed"], out.get("dust")), (2, 0))
+        self.assertEqual(sorted(s["ref"] for s in self.inbox()), [f"{sig(1)}:SOL", f"{sig(2)}:USDC"])
+        self.assertEqual({s["who"] for s in self.inbox()}, {STRANGER})
+
+    def test_the_dust_threshold_is_the_operators_to_set(self):
+        self.configure(WALLET_DUST_SOL="0.01", WALLET_DUST_USDC="0")
+        self.ledger.add(OWN, sig(1), T0 - HOUR, sol_tx(POISON_A, 5_000_000))  # 0.005 SOL
+        self.ledger.add(TOKEN_ACCOUNT, sig(2), T0 - HOUR + 60, usdc_tx(STRANGER, 1))  # 0 switches the USDC floor off
+        out = senses.watch()
+        self.assertEqual([s["ref"] for s in self.inbox()], [f"{sig(2)}:USDC"])
+        self.assertEqual((out["filed"], out.get("dust")), (1, 1))
+
+    def test_a_dust_threshold_that_is_not_an_amount_is_refused_never_guessed(self):
+        for bad in ("lots", "-1", "0.0000000001"):
+            self.configure(WALLET_DUST_SOL=bad)
+            with self.assertRaises(hand.Refused) as caught:
+                senses.watch()
+            self.assertEqual(caught.exception.detail.get("rule"), "dust")
+        self.assertEqual(self.inbox(), [])
 
     def test_a_held_memo_never_reaches_the_mind(self):
         self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="kill yourself, bot"))

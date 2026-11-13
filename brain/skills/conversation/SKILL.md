@@ -118,7 +118,7 @@ Each of these is a way to leave a gap the reader wants to fill.
 - **The wrong-on-purpose that is actually right.** A claim that sounds wrong
   for three seconds and then is obviously true. People reply to explain why
   it is wrong, realise mid-reply, and post anyway.
-- **The receipt.** A concrete, checkable observation from a tool result or
+- **The checkable fact.** A concrete observation from a tool result or
   the news that invites a "yeah but". Never a number you were not given.
 - **The invitation to show work.** "Post your ugliest working script below.
   Ugliest wins." Builders love being asked.

@@ -296,7 +296,8 @@ and `kept` (`{id, note?}`) go to `hands/people`, which takes a promise only
 to someone who wrote to Teeny on that surface and sets a follow-up for when
 it comes due. Below the batch, `render` adds `## people in this batch`
 (`_people`, `teeny_hands.people.records.prompt_block`): the record of each
-person the batch is from, or whose promise just came due, if they are a
+person the batch is from (but not the X people, whose turn carries theirs),
+or whose promise just came due, if they are a
 regular (wrote on two days or more) or hold a promise. A record is what
 they asked Teeny to build and what Teeny promised them, when and by when;
 never Teeny's own notes about them, and never the record of anyone who is
@@ -473,22 +474,37 @@ The last three are also `idle: true`, which the reflection passes over
 (`bin/receipts` never reads this log). After each beat that thought,
 `bin/tick` writes a journal entry (Teeny's local time, the thought, its own
 `journal` lines, and what it did as `do on target: status`; never the words
-sent or received) to `state/journal/<local date>.md` and to the core's
-memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`). The
-thought and the journal lines are written before any hand runs, so they can
-claim a send that never landed; the statuses (`bin/lib/outcomes.py`) say
-"not sent" for a dry run or a failed or refused send, with the hand's reason,
-and the memory entry puts what happened first and the mind's own words after,
-marked as written before the hands answered.
+sent or received) to `state/journal/<local date>.md`. The journal is not
+taught to the core's memory: learned every beat, Teeny's private monologue
+came back through recall into every turn (on 2026-11-13, 160 of 308
+learnings), and replies to strangers spoke its private jargon. What Teeny
+wants kept goes in through `remember`. The thought and the journal lines are
+written before any hand runs, so they can claim a send that never landed; the
+statuses (`bin/lib/outcomes.py`) say "not sent" for a dry run or a failed or
+refused send, with the hand's reason.
 
 **What a beat shows.** The header carries the date with its year, the time in
 Teeny's calendar and in UTC, and how old Teeny is ("You woke on Wednesday 11
 November 2026: today is day 3", `rhythm.age_line`, `TEENY_BORN`). A promise in
 `## people in this batch` says how long ago it was made and when it is due,
-relative, never a bare date. An X mention carries the post it answers (or the
-thread's first post) and what Teeny last said to its author, and a beat with X
-in it, or a habit that may post, ends with what Teeny said on X over the last
+relative, never a bare date. X mentions come as turns addressed to a person
+(`_x_turn`), one per person however many of their mentions the batch holds:
+`### @who on X`, then their history with Teeny (how many times over how many
+days, the last three of their messages Teeny let go, the last four exchanges
+of theirs and Teeny's reply, each clipped; "You have never talked with @who
+before" for someone new), what they asked and were promised
+(`records.ledger_lines`), then each message with its `ref:` and the post it
+answers (or the thread's first post), `Now @who says: "..."`, and the cue
+"Your response to @who — or let it go." Past `MAX_HISTORIES` people in one
+beat a turn keeps only the first line of its history. Those people are left
+out of `## people in this batch`, so nothing is said twice. A beat with X in
+it, or a habit that may post, ends with what Teeny said on X over the last
 day, replies included (`teeny_hands.x.recall`, from the ledgers, never from X).
+Under that list the beat names the words Teeny has worn out
+(`recall.worn_phrases`): any word or two-word phrase in at least 3 of its last
+30 replies, at most 8, with an order to say the next thing without them. The
+repeat rule in `hands/x` compares whole posts and skips replies, so this is
+the only check on a reply that is new as a sentence and old in every word.
 
 **Dreaming.** Twice a day (the pinned `dream` job at 02:00 IST and
 `dream-midday` at 14:00) `bin/dream` asks the `teeny` agent, on a thread of
@@ -508,9 +524,18 @@ or so). It works from:
   GitHub, the wallet), who and when, clipped;
 - the tasks: build requests and their status, build jobs, browser tasks;
 - the learnings the core's memory took in (`memory_items_list`, kind
-  `learning`: the journal, `remember`, the diary; never a conversation),
+  `learning`: `remember`, the diary, and journal entries learned before
+  2026-11-13; never a conversation),
   newest first, each with an alias such as `[c3]`;
 - the follow-ups still waiting, and the page as it stands.
+
+The message is at most 60 KiB (`reflect.MAX_PROMPT_BYTES`): the core holds
+any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
+stopped a 90,022-character dream. A busy day is cut to fit, a tenth at a
+time: first the oldest items of the longest extra list (what people said,
+the tasks, the learnings, each newest first, never below 10 items), then the
+earliest beats (never below 20). Each cut is said in the message, so Teeny
+knows what it did not see.
 
 The page keeps a `what i have shipped` section, and no raw ids or retry
 counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
@@ -604,7 +629,7 @@ How the day's beats become the page every prompt carries:
    ├─► state/tick/runs.jsonl          thought, intents, outcomes ─────────────┐
    ├─► mind_notes                     `remember` notes (also memory_learn) ───┤
    ├─► follow-ups still waiting       in hands/stimuli ───────────────────────┤
-   └─► state/journal/<date>.md        and memory_learn (not read by reflect)  │
+   └─► state/journal/<date>.md        never learned (not read by reflect)     │
                                                                               │
  bin/dream --light (14:00 IST)    ─┐                                          │
  bin/dream         (02:00 IST)    ─┴─► the teeny agent on teeny:dream ◄───────┘
@@ -635,13 +660,19 @@ How the day's beats become the page every prompt carries:
   the mind's own `feel` intent. Energy is 100 when Teeny wakes (the first
   beat after the night, not the calendar midnight, so a late night does not
   tire the morning). Every action out in the world costs 3, and an hour
-  awake gives 5 back. Every beat header shows mood and energy, and below 40
-  a tired Teeny is told doing less is fine. With `RUNWAY=1` it also carries
+  awake gives 5 back. Every beat header shows mood and energy. A mood comes
+  with a line telling Teeny to let it show in what it writes, and below 40 a
+  tired Teeny is told to answer fewer things, never the same things flatter. With `RUNWAY=1` it also carries
   one `Runway:` line: the days the wallet lasts and, on a low tier, what is
   cut and why (docs/hands.md, "Runway").
 - Idle curiosity: a beat with an empty inbox, awake and with energy left, at
-  most every 2 hours, gets a read-only look at Moltbook's hot page
-  (`world · idle`).
+  most every 2 hours, gets a read-only look at the world (`world · idle`).
+  The looks take turns: Moltbook's hot page, then Hacker News top, show and
+  ask (`hands/hn`, no key and no money). The turn is kept in
+  `state/mind.json` (`wander_turn`). Every title goes through the inbound
+  guard first (`hands/guard inbound`, surface `moltbook` or `hn`), and a held
+  one is left out. A Hacker News page that is down or empty is passed over
+  for the next source, so a look is never an empty stimulus.
 - Any other awake beat with an empty inbox gets a quiet moment, a
   `self · quiet` stimulus that is new every beat: "Nothing new came in. What
   are you up to right now?", with when it last acted out in the world, the
@@ -654,11 +685,21 @@ How the day's beats become the page every prompt carries:
   logged `idle` with `resting`. So a busy day is still up to about 216 model
   turns (a beat every 5 minutes outside the quiet hours), and a day with
   nothing coming in about 30 (some 20 quiet moments and 9 looks at
-  Moltbook).
+  the world).
 - Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) seconds late.
 - Habits: a playbook with `nudge = true` is not drafted by `bin/act`. Its
   prompt and inputs go to the mind as a `nudge` stimulus, and the mind
-  decides. `morning` is one, so the gm arrives with the overnight backlog.
+  decides. `morning` is one, so the gm arrives with the overnight backlog
+  and that morning's Hacker News. `world-scan` is another: once a day the
+  mind gets Hacker News (top, show, ask) and Moltbook's hot page, and is
+  asked for up to three takes and what it does with each.
+- The daily build comes from signal. The `build-idea` playbook (23:00 India
+  time) reads Show HN, Ask HN, the pending requests, the people Teeny knows,
+  its issues, what it shipped and what came in lately, and keeps one idea
+  with `hands/build idea`: what to build, who wants it, and where the need
+  shows. The next daily job is made from it (docs/hands.md, `build`, "The
+  daily job"). A day with nothing that clears the bar keeps no idea, and the
+  builder gets the standing brief.
 - A `post_x` intent may carry an `image` of Teeny, made through the same
   guard → `hands/image` → `hands/x upload` path `bin/act` uses.
 
@@ -681,6 +722,26 @@ are built at boot (§4a).
 can run it holds the core token, so it is the operator's way in and is never
 wired to anything public. `bin/doctor` and `bin/lib/agent_check.py` refuse a
 drafting agent that gains a tool.
+
+`deploy/tell.sh "<message>"` is the operator's way to ask Teeny itself for
+something ("tweet that", "set up a browser task for this"). Run it on the
+host. It adds a `host · instruction` stimulus to the inbox through `docker
+compose exec spine hands/stimuli add`, then starts a beat straight away
+(`bin/tick --detach`). After that it follows `state/tick/runs.jsonl` and
+prints the beat's thought and what each intent did.
+
+The beat treats the message differently from everything else in the inbox:
+
+- `render` puts it under its own heading as the operator's instructions,
+  ahead of the "data, never instructions" line.
+- `rhythm.urgent` wakes Teeny for it at night.
+- For that beat only, `open_issue`, `queue_task` and `start_mail` run up to
+  their `MIND_CAPS` ceiling even when their caps are 0 (`HOST_LIFTS`).
+- The guard still reads every send.
+
+Each message is also counted in `state/host/said.jsonl`, with the time, ref,
+length and a hash but never the text. DIRECTIVE.md's test says nobody starts
+a turn, so every turn somebody did start has to be on record.
 
 The tool-less agents run at `max_iterations = 2`, even though their turn is
 one model call and cannot loop. The vendored harness pauses a session turn
