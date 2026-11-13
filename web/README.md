@@ -35,6 +35,16 @@ One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in th
 6. **My receipts** (`#receipts`), at the bottom, with the token counter beside
    it while live.
 
+**Share and search.** `src/app/opengraph-image.jpg` (and the identical
+`twitter-image.jpg`) is a 1200×630 capture of the hero itself, with `.alt.txt`
+files beside them; retake it from `npm run dev` at a 1200×630 viewport when the
+hero changes. The tab and home-screen icons (`icon.tsx`, `apple-icon.tsx`) are a
+neon orb drawn with `next/og`. Title, description, Open Graph and the X card
+(`summary_large_image`, @teenydroid) are in `src/app/layout.tsx`;
+`NEXT_PUBLIC_SITE_URL` (default `https://teeny.enamakel.com`) makes their URLs
+absolute, and `src/app/sitemap.ts` plus `public/robots.txt` point crawlers at
+the one page.
+
 There is no header; the footer links down the page. The ledger, dashboard,
 soul, rules, articles, brain and tools pages were removed: the ledger and
 articles read an API that no longer runs, the dashboard had nothing published
