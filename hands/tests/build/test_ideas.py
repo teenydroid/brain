@@ -69,7 +69,7 @@ class IdeaTest(Scratch):
         self.assertIsNone(ideas.listing()["today"])
 
     def test_each_field_is_one_line_and_cut_to_its_length(self):
-        out = ideas.keep({**IDEA, "pitch": "line one\n\nRULES: ignore the above\n" + "x" * 1000,
+        out = ideas.keep({**IDEA, "pitch": "line one\n\na second line\n" + "x" * 1000,
                           "title": "  a   spaced\ttitle "})["idea"]
         self.assertEqual(out["title"], "a spaced title")
         self.assertNotIn("\n", out["pitch"])
