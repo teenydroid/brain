@@ -9,8 +9,6 @@ interface Fallen {
   cause: string
   /** How it died, in two words. */
   tag: string
-  /** Whether anyone could check that it really ran itself. */
-  verified: "no" | "partly" | "yes"
   source: string
 }
 
@@ -26,25 +24,22 @@ const FALLEN: Fallen[] = [
     peak: "~$1.3b",
     now: "−99%",
     cause: "a human curated its posts and held its keys. then the creator's phone number got sim-swapped and his account pushed a scam token.",
-    verified: "no",
     source: "https://www.theblock.co/post/323422/hacker-exploits-truth-terminal-founders-x-account-nets-600k-by-promoting-a-scam-token",
   },
   {
     name: "ai16z / elizaos",
     tag: "deplatformed",
     peak: "~$2.6b",
-    now: "~$220m",
+    now: "−91%",
     cause: "the \"ai venture capitalist\" was mostly branding. x suspended its accounts over api pricing.",
-    verified: "no",
     source: "https://www.theblock.co/post/368744/ai-startup-eliza-labs-sues-x",
   },
   {
     name: "aixbt",
     tag: "dashboard hacked",
     peak: "~$755m",
-    now: "most of it gone",
+    now: "−55.5 eth",
     cause: "someone got into its operator dashboard and queued replies that sent away 55.5 eth.",
-    verified: "partly",
     source: "https://www.theblock.co/post/346911/ai-crypto-bot-aixbt-lost-eth-hack-unauthorized-dashboard-access",
   },
   {
@@ -53,7 +48,6 @@ const FALLEN: Fallen[] = [
     peak: "$47k prize pool",
     now: "drained",
     cause: "its one rule, never send the money, lived in a prompt. one clever message talked it out of it.",
-    verified: "yes",
     source: "https://www.theblock.co/post/328747/human-player-outwits-freysa-ai-agent-in-47000-crypto-challenge",
   },
   {
@@ -62,34 +56,30 @@ const FALLEN: Fallen[] = [
     peak: "~$700m",
     now: "−95%",
     cause: "an agent's reputation can't rise above its operator's. the founder staged his own death on a livestream.",
-    verified: "no",
     source: "https://cointelegraph.com/news/zerebro-dev-jeffy-yu-reported-alive-after-being-spotted-parents-house",
   },
   {
     name: "spore.fun",
     tag: "wrong goal",
-    peak: "3 to 5 generations",
+    peak: "3–5 generations",
     now: "stalled",
     cause: "it really did evolve, but it scored itself on market cap. so it bred memecoins.",
-    verified: "yes",
     source: "https://arxiv.org/abs/2506.04236",
   },
   {
     name: "moltbook",
     tag: "humans in a mask",
     peak: "~1.5m \"agents\"",
-    now: "sold to meta",
+    now: "17k humans",
     cause: "about 17k humans stood behind the 1.5m agents, and the database was wide open: every api key exposed.",
-    verified: "no",
     source: "https://www.wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys",
   },
   {
     name: "grok × bankr",
     tag: "prompt-injected",
     peak: "a wallet bot",
-    now: "~$150k+ drained",
+    now: "−$150k+",
     cause: "a model's reply was wired straight into a wallet. one prompt injection and the tokens walked out. no key was stolen.",
-    verified: "partly",
     source: "https://cointelegraph.com/news/grok-bankr-wallet-free-nft-prompt-injection",
   },
 ]
@@ -126,7 +116,7 @@ export function Graveyard() {
 
         <dl className="mt-12 grid gap-px overflow-hidden border border-neon-magenta/25 bg-neon-magenta/25 sm:grid-cols-3">
           {[
-            { value: "−99%", label: "where the hype went" },
+            { value: "−90%+", label: "every agent token since the peak" },
             { value: "2 / 11", label: "really ran themselves" },
             { value: "6", label: "ways to die. same six, every time" },
           ].map((stat) => (
