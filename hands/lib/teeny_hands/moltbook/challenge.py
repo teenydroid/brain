@@ -52,6 +52,12 @@ How it reads one:
 7. A spoken self-correction after the first number ("fifty, no, say seven",
    "wait", "i mean", "actually") makes the number meant a guess: no answer.
 
+   "Total" with no operation word is an addition only when nothing in the
+   text says one number counts the other ("each exerts thirty two ... and
+   there are four claw friends, how much total force": 32 x 4, not 36, which
+   Moltbook marked wrong on 2026-11-12). "Each", "per", "every", "apiece" or
+   "there are" before a number make that sum a guess: no answer.
+
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
 """
@@ -123,6 +129,8 @@ _COMPARATIVES = {collapse(w) for w in "faster slower more less fewer greater big
 CORRECTIONS = {collapse(w) for w in "no wait actually sorry correction scratch".split()}
 #: "with one claw and nine other": "one" picks out a claw.
 OTHER = collapse("other")
+#: Words that say one number counts the other: "each exerts 32 ... four claws".
+COUNT_WORDS = {collapse(w) for w in "each per every apiece".split()}
 #: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
 #: Only a standalone one becomes a STAR token (see _times).
 _SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
@@ -364,6 +372,11 @@ def _times(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool | No
     return times
 
 
+def _there_are_count(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
+    """"... and there are four claw friends": a count, whatever it counts."""
+    return any(words[max(0, start - 2) : start] == ["there", "are"] for start, _, _ in spans)
+
+
 def solve(challenge: str) -> str | None:
     """The answer with two decimals ("15.00"), or None when the challenge
     cannot be read with confidence."""
@@ -412,6 +425,8 @@ def solve(challenge: str) -> str | None:
         a, b = numbers
         return compute(a, "-", b)
     if not ops and not comparison and present & RESULT_WORDS:
+        if present & COUNT_WORDS or _there_are_count(words, spans):
+            return None
         ops.add("+")
     if comparison:
         if ops - {"-"} or added_pair:
