@@ -78,6 +78,7 @@ def failed(reason: str) -> bool:
     unreadable) rather than a verdict it gave."""
     return reason.startswith(UNREACHABLE) or reason == UNREADABLE
 
+
 CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity")
 
 
