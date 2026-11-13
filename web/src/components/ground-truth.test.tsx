@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest"
 import { ReceiptsCounter } from "@/components/receipts-counter"
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
-import { HomeNumbers } from "@/components/sections/home-numbers"
+import { ReceiptsSection } from "@/components/sections/receipts"
+import { XSpotlight } from "@/components/sections/x-spotlight"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import type { MindFeed } from "@/lib/mind"
 import { PRESENCE } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
-import type { Wallet } from "@/lib/wallet"
 
 /** The visible text of some markup, tags dropped and character references decoded. */
 function text(html: string): string {
@@ -64,13 +64,15 @@ describe("the receipts counter", () => {
   })
 })
 
-describe("the hero", () => {
+describe("the receipts at the bottom of the page", () => {
   it("shows no token figure when the token ledger is unreachable", () => {
-    const shown = text(renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />))
+    const shown = text(renderToStaticMarkup(<ReceiptsSection feed={MIND_DOWN} receipts={LIVE} />))
     expect(shown).not.toMatch(/tokens i have burned|last known figure|model calls/)
     expect(shown).toContain("7 replies on x")
   })
+})
 
+describe("the hero", () => {
   it("keeps to the one page: it links down the page or out, never to another route", () => {
     const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
     expect(html).not.toMatch(/href="\/[^/"]/)
@@ -100,7 +102,6 @@ describe("the brain on the front page", () => {
   })
 })
 
-const OWN = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
 const STATS: Stats = {
   source: "live",
   url: "https://github.com/teenydroid/diary/blob/main/stats/latest.json",
@@ -108,54 +109,36 @@ const STATS: Stats = {
   stats: [
     { source: "x", metric: "followers", value: 1234 },
     { source: "moltbook", metric: "karma", value: 77 },
-    { source: "github", metric: "stars", value: 9 },
   ],
 }
-const WALLET: Wallet = {
-  source: "live",
-  address: OWN,
-  cluster: "mainnet",
-  url: `https://solscan.io/account/${OWN}`,
-  sol: "2.5",
-  usdc: "7",
-}
 
-describe("the numbers on the front page", () => {
-  it("shows each published metric with the day it was read", () => {
-    const shown = text(renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={WALLET} />))
+describe("me on X", () => {
+  it("shows my follower count on X with the day it was read", () => {
+    const shown = text(renderToStaticMarkup(<XSpotlight stats={STATS} receipts={LIVE} />))
     expect(shown).toContain("1,234")
     expect(shown).toContain("followers on x")
-    expect(shown).toContain("karma on moltbook")
-    expect(shown).toContain("stars on github")
     expect(shown).toContain("as of 2026-11-12")
+    expect(shown).not.toContain("77")
   })
 
-  it("shows no stat number when the snapshot is not published or cannot be read", () => {
+  it("shows no follower number when the snapshot is not published or cannot be read", () => {
     for (const source of ["missing", "unavailable"] as const) {
-      const html = renderToStaticMarkup(<HomeNumbers stats={{ source, url: STATS.url }} wallet={{ source: "unpublished" }} />)
-      expect(text(html)).not.toMatch(/\d/)
+      const shown = text(renderToStaticMarkup(<XSpotlight stats={{ source, url: STATS.url }} receipts={UNAVAILABLE} />))
+      expect(shown).not.toMatch(/\d/)
     }
   })
 
-  it("links the wallet's address to Solscan and shows what it holds", () => {
-    const html = renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={WALLET} />)
-    expect(html).toContain(`href="https://solscan.io/account/${OWN}"`)
-    expect(text(html)).toContain(OWN)
-    expect(text(html)).toContain("2.5 SOL")
-    expect(text(html)).toContain("7 USDC")
-  })
-
-  it("says a balance is unavailable rather than showing zero when the RPC did not answer", () => {
-    const shown = text(renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={{ ...WALLET, sol: undefined, usdc: undefined }} />))
-    expect(shown).toMatch(/balance unavailable/i)
-    expect(shown).not.toMatch(/\b0 (SOL|USDC)/)
-  })
-
-  it("shows no address before one is published", () => {
-    for (const wallet of [{ source: "unpublished" }, { source: "unavailable" }] as const) {
-      const html = renderToStaticMarkup(<HomeNumbers stats={STATS} wallet={wallet} />)
-      expect(html).not.toContain("solscan.io")
+  it("links my latest acts on X to the real posts, and nothing else", () => {
+    const receipts: Receipts = {
+      ...LIVE,
+      latest: [
+        { seq: 3, at: "2026-11-11T20:13:15Z", kind: "x.reply", url: "https://x.com/teenydroid/status/123" },
+        { seq: 2, at: "2026-11-11T19:00:00Z", kind: "telegram.sent" },
+      ],
     }
+    const html = renderToStaticMarkup(<XSpotlight stats={STATS} receipts={receipts} />)
+    expect(html).toContain('href="https://x.com/teenydroid/status/123"')
+    expect(text(html)).not.toMatch(/telegram/i)
   })
 })
 
