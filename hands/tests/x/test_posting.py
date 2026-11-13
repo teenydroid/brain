@@ -194,14 +194,79 @@ class GapTest(Posting):
         publish.post({"text": "chart"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_the_default_gap_is_three_hours_less_twenty_minutes(self):
+    def test_the_default_gap_is_eight_hours_less_twenty_minutes(self):
         self.configure(POST_MIN_GAP_HOURS=None)
         publish.post({"text": "gm"})
-        self.at(T0 + 3 * HOUR - 21 * MINUTE)
+        self.at(T0 + 8 * HOUR - 21 * MINUTE)
         with self.assertRaises(hand.Refused):
             publish.post({"text": "chart"})
-        self.at(T0 + 3 * HOUR - 19 * MINUTE)
+        self.at(T0 + 8 * HOUR - 19 * MINUTE)
         publish.post({"text": "chart"})
+
+
+class DailyCapTest(Posting):
+    """Three own posts a UTC day by default (X_POSTS_MAX_PER_DAY); replies are
+    never counted."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi")
+
+    def test_a_fourth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
+        for n, text in enumerate(self.TEXTS):
+            self.at(T0 + n * HOUR)
+            publish.post({"text": text})
+        self.at(T0 + 4 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
+                         ("daily_cap", 3, 3))
+        self.assertEqual(len(self.posted()), 3)
+        self.configure(DRY_RUN="1")
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "a fourth thing about lighthouses and moss"})
+
+    def test_the_next_utc_day_starts_again(self):
+        for n, text in enumerate(self.TEXTS):
+            self.at(T0 + n * HOUR)
+            publish.post({"text": text})
+        self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
+        publish.post({"text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual(len(self.posted()), 4)
+
+    def test_replies_do_not_count_and_a_quote_does(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        for n in range(5):
+            posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
+        publish.post({"text": self.TEXTS[0]})
+        publish.post({"text": "look at this one", "quote_of": "555"})
+        publish.post({"text": self.TEXTS[2]})
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "one more about lighthouses and moss"})
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+
+    def test_the_cap_is_a_setting(self):
+        self.configure(X_POSTS_MAX_PER_DAY="1")
+        publish.post({"text": self.TEXTS[0]})
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": self.TEXTS[1]})
+
+    def test_a_format_tag_is_kept_and_a_bad_one_is_an_error(self):
+        publish.post({"text": self.TEXTS[0], "format": "Proof", "experiment": 4})
+        self.assertEqual([r["format"] for r in self.ledger()], ["proof"])
+        with self.assertRaises(hand.HandError):
+            publish.post({"text": self.TEXTS[1], "format": "not a tag!"})
+        with self.assertRaises(hand.HandError):
+            publish.reply("5", {"text": "hi", "format": "gm"})
+
+    def test_a_ledger_without_the_format_column_gains_it(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, in_reply_to TEXT,"
+                     " quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        conn.commit()
+        conn.close()
+        publish.post({"text": self.TEXTS[0], "format": "gm"})
+        self.assertEqual([r["format"] for r in self.ledger()], ["gm"])
 
     def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
         publish.post({"text": "look", "quote_of": "555"})
@@ -401,12 +466,16 @@ class RepeatTest(Posting):
         publish.post({"text": "gn"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_a_reply_is_never_the_post_a_draft_repeats(self):
+    def test_a_reply_counts_as_something_already_said(self):
+        # Teeny's replies are most of what it writes: an own post may not
+        # repeat one either.
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "90", "reply", self.YESTERDAY, in_reply_to="5", created_at=T0 - HOUR)
-        publish.post({"text": self.YESTERDAY})
-        self.assertEqual(len(self.posted()), 1)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": self.YESTERDAY})
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["similar_to"]), ("repeat", "90"))
+        self.assertEqual(self.posted(), [])
 
     def test_a_rehearsal_is_refused_the_same(self):
         publish.post({"text": self.YESTERDAY})
