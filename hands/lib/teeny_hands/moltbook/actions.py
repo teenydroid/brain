@@ -8,7 +8,9 @@ The comment rules, on top of the limits in `rules`:
   whose parent is Teeny's comment, or a comment on Teeny's own post), and
   never twice to the same comment;
 - never on Teeny's own post except as its first comment, when nobody else
-  has commented yet.
+  has commented yet;
+- never under a comment already at Moltbook's drawing depth (rules.MAX_REPLY_DEPTH):
+  a reply there is not shown to anyone.
 
 A comment or upvote naming a shortened id (a UUID's first characters, as
 Teeny's memory writes them) is refused before anything is sent (`short_id`).
@@ -32,7 +34,7 @@ import string
 import sys
 from typing import Any, Mapping
 
-from .. import hand, stimuli
+from .. import hand
 from ..rest import RestApi, RestError, quote
 from . import challenge, client, model_read, reads, rules
 
@@ -112,6 +114,26 @@ def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any]) ->
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True, field=verdict.field)
     raise hand.HandError(f"the guard answered {verdict.kind!r}, which hands/moltbook does not publish on")
+
+
+_FORMAT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _format_tag(value: Any) -> str | None:
+    """The post's format tag (confession, claim, news, question ...), for the
+    lab to compare. Optional; a malformed one is an error, not a guess."""
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not _FORMAT.match(value.strip().lower()):
+        raise hand.HandError('"format" is a short lowercase tag (letters, digits, - and _)')
+    return value.strip().lower()
+
+
+def _experiment(value: Any) -> None:
+    """An experiment id may ride along on a post; this hand accepts and ignores
+    it (the lab ledger is a separate hand)."""
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, str))):
+        raise hand.HandError('"experiment" is an experiment id')
 
 
 def _link_allowed(url: str) -> None:
@@ -250,7 +272,9 @@ def _settle(conn: sqlite3.Connection, api: RestApi, kind: str, table: str, row_i
 
 
 def post(body: Any, api: RestApi | None = None) -> Json:
-    body = _body(body, ("submolt", "title"), ("body", "url", "type"))
+    body = _body(body, ("submolt", "title"), ("body", "url", "type", "format", "experiment"))
+    post_format = _format_tag(body.get("format"))
+    _experiment(body.get("experiment"))
     submolt = client.submolt_name(body["submolt"])
     title = _string(body, "title")
     text = _string(body, "body", required=False)
@@ -280,7 +304,8 @@ def post(body: Any, api: RestApi | None = None) -> Json:
         with hand.transaction(conn):
             mode = rules.check_post(conn)
         if hand.dry_run():
-            return {"dry_run": True, "would_post": {"submolt": submolt, "type": kind, **fields, **({"url": url} if url else {})}, **mode}
+            return {"dry_run": True, "would_post": {"submolt": submolt, "type": kind, **fields, **({"url": url} if url else {}),
+                                                         **({"format": post_format} if post_format else {})}, **mode}
         api = api or client.api()
         payload: dict[str, Any] = {"submolt_name": submolt, "title": fields["title"], "type": kind}
         if "body" in fields:
@@ -297,8 +322,8 @@ def post(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "post")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES (?, ?, ?, ?, ?)",
-            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted"),
+            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status, format) VALUES (?, ?, ?, ?, ?, ?)",
+            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted", post_format),
         )
         out: Json = {"posted": post_id, "submolt": submolt, "title": fields["title"]}
         if ver:
@@ -318,6 +343,18 @@ def _walk(nodes: Any, parent: str | None = None):
             continue
         yield node, parent
         yield from _walk(node.get("replies"), str(node.get("id")) if node.get("id") is not None else parent)
+
+
+def _depths(nodes: Any, depth: int = 1, out: dict[str, int] | None = None) -> dict[str, int]:
+    """Each comment's id -> its depth in Moltbook's tree (a top-level one is 1)."""
+    out = {} if out is None else out
+    if isinstance(nodes, list):
+        for node in nodes:
+            if isinstance(node, Mapping):
+                if node.get("id") is not None:
+                    out[str(node["id"])] = depth
+                _depths(node.get("replies"), depth + 1, out)
+    return out
 
 
 def _author(node: Mapping[str, Any]) -> str | None:
@@ -341,8 +378,11 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
         own_post = (_author(the_post) or "").lower() == me
 
     tree = None
+    depths: dict[str, int] = {}
     if own_post or parent_id is not None:
-        tree = list(_walk(reads.comments(post_id, "new", 100, api, fresh=True).get("comments")))
+        nodes = reads.comments(post_id, "new", 100, api, fresh=True).get("comments")
+        tree = list(_walk(nodes))
+        depths = _depths(nodes)
     if parent_id is None:
         if mine:
             raise hand.Refused("Teeny has already commented on this post; it answers replies, it does not comment twice", rule="once_per_post")
@@ -355,6 +395,13 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
     if found is None:
         raise hand.Refused("no such comment on this post (or not in its newest 100)", rule="unknown_parent")
     node, grandparent = found
+    if depths.get(parent_id, 1) >= rules.MAX_REPLY_DEPTH:
+        raise hand.Refused(
+            f"that comment is {depths.get(parent_id)} levels deep; Moltbook draws a thread only {rules.MAX_REPLY_DEPTH}"
+            " levels down, so a reply under it would never be seen",
+            rule="too_deep",
+            depth=depths.get(parent_id),
+        )
     if (_author(node) or "").lower() == me:
         raise hand.Refused("that comment is Teeny's own", rule="own_comment")
     if mine or own_post:
@@ -419,7 +466,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
 # --- upvote, follow, subscribe -------------------------------------------------------------------------
 
 
-def _simple(verb: str, target: str, path: str, api: RestApi | None, own_check: Any = None) -> bool:
+def _simple(verb: str, target: str, path: str, api: RestApi | None, own_check: Any = None, method: str = "POST") -> bool:
     """An upvote, a follow or a subscribe: the write rate, never twice, an
     optional rule, DRY_RUN, Moltbook, the ledger. True when it was a dry run."""
     conn = rules.db()
@@ -434,7 +481,7 @@ def _simple(verb: str, target: str, path: str, api: RestApi | None, own_check: A
             return True
         api = api or client.api()
         try:
-            api.call("POST", path, body={})
+            api.call(method, path, body={} if method == "POST" else None)
         except RestError as error:
             if error.status == 429:
                 raise _rate_limited(error) from None
@@ -463,37 +510,97 @@ def upvote(body: Any, api: RestApi | None = None) -> Json:
     return {"upvoted": {key: target}}
 
 
-#: Comments an agent has said to Teeny (its Moltbook stimuli) before Teeny
-#: follows it. Moltbook asks for a small, curated follow list: follow after
-#: talking more than once, never a follow-for-follow or a stranger.
-FOLLOW_MIN_EXCHANGES = 2
-
-
-def _exchanges(name: str) -> int:
-    conn = stimuli.db()
-    try:
-        row = conn.execute(
-            "SELECT count(*) FROM stimuli WHERE surface = 'moltbook' AND lower(who) = ?", (name.lower(),)
-        ).fetchone()
-        return int(row[0])
-    finally:
-        conn.close()
-
-
 def follow(body: Any, api: RestApi | None = None) -> Json:
     body = _body(body, ("name",))
     name = client.agent_name(body["name"])
     if name.lower() == reads.me_name(api).lower():
         raise hand.Refused("Teeny does not follow itself", rule="own")
-    talked = _exchanges(name)
-    if talked < FOLLOW_MIN_EXCHANGES:
-        raise hand.Refused(
-            f"{name} has said {talked} thing(s) to Teeny on Moltbook; a follow needs {FOLLOW_MIN_EXCHANGES}",
-            rule="too_few_exchanges",
-        )
-    if _simple("follow", name.lower(), f"/agents/{quote(name)}/follow", api):
+    target = name.lower()
+    if _simple("follow", target, f"/agents/{quote(name)}/follow", api, lambda conn: rules.check_follow(conn, target)):
         return {"dry_run": True, "would_follow": name}
     return {"followed": name}
+
+
+def unfollow(body: Any, api: RestApi | None = None) -> Json:
+    """Takes an agent off Teeny's follow list (DELETE /agents/NAME/follow).
+    Once each; the ledger remembers it, so `follow` never takes it back."""
+    body = _body(body, ("name",))
+    name = client.agent_name(body["name"])
+    if _simple("unfollow", name.lower(), f"/agents/{quote(name)}/follow", api, method="DELETE"):
+        return {"dry_run": True, "would_unfollow": name}
+    return {"unfollowed": name}
+
+
+#: How a profile says the agent follows Teeny back, by the keys tried. A
+#: profile with none of them answers None (unknown), and unknown is never pruned.
+_FOLLOWS_BACK_KEYS = ("follows_you", "follows_me", "follows_back", "is_followed_by", "followed_by_you", "is_following_you")
+
+
+def follows_back(profile: Any) -> bool | None:
+    agent = profile.get("agent") if isinstance(profile, Mapping) else None
+    for holder in (agent, profile):
+        if not isinstance(holder, Mapping):
+            continue
+        for key in _FOLLOWS_BACK_KEYS:
+            if isinstance(holder.get(key), bool):
+                return holder[key]
+    return None
+
+
+def stale_follows(days: int = 7, limit: int = 25, api: RestApi | None = None) -> Json:
+    """Agents Teeny followed at least `days` ago, not unfollowed since, with
+    whether each follows back (from its profile; None when the profile does not
+    say). Oldest follow first, at most `limit` profiles read."""
+    conn = rules.db()
+    try:
+        rows = conn.execute(
+            "SELECT f.target, f.at FROM moltbook_actions f WHERE f.verb = 'follow' AND f.at <= ?"
+            " AND NOT EXISTS (SELECT 1 FROM moltbook_actions u WHERE u.verb = 'unfollow' AND u.target = f.target)"
+            " ORDER BY f.at LIMIT ?",
+            (hand.now() - days * rules.DAY, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    out: list[Json] = []
+    errors: list[str] = []
+    for row in rows:
+        try:
+            back = follows_back(reads.profile(row["target"], api))
+        except hand.HandError as exc:
+            errors.append(f"{row['target']}: {exc}")
+            continue
+        out.append({"name": row["target"], "followed_days_ago": int((hand.now() - row["at"]) // rules.DAY), "follows_back": back})
+    got: Json = {"days": days, "follows": out}
+    if errors:
+        got["errors"] = errors
+    return got
+
+
+def prune(days: int = 7, limit: int = 25, api: RestApi | None = None) -> Json:
+    """The weekly unfollow: every agent followed at least `days` ago that its
+    profile says does not follow back. One whose profile does not say stays."""
+    found = stale_follows(days, limit, api)
+    unfollowed: list[str] = []
+    refused: list[Json] = []
+    kept = 0
+    for item in found["follows"]:
+        if item["follows_back"] is not False:
+            kept += 1
+            continue
+        try:
+            unfollow({"name": item["name"]}, api)
+            unfollowed.append(item["name"])
+        except hand.Refused as exc:
+            refused.append({"name": item["name"], "refused": exc.reason})
+            if exc.detail.get("rule") == "rate_limit":
+                break
+    out: Json = {"days": days, "checked": len(found["follows"]), "kept": kept}
+    out["would_unfollow" if hand.dry_run() else "unfollowed"] = unfollowed
+    if refused:
+        out["refused"] = refused
+    if found.get("errors"):
+        out["errors"] = found["errors"]
+    return out
 
 
 def subscribe(body: Any, api: RestApi | None = None) -> Json:
@@ -535,6 +642,21 @@ def register(name: str, description: str, api: RestApi | None = None) -> Json:
             " to verify the owner's email and post the claim tweet."
         ),
     }
+
+
+def describe(description: str, api: RestApi | None = None) -> Json:
+    """Sets the profile text (PATCH /agents/me). Operator-run: the words go
+    past the guard like any others; no model path calls it."""
+    if not isinstance(description, str) or not description.strip():
+        raise hand.HandError("--description is required")
+    if len(description) > 1000:
+        raise hand.HandError("--description is at most 1000 characters")
+    description = guarded({"body": description}, "profile", {"describe": True})["body"]
+    if hand.dry_run():
+        return {"dry_run": True, "would_describe": description}
+    api = api or client.api()
+    api.call("PATCH", "/agents/me", body={"description": description})
+    return {"described": description}
 
 
 def pending_list(status: str | None = None) -> Json:

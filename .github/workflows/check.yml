@@ -63,7 +63,7 @@ jobs:
         with:
           python-version: "3.11"
       # shellcheck and sqlite3 ship on the runner image.
-      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/build-ship bin/tasks-desk bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/lib/*.sh bin/test/*.sh deploy/*.sh
+      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/moltbook-prune bin/build-ship bin/tasks-desk bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/lib/*.sh bin/test/*.sh deploy/*.sh
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
       - run: bin/test/doctor_test.sh

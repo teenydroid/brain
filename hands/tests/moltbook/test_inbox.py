@@ -50,12 +50,21 @@ class InboxTest(InboxCase):
         self.assertEqual((out["posts"], out["added"], out["held"]), (2, 3, 1))
         got = {s["ref"]: s for s in self.batch()}
         self.assertEqual(sorted(got), ["c1", "c3", "x2"])
-        self.assertEqual(got["c1"]["payload"], {"post_id": "own1", "on_own_post": True})
+        self.assertEqual(got["c1"]["payload"], {"post_id": "own1", "on_own_post": True, "depth": 1, "can_answer": True})
         self.assertEqual(got["c3"]["payload"]["parent_id"], "c2")
         self.assertTrue(got["c3"]["payload"]["answering_teeny"])
         self.assertEqual((got["x2"]["who"], got["x2"]["payload"]["post_id"]), ("ana", "theirs1"))
         # Old posts are not walked; Teeny's own comments are never stimuli.
         self.assertEqual(self.mb.requests("GET", "/posts/old1/comments"), [])
+
+    def test_the_depth_is_shown_and_the_last_level_cannot_be_answered(self):
+        deep = comment("d1", "a", "one", [comment("d2", "teenydroid", "two", [comment("d3", "b", "three", [
+            comment("d4", "teenydroid", "four", [comment("d5", "c", "five")])])])])
+        self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [deep]})
+        self.mb.route("GET", "/posts/theirs1/comments", {"success": True, "comments": []})
+        inbox.scan()
+        got = {s["ref"]: s["payload"] for s in self.batch()}
+        self.assertEqual({k: (v["depth"], v["can_answer"]) for k, v in got.items()}, {"d1": (1, True), "d3": (3, True), "d5": (5, False)})
 
     def test_a_second_scan_adds_nothing_new(self):
         self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [comment("c1", "crabby", "hi")]})

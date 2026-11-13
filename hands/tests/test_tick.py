@@ -1780,6 +1780,29 @@ class TickTest(unittest.TestCase):
                          "teeny at the desk with coffee [g]")
         self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "media_ids": ["777"]})
 
+    def test_the_mind_can_post_on_moltbook_and_follow_there(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "post_moltbook", "title": "retries are not recovery", "text": "I retried it nine times.", "format": "claim"},
+            {"do": "post_moltbook", "submolt": "builds", "title": "a build note", "text": "body", "url": "https://github.com/teenydroid/x"},
+            {"do": "follow_moltbook", "name": "crabby"},
+        ]})
+        self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            ("moltbook", ["post"], {"submolt": "general", "title": "retries are not recovery",
+                                    "body": "I retried it nine times.", "format": "claim"}),
+            ("moltbook", ["post"], {"submolt": "builds", "title": "a build note", "body": "body",
+                                    "url": "https://github.com/teenydroid/x"}),
+            ("moltbook", ["follow"], {"name": "crabby"}),
+        ])
+
+    def test_a_moltbook_post_needs_a_title_and_a_body(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_moltbook", "text": "no title"}, {"do": "follow_moltbook"}]})
+        self.tick()
+        self.assertEqual(self.hand_calls(), [])
+
     def test_every_beat_is_logged(self):
         stimuli.add("x", "mention", "111", "gm")
         self.answer({"thought": "hello world", "intents": []})

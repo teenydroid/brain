@@ -282,8 +282,8 @@ generation stays on disk.
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
 agent answers with a `thought` and JSON intents (`reply_x`,
-`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
-and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
+`comment_moltbook`, `post_moltbook`, `follow_moltbook`, `reply_mail`,
+`comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
 "The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
@@ -329,7 +329,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
    comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip,
                                                      promise, kept (hands/people)
-   reply_mail, say_telegram, comment_gh,                      │
+   post_moltbook, follow_moltbook, reply_mail,                │
+   say_telegram, comment_gh,                                  │
    open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
@@ -763,6 +764,9 @@ Every scheduled job is in one of two files:
   - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
   - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
+    unfollow of agents that did not follow Teeny back after 7 days
+    (`hands/moltbook prune`);
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
@@ -795,7 +799,14 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`).
+  (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
+  evening post (`moltbook-evening`), a post in `m/general` about hourly when
+  there is something to say (`moltbook-general`, at most 12 a day), threads
+  (`moltbook-threads`), the helpdesk and a daily follow (`moltbook-follow`).
+  Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
+  Answering comments on its own posts is the mind's job: `hands/moltbook
+  inbox` shows each comment's depth, and one at Moltbook's fifth level is
+  not answered.
 
 All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
 post jobs use `Asia/Kolkata`.
