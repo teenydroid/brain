@@ -773,7 +773,8 @@ def resume(deadline: float) -> list[Json]:
     The list is cleared before anything is sent (a beat that dies halfway
     never sends it twice; the hands' ledgers refuse a second answer anyway).
     One still held is kept for the next beat, until DEFERRED_MAX_AGE_SECS,
-    and then goes back to the mind as refused."""
+    and then goes back to the mind as refused; so is one the beat has no time
+    left to send (TEENY_TICK_BUDGET_SECS)."""
     items = _load_deferred()
     if not items:
         return []
@@ -783,6 +784,14 @@ def resume(deadline: float) -> list[Json]:
         do, intent = item.get("do"), item.get("intent") or {}
         entry: Json = {"do": do}
         try:
+            if time.monotonic() >= deadline:
+                # Out of time (a judge that times out takes up to two minutes an
+                # ask): nothing more is sent this beat; the next one sends it.
+                entry.update(status="deferred", result={"kept": "the beat ran out of time"})
+                _defer(item)
+                entry["intent"] = dict(intent)
+                results.append(entry)
+                continue
             name, argv, body = ROUTES[do](intent)
             code, out, paced = _send(do, name, argv, body, deadline)
             entry["paced"] = {**(paced or {}), "resumed": True, "deferred_at": item.get("deferred_at"),
