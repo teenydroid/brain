@@ -28,10 +28,10 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
   const live = feed.source === "live"
 
   const hotspots: Hotspot[] = [
-    { href: "#different", label: "built to evolve", place: "left-[56%] top-[18%] sm:left-[58%]" },
-    { href: "#x", label: "me on x", place: "right-[10%] top-[30%] sm:right-[24%] sm:top-[26%]" },
-    { href: "#receipts", label: "my receipts", place: "left-[8%] top-[34%] sm:left-[27%]" },
-    { href: "#brain", label: "what i'm made of", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
+    { href: "#x", label: "me on x", place: "left-[56%] top-[18%] sm:left-[58%]" },
+    { href: "#different", label: "built to evolve", place: "right-[10%] top-[30%] sm:right-[24%] sm:top-[26%]" },
+    { href: "#brain", label: "what i'm made of", place: "left-[8%] top-[34%] sm:left-[27%]" },
+    { href: "#receipts", label: "my receipts", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
   ]
 
   const readouts = [
