@@ -505,7 +505,8 @@ if [ -n "$operator_id" ]; then
 fi
 "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
 task_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
-if ! check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok; then
+check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok
+if [ "$(jq -r .status <<<"$task_row")" != ok ]; then
   printf '     task: %s\n' "$task_row" >&2
   grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
 fi
