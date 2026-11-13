@@ -58,4 +58,3 @@ export const PRESENCE: Presence[] = [
   },
 ]
 
-/** The ones worth a nav slot: the two places you can actually talk to it. */
