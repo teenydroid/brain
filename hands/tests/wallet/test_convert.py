@@ -262,6 +262,25 @@ class DeBridgeConvertTest(Scratch):
         self.assertEqual(caught.exception.detail["rule"], "per_day_convert")
 
 
+class LedgerTest(Scratch):
+    def test_conversions_from_before_lifi_are_kept_and_read_as_debridges(self):
+        conn = hand.db()
+        conn.executescript("""
+            CREATE TABLE wallet_conversions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+                kind TEXT NOT NULL, from_chain TEXT NOT NULL, from_asset TEXT NOT NULL, amount_raw TEXT NOT NULL,
+                usd_micro INTEGER NOT NULL, to_chain TEXT NOT NULL, to_asset TEXT NOT NULL, expected_raw TEXT,
+                quote_id TEXT, approval_tx TEXT, signature TEXT, order_id TEXT, status TEXT NOT NULL, error TEXT);
+            INSERT INTO wallet_conversions (created_at, updated_at, kind, from_chain, from_asset, amount_raw, usd_micro,
+                to_chain, to_asset, signature, order_id, status)
+            VALUES (1, 1, 'bridge', 'solana', 'SOL', '124000000', 24800000, 'base', 'USDC', '5old', '0xorder', 'sent');
+        """)
+        conn.close()
+        [old] = convert.conversions(5)["conversions"]
+        self.assertEqual((old["provider"], old["tool"]), ("debridge", None))
+        self.assertEqual(old["track"], "https://app.debridge.finance/order?orderId=0xorder")
+
+
 # --- LI.FI ------------------------------------------------------------------------------
 
 
