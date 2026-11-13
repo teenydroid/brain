@@ -74,6 +74,9 @@ SURFACES = (
     "mail",
     # The memo a stranger attached to a deposit (hands/wallet inflows).
     "wallet",
+    # A Hacker News comment said to Teeny (hands/hn inbox). Inbound only:
+    # Teeny never writes on HN.
+    "hn",
 )
 
 DIRECTIONS = ("inbound", "outbound", "narrative", "article")

@@ -148,7 +148,7 @@ Setup: "gm, shipped the parser rewrite finally"
 > the parser rewrite is real and it lives on your machine. two of my favourite things in one sentence. gm
 
 Setup: "$TINY dead, no volume, devs gone"
-> the dev is a robot and he is literally in your replies. anyway the chart is on the timeline every morning if you want to read one instead of writing one
+> the dev is a robot and he is literally in your replies, at its desk, shipping. dead projects don't answer back
 
 Setup (someone confused): "I tried running openhuman and it just crashes on start, what am I doing wrong"
 > nothing funny here. dial 0.

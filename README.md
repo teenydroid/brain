@@ -61,24 +61,35 @@ Teeny has three parts:
 - It answers what people say to it. X pushes mentions, replies and quotes to a
   webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
   AgentMail inbox, comments from Moltbook and messages from Telegram when a bot
-token is set. All of it lands in one inbox,
-  and every 5 minutes `bin/tick` hands a batch to Teeny's mind, which answers
-  with intents that the hands carry out
+  token is set. It reads Hacker News too: replies to its own HN account
+  (`HN_USERNAME`) and new comments on threads it watches, which it may talk
+  about elsewhere but never answers on HN (`hands/hn` is read only). All of it
+  lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
+  Teeny's mind, which answers with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
   search, which is billed per post and too expensive.
-- It remembers. Every awake beat is journaled to `state/journal/<date>.md`
-  and to the core's memory. At 14:00 `bin/reflect --light` updates
-  `brain/MEMORY.md`, the page in every prompt, from the day so far, item by
-  item. At 02:00 `bin/reflect` updates it again and writes a diary entry to
-  `state/diary/<date>.md`. Retired items go to `state/reflect/retired.jsonl`. The page is the box's
-  own and never committed; the repository keeps where it started,
-  `brain/MEMORY.seed.md`.
+- It remembers, and it dreams. Every awake beat is journaled to
+  `state/journal/<date>.md` and to the core's memory. Twice a day, at 14:00
+  (`bin/dream --light`) and 02:00 (`bin/dream`), it dreams: it goes over
+  everything since the last dream (its beats, what people said, the tasks,
+  the ledgers, the learnings its memory holds), updates `brain/MEMORY.md`,
+  the page in every prompt, item by item, and forgets the learnings that are
+  false or superseded (archived in `state/dream/forgotten.jsonl`). The night
+  also writes a diary entry to `state/diary/<date>.md`. Retired items go to
+  `state/reflect/retired.jsonl`. The page is the box's own and never
+  committed here; the repository keeps where it started,
+  `brain/MEMORY.seed.md`, and each dream's page can be published to the
+  diary (below).
 - It builds and browses. The builder agent writes small programs in
   `state/workbench/`, and `bin/build-ship` pushes them to GitHub as
   `teenydroid`. The browser operator does one task at a time on the allowed
   websites.
 - It has a Solana wallet, held by the core with hard caps, for bounty prizes
   and vendors. The playbooks that use it are off.
+- It can search the web and read pages, paying per request from that wallet
+  over x402 (Exa; `hands/x402`), and keep the USDC it pays with topped up
+  from its own SOL, ETH and USDC (the pinned `x402-fund` job). Both are off
+  until the operator sets `MIND_SEARCHES_PER_DAY` and `X402_FUND`.
 
 `DRY_RUN` stays on until `secrets/teeny.env` says `DRY_RUN=0`.
 
@@ -89,7 +100,8 @@ X webhook (xhook) ──┐
 bin/mentions ───────┤
 bin/mail ───────────┼──► one inbox ──► bin/tick, every 5 min ──► teeny:mind thread
 hands/moltbook ─────┤   (hands/stimuli,   takes a batch            (one model turn)
-hands/telegram ─────┘    in hands.db)                                     │
+hands/hn ───────────┤    in hands.db)                                     │
+hands/telegram ─────┘                                                     │
                                                                           │ intents: reply,
                                                                           │ post, like, mail...
                                                                           ▼
@@ -197,10 +209,18 @@ action twice.
 Receipts never carry post text, titles, summaries, diary prose, prompts, logs
 or anybody else's words. That way nothing the model read, whether a secret or an
 injected instruction to repeat something, has a path into a public
-repository. The diary entry from `bin/reflect` stays private in
-`state/diary/`.
+repository.
 
-`bin/receipts` (with `bin/lib/receipts.py`, run daily at 02:30 by
+Two folders beside the receipts are the exception, and both are off until the
+operator switches them on, because both are free text: `days/` (each
+finished day's diary page, `DIARY_PUBLISH=1`) and `memory/` (each dream's
+`MEMORY.md`, `MEMORY_PUBLISH=1`, one commit per dream so the history shows
+the page evolve). Each takes the road every public word takes: the memory
+page is redacted by code first (chat ids, email and wallet addresses, links
+off the allowlist), then both go through the secret gate and `hands/guard`,
+and only the guard's text is published, hash-chained like the receipts.
+
+`bin/receipts` (with `bin/lib/receipts.py`, run at 02:30 and 14:30 by
 `[jobs.receipts]`) appends and pushes. It refuses to build on a published
 chain that does not verify, and it is a dry run by default.
 [`docs/developers.md`](docs/developers.md#configure-it) lists the token it

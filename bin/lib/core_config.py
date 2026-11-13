@@ -16,6 +16,14 @@ the core writes itself, is left as it is. A new concern (the wallet's
 concerns edit the same file. Modules run in name order, and two modules
 claiming one table is an error.
 
+A module may also set single keys inside a table the core owns (the
+`[memory]` table, which the core writes itself), with
+
+    def keys(root: Path) -> dict[str, dict[str, str]]  # table -> key -> TOML value
+
+Only those keys change; the rest of the table, and its subtables, stay as
+the core left them. Two modules setting one key is an error.
+
 bin/lib/inbound_config.py writes the inbound-source tables the same way and
 runs just before this.
 """
@@ -58,15 +66,20 @@ def modules(sections: Path = SECTIONS) -> list[Path]:
     return sorted(p for p in sections.glob("*.py") if not p.name.startswith("_"))
 
 
+def _load(path: Path):
+    spec = importlib.util.spec_from_file_location(f"teeny_core_section_{path.stem}", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def collect(root: Path, sections: Path = SECTIONS) -> dict[str, str]:
     """Every section module's tables, by header."""
     owned: dict[str, str] = {}
     owner: dict[str, str] = {}
     for path in modules(sections):
-        spec = importlib.util.spec_from_file_location(f"teeny_core_section_{path.stem}", path)
-        assert spec and spec.loader
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = _load(path)
         for header, body in module.tables(root).items():
             name = _name(header)
             if name in owner:
@@ -74,6 +87,55 @@ def collect(root: Path, sections: Path = SECTIONS) -> dict[str, str]:
             owner[name] = path.name
             owned[header] = body
     return owned
+
+
+def collect_keys(root: Path, sections: Path = SECTIONS) -> dict[tuple[str, str], str]:
+    """Every section module's single keys, by (table, key)."""
+    keys: dict[tuple[str, str], str] = {}
+    owner: dict[tuple[str, str], str] = {}
+    for path in modules(sections):
+        module = _load(path)
+        for table, values in getattr(module, "keys", lambda _root: {})(root).items():
+            for key, value in values.items():
+                if (table, key) in owner:
+                    raise ValueError(f"[{table}] {key} is set by both {owner[table, key]} and {path.name}")
+                owner[table, key] = path.name
+                keys[table, key] = value
+    return keys
+
+
+def set_key(text: str, table: str, key: str, value: str) -> str:
+    """Sets `key = value` in table `table` (its own lines, not a subtable's),
+    replacing the key if it is there and adding it after the table's last
+    line if not. A missing table is added at the end."""
+    lines = text.splitlines(keepends=True)
+    start = None
+    for i, line in enumerate(lines):
+        match = _HEADER.match(line)
+        if match and match.group(1).strip().strip('"') == table and not line.lstrip().startswith("[["):
+            start = i
+            break
+    if start is None:
+        body = text.rstrip("\n")
+        return (body + "\n\n" if body else "") + f"[{table}]\n{key} = {value}\n"
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if _HEADER.match(lines[i]):
+            end = i
+            break
+    assign = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    for i in range(start + 1, end):
+        if assign.match(lines[i]):
+            lines[i] = f"{key} = {value}\n"
+            return "".join(lines)
+    last = start
+    for i in range(start + 1, end):
+        if lines[i].strip():
+            last = i
+    if not lines[last].endswith("\n"):
+        lines[last] += "\n"
+    lines.insert(last + 1, f"{key} = {value}\n")
+    return "".join(lines)
 
 
 def render(text: str, owned: dict[str, str]) -> str:
@@ -86,6 +148,10 @@ def render(text: str, owned: dict[str, str]) -> str:
 
 def write(config: Path, root: Path) -> None:
     text = config.read_text() if config.exists() else ""
+    # Keys first, so a table they add sits before the owned tables, which
+    # render moves to the end: a second run then changes nothing.
+    for (table, key), value in collect_keys(root).items():
+        text = set_key(text, table, key, value)
     rendered = render(text, collect(root))
     tomllib.loads(rendered)  # never leave the core a file it cannot read
     config.write_text(rendered)

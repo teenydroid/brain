@@ -186,6 +186,21 @@ fails "fails an absurd cap" "wallet caps"
 fresh; wallet_env "${caps_ok[@]}" WALLET_CLUSTER=testnet
 fails "fails an unknown cluster" "wallet caps"
 
+# --- the x402 hand: its top-up and search limits are sane -------------------------------
+fresh
+check "passes with no x402 keys, and says the top-up is off" doctor
+check "and names it" grep -q '^ok   x402 settings: top-up off' "$scratch/doctor.log"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=1 X402_FUND_TARGET_USD=5 X402_FUND_MAX_PER_DAY_USD=10
+check "passes a sane top-up" doctor
+# shellcheck disable=SC2016 # the dollar signs are the doctor's literal words
+check "and says what it does" grep -qF 'ok   x402 settings: top-up on: below $1 on Base, up to $5' "$scratch/doctor.log"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=1
+fails "fails a top-up switched on without its limits" "x402 settings"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=5 X402_FUND_TARGET_USD=5 X402_FUND_MAX_PER_DAY_USD=10
+fails "fails a floor that is not below the target" "x402 settings"
+fresh; wallet_env X402_EXA_MAX_USD=50
+fails "fails a search limit over its ceiling" "x402 settings"
+
 # --- the keyring's directory: nobody else may write it, from / down -----------------
 fresh; chmod 775 "$root/brain"
 fails "fails a group-writable brain (the keyring would refuse it)" "keyring path"

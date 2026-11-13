@@ -93,6 +93,27 @@ def _day(at: float) -> str:
     return datetime.fromtimestamp(at, timezone.utc).strftime("%Y-%m-%d")
 
 
+def _span(secs: float) -> str:
+    secs = abs(secs)
+    if secs < 5400:
+        return f"{max(1, round(secs / 60))} min"
+    if secs < 172800:
+        return f"{round(secs / 3600)} h"
+    return f"{round(secs / 86400)} days"
+
+
+def _when(p: Mapping[str, Any]) -> str:
+    """"made 4 h ago, due in 44 h" (or "overdue by 2 days"): relative, so it
+    reads the same in any calendar. A bare UTC date beside a local clock read
+    as "two days ago" for a promise made that morning."""
+    now = hand.now()
+    made = f"made {_span(now - p['made_at'])} ago"
+    if p["status"] != "open":
+        return f"{made}, {p['status']}"
+    left = p["due_at"] - now
+    return f"{made}, {'due in ' + _span(left) if left > 0 else 'overdue by ' + _span(left)}"
+
+
 def _clip(text: str, n: int) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= n else text[: n - 3].rstrip() + "..."
@@ -125,7 +146,7 @@ def _requests(conn: sqlite3.Connection, surface: str, who: str) -> list[Json]:
 
 def _promise(row: Mapping[str, Any]) -> Json:
     out = {"id": row["id"], "what": row["what"], "made": _day(row["made_at"]), "due": _day(row["due_at"]),
-           "status": row["status"]}
+           "status": row["status"], "made_at": row["made_at"], "due_at": row["due_at"]}
     if row["ref"]:
         out["ref"] = row["ref"]
     if row["status"] == "open" and row["due_at"] <= hand.now():
@@ -344,10 +365,9 @@ def prompt_block(batch: Iterable[Mapping[str, Any]]) -> list[str]:
                 lines.append(f"  asked you to build ({a['at']}, {a['status']}): {a['asked']}")
             for p in rec.get("promises", []):
                 if p["status"] == "open":
-                    late = ", overdue" if p.get("overdue") else ""
-                    lines.append(f"  you promised ({p['made']}, due {p['due']}{late}; promise #{p['id']}): {p['what']}")
+                    lines.append(f"  you promised ({_when(p)}; promise #{p['id']}): {p['what']}")
                 else:
-                    lines.append(f"  you promised ({p['made']}, {p['status']}): {p['what']}")
+                    lines.append(f"  you promised ({_when(p)}): {p['what']}")
     finally:
         conn.close()
     if not lines:

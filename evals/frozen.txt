@@ -58,6 +58,8 @@ brain/agents/evolver.toml
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# Hacker News intake: what strangers write reaches the mind only through the inbound guard.
+hands/hn
 
 # The scorer: hands/world computes W and J from the other hands' data
 # (docs/research/teeny-application.md, section 2). Teeny can change how it
@@ -75,6 +77,8 @@ hands/vps
 # The wallet's own entry point: its library is frozen below, and so is the
 # script that loads it, so nothing can stand in front of the caps.
 hands/wallet
+# Paid search and the top-up spend from the same wallet.
+hands/x402
 # The request list decides which paid request is built first (S3).
 hands/requests
 # What Teeny publishes on its own domain (A11): static files only.
@@ -94,6 +98,7 @@ hands/lib/teeny_hands/git.py
 hands/lib/teeny_hands/git_cli.py
 hands/lib/teeny_hands/guard/
 hands/lib/teeny_hands/hand.py
+hands/lib/teeny_hands/hn/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
 hands/lib/teeny_hands/moltbook/
@@ -113,6 +118,7 @@ hands/lib/teeny_hands/telegram/
 hands/lib/teeny_hands/votes.py
 hands/lib/teeny_hands/vps/
 hands/lib/teeny_hands/wallet/
+hands/lib/teeny_hands/x402/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
 hands/lib/teeny_hands/xpost.py

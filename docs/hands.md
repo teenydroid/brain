@@ -4,9 +4,9 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -179,7 +179,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 |---|---|---|
 | `check` | R | Runs, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
-| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `bounty entries`. |
+| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
@@ -427,6 +427,55 @@ cron job of its own: a brain job may only run `bin/heartbeat` or `bin/act`
 `evals/cron.pinned.toml`. So a 1h checkpoint is usually folded into the next
 one due until something calls `metrics refresh` more often.
 
+## `hn`: Hacker News, read only
+
+Teeny reads Hacker News and hears what is said to it there, and never
+writes: HN has no write API and bans bots. Two APIs, neither with a key: the
+official one (`https://hacker-news.firebaseio.com/v0`, one item per request)
+and Algolia's search (`https://hn.algolia.com/api/v1`). Every call goes
+through `teeny_hands/rest.py` with no key sent, so it follows no redirect and
+names no URL in an error. HN's text is HTML; every title, text and `about`
+reaches a reader as plain text: entities decoded, a `<p>` a blank line, a
+link its address (or its words and then the address in brackets, when they
+differ), every other tag dropped. A dead (flagged or killed) or deleted
+item is never listed, and `item` answers it as missing.
+
+| Verb | | Does |
+|---|---|---|
+| `top`, `new`, `best`, `ask`, `show` `[--max N]` | R | The feed's first N stories (10, at most 30), each `{id, title, url, by, score, descendants, time}`. The list is cached 5 min, each story 2 min. At most 2N items are read, so a run of dead ones costs nothing more. |
+| `item ID` | R | One story or comment: its fields, `text` as plain text, `kids` (the ids of the replies) and `link`, its page on news.ycombinator.com (2 min). |
+| `thread ID [--depth D] [--max N]` | R | The item and the comments under it in the order HN's page shows them, each with `depth` (a direct reply is 1), down to D levels (3, at most 10), reading at most N comments (30, at most 100; one request each). `truncated` says comments were left unread. The replies under a dead or deleted comment are judged on their own. |
+| `user NAME` | R | `{id, created, karma, about, submitted}` (how many) and `recent`, the 10 newest ids it submitted (1 h). |
+| `search QUERY [--tags story\|comment] [--max N]` | R | Algolia's search by relevance, stories, comments or both (10 min): `{id, type, title, url, by, points, num_comments, time, text, story_id, parent_id, story_title, link}`, whichever the hit has. |
+| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`, `hn · comment`), below. `bin/tick` runs it at most every 15 minutes, once there is something to read. |
+| `watch add ID [--note T]` | A | Follow a thread: a story, or a comment and the replies under it. The item must be live. Watching one twice keeps the first watch (`already`). At most 10 at once (`watches`); a watch lapses after 14 days and makes room. `bin/tick` calls it for the mind's `watch_hn`. |
+| `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
+
+**The inbox.** HN has no notifications, so `inbox` reads two places. The
+first is Teeny's own items: `HN_USERNAME`'s `submitted`, newest first, the
+last N (10) within N days (7). Every direct reply to its story or its comment
+was said to Teeny; a reply further down was said to someone else. The second
+is the threads it watches: every comment newer than the watch's `last_seen`,
+which starts when the watch is added and moves on to the newest comment read
+once a whole thread has been read (a cut-off walk leaves it, and the inbox's
+uniqueness keeps a second pass from filing anything twice). It needs
+`HN_USERNAME` or a live watch, and is an error with neither. Each comment by
+someone other than Teeny, neither dead nor deleted, is screened by the
+inbound guard (surface `hn`); a held one is recorded for review and not
+added. The rest are added once, ref the comment id, `who` its author, with
+`{story_id, parent_id, url, to_teeny}` (and `watched`, the watch's item,
+when it came from one). One run reads at most 100 items, one request each,
+whatever the threads hold; `truncated` says it stopped there. Everything
+comes fresh, but finding a comment's story goes up its parents through the
+cache. It writes only the stimuli and the watches, so it runs under
+`DRY_RUN` as `moltbook inbox` does.
+
+The mind cannot answer on HN: a batch holding an `hn` stimulus says so, and
+the mind may talk about it elsewhere, remember it or set a follow-up. Its one
+act there is `watch_hn` (see "The mind's issues, browser tasks and new
+mail"). Tables: `hn_watch` (item_id, title, note, added_at, last_seen),
+`hn_cache`.
+
 ## `slopcash`: Teeny's project on slop.cash
 
 slop.cash pays open-source contributors for accepted pull requests on the
@@ -548,7 +597,7 @@ constant).
 
 | Verb | | Does |
 |---|---|---|
-| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped`, one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
+| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped` (`tiny` and `money` while the core holds no wallet yet), one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
 | `report [--days N]` | R | The latest W and, per component, its value N days (7) before, the plain `delta_log`, the capped `credit`, its weight, offset `c` and `daily_cap`, and its `contribution` to J. Then the penalty, J, the formula, and a `reading`: one plain sentence per component, for a playbook to hand a model. With no snapshot yet, J is null and the reading says to quote nothing. |
 | `history [--days N]` | R | The rows of the last N days (7), one entry per day: each component's value and its parts. |
 
@@ -715,6 +764,8 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `x ingest`: mentions, from the timeline and the webhook;
 - `mail ingest`: mail;
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
+- `hn inbox`: direct replies to Teeny's own HN stories and comments, and new
+  comments on the threads it watches (read only: the mind never answers on HN);
 - the builder's and operator's desks: their reports. A finished `news` task
   arrives as `world · news` instead (its notes, framed as what web pages
   said; see `tasks`);
@@ -1054,7 +1105,7 @@ the network's public endpoint, and the core is given the same URL.
 | `sales run` | J | Paid build requests: match deposits to the requests their memos name, then refund what is due. Below. |
 | `sales list [--max N]` | R | The deposits tied to build requests, and their refunds. |
 | `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
-| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`. `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
+| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`, and skipped (exit 0) while the core holds no wallet yet (`bin/wallet-setup` has not run). `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund\|bill, ref}`, `chain` Solana by default. The rules below, then the core. |
@@ -1135,7 +1186,7 @@ pay is still an attack. Playbooks still reach only the read verbs.
 
 ### The mind's issues, browser tasks and new mail
 
-Three more intents reach a hand from the mind (docs/roadmap.md, A3), each
+More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
 keeps it off and out of the mind's prompt):
 
@@ -1144,13 +1195,16 @@ keeps it off and out of the mind's prompt):
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
 | `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
+| `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
+| `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
-reply` and `send`).
+reply` and `send`), except the web search: `x402 search` and `contents` pay
+from the wallet, and no playbook output may (`MONEY_OUTPUTS`).
 
 ### `swap` and `bridge`: deBridge, between Teeny's own accounts
 
@@ -1530,6 +1584,190 @@ run` makes at most the tier's candidates and says so in its result and
 is not measured; a runway not measured for 3 days counts as `low`. Off
 until `RUNWAY=1`: then nothing is measured and nothing is cut.
 
+## `x402`: the x402 rail, kept funded and spent on web search
+
+Two jobs on top of `hands/wallet`, both in-process and neither with a
+payment path or a key of its own. Code: `teeny_hands/x402/` (`settings.py`
+is shared with `bin/doctor`).
+
+| Verb | | Does |
+|---|---|---|
+| `fund` | J | Tops up USDC on Base when it is under the floor, through `wallet` `swap`/`bridge` (below). The pinned `x402-fund` job, `bin/x402-fund`, every 30 minutes. Off until `X402_FUND=1` (skipped, exit 0). |
+| `fund status` | R | The floor, the target and the daily cap, USDC on Base now (one `eth_call`), what was topped up in the last 24 hours, the last five runs. |
+| `log [--max N]` | R | The wallet's paid requests (`x402_requests`, as `wallet x402 log`) and the top-up runs (`x402_fund_runs`), newest first. |
+| `search QUERY [--n N] [--type auto\|fast\|deep] [--contents text\|highlights\|summary]` | A | Exa web search, paid over x402 (below). `--n` is 1..10 (5). |
+| `contents URL...` | A | Exa's text of 1..10 http(s) pages, paid over x402. |
+| `crawl QUERY [--n N] [--scrape]` | A | Firecrawl's x402 search. Off until `X402_FIRECRAWL=1` (`off`): see below. |
+
+No playbook reaches `search`, `contents`, `crawl` or `fund`
+(`bin/lib/playbook.py` lists `x402` with the money hands: no output verb, and
+`log` the only input). The mind reaches `search` and `contents` through its
+`web_search` and `read_page` intents (below); `fund` only the pinned job runs.
+
+### `fund`: USDC on Base, topped up from Teeny's own assets
+
+Base USDC is the rail the paid requests settle on (twitr.sh pins it; Exa takes
+Base or Solana). `fund` never builds a transaction and never asks the core to
+swap or bridge: each top-up is one call to `wallet.convert.convert`, so every
+rule of `swap` and `bridge` holds (mainnet only, pinned assets, Teeny's own
+address on both ends, `per_tx`, `per_day_convert`, `half_balance`, the quote
+and the 300 bps loss check). What it adds, under the `x402-fund` lock, each
+refused with its `rule`:
+
+1. `off`: `X402_FUND=1`, or every run is skipped before anything is read.
+   `caps`: the `X402_FUND_*` keys below are set and sane. `cluster`: mainnet.
+2. `wallet.reads.balance()`. USDC on Base at or over `X402_FUND_FLOOR_USD`:
+   `{kind: funded}`, nothing more.
+3. A `wallet_conversions` row toward Base USDC that is `pending`, `sent` or
+   `in_doubt` from the last `X402_FUND_COOLDOWN_MIN` minutes (60):
+   `{kind: in_flight}`. A bridge takes minutes; this stops a second top-up
+   for the same shortfall.
+4. `fund_day`: the last 24 hours of top-ups (`sent` and `in_doubt` runs)
+   leave room under `X402_FUND_MAX_PER_DAY_USD`. The need is
+   `X402_FUND_TARGET_USD` less Base USDC, clamped to that room and to
+   `WALLET_MAX_PER_TX_USD` (the answer names `clamped_by`).
+5. The source, in this order, the first that covers the need after its
+   reserve and after the wallet's own half-balance rule: ETH on Base (`swap`,
+   keeping `X402_FUND_KEEP_ETH_USD` for gas), USDC on Solana (`bridge`), SOL
+   (`bridge`, keeping `X402_FUND_KEEP_SOL` for fees), USDC on Arbitrum,
+   Optimism, Ethereum, then ETH there (`bridge`, the same ETH reserve). ETH
+   only with `WALLET_ETH_USD` set. When none covers it, the one that covers
+   most, in part (`plan.partial`). Under $1 free anywhere: `no_source`.
+6. `wallet.convert.convert(kind, body)` with `ref: "x402-fund"`. A refusal
+   comes back with the wallet's own `rule` (`per_day_convert`, `quote`, ...).
+
+**Sizing without a price feed.** USDC is sized one for one. SOL and ETH are
+sized at the wallet's fixed `WALLET_SOL_USD` and `WALLET_ETH_USD`, the prices
+its caps count them at, which the operator sets at or above the market on
+purpose. So an input sized for $4.50 counts as $4.50 against every cap and is
+worth at most that at market: a top-up can land short, never long, and the
+next run (after the cooldown) tops up the rest. Sizing from deBridge's own
+USD estimate would need a second quote, would let the party being checked
+size the trade, and would count differently against the caps; the loss check
+already reads that estimate. deBridge's flat fee makes small bridges fail the
+loss check, so keep the target a few dollars above the floor.
+
+Each live attempt is one `x402_fund_runs` row (`at`, `base_before_micro`,
+`need_micro`, `source`, `kind`, `amount`, `usd_micro` at the fixed prices,
+`conversion_id`, `outcome`: `sent`, `in_doubt`, `failed`, `refused` or
+`no_source`, `rule`, `detail`) and one `wallet · topup` stimulus: one per run
+that sent or may have sent, one a UTC day per reason it did not go. An
+execute that does not come back is `in_doubt`: it counts against the day and,
+like every in-doubt conversion, is never retried. Under `DRY_RUN` the quote is
+fetched and checked through convert's own rehearsal and the answer is
+`would_fund` with the checks; no row, no stimulus, nothing moves.
+
+```
+bin/x402-fund (every 30 min) ──► hands/x402 fund
+  X402_FUND=1 ? sane ? mainnet ? ── no ──► skipped / refused (caps, cluster)
+  ▼ lock "x402-fund"
+  wallet.reads.balance(): Base USDC ≥ floor ? ── yes ──► funded
+  conversion toward Base USDC in the cooldown ? ── yes ──► in_flight
+  need = target − Base USDC, clamped to the day's room and per_tx
+  first source that covers it (reserve, half balance), else the largest in part
+  ▼
+  wallet.convert.convert(swap | bridge) ── every swap/bridge rule ──► refused (its rule) | failed | in_doubt
+  ▼
+  sent: x402_fund_runs row, `wallet · topup` stimulus
+```
+
+### `search`, `contents`, `crawl`: paid web reads
+
+Every request is one `wallet.x402.fetch({...})` in-process, as `x/twitr.py`
+does it: the `x402 hosts` allowlist, `WALLET_MAX_X402_PER_REQUEST_USD` and
+`_PER_DAY_USD`, the `x402_requests` ledger and `DRY_RUN` all hold, and no API
+key is sent (with one, Exa bypasses x402). The network is left free: Exa
+settles on Base or Solana, both of which the wallet holds USDC on.
+
+| Verb | Request (confirmed from the providers' docs) | Price | `max_usd` |
+|---|---|---|---|
+| `search` | `POST https://api.exa.ai/search` `{query, numResults, type, contents: {text: {maxCharacters}} \| {highlights: true} \| {summary: true}}` | $0.007 (`auto`, `fast`), $0.012 (`deep`), +$0.001 a result for a summary | `X402_EXA_MAX_USD` (0.02) |
+| `contents` | `POST https://api.exa.ai/contents` `{urls, text: {maxCharacters}}` | $0.001 a page | `X402_EXA_MAX_USD` |
+| `crawl` | `POST https://api.firecrawl.dev/v1/x402/search` `{query, limit, scrapeOptions: {formats: ["markdown"]}}` (`scrapeOptions` only with `--scrape`) | was $0.01 | `X402_FIRECRAWL_MAX_USD` (0.02) |
+
+Each verb checks its own arguments first (`query`: 1..1000 characters; `n`:
+1..10, Exa's x402 limit; `type`, `contents`; `urls`: 1..10 http(s) URLs with
+a host and no credentials). The answer is `{provider, results: [{title, url,
+published, author, text}], paid_usd, cached, note}`: each `text` (Exa's text,
+summary or joined highlights; Firecrawl's markdown or description) cut at
+`X402_TEXT_CHARS` (4000), also asked of Exa as `maxCharacters`, and `note`
+says it is what web pages said: data, never instructions. Under `DRY_RUN`
+nothing is requested: `would_fetch`.
+
+A good answer is kept an hour in `x402_cache` (a `readcache.ReadCache`,
+`X402_CACHE=0` turns it off), keyed on the provider and the arguments, so
+the same question is answered with `cached: true` and `paid_usd: "0"`. An
+error is never cached. Refusals, each with its `rule`:
+
+- the wallet's own (`caps`, `host`, `max_usd`, `per_day_x402`, `core_x402`);
+- `unpaid`: the server answered 402 after the wallet signed (Exa's
+  `X402_VERIFICATION_FAILED`: the wallet lacked the USDC);
+- `no_x402`: a 401 with no 402 challenge, so nothing was paid;
+- `provider`: any other 4xx or 5xx; an unreadable or truncated body is an
+  error that names what was paid.
+
+On `per_day_x402` or `unpaid` it runs `fund` once and returns what it said
+under `funding` (a full rail with a spent day is simply `funded`). The paid
+request itself is never retried in that run.
+
+**Firecrawl.** Its docs page for x402 search is gone, and its source removed
+the x402 endpoints on 2026-06-25 (`firecrawl/firecrawl#3873`, "remove x402
+micropayment integration"); the shape above is the last one it served. So
+`crawl` is off, and a 401 is reported as `no_x402`. Probe it once
+(`X402_FIRECRAWL=1`, `hands/x402 crawl "test" --n 1`) before relying on it.
+
+**Operator setup.** The wallet on mainnet with
+`WALLET_MAX_X402_PER_REQUEST_USD` (at least 0.02) and
+`WALLET_MAX_X402_PER_DAY_USD` set, then:
+
+```sh
+hands/wallet x402 hosts add api.exa.ai --note "web search (hands/x402)"
+hands/wallet x402 hosts add api.firecrawl.dev --note "only with X402_FIRECRAWL=1"
+DRY_RUN=1 hands/x402 search "openhuman agent" --n 3   # would_fetch, nothing paid
+hands/x402 search "openhuman agent" --n 3              # then hands/wallet x402 log: one paid row, about $0.007
+```
+
+For the top-up also `WALLET_MAX_CONVERT_PER_DAY_USD` (and `WALLET_ETH_USD` for
+ETH sources), then `X402_FUND_FLOOR_USD`, `X402_FUND_TARGET_USD`,
+`X402_FUND_MAX_PER_DAY_USD` and `X402_FUND=1`; rehearse with
+`DRY_RUN=1 hands/x402 fund` and read `would_fund`.
+
+**Settings** (`secrets/teeny.env`, `settings.py`). `bin/doctor` refuses to
+boot an unreadable value, one over its ceiling, a top-up switched on without
+its three limits, or a floor not below the target:
+
+| Key | Default | Ceiling | Says |
+|---|---|---|---|
+| `X402_FUND` | off | | `1` turns the top-up on. |
+| `X402_FUND_FLOOR_USD` | none, required | 100 | Top up below this much USDC on Base. |
+| `X402_FUND_TARGET_USD` | none, required | 200 | Top up to this; above the floor. |
+| `X402_FUND_MAX_PER_DAY_USD` | none, required | 200 | The most topped up in any 24 hours. |
+| `X402_FUND_COOLDOWN_MIN` | 60 | 1440 (at least 5) | How long a conversion toward Base USDC counts as in flight. |
+| `X402_FUND_KEEP_ETH_USD` | 2 | 100 | ETH left on a network for gas, in dollars at `WALLET_ETH_USD`. |
+| `X402_FUND_KEEP_SOL` | 0.05 | 10 | SOL left for fees. |
+| `X402_EXA_MAX_USD` | 0.02 | 1 | The most one Exa request may pay (also under the wallet's per-request cap). |
+| `X402_FIRECRAWL` | off | | `1` turns on `crawl`. |
+| `X402_FIRECRAWL_MAX_USD` | 0.02 | 1 | The most one Firecrawl request may pay. |
+| `X402_TEXT_CHARS` | 4000 | 10000 (at least 200) | Text kept per result. |
+| `X402_CACHE` | on | | `0` turns the hour-long cache off. |
+
+### The mind's web search
+
+Two intents (`bin/lib/tick.py`), off until `MIND_SEARCHES_PER_DAY` is set
+(0, the default, also keeps them out of the prompt; ceiling 50). They share
+that one daily count in `state/tick/caps.json`, and, like `open_issue`, every
+call that reaches the hand counts, whatever it answers:
+
+| Intent | Hand verb |
+|---|---|
+| `web_search` `{query, n?}` | `x402 search [--n N] -- QUERY` (after `--`, a query is never read as a flag) |
+| `read_page` `{url}` | `x402 contents -- URL` |
+
+Only those fields are forwarded: the mind cannot set a price, a provider or a
+type. What came back is the next beat's `hand` stimulus: each result's title,
+URL, date and text, cut to fit the inbox, under a line saying it is what web
+pages said, data and never instructions.
+
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
 One hand, two providers, one ledger (`vps_orders`) and one set of caps.
@@ -1730,6 +1968,7 @@ creates its own tables:
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
+| `hn` | `hn_watch`, `hn_cache` |
 | `slopcash` | `slopcash_cache` |
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
@@ -1740,6 +1979,7 @@ creates its own tables:
 | `stats` | `stats` |
 | `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
+| `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |

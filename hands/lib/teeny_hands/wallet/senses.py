@@ -12,9 +12,11 @@ moves or asks the core to, and nothing here pays.
              `wallet-daily` job.
 
 Both are off unless WALLET_WATCH=1 in secrets/teeny.env (skipped, exit 0: a
-switched-off job is not a failed one). A deposit older than a day when first seen (the first scan looks back
-30 days) is recorded but files no stimulus, so turning the watch on does not
-flood the inbox; at most MAX_PER_RUN stimuli a run, the rest on the next.
+switched-off job is not a failed one), and skipped the same way while the
+core holds no wallet yet (bin/wallet-setup has not run). A deposit older
+than a day when first seen (the first scan looks back 30 days) is recorded
+but files no stimulus, so turning the watch on does not flood the inbox; at
+most MAX_PER_RUN stimuli a run, the rest on the next.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from typing import Any, Mapping
 
 from .. import hand, stimuli
 from . import accounts, reads, solana
+from .pay import SKIPPED_NO_WALLET, NoWallet
 
 Json = dict[str, Any]
 
@@ -41,6 +44,8 @@ TOKEN_ACCOUNT_SIZE = 165
 
 #: What the pinned jobs answer while WALLET_WATCH is not set.
 OFF: Json = {"skipped": "the wallet watch is off (WALLET_WATCH=1 in secrets/teeny.env turns it on)"}
+#: What they answer while the core holds no wallet yet (bin/wallet-setup has not run).
+NO_WALLET: Json = {"skipped": SKIPPED_NO_WALLET}
 
 
 def _on() -> bool:
@@ -73,7 +78,10 @@ def watch() -> Json:
     """Scans, then files one stimulus per deposit not yet filed."""
     if not _on():
         return dict(OFF)
-    scanned = accounts.scan()
+    try:
+        scanned = accounts.scan()
+    except NoWallet:
+        return dict(NO_WALLET)
     now = hand.now()
     filed: list[str] = []
     conn = accounts.db()
@@ -146,6 +154,8 @@ def daily() -> Json:
         out["balance"] = held["amount"]
         lines.append(f"You hold {reads._decimal(int(held['raw']), int(held['decimals'])) or '0'} $TINY.")
         cluster, mint = held["cluster"], held["mint"]
+    except NoWallet:
+        return dict(NO_WALLET)
     except hand.HandError as exc:
         out["balance_error"] = str(exc)
         lines.append("Your $TINY balance could not be read today.")

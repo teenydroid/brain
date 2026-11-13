@@ -311,6 +311,20 @@ class PayTest(Scratch):
             pay.pay(vendor_pay())
         self.assertIn("bin/wallet-setup", str(caught.exception))
 
+    def test_no_wallet_still_fails_a_payment_loudly(self):
+        # The observing jobs skip when there is no wallet yet (pay.NoWallet); moving money never does.
+        self.core.answers["openhuman.wallet_status"] = {"configured": False, "accounts": []}
+        with self.assertRaises(pay.NoWallet):
+            pay.pay(vendor_pay())
+        done = subprocess.run([sys.executable, "-I", "-B", str(WALLET), "pay"], input=json.dumps(vendor_pay()),
+                              capture_output=True, text=True, env=os.environ, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        out = json.loads(done.stdout)
+        self.assertFalse(out["ok"])
+        self.assertNotIn("skipped", out)
+        self.assertIn("no Solana wallet", out["error"])
+        self.assertEqual(self.moved(), [])
+
     # --- the command line ----------------------------------------------------------------------------
 
     def test_cli_pay_and_exit_codes(self):

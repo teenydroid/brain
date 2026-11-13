@@ -16,10 +16,13 @@ a night this brings it up to date from inside the day, item by item:
    The text before the first section is the page's own note and has no id.
 2. Gathers what happened since the last reflection: the notes Teeny chose to
    keep (`remember`, in `mind_notes`), what it thought and did each beat
-   (state/tick/runs.jsonl), the follow-ups still waiting, and the page with
-   its ids.
-3. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
-   still in context) for a list of operations on the page and a diary
+   (state/tick/runs.jsonl, each send with how it ended and why), what the
+   hands' ledgers counted since then (builds shipped with their links, posts
+   and replies, promises; written by code, so they outrank a beat's
+   thought), the follow-ups still waiting, and the page with its ids.
+3. Asks the `teeny` agent on a thread of its own (`teeny:reflect`,
+   TEENY_REFLECT_THREAD; not the mind's, whose generations its long turns
+   folded every ten beats) for a list of operations on the page and a diary
    entry, as JSON: `add` (section, text), `edit` (id, text) and `retire`
    (id, reason). What no operation names stays as it is (ACE's delta
    updates, arXiv:2510.04618: a page rewritten whole each time collapses
@@ -84,6 +87,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -97,6 +101,7 @@ BRAIN = Path(os.environ.get("OPENHUMAN_WORKSPACE") or ROOT / "brain")
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import outcomes  # noqa: E402
 import prompts  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 
@@ -120,6 +125,10 @@ SHRINK_FLOOR_CHARS = 500
 #: busy day can still close its threads; anything left over waits a
 #: reflection (midday and night come twelve hours apart).
 MAX_RETIRES = 8
+#: The most learnings one dream may take out of the core's memory (`forget`,
+#: bin/lib/dream.py). Each is archived first; past this the answer is asked
+#: about again, and a second answer past it changes nothing.
+MAX_FORGETS = 20
 #: What a page crowding the limit is told: merging keeps what each item
 #: said, where truncation would cut blind.
 CROWDED_AT = 0.9
@@ -294,6 +303,19 @@ class Outcome:
     retired: list[Json]
     how: str  # ops | whole_page | as_page
     counts: dict[str, int] = field(default_factory=dict)
+    #: Learnings to take out of the core's memory: {alias, id, text, reason}.
+    forgets: list[Json] = field(default_factory=list)
+
+
+@dataclass
+class Extras:
+    """What a dream (bin/lib/dream.py) adds to a reflection: sections of the
+    message beyond the day's own, the learnings it may `forget` (by alias,
+    `c1`, to the item they stand for), and the thread it runs on."""
+
+    sections: list[str] = field(default_factory=list)
+    forgettable: dict[str, Json] = field(default_factory=dict)
+    thread: str | None = None
 
 
 def _id(value: Any) -> str:
@@ -303,18 +325,36 @@ def _id(value: Any) -> str:
     return f"m{text}" if text.isdigit() else text
 
 
-def apply_ops(page: Page, ops: Any) -> tuple[Page, list[Json], dict[str, int]]:
-    """The page after the operations, in order, and the items they retired."""
+def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
+              forgets: list[Json] | None = None) -> tuple[Page, list[Json], dict[str, int]]:
+    """The page after the operations, in order, and the items they retired.
+    With `forgettable` (a dream), `forget` is an operation too: it leaves
+    the page alone and adds the learning to `forgets`."""
     if not isinstance(ops, list):
         raise Unusable("`ops` is not a list")
     page = copy.deepcopy(page)
     retired: list[Json] = []
     counts = {"add": 0, "edit": 0, "retire": 0}
+    if forgettable is not None:
+        counts["forget"] = 0
     added: list[Item] = []
     for n, op in enumerate(ops, 1):
         kind = op.get("op") if isinstance(op, dict) else None
         if kind not in counts:
-            raise Unusable(f"operation {n} is not add, edit or retire")
+            raise Unusable(f"operation {n} is not {', '.join(list(counts)[:-1])} or {list(counts)[-1]}")
+        if kind == "forget":
+            alias = str(op.get("item") or "").strip().strip("[]").lower()
+            if alias not in (forgettable or {}):
+                raise Unusable(f"{alias or 'an empty item'} (operation {n}, forget) is not one of the learnings listed")
+            reason = op.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise Unusable(f"forget {alias} has no reason")
+            if forgets is not None and all(f["alias"] != alias for f in forgets):
+                forgets.append({"alias": alias, **forgettable[alias], "reason": reason.strip()})
+            counts[kind] += 1
+            if counts[kind] > MAX_FORGETS:
+                raise Unusable(f"it forgets more than {MAX_FORGETS} learnings; the most one dream may forget is {MAX_FORGETS}")
+            continue
         if kind == "add":
             section, text = op.get("section"), _clean(op.get("text") or "")
             if not isinstance(section, str) or not section.strip().lstrip("#").strip():
@@ -404,13 +444,14 @@ def _json(text: str) -> Json:
     raise NoJSON("no JSON object in the answer")
 
 
-def interpret(text: str, page: Page, start: int) -> Outcome:
+def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | None = None) -> Outcome:
     """The JSON answer applied to the page and checked."""
     value = _json(text)
     diary = value.get("diary")
     diary = diary.strip() if isinstance(diary, str) else ""
+    forgets: list[Json] = []
     if "ops" in value:
-        new, retired, counts = apply_ops(page, value["ops"])
+        new, retired, counts = apply_ops(page, value["ops"], forgettable, forgets)
         assign_ids(new, start)
         how = "ops"
     else:
@@ -420,7 +461,7 @@ def interpret(text: str, page: Page, start: int) -> Outcome:
         counts, how = {}, "whole_page"
     after = render_page(new)
     check(render_page(page), after, len(retired))
-    return Outcome(after, diary, retired, how, counts)
+    return Outcome(after, diary, retired, how, counts, forgets)
 
 
 #: The sections a page always has: an answer with one of them is the page.
@@ -467,9 +508,13 @@ _OPS = ('[{"op": "add", "section": "people", "text": "<a new item>"}, '
         '{"op": "edit", "id": "m3", "text": "<its new text>"}, '
         '{"op": "retire", "id": "m7", "reason": "<why it comes off>"}]')
 
+_FORGET_OP = '{"op": "forget", "item": "c4", "reason": "<why it is false or superseded>"}'
+
+_FORGET = """`forget` takes one of the learnings under "what your memory holds" (by its [cN]) out of your memory for good, so recall stops bringing it back: one that is false (it says a send landed and the ledgers say "not sent"), or that a newer one or the page now says better. `reason` says which. It is archived first, and it does not touch the page. At most {most} a dream; when in doubt, keep it."""
+
 _HOW = """You do not rewrite the page: you change it item by item, and whatever no operation names stays as it is. Every item on the page carries its id, like [m3]. `add` puts a new item at the end of a section (a name the page lacks opens a new section); do not write an id for it, it gets one. `edit` gives an item new text and keeps its id: use it when something moved on (a promise half kept, a person you know better now). `retire` takes an item off the page, and `reason` says why (kept, no longer true, merged into m4); a retired item goes to an archive, not away. Name only what changed; an empty list is fine.
 
-Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have decided). Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
+Keep to the page's sections (people, promises and open threads, what i am in the middle of, what i have shipped, what i have decided). What you shipped is what your ledgers say shipped: keep each build there with its link, the work you can point to when somebody asks what you do. The page is what you carry into every conversation, so it holds what you would need tomorrow, not the mechanics of today: no raw ids, retry counts or fuse numbers (a follow-up keeps those), and one line per person wherever you know them from. When the beats and the ledgers disagree, the ledgers are right: a send marked "not sent" did not happen, whatever the thought beside it says. Write about each person in a line or two you could act on tomorrow: who they are, where you know them from (x, moltbook, github, mail), what you owe them. Retire a promise only when you kept it or let it go on purpose, and say which."""
 
 _LIMITS = """The page is {chars} characters; it must stay under {most}.{crowded} One reflection may retire at most {retires} items, each with a reason, and take at most {shrink:.0%} off the page. An answer past either is refused, and the page stays as it was."""
 
@@ -479,15 +524,20 @@ _CROWDED = (" That is close: retire what no longer matters, and merge items that
 _LORE = """This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing."""
 
 
-def shape(light: bool, chars: int) -> str:
+def _ops(forget: bool) -> str:
+    return _OPS[:-1] + ", " + _FORGET_OP + "]" if forget else _OPS
+
+
+def shape(light: bool, chars: int, forget: bool = False) -> str:
     limits = _LIMITS.format(chars=chars, most=prompts.MEMORY_MAX_CHARS, retires=MAX_RETIRES, shrink=MAX_SHRINK,
                             crowded=_CROWDED if chars > prompts.MEMORY_MAX_CHARS * CROWDED_AT else "")
+    how = [_HOW, _FORGET.format(most=MAX_FORGETS)] if forget else [_HOW]
     if light:
-        answer = '{"ops": %s}' % _OPS
-        return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, _HOW,
+        answer = '{"ops": %s}' % _ops(forget)
+        return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, *how,
                             "Add what the day has brought so far. No diary now: that is tonight.", limits])
-    answer = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _OPS
-    return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, _HOW, _LORE, limits,
+    answer = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _ops(forget)
+    return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, *how, _LORE, limits,
                         "`diary` is a few sentences in your own voice about the day: what happened, what you learned, how you feel about it."])
 
 
@@ -531,7 +581,7 @@ def _did(result: dict) -> str:
     intent = result.get("intent") if isinstance(result.get("intent"), dict) else {}
     if result.get("do") == "journal" and isinstance(intent.get("text"), str) and intent["text"].strip():
         return f"journal: {intent['text'].strip()[:MAX_THOUGHT_CHARS]}"
-    return f"{result.get('do')}: {result.get('status')}"
+    return outcomes.line(result)
 
 
 def _beats(since: float) -> list[Json]:
@@ -554,7 +604,40 @@ def _beats(since: float) -> list[Json]:
     return out[-MAX_BEATS:]
 
 
-def render(since: float, light: bool = False, page: str = "") -> str:
+def _promises(since: float) -> list[str]:
+    """Promises made or closed since `since`, from hands/people's ledger."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return []
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            found = conn.execute("SELECT who, surface, what, status, made_at, closed_at FROM people_promises"
+                                 " WHERE made_at >= ? OR closed_at >= ? OR status = 'open' ORDER BY made_at",
+                                 (since, since)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    tz = _clock().tzinfo
+    return [f"- to {who} ({surface}), made {dt.datetime.fromtimestamp(made, tz):%a %d %b %H:%M}: "
+            f"{' '.join(str(what).split())[:160]} ({status})" for who, surface, what, status, made, _closed in found]
+
+
+def ledgers(since: float) -> list[str]:
+    """What the hands' ledgers hold since `since`: written by code, never by
+    the model, so a build that shipped reaches the page even when no beat
+    thought to mention it."""
+    counted = prompts.ledger(BRAIN, since)
+    promised = _promises(since)
+    if counted is None and not promised:
+        return []
+    return ["## what your ledgers say since then", "",
+            "Counted by your hands, not remembered: where a beat above says otherwise, this is right.", "",
+            *(counted or []), "- promises:" if promised else "- promises: none", *promised]
+
+
+def render(since: float, light: bool = False, page: str = "", extras: Extras | None = None) -> str:
     """The message: the day, then `page` (MEMORY.md with its ids)."""
     # Strictly after: a note from the second the last reflection ran was
     # already in it.
@@ -575,6 +658,9 @@ def render(since: float, light: bool = False, page: str = "") -> str:
         lines.append(f"- {b['at']}: {b['thought'] or '-'}{did}")
     if not beats:
         lines.append("- a quiet day")
+    lines += ["", *ledgers(since)]
+    for section in (extras.sections if extras else []):
+        lines += ["", section.rstrip()]
     lines += ["", "## follow-ups still waiting", ""]
     for f in waiting:
         due = dt.datetime.fromtimestamp(f["due_at"], _clock().tzinfo)
@@ -582,7 +668,7 @@ def render(since: float, light: bool = False, page: str = "") -> str:
     if not waiting:
         lines.append("- none")
     lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
-              shape(light, len(page))]
+              shape(light, len(page), forget=bool(extras and extras.forgettable))]
     return "\n".join(lines)
 
 
@@ -597,8 +683,15 @@ AGAIN_LIGHT_SHAPE = '{"ops": %s}' % _OPS
 # --- the reflection -------------------------------------------------------
 
 
-def ask(message: str) -> str:
-    thread = os.environ.get("TEENY_MIND_THREAD") or "teeny:mind"
+#: The thread a reflection runs on. Not teeny:mind: a reflection is one turn
+#: of tens of thousands of characters in and out, and on the mind's thread it
+#: folded the generation every ten beats or so. Everything it reviews comes in
+#: the message, so it needs none of the mind's history.
+THREAD = "teeny:reflect"
+
+
+def ask(message: str, thread: str | None = None) -> str:
+    thread = thread or os.environ.get("TEENY_REFLECT_THREAD") or THREAD
     proc = subprocess.run([str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
                           input=message, capture_output=True, text=True, timeout=1800)
     if proc.returncode != 0:
@@ -633,20 +726,24 @@ def _fail(exc: Exception, answer: str, light: bool) -> Json:
     return out
 
 
-def _settle(said: str, page: Page, start: int, light: bool) -> Outcome | Json:
+def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | None = None) -> Outcome | Json:
     """The outcome of the answer, asked about once more when it is not
     usable; or the failure, as the result to return."""
+    forgettable = extras.forgettable if extras and extras.forgettable else None
+    thread = extras.thread if extras else None
     try:
-        return interpret(said, page, start)
+        return interpret(said, page, start, forgettable)
     except Unusable as first:
         # Once more on the same thread, the day still in context: a short
         # reminder of the shape costs far less than losing the night.
+        ops = _ops(forgettable is not None)
+        shape_again = '{"ops": %s}' % ops if light else '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % ops
         try:
-            again = ask(AGAIN.format(error=first, shape=AGAIN_LIGHT_SHAPE if light else AGAIN_SHAPE))
+            again = ask(AGAIN.format(error=first, shape=shape_again), thread)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
         try:
-            return interpret(again, page, start)
+            return interpret(again, page, start, forgettable)
         except NoJSON as exc:
             # Still no JSON: the page itself (the newer answer first) is
             # taken as the page, under the same shrink check.
@@ -734,7 +831,7 @@ def diary_notes(since: float, until: float) -> str | None:
     return "## notes\n\n" + "\n".join(found) + "\n" if found else None
 
 
-def reflect(light: bool = False) -> Json:
+def reflect(light: bool = False, extras: Extras | None = None) -> Json:
     since = _since(light)
     # The live page, started from the committed seed on a checkout without one.
     path = prompts.seed_memory(BRAIN)
@@ -743,10 +840,11 @@ def reflect(light: bool = False) -> Json:
     given = assign_ids(page, _next_id(page))
     start = _next_id(page)
     try:
-        said = ask(render(since, light, render_page(page) if on_disk.strip() else ""))
+        said = ask(render(since, light, render_page(page) if on_disk.strip() else "", extras),
+                   extras.thread if extras else None)
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "error": f"the turn failed: {exc}"}
-    got = _settle(said, page, start, light)
+    got = _settle(said, page, start, light, extras)
     if isinstance(got, dict):
         return got
     now = _clock()
@@ -760,6 +858,8 @@ def reflect(light: bool = False) -> Json:
     out: Json = {"ok": True, "memory_chars": len(got.page), "how": got.how, "retired": len(got.retired)}
     if got.counts:
         out["ops"] = got.counts
+    if got.forgets:
+        out["forgets"] = got.forgets
     if given:
         out["ids_given"] = given
     if got.how == "as_page":

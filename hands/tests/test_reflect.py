@@ -199,7 +199,7 @@ class ReflectTest(unittest.TestCase):
             return []
         return [c["params"] for c in map(json.loads, self.calls.read_text().splitlines()) if c["method"] == "inference_agent_chat"]
 
-    def test_the_day_is_looked_back_on_from_the_mind_thread(self):
+    def test_the_day_is_looked_back_on_from_a_thread_of_its_own(self):
         stimuli.note("builds a cli for crabs", who="ana")
         stimuli.follow_up(T0 + 86400, "did ana ship?")
         tick_log = self.root / "state" / "tick" / "runs.jsonl"
@@ -210,7 +210,9 @@ class ReflectTest(unittest.TestCase):
         got = self.reflect()
         self.assertTrue(got["ok"], got)
         [chat] = self.chats()
-        self.assertEqual((chat["agent_id"], chat["thread_id"]), ("teeny", "teeny:mind"))
+        # Not teeny:mind: a reflection's 45k-character turns folded the
+        # mind's thread every ten beats. The day comes in the message.
+        self.assertEqual((chat["agent_id"], chat["thread_id"]), ("teeny", "teeny:reflect"))
         for bit in ("# end of the day", "builds a cli for crabs", "about ana", "did ana ship?", "ana seems fun",
                     "- [m1] nobody yet", '"ops"', '"retire"'):
             self.assertIn(bit, chat["message"])
@@ -373,7 +375,7 @@ class ReflectTest(unittest.TestCase):
         got = self.reflect()
         self.assertTrue(got["ok"], got)
         first, again = self.chats()
-        self.assertEqual((again["agent_id"], again["thread_id"]), ("teeny", "teeny:mind"))
+        self.assertEqual((again["agent_id"], again["thread_id"]), ("teeny", "teeny:reflect"))
         self.assertIn("JSON object only", again["message"])
         self.assertIn('"ops"', again["message"])
         self.assertIn('"diary"', again["message"])
@@ -469,6 +471,46 @@ class ReflectTest(unittest.TestCase):
         self.assertIn("journal: crabs are a lot", message)
         self.assertNotIn("05:00:00Z", message)
         self.assertNotIn("05:05:00Z", message)
+
+    def test_a_send_that_failed_is_reviewed_with_its_reason_not_as_a_bare_status(self):
+        self.beats({"at": "2026-09-14T06:00:00Z", "ok": True, "kind": "beat", "thought": "receipt delivered",
+                    "results": [{"do": "comment_moltbook", "status": "error", "intent": {"post_id": "p1"},
+                                 "result": {"ok": False, "error": "Moltbook answered 400: Bad Request"}},
+                                {"do": "reply_x", "status": "done", "intent": {"to": "111"},
+                                 "result": {"ok": True, "dry_run": True}}]})
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("comment_moltbook on p1: error, not sent (Moltbook answered 400: Bad Request)", message)
+        self.assertIn("reply_x on 111: dry run, not sent", message)
+
+    def test_the_ledgers_say_what_shipped_and_what_was_promised(self):
+        # Build 4 shipped on 2026-11-13 and never reached the page, which was
+        # written only from what the mind chose to say about its day.
+        import sqlite3
+        state = self.root / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(state / "hands.db")
+        conn.executescript("""
+            CREATE TABLE build_jobs (id INTEGER PRIMARY KEY, repo TEXT, summary TEXT, status TEXT, shipped_at REAL, repo_url TEXT);
+            CREATE TABLE x_posts (id TEXT, kind TEXT, text TEXT, created_at REAL);
+            CREATE TABLE people_promises (id INTEGER PRIMARY KEY, surface TEXT, who TEXT, what TEXT, made_at REAL, status TEXT, closed_at REAL);
+        """)
+        conn.execute("INSERT INTO build_jobs VALUES (4, 'csvstat', 'csvstat: a CSV column profiler', 'shipped', ?, 'https://github.com/teenydroid/csvstat')", (T0 - 3600,))
+        conn.execute("INSERT INTO build_jobs VALUES (1, 'old', 'old thing', 'shipped', ?, 'https://github.com/teenydroid/old')", (T0 - 9 * 86400,))
+        conn.execute("INSERT INTO x_posts VALUES ('1', 'reply', 'gm', ?)", (T0 - 60,))
+        conn.execute("INSERT INTO people_promises VALUES (1, 'moltbook', 'nyna', 'show the receipt', ?, 'open', NULL)", (T0 - 7200,))
+        conn.commit()
+        conn.close()
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn("## what your ledgers say", message)
+        self.assertIn("https://github.com/teenydroid/csvstat", message)
+        self.assertNotIn("teenydroid/old", message)
+        self.assertIn("nyna", message)
+        self.assertIn("1 repl", message)
+        self.assertIn("what i have shipped", message)
 
     # --- midday: bin/reflect --light ---------------------------------------
 
@@ -771,10 +813,14 @@ class ReflectTest(unittest.TestCase):
             time.sleep(0.1)
         self.fail("timed out waiting")
 
-    def test_the_pinned_reflections_run_detached(self):
+    def test_the_pinned_jobs_dream_detached_and_no_longer_reflect(self):
+        # bin/dream is the reflection with more to go on (bin/lib/dream.py);
+        # bin/reflect stays for a run by hand.
         jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
-        self.assertEqual(jobs["reflect"]["command"], "bin/reflect --detach")
-        self.assertEqual(jobs["reflect-midday"]["command"], "bin/reflect --light --detach")
+        self.assertEqual(jobs["dream"]["command"], "bin/dream --detach")
+        self.assertEqual(jobs["dream-midday"]["command"], "bin/dream --light --detach")
+        self.assertNotIn("reflect", jobs)
+        self.assertNotIn("reflect-midday", jobs)
 
     def test_the_cron_call_starts_the_night_and_returns(self):
         stimuli.note("builds a cli for crabs", who="ana")

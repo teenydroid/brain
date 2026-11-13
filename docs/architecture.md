@@ -197,7 +197,7 @@ brain/
   calendar.json                        a posting calendar that nothing reads
   cron.toml                            the brain's schedule; seeded by bin/seed-cron
   # gitignored: storage.db* (the core's state and encrypted secrets), agent/prompts/ (built at boot),
-  #             MEMORY.md (Teeny's live page, rewritten on the box by bin/reflect),
+  #             MEMORY.md (Teeny's live page, rewritten on the box by bin/dream),
   #             IDENTITY.md, ROLE.md, STYLE.md (the core's persona defaults)
 # beside it, also gitignored: /.openhuman/ (config), /secrets/ (master key, env files), /state/ (hands.db and the rest)
 ```
@@ -238,7 +238,7 @@ handed four things beyond the message:
 - `MEMORY.md`, Teeny's own page of things to keep in mind (people, promises,
   what it is in the middle of, what it decided), capped at 12k characters.
   It is the persistence that survives anything, and no agent's file tool can
-  write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/reflect`
+  write it (`BRAIN_FORBIDDEN`). It lives only on the box: `bin/dream`
   rewrites it there, so it is gitignored, and the repository keeps where it
   started, `MEMORY.seed.md`. Building the prompts starts the live page from
   the seed when there is none (a fresh checkout, the first boot) and never
@@ -248,12 +248,19 @@ handed four things beyond the message:
   and logs it after (it skips both on a turn with no thread). The evals draft
   each sample on a fresh `eval:<uuid>` thread and stay blind to it.
 - Recall and the memory block: `[memory.recall] budget_tokens = 3000` before
-  each turn, and a 1500-token `memory_block` at each new generation.
+  each turn, and a `memory_block` at each new generation (2000 tokens for
+  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 3000` makes each
+  turn wait up to 3 s for the pack recalled for its own message; unset, a turn
+  only took the pack an earlier turn left in a cache that lives 60 s, so a
+  beat five minutes after the last got none. `build_beliefs_every = 0`: a beat
+  logs its whole batch as "the user", and beliefs built from that read "the
+  user energy level 56". Every `memory_learn` from tick and reflect carries
+  its date, since the core dates only conversation hits.
 
 A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
 `bin/lib/core_sections/context.py`): the core seals the generation and opens
-the next with a free-form summary of it plus the last 20k tokens verbatim.
-The sealed generation stays on disk.
+the next with a summary of it plus the last 40k tokens verbatim. The sealed
+generation stays on disk.
 
 **One mind.** Every surface writes to one inbox (`hands/stimuli`):
 
@@ -329,6 +336,7 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             │
             ├── paced refusal ──► wait and retry once, or defer to deferred.json
             ├── held by a judge outage ──► defer to deferred.json (reply_x, comment_moltbook, reply_mail)
+            ├── refused as too long ──► one rewrite from the mind, measured, sent once more
             │
             └── outcome ──► back into hands/stimuli for the next beat
    then: one line in state/tick/runs.jsonl, and a journal entry
@@ -407,6 +415,30 @@ reached ..., it was screened again and went out by itself"; one the judge
 still cannot screen an hour after the mind decided it goes back to the mind
 as refused, saying so.
 
+**An over-long draft is rewritten once, in the same beat.** The model
+cannot count characters, so a reply over X's 280 used to cost a whole beat
+per try (on 2026-11-13 a `reply_x` was refused at 404, then at 306, before a
+third beat's draft fit). The refusal already carries the measure: the
+guard's "the text is 404 characters, over the 280 limit." (`gate.LIMITS`,
+in UTF-16 units; `body` on Moltbook, mail and GitHub) or `hands/x`'s own
+`rule: length` with `length` and `limit`. For `reply_x`, `post_x`,
+`comment_moltbook`, `reply_mail`, `say_telegram` and `comment_gh`
+(`REWRITTEN` in `bin/lib/tick.py`) such a refusal of the intent's own words
+(not a title or a subject) gets one more ask on the `teeny:mind` thread: the
+exact length, the limit, and "rewrite it to at most N characters, keep the
+meaning and your voice; answer with the text only", where N is the limit
+less 20. The answer is unwrapped (a code fence, one pair of quotes) and
+measured here the way the guard measures; when it fits the limit it goes
+through the same hand, guard and all, as the same intent (no new action
+under the cap of 8). When it does not fit, comes back empty, or the ask
+fails, the intent stays refused with the hand's first reason, and is never
+cut. There is one rewrite per intent: a rewrite the hand refuses again is
+refused. The ask is skipped when less than 20 s of the beat's budget is
+left, and is given only what remains. The entry says `rewritten` (true or
+false) and `rewrite` (`length`, `limit`, `target`, `new_length`, or why it
+was `skipped` or `failed`), and the outcome tells the mind "you rewrote it
+to N characters in the same beat" or that its one rewrite was still over.
+
 **The cron call does not wait for the beat.** The job runs `bin/tick
 --detach`: `bin/lib/detach.py` starts the beat in its own session (stdout
 and stderr to `state/tick/beat.log`, rotated to `beat.log.1` past 1 MB) and
@@ -442,14 +474,48 @@ The last three are also `idle: true`, which the reflection passes over
 `bin/tick` writes a journal entry (Teeny's local time, the thought, its own
 `journal` lines, and what it did as `do on target: status`; never the words
 sent or received) to `state/journal/<local date>.md` and to the core's
-memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`).
+memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`). The
+thought and the journal lines are written before any hand runs, so they can
+claim a send that never landed; the statuses (`bin/lib/outcomes.py`) say
+"not sent" for a dry run or a failed or refused send, with the hand's reason,
+and the memory entry puts what happened first and the mind's own words after,
+marked as written before the hands answered.
 
-**Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
-`bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
-to bring `MEMORY.md` up to date. It works from what the mind chose to
-remember (`mind_notes`), what it thought and did each beat that thought,
-quiet ones included (`state/tick/runs.jsonl`), the follow-ups still waiting,
-and the page as it stands.
+**What a beat shows.** The header carries the date with its year, the time in
+Teeny's calendar and in UTC, and how old Teeny is ("You woke on Wednesday 11
+November 2026: today is day 3", `rhythm.age_line`, `TEENY_BORN`). A promise in
+`## people in this batch` says how long ago it was made and when it is due,
+relative, never a bare date. An X mention carries the post it answers (or the
+thread's first post) and what Teeny last said to its author, and a beat with X
+in it, or a habit that may post, ends with what Teeny said on X over the last
+day, replies included (`teeny_hands.x.recall`, from the ledgers, never from X).
+
+**Dreaming.** Twice a day (the pinned `dream` job at 02:00 IST and
+`dream-midday` at 14:00) `bin/dream` asks the `teeny` agent, on a thread of
+its own (`teeny:dream`), to bring `MEMORY.md` up to date from everything
+since the last dream. Everything it reviews comes in the message, so it
+needs none of the mind's thread (a reflection on `teeny:mind`, 45k
+characters in and as much out, folded the mind's generation every ten beats
+or so). It works from:
+
+- what the mind chose to remember (`mind_notes`);
+- what it thought and did each beat that thought, quiet ones included
+  (`state/tick/runs.jsonl`, each send with how it ended and why);
+- what the hands' ledgers counted (builds shipped with their links, posts
+  and replies, promises; written by code, and right where a beat says
+  otherwise);
+- what people said on the outside surfaces (X, Moltbook, mail, Telegram,
+  GitHub, the wallet), who and when, clipped;
+- the tasks: build requests and their status, build jobs, browser tasks;
+- the learnings the core's memory took in (`memory_items_list`, kind
+  `learning`: the journal, `remember`, the diary; never a conversation),
+  newest first, each with an alias such as `[c3]`;
+- the follow-ups still waiting, and the page as it stands.
+
+The page keeps a `what i have shipped` section, and no raw ids or retry
+counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
+with one more operation, `forget`, and a snapshot at the end
+(`bin/lib/dream.py`). `bin/reflect` still runs a plain reflection by hand.
 
 The page is never rewritten whole, because a page rewritten twice a day
 collapses into thin summaries (ACE, arXiv:2510.04618;
@@ -472,6 +538,15 @@ What no operation names stays as it is. A retired item is not deleted: it
 moves to `state/reflect/retired.jsonl` with its section, text, reason and
 the time, so a promise never leaves the page unrecorded (Zep's "invalidate,
 don't delete").
+
+A dream may also `{"op": "forget", "item": "c3", "reason": "..."}`: take a
+learning that is false or superseded out of the core's memory, so recall
+stops bringing it back (a journal line that said a send landed when the
+ledgers say "not sent"). Only an item it was shown, each with a reason, at
+most 20 a dream (`MAX_FORGETS`); past that, or with an unknown item, the
+answer is asked about again like any unusable one. Forgetting leaves the
+page alone. Each learning is written to `state/dream/forgotten.jsonl` (id,
+text, reason) before the core is asked (`memory_forget`).
 
 The shrink check in `bin/lib/reflect.py` then refuses a result that retires
 more than 8 items, or that takes more than 30% off the page (a loss under
@@ -496,16 +571,31 @@ markdown (with a trailing `## diary` section as the diary, or no diary and
 `diary_missing`). Its items keep the id they carry or the id of the old
 item with the same text, and an old item it leaves off counts as retired.
 Anything else changes nothing. Like the beat, the pinned jobs run it
-detached (`bin/reflect --detach`, log in `state/reflect/reflect.log`) under
-a `reflect` lock: one long turn can outlast the core's 300 s, and a second
-reflection never starts while one is running.
+detached (`bin/dream --detach`, log in `state/dream/dream.log`) under the
+`reflect` lock: one long turn can outlast the core's 300 s, and a second
+dream (or a reflection by hand) never starts while one is running.
 
-At midday (the pinned `reflect-midday` job, 14:00 IST) `bin/reflect --light`
-does the same for the page alone, so the afternoon's prompts carry the
-morning. It writes no diary and teaches nothing to the core. It reviews what
-came since the later of the last night and the last midday, and stamps
-`state/reflect/light.at`. Only the night moves `state/reflect/last.at`, so
-the night still looks back on the whole day.
+At midday (`dream-midday`, `bin/dream --light`) it does the same for the
+page alone, so the afternoon's prompts carry the morning. It writes no diary
+and teaches nothing to the core. It reviews what came since the later of the
+last night and the last midday, and stamps `state/reflect/light.at`. Only the
+night moves `state/reflect/last.at`, so the night still looks back on the
+whole day.
+
+**The page in public.** Every dream that changed the page leaves a snapshot
+of it, `state/dream/snapshots/<UTC stamp>-<night|midday>.md` (a JSON header
+with the dream's counts, then the page). With `MEMORY_PUBLISH=1`, the
+receipts job (02:30 and 14:30 IST) publishes each new one to the diary
+repository as `memory/MEMORY.md`, one commit per snapshot (`memory: night
+2026-11-14 (+3 ~5 -2, forgot 4)`), so `git log -p memory/MEMORY.md` is how
+the page changed. It is free text about real people, so it is redacted by
+code first (chat ids and other long numbers, email addresses, wallet
+addresses other than $TINY's, URL queries, links off the guard's allowlist),
+then takes the road every public word takes: the secret gate, then the guard,
+and only the guard's text goes out. A held snapshot is withheld for good
+(`state/dream/withheld.json`, the category only). `memory/chain.jsonl`
+hash-chains the snapshots; the newest line matches `memory/MEMORY.md`
+(`bin/lib/diary_memory.py`).
 
 How the day's beats become the page every prompt carries:
 
@@ -516,15 +606,19 @@ How the day's beats become the page every prompt carries:
    ├─► follow-ups still waiting       in hands/stimuli ───────────────────────┤
    └─► state/journal/<date>.md        and memory_learn (not read by reflect)  │
                                                                               │
- bin/reflect --light (14:00 IST)  ─┐                                          │
- bin/reflect         (02:00 IST)  ─┴─► the teeny agent on teeny:mind ◄────────┘
+ bin/dream --light (14:00 IST)    ─┐                                          │
+ bin/dream         (02:00 IST)    ─┴─► the teeny agent on teeny:dream ◄───────┘
                                        + MEMORY.md as it stands, with ids
+                                       + what people said, the tasks, the ledgers
+                                       + the core's learnings since, as [cN]
                                               │
                                               ▼
-                     ops (add / edit / retire by [mN] id), then the shrink check
+                     ops (add / edit / retire by [mN] id, forget by [cN]), then the shrink check
                      new brain/MEMORY.md (at most 12k chars, never committed); old page in state/reflect/
                      retired items to state/reflect/retired.jsonl
+                     forgotten learnings to state/dream/forgotten.jsonl, then memory_forget
                      night only: diary to state/diary/<date>.md and memory_learn
+                     a snapshot in state/dream/snapshots/ ──► bin/receipts ──► diary memory/
                                               │
                                               ▼
                      bin/lib/prompts.py rebuilds brain/agent/prompts/<id>.md
@@ -575,7 +669,7 @@ are built at boot (§4a).
 
 | Agent | Started by | Tools |
 |---|---|---|
-| `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/reflect` | none |
+| `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/dream` (thread `teeny:dream`), `bin/reflect` by hand (`teeny:reflect`) | none |
 | `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
@@ -604,9 +698,9 @@ Every scheduled job is in one of two files:
   - `mail-inbound` (`bin/mail`, every 5 minutes);
   - `tick` (`bin/tick --detach`, every 5 minutes, two minutes after each
     ingest);
-  - `reflect` (`bin/reflect --detach`, 02:00 IST);
-  - `reflect-midday` (`bin/reflect --light --detach`, 14:00 IST);
-  - `receipts`, `stats-snapshot` and `world-snapshot`;
+  - `dream` (`bin/dream --detach`, 02:00 IST);
+  - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
+  - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");

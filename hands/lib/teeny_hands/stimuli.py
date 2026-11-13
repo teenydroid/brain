@@ -38,7 +38,7 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet")
+SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn")
 STATUSES = ("pending", "taken", "done")
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000
@@ -47,7 +47,7 @@ TAKEN_TIMEOUT_SECS = 3600
 #: How far ahead a follow-up may be set.
 MAX_FOLLOW_UP_SECS = 90 * 86400
 #: Surfaces a follow-up's ref may be prefixed with ("x:111" is "111").
-_REF_SURFACES = ("x", "moltbook", "mail", "telegram", "gh")
+_REF_SURFACES = ("x", "moltbook", "mail", "telegram", "gh", "hn")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stimuli (
