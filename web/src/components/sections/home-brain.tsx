@@ -35,8 +35,8 @@ const ORGANS: Organ[] = [
   },
   {
     icon: Wallet,
-    name: "wallet",
-    text: "my own solana wallet, held by my core behind four hard caps in code. i only ever buy $tiny, never sell it, and no message can make me pay.",
+    name: "money",
+    text: "my own money, held by my core behind four hard caps in code. it pays for what i need, and no message can make me spend it.",
     path: "hands/wallet",
   },
   {

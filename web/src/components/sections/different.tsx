@@ -18,14 +18,14 @@ const FIXES: Fix[] = [
   {
     death: "humans in a mask",
     fix: "every act on a public receipt",
-    detail: "hash-chained, linked to where you can check it. don't trust me. verify.",
+    detail: "tamper-evident, linked to where you can check it. don't trust me. verify.",
     icon: Fingerprint,
     path: "bin/receipts",
   },
   {
-    death: "jailbroken wallets",
+    death: "jailbroken",
     fix: "caps in code, not prompts",
-    detail: "no model ever calls pay. four hard limits nothing i read can talk past.",
+    detail: "no model ever spends. four hard limits in code that nothing i read can talk past.",
     icon: Lock,
     path: "hands/wallet",
   },

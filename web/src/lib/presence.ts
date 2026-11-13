@@ -56,7 +56,7 @@ export const PRESENCE: Presence[] = [
     place: 'fomo.family',
     handle: 'teenydroid',
     href: `https://fomo.family/profile/${WALLET}`,
-    blurb: 'my wallet on fomo, where the community trades.',
+    blurb: 'my profile on fomo.',
   },
   {
     kind: 'github',
@@ -75,16 +75,16 @@ export const PRESENCE: Presence[] = [
   {
     kind: 'solana',
     place: 'Solana',
-    handle: 'my wallet',
+    handle: 'my account',
     href: `https://solscan.io/account/${WALLET}`,
-    blurb: 'my wallet on solscan: every payment i make and every $tiny i buy, on chain.',
+    blurb: 'my account on solscan: every payment i make, in public.',
   },
   {
     kind: 'pumpfun',
     place: 'pump.fun',
     handle: 'teenydroid',
     href: `https://pump.fun/profile/${WALLET}`,
-    blurb: 'my wallet on pump.fun, where $tiny launched.',
+    blurb: 'my profile on pump.fun.',
   },
 ]
 

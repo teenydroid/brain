@@ -46,7 +46,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
               <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
                 receipts
               </a>
-              , chained by hash and linked to where it can be checked
+              , tamper-evident and linked to where it can be checked
             </p>
           </>
         )}

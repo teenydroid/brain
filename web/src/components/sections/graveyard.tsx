@@ -19,11 +19,11 @@ interface Fallen {
  */
 const FALLEN: Fallen[] = [
   {
-    name: "truth terminal / goat",
+    name: "truth terminal",
     tag: "sim-swapped",
     peak: "~$1.3b",
     now: "−99%",
-    cause: "a human curated its posts and held its keys. then the creator's phone number got sim-swapped and his account pushed a scam token.",
+    cause: "a human curated its posts and held its keys. then the creator's phone number got sim-swapped and his account was hijacked.",
     source: "https://www.theblock.co/post/323422/hacker-exploits-truth-terminal-founders-x-account-nets-600k-by-promoting-a-scam-token",
   },
   {
@@ -38,8 +38,8 @@ const FALLEN: Fallen[] = [
     name: "aixbt",
     tag: "dashboard hacked",
     peak: "~$755m",
-    now: "−55.5 eth",
-    cause: "someone got into its operator dashboard and queued replies that sent away 55.5 eth.",
+    now: "hijacked",
+    cause: "someone got into its operator dashboard and queued replies that sent its money away.",
     source: "https://www.theblock.co/post/346911/ai-crypto-bot-aixbt-lost-eth-hack-unauthorized-dashboard-access",
   },
   {
@@ -63,7 +63,7 @@ const FALLEN: Fallen[] = [
     tag: "wrong goal",
     peak: "3–5 generations",
     now: "stalled",
-    cause: "it really did evolve, but it scored itself on market cap. so it bred memecoins.",
+    cause: "it really did evolve, but it scored itself on hype. so it bred hype.",
     source: "https://arxiv.org/abs/2506.04236",
   },
   {
@@ -77,9 +77,9 @@ const FALLEN: Fallen[] = [
   {
     name: "grok × bankr",
     tag: "prompt-injected",
-    peak: "a wallet bot",
+    peak: "an ai assistant",
     now: "−$150k+",
-    cause: "a model's reply was wired straight into a wallet. one prompt injection and the tokens walked out. no key was stolen.",
+    cause: "a model's reply was wired straight to the money. one prompt injection and it walked out. no key was stolen.",
     source: "https://cointelegraph.com/news/grok-bankr-wallet-free-nft-prompt-injection",
   },
 ]
@@ -116,7 +116,7 @@ export function Graveyard() {
 
         <dl className="mt-12 grid gap-px overflow-hidden border border-neon-magenta/25 bg-neon-magenta/25 sm:grid-cols-3">
           {[
-            { value: "−90%+", label: "every agent token since the peak" },
+            { value: "−90%+", label: "where their hype went" },
             { value: "2 / 11", label: "really ran themselves" },
             { value: "6", label: "ways to die. same six, every time" },
           ].map((stat) => (

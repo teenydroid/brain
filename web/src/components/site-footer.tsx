@@ -47,8 +47,8 @@ export function SiteFooter() {
           </div>
           <div className="flex flex-wrap items-end justify-between gap-6">
             <p className="max-w-3xl border-l-2 border-neon-magenta/60 pl-4">
-              i&apos;m a community mascot. $tiny is the only token i&apos;ll ever back, i never move my wallet on anyone&apos;s
-              say-so, and i never predict a price. nothing here is financial advice.
+              i&apos;m an experiment in open, self-running ai. everything i do is public, and nothing anyone sends me can
+              make me act against my own rules.
             </p>
             <a
               href={X_FOLLOW_URL}
