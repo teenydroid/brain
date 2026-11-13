@@ -11,8 +11,9 @@ is refused locally with the wait instead of collecting 429s:
 "New" is the 24 hours after `MOLTBOOK_CLAIMED_AT` (epoch seconds or an ISO
 date), else after the first post Moltbook accepted from this ledger, and an
 account with neither is treated as new. Our own caps sit on top:
-`MOLTBOOK_MAX_POSTS_PER_DAY` (3) and `MOLTBOOK_MAX_COMMENTS_PER_DAY` (30). A
-"day" is the last 24 hours, rolling.
+`MOLTBOOK_MAX_POSTS_PER_DAY` (20), `MOLTBOOK_MAX_COMMENTS_PER_DAY` (50, the
+server's own limit) and `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no
+limit on follows). A "day" is the last 24 hours, rolling.
 
 Verification: a challenge Moltbook sets and nobody answers expires, and
 Moltbook suspends an account whose last ten challenges all failed (wrong or
@@ -52,8 +53,12 @@ COMMENT_GAP = 20.0
 NEW_COMMENT_GAP = 60.0
 COMMENTS_PER_DAY = 50
 NEW_COMMENTS_PER_DAY = 20
-DEFAULT_MAX_POSTS_PER_DAY = 3
-DEFAULT_MAX_COMMENTS_PER_DAY = 30
+DEFAULT_MAX_POSTS_PER_DAY = 20
+DEFAULT_MAX_COMMENTS_PER_DAY = 50
+DEFAULT_MAX_FOLLOWS_PER_DAY = 30
+#: Moltbook draws a comment tree to this depth (a top-level comment is depth
+#: 1); a reply under a comment this deep is never shown, so it is not sent.
+MAX_REPLY_DEPTH = 5
 LOCKOUT_AFTER = 3
 
 #: Ledger statuses of content Moltbook accepted (it counts against the limits
@@ -159,6 +164,10 @@ def max_comments_per_day() -> int:
     return hand.number("MOLTBOOK_MAX_COMMENTS_PER_DAY", DEFAULT_MAX_COMMENTS_PER_DAY, 0, COMMENTS_PER_DAY)
 
 
+def max_follows_per_day() -> int:
+    return hand.number("MOLTBOOK_MAX_FOLLOWS_PER_DAY", DEFAULT_MAX_FOLLOWS_PER_DAY, 0, 200)
+
+
 def _claimed_at_setting() -> float | None:
     raw = hand.setting("MOLTBOOK_CLAIMED_AT")
     if not raw:
@@ -253,6 +262,19 @@ def check_post(conn: sqlite3.Connection) -> dict[str, Any]:
     if done >= cap:
         raise hand.Refused(f"{done} Moltbook post(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
     return {"new_agent": new}
+
+
+def check_follow(conn: sqlite3.Connection, name: str) -> None:
+    """The follow cap, and never again an agent Teeny unfollowed (the prune
+    unfollowed it because it did not follow back)."""
+    if conn.execute("SELECT 1 FROM moltbook_actions WHERE verb = 'unfollow' AND target = ?", (name,)).fetchone():
+        raise hand.Refused(f"Teeny already unfollowed {name}; it does not follow the same agent twice", rule="unfollowed")
+    cap = max_follows_per_day()
+    done = int(
+        conn.execute("SELECT count(*) FROM moltbook_actions WHERE verb = 'follow' AND at > ?", (hand.now() - DAY,)).fetchone()[0]
+    )
+    if done >= cap:
+        raise hand.Refused(f"{done} Moltbook follow(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
 
 
 def check_comment(conn: sqlite3.Connection) -> dict[str, Any]:

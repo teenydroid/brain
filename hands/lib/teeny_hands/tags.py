@@ -16,8 +16,8 @@ from typing import Any, Mapping
 
 from . import hand
 
-#: Lowercase letters, digits and dashes, starting with a letter.
-_FORMAT = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+#: Lowercase letters, digits, dashes and underscores, starting with a letter.
+_FORMAT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 FIELDS = ("format", "experiment")
 #: The ledger columns that hold them, for `hand.add_columns`.
 COLUMNS = {"format": "TEXT", "experiment": "INTEGER"}
@@ -32,7 +32,7 @@ def split(body: Any) -> tuple[Any, dict[str, Any]]:
     fmt = body.get("format")
     if fmt is not None:
         if not isinstance(fmt, str) or not _FORMAT.match(fmt.strip().lower()):
-            raise hand.HandError('"format" is a short tag: lowercase letters, digits and dashes, at most 32')
+            raise hand.HandError('"format" is a short tag: lowercase letters, digits, - and _, at most 32')
         fmt = fmt.strip().lower()
     experiment = body.get("experiment")
     if experiment is not None:

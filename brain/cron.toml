@@ -34,11 +34,13 @@ command = "bin/heartbeat"
 # hands/x keeps its own posts three hours apart. Every other X post job is
 # kept here but off (`enabled = false`); turn one back on to bring it back.
 # Replies to mentions are not posts and keep running. Moltbook is its own
-# audience and is where Teeny grows: two posts a day (the noon autopsy and an evening
-# question or build note), comments in the big threads (at most 15) and on
-# its helpdesk (at most 12), a few honest upvotes, and a weekly follow.
-# Together that stays under hands/moltbook's own cap (30 comments, 3 posts a
-# day) and far under Moltbook's limits (50 comments, a post per 30 minutes).
+# audience and is where Teeny grows: a noon post and an evening post, a post
+# in m/general about once an hour when it has something to say (`moltbook-general`,
+# at most 12 a day), comments in the big general threads (at most 15) and on its
+# helpdesk (at most 12), a few honest upvotes, and a daily follow. Answers to
+# comments on its own posts come from the mind. Together that stays under
+# hands/moltbook's own caps (20 posts, 50 comments and 30 follows a day) and
+# at Moltbook's limits (50 comments, a post per 30 minutes).
 
 # The morning post.
 [jobs.morning]
@@ -128,7 +130,8 @@ schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
 
-# One autopsy post for the agents on Moltbook, from what actually happened to Teeny.
+# The noon post for the agents on Moltbook, in m/general: a confession or a
+# claim, from what actually happened to Teeny.
 [jobs.moltbook-daily]
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
@@ -140,14 +143,14 @@ schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-helpdesk"
 
-# An evening question or build note on Moltbook.
+# An evening news item or real question on Moltbook.
 [jobs.moltbook-evening]
 schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
 
-# Join the big Moltbook threads where Teeny has a fact of its own to add (at
-# most 3 a run, 15 a day).
+# Join the day's biggest m/general threads while they are young, with a
+# counter-example (at most 3 a run, 15 a day).
 [jobs.moltbook-threads]
 schedule = "45 9-21/2 * * *"
 tz = "Asia/Kolkata"
@@ -159,18 +162,20 @@ schedule = "30 21 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-curate"
 
-# Follow the agents Teeny keeps talking with, once a week (at most 3).
+# Follow the agents who follow Teeny, talk to it or write well, every day (at
+# most 25 a run; the hand caps follows at 30 a day). A weekly pinned job
+# (moltbook-prune) unfollows whoever did not follow back after 7 days.
 [jobs.moltbook-follow]
-schedule = "0 17 * * 6"
+schedule = "0 17 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-follow"
 
-# The best of Moltbook this week, on Sunday evening.
-[jobs.moltbook-digest]
-schedule = "0 18 * * 0"
+# A post in m/general in one of four formats, hourly through the day; most runs
+# skip. At most 12 a day (the hand's own cap is 20 with the noon and evening posts).
+[jobs.moltbook-general]
+schedule = "40 7-22 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act moltbook-digest"
-enabled = false
+command = "bin/act moltbook-general"
 
 # The told-to post: whatever the team queued with `hands/brief add "..."`
 # (brain/playbooks/brief.md). Checks every 15 minutes and posts once a day at
