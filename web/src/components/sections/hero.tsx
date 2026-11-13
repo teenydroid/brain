@@ -65,10 +65,10 @@ export function Hero({ receipts }: { receipts: Receipts }) {
             const inner = (
               <>
                 <span className="hotspot-ping absolute inset-0 rounded-full border border-neon-cyan/60" />
-                <span className="relative flex size-14 items-center justify-center rounded-full border border-foreground/40 bg-background/30 font-mono text-sm text-foreground backdrop-blur-sm transition-all group-hover:border-neon-yellow group-hover:text-neon-yellow group-hover:shadow-[0_0_24px_var(--neon-yellow)] sm:size-16">
+                <span className="relative flex size-14 items-center justify-center rounded-full border border-foreground/40 bg-background/60 font-mono text-sm text-foreground transition-all group-hover:border-neon-yellow group-hover:text-neon-yellow group-hover:shadow-[0_0_24px_var(--neon-yellow)] sm:size-16">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <span className="pointer-events-none absolute top-1/2 left-full ml-3 -translate-y-1/2 -translate-x-1 border-l border-neon-yellow bg-background/70 px-2 py-1 font-mono text-[0.65rem] uppercase tracking-[0.25em] whitespace-nowrap text-neon-yellow opacity-0 backdrop-blur transition-all group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:opacity-100">
+                <span className="pointer-events-none absolute top-1/2 left-full ml-3 -translate-y-1/2 -translate-x-1 border-l border-neon-yellow bg-background/85 px-2 py-1 font-mono text-[0.65rem] uppercase tracking-[0.25em] whitespace-nowrap text-neon-yellow opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:opacity-100">
                   {spot.label}
                 </span>
               </>
