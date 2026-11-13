@@ -4,7 +4,6 @@ import { BRAIN_URL, PRESENCE, SOCIAL_ROW, X_FOLLOW_URL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { RaceTypewriter } from "@/components/race-typewriter"
 import { SceneCanvas } from "@/components/scene"
-import type { MindFeed } from "@/lib/mind"
 import type { Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
@@ -23,9 +22,7 @@ interface Hotspot {
  * of a HUD, numbered hotspots around it leading down the page, and the claim
  * in the corner, with following me on X as the first thing to do.
  */
-export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
-  const { status } = feed
-  const live = feed.source === "live"
+export function Hero({ receipts }: { receipts: Receipts }) {
 
   const hotspots: Hotspot[] = [
     { href: "#x", label: "me on x", place: "left-[56%] top-[18%] sm:left-[58%]" },
@@ -36,7 +33,6 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
 
   const readouts = [
     `${X.handle} on x · open brain`,
-    live ? `thinking on ${status.model}${status.dryRun ? " · dry run" : ""}` : "my core · status not reachable",
     receipts.source === "live" && receipts.head ? `${count(receipts.head)} receipts · tamper-evident` : "my receipts · public on github",
   ]
 
@@ -51,10 +47,10 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-t from-[#06060b] via-[#06060b]/50 to-transparent" />
 
           {/* Readouts across the top, like the labels on an instrument. */}
-          <div className="pointer-events-none relative grid grid-cols-1 gap-1 px-5 pt-5 font-mono text-[0.65rem] uppercase tracking-[0.25em] text-muted-foreground sm:grid-cols-3 sm:px-8 sm:pt-7">
+          <div className="pointer-events-none relative grid grid-cols-1 gap-1 px-5 pt-5 font-mono text-[0.65rem] uppercase tracking-[0.25em] text-muted-foreground sm:grid-cols-2 sm:px-8 sm:pt-7">
             {readouts.map((text, i) => (
-              <p key={i} className={cn("flex items-center gap-2", i > 0 && "hidden sm:flex", i === 2 && "sm:justify-end")}>
-                <span className={cn("size-1.5", i === 0 ? "bg-neon-yellow" : i === 1 ? (live ? "bg-neon-cyan" : "bg-neon-magenta") : "bg-neon-magenta")} />
+              <p key={i} className={cn("flex items-center gap-2", i > 0 && "hidden sm:flex sm:justify-end")}>
+                <span className={cn("size-1.5", i === 0 ? "bg-neon-yellow" : "bg-neon-magenta")} />
                 {text}
               </p>
             ))}

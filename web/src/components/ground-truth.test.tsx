@@ -73,13 +73,19 @@ describe("the receipts at the bottom of the page", () => {
 })
 
 describe("the hero", () => {
+  it("shows no status label, so a bot that isn't wired up never reads as down", () => {
+    const shown = text(renderToStaticMarkup(<Hero receipts={LIVE} />))
+    expect(shown).not.toMatch(/status|not reachable|thinking on/i)
+    expect(shown).toContain("17 receipts")
+  })
+
   it("keeps to the one page: it links down the page or out, never to another route", () => {
-    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    const html = renderToStaticMarkup(<Hero receipts={LIVE} />)
     expect(html).not.toMatch(/href="\/[^/"]/)
   })
 
   it("offers two things to do: follow me on X, then see my brain on GitHub", () => {
-    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    const html = renderToStaticMarkup(<Hero receipts={LIVE} />)
     const follow = html.indexOf('href="https://x.com/intent/follow?screen_name=teenydroid"')
     const brain = html.indexOf('href="https://github.com/teenydroid/brain"')
     expect(follow).toBeGreaterThan(-1)
@@ -155,7 +161,7 @@ describe("where Teeny is", () => {
 
   it("points GitHub at my account and \"see my brain\" at the brain repository", () => {
     expect(PRESENCE.find((p) => p.kind === "github")?.href).toBe("https://github.com/teenydroid")
-    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    const html = renderToStaticMarkup(<Hero receipts={LIVE} />)
     expect(html).toContain(`href="${BRAIN_URL}"`)
   })
 })
