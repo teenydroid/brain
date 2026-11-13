@@ -49,7 +49,7 @@ export function Scene({ name }: { name: SceneName }) {
       <Body />
       {post ? (
         <EffectComposer multisampling={4}>
-          <Bloom mipmapBlur intensity={1.25} luminanceThreshold={0.32} luminanceSmoothing={0.2} radius={0.75} />
+          <Bloom mipmapBlur intensity={1.05} luminanceThreshold={0.42} luminanceSmoothing={0.2} radius={0.75} />
           <ChromaticAberration offset={ABERRATION} radialModulation={false} modulationOffset={0} />
           <Noise opacity={0.06} blendFunction={BlendFunction.OVERLAY} />
           <Vignette eskil={false} offset={0.25} darkness={0.75} />

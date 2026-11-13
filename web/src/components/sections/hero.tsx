@@ -57,7 +57,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
 
   const hotspots: Hotspot[] = [
     { href: "#receipts", label: "Receipts", place: "left-[56%] top-[18%] sm:left-[58%]" },
-    { href: "#numbers", label: "Numbers", place: "right-[8%] top-[46%] sm:right-[24%]" },
+    { href: "#numbers", label: "Numbers", place: "right-[10%] top-[30%] sm:right-[24%] sm:top-[26%]" },
     { href: "#brain", label: "Brain", place: "left-[8%] top-[34%] sm:left-[27%]" },
     ledgerLive
       ? { href: "/ledger", label: "Ledger", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" }
@@ -84,6 +84,8 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
         >
           <SceneCanvas name="core" className="absolute inset-0" />
           <div className="dot-grid pointer-events-none absolute inset-0 opacity-30 mix-blend-screen" />
+          {/* Darkens the bottom so the copy stays legible over the blob. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-t from-[#06060b] via-[#06060b]/50 to-transparent" />
 
           {/* Readouts across the top, like the labels on an instrument. */}
           <div className="pointer-events-none relative grid grid-cols-1 gap-1 px-5 pt-5 font-mono text-[0.65rem] uppercase tracking-[0.25em] text-muted-foreground sm:grid-cols-3 sm:px-8 sm:pt-7">

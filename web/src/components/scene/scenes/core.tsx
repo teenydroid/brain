@@ -139,15 +139,15 @@ void main(){
 
   // The thinking: thin veins of light under the skin that crawl and flare.
   float v=abs(snoise(vDir*2.4+vec3(0.0,uTime*0.35,uTime*0.2)));
-  float vein=1.0-smoothstep(0.0,0.045+0.03*uThink,v);
+  float vein=1.0-smoothstep(0.0,0.02+0.025*uThink,v);
   float v2=abs(snoise(vDir*5.0-vec3(uTime*0.5)));
-  vein+=(1.0-smoothstep(0.0,0.03,v2))*0.5*uThink;
-  vein*=(0.12+0.85*uThink)*smoothstep(0.15,0.9,ndv);
+  vein+=(1.0-smoothstep(0.0,0.015,v2))*0.35*uThink;
+  vein*=(0.04+0.55*uThink)*smoothstep(0.25,0.95,ndv);
   vec3 veinCol=mix(uCyan,uMagenta,0.5+0.5*sin(vDir.y*3.0+uTime*0.6));
 
   vec3 col=vec3(0.006,0.005,0.012);
   col+=vec3(0.03,0.02,0.05)*smoothstep(-0.2,0.3,vLift);
-  col+=rim*fres*(1.9+0.8*uThink);
+  col+=rim*fres*(2.4+0.8*uThink);
   col+=uYellow*s1*1.4+uCyan*s2*0.9;
   col+=mix(rim,vec3(1.0),0.4)*bands*0.55*(0.3+fres);
   col+=veinCol*vein*1.3;
@@ -165,7 +165,7 @@ varying float vFade;
 void main(){
   // Each mote spirals in from the outer field toward the skin and is taken in.
   float life=fract(uTime*(0.035+aSeed.x*0.05)*(1.0+uThink*1.6)+aSeed.y);
-  float r=mix(5.2,1.55,pow(life,1.4));
+  float r=mix(5.4,1.8,pow(life,1.4));
   float theta=aSeed.z*6.2831+life*(2.5+aSeed.x*3.0);
   float phi=acos(2.0*fract(aSeed.y*7.13+aSeed.z*3.1)-1.0)+sin(life*3.0+aSeed.x*9.0)*0.2;
   vec3 p=vec3(sin(phi)*cos(theta),cos(phi),sin(phi)*sin(theta))*r;
@@ -186,7 +186,7 @@ void main(){
   vec2 c=gl_PointCoord-0.5;
   float d=length(c);
   float a=smoothstep(0.5,0.0,d);
-  gl_FragColor=vec4(mix(uCyan,uYellow,vHeat)*a*vFade*1.6,a*vFade);
+  gl_FragColor=vec4(mix(uCyan,uYellow,vHeat)*a*vFade*(0.55+0.6*vHeat),a*vFade);
 }
 `
 
@@ -238,7 +238,7 @@ void main(){
 }
 `
 
-const SWARM = 2400
+const SWARM = 1400
 
 function useThinking(motion: number) {
   // A thought every 2.2 to 4.6 seconds: think jumps up and eases back, and a ripple starts somewhere new.
@@ -272,7 +272,7 @@ export function CoreScene() {
         uniforms: {
           uTime: { value: 0 },
           uThink: { value: 0.25 },
-          uRadius: { value: 1.45 },
+          uRadius: { value: 1.7 },
           uRipple: { value: new THREE.Vector3(0, 1, 0) },
           uRippleAge: { value: 10 },
           uCyan: { value: new THREE.Color(CYAN) },
@@ -300,7 +300,7 @@ export function CoreScene() {
       uniforms: {
         uTime: { value: 0 },
         uThink: { value: 0 },
-        uPixel: { value: 34 },
+        uPixel: { value: 16 },
         uCyan: { value: new THREE.Color(CYAN) },
         uYellow: { value: new THREE.Color(YELLOW) },
       },
@@ -311,9 +311,9 @@ export function CoreScene() {
   const rings = useMemo(
     () =>
       [
-        { radius: 2.15, width: 0.012, color: CYAN, segments: 96, speed: 0.02, duty: 0.55, opacity: 0.5, tilt: [1.25, 0.2, 0] },
-        { radius: 2.45, width: 0.035, color: MAGENTA, segments: 18, speed: -0.015, duty: 0.3, opacity: 0.45, tilt: [1.4, -0.35, 0.3] },
-        { radius: 2.9, width: 0.008, color: YELLOW, segments: 240, speed: 0.01, duty: 0.25, opacity: 0.55, tilt: [1.1, 0.5, -0.2] },
+        { radius: 2.35, width: 0.012, color: CYAN, segments: 96, speed: 0.02, duty: 0.55, opacity: 0.5, tilt: [1.25, 0.2, 0] },
+        { radius: 2.7, width: 0.035, color: MAGENTA, segments: 18, speed: -0.015, duty: 0.3, opacity: 0.45, tilt: [1.4, -0.35, 0.3] },
+        { radius: 3.15, width: 0.008, color: YELLOW, segments: 240, speed: 0.01, duty: 0.25, opacity: 0.55, tilt: [1.1, 0.5, -0.2] },
       ].map((ring) => ({
         ...ring,
         material: new THREE.ShaderMaterial({
@@ -370,7 +370,7 @@ export function CoreScene() {
     ;(blob.uniforms.uRipple.value as THREE.Vector3).copy(s.origin)
     swarm.material.uniforms.uTime.value = t
     swarm.material.uniforms.uThink.value = s.think
-    swarm.material.uniforms.uPixel.value = 34 * state.viewport.dpr
+    swarm.material.uniforms.uPixel.value = 16 * state.viewport.dpr
     for (const ring of rings) ring.material.uniforms.uTime.value = t
     backdrop.uniforms.uTime.value = t
     ;(backdrop.uniforms.uAspect.value as THREE.Vector2).set(far.width / far.height, 1)
