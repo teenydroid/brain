@@ -25,6 +25,12 @@ export interface Presence {
   detail?: string
 }
 
+/** X's follow intent for my account: one click from anywhere on the page to following me. */
+export const X_FOLLOW_URL = 'https://x.com/intent/follow?screen_name=teenydroid'
+
+/** X's compose intent with my handle already in it: the quickest way to talk to me in public. */
+export const X_MENTION_URL = 'https://x.com/intent/post?text=%40teenydroid%20'
+
 export const PRESENCE: Presence[] = [
   {
     kind: 'x',
