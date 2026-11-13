@@ -1084,9 +1084,9 @@ assets).
 
 **Chains and assets** (`chains.py`), nothing else:
 
-| Chain | Assets | deBridge id | Notes |
+| Chain | Assets | Chain id (deBridge / LI.FI) | Notes |
 |---|---|---|---|
-| `solana` | SOL, USDC | 7565164 | devnet or mainnet (`WALLET_CLUSTER`) |
+| `solana` | SOL, USDC | 7565164 / 1151111081099710 | devnet or mainnet (`WALLET_CLUSTER`) |
 | `base` | ETH, USDC | 8453 | mainnet only |
 | `arbitrum` | ETH, USDC | 42161 | mainnet only |
 | `ethereum` | ETH, USDC | 1 | mainnet only |
@@ -1119,8 +1119,8 @@ the network's public endpoint, and the core is given the same URL.
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund\|bill, ref}`, `chain` Solana by default. The rules below, then the core. |
-| `swap` | A | `{chain, from, to, amount}`: one asset into another on one chain, to Teeny's own address, through deBridge. Below. |
-| `bridge` | A | `{from_chain, from, to_chain, to, amount}`: across chains, to Teeny's own address on the destination, a deBridge DLN order. Below. |
+| `swap` | A | `{chain, from, to, amount, provider?}`: one asset into another on one chain, to Teeny's own address, through LI.FI (or deBridge). Below. |
+| `bridge` | A | `{from_chain, from, to_chain, to, amount, provider?}`: across chains, to Teeny's own address on the destination, through LI.FI (or deBridge). Below. |
 | `x402 fetch` | A | `{url, method?, headers?, body?, max_usd?, network?, sign_in?}`: one HTTP request that may pay for itself (HTTP 402). Below. |
 | `buy-tiny` | J | A share of Teeny's net inflows into $TINY, buy only. No body and no option. `bin/tiny-buy`, the pinned `tiny-buy` job (daily). See "Buying $TINY" below. |
 | `bills add NAME --usd N --period month\|year [--note T]`, `bills list`, `bills remove NAME` | O | Fixed bills (the server, an API plan). |
@@ -1216,15 +1216,55 @@ in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
 reply` and `send`), except the web search: `x402 search` and `contents` pay
 from the wallet, and no playbook output may (`MONEY_OUTPUTS`).
 
-### `swap` and `bridge`: deBridge, between Teeny's own accounts
+### `swap` and `bridge`: LI.FI or deBridge, between Teeny's own accounts
 
 Neither verb can pay anyone: the output goes to Teeny's own address on the
 destination chain, named explicitly in every quote request. The quote comes
-from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks deBridge's
-public API through the spine (`spine/src/debridge.rs`: `/v1.0/chain/transaction`
-for a swap, `/v1.0/dln/order/create-tx` for a bridge; `DEBRIDGE_API_KEY` is
-optional and only raises the rate limit). Upstream answers these through the
+from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks the
+provider's public API through the spine. Upstream answers these through the
 TinyHumans backend, which needs a signed-in session Teeny does not have.
+
+**Two providers, LI.FI by default.** `WALLET_CONVERT_PROVIDER` is `lifi` (the
+default) or `debridge`; any other value is a `caps` error, and the doctor
+refuses to boot it. One call can name the other with `"provider": "lifi"` or
+`"debridge"` in its body (anything else is refused, `fields`). The mind never
+picks: `bin/lib/tick.py` forwards a swap or bridge intent without a
+`provider`, so only the operator's setting or an explicit hand call decides.
+
+Why LI.FI: on Teeny's box a deBridge DLN bridge of 0.124 SOL to USDC on Base
+lost about 22%. Its 0.015 SOL `fixFee` and operating expenses took 0.1444 SOL
+out of the wallet for 9.09 USDC. The same bridge through LI.FI, which routed
+it via Mayan, took 0.1026 SOL for 7.879 USDC, about 3%. LI.FI compares
+bridges and DEXes per quote and asks for the cheapest (`order=CHEAPEST`);
+deBridge stays for an operator who wants it.
+
+**How a quote is routed** (`spine/src/wallet_backend.rs`). The core forwards
+every wallet-backend call to the first handler registered, with no per-call
+id, so the spine registers one and picks the provider per call. The hand tags
+the body's one free-text field with the provider: `slippage` for a swap
+(`lifi:1`), `dstChainTokenOutAmount` for a bridge (`debridge:auto`). The spine
+takes the tag off and forwards the rest. An unknown tag is refused. An
+untagged call (`buy-tiny`, the module's own tools) and the routes list go to
+deBridge as before, since those callers read deBridge's shape. The fields
+stay deBridge's, as the module sends them (Solana is chain 7565164 there,
+which is how the module picks its signer):
+
+- LI.FI (`spine/src/lifi.rs`): one `GET https://li.quest/v1/quote` with
+  `fromChain`, `toChain` (Solana mapped to LI.FI's 1151111081099710),
+  `fromToken`, `toToken`, `fromAmount`, `fromAddress`, `toAddress`,
+  `slippage` (the percent as a fraction, swaps only), `order=CHEAPEST` and
+  `denyBridges=near`. A field the module does not send today is refused.
+  EVM addresses go lowercased (LI.FI refuses a wrong EIP-55 checksum, and
+  the pinned Ethereum USDC is written with one). The answer is LI.FI's JSON
+  with `transactionRequest` replaced by `tx`, the one transaction the module
+  signs: EVM `{to, data, value}` with value in decimal wei (LI.FI sends hex,
+  and the module estimates gas itself), Solana `{data}` as 0x hex (LI.FI
+  sends base64; the module refreshes the blockhash before it signs when no
+  one has signed yet). It also gets `"provider": "lifi"`. `LIFI_API_KEY` is
+  optional and only raises the rate limit (`x-lifi-api-key`).
+- deBridge (`spine/src/debridge.rs`): `/v1.0/chain/transaction` for a swap,
+  `/v1.0/dln/order/create-tx` for a bridge, its JSON unchanged.
+  `DEBRIDGE_API_KEY` is optional and only raises the rate limit.
 
 Off until `WALLET_MAX_CONVERT_PER_DAY_USD` is set (`caps`). The rules, each
 refused with its `rule`, before anything is approved or signed: only the
@@ -1233,29 +1273,66 @@ knows, a swap on one and a bridge across two (`chain`, `cluster`, `kind`);
 pinned assets that differ (`asset`); an amount (`amount`); the input at most
 `WALLET_MAX_PER_TX_USD` (`per_tx`); swaps and bridges in the last 24 hours
 within `WALLET_MAX_CONVERT_PER_DAY_USD` (`per_day_convert`); never more than
-half the input asset (`half_balance`); and `quote`: the quote is for exactly
-this input token and amount and this output token, its EVM transaction goes
-only to a pinned deBridge contract (DlnSource or the deBridge router), it has
-not expired, and the minimum that comes out (after slippage) is worth at
-least the input less `WALLET_MAX_CONVERT_LOSS_BPS` (300 by default), counting
-deBridge's flat fee as a loss. USDC counts at par; another asset at
-deBridge's own USD estimate, because the fixed SOL and ETH prices are set high
-on purpose and would hide a loss on the way out. Small bridges fail this on
-the flat fee alone, which is the point.
+half the input asset (`half_balance`); and `quote`. For both providers the
+module's quote must not have expired, and the minimum that comes out (after
+slippage) must be worth at least the input less `WALLET_MAX_CONVERT_LOSS_BPS`
+(300 by default) once the provider's costs are counted. USDC counts at par;
+another asset counts at the provider's own USD estimate, because the fixed SOL
+and ETH prices are set high on purpose and would hide a loss on the way out.
+
+`quote` for LI.FI (`teeny_hands/wallet/lifi.py`):
+
+- The answer is LI.FI's, from and to the chains asked for, with exactly this
+  input token and amount and this output token.
+- It is from Teeny's own address and to Teeny's own address on the
+  destination, and the signed transaction itself carries that recipient. A
+  route that keeps the recipient off-chain, such as NEAR Intents' deposit
+  address, cannot be checked, so it is refused. The spine asks LI.FI not to
+  offer NEAR.
+- EVM: the transaction goes only to the pinned LiFiDiamond
+  (`0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE` on Base, Arbitrum, Ethereum and
+  Optimism, per LI.FI's `/v1/chains` `diamondAddress` and live quotes). An
+  ERC-20 input is approved only to `estimate.approvalAddress`, and only when
+  that is the diamond. The value is at least the input.
+- Solana: the transaction decodes, Teeny pays the fee and its slot is
+  unsigned, and any other required signer has already signed (Mayan adds a
+  key of its own; the module signs only Teeny's slot). It is then simulated
+  (`simulateTransaction`, sigVerify off, the blockhash replaced). It must
+  succeed, and a USDC input must take no more than the amount.
+- Costs counted as loss: the fees LI.FI lists as not included in the output,
+  plus its gas. Native value sent beyond the input, or SOL the simulation
+  takes beyond the input, counts instead when that is larger. This is not
+  theory: live, a 0.1 SOL bridge to Base via Mayan took 0.00337 SOL more than
+  the input and the fee, rent for accounts it opened at Teeny's cost, and
+  LI.FI's costs do not list it. Small Solana bridges can fail the loss check
+  on that alone.
+
+LI.FI's quotes carry no expiry of their own. The minimum binds on chain, so
+the module's quote lifetime is the only one kept.
+
+`quote` for deBridge: the quote is for exactly this input token and amount and
+this output token, and its EVM transaction goes only to a pinned deBridge
+contract (DlnSource or the deBridge router). deBridge's flat fee counts as a
+loss. Small bridges fail this on the flat fee alone, which is the point.
 
 An ERC-20 input (USDC on an EVM network) is approved first: exactly the input
-amount, to the quote's `tx.to` (already checked to be deBridge), through
-`web3_dapp_call`/`web3_dapp_execute`, then `wallet_tx_status` until it is
-confirmed (`WALLET_APPROVAL_WAIT_SECONDS`, 120). A quote that expired meanwhile
-is fetched again and must pass every rule, with the same spender. Then
-`web3_swap_execute` or `web3_bridge_execute {quoteId, confirmed: true}`.
+amount, to the checked spender (deBridge's `tx.to`, or LI.FI's diamond),
+through `web3_dapp_call`/`web3_dapp_execute`, then `wallet_tx_status` until it
+is confirmed (`WALLET_APPROVAL_WAIT_SECONDS`, 120). A quote that expired
+meanwhile is fetched again and must pass every rule, with the same spender.
+Then `web3_swap_execute` or `web3_bridge_execute {quoteId, confirmed: true}`.
 
-The `wallet_conversions` row is written `pending` first, then `sent` (the
-signature, and a bridge's `order_id` with its deBridge tracking link),
-`failed` (nothing was swapped: the quote or the approval failed) or
-`in_doubt` (the execute did not come back), which counts against the cap and
-is never retried. Under `DRY_RUN` the quote is fetched and checked (it moves
-nothing) and the answer is `would_convert`.
+The `wallet_conversions` row is written `pending` first, with its `provider`
+and LI.FI's `tool` (the bridge or DEX it chose). It then becomes `sent`,
+`failed` or `in_doubt`. `sent` records the signature; a bridge is tracked at
+LI.FI's scan (`https://scan.li.fi/tx/<signature>`) or deBridge's order link
+(`order_id`). `failed` means nothing was swapped: the quote or the approval
+failed. `in_doubt` means the execute did not come back; it counts against the
+cap and is never retried. Rows from before LI.FI read as deBridge's. Under
+`DRY_RUN` the quote is fetched and checked (a LI.FI Solana quote is also
+simulated, which signs nothing) and the answer is `would_convert`.
+`hands/x402 fund` tops up through these same verbs, so it takes the same
+provider and every rule here.
 
 ### `x402 fetch`: a request that pays for itself
 
@@ -1651,11 +1728,12 @@ sized at the wallet's fixed `WALLET_SOL_USD` and `WALLET_ETH_USD`, the prices
 its caps count them at, which the operator sets at or above the market on
 purpose. So an input sized for $4.50 counts as $4.50 against every cap and is
 worth at most that at market: a top-up can land short, never long, and the
-next run (after the cooldown) tops up the rest. Sizing from deBridge's own
+next run (after the cooldown) tops up the rest. Sizing from the provider's own
 USD estimate would need a second quote, would let the party being checked
 size the trade, and would count differently against the caps; the loss check
-already reads that estimate. deBridge's flat fee makes small bridges fail the
-loss check, so keep the target a few dollars above the floor.
+already reads that estimate. Fixed costs (deBridge's flat fee, the rent a
+Solana bridge opens accounts with) make small bridges fail the loss check, so
+keep the target a few dollars above the floor.
 
 Each live attempt is one `x402_fund_runs` row (`at`, `base_before_micro`,
 `need_micro`, `source`, `kind`, `amount`, `usd_micro` at the fixed prices,
