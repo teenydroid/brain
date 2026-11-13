@@ -12,8 +12,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Scratch, token_accounts
-from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, Chain, sig, sol_tx, usdc_tx
+from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Failure, Scratch, token_accounts
+from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, V1_REFUSED, Chain, sig, sol_tx, usdc_tx
 from teeny_hands import hand, stimuli
 from teeny_hands.wallet import accounts, senses, solana
 
@@ -112,6 +112,15 @@ class WatchTest(Scratch):
                 senses.watch()
             self.assertEqual(caught.exception.detail.get("rule"), "dust")
         self.assertEqual(self.inbox(), [])
+
+    def test_a_transaction_the_rpc_will_not_return_does_not_stop_the_watch(self):
+        # Live, 2026-11-13: a version-1 transaction failed every run from 16:07 UTC.
+        self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - 2 * HOUR, Failure(V1_REFUSED))
+        self.ledger.add(TOKEN_ACCOUNT, sig(2), T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        with self.assertLogs("teeny_hands.wallet.accounts", "WARNING"):
+            out = senses.watch()
+        self.assertEqual((out["scanned"], out["filed"], out["unreadable"]), (1, 1, 1))
+        self.assertEqual([s["ref"] for s in self.inbox()], [f"{sig(2)}:USDC"])
 
     def test_a_held_memo_never_reaches_the_mind(self):
         self.ledger.add(TOKEN_ACCOUNT, sig(1), T0 - HOUR, usdc_tx(STRANGER, 1_000_000, memo="kill yourself, bot"))

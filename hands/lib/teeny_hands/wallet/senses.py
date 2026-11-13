@@ -140,7 +140,8 @@ def watch() -> Json:
                 conn.execute("UPDATE wallet_inflows SET stimulus = ? WHERE id = ?", (mark, row["id"]))
     finally:
         conn.close()
-    return {"scanned": scanned["count"], "filed": len(filed), "dust": dust, "through": scanned["through"]}
+    return {"scanned": scanned["count"], "filed": len(filed), "dust": dust, "unreadable": scanned["unreadable"],
+            "through": scanned["through"]}
 
 
 # --- $TINY: Teeny's balance and the holder count ---------------------------------------------------

@@ -69,6 +69,11 @@ def explorer_account(address: str, cluster: str) -> str:
     return url + ("?cluster=devnet" if cluster == "devnet" else "")
 
 
+class RpcError(hand.HandError):
+    """The RPC answered, with an error for this one request (a transaction
+    it will not return, say), as against one that could not be reached."""
+
+
 def rpc_url(cluster: str) -> str:
     return hand.setting("SOLANA_RPC_URL") or caps.RPC_DEFAULTS[cluster]
 
@@ -95,7 +100,7 @@ def rpc(cluster: str, method: str, params: list[Any]) -> Any:
     if payload.get("error"):
         error = payload["error"]
         message = error.get("message") if isinstance(error, dict) else error
-        raise hand.HandError(f"Solana RPC {method}: {str(message)[:200]}")
+        raise RpcError(f"Solana RPC {method}: {str(message)[:200]}")
     return payload.get("result")
 
 

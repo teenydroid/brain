@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import logging
+import re
 from typing import Any, Mapping
 
 from .. import hand
@@ -45,6 +47,7 @@ from . import caps, reads, solana, store
 from .pay import own_address
 
 Json = dict[str, Any]
+log = logging.getLogger(__name__)
 
 CATEGORIES = ("team", "tip", "sale", "bounty", "unclassified")
 #: What the operator may tag a deposit as. `unclassified` is only ever the
@@ -63,6 +66,13 @@ MAX_TXS = 200
 MAX_PAGES = 10
 PAGE = 100
 FIRST_WINDOW_DAYS = 30
+#: A transaction the RPC answers with an error for is passed over (the scan
+#: goes on, and its cursor past it), kept in `wallet_unreadable`, and read
+#: again on the next scans, this many reads in all: enough for a node's
+#: passing refusal, not forever for one it will never return.
+UNREADABLE_TRIES = 3
+#: The RPC's answer to a transaction newer than the version asked for.
+_NEWER_VERSION = re.compile(r"Transaction version \((\d{1,3})\) is not supported")
 #: A bill counts as the server when its name starts with one of these (the
 #: vps hand names its bills `<provider> <id>`); any other bill is a tool.
 SERVER_BILLS = ("vultr", "eqvps", "server", "vps")
@@ -92,6 +102,13 @@ CREATE TABLE IF NOT EXISTS wallet_scan (
     name        TEXT PRIMARY KEY,
     through     REAL NOT NULL,
     updated_at  REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wallet_unreadable (
+    signature   TEXT PRIMARY KEY,
+    at          REAL NOT NULL,
+    tries       INTEGER NOT NULL,
+    error       TEXT NOT NULL,
+    seen_at     REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS wallet_accounts (
     week        TEXT PRIMARY KEY,
@@ -147,6 +164,19 @@ def _signatures(cluster: str, address: str, since: float) -> tuple[list[tuple[fl
             return out, False
         before = page[-1]["signature"]
     return out, True
+
+
+def _transaction(cluster: str, signature: str) -> Any:
+    """getTransaction at version 0; when the RPC says the transaction is a
+    newer version, once more at the version it names."""
+    options: Json = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0, "commitment": "confirmed"}
+    try:
+        return solana.rpc(cluster, "getTransaction", [signature, options])
+    except solana.RpcError as exc:
+        newer = _NEWER_VERSION.search(str(exc))
+        if not newer or not 0 < int(newer.group(1)) <= 255:
+            raise
+    return solana.rpc(cluster, "getTransaction", [signature, {**options, "maxSupportedTransactionVersion": int(newer.group(1))}])
 
 
 def _token_accounts(cluster: str, owner: str, mint: str) -> list[str]:
@@ -273,16 +303,27 @@ def scan() -> Json:
                 truncated = truncated or more
                 for at, sig in sigs:
                     found.setdefault(sig, at)
+            for row in conn.execute("SELECT signature, at FROM wallet_unreadable WHERE tries < ?", (UNREADABLE_TRIES,)):
+                found.setdefault(row["signature"], float(row["at"]))
             ordered = sorted(found.items(), key=lambda kv: (kv[1], kv[0]))
             if len(ordered) > MAX_TXS:
                 ordered, truncated = ordered[:MAX_TXS], True
             new: list[Json] = []
+            unreadable = 0
             through = since
             for sig, at in ordered:
                 if conn.execute("SELECT 1 FROM wallet_inflows WHERE signature = ?", (sig,)).fetchone():
                     through = max(through, at)
                     continue
-                tx = solana.rpc(cluster, "getTransaction", [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0, "commitment": "confirmed"}])
+                try:
+                    tx = _transaction(cluster, sig)
+                except solana.RpcError as exc:
+                    _unreadable(conn, sig, at, str(exc))
+                    unreadable += 1
+                    through = max(through, at)
+                    continue
+                with hand.transaction(conn):
+                    conn.execute("DELETE FROM wallet_unreadable WHERE signature = ?", (sig,))
                 legs = read_deposit(tx, own, mint) if isinstance(tx, Mapping) else []
                 memo, held = _screen(_memo(tx), sig) if legs else (None, 0)
                 for leg in legs:
@@ -303,7 +344,19 @@ def scan() -> Json:
                              (through, hand.now()))
         finally:
             conn.close()
-    return {"new": new, "count": len(new), "through": _iso(through), "truncated": truncated, "team_known": team is not None}
+    return {"new": new, "count": len(new), "unreadable": unreadable, "through": _iso(through), "truncated": truncated,
+            "team_known": team is not None}
+
+
+def _unreadable(conn, signature: str, at: float, error: str) -> None:
+    """One transaction the RPC would not return: kept, counted and logged,
+    never the end of the scan."""
+    with hand.transaction(conn):
+        conn.execute("INSERT INTO wallet_unreadable (signature, at, tries, error, seen_at) VALUES (?, ?, 1, ?, ?)"
+                     " ON CONFLICT (signature) DO UPDATE SET tries = tries + 1, error = excluded.error, seen_at = excluded.seen_at",
+                     (signature, at, error, hand.now()))
+        tries = conn.execute("SELECT tries FROM wallet_unreadable WHERE signature = ?", (signature,)).fetchone()["tries"]
+    log.warning("inflows scan: transaction %s… unreadable (read %d of %d): %s", signature[:8], tries, UNREADABLE_TRIES, error)
 
 
 def _iso(at: float) -> str:
