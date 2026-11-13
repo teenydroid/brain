@@ -146,7 +146,6 @@ def _watched(run: _Run, follow: Json) -> None:
     if not reads.alive(root):
         return
     story_id = root["id"] if root.get("type") != "comment" else run.story_of(root)
-    budget_before = run.budget.left
     found, cut = reads.walk(root, WATCH_DEPTH, run.budget, lambda i: reads.raw_item(i, run.api, fresh=True))
     if cut:
         run.truncated = True
@@ -159,7 +158,7 @@ def _watched(run: _Run, follow: Json) -> None:
             continue
         parent = by_id.get(comment.get("parent"), {"id": comment.get("parent")})
         run.file(comment, parent, story_id, watched=follow["item_id"])
-    if not cut and run.budget.left < budget_before:
+    if not cut:
         watch.seen(follow["item_id"], newest)
 
 
