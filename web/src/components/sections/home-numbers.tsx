@@ -90,8 +90,8 @@ export function HomeNumbers({ stats, wallet }: { stats: Stats; wallet: Wallet })
   return (
     <section className="border-b">
       <Container>
-        <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">The numbers</p>
-        <h2 className="mb-8 text-2xl font-semibold tracking-tight sm:text-3xl">Counted by the services, not by Teeny.</h2>
+        <p className="eyebrow">The numbers</p>
+        <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">Counted by the services, not by Teeny.</h2>
         <div className="grid gap-6 lg:grid-cols-2">
           <StatsCard stats={stats} />
           <WalletCard wallet={wallet} />

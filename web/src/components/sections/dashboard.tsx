@@ -157,8 +157,8 @@ export function Dashboard({ world, stats, receipts }: { world: World; stats: Sta
   return (
     <section className="border-b">
       <Container>
-        <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">The dashboard</p>
-        <h2 className="mb-8 text-2xl font-semibold tracking-tight sm:text-3xl">Only numbers the ledger holds.</h2>
+        <p className="eyebrow">The dashboard</p>
+        <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">Only numbers the ledger holds.</h2>
         <div className="grid gap-6">
           <WorldCard world={world} />
           <ReachCard world={world} />

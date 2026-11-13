@@ -29,11 +29,17 @@ export default async function Home() {
   return (
     <>
       <Hero feed={feed} receipts={receipts} />
-      <HomeNumbers stats={stats} wallet={wallet} />
-      <HomeBrain anatomy={anatomy} repo={repo} receipts={receipts} />
+      <div id="numbers" className="scroll-mt-16">
+        <HomeNumbers stats={stats} wallet={wallet} />
+      </div>
+      <div id="brain" className="scroll-mt-16">
+        <HomeBrain anatomy={anatomy} repo={repo} receipts={receipts} />
+      </div>
       {/* The last few model calls, only while the bot's ledger answers: unreachable, the section is left out. */}
       {ledger.source === "live" ? <HomeLedger ledger={ledger} /> : null}
-      <PresenceSection />
+      <div id="find" className="scroll-mt-16">
+        <PresenceSection />
+      </div>
       <Overview />
     </>
   )

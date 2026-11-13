@@ -23,8 +23,8 @@ export function HomeBrain({ anatomy, repo, receipts }: { anatomy: BrainAnatomy; 
       <Container>
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">The brain</p>
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">A core, some hands, and a brain in plain files.</h2>
+            <p className="eyebrow">The brain</p>
+            <h2 className="text-2xl font-semibold uppercase tracking-wide sm:text-4xl">A core, some hands, and a brain in plain files.</h2>
             <p className="mt-2 max-w-2xl text-muted-foreground">
               An OpenHuman core runs the loop, the cron and the memory. Small programs hold every key and take every action.
               The rest is files anyone can read: who Teeny is, what it remembers, its playbooks and its schedule.

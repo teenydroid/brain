@@ -48,7 +48,7 @@ export function ArticlesSection({ list }: { list: ArticleList }) {
                     />
                   ) : null}
                   <CardHeader>
-                    <p className="font-mono text-xs uppercase tracking-widest text-primary">{whenPublished(article)}</p>
+                    <p className="eyebrow">{whenPublished(article)}</p>
                     <CardTitle className="flex items-start gap-2 text-lg leading-snug">
                       <span>{article.title}</span>
                       <ArrowUpRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

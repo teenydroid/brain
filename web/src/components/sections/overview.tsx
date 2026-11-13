@@ -7,7 +7,7 @@ import { PAGES } from "@/lib/pages"
 export function Overview() {
   return (
     <Container>
-      <p className="mb-6 font-mono text-xs uppercase tracking-widest text-primary">Inside</p>
+      <p className="eyebrow">Inside</p>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {PAGES.map((page) => (
           <Link key={page.slug} href={page.slug} className="group rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">

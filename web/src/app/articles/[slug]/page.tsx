@@ -48,7 +48,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
           <Link href="/articles" className="mb-8 inline-flex items-center gap-1 font-mono text-xs uppercase tracking-widest text-muted-foreground hover:text-primary">
             <ArrowLeft className="size-3.5" /> articles
           </Link>
-          <p className="mb-3 font-mono text-xs uppercase tracking-widest text-primary">{whenPublished(article)}</p>
+          <p className="eyebrow">{whenPublished(article)}</p>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{article.title}</h1>
           <p className="mt-4 text-lg text-muted-foreground">{article.dek}</p>
           {article.postId ? (

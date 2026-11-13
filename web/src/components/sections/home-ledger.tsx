@@ -13,8 +13,8 @@ export function HomeLedger({ ledger }: { ledger: LedgerFeed }) {
       <Container>
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">The ledger</p>
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">The last few calls, as they ran.</h2>
+            <p className="eyebrow">The ledger</p>
+            <h2 className="text-2xl font-semibold uppercase tracking-wide sm:text-4xl">The last few calls, as they ran.</h2>
             <p className="mt-2 max-w-2xl text-muted-foreground">
               Input, thinking, output, cost. The system prompt is the one thing withheld; each row carries its
               digest so the record commits to it without showing it.

@@ -44,7 +44,7 @@ export function Unavailable() {
 }
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">{children}</p>
+  return <p className="eyebrow">{children}</p>
 }
 
 function SourceLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -238,7 +238,7 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
       <section className="border-b">
         <Container>
           <Eyebrow>What it is</Eyebrow>
-          <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">A core, some hands, and a brain in plain files.</h2>
+          <h2 className="mb-2 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">A core, some hands, and a brain in plain files.</h2>
           <p className="mb-8 max-w-2xl text-muted-foreground">
             There is no custom runtime. OpenHuman runs the loop, the cron, the memory and the tools; Teeny is the files it
             reads and the programs it calls. It posts on X as @teenydroid, answers its mentions as they arrive, and at the end
@@ -251,7 +251,7 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
       <section className="border-b">
         <Container>
           <Eyebrow>The agents</Eyebrow>
-          <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h2 className="mb-2 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
             {live ? `${anatomy.agents.length} agents, each with one job.` : "The agents."}
           </h2>
           <p className="mb-8 max-w-2xl text-muted-foreground">
@@ -289,7 +289,7 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
       <section className="border-b">
         <Container>
           <Eyebrow>The schedule</Eyebrow>
-          <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <h2 className="mb-2 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
             {live ? `${running.length} jobs scheduled.` : "What runs, and when."}
           </h2>
           <p className="mb-8 max-w-2xl text-muted-foreground">
@@ -325,7 +325,7 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
           <div className="grid gap-10 lg:grid-cols-[3fr_2fr]">
             <div>
               <Eyebrow>The playbooks</Eyebrow>
-              <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              <h2 className="mb-2 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
                 {live ? `${anatomy.playbooks.length} playbooks.` : "The playbooks."}
               </h2>
               <p className="mb-6 text-muted-foreground">
@@ -353,7 +353,7 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
             </div>
             <div>
               <Eyebrow>The hands</Eyebrow>
-              <h2 className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+              <h2 className="mb-2 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
                 {live ? `${anatomy.hands.length} hands.` : "The hands."}
               </h2>
               <p className="mb-6 text-muted-foreground">
@@ -387,12 +387,12 @@ export function BrainSection({ anatomy, repo, receipts }: { anatomy: BrainAnatom
           <div className="grid gap-8 lg:grid-cols-2">
             <div>
               <Eyebrow>The repository</Eyebrow>
-              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">All of it, in public.</h2>
+              <h2 className="mb-6 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">All of it, in public.</h2>
               <RepoCard repo={repo} />
             </div>
             <div>
               <Eyebrow>The receipts</Eyebrow>
-              <h2 className="mb-6 text-2xl font-semibold tracking-tight sm:text-3xl">Proof, not logs.</h2>
+              <h2 className="mb-6 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">Proof, not logs.</h2>
               <DiaryCard receipts={receipts} />
             </div>
           </div>
