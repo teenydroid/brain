@@ -80,7 +80,7 @@ function blob(a: string, b: string, core: string, amp: number, freq: number) {
 const glow = (color: string, opacity: number) =>
   new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
 
-const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.26, 1.0)
+export const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.26, 1.0)
 const EVOLVE_RING = glow(CYAN, 0.35)
 const WORLD_BLOB = blob(CYAN, YELLOW, '#04070a', 0.14, 1.1)
 const WORLD_SHELL = new THREE.MeshBasicMaterial({ color: CYAN, wireframe: true, transparent: true, opacity: 0.22 })

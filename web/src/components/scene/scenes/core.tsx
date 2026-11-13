@@ -264,7 +264,7 @@ function think(elapsed: number, dt: number, motion: number) {
   return MIND
 }
 
-const BLOB = new THREE.ShaderMaterial({
+export const BLOB = new THREE.ShaderMaterial({
   vertexShader: BLOB_VERTEX,
   fragmentShader: BLOB_FRAGMENT,
   uniforms: {
@@ -347,7 +347,6 @@ export function CoreScene() {
   const { viewport, size } = useThree()
   const group = useRef<THREE.Group>(null)
   const clock = useRef(0)
-  const hide = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('hide') ?? '' : ''
 
   // The backdrop sits at z = -4 and has to cover the whole frame from there.
   const far = viewport.getCurrentViewport(undefined, new THREE.Vector3(0, 0, -4))
@@ -383,16 +382,16 @@ export function CoreScene() {
 
   return (
     <>
-      <mesh visible={!hide.includes('backdrop')} position={[0, 0, -4]} material={BACKDROP}>
+      <mesh position={[0, 0, -4]} material={BACKDROP}>
         <planeGeometry args={[far.width * 1.05, far.height * 1.05]} />
       </mesh>
       <group ref={group} scale={scale}>
-        <mesh visible={!hide.includes('blob')} material={BLOB}>
+        <mesh material={BLOB}>
           <icosahedronGeometry args={[1, 96]} />
         </mesh>
-        <points visible={!hide.includes('swarm')} geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
+        <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
         {RINGS.map((ring, i) => (
-          <mesh visible={!hide.includes('rings')} key={i} material={ring.material} rotation={ring.tilt}>
+          <mesh key={i} material={ring.material} rotation={ring.tilt}>
             <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
           </mesh>
         ))}
