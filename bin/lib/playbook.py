@@ -56,12 +56,15 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
 # draft may only propose a change to Teeny itself (`self`), which files a
 # pending request that pick-request, the builder, the frozen-path check and
-# the operator's merge all still stand between and main. The goal ledger
+# the operator's merge all still stand between and main, or keep the day's
+# build idea (`idea`). The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
     # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
     # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
-    "build": ("self", "upstream"),
+    # `idea` keeps the one build idea of the day (build/ideas.py): a note in
+    # the ledger the next daily job is made from, never a job claimed here.
+    "build": ("self", "upstream", "idea"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
     # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
