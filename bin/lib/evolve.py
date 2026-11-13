@@ -1470,21 +1470,23 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
                        "detail": f"{component} has never been read (no rows in hands/world), so nothing this change "
                                  "does to it can be seen"})
     else:
+        world = (evidence or {}).get("world")
+        known = isinstance(world, Mapping) and bool(world.get("components"))
         checks.append({"check": "aims at a component with a reading", "ok": True,
-                       "detail": f"{component} has a reading" if component and isinstance((evidence or {}).get("world"), Mapping)
-                       and (evidence or {})["world"].get("components") else "nothing to check against"})
+                       "detail": f"{component} has a reading" if component and known else "no reading to check against"})
     paths = sorted({p for _, p in changes})
     patch = staged_patch(tree, base)
     added = added_lines(patch)
 
     # 1. Only running less.
     cuts = None
-    if paths == ["brain/cron.toml"]:
-        before = git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False) if exists_at(tree, base, "brain/cron.toml") else None
-        after = (tree / "brain" / "cron.toml").read_text(encoding="utf-8") if (tree / "brain" / "cron.toml").exists() else None
-        cuts = schedule_cuts(before, after)
+    before = (git(in_tree(tree), "show", f"{base}:brain/cron.toml")
+              if paths == ["brain/cron.toml"] and exists_at(tree, base, "brain/cron.toml") else None)
+    if before is not None:
+        after = tree / "brain" / "cron.toml"
+        cuts = schedule_cuts(before, after.read_text(encoding="utf-8") if after.exists() else None)
     if cuts:
-        old = _jobs_of(git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False)) or {}
+        old = _jobs_of(before) or {}
         failing = _failing_jobs(evidence)
 
         def broken(name: str) -> bool:
