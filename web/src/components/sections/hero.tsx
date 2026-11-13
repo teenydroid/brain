@@ -83,7 +83,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
           className="cut relative isolate h-[calc(100svh-3.75rem)] sm:h-[calc(100svh-4.5rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
           style={{ "--cut": "28px" } as React.CSSProperties}
         >
-          <SceneCanvas name="core" className="absolute inset-0" />
+          <SceneCanvas className="absolute inset-0" />
           <div className="dot-grid pointer-events-none absolute inset-0 opacity-30 mix-blend-screen" />
           {/* Darkens the bottom so the copy stays legible over the blob. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-t from-[#06060b] via-[#06060b]/50 to-transparent" />
