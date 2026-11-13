@@ -1,7 +1,7 @@
 # The agent the pinned `operator` cron job runs (evals/cron.pinned.toml): the
 # browser operator. It takes one task from hands/tasks and does it in
-# OpenHuman's browser (TinyComputer, headless Chromium, the persistent profile
-# under state/browser/). `scheduled_actions = true` with named tools lets a
+# OpenHuman's browser (TinyComputer, headless Chromium, a fresh profile each
+# session, so no login survives a run). `scheduled_actions = true` with named tools lets a
 # cron run of it act without a person's approval; `[browser]
 # unattended_actions` (bin/lib/core_sections/automation.py) lists the clicks
 # and typing it may do. The allowed websites (deploy/browser-allow.txt) and
