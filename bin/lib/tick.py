@@ -52,6 +52,12 @@
    JUDGE_OUTAGE, and the next beat sends it again, through the guard again,
    until DEFERRED_MAX_AGE_SECS. A hold for anything the judge read is never
    retried. The outcome tells the mind it went out after a judge outage.
+8. An outward intent refused as too long (REWRITTEN; the guard's hard
+   limits or hands/x's 280) gets one rewrite in the same beat: the mind is
+   told the exact length, the limit and a target under it, its answer is
+   measured here, and only a fit goes to the same hand (guard again). Still
+   over, empty, failed, or out of time: refused as the hand said, never cut.
+   The entry says `rewritten` and `rewrite` (the lengths).
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
