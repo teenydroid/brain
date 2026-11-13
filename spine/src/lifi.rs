@@ -354,6 +354,7 @@ mod tests {
                 ("fromAddress", OWN_SOL),
                 ("toAddress", OWN_EVM),
                 ("order", "CHEAPEST"),
+                ("denyBridges", "near"),
             ]
         );
     }

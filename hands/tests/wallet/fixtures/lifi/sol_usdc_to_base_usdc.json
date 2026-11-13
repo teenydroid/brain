@@ -1,11 +1,11 @@
 {
  "type": "lifi",
- "id": "204e1b41-9756-4f46-9bff-0f3723903afb:0",
- "tool": "near",
+ "id": "36defc91-530c-4369-9291-4945032a4e50:0",
+ "tool": "mayanFastMCTP",
  "toolDetails": {
-  "key": "near",
-  "name": "NearIntents",
-  "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/near.svg"
+  "key": "mayanFastMCTP",
+  "name": "CCTPv2 + Mayan",
+  "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/mayan.svg"
  },
  "action": {
   "fromToken": {
@@ -61,10 +61,10 @@
   "svmMaxSupportedTransactionVersion": 0
  },
  "estimate": {
-  "tool": "near",
+  "tool": "mayanFastMCTP",
   "approvalAddress": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
-  "toAmountMin": "19921852",
-  "toAmount": "19941794",
+  "toAmountMin": "19917899",
+  "toAmount": "19937833",
   "fromAmount": "20000000",
   "feeCosts": [
    {
@@ -108,8 +108,8 @@
     }
    },
    {
-    "name": "NearIntents Protocol Fee",
-    "description": "Fee taken by NearIntents for the protocol",
+    "name": "Redeem Relayer Fee",
+    "description": "Fee for the destination chain relayer",
     "token": {
      "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
      "chainId": 1151111081099710,
@@ -131,65 +131,7 @@
       }
      ]
     },
-    "amount": "1995",
-    "amountUSD": "0.0020",
-    "percentage": "0.0001",
-    "included": true
-   },
-   {
-    "name": "1ClickSwap API Fee",
-    "description": "Fee taken by 1ClickSwap for the API call",
-    "token": {
-     "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-     "chainId": 1151111081099710,
-     "symbol": "USDC",
-     "decimals": 6,
-     "name": "USD Coin",
-     "coinKey": "USDC",
-     "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
-     "priceUSD": "0.9982096877",
-     "tags": [
-      "stablecoin"
-     ],
-     "verificationStatus": "verified",
-     "verificationStatusBreakdown": [
-      {
-       "provider": "hypernative",
-       "result": "verified",
-       "providerResult": "accept"
-      }
-     ]
-    },
-    "amount": "1995",
-    "amountUSD": "0.0020",
-    "percentage": "0.0001",
-    "included": true
-   },
-   {
-    "name": "NearIntents App Fee",
-    "description": "Affiliate fee",
-    "token": {
-     "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-     "chainId": 1151111081099710,
-     "symbol": "USDC",
-     "decimals": 6,
-     "name": "USD Coin",
-     "coinKey": "USDC",
-     "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
-     "priceUSD": "0.9982096877",
-     "tags": [
-      "stablecoin"
-     ],
-     "verificationStatus": "verified",
-     "verificationStatusBreakdown": [
-      {
-       "provider": "hypernative",
-       "result": "verified",
-       "providerResult": "accept"
-      }
-     ]
-    },
-    "amount": "3990",
+    "amount": "3996",
     "amountUSD": "0.0040",
     "percentage": "0.0002",
     "included": true
@@ -212,22 +154,22 @@
      "verificationStatus": "unverified",
      "verificationStatusBreakdown": []
     },
-    "amount": "70000",
-    "amountUSD": "0.005575807069521611",
-    "estimate": "70000",
-    "limit": "70000",
+    "amount": "91447",
+    "amountUSD": "0.007284154701236325",
+    "estimate": "91447",
+    "limit": "91447",
     "price": "1",
     "type": "SEND"
    }
   ],
-  "executionDuration": 22,
+  "executionDuration": 35,
   "fromAmountUSD": "19.9642",
-  "toAmountUSD": "19.8806",
+  "toAmountUSD": "19.8767",
   "skipPermit": false
  },
  "includedSteps": [
   {
-   "id": "86ed3266-40d1-4a89-a4ae-1c4ba54260a8",
+   "id": "0bcfabe3-27c1-4ff4-8cf5-5c6d13d0a522",
    "type": "protocol",
    "action": {
     "fromChainId": 1151111081099710,
@@ -362,7 +304,7 @@
    }
   },
   {
-   "id": "75e7eeed-203c-4825-a3b8-bbda4af6d856",
+   "id": "a5cb3b77-ed7a-453b-906e-23710e7c5c24",
    "type": "cross",
    "action": {
     "fromChainId": 1151111081099710,
@@ -416,10 +358,10 @@
     "destinationGasConsumption": "0"
    },
    "estimate": {
-    "tool": "near",
+    "tool": "mayanFastMCTP",
     "fromAmount": "19950000",
-    "toAmount": "19941794",
-    "toAmountMin": "19921852",
+    "toAmount": "19937833",
+    "toAmountMin": "19917899",
     "gasCosts": [
      {
       "type": "SEND",
@@ -445,12 +387,12 @@
       }
      }
     ],
-    "executionDuration": 22,
-    "approvalAddress": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    "executionDuration": 35,
+    "approvalAddress": "0x1111111111111111111111111111111111111111",
     "feeCosts": [
      {
-      "name": "NearIntents Protocol Fee",
-      "description": "Fee taken by NearIntents for the protocol",
+      "name": "Redeem Relayer Fee",
+      "description": "Fee for the destination chain relayer",
       "token": {
        "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
        "chainId": 1151111081099710,
@@ -472,76 +414,18 @@
         }
        ]
       },
-      "amount": "1995",
-      "amountUSD": "0.0020",
-      "percentage": "0.0001",
-      "included": true
-     },
-     {
-      "name": "1ClickSwap API Fee",
-      "description": "Fee taken by 1ClickSwap for the API call",
-      "token": {
-       "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-       "chainId": 1151111081099710,
-       "symbol": "USDC",
-       "decimals": 6,
-       "name": "USD Coin",
-       "coinKey": "USDC",
-       "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
-       "priceUSD": "0.9982096877",
-       "tags": [
-        "stablecoin"
-       ],
-       "verificationStatus": "verified",
-       "verificationStatusBreakdown": [
-        {
-         "provider": "hypernative",
-         "result": "verified",
-         "providerResult": "accept"
-        }
-       ]
-      },
-      "amount": "1995",
-      "amountUSD": "0.0020",
-      "percentage": "0.0001",
-      "included": true
-     },
-     {
-      "name": "NearIntents App Fee",
-      "description": "Affiliate fee",
-      "token": {
-       "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-       "chainId": 1151111081099710,
-       "symbol": "USDC",
-       "decimals": 6,
-       "name": "USD Coin",
-       "coinKey": "USDC",
-       "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
-       "priceUSD": "0.9982096877",
-       "tags": [
-        "stablecoin"
-       ],
-       "verificationStatus": "verified",
-       "verificationStatusBreakdown": [
-        {
-         "provider": "hypernative",
-         "result": "verified",
-         "providerResult": "accept"
-        }
-       ]
-      },
-      "amount": "3990",
+      "amount": "3996",
       "amountUSD": "0.0040",
       "percentage": "0.0002",
       "included": true
      }
     ]
    },
-   "tool": "near",
+   "tool": "mayanFastMCTP",
    "toolDetails": {
-    "key": "near",
-    "name": "NearIntents",
-    "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/near.svg"
+    "key": "mayanFastMCTP",
+    "name": "CCTPv2 + Mayan",
+    "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/mayan.svg"
    }
   }
  ],
@@ -549,7 +433,7 @@
  "executionType": "transaction",
  "recommendedSlippage": null,
  "transactionRequest": {
-  "data": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAJDYUPLW4CpHr4JNCatp3ELXDLKMv6JJ+37le50lbBJ2LvcvRFs6GawEjSqSj+B3TPe4te+nxkV8vMvILs8OrJPHmQeZbngkZewY5m8NRPy4dGJnr1vCGHkFtdpbI5W6oqFdDrlnetNaHnO1nbwI1z0D3ffl9QmqnKzy0O11prQVA6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoPQ3SgjVP7wrjsOIn03zYnKJm+xfd+PfLfM775OvcVYyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAADG+nrzvtutOj1l82qryXQxsbvkwtL24OR8pgIDRS9dYd9IzmIiFD0gYmgX1imA812Lx9ejR6IpDyF2HQ1eHuqr/PiLEzxCaLu2My+yc6pqGbXi+gMruRY/vqI+1B9RkYoGp9UXGMd0yShWY5hpHV62i164o5tLbVxzVVshAAAAAAbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCp7IOTBKpacLThN60gUz1HDqlmv2XkkArqxaPnsQxYxGsGBwAFAhDrCQAHAAkDoIYBAAAAAAAFAgsKCQDd8qsCVyi6AAwEAwgBAAoMUMMAAAAAAAAGBgYAAgkIBAwBAQwEAwgCAAoMsGkwAQAAAAAGAA==",
+  "data": "AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACLKvQr9A2VmCBOSQ2gBuaTNFnQTh/gH2G92g0U939R7qIOqJgtDH1QhFJQJtRFbDUAepOieJcTlz6aSHmN28UBgAIABw2FDy1uAqR6+CTQmradxC1wyyjL+iSft+5XudJWwSdi7x91pkHV8G7QHzqc6i2q5muQOPUZs+aodTyKxPVSeIl0cvRFs6GawEjSqSj+B3TPe4te+nxkV8vMvILs8OrJPHmxVvnRugf/Dbz/3pE5YqvtqnmG+apAxQQJeIAivMVIrLw5QG4s05VD8IbeNZ+Bmz7eLardytqjG/xkeBD9akf/0OuWd601oec7WdvAjXPQPd9+X1CaqcrPLQ7XWmtBUDooPQ3SgjVP7wrjsOIn03zYnKJm+xfd+PfLfM775OvcVQMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAAtCPlnWlpkuqreRQnU8Cb1tgTWqlAT2NSRxIcSdKfQ5Xa4kuQcrK6tkcWld06y4ZTVXg748+21zA+3xkX1b5fnts44w5XLYDmhYXsXwkmoCPJ8UEoDCZQfQ72U6DiEWBj/PiLEzxCaLu2My+yc6pqGbXi+gMruRY/vqI+1B9RkYoG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqZwetw3lHXMUcXZg9pQHn/q/NJtWEKIKHUsEXk5VZDb5CAcABQIQ6wkABwAJA3jpAQAAAAAABgIaCwkAOrpTboCw9AAMBAUOAgAKDFDDAAAAAAAABggIFQADBA4RDBsBAQgEDAUDAAkDsGkwAQAAAAAICA8ABAADDw4RfKdmgGp5drpMAAAAAAAAAAAAAAAAERERERERERERERERERERERERERGwaTABAAAAAAAAAAAAAAAAlQ8AAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAClqm4hcbQW4dJ+xTyowT2z+RqJzQAoHJMIAAAAAAAAAQAAAAEIFA8EAwAPDgkSChQWGQ0TEAEXGAwRCK4peJJi2qkZAdnDDfuWEY2uAzWl9dW04R5sD/Lws3UWLUj16RRlk9irBFcRXFULKVZbWAZJY2RZKCc=",
   "svmTransactionVersion": 0
  },
  "stepSimulation": {
@@ -557,5 +441,5 @@
   "gasSource": "tool",
   "skipReason": "insufficient_funds"
  },
- "transactionId": "0xddf2ab025728ba00"
+ "transactionId": "0x3aba536e80b0f400"
 }
