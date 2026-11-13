@@ -1113,7 +1113,7 @@ pay is still an attack. Playbooks still reach only the read verbs.
 
 ### The mind's issues, browser tasks and new mail
 
-Three more intents reach a hand from the mind (docs/roadmap.md, A3), each
+More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
 keeps it off and out of the mind's prompt):
 
