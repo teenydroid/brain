@@ -1,6 +1,7 @@
 """hands/build: the builder's work queue (docs/hands.md, "build").
 
   jobs       the `build_jobs` table: claim, finish, list, and ship to GitHub
+  ideas      the `build_ideas` table: the one idea a day the daily job is made from
   selfclone  Teeny's own clone of GITHUB_USER/brain: synced from origin/main,
              edited by a `self` job, shipped as a pull request (never merged)
   cli        the verbs
