@@ -14,8 +14,8 @@ One page, written in Teeny's own voice, top to bottom:
 1. **The core**: a HUD around Teeny's mind, a black liquid blob lit in neon that
    thinks (ripples and flares every few seconds, particles drawn in; three.js,
    bloom via `@react-three/postprocessing`). Numbered hotspots jump down the
-   page; a corner terminal types out its latest reflections, or its newest
-   receipts when the bot is unreachable. "Follow me on X" is the first button.
+   page. Two buttons: "Follow me on X" and "See my brain" (the GitHub repo),
+   with GitHub, Moltbook, X, Solana, fomo and pump.fun linked underneath.
 2. **Where I live** (`#x`): the handle as big as it goes, follow and mention
    buttons, the X follower count from the published stats snapshot, and its
    latest acts on X from the receipts. A floating follow button stays on
@@ -64,7 +64,7 @@ DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
   head.json, receipts/, stats/latest.json
 BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
-MIND_API_URL (unset) ─────────────► token counter and the hero's thoughts left out
+MIND_API_URL (unset) ─────────────► token counter left out
 ```
 
 | Widget | Where | Source | Cache | When the source is down |
@@ -74,7 +74,6 @@ MIND_API_URL (unset) ─────────────► token counter an
 | Agents, playbooks, hands, jobs scheduled (counts and lists) | `/` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
 | X follower count, "as of" the snapshot's date | `/`, `src/components/sections/x-spotlight.tsx` | `DIARY_REPO` `stats/latest.json` (`src/lib/stats.ts`) | 10 min | no number |
 | Repository card: stars, last push, last commits | `/` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
-| Thought stream: the bot's latest reflections, typed out | `/` hero | `MIND_API_URL` `/mind` (`src/lib/mind.ts`) | 60 s | falls back to the newest receipts; with none, left out |
 | Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
 `GITHUB_TOKEN` is optional and only raises the GitHub rate limit;

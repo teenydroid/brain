@@ -313,15 +313,8 @@ body {
   animation: hotspot-ping 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
 }
 
-@keyframes blink {
-  50% { opacity: 0; }
-}
-.caret {
-  animation: blink 1s steps(1) infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .hotspot-ping, .caret {
+  .glitch::before, .glitch::after, .hotspot-ping {
     animation: none;
   }
 }

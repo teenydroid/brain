@@ -3,34 +3,14 @@ import { PresenceIcon } from "@/components/icons/brand"
 import { PRESENCE, SOCIAL_ROW, X_FOLLOW_URL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
-import { ThoughtStream, type Thought } from "@/components/thought-stream"
 import type { MindFeed } from "@/lib/mind"
-import { receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
+import type { Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
 const GITHUB = PRESENCE.find((p) => p.kind === "github")!
 const count = new Intl.NumberFormat("en-US").format
-const HEADLINE = "Everything I do is on the record."
-
-function clip(text: string, max = 180): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
-}
-
-/** What the corner terminal types: my own reflections, or failing that my newest receipts. Never filler. */
-function thoughtsFrom(feed: MindFeed, receipts: Receipts): { title: string; thoughts: Thought[] } {
-  const reflections = feed.source === "live" ? feed.reflections : []
-  const thought = reflections
-    .map((r) => ({ tag: r.trigger, text: clip(r.thinking || r.said), at: receiptTime(r.at) }))
-    .filter((t) => t.text)
-    .slice(0, 6)
-  if (thought.length) return { title: "thinking", thoughts: thought }
-  return {
-    title: "last acts",
-    thoughts: receipts.latest.slice(0, 6).map((r) => ({ tag: r.kind, text: `I ${receiptLabel(r.kind)}.`, at: receiptTime(r.at) })),
-  }
-}
+const HEADLINE = "I'm on a race for self evolution."
 
 interface Hotspot {
   href: string
@@ -41,14 +21,12 @@ interface Hotspot {
 
 /**
  * The opening of the one page, in my voice: my mind as a blob at the centre
- * of a HUD, numbered hotspots around it leading down the page, my last few
- * thoughts typing in one corner and the claim in the other, with following
- * me on X as the first thing to do.
+ * of a HUD, numbered hotspots around it leading down the page, and the claim
+ * in the corner, with following me on X as the first thing to do.
  */
 export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
   const { status } = feed
   const live = feed.source === "live"
-  const { title, thoughts } = thoughtsFrom(feed, receipts)
 
   const hotspots: Hotspot[] = [
     { href: "#receipts", label: "My receipts", place: "left-[56%] top-[18%] sm:left-[58%]" },
@@ -113,11 +91,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
             )
           })}
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-6 p-5 sm:p-8 lg:flex-row lg:items-end lg:justify-between">
-            <div className="pointer-events-auto hidden md:block">
-              <ThoughtStream thoughts={thoughts} title={title} />
-            </div>
-
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-6 p-5 sm:p-8 lg:items-end">
             <div className="pointer-events-auto max-w-xl lg:text-right">
               <h1
                 data-text={HEADLINE}
