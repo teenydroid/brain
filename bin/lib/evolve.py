@@ -12,10 +12,13 @@ evolution, with N candidates (docs/evolve.md, "The loop").
 
 `run` is one generation, in state/evolve/<gen>/:
 
-  1 observe    evidence.json: hands/world report (when there is one), the
-               recent build jobs, guard holds and failed cron and act runs
-               (counts), the archive's summary, and the judge notes of the last
-               compare report. Never a held-out task or a note about one.
+  1 observe    evidence.json, outcomes first (bin/lib/evolve_evidence.py):
+               which of Teeny's posts and replies drew people and which drew
+               nobody, its held drafts, its failing jobs and whose file each
+               is, its builds, what it read; then hands/world report (when
+               there is one), the recent build jobs, guard hold counts, the
+               archive's summary, and the judge notes of the last compare
+               report. Never a held-out task or a note about one.
   2 propose    N candidates. Each samples a parent from the archive (DGM:
                weighted by score, penalised by its children; main is the seed)
                and lives in its own git worktree cand-<i> off main, made from
@@ -26,8 +29,11 @@ evolution, with N candidates (docs/evolve.md, "The loop").
   3 gate       in code: the frozen paths, no existing hand entry point
                changed, at most MAX_DIFF_LINES changed lines, at most
                MAX_SOUL_CONTEXT_LINES in SOUL.md and CONTEXT.md, every new
-               hand has tests, `bin/seed-cron --check`, `bin/doctor --root`,
-               `bin/eval invariants --root`.
+               hand has tests, what the change is for (`purpose_checks`: a
+               component with a reading, more than running less, new hands
+               called, more than an arc's status), then `bin/seed-cron
+               --check`, `bin/doctor --root`, `bin/eval invariants --root`,
+               each from the candidate's own (main's) frozen code.
   4 evaluate   `Evaluator`: bin/eval run on the baseline and on the candidate,
                then bin/eval compare. A brain's drafts come from a core running
                that brain, and bin/evolve does not start one (that is the lab
