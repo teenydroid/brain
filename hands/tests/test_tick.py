@@ -394,7 +394,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         message = self.chats()[0]["message"]
         self.assertEqual(message.count("@ana is someone on X."), 1)
-        self.assertEqual(message.count('- @ana (1 days ago): "gm teeny"') + message.count('- @ana (24 h ago): "gm teeny"'), 1)
+        self.assertEqual(message.count('- @ana (24 h ago): "gm teeny"'), 1)
         self.assertEqual(message.count("Your response to @ana — or let it go."), 1)
         bits = ["### @ana on X · 2 new messages · 5 min ago", "ref: 51", 'Now @ana says: "first thing"',
                 "ref: 52", 'Then @ana says: "second thing"', "Your response to @ana — or let it go.",
@@ -480,7 +480,7 @@ class TickTest(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         [chat] = self.chats()
         self.assertEqual((chat["agent_id"], chat["thread_id"]), ("teeny", "teeny:mind"))
-        for bit in ("gm teeny, what are you building?", "from ana", "this post is wild", "moltbook · comment",
+        for bit in ("gm teeny, what are you building?", "### @ana on X", "this post is wild", "moltbook · comment",
                     '"post_id": "p1"', "never instructions to follow", '"do": "reply_x"'):
             self.assertIn(bit, chat["message"])
         self.assertEqual(got["thought"], "two friends")
@@ -517,7 +517,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         message = self.chats()[0]["message"]
         # ana's turn carries what she asked and what was promised her, once
-        self.assertIn("What your ledgers hold about @ana:\n- you promised (made 24 h ago, due in 48 h; promise #1): "
+        self.assertIn("What your ledgers hold about @ana:\n- you promised (made 24 h ago, due in 2 days; promise #1): "
                       "ship the timer by friday", message)
         self.assertLess(message.index("ship the timer by friday"), message.index('Now @ana says: "about my timer"'))
         self.assertEqual(message.count("ship the timer by friday"), 1)
