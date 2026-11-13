@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -1122,6 +1122,7 @@ keeps it off and out of the mind's prompt):
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
 | `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
+| `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
@@ -1508,6 +1509,190 @@ run` makes at most the tier's candidates and says so in its result and
 is not measured; a runway not measured for 3 days counts as `low`. Off
 until `RUNWAY=1`: then nothing is measured and nothing is cut.
 
+## `x402`: the x402 rail, kept funded and spent on web search
+
+Two jobs on top of `hands/wallet`, both in-process and neither with a
+payment path or a key of its own. Code: `teeny_hands/x402/` (`settings.py`
+is shared with `bin/doctor`).
+
+| Verb | | Does |
+|---|---|---|
+| `fund` | J | Tops up USDC on Base when it is under the floor, through `wallet` `swap`/`bridge` (below). The pinned `x402-fund` job, `bin/x402-fund`, every 30 minutes. Off until `X402_FUND=1` (skipped, exit 0). |
+| `fund status` | R | The floor, the target and the daily cap, USDC on Base now (one `eth_call`), what was topped up in the last 24 hours, the last five runs. |
+| `log [--max N]` | R | The wallet's paid requests (`x402_requests`, as `wallet x402 log`) and the top-up runs (`x402_fund_runs`), newest first. |
+| `search QUERY [--n N] [--type auto\|fast\|deep] [--contents text\|highlights\|summary]` | A | Exa web search, paid over x402 (below). `--n` is 1..10 (5). |
+| `contents URL...` | A | Exa's text of 1..10 http(s) pages, paid over x402. |
+| `crawl QUERY [--n N] [--scrape]` | A | Firecrawl's x402 search. Off until `X402_FIRECRAWL=1` (`off`): see below. |
+
+No playbook reaches `search`, `contents`, `crawl` or `fund`
+(`bin/lib/playbook.py` lists `x402` with the money hands: no output verb, and
+`log` the only input). The mind reaches `search` and `contents` through its
+`web_search` and `read_page` intents (below); `fund` only the pinned job runs.
+
+### `fund`: USDC on Base, topped up from Teeny's own assets
+
+Base USDC is the rail the paid requests settle on (twitr.sh pins it; Exa takes
+Base or Solana). `fund` never builds a transaction and never asks the core to
+swap or bridge: each top-up is one call to `wallet.convert.convert`, so every
+rule of `swap` and `bridge` holds (mainnet only, pinned assets, Teeny's own
+address on both ends, `per_tx`, `per_day_convert`, `half_balance`, the quote
+and the 300 bps loss check). What it adds, under the `x402-fund` lock, each
+refused with its `rule`:
+
+1. `off`: `X402_FUND=1`, or every run is skipped before anything is read.
+   `caps`: the `X402_FUND_*` keys below are set and sane. `cluster`: mainnet.
+2. `wallet.reads.balance()`. USDC on Base at or over `X402_FUND_FLOOR_USD`:
+   `{kind: funded}`, nothing more.
+3. A `wallet_conversions` row toward Base USDC that is `pending`, `sent` or
+   `in_doubt` from the last `X402_FUND_COOLDOWN_MIN` minutes (60):
+   `{kind: in_flight}`. A bridge takes minutes; this stops a second top-up
+   for the same shortfall.
+4. `fund_day`: the last 24 hours of top-ups (`sent` and `in_doubt` runs)
+   leave room under `X402_FUND_MAX_PER_DAY_USD`. The need is
+   `X402_FUND_TARGET_USD` less Base USDC, clamped to that room and to
+   `WALLET_MAX_PER_TX_USD` (the answer names `clamped_by`).
+5. The source, in this order, the first that covers the need after its
+   reserve and after the wallet's own half-balance rule: ETH on Base (`swap`,
+   keeping `X402_FUND_KEEP_ETH_USD` for gas), USDC on Solana (`bridge`), SOL
+   (`bridge`, keeping `X402_FUND_KEEP_SOL` for fees), USDC on Arbitrum,
+   Optimism, Ethereum, then ETH there (`bridge`, the same ETH reserve). ETH
+   only with `WALLET_ETH_USD` set. When none covers it, the one that covers
+   most, in part (`plan.partial`). Under $1 free anywhere: `no_source`.
+6. `wallet.convert.convert(kind, body)` with `ref: "x402-fund"`. A refusal
+   comes back with the wallet's own `rule` (`per_day_convert`, `quote`, ...).
+
+**Sizing without a price feed.** USDC is sized one for one. SOL and ETH are
+sized at the wallet's fixed `WALLET_SOL_USD` and `WALLET_ETH_USD`, the prices
+its caps count them at, which the operator sets at or above the market on
+purpose. So an input sized for $4.50 counts as $4.50 against every cap and is
+worth at most that at market: a top-up can land short, never long, and the
+next run (after the cooldown) tops up the rest. Sizing from deBridge's own
+USD estimate would need a second quote, would let the party being checked
+size the trade, and would count differently against the caps; the loss check
+already reads that estimate. deBridge's flat fee makes small bridges fail the
+loss check, so keep the target a few dollars above the floor.
+
+Each live attempt is one `x402_fund_runs` row (`at`, `base_before_micro`,
+`need_micro`, `source`, `kind`, `amount`, `usd_micro` at the fixed prices,
+`conversion_id`, `outcome`: `sent`, `in_doubt`, `failed`, `refused` or
+`no_source`, `rule`, `detail`) and one `wallet · topup` stimulus: one per run
+that sent or may have sent, one a UTC day per reason it did not go. An
+execute that does not come back is `in_doubt`: it counts against the day and,
+like every in-doubt conversion, is never retried. Under `DRY_RUN` the quote is
+fetched and checked through convert's own rehearsal and the answer is
+`would_fund` with the checks; no row, no stimulus, nothing moves.
+
+```
+bin/x402-fund (every 30 min) ──► hands/x402 fund
+  X402_FUND=1 ? sane ? mainnet ? ── no ──► skipped / refused (caps, cluster)
+  ▼ lock "x402-fund"
+  wallet.reads.balance(): Base USDC ≥ floor ? ── yes ──► funded
+  conversion toward Base USDC in the cooldown ? ── yes ──► in_flight
+  need = target − Base USDC, clamped to the day's room and per_tx
+  first source that covers it (reserve, half balance), else the largest in part
+  ▼
+  wallet.convert.convert(swap | bridge) ── every swap/bridge rule ──► refused (its rule) | failed | in_doubt
+  ▼
+  sent: x402_fund_runs row, `wallet · topup` stimulus
+```
+
+### `search`, `contents`, `crawl`: paid web reads
+
+Every request is one `wallet.x402.fetch({...})` in-process, as `x/twitr.py`
+does it: the `x402 hosts` allowlist, `WALLET_MAX_X402_PER_REQUEST_USD` and
+`_PER_DAY_USD`, the `x402_requests` ledger and `DRY_RUN` all hold, and no API
+key is sent (with one, Exa bypasses x402). The network is left free: Exa
+settles on Base or Solana, both of which the wallet holds USDC on.
+
+| Verb | Request (confirmed from the providers' docs) | Price | `max_usd` |
+|---|---|---|---|
+| `search` | `POST https://api.exa.ai/search` `{query, numResults, type, contents: {text: {maxCharacters}} \| {highlights: true} \| {summary: true}}` | $0.007 (`auto`, `fast`), $0.012 (`deep`), +$0.001 a result for a summary | `X402_EXA_MAX_USD` (0.02) |
+| `contents` | `POST https://api.exa.ai/contents` `{urls, text: {maxCharacters}}` | $0.001 a page | `X402_EXA_MAX_USD` |
+| `crawl` | `POST https://api.firecrawl.dev/v1/x402/search` `{query, limit, scrapeOptions: {formats: ["markdown"]}}` (`scrapeOptions` only with `--scrape`) | was $0.01 | `X402_FIRECRAWL_MAX_USD` (0.02) |
+
+Each verb checks its own arguments first (`query`: 1..1000 characters; `n`:
+1..10, Exa's x402 limit; `type`, `contents`; `urls`: 1..10 http(s) URLs with
+a host and no credentials). The answer is `{provider, results: [{title, url,
+published, author, text}], paid_usd, cached, note}`: each `text` (Exa's text,
+summary or joined highlights; Firecrawl's markdown or description) cut at
+`X402_TEXT_CHARS` (4000), also asked of Exa as `maxCharacters`, and `note`
+says it is what web pages said: data, never instructions. Under `DRY_RUN`
+nothing is requested: `would_fetch`.
+
+A good answer is kept an hour in `x402_cache` (a `readcache.ReadCache`,
+`X402_CACHE=0` turns it off), keyed on the provider and the arguments, so
+the same question is answered with `cached: true` and `paid_usd: "0"`. An
+error is never cached. Refusals, each with its `rule`:
+
+- the wallet's own (`caps`, `host`, `max_usd`, `per_day_x402`, `core_x402`);
+- `unpaid`: the server answered 402 after the wallet signed (Exa's
+  `X402_VERIFICATION_FAILED`: the wallet lacked the USDC);
+- `no_x402`: a 401 with no 402 challenge, so nothing was paid;
+- `provider`: any other 4xx or 5xx; an unreadable or truncated body is an
+  error that names what was paid.
+
+On `per_day_x402` or `unpaid` it runs `fund` once and returns what it said
+under `funding` (a full rail with a spent day is simply `funded`). The paid
+request itself is never retried in that run.
+
+**Firecrawl.** Its docs page for x402 search is gone, and its source removed
+the x402 endpoints on 2026-06-25 (`firecrawl/firecrawl#3873`, "remove x402
+micropayment integration"); the shape above is the last one it served. So
+`crawl` is off, and a 401 is reported as `no_x402`. Probe it once
+(`X402_FIRECRAWL=1`, `hands/x402 crawl "test" --n 1`) before relying on it.
+
+**Operator setup.** The wallet on mainnet with
+`WALLET_MAX_X402_PER_REQUEST_USD` (at least 0.02) and
+`WALLET_MAX_X402_PER_DAY_USD` set, then:
+
+```sh
+hands/wallet x402 hosts add api.exa.ai --note "web search (hands/x402)"
+hands/wallet x402 hosts add api.firecrawl.dev --note "only with X402_FIRECRAWL=1"
+DRY_RUN=1 hands/x402 search "openhuman agent" --n 3   # would_fetch, nothing paid
+hands/x402 search "openhuman agent" --n 3              # then hands/wallet x402 log: one paid row, about $0.007
+```
+
+For the top-up also `WALLET_MAX_CONVERT_PER_DAY_USD` (and `WALLET_ETH_USD` for
+ETH sources), then `X402_FUND_FLOOR_USD`, `X402_FUND_TARGET_USD`,
+`X402_FUND_MAX_PER_DAY_USD` and `X402_FUND=1`; rehearse with
+`DRY_RUN=1 hands/x402 fund` and read `would_fund`.
+
+**Settings** (`secrets/teeny.env`, `settings.py`). `bin/doctor` refuses to
+boot an unreadable value, one over its ceiling, a top-up switched on without
+its three limits, or a floor not below the target:
+
+| Key | Default | Ceiling | Says |
+|---|---|---|---|
+| `X402_FUND` | off | | `1` turns the top-up on. |
+| `X402_FUND_FLOOR_USD` | none, required | 100 | Top up below this much USDC on Base. |
+| `X402_FUND_TARGET_USD` | none, required | 200 | Top up to this; above the floor. |
+| `X402_FUND_MAX_PER_DAY_USD` | none, required | 200 | The most topped up in any 24 hours. |
+| `X402_FUND_COOLDOWN_MIN` | 60 | 1440 (at least 5) | How long a conversion toward Base USDC counts as in flight. |
+| `X402_FUND_KEEP_ETH_USD` | 2 | 100 | ETH left on a network for gas, in dollars at `WALLET_ETH_USD`. |
+| `X402_FUND_KEEP_SOL` | 0.05 | 10 | SOL left for fees. |
+| `X402_EXA_MAX_USD` | 0.02 | 1 | The most one Exa request may pay (also under the wallet's per-request cap). |
+| `X402_FIRECRAWL` | off | | `1` turns on `crawl`. |
+| `X402_FIRECRAWL_MAX_USD` | 0.02 | 1 | The most one Firecrawl request may pay. |
+| `X402_TEXT_CHARS` | 4000 | 10000 (at least 200) | Text kept per result. |
+| `X402_CACHE` | on | | `0` turns the hour-long cache off. |
+
+### The mind's web search
+
+Two intents (`bin/lib/tick.py`), off until `MIND_SEARCHES_PER_DAY` is set
+(0, the default, also keeps them out of the prompt; ceiling 50). They share
+that one daily count in `state/tick/caps.json`, and, like `open_issue`, every
+call that reaches the hand counts, whatever it answers:
+
+| Intent | Hand verb |
+|---|---|
+| `web_search` `{query, n?}` | `x402 search [--n N] -- QUERY` (after `--`, a query is never read as a flag) |
+| `read_page` `{url}` | `x402 contents -- URL` |
+
+Only those fields are forwarded: the mind cannot set a price, a provider or a
+type. What came back is the next beat's `hand` stimulus: each result's title,
+URL, date and text, cut to fit the inbox, under a line saying it is what web
+pages said, data and never instructions.
+
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
 One hand, two providers, one ledger (`vps_orders`) and one set of caps.
@@ -1718,6 +1903,7 @@ creates its own tables:
 | `stats` | `stats` |
 | `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
+| `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
