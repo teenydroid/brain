@@ -1254,7 +1254,11 @@ def beat(pause: float = 0.0) -> Json:
         with hand.lock("tick", timeout=5):
             started = time.monotonic()
             time.sleep(pause)
-            return _beat(deadline_from(started))
+            try:
+                return _beat(deadline_from(started))
+            finally:
+                global _lifted
+                _lifted = False
     except hand.HandError as exc:
         if "lock" in str(exc):
             out = {"ok": True, "kind": "busy", "idle": True, "skipped": "another beat is still thinking"}
@@ -1361,6 +1365,13 @@ def _beat(deadline: float) -> Json:
     if not items:
         return _idle("idle", raised, gathered, **more)
     kind = "quiet" if all((s["surface"], s["kind"]) in QUIET for s in items) else "beat"
+    host = [s["ref"] for s in items if s["surface"] == "host"]
+    if host:
+        # The operator asked from the host: named in every record of this
+        # beat (deploy/tell.sh waits for it), and its capped work let through.
+        more["host"] = host
+        global _lifted
+        _lifted = True
     # Nobody waits on a quiet moment: a failed one is let go, not put back
     # to come round again stale.
     give_back = stimuli.settle if kind == "quiet" else stimuli.release
