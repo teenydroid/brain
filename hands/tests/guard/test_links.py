@@ -57,6 +57,31 @@ class FindLinksTest(unittest.TestCase):
         self.assertEqual(raws("read tinyhumans.ai.")[0], "tinyhumans.ai")
         self.assertEqual(raws("(github.com/tinyhumansai/openhuman)")[0], "github.com/tinyhumansai/openhuman")
 
+    def test_a_job_name_with_dots_and_hyphens_is_not_a_link(self):
+        # Live: a Telegram reply naming the cron job was refused as a link.
+        self.assertEqual(raws("the teeny.wallet-watch job is off"), [])
+        for name in ("teeny.wallet-watch", "teeny.evolve-credit", "teeny.gh-inbound", "teeny.goals-check"):
+            with self.subTest(name=name):
+                self.assertEqual(raws(f"ran {name} at 9"), [])
+
+    def test_a_tld_glued_to_more_name_is_not_a_link(self):
+        self.assertEqual(raws("a.ai-thing and x.com2 and x.com.foo-bar"), [])
+
+    def test_identifier_words_are_not_link_tlds(self):
+        for name in ("teeny.wallet", "app.token", "pool.swap", "ray.dex", "my.defi", "doge.coin"):
+            with self.subTest(name=name):
+                self.assertEqual(raws(f"see {name} today"), [])
+
+    def test_still_finds_real_links_at_a_boundary(self):
+        self.assertEqual(raws("go to example.com now"), ["example.com"])
+        self.assertEqual(raws("it is foo.ai."), ["foo.ai"])
+        self.assertEqual(raws("visit x.com/abc"), ["x.com/abc"])
+        self.assertEqual(raws("see teeny.enamakel.com, ok"), ["teeny.enamakel.com"])
+        self.assertEqual(raws("at https://teeny.enamakel.com/x?y=1"), ["https://teeny.enamakel.com/x?y=1"])
+        self.assertEqual(raws("(evil.xyz)"), ["evil.xyz"])
+        self.assertEqual(raws("teeny-wallet.com!"), ["teeny-wallet.com"])
+        self.assertEqual(find_links("the evil.com_drop page")[0].url.host, "evil.com")
+
 
 class JudgeLinkTest(unittest.TestCase):
     def test_allows_the_accounts_own_sites_and_subdomains(self):
