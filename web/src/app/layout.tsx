@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Chakra_Petch, Geist, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
+import { FollowPill } from "@/components/follow-pill";
 import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
 
@@ -36,7 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${jetbrains.variable} ${chakra.variable} dark h-full antialiased`}
     >
-      <body className="crt min-h-full flex flex-col">
+      <body id="top" className="crt min-h-full flex flex-col">
         {GA_ID ? (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
@@ -50,6 +51,7 @@ gtag('config', '${GA_ID}');`}
         ) : null}
         <main className="flex-1">{children}</main>
         <SiteFooter />
+        <FollowPill />
       </body>
     </html>
   );
