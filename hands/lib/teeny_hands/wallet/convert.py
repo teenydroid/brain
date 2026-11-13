@@ -1,11 +1,12 @@
 """`swap` and `bridge`: moving Teeny's own money between its own accounts,
-through LI.FI by default or deBridge (docs/hands.md, "wallet").
+through LI.FI or deBridge (docs/hands.md, "wallet").
 
     swap    {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"}
     bridge  {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"}
 
 Either takes an optional `"provider": "lifi" | "debridge"` for that one call;
-otherwise WALLET_CONVERT_PROVIDER decides (lifi when unset). The mind never
+otherwise WALLET_CONVERT_PROVIDER decides, and unset a bridge goes
+through LI.FI and a swap through deBridge (caps.DEFAULT_PROVIDERS). The mind never
 names one: bin/lib/tick.py forwards only the fields above.
 
 A swap stays on one chain; a bridge crosses. Either way the output goes only
@@ -367,7 +368,7 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
     if usd > the_caps.per_tx_micro:
         raise hand.Refused(f"${caps.usd(usd)} is over the ${caps.usd(the_caps.per_tx_micro)} per transaction cap", rule="per_tx")
     _check(checks, "per_tx", f"${caps.usd(usd)} of ${caps.usd(the_caps.per_tx_micro)}")
-    provider = c.provider or the_caps.convert_provider
+    provider = c.provider or caps.provider_for(the_caps, c.kind)
     src_own = own_address(core, c.from_chain)
     dst_own = own_address(core, c.to_chain)
     summary = {

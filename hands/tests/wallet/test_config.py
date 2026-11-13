@@ -106,7 +106,7 @@ class WalletConfigTest(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 0)
-        self.assertIn("swaps and bridges $20.00 a day through lifi", out.getvalue())
+        self.assertIn("swaps and bridges $20.00 a day through LI.FI (bridges) and deBridge (swaps)", out.getvalue())
         self.env.write_text("".join(f"{k}={v}\n" for k, v in {**CAPS, "WALLET_CONVERT_PROVIDER": "dln"}.items()))
         err = io.StringIO()
         with redirect_stderr(err), redirect_stdout(io.StringIO()):

@@ -1252,9 +1252,11 @@ from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks the
 provider's public API through the spine. Upstream answers these through the
 TinyHumans backend, which needs a signed-in session Teeny does not have.
 
-**Two providers, LI.FI by default.** `WALLET_CONVERT_PROVIDER` is `lifi` (the
-default) or `debridge`; any other value is a `caps` error, and the doctor
-refuses to boot it. One call can name the other with `"provider": "lifi"` or
+**Two providers: LI.FI bridges, deBridge swaps.** Unset,
+`WALLET_CONVERT_PROVIDER` sends a bridge through LI.FI and a swap through
+deBridge (`caps.DEFAULT_PROVIDERS`), each the cheaper of the two on Teeny's
+sizes. Set to `lifi` or `debridge`, it sends both kinds through that one; any
+other value is a `caps` error, and the doctor refuses to boot it. One call can name the other with `"provider": "lifi"` or
 `"debridge"` in its body (anything else is refused, `fields`). The mind never
 picks: `bin/lib/tick.py` forwards a swap or bridge intent without a
 `provider`, so only the operator's setting or an explicit hand call decides.
@@ -1263,8 +1265,11 @@ Why LI.FI: on Teeny's box a deBridge DLN bridge of 0.124 SOL to USDC on Base
 lost about 22%. Its 0.015 SOL `fixFee` and operating expenses took 0.1444 SOL
 out of the wallet for 9.09 USDC. The same bridge through LI.FI, which routed
 it via Mayan, took 0.1026 SOL for 7.879 USDC, about 3%. LI.FI compares
-bridges and DEXes per quote and asks for the cheapest (`order=CHEAPEST`);
-deBridge stays for an operator who wants it.
+bridges and DEXes per quote and asks for the cheapest (`order=CHEAPEST`).
+
+Why deBridge for swaps: on the same day 0.1 SOL to USDC on Solana quoted
+about 0.6% through deBridge and 3.1% through LI.FI (Jupiter, plus the rent
+for a token account, which the simulation counts as loss).
 
 **How a quote is routed** (`spine/src/wallet_backend.rs`). The core forwards
 every wallet-backend call to the first handler registered, with no per-call

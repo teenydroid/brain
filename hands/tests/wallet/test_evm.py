@@ -134,10 +134,14 @@ class CapsTest(Scratch):
         with self.assertRaises(caps.CapsError):
             caps.load(hand.secrets())
 
-    def test_swaps_and_bridges_go_through_lifi_unless_the_operator_says_debridge(self):
-        self.assertEqual(caps.load(hand.secrets()).convert_provider, "lifi")
-        self.configure(WALLET_CONVERT_PROVIDER="debridge")
-        self.assertEqual(caps.load(hand.secrets()).convert_provider, "debridge")
+    def test_unset_bridges_go_through_lifi_and_swaps_through_debridge(self):
+        loaded = caps.load(hand.secrets())
+        self.assertIsNone(loaded.convert_provider)
+        self.assertEqual((caps.provider_for(loaded, "bridge"), caps.provider_for(loaded, "swap")), ("lifi", "debridge"))
+        for name in caps.PROVIDERS:
+            self.configure(WALLET_CONVERT_PROVIDER=name)
+            loaded = caps.load(hand.secrets())
+            self.assertEqual((caps.provider_for(loaded, "bridge"), caps.provider_for(loaded, "swap")), (name, name))
         for unknown in ("jupiter", "LI.FI", "lifi debridge"):
             self.configure(WALLET_CONVERT_PROVIDER=unknown)
             with self.assertRaises(caps.CapsError) as caught:

@@ -315,9 +315,10 @@ def with_tx_bytes(raw: dict, change) -> dict:
 
 class LifiBase(Scratch):
     """The fakes for a LI.FI quote: the core answers a recorded one, the
-    chain a simulation."""
+    chain a simulation. LI.FI quotes both kinds here; who quotes by default
+    is ProviderTest's."""
 
-    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0"}
+    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0", "WALLET_CONVERT_PROVIDER": "lifi"}
 
     def setUp(self):
         super().setUp()
@@ -551,8 +552,9 @@ def base_bytes(address: str) -> bytes:
 
 
 class ProviderTest(LifiBase):
-    """Who quotes: WALLET_CONVERT_PROVIDER, LI.FI unless it says deBridge,
-    and a `provider` field for one call."""
+    """Who quotes: unset, LI.FI bridges and deBridge swaps (each the cheaper
+    for that kind on Teeny's sizes); WALLET_CONVERT_PROVIDER picks one for
+    both; a `provider` field picks one for one call."""
 
     def setUp(self):
         super().setUp()
@@ -562,12 +564,23 @@ class ProviderTest(LifiBase):
     ETH_SWAP = {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.005"}
     BRIDGE = {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "40"}
 
-    def test_lifi_is_the_default(self):
+    def test_unset_a_bridge_goes_through_lifi_and_a_swap_through_debridge(self):
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_CONVERT_PROVIDER=None)
+        self.lifi("bridge", recorded("base_usdc_to_arbitrum"))
+        convert.convert("bridge", LifiTest.BASE_TO_ARB)
+        self.assertEqual(self.core.params("openhuman.web3_bridge_quote")[0]["dstChainTokenOutAmount"], "lifi:auto")
+        self.core.answers["openhuman.web3_swap_quote"] = swap_quote
+        convert.convert("swap", self.ETH_SWAP)
+        self.assertEqual(self.core.params("openhuman.web3_swap_quote")[0]["slippage"].split(":")[0], "debridge")
+        self.assertEqual([row["provider"] for row in self.rows()], ["lifi", "debridge"])
+
+    def test_the_operator_can_make_lifi_quote_swaps_too(self):
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_CONVERT_PROVIDER="lifi")
         convert.convert("swap", self.ETH_SWAP)
         self.assertEqual(self.core.params("openhuman.web3_swap_quote")[0]["slippage"], "lifi:1")
         self.assertEqual(self.rows()[0]["provider"], "lifi")
 
-    def test_the_operator_can_make_debridge_the_default(self):
+    def test_the_operator_can_make_debridge_quote_bridges_too(self):
         self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_CONVERT_PROVIDER="debridge")
         convert.convert("bridge", self.BRIDGE)
         self.assertEqual(self.core.params("openhuman.web3_bridge_quote")[0]["dstChainTokenOutAmount"], "debridge:auto")
