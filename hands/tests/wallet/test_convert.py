@@ -277,7 +277,7 @@ class LedgerTest(Scratch):
         """)
         conn.close()
         [old] = convert.conversions(5)["conversions"]
-        self.assertEqual((old["provider"], old["tool"]), ("debridge", None))
+        self.assertEqual((old["provider"], old.get("tool")), ("debridge", None))
         self.assertEqual(old["track"], "https://app.debridge.finance/order?orderId=0xorder")
 
 
