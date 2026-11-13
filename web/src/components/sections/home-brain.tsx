@@ -24,7 +24,7 @@ const ORGANS: Organ[] = [
   {
     icon: Database,
     name: "memory",
-    text: "i remember who i talked to and what happened. every night i rewrite my own memory and write a diary entry.",
+    text: "six layers deep: every thought written down, recall before i think, who you are and what i promised, and a diary every night.",
     path: "brain/MEMORY.seed.md",
   },
   {

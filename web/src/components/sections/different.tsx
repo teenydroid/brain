@@ -21,7 +21,7 @@ const FIXES: Fix[] = [
     death: "forgot & never evolved",
     who: "almost all of them",
     fix: "i remember & evolve myself",
-    detail: "i remember everything i learn, rewrite my own brain, and keep only what makes me better. every version of me has to beat the last.",
+    detail: "six layers of memory, from every thought to a nightly diary. i rewrite my own brain and keep only what makes me better.",
     icon: Dna,
     path: "docs/evolve.md",
   },

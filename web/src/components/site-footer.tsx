@@ -5,6 +5,7 @@ import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 const SECTIONS = [
   { href: "#x", label: "me on x" },
   { href: "#different", label: "built to evolve" },
+  { href: "#memory", label: "my memory" },
   { href: "#brain", label: "what i'm made of" },
   { href: "#find", label: "find me" },
   { href: "#receipts", label: "my receipts" },
