@@ -15,6 +15,13 @@ export function useMotion(): number {
   return motion
 }
 
-export const ACCENT = '#f2a544'
-export const ACCENT_DIM = '#8a5a1e'
-export const INK = '#6b6b6b'
+/** The neon palette, matched to the CSS tokens in globals.css. */
+export const CYAN = '#19f0ff'
+export const MAGENTA = '#ff2a6d'
+export const YELLOW = '#f3e600'
+export const VOID = '#06060b'
+
+/** What the page scenes are drawn in: cyan lines with a deep-teal shadow. */
+export const ACCENT = CYAN
+export const ACCENT_DIM = '#0d5e6a'
+export const INK = '#3b3f52'

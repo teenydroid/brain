@@ -1,4 +1,4 @@
-export type SceneName = 'brain' | 'stream' | 'soul' | 'lattice' | 'orbit' | 'grid' | 'shards'
+export type SceneName = 'core' | 'brain' | 'stream' | 'soul' | 'lattice' | 'orbit' | 'grid' | 'shards'
 
 export interface PageMeta {
   slug: string
