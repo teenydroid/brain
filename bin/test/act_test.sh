@@ -562,6 +562,16 @@ for path in "$here/../../brain/playbooks"/*.md; do
   fi
 done
 
+# The world sense reads what the ears heard (hands/listen), and the loops that
+# make things from it read the same ledger back.
+listens() { OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" "$act" --check "$1"; }
+check "world-scan listens through hands/listen, twice a day" \
+  bash -c "$(declare -f listens); act='$act' here='$here' listens world-scan | jq -e '.inputs[0] == \"heard\" and .max_per_day == 2' >/dev/null"
+for name in morning build-idea moltbook-daily moltbook-evening; do
+  check "$name reads what was heard" \
+    bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
+done
+
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
   exit 1
