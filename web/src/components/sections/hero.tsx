@@ -47,7 +47,6 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
           style={{ "--cut": "28px" } as React.CSSProperties}
         >
           <SceneCanvas className="absolute inset-0" />
-          <div className="dot-grid pointer-events-none absolute inset-0 opacity-30 mix-blend-screen" />
           {/* Darkens the bottom so the copy stays legible over the blob. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-t from-[#06060b] via-[#06060b]/50 to-transparent" />
 

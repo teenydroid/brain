@@ -9,10 +9,11 @@ import { CoreScene } from './scenes/core'
 const ABERRATION = new Vector2(0.0014, 0.0009)
 
 /** The one scene on the site: the core, opaque, with bloom and a little lens grit. */
-export function Scene() {
+export function Scene({ running = true }: { running?: boolean }) {
   return (
     <Canvas
       dpr={[1, 2]}
+      frameloop={running ? 'always' : 'never'}
       camera={{ position: [0, 0, 6.2], fov: 45 }}
       gl={{ antialias: false, alpha: false, powerPreference: 'high-performance' }}
       // The HUD sits over the canvas; reading the pointer from the body lets the blob follow it anyway.
