@@ -22,7 +22,7 @@ IDEA = {
     "title": "a changelog differ for agent prompts",
     "who": "@ana on X, and the Show HN thread on prompt drift",
     "source": "https://news.ycombinator.com/item?id=100",
-    "pitch": "show what changed between two versions of a prompt file, bullet by bullet",
+    "pitch": "show what changed between two versions of a prompt file, line by line",
 }
 
 
