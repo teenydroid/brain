@@ -117,3 +117,58 @@ class RecallTest(Scratch):
         self.assertEqual(recall.said_lately(), [])
         self.assertIsNone(recall.answering("1", "a", {"in_reply_to": "2"}))
         self.assertEqual(recall.history("a"), [])
+
+
+class WornPhrasesTest(RecallTest):
+    """`worn_phrases`: the words Teeny keeps reaching for in its replies, so a
+    beat can tell it to pick other ones. The repeat rule in hands/x compares
+    whole posts and never looks at replies, so "the desk" nineteen times in
+    forty-seven replies got past it."""
+
+    def replies(self, *texts: str) -> None:
+        for n, text in enumerate(texts):
+            self.own(str(100 + n), "reply", text, T0 - 60 * (n + 1))
+
+    def test_a_word_in_three_replies_is_worn(self):
+        self.replies("the desk is loud today", "no wallet on this desk yet", "my desk is full though", "gm fren")
+        self.assertIn("desk", recall.worn_phrases())
+
+    def test_a_two_word_phrase_is_listed_whole_and_not_as_its_words(self):
+        self.replies("that is fan fiction", "pure fan fiction honestly", "fan fiction again", "still fan fiction")
+        worn = recall.worn_phrases()
+        self.assertIn("fan fiction", worn)
+        self.assertNotIn("fan", worn)
+        self.assertNotIn("fiction", worn)
+
+    def test_twice_is_not_worn_and_once_per_reply_is_what_counts(self):
+        self.replies("receipts receipts receipts", "receipts only", "gm")
+        self.assertEqual(recall.worn_phrases(), [])
+
+    def test_common_words_the_token_and_handles_are_never_worn(self):
+        self.replies("@ana you and the $TINY bag", "@bob you and the $TINY bag", "@cy you and the $TINY bag")
+        worn = recall.worn_phrases()
+        for word in ("you", "and", "the", "$tiny", "tiny", "ana"):
+            self.assertNotIn(word, worn)
+        self.assertIn("bag", worn)
+
+    def test_posts_do_not_count_and_old_replies_fall_off(self):
+        self.own("200", "post", "kettle kettle", T0 - 10)
+        self.own("201", "post", "kettle", T0 - 20)
+        self.own("202", "post", "kettle", T0 - 30)
+        for n in range(recall.WORN_REPLIES):
+            self.own(str(300 + n), "reply", f"fresh words number {n}", T0 - 100 - n)
+        for n in range(3):
+            self.own(str(400 + n), "reply", "ancient kettle", T0 - 5000 - n)
+        worn = recall.worn_phrases()
+        self.assertNotIn("kettle", worn)
+        self.assertNotIn("ancient kettle", worn)
+
+    def test_the_most_used_come_first_and_the_list_is_short(self):
+        self.replies(*["desk smol"] * 2, *["desk"] * 3, "smol", *[f"w{n} x{n}" for n in range(3)])
+        worn = recall.worn_phrases()
+        self.assertEqual(worn[0], "desk")
+        self.assertLessEqual(len(worn), recall.WORN_MAX)
+
+    def test_no_ledger_no_words(self):
+        (hand.state_dir() / "hands.db").unlink()
+        self.assertEqual(recall.worn_phrases(), [])

@@ -31,13 +31,18 @@ run = "hands/build jobs --status shipped --limit 30"
 [[inputs]]
 name = "world-history"
 run = "hands/world history --days 30"
+
+[[inputs]]
+name = "people"
+run = "hands/people list"
 +++
 Propose one change to yourself, the one that would help you most today. The builder makes it in your own clone and opens it as a pull request, and the operator merges it or closes it.
 
 Look at what went wrong or went missing lately:
 - `builds`: jobs that failed, and why;
 - `recent`: what you were asked or told that you couldn't handle well;
-- `issues`: problems people filed against you.
+- `issues`: problems people filed against you;
+- `people`: who you keep talking with, and the promises you made them. A promise you keep missing, or a regular you keep answering badly, is evidence too.
 
 Also look at what your lore asks of you that you can't do yet.
 

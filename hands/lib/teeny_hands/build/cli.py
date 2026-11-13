@@ -17,6 +17,9 @@ desk files.
                               a build request (source upstream) built in a fork and opened as
                               one disclosed pull request; off unless BUILD_UPSTREAM=1
   R  gaps                     the gaps of docs/oh-gaps.md, each with whether it can be proposed
+  A  idea                     stdin {title, who, source, pitch}: the one build idea Teeny keeps a UTC
+                              day; the next daily job builds it. A second one the same day is refused
+  R  ideas [--limit N]        today's idea (or none), and the ideas kept, newest first
   J  self-sync                fetch Teeny's own clone (state/workbench/brain) and fast-forward
                               it to origin/main when nothing unshipped is on it; recorded in
                               state/self/sync.json
@@ -28,7 +31,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import jobs, selfclone, upstream
+from . import ideas, jobs, selfclone, upstream
 
 
 def _limit(value: str) -> int:
@@ -60,6 +63,9 @@ def parser() -> argparse.ArgumentParser:
     verb("upstream", lambda a, body: upstream.propose(body),
          "propose closing one OpenHuman gap upstream (JSON on stdin)", body=True)
     verb("gaps", lambda a, _: upstream.listing(), "the OpenHuman gaps, and which can be proposed")
+    verb("idea", lambda a, body: ideas.keep(body), "keep today's build idea (JSON on stdin)", body=True)
+    kept = verb("ideas", lambda a, _: ideas.listing(a.limit), "today's idea, and the ideas kept")
+    kept.add_argument("--limit", type=_limit, default=30)
     verb("self-sync", lambda a, _: selfclone.sync(), "sync Teeny's own clone with origin/main")
     return root
 

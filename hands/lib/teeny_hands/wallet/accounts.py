@@ -51,6 +51,9 @@ CATEGORIES = ("team", "tip", "sale", "bounty", "unclassified")
 #: absence of a team list.
 TAGS = ("team", "tip", "sale", "bounty")
 EARNED = ("tip", "sale", "bounty")
+#: `wallet_inflows.stimulus` for a deposit below the dust floor (senses.py):
+#: kept here, never offered to the mind.
+DUST = 3
 #: A deposit's memo, beyond which it is cut.
 MEMO_CHARS = 500
 MEMO_PROGRAMS = ("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo")
@@ -322,6 +325,8 @@ def _public(row: Mapping[str, Any], row_id: int | None = None) -> Json:
     for key in ("ref", "note"):
         if row.get(key):
             out[key] = row[key]
+    if row.get("stimulus") == DUST:
+        out["dust"] = True
     return out
 
 

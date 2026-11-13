@@ -5,7 +5,7 @@ check every playbook a cron names); never by a model.
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
 Prints {name, nudge, description, output, surface, max_per_day, inputs: [{name,
-argv}], prompt} or exits non-zero with what is wrong.
+argv, required, optional}], prompt} or exits non-zero with what is wrong.
 
     +++
     description = "the morning post"
@@ -28,6 +28,10 @@ argv}], prompt} or exits non-zero with what is wrong.
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those
                                # (an "ok" key aside)
+    optional = true            # optional: a hand that fails (an outage on
+                               # somebody else's site) is left out of the
+                               # inputs as {"unavailable": true} instead of
+                               # stopping the run; never with required
     +++
     the prompt: what to read in the inputs and what to draft.
 
@@ -56,12 +60,15 @@ NOT_OUTPUTS = ("guard", "image", "video")
 # queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
 # draft may only propose a change to Teeny itself (`self`), which files a
 # pending request that pick-request, the builder, the frozen-path check and
-# the operator's merge all still stand between and main. The goal ledger
+# the operator's merge all still stand between and main, or keep the day's
+# build idea (`idea`). The goal ledger
 # takes a proposal only: its checks run from the pinned goals-check job.
 VERB_OUTPUTS = {
     # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
     # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
-    "build": ("self", "upstream"),
+    # `idea` keeps the one build idea of the day (build/ideas.py): a note in
+    # the ledger the next daily job is made from, never a job claimed here.
+    "build": ("self", "upstream", "idea"),
     "goals": ("propose",),
     # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
     # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
@@ -206,10 +213,15 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     parsed = []
     for i, entry in enumerate(inputs):
         where = f"{path}: inputs[{i}]"
-        if not isinstance(entry, dict) or set(entry) - {"name", "run", "required"} or not isinstance(entry.get("run"), str):
-            raise PlaybookError(f"{where}: an input is {{name, run, required?}}")
+        if (not isinstance(entry, dict) or set(entry) - {"name", "run", "required", "optional"}
+                or not isinstance(entry.get("run"), str)):
+            raise PlaybookError(f"{where}: an input is {{name, run, required?, optional?}}")
         if not isinstance(entry.get("required", False), bool):
             raise PlaybookError(f"{where}: required is true or false")
+        if not isinstance(entry.get("optional", False), bool):
+            raise PlaybookError(f"{where}: optional is true or false")
+        if entry.get("optional") and entry.get("required"):
+            raise PlaybookError(f"{where}: an input is optional or required, not both")
         input_name = entry.get("name", f"input-{i}")
         if not isinstance(input_name, str) or not NAME.fullmatch(input_name):
             raise PlaybookError(f"{where}: name must be lowercase letters, digits and dashes")
@@ -219,6 +231,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
                 "argv": _datajob_argv(entry["run"], where, brain) if entry["run"].startswith(DATAJOB)
                 else _hand_argv(entry["run"], where, hands_dir),
                 "required": entry.get("required", False),
+                "optional": entry.get("optional", False),
             }
         )
 

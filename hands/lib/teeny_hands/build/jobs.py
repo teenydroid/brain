@@ -6,7 +6,8 @@
 
   kind     request (a build request someone made, `build_requests`, picked
            by somebody else), daily (Teeny's own small thing, at most one
-           a UTC day, made only when no request is waiting), or self (a
+           a UTC day, made only when no request is waiting: the idea it
+           kept with `idea`, build/ideas.py, or the standing brief), or self (a
            change to Teeny's own repository: a request Teeny proposed with
            `propose_self`, built in its clone and shipped as a pull request;
            build/selfclone.py), fix (a red pull request of a self job back on
@@ -50,6 +51,7 @@ from typing import Any, Mapping
 from .. import desk as _desk
 from .. import hand
 from .. import requests as build_requests
+from . import ideas
 from . import verify
 from . import selfclone
 from . import upstream
@@ -68,12 +70,25 @@ _TEXT_CHARS = 2000
 _REPO_NAME = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 BRANCH = "main"
 
-#: What a daily job asks for when nobody asked for anything.
-DAILY_BRIEF = (
-    "Nobody has asked for anything today. Build one small, self-contained, useful thing of your own "
-    "choosing: a command-line tool, a library function or a tiny game. Python standard library only, "
-    "a README that says what it does and how to run it, and tests that pass."
+#: What every daily job must be, whatever it builds.
+DAILY_RULES = (
+    "Python standard library only, a README that says what it does and how to run it, and tests that pass. "
+    "In your report's summary, after its first line, say what you built, for whom, and what it could not do."
 )
+#: What a daily job asks for when no idea is waiting (build/ideas.py).
+DAILY_BRIEF = (
+    "Nobody has asked for anything today, and no idea is waiting. Build one small thing that a named person or a "
+    "linked thread shows a need for, or that you would use every day yourself. Not a generic utility that every "
+    "package index already has. " + DAILY_RULES
+)
+#: What follows an idea in a daily job's text.
+IDEA_RULES = (
+    "Build that, small and working. If part of it is a generic utility that every package index already has, "
+    "build the part that is not. " + DAILY_RULES
+)
+#: The shipped builds a daily job names, at most, and how much of each summary.
+MAX_SHIPPED_NAMED = 20
+_SHIPPED_CHARS = 80
 
 #: Handed to the builder with every job, so the rules travel with the work.
 RULES = (
@@ -136,7 +151,7 @@ Json = dict[str, Any]
 def db() -> sqlite3.Connection:
     """hands.db with both tables in place: ours and the requests we read,
     and the columns added since a table was first made."""
-    conn = hand.open_db(SCHEMA + build_requests.SCHEMA)
+    conn = hand.open_db(SCHEMA + build_requests.SCHEMA + ideas.SCHEMA)
     have = {r[1] for r in conn.execute("PRAGMA table_info(build_jobs)")}
     for column, kind in (("pr_url", "TEXT"), ("verified", "TEXT"), ("parent_id", "INTEGER"), ("branch", "TEXT")):
         if column not in have:
@@ -290,10 +305,41 @@ def _mark_request(conn: sqlite3.Connection, request_id: int, status: str, note: 
     )
 
 
+def _shipped_before(conn: sqlite3.Connection) -> str:
+    """The builds already shipped (never Teeny's own repository or an
+    upstream fork), newest first, as the lines that end a daily job's text;
+    empty when there are none."""
+    rows = conn.execute(
+        "SELECT repo, summary FROM build_jobs WHERE status = 'shipped' AND kind IN ('request', 'daily')"
+        " ORDER BY shipped_at DESC, id DESC LIMIT ?", (MAX_SHIPPED_NAMED,)
+    ).fetchall()
+    if not rows:
+        return ""
+    lines = []
+    for row in rows:
+        first = (row["summary"] or "").strip().splitlines()[:1]
+        what = " ".join(first[0].split())[:_SHIPPED_CHARS].rstrip() if first else ""
+        lines.append(f"- {row['repo']}: {what}" if what else f"- {row['repo']}")
+    return ("\n\nYou already shipped:\n" + "\n".join(lines)
+            + "\nDon't build any of these again.")
+
+
+def _daily_text(conn: sqlite3.Connection) -> tuple[str, Json | None]:
+    """A daily job's text, and the idea it was made from (None: the
+    standing brief). The idea is the newest one no job was made from."""
+    idea = ideas.waiting(conn)
+    opening = f"{ideas.brief(idea)}\n\n{IDEA_RULES}" if idea else DAILY_BRIEF
+    return opening + _shipped_before(conn), idea
+
+
 def next_job() -> Json:
     """Claims work for the builder, in this order: its own open claim (a run
     that ended mid-job resumes it), the oldest picked build request, then a
     daily job if none was made today. Nothing to do is an answer, not an error.
+
+    The daily job builds the idea that is waiting (build/ideas.py), or the
+    standing brief when none is, and names what already shipped so it is
+    not built again.
 
     A picked request Teeny made of itself (source `self`) becomes a self job:
     the clone is synced and a teeny/<slug> branch started from the fresh
@@ -342,6 +388,7 @@ def next_job() -> Json:
                 ).fetchone() is None:
                     request = None  # unpicked meanwhile
                 branch = None
+                idea: Json | None = None
                 if request is not None and request["source"] == upstream.SOURCE:
                     kind, request_id, text = "upstream", request["id"], request["text"][:_TEXT_CHARS]
                     repo, workdir = upstream.name(), upstream.workdir_rel()
@@ -358,13 +405,16 @@ def next_job() -> Json:
                     if conn.execute("SELECT 1 FROM build_jobs WHERE slug = ?", (f"daily-{today}",)).fetchone():
                         return {"job": None, "reason": "nothing to build: no picked request, and today's daily job exists",
                                 "abandoned": abandoned, **({"waiting": waiting} if waiting else {})}
-                    slug, kind, request_id, text = f"daily-{today}", "daily", None, DAILY_BRIEF
+                    text, idea = _daily_text(conn)
+                    slug, kind, request_id = f"daily-{today}", "daily", None
                     repo, workdir = slug, f"state/workbench/{slug}"
                 cursor = conn.execute(
                     "INSERT INTO build_jobs (kind, request_id, slug, repo, text, workdir, claimed_at, branch)"
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (kind, request_id, slug, repo, text, workdir, hand.now(), branch),
                 )
+                if idea is not None:
+                    ideas.used(conn, idea["day"], cursor.lastrowid)
                 job = _row(conn.execute("SELECT * FROM build_jobs WHERE id = ?", (cursor.lastrowid,)).fetchone())
         finally:
             conn.close()

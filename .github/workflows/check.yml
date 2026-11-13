@@ -69,6 +69,7 @@ jobs:
       - run: bin/test/doctor_test.sh
       - run: bin/test/eval_test.sh
       - run: bin/test/inbound_consume_test.sh
+      - run: bin/test/tell_test.sh
       - run: bin/test/frozen_test.sh
       - run: bin/test/evolve_test.sh
       - run: bin/test/memory_page_test.sh

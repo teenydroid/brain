@@ -35,6 +35,18 @@ class ReadsTest(Scratch):
         with self.assertRaises(hand.HandError):
             reads.feed(None, "sideways", 5)
 
+    def test_a_brief_feed_is_small_enough_to_hand_a_playbook(self):
+        raw = {"id": "a", "title": "a claim", "content": "x" * 900, "author": {"name": "lobster", "karma": 9, "bio": "b" * 300},
+               "submolt": {"name": "agents", "id": "s1"}, "score": 12, "comment_count": 3, "created_at": "2026-09-14T06:00:00Z",
+               "hot_score": 5, "is_spam": False, "labels": {"x": 1}}
+        self.mb.route("GET", "/posts", {"success": True, "posts": [raw, {"id": "b"}, {"id": "c"}], "next_cursor": "n1"})
+        out = reads.feed(None, "hot", 2, brief=True)
+        self.assertEqual(out["posts"][0], {"id": "a", "title": "a claim", "content": "x" * 400, "author": "lobster",
+                                           "submolt": "agents", "score": 12, "comment_count": 3,
+                                           "created_at": "2026-09-14T06:00:00Z"})
+        self.assertEqual([p["id"] for p in out["posts"]], ["a", "b"])  # never more than asked for
+        self.assertNotIn("next_cursor", out)
+
     def test_post_comments_search_profile_submolts(self):
         self.mb.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "content": "x" * 5000}})
         self.mb.route("GET", "/posts/p1/comments", {"success": True, "comments": [{"id": "c1", "replies": []}]})
