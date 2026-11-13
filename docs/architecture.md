@@ -529,6 +529,14 @@ or so). It works from:
   newest first, each with an alias such as `[c3]`;
 - the follow-ups still waiting, and the page as it stands.
 
+The message is at most 60 KiB (`reflect.MAX_PROMPT_BYTES`): the core holds
+any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
+stopped a 90,022-character dream. A busy day is cut to fit, a tenth at a
+time: first the oldest items of the longest extra list (what people said,
+the tasks, the learnings, each newest first, never below 10 items), then the
+earliest beats (never below 20). Each cut is said in the message, so Teeny
+knows what it did not see.
+
 The page keeps a `what i have shipped` section, and no raw ids or retry
 counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
 with one more operation, `forget`, and a snapshot at the end

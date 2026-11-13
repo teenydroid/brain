@@ -155,6 +155,50 @@ class DreamTest(unittest.TestCase):
         self.assertIn("hn · pg · 20 min ago: your agent posted this? neat", message)
         self.assertIn("world · what you read · 10 min ago: Hacker News is open: - A tiny agent that runs in public", message)
 
+    def test_a_busy_day_still_fits_the_cores_prompt_screen(self):
+        # 2026-11-13: sixty beats, eighty mentions and eighty learnings made a
+        # 90,022-character message; the core holds anything over 64 KiB for
+        # review ("Prompt flagged for security review"), so no dream ran.
+        limit = None
+        for line in (REPO / "bin" / "lib" / "reflect.py").read_text().splitlines():
+            if line.startswith("MAX_PROMPT_BYTES"):
+                limit = eval(line.split("=", 1)[1])  # noqa: S307 - a constant expression in our own file
+        self.assertIsNotNone(limit, "bin/lib/reflect.py names no MAX_PROMPT_BYTES")
+        self.assertLessEqual(limit, 62 * 1024)
+        tick_log = self.root / "state" / "tick" / "runs.jsonl"
+        tick_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(tick_log, "a") as fh:
+            for n in range(200):
+                at = f"2026-09-14T{3 + n // 60:02d}:{n % 60:02d}:00Z"
+                fh.write(json.dumps({"at": at, "ok": True, "kind": "beat", "thought": f"beat {n} " + "thinking " * 40,
+                                     "results": [{"do": "journal", "status": "done",
+                                                  "intent": {"text": f"journal {n} " + "wrote " * 60}}]}) + "\n")
+        for n in range(80):
+            stimuli.add("x", "mention", f"m{n}", f"mention {n} " + "words " * 40, who="ana", at=T0 - 6000 + n)
+        self.items.write_text(json.dumps([
+            {"id": f"id{n:03d}", "kind": "learning", "meta": {"observed_at": f"2026-09-14T04:{n % 60:02d}:00Z"},
+             "text": f"learning {n} " + "noted " * 60} for n in range(80)]))
+        self.answer({"ops": [], "diary": "d"})
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        message = self.message()
+        self.assertLessEqual(len(message.encode("utf-8")), limit)
+        # What it cannot do without is all there: the page, the shape, the newest of everything.
+        self.assertIn("- [m1] ana (x): builds a cli for crabs.", message)
+        self.assertIn('"forget"', message)
+        self.assertIn("beat 199 ", message)
+        self.assertIn("mention 79 ", message)
+        # What was cut is the oldest, and the message says so.
+        self.assertNotIn("beat 0 ", message)
+        self.assertRegex(message, r"the \d+ earliest beats are left out")
+        self.assertRegex(message, r"\d+ older ones are left out")
+
+    def test_a_day_that_fits_is_sent_whole(self):
+        stimuli.add("x", "mention", "111", "can you build me a crab cli?", who="ana", at=T0 - 600)
+        self.answer({"ops": [], "diary": "d"})
+        self.dream()
+        self.assertNotIn("left out", self.message())
+
     def test_it_goes_over_the_tasks(self):
         conn = hand.open_db(requests.SCHEMA)
         conn.execute("INSERT INTO build_requests (source, source_id, author, text, created_at, status)"

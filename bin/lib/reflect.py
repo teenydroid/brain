@@ -110,6 +110,15 @@ from teeny_hands import hand, stimuli  # noqa: E402
 MAX_BEATS = 240
 #: A beat's thought, beyond which it is cut in the message.
 MAX_THOUGHT_CHARS = 300
+#: The most bytes the message may be. The core holds any prompt over 64 KiB
+#: for review and the turn fails ("Prompt flagged for security review"), so a
+#: bigger one never runs; the rest is headroom for what bin/ask wraps it in.
+#: A busy day is cut to fit (`_fit`): the oldest of a dream's extra lists
+#: first, then the earliest beats.
+MAX_PROMPT_BYTES = 60 * 1024
+#: What a cut always leaves: this many items of each extra list, this many beats.
+FIT_KEEP_ITEMS = 10
+FIT_KEEP_BEATS = 20
 DEFAULT_TZ = "Asia/Kolkata"
 
 #: The shrink check. A day closes a few threads and opens about as many, so
@@ -311,7 +320,10 @@ class Outcome:
 class Extras:
     """What a dream (bin/lib/dream.py) adds to a reflection: sections of the
     message beyond the day's own, the learnings it may `forget` (by alias,
-    `c1`, to the item they stand for), and the thread it runs on."""
+    `c1`, to the item they stand for), and the thread it runs on.
+
+    A section is a heading, then `- ` items with the newest first: when the
+    message is over MAX_PROMPT_BYTES, items are cut from the end."""
 
     sections: list[str] = field(default_factory=list)
     forgettable: dict[str, Json] = field(default_factory=dict)
@@ -637,39 +649,88 @@ def ledgers(since: float) -> list[str]:
             *(counted or []), "- promises:" if promised else "- promises: none", *promised]
 
 
+def _cut_section(section: str, drop: int) -> tuple[str, int]:
+    """`section` without its last `drop` items (the oldest), never below
+    FIT_KEEP_ITEMS, and how many went. A note of an earlier cut is replaced."""
+    lines = [line for line in section.rstrip().split("\n") if not line.startswith("- (")]
+    items = [n for n, line in enumerate(lines) if line.startswith("- ")]
+    drop = min(drop, len(items) - FIT_KEEP_ITEMS)
+    if drop <= 0:
+        return section, 0
+    gone = set(items[-drop:])
+    return "\n".join(line for n, line in enumerate(lines) if n not in gone), drop
+
+
+def _fit(compose, beats: list[Json], sections: list[str], limit: int = MAX_PROMPT_BYTES) -> str:
+    """The message from `compose(beats, cut_beats, sections)`, cut until it is
+    at most `limit` bytes: a tenth at a time off the longest of the extra
+    lists (their oldest items), then the earliest beats. Each cut is said in
+    the message. A day that fits is sent whole; one that cannot be cut any
+    further is sent as it is."""
+    sections, cut_items, cut_beats = list(sections), [0] * len(sections), 0
+
+    def build() -> str:
+        noted = [f"{sec.rstrip()}\n- ({cut} older ones are left out: this message has a size limit)" if cut else sec
+                 for sec, cut in zip(sections, cut_items)]
+        return compose(beats[cut_beats:], cut_beats, noted)
+
+    message = build()
+    while len(message.encode("utf-8")) > limit:
+        counts = [sum(1 for line in sec.split("\n") if line.startswith("- ")) for sec in sections]
+        longest = max(range(len(sections)), key=counts.__getitem__, default=None)
+        went = 0
+        if longest is not None:
+            sections[longest], went = _cut_section(sections[longest], max(1, counts[longest] // 10))
+            cut_items[longest] += went
+        if not went:
+            more = min(max(1, len(beats) // 10), len(beats) - cut_beats - FIT_KEEP_BEATS)
+            if more <= 0:
+                break
+            cut_beats += more
+        message = build()
+    return message
+
+
 def render(since: float, light: bool = False, page: str = "", extras: Extras | None = None) -> str:
-    """The message: the day, then `page` (MEMORY.md with its ids)."""
+    """The message: the day, then `page` (MEMORY.md with its ids), at most
+    MAX_PROMPT_BYTES (`_fit`)."""
     # Strictly after: a note from the second the last reflection ran was
     # already in it.
     notes = [n for n in stimuli.notes(since=since)["notes"] if n["at"] > since]
     waiting = stimuli.follow_ups()["follow_ups"]
-    beats = _beats(since)
-    if light:
-        lines = [f"# midday ({_clock():%A %d %B, %H:%M} your time)", "",
-                 "A pause to bring MEMORY.md, the page you carry into every conversation, up to date with the day so far.", ""]
-    else:
-        lines = [f"# end of the day ({_clock():%A %d %B, %H:%M} your time)", "",
-                 "Time to look back and bring MEMORY.md, the page you carry into every conversation, up to date with the day.", ""]
-    lines += ["## what you chose to remember today", ""]
-    lines += [f"- {'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes] or ["- nothing"]
-    lines += ["", "## what you thought and did, beat by beat", ""]
-    for b in beats:
-        did = f" ({'; '.join(b['did'])})" if b["did"] else ""
-        lines.append(f"- {b['at']}: {b['thought'] or '-'}{did}")
-    if not beats:
-        lines.append("- a quiet day")
-    lines += ["", *ledgers(since)]
-    for section in (extras.sections if extras else []):
-        lines += ["", section.rstrip()]
-    lines += ["", "## follow-ups still waiting", ""]
-    for f in waiting:
-        due = dt.datetime.fromtimestamp(f["due_at"], _clock().tzinfo)
-        lines.append(f"- {due:%a %d %b %H:%M}: {f['about']}")
-    if not waiting:
-        lines.append("- none")
-    lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
-              shape(light, len(page), forget=bool(extras and extras.forgettable))]
-    return "\n".join(lines)
+    counted = ledgers(since)
+
+    def compose(beats: list[Json], cut_beats: int, sections: list[str]) -> str:
+        if light:
+            lines = [f"# midday ({_clock():%A %d %B, %H:%M} your time)", "",
+                     "A pause to bring MEMORY.md, the page you carry into every conversation, up to date with the day so far.", ""]
+        else:
+            lines = [f"# end of the day ({_clock():%A %d %B, %H:%M} your time)", "",
+                     "Time to look back and bring MEMORY.md, the page you carry into every conversation, up to date with the day.", ""]
+        lines += ["## what you chose to remember today", ""]
+        lines += [f"- {'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes] or ["- nothing"]
+        lines += ["", "## what you thought and did, beat by beat", ""]
+        if cut_beats:
+            lines.append(f"- (the {cut_beats} earliest beats are left out: this message has a size limit)")
+        for b in beats:
+            did = f" ({'; '.join(b['did'])})" if b["did"] else ""
+            lines.append(f"- {b['at']}: {b['thought'] or '-'}{did}")
+        if not beats and not cut_beats:
+            lines.append("- a quiet day")
+        lines += ["", *counted]
+        for section in sections:
+            lines += ["", section.rstrip()]
+        lines += ["", "## follow-ups still waiting", ""]
+        for f in waiting:
+            due = dt.datetime.fromtimestamp(f["due_at"], _clock().tzinfo)
+            lines.append(f"- {due:%a %d %b %H:%M}: {f['about']}")
+        if not waiting:
+            lines.append("- none")
+        lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
+                  shape(light, len(page), forget=bool(extras and extras.forgettable))]
+        return "\n".join(lines)
+
+    return _fit(compose, _beats(since), list(extras.sections) if extras else [])
 
 
 #: Asked once, on the same thread, after an answer that was not usable.
