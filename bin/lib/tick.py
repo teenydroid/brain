@@ -449,9 +449,12 @@ def _waiting() -> list[str]:
 
 def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None) -> str:
     now = _clock()
+    utc = now.astimezone(dt.timezone.utc)
+    age = rhythm.age_line()
     lines = [
-        f"# since you last looked ({now:%A %d %B, %H:%M} your time)",
+        f"# since you last looked ({now:%A %d %B %Y, %H:%M} your time ({utc:%H:%M} UTC))",
         "",
+        *([age] if age else []),
         *rhythm.header(woke),
         *_waiting(),
         "",
