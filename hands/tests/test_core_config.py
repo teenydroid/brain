@@ -112,7 +112,9 @@ class CoreConfigTest(unittest.TestCase):
         # thread is a life, so it folds into a free-form summary.
         self.assertEqual(context["compaction_strategy"], "summary")
         self.assertTrue(context["autocompact_enabled"])
-        self.assertEqual(context["keep_recent_tokens"], 20_000)
+        # A fold keeps the last 40k tokens word for word: at 20k the mind kept
+        # about ten beats, and everything older was a summary.
+        self.assertEqual(context["keep_recent_tokens"], 40_000)
         self.assertLess(context["keep_recent_tokens"], context["compaction_trigger_tokens"])
 
     def test_the_trigger_can_be_moved_from_the_environment(self):
@@ -134,6 +136,34 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["memory"]["engine"], "cortexdb")
         self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
         self.assertGreaterEqual(doc["memory"]["recall"]["budget_tokens"], 3000)
+
+    def test_each_turn_waits_for_recall_on_its_own_message(self):
+        # Unset, a turn only takes the pack an earlier turn left in a cache
+        # that lives 60 s, so a beat every 5 minutes went without one, or got
+        # the pack recalled for the previous batch.
+        self.assertEqual(self.written()["memory"]["recall_each_turn_ms"], 3000)
+
+    def test_the_recall_wait_is_set_inside_the_cores_memory_table(self):
+        before = ('[memory]\nengine = "cortexdb"\nrecall_each_turn_ms = 5\n\n'
+                  '[memory.engines.cortexdb]\nendpoint = "http://c"\n')
+        doc = self.written(before)
+        self.assertEqual(doc["memory"]["recall_each_turn_ms"], 3000)
+        self.assertEqual(doc["memory"]["engine"], "cortexdb")
+        self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
+        once = self.config.read_text()
+        core_config.write(self.config, self.root)
+        self.assertEqual(self.config.read_text(), once)
+
+    def test_no_beliefs_are_built_from_the_beat_batches(self):
+        # A beat logs the whole batch as "the user", so beliefs built from it
+        # read "the user energy level 56" and crowd the memory block.
+        self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
+
+    def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
+        text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"
+        self.assertEqual(core_config.set_key(text, "a", "x", "3"), "[a]\nx = 3\ny = 2\n\n[a.b]\nx = 9\n")
+        self.assertEqual(core_config.set_key(text, "a", "z", "4"), "[a]\nx = 1\ny = 2\nz = 4\n\n[a.b]\nx = 9\n")
+        self.assertEqual(tomllib.loads(core_config.set_key(text, "c", "k", "1"))["c"], {"k": 1})
 
     def test_chrome_path_comes_from_the_environment_when_given(self):
         os.environ["TEENY_CHROME_PATH"] = "/opt/chrome/chrome"

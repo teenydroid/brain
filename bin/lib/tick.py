@@ -85,6 +85,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
@@ -493,9 +494,12 @@ HN_READ_ONLY = ("Hacker News is read only: you cannot reply or post there. An hn
 
 def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None) -> str:
     now = _clock()
+    utc = now.astimezone(dt.timezone.utc)
+    age = rhythm.age_line()
     lines = [
-        f"# since you last looked ({now:%A %d %B, %H:%M} your time)",
+        f"# since you last looked ({now:%A %d %B %Y, %H:%M} your time ({utc:%H:%M} UTC))",
         "",
+        *([age] if age else []),
         *rhythm.header(woke),
         *_waiting(),
         "",
@@ -518,10 +522,44 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
             lines.append("details: " + json.dumps(payload, ensure_ascii=False, sort_keys=True)[:1500])
         lines.append("")
         lines.append(s["text"])
+        if (s["surface"], s["kind"]) == ("x", "mention"):
+            lines.extend(_x_context(s))
         lines.append("")
     lines.extend(_people(batch))
+    if any(s["surface"] == "x" or s["surface"] == "nudge" for s in batch):
+        lines.extend(_x_lately())
     lines.append(shape())
     return "\n".join(lines)
+
+
+def _x_context(s: Mapping[str, Any]) -> list[str]:
+    """Under an X mention: the post it answers and what Teeny last said to
+    its author, from the hands' ledgers (teeny_hands.x.recall). A ledger that
+    can't be read leaves the mention as it was."""
+    try:
+        from teeny_hands.x import recall
+
+        found = recall.mention_context(str(s["ref"]), s.get("who"), s.get("payload") or {})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x context unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    return ["", *found] if found else []
+
+
+def _x_lately() -> list[str]:
+    """What Teeny said on X over the last day, replies included, for a beat
+    that has X in it or a habit that may post (the prompt's own "what you
+    said lately" holds posts only, and only as of the last rebuild)."""
+    try:
+        from teeny_hands.x import recall
+
+        found = recall.said_lately()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x history unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    if not found:
+        return []
+    return [found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:], ""]
 
 
 def _people(batch: list[Mapping[str, Any]]) -> list[str]:
@@ -606,7 +644,8 @@ def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     note = _text(intent, "note")
     who = intent.get("who") if isinstance(intent.get("who"), str) and intent["who"].strip() else None
     stored = stimuli.note(note, who=who, tick=tick)
-    learned = _learn(f"about {who}: {note}" if who else note, "fact", 0.7)
+    day = f"{rhythm.local():%Y-%m-%d}"
+    learned = _learn(f"[{day}] about {who}: {note}" if who else f"[{day}] {note}", "fact", 0.7)
     return {"ok": True, "noted": stored["id"], "learned": learned}
 
 
@@ -972,22 +1011,13 @@ def ask(message: str) -> str:
     return proc.stdout
 
 
-def _target(entry: Mapping[str, Any]) -> str:
-    intent = entry.get("intent") or {}
-    if entry.get("do") == "comment_gh" and intent.get("repo"):
-        return f"{intent['repo']}#{intent.get('number')}"
-    found = next((intent.get(k) for k in ("to", "post_id", "comment_id", "message_id", "chat_id", "id", "who") if intent.get(k)), "")
-    return str(found)
-
-
 def _did(results: list[Mapping[str, Any]]) -> str:
     """What a beat did, as `do on target: status`: never the words sent."""
     bits = []
     for r in results:
         if (r.get("intent") or {}).get("auto"):
             continue
-        target = _target(r)
-        bits.append(f"{r.get('do')}{' on ' + target if target else ''}: {r.get('status')}")
+        bits.append(outcomes.line(r))
     return "; ".join(bits) or "nothing, the thought kept to myself"
 
 
@@ -1012,7 +1042,10 @@ def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
             fh.write(f"# {now:%A %d %B %Y}\n")
         fh.write("\n" + "\n".join(entry))
     text = " ".join([thought or "(no thought)", *lines])
-    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: {text} (did: {did})", "other", 0.5)
+    # What the hands did comes first: the thought and the journal lines were
+    # written before any hand ran, and can claim a send that never landed.
+    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: what happened: {did}. "
+                     f"what i meant to do, written before the hands answered: {text}", "other", 0.5)
     return {"file": str(page.relative_to(hand.state_dir().parent)), "learned": learned}
 
 

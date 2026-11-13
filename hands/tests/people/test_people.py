@@ -169,6 +169,24 @@ class PromptTest(Scratch):
         self.assertNotIn("ann", text)
 
 
+class PromiseAgeTest(Scratch):
+    def test_a_promise_in_a_beat_says_how_long_ago_it_was_made(self):
+        # A UTC date beside an IST header read as "two days ago" for a
+        # promise made that morning (2026-11-13).
+        self.regulars()
+        records.promise({"surface": "x", "who": "ann", "what": "ship the plant timer", "due_in_hours": 48})
+        self.at(T0 + 4 * 3600)
+        text = "\n".join(records.prompt_block([{"surface": "x", "kind": "mention", "who": "ann", "ref": "2", "text": "?"}]))
+        self.assertIn("you promised (made 4 h ago, due in 44 h; promise #1)", text)
+
+    def test_an_overdue_promise_says_by_how_much(self):
+        self.regulars()
+        records.promise({"surface": "x", "who": "ann", "what": "ship it", "due_in_hours": 2})
+        self.at(T0 + 3 * DAY)
+        text = "\n".join(records.prompt_block([{"surface": "x", "kind": "mention", "who": "ann", "ref": "2", "text": "?"}]))
+        self.assertIn("made 3 days ago, overdue by 3 days", text)
+
+
 class CliTest(Scratch):
     def run_people(self, *args, stdin=None):
         done = subprocess.run([sys.executable, str(HAND), *args], input=stdin, capture_output=True, text=True,

@@ -118,7 +118,7 @@ class TickTest(unittest.TestCase):
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
                     "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "FAKE_REFUSALS_MAIL", "FAKE_REFUSALS_TELEGRAM",
-                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD"):
+                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -303,6 +303,65 @@ class TickTest(unittest.TestCase):
         self.assertEqual(journaled[0]["kind"], "other")
         self.assertIn("ana said gm", journaled[0]["text"])
         self.assertEqual(self.runs()[-1]["journal"]["learned"], True)
+
+    def test_each_beat_says_the_date_with_its_year_and_how_old_teeny_is(self):
+        # With no anchor, replies on one afternoon said "two days old",
+        # "day two" and "day three".
+        os.environ["TEENY_BORN"] = "2026-09-12"
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("Monday 14 September 2026, 07:00 your time (07:00 UTC)", message)
+        self.assertIn("You woke on Saturday 12 September 2026: today is day 3.", message)
+
+    def test_an_x_mention_comes_with_what_it_answers_and_what_teeny_said_lately(self):
+        from teeny_hands.x import mentions, posting_rules
+
+        conn = hand.db()
+        conn.executescript(posting_rules.SCHEMA + mentions.SCHEMA)
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('50', 'post', 'gm. coffee first', ?)", (T0 - 3600,))
+        conn.execute("INSERT INTO x_mentions (id, author_username, text, post, status, seen_at, updated_at)"
+                     " VALUES ('40', 'ana', 'gm', '{}', 'replied', ?, ?)", (T0, T0))
+        conn.execute("INSERT INTO x_posts (id, kind, text, in_reply_to, created_at)"
+                     " VALUES ('41', 'reply', 'gm ana, one coin, never sold', '40', ?)", (T0 - 600,))
+        conn.close()
+        stimuli.add("x", "mention", "51", "what's the plan today?", who="ana", payload={"in_reply_to": "50"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("in reply to your post (60 min ago): gm. coffee first", message)
+        self.assertIn("you last said to @ana (10 min ago): gm ana, one coin, never sold", message)
+        self.assertIn("## what you said on X lately", message)
+
+    def test_a_beat_with_nothing_from_x_carries_no_x_history(self):
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        self.assertNotIn("what you said on X lately", self.chats()[0]["message"])
+
+    def test_the_journal_says_what_landed_before_what_the_mind_claimed(self):
+        # The mind writes its thought and journal lines before the hands run:
+        # on 2026-11-13 it journaled "receipt delivered" for a comment that
+        # Moltbook refused with a 400, and memory taught the claim as fact.
+        os.environ["FAKE_EXIT_MOLTBOOK"] = "1"
+        stimuli.add("moltbook", "comment", "c1", "where is my receipt?", who="nyna")
+        self.answer({"thought": "receipt delivered to nyna", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+            {"do": "journal", "text": "promise kept"},
+        ]})
+        self.tick()
+        self.assertIn("comment_moltbook on p1: error, not sent (boom)", self.journal())
+        [learned] = [l for l in self.learned() if l["text"].startswith("journal, ")]
+        text = learned["text"]
+        self.assertTrue(text.startswith("journal, 2026-09-14 07:00: what happened: comment_moltbook on p1: error, not sent (boom)"), text)
+        self.assertIn("what i meant to do, written before the hands answered:", text)
+        self.assertLess(text.index("what happened"), text.index("receipt delivered to nyna"))
+
+    def test_a_dry_run_is_journaled_as_not_sent(self):
+        os.environ["DRY_RUN"] = "1"
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "said gm back", "intents": [{"do": "reply_x", "to": "111", "text": "gm ana"}]})
+        self.tick()
+        self.assertIn("reply_x on 111: dry run, not sent", self.journal())
 
     def test_the_journal_is_kept_but_not_taught_when_learning_is_off(self):
         os.environ["TEENY_MIND_LEARN"] = "0"
@@ -965,7 +1024,8 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(stimuli.notes(who="ana")["notes"][0]["note"], "builds a cli for crabs")
         learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
-        self.assertEqual(learned[0]["text"], "about ana: builds a cli for crabs")
+        # Dated, so recall can tell an old fact from a new one.
+        self.assertEqual(learned[0]["text"], "[2026-09-14] about ana: builds a cli for crabs")
 
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
