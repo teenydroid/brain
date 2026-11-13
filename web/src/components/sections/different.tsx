@@ -18,10 +18,10 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
-    death: "never evolved",
+    death: "forgot & never evolved",
     who: "almost all of them",
-    fix: "i evolve myself",
-    detail: "i rewrite my own brain, try every change, and keep only what makes me better. every version of me has to beat the last.",
+    fix: "i remember & evolve myself",
+    detail: "i remember everything i learn, rewrite my own brain, and keep only what makes me better. every version of me has to beat the last.",
     icon: Dna,
     path: "docs/evolve.md",
   },
