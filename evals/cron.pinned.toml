@@ -261,7 +261,8 @@ command = "bin/accounts"
 # deposit to the wallet into the inflow ledger and the mind's inbox, one
 # `wallet · deposit` stimulus each, so it can thank a sender within the hour;
 # a stranger's memo only through the inbound guard. Read only: nothing is
-# signed or paid. OFF unless WALLET_WATCH=1 in secrets/teeny.env.
+# signed or paid. OFF unless WALLET_WATCH=1 in secrets/teeny.env; skipped
+# (exit 0) while no wallet exists yet (bin/wallet-setup has not run).
 [jobs.wallet-watch]
 schedule = "7-59/15 * * * *"
 command = "bin/wallet-watch"

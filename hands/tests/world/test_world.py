@@ -279,6 +279,19 @@ class SnapshotTest(Scratch):
         self.assertEqual(out["written"], {"penalty": 0})
         self.assertEqual(self.rows(), {(TODAY, "penalty"): 0})
 
+    def test_with_no_wallet_yet_the_wallet_parts_are_skipped_and_the_rest_land(self):
+        self.seed_everything()
+        self.core.answers["openhuman.wallet_status"] = {"configured": False, "accounts": []}
+        out = collect.snapshot()
+        self.assertNotIn("failed", out)
+        self.assertEqual(set(out["skipped"]), {"tiny", "money"})
+        for name in ("tiny", "money"):
+            self.assertEqual(out["skipped"][name], "no wallet yet (the operator runs bin/wallet-setup once)")
+        self.assertEqual(set(out["written"]), {"attention", "capability", "shipped", "world", "penalty"})
+        self.assertEqual(out["written"]["shipped"], 13)
+        self.assertEqual({c for _, c in self.rows()}, set(out["written"]))
+        self.assertEqual(self.moved(), [])
+
     def test_a_partial_source_still_counts_and_says_what_is_missing(self):
         stimuli.add("moltbook", "comment", "c1", "hi", who="eve", at=T0 - DAY)
         out = collect.snapshot()

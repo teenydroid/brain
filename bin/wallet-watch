@@ -6,7 +6,8 @@
 # only if the inbound guard let it through). `bin/wallet-watch daily`: one
 # `wallet · tiny` stimulus, Teeny's $TINY balance and how many accounts hold
 # $TINY. Read only: nothing is signed or paid. Off unless secrets/teeny.env
-# sets WALLET_WATCH=1 (skipped, exit 0, when off: not a failed job).
+# sets WALLET_WATCH=1 (skipped, exit 0, when off: not a failed job), and
+# skipped the same way while no wallet exists yet (bin/wallet-setup).
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
