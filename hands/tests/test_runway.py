@@ -104,9 +104,7 @@ class RunwayTest(Scratch):
         self.hold(1)
         runway.daily()
         self.configure(RUNWAY=None)
-        with self.assertRaises(hand.Refused) as no:
-            runway.daily()
-        self.assertEqual(no.exception.detail["rule"], "off")
+        self.assertIn("RUNWAY", runway.daily()["skipped"])
         self.assertEqual(runway.limits()["media"], True)
         self.assertEqual(runway.cap_candidates(4), (4, None))
         self.assertIsNone(runway.header_line())
@@ -133,3 +131,14 @@ class RunwayTest(Scratch):
                               env=os.environ, timeout=60)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(json.loads(done.stdout)["tier"], "low")
+
+    def test_the_pinned_job_switched_off_is_skipped_not_failed(self):
+        # The scheduler counts a non-zero exit as a failed job.
+        self.configure(RUNWAY=None)
+        done = subprocess.run([str(REPO / "bin" / "health"), "runway"], capture_output=True, text=True,
+                              env=os.environ, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        out = json.loads(done.stdout)
+        self.assertTrue(out["ok"])
+        self.assertIn("RUNWAY", out["skipped"])
+        self.assertEqual(self.filed(), [])

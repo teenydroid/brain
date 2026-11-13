@@ -472,7 +472,7 @@ def close() -> Json:
     or the inflow scan missing) is not closed: an unread cost would look
     like profit."""
     if not hand.flag("WALLET_ACCOUNTS", False):
-        raise hand.Refused("the weekly accounts are off: WALLET_ACCOUNTS=1 in secrets/teeny.env", rule="off")
+        return {"skipped": "the weekly accounts are off (WALLET_ACCOUNTS=1 in secrets/teeny.env turns them on)"}
     now = hand.now()
     if _dt.datetime.fromtimestamp(now, _dt.timezone.utc).weekday() != 0:
         raise hand.Refused("a week is closed on Mondays (UTC) only", rule="not_monday")
