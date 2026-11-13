@@ -1,6 +1,7 @@
 """What a beat needs to answer an X mention without contradicting itself
-(bin/lib/tick.py, `render`): the post a mention answers, what Teeny last said
-to that person, and what it said on X lately, replies included.
+(bin/lib/tick.py, `render`): the post a mention answers, that person's
+history with Teeny (their earlier words and the conversation so far), and
+what it said on X lately, replies included.
 
 Everything is read from the hands' own ledgers in state/hands.db (x_posts,
 x_mentions, x_cache), read-only, and never from X: a paid lookup per mention
@@ -12,9 +13,10 @@ afternoon said "two days old", "day two" and "day three".
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
-from typing import Any, Mapping
+from typing import Any, Collection, Mapping
 
 from .. import hand
 
@@ -24,6 +26,10 @@ LATELY_SECS = 86400
 LATELY_MAX = 10
 #: How much of any one post is shown.
 CLIP = 220
+#: A person's history in a beat: the most of their messages Teeny let go,
+#: and the most exchanges (their message, Teeny's reply) it shows.
+LET_GO = 3
+EXCHANGES = 4
 
 
 def _clip(text: Any) -> str:
@@ -89,32 +95,77 @@ def _post(conn: sqlite3.Connection, post_id: str) -> tuple[str, str] | None:
     return None
 
 
-def mention_context(mention_id: str, who: str | None, payload: Mapping[str, Any]) -> list[str]:
-    """Lines under a mention in a beat: what it answers (its parent, or the
-    thread's first post when the parent is unknown) and what Teeny last said
-    to its author. [] when the ledgers know neither."""
+def answering(mention_id: str, who: str | None, payload: Mapping[str, Any]) -> str | None:
+    """The line saying what a mention answers: its parent, or the thread's
+    first post when the parent is unknown. None when the ledgers know neither."""
     conn = _connect()
     if conn is None:
-        return []
-    lines: list[str] = []
+        return None
+    them = f"@{who}" if who else "they"
     try:
         parent = str(payload.get("in_reply_to") or "")
         root = str(payload.get("conversation_id") or "")
         found = _post(conn, parent) if parent else None
         if found:
-            lines.append(f"in reply to {found[0]}: {_clip(found[1])}")
-        elif root and root != str(mention_id):
+            return f'{them} is answering {found[0]}: "{_clip(found[1])}"'
+        if root and root != str(mention_id):
             found = _post(conn, root)
             if found:
-                lines.append(f"in a thread started by {found[0]}: {_clip(found[1])}")
-        if who:
-            last = _one(conn, "SELECT p.text, p.created_at FROM x_posts p JOIN x_mentions m ON p.in_reply_to = m.id"
-                              " WHERE p.kind = 'reply' AND lower(m.author_username) = lower(?)"
-                              " ORDER BY p.created_at DESC LIMIT 1", (who,))
-            if last:
-                lines.append(f"you last said to @{who} ({_ago(last['created_at'])}): {_clip(last['text'])}")
+                return f'{them} is writing in a thread started by {found[0]}: "{_clip(found[1])}"'
     finally:
         conn.close()
+    return None
+
+
+def _at(row: Mapping[str, Any]) -> float:
+    """When a mention was written: X's created_at, else when it was seen."""
+    try:
+        return dt.datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return float(row["seen_at"])
+
+
+def _times(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def history(who: str, exclude: Collection[str] = ()) -> list[str]:
+    """One person's history with Teeny on X, for the turn addressed to them:
+    how long they have been writing, the last few of their messages Teeny let
+    go, and the last few exchanges (their words, Teeny's reply), oldest
+    first. The mentions in `exclude` (the ones being answered now) and what
+    the guard held or has not screened are not history. Bounded however
+    loud the account. [] when the ledgers cannot be read."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        if _one(conn, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'x_mentions'", ()) is None:
+            return []
+        rows = _rows(conn, "SELECT id, text, created_at, seen_at FROM x_mentions WHERE lower(author_username) = lower(?)"
+                           " AND status NOT IN ('held', 'unscreened', 'pending')", (who,))
+        replies = {r["in_reply_to"]: r for r in _rows(
+            conn, "SELECT p.text, p.created_at, p.in_reply_to FROM x_posts p JOIN x_mentions m ON p.in_reply_to = m.id"
+                  " WHERE p.kind = 'reply' AND lower(m.author_username) = lower(?) ORDER BY p.created_at", (who,))}
+    finally:
+        conn.close()
+    skip = set(exclude)
+    earlier = sorted((r for r in rows if r["id"] not in skip), key=_at)
+    head = f"@{who} is someone on X."
+    if not earlier:
+        return [f"{head} You have never talked with @{who} before."]
+    days = {dt.datetime.fromtimestamp(_at(r), dt.timezone.utc).date() for r in earlier}
+    answered = [r for r in earlier if r["id"] in replies]
+    let_go = [r for r in earlier if r["id"] not in replies][-LET_GO:]
+    lines = [f"{head} They have written to you {_times(len(earlier), 'time')} over {_times(len(days), 'day')}"
+             f" (first {_ago(_at(earlier[0]))}, last {_ago(_at(earlier[-1]))}); you answered {len(answered)}."]
+    if let_go:
+        lines.append(f"Earlier messages from @{who} that you let go (oldest first, last {LET_GO}):")
+        lines += [f'- "{_clip(r["text"])}" ({_ago(_at(r))})' for r in let_go]
+    if answered:
+        lines.append(f"Your conversation with @{who} so far (oldest first, last {EXCHANGES} exchanges):")
+        for r in answered[-EXCHANGES:]:
+            lines += [f'- @{who} ({_ago(_at(r))}): "{_clip(r["text"])}"', f'  you: "{_clip(replies[r["id"]]["text"])}"']
     return lines
 
 
