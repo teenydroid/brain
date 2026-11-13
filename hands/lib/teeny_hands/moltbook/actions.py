@@ -32,7 +32,7 @@ import string
 import sys
 from typing import Any, Mapping
 
-from .. import hand, stimuli
+from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
 from . import challenge, client, model_read, reads, rules
 
@@ -250,6 +250,7 @@ def _settle(conn: sqlite3.Connection, api: RestApi, kind: str, table: str, row_i
 
 
 def post(body: Any, api: RestApi | None = None) -> Json:
+    body, tagged = tags.split(body)
     body = _body(body, ("submolt", "title"), ("body", "url", "type"))
     submolt = client.submolt_name(body["submolt"])
     title = _string(body, "title")
@@ -297,8 +298,10 @@ def post(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "post")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES (?, ?, ?, ?, ?)",
-            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted"),
+            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status, body, format, experiment)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted", fields.get("body"),
+             tagged["format"], tagged["experiment"]),
         )
         out: Json = {"posted": post_id, "submolt": submolt, "title": fields["title"]}
         if ver:
@@ -369,6 +372,7 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
 
 
 def comment(body: Any, api: RestApi | None = None) -> Json:
+    body, tagged = tags.split(body)
     body = _body(body, ("post_id", "body"), ("parent_id",))
     post_id = _full_id(client.object_id(body["post_id"], "post_id"), "post_id")
     parent_id = _full_id(client.object_id(body["parent_id"], "parent_id"), "parent_id") if body.get("parent_id") is not None else None
@@ -405,8 +409,10 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "comment")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status) VALUES (?, ?, ?, ?, ?)",
-            (comment_id, post_id, parent_id, hand.now(), "created" if ver else "posted"),
+            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status, body, format, experiment)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (comment_id, post_id, parent_id, hand.now(), "created" if ver else "posted", text,
+             tagged["format"], tagged["experiment"]),
         )
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:

@@ -39,7 +39,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from .. import hand
+from .. import hand, tags
 
 MINUTE = 60.0
 HOUR = 3600.0
