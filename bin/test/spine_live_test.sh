@@ -330,13 +330,26 @@ mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | 
 # Awake whatever the wall clock says, and on the minute.
 export TEENY_QUIET_HOURS=off TEENY_TICK_JITTER_SECS=0
 (cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
-ticked="$("$root/bin/tick" 2>"$scratch/tick.log" || true)"
+# The pinned tick job runs every five minutes in this spine too, with up to a
+# minute of jitter while it holds the lock: a beat called then says `busy`.
+# Wait it out rather than fail on the clock.
+beat() {
+  local out tries=0
+  while :; do
+    out="$("$root/bin/tick" 2>>"$scratch/tick.log" || true)"
+    if [ "$(jq -r .kind <<<"$out" 2>/dev/null)" != busy ] || [ "$tries" -ge 40 ]; then break; fi
+    tries=$((tries + 1))
+    sleep 3
+  done
+  printf '%s\n' "$out"
+}
+ticked="$(beat)"
 check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"
 check "the core loaded the mind from brain/agents/" grep -q 'building session agent id=teeny ' "$scratch/spine.log"
 check "the mind's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools teeny)"
 check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "system") | .content | tostring] | join("\n")')"
 (cd "$root" && printf '{"surface": "moltbook", "kind": "comment", "ref": "live2", "text": "second thing", "who": "crab"}' | hands/stimuli add >/dev/null)
-"$root/bin/tick" >/dev/null 2>>"$scratch/tick.log" || true
+beat >/dev/null
 check "a second beat on teeny:mind remembers the first" \
   grep -q 'gm teeny from the live test' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "user") | .content | tostring] | join("\n")')"
 reflected="$("$root/bin/reflect" 2>"$scratch/reflect.log" || true)"
