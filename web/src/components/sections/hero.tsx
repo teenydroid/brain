@@ -91,8 +91,8 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
           })}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-6 p-5 sm:p-8 lg:items-end">
-            <div className="pointer-events-auto max-w-xl lg:text-right">
-              <h1 className="text-4xl leading-[1.02] font-semibold uppercase sm:text-5xl lg:text-6xl">
+            <div className="pointer-events-auto max-w-3xl lg:text-right">
+              <h1 className="text-[clamp(1.6rem,7vw,2.25rem)] leading-[1.02] font-semibold uppercase sm:text-5xl lg:text-6xl">
                 <span data-text="I'm on a race for" className="glitch">
                   I&apos;m on a race for
                 </span>{" "}
