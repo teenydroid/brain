@@ -319,20 +319,37 @@ def write_json(path: Path, value: Any) -> None:
     os.replace(tmp, path)
 
 
+#: Where an answer's JSON may start, at most: past the first few braces, a
+#: prose answer is not hiding one.
+MAX_JSON_STARTS = 8
+
+
 def first_json(text: str) -> Any:
-    """The first JSON value in a model's answer, in a code fence or not."""
+    """The first JSON object in a model's answer, in a code fence or not.
+    A raw newline or tab inside a string is taken as written (models write
+    markdown hypotheses that way), and a `{` in a line of prose before the
+    answer is stepped over: the first of the next few that parses wins. An
+    answer cut off mid-string still fails, saying so."""
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else ""
         text = text.rsplit("```", 1)[0]
-    start = text.find("{")
+    decoder = json.JSONDecoder(strict=False)
+    start, first_error = text.find("{"), None
     if start < 0:
         raise EvolveError("no JSON in the answer")
-    try:
-        value, _ = json.JSONDecoder().raw_decode(text[start:])
-    except json.JSONDecodeError as exc:
-        raise EvolveError(f"not JSON: {exc}") from None
-    return value
+    for _ in range(MAX_JSON_STARTS):
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError as exc:
+            first_error = first_error or exc
+        else:
+            if isinstance(value, dict):
+                return value
+        start = text.find("{", start + 1)
+        if start < 0:
+            break
+    raise EvolveError(f"not JSON: {first_error}")
 
 
 def run_json(argv: list[str], env: Mapping[str, str] | None = None, timeout: float = 120) -> Any:
@@ -870,16 +887,31 @@ class AskProposer:
         self.agent = agent
 
     def propose(self, request: Json) -> Any:
+        """One turn, and one more on a fresh thread when its answer does not
+        parse (gen 3's "Unterminated string": an answer cut short, which a
+        second turn usually is not). A turn that fails outright is not
+        retried."""
+        message = render_request(fit_request(request))
+        try:
+            return first_json(self._turn(request, message))
+        except EvolveError as exc:
+            if not str(exc).startswith(("not JSON", "no JSON")):
+                raise
+            say(f"candidate {request['cand']}: the answer did not parse ({str(exc)[:120]}); asking once more")
+            retry = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
+                     "Answer again, the same way, JSON only, and keep the hypothesis short.")
+            return first_json(self._turn(request, retry))
+
+    def _turn(self, request: Json, message: str) -> str:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
         try:
-            done = subprocess.run(argv, input=render_request(fit_request(request)), capture_output=True, text=True,
-                                  env=code_env(), timeout=900)
+            done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(), timeout=900)
         except subprocess.TimeoutExpired:
             raise EvolveError("the proposer's turn took over 900 s") from None
         if done.returncode != 0:
             raise EvolveError(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
-        return first_json(done.stdout)
+        return done.stdout
 
 
 class FileProposer:
