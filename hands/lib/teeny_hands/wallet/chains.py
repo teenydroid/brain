@@ -13,8 +13,8 @@ quote calls it.
   optimism   ETH, USDC
 
 EVM networks exist for the wallet only on mainnet: under WALLET_CLUSTER=devnet
-every EVM payment, swap and bridge is refused (rule `cluster`), and deBridge
-quotes mainnets only.
+every EVM payment, swap and bridge is refused (rule `cluster`), and neither
+swap provider (LI.FI, deBridge) quotes devnet.
 
 The core reports native ETH; USDC on an EVM network is read here with one
 `eth_call` (`balanceOf`) to EVM_RPC_URL_<NETWORK> from secrets/teeny.env,
@@ -50,7 +50,7 @@ class Network:
     core_env: str
 
 
-#: deBridge's address for a chain's native asset.
+#: The address LI.FI and deBridge both give a chain's native asset.
 EVM_NATIVE = "0x0000000000000000000000000000000000000000"
 SOL_NATIVE = "11111111111111111111111111111111"
 
@@ -122,8 +122,8 @@ def evm_tokens() -> set[str]:
 
 
 def token_address(chain: str, asset: str, cluster: str, usdc_solana: dict[str, str]) -> str:
-    """deBridge's address for `asset` on `chain`: the native sentinel or the
-    pinned token."""
+    """The providers' address for `asset` on `chain`: the native sentinel or
+    the pinned token."""
     if chain == SOLANA:
         return SOL_NATIVE if asset == "SOL" else usdc_solana[cluster]
     network = NETWORKS[chain]

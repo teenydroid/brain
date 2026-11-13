@@ -25,7 +25,9 @@ endpoints (OPENHUMAN_WALLET_RPC_SOLANA from SOLANA_RPC_URL, and each
 OPENHUMAN_WALLET_RPC_<NETWORK> from EVM_RPC_URL_<NETWORK>); the x402
 module's own budget (OPENHUMAN_X402_PER_REQUEST_MAX, _DAILY_MAX, _MONTHLY_MAX)
 pinned to WALLET_MAX_X402_* in USDC atomic units, or to one atomic unit when
-x402 is off, so the module refuses what the hand would; and unsets the
+x402 is off, so the module refuses what the hand would; LIFI_API_KEY and
+DEBRIDGE_API_KEY when set, for the spine's swap and bridge quotes (each only
+raises that provider's rate limit); and unsets the
 OPENHUMAN_WALLET_POLICY_* overrides so nothing in the environment can widen
 what this file wrote. The caps logic is hands/wallet's own
 (teeny_hands/wallet/caps.py), so the hand and the core cannot disagree.
@@ -72,7 +74,8 @@ def check(env: dict[str, str]) -> tuple[caps.Caps | None, str]:
         f"{loaded.cluster}: ${caps.usd(loaded.per_tx_micro)} a payment, ${caps.usd(loaded.per_day_micro)} a day,"
         f" ${caps.usd(loaded.recipient_week_micro)} per recipient a week, SOL at ${caps.usd(loaded.sol_usd_micro)}"
         + (f", ETH at ${caps.usd(loaded.eth_usd_micro)}" if loaded.eth_usd_micro is not None else "")
-        + (f", swaps and bridges ${caps.usd(loaded.convert_day_micro)} a day" if loaded.convert_day_micro is not None else "")
+        + (f", swaps and bridges ${caps.usd(loaded.convert_day_micro)} a day through {loaded.convert_provider}"
+           if loaded.convert_day_micro is not None else "")
         + (f", x402 ${caps.usd(loaded.x402_request_micro)} a request and ${caps.usd(loaded.x402_day_micro)} a day"
            if loaded.x402_request_micro is not None else "")
     )
@@ -132,6 +135,12 @@ def env_lines(env: dict[str, str], cluster: str, loaded: caps.Caps | None = None
         url = (env.get(network.env) or "").strip()
         if url:
             lines.append(f"export {network.core_env}={shlex.quote(url)}")
+    # The spine's swap and bridge providers (spine/src/lifi.rs, debridge.rs):
+    # an optional key only raises the provider's rate limit.
+    for key in ("LIFI_API_KEY", "DEBRIDGE_API_KEY"):
+        value = (env.get(key) or "").strip()
+        if value:
+            lines.append(f"export {key}={shlex.quote(value)}")
     per_request, daily, monthly = x402_budget(loaded)
     lines.append(f"export OPENHUMAN_X402_PER_REQUEST_MAX={per_request}")
     lines.append(f"export OPENHUMAN_X402_DAILY_MAX={daily}")

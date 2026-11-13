@@ -13,10 +13,11 @@
                    reason, or `pending` before the core is asked, then
                    `bought` (with the signature), `failed` (nothing could
                    have moved) or `in_doubt`
-  wallet_conversions  every swap and bridge (deBridge) the hand attempted:
-                   `pending` before the core is asked to execute, then `sent`
-                   (with the signature and, for a bridge, deBridge's order
-                   id), `in_doubt`, `failed` or `refused`
+  wallet_conversions  every swap and bridge the hand attempted, with its
+                   provider (lifi or debridge) and LI.FI's `tool`: `pending`
+                   before the core is asked to execute, then `sent` (with
+                   the signature and, for a deBridge bridge, its order id),
+                   `in_doubt`, `failed` or `refused`
   x402_requests    every paid HTTP request (x402) the hand attempted:
                    `pending`, then `paid`, `free` (no 402), `in_doubt`,
                    `failed` or `refused`
@@ -25,7 +26,8 @@
 Older checkouts made `wallet_payments` before it had a chain and before ETH,
 and before the `refund` and `bill` purposes (docs/roadmap.md, S3 and S5):
 `db()` rebuilds it once, every old row kept (on `solana` when it had no chain), and gives `vendors` its
-chain column the same way.
+chain column the same way. `wallet_conversions` from before LI.FI gains its
+`provider` and `tool` columns, every old row a deBridge one.
 
 A `pending`, `in_doubt` or `paid` row counts against every cap, and a
 purpose and ref with such a row is never paid again: an in-doubt payment
@@ -120,6 +122,8 @@ CREATE TABLE IF NOT EXISTS wallet_conversions (
     approval_tx     TEXT,
     signature       TEXT,
     order_id        TEXT,
+    provider        TEXT,
+    tool            TEXT,
     status          TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'in_doubt', 'failed', 'refused')),
     error           TEXT
 );
@@ -187,11 +191,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE wallet_payments_new RENAME TO wallet_payments")
         conn.executescript(SCHEMA)  # the indexes the drop took with it
     if "chain" not in _columns(conn, "vendors"):
-        try:
-            conn.execute("ALTER TABLE vendors ADD COLUMN chain TEXT NOT NULL DEFAULT 'solana'")
-        except sqlite3.OperationalError as exc:  # another hand added it first
-            if "duplicate column" not in str(exc):
-                raise
+        _add_column(conn, "vendors", "chain TEXT NOT NULL DEFAULT 'solana'")
+    if "provider" not in _columns(conn, "wallet_conversions"):
+        with hand.transaction(conn):
+            if "provider" not in _columns(conn, "wallet_conversions"):
+                conn.execute("ALTER TABLE wallet_conversions ADD COLUMN provider TEXT")
+                conn.execute("ALTER TABLE wallet_conversions ADD COLUMN tool TEXT")
+                conn.execute("UPDATE wallet_conversions SET provider = 'debridge'")
+
+
+def _add_column(conn: sqlite3.Connection, table: str, column: str) -> None:
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
+    except sqlite3.OperationalError as exc:  # another hand added it first
+        if "duplicate column" not in str(exc):
+            raise
 
 
 def db() -> sqlite3.Connection:
@@ -319,7 +333,7 @@ def insert_row(conn: sqlite3.Connection, table: str, **fields: Any) -> int:
 
 
 _UPDATABLE = {
-    "wallet_conversions": {"status", "quote_id", "approval_tx", "signature", "order_id", "expected_raw", "error"},
+    "wallet_conversions": {"status", "quote_id", "approval_tx", "signature", "order_id", "expected_raw", "tool", "error"},
     "x402_requests": {"status", "usd_micro", "network", "recipient", "payment_id", "http_status", "error"},
 }
 

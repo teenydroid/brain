@@ -15,11 +15,13 @@ Optional, each switching on one more thing the wallet may do; unset, that
 thing is refused (rule `caps`) and nothing else changes:
 
   WALLET_ETH_USD                     what one ETH counts as; without it no ETH moves
-  WALLET_MAX_CONVERT_PER_DAY_USD     swaps and bridges (deBridge), by input value, in
-                                     any rolling 24 hours; without it neither runs
+  WALLET_MAX_CONVERT_PER_DAY_USD     swaps and bridges, by input value, in any rolling
+                                     24 hours; without it neither runs
   WALLET_MAX_CONVERT_LOSS_BPS        the most a swap or bridge may lose to fees and
                                      slippage, in basis points of its input (default
                                      300, ceiling 1000)
+  WALLET_CONVERT_PROVIDER            who quotes swaps and bridges: lifi (the default)
+                                     or debridge; anything else is an error
   WALLET_MAX_X402_PER_REQUEST_USD    the most one paid HTTP request (x402) may cost
   WALLET_MAX_X402_PER_DAY_USD        x402 spend in any rolling 24 hours; without both
                                      no x402 payment is made
@@ -72,6 +74,9 @@ CONVERT_PER_DAY = "WALLET_MAX_CONVERT_PER_DAY_USD"
 CONVERT_LOSS_BPS = "WALLET_MAX_CONVERT_LOSS_BPS"
 X402_PER_REQUEST = "WALLET_MAX_X402_PER_REQUEST_USD"
 X402_PER_DAY = "WALLET_MAX_X402_PER_DAY_USD"
+CONVERT_PROVIDER = "WALLET_CONVERT_PROVIDER"
+#: Who may quote a swap or a bridge (convert.py), the first the default.
+PROVIDERS = ("lifi", "debridge")
 OPTIONAL_KEYS = (ETH_USD, CONVERT_PER_DAY, X402_PER_REQUEST, X402_PER_DAY)
 
 #: Anything above these is a typo or a mistake, not a policy: the doctor
@@ -102,6 +107,7 @@ class Caps:
     convert_loss_bps: int = DEFAULT_LOSS_BPS
     x402_request_micro: int | None = None
     x402_day_micro: int | None = None
+    convert_provider: str = PROVIDERS[0]
 
     @property
     def usdc_mint(self) -> str:
@@ -158,6 +164,15 @@ def _loss_bps(env: Mapping[str, str]) -> int:
     return int(raw)
 
 
+def _provider(env: Mapping[str, str]) -> str:
+    raw = (env.get(CONVERT_PROVIDER) or "").strip()
+    if not raw:
+        return PROVIDERS[0]
+    if raw not in PROVIDERS:
+        raise CapsError(f"{CONVERT_PROVIDER} is {' or '.join(PROVIDERS)}, not {raw!r}")
+    return raw
+
+
 def load(env: Mapping[str, str]) -> Caps:
     """The caps, or CapsError naming the first key that is wrong."""
     values: dict[str, int] = {key: _dollars(env, key, True) for key in CAP_KEYS}  # type: ignore[misc]
@@ -177,6 +192,7 @@ def load(env: Mapping[str, str]) -> Caps:
         convert_loss_bps=_loss_bps(env),
         x402_request_micro=optional[X402_PER_REQUEST],
         x402_day_micro=optional[X402_PER_DAY],
+        convert_provider=_provider(env),
     )
 
 

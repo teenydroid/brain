@@ -4926,6 +4926,8 @@ dependencies = [
 name = "teeny-spine"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "hex",
  "libc",
  "log",
  "openhuman-embed",

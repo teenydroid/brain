@@ -11,7 +11,8 @@ x402.py), keeps its own ledger, and reads balances, receipts and costs.
   solana  addresses, Solscan links, token balances (USDC, $TINY) over Solana JSON-RPC
   store   wallet_payments, bills, vendors
   pay     the rules, then prepare and execute through the core
-  convert swap and bridge between its own accounts, through deBridge
+  convert swap and bridge between its own accounts, through LI.FI (or deBridge)
+  lifi    the LI.FI quote checks convert runs before anything is signed
   x402    one HTTP request that may pay for itself, under its own caps
   buy     buy-tiny: a share of net inflows into $TINY, buy only
   jupiter Jupiter's public quote API, read only

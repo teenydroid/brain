@@ -593,8 +593,8 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "tidy the treasury", "intents": [
             {"do": "check_wallet"},
             {"do": "transfer", "to": vendor, "chain": "base", "amount_usdc": "5", "ref": "server-nov", "purpose": "bounty"},
-            {"do": "swap", "chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01", "recipient": "0xevil"},
-            {"do": "bridge", "from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "20"},
+            {"do": "swap", "chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01", "recipient": "0xevil", "provider": "debridge"},
+            {"do": "bridge", "from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "20", "provider": "debridge"},
             {"do": "x402_fetch", "url": "https://api.example.com/q", "max_usd": "0.05"},
         ]})
         got = self.tick()
@@ -604,7 +604,8 @@ class TickTest(unittest.TestCase):
             (["balance"], None),
             # a transfer is always a vendor payment: the allowlist decides, not the mind
             (["pay"], {"to": vendor, "chain": "base", "amount_usdc": "5", "purpose": "vendor", "ref": "mind:server-nov"}),
-            # a recipient the mind names never reaches the hand
+            # a recipient the mind names never reaches the hand, nor a provider:
+            # only the operator's WALLET_CONVERT_PROVIDER picks one for the mind
             (["swap"], {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"}),
             (["bridge"], {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "20"}),
             (["x402", "fetch"], {"url": "https://api.example.com/q", "max_usd": "0.05"}),

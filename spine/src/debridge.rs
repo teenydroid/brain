@@ -1,5 +1,6 @@
 //! Teeny's deBridge backend: the wallet module's swap and bridge quotes,
-//! straight from deBridge's public API.
+//! straight from deBridge's public API. LI.FI is the default provider
+//! (`lifi.rs`); `wallet_backend.rs` routes each call to one or the other.
 //!
 //! The wallet module (tinywallet) builds every swap and bridge from one
 //! unsigned transaction it asks its host for (`WalletBackend`: the routes, a
@@ -28,13 +29,8 @@
 
 use std::time::Duration;
 
-use openhuman_embed::__host::wallet_backend::{register_wallet_backend, WalletBackendCall};
+use openhuman_embed::__host::wallet_backend::WalletBackendCall;
 use serde_json::Value;
-
-/// The id the handler registers under. The core forwards to the first
-/// registered handler; [`install`] runs before the host starts, so this one
-/// is ahead of the tinyhumans proxy the host registers later.
-pub const HANDLER_ID: &str = "teeny-debridge";
 
 const DEFAULT_BASE: &str = "https://dln.debridge.finance";
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -177,11 +173,9 @@ async fn fetch(request: Request) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|_| "deBridge sent something that is not JSON".to_string())
 }
 
-/// Registers the handler. Call once, before the host starts.
-pub fn install() {
-    register_wallet_backend(HANDLER_ID, |_config, call| {
-        Box::pin(async move { fetch(request_for(&call)?).await })
-    });
+/// One module call, answered from deBridge.
+pub async fn answer(call: WalletBackendCall) -> Result<Value, String> {
+    fetch(request_for(&call)?).await
 }
 
 #[cfg(test)]

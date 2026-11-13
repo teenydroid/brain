@@ -1,50 +1,60 @@
 """`swap` and `bridge`: moving Teeny's own money between its own accounts,
-through deBridge (docs/hands.md, "wallet").
+through LI.FI by default or deBridge (docs/hands.md, "wallet").
 
     swap    {"chain": "base", "from": "ETH", "to": "USDC", "amount": "0.01"}
     bridge  {"from_chain": "base", "from": "USDC", "to_chain": "solana", "to": "USDC", "amount": "5"}
 
-A swap stays on one chain (deBridge's same-chain swap); a bridge crosses
-(a DLN order). Either way the output goes only to Teeny's own address on the
-destination chain, derived from the same recovery phrase: neither verb can
-pay anyone. The quote comes from the core (`web3_swap_quote`,
-`web3_bridge_quote`), which asks deBridge through the spine
-(spine/src/debridge.rs); the core signs only on `*_execute`.
+Either takes an optional `"provider": "lifi" | "debridge"` for that one call;
+otherwise WALLET_CONVERT_PROVIDER decides (lifi when unset). The mind never
+names one: bin/lib/tick.py forwards only the fields above.
+
+A swap stays on one chain; a bridge crosses. Either way the output goes only
+to Teeny's own address on the destination chain, derived from the same
+recovery phrase: neither verb can pay anyone. The quote comes from the core
+(`web3_swap_quote`, `web3_bridge_quote`), which asks the provider through the
+spine (spine/src/wallet_backend.rs routes on a tag this hand puts on the
+body); the core signs only on `*_execute`.
 
 The rules, each refused with its `rule`, before anything is signed:
 
   fields, tiny      only the fields above; $TINY is never on either side
-  chain, cluster    chains the wallet knows, mainnet only (deBridge quotes no devnet)
+  chain, cluster    chains the wallet knows, mainnet only (neither provider
+                    quotes devnet)
   kind              a swap is one chain, a bridge two
   asset             each side is that chain's native asset or its pinned USDC,
                     and the two differ (or the chains do)
   amount            above zero, within the input asset's decimals
   caps              WALLET_MAX_CONVERT_PER_DAY_USD is set (and WALLET_ETH_USD
-                    for ETH): without it the wallet converts nothing
+                    for ETH), WALLET_CONVERT_PROVIDER is lifi or debridge:
+                    without the cap the wallet converts nothing
   per_tx            the input is at most WALLET_MAX_PER_TX_USD
   per_day_convert   the last 24 hours of swaps and bridges stay within
                     WALLET_MAX_CONVERT_PER_DAY_USD
   half_balance      never more than half of what the wallet holds of the input
-  quote             the quote is for exactly this: its input token and amount,
-                    its output token, an EVM transaction only to a pinned
-                    deBridge contract, not expired; and what comes out (the
-                    minimum after slippage) is worth at least the input less
-                    WALLET_MAX_CONVERT_LOSS_BPS, counting deBridge's flat fee
-                    as a loss. USDC counts at par; another asset at deBridge's
-                    own USD estimate, since the fixed WALLET_SOL_USD/ETH_USD are
-                    set high on purpose and would hide a loss on the way out.
+  quote             the quote is for exactly this and loses no more than
+                    WALLET_MAX_CONVERT_LOSS_BPS. LI.FI: lifi.py says what is
+                    checked (the pinned LiFiDiamond, the recipient, a Solana
+                    simulation, the costs). deBridge: its input token and
+                    amount, its output token, an EVM transaction only to a
+                    pinned deBridge contract, and deBridge's flat fee counted
+                    as a loss. Either way the module's quote must not have
+                    expired; USDC counts at par, another asset at the
+                    provider's own USD estimate, since the fixed
+                    WALLET_SOL_USD/ETH_USD are set high on purpose and would
+                    hide a loss on the way out.
 
 An ERC-20 input (USDC on an EVM network) needs an allowance first: the hand
-approves exactly the input amount, to the quote's `tx.to` (already checked
-to be deBridge), waits for it to confirm, and re-quotes if the first quote
-expired meanwhile (the new one passes every rule again).
+approves exactly the input amount, to the checked spender (deBridge's `tx.to`,
+or LI.FI's diamond), waits for it to confirm, and re-quotes if the module's
+quote expired meanwhile (the new one passes every rule again).
 
-Under DRY_RUN the quote is fetched and checked (it moves nothing) and the
-answer is `would_convert`; nothing is approved or executed.
+Under DRY_RUN the quote is fetched and checked (it moves nothing; a LI.FI
+Solana quote is simulated, which signs nothing) and the answer is
+`would_convert`; nothing is approved or executed.
 
 Live, under the `wallet-pay` lock the payments share: a `wallet_conversions`
-row is written `pending` first. An execute that fails after it was sent is
-`in_doubt` and is never retried.
+row is written `pending` first, with the provider (and LI.FI's `tool`). An
+execute that fails after it was sent is `in_doubt` and is never retried.
 """
 
 from __future__ import annotations
@@ -55,13 +65,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 
 from .. import hand
-from . import caps, chains, store
+from . import caps, chains, lifi, store
 from .pay import amount_raw, balance_of, chain_of, load_caps, names_tiny, own_address
 
 Core = Callable[..., Any]
 
-SWAP_FIELDS = {"chain", "from", "to", "amount", "ref"}
-BRIDGE_FIELDS = {"from_chain", "to_chain", "from", "to", "amount", "ref"}
+SWAP_FIELDS = {"chain", "from", "to", "amount", "ref", "provider"}
+BRIDGE_FIELDS = {"from_chain", "to_chain", "from", "to", "amount", "ref", "provider"}
+PROVIDER_NAMES = {"lifi": "LI.FI", "debridge": "deBridge"}
 #: A quote this close to expiry is fetched again rather than executed.
 EXPIRY_MARGIN_MS = 10_000
 APPROVAL_WAIT_SECONDS = 120.0
@@ -76,6 +87,7 @@ class Conversion:
     to_chain: str
     to_asset: str
     ref: str | None
+    provider: str | None = None  # the body's, when it names one
 
 
 def _asset(value: Any, chain: str, side: str) -> str:
@@ -94,8 +106,11 @@ def parse(kind: str, body: Any, cluster: str) -> Conversion:
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise hand.Refused(f"unknown field(s): {', '.join(unknown)}", rule="fields")
+    provider = body.get("provider")
+    if provider is not None and provider not in caps.PROVIDERS:
+        raise hand.Refused(f"provider is {' or '.join(caps.PROVIDERS)}", rule="fields")
     if cluster != "mainnet":
-        raise hand.Refused(f"deBridge quotes mainnets only, and the wallet is on {cluster}", rule="cluster")
+        raise hand.Refused(f"swaps and bridges are quoted on mainnets only, and the wallet is on {cluster}", rule="cluster")
     if kind == "swap":
         if body.get("chain") is None:
             raise hand.Refused("a swap names its chain", rule="chain")
@@ -117,7 +132,7 @@ def parse(kind: str, body: Any, cluster: str) -> Conversion:
     ref = body.get("ref")
     if ref is not None and (not isinstance(ref, str) or len(ref) > 100):
         raise hand.Refused("ref is a short note, at most 100 characters", rule="ref")
-    return Conversion(kind, src, from_asset, raw, dst, to_asset, ref)
+    return Conversion(kind, src, from_asset, raw, dst, to_asset, ref, provider)
 
 
 # --- the quote --------------------------------------------------------------------------
@@ -128,8 +143,11 @@ def _token(c: Conversion, side: str, cluster: str) -> str:
     return chains.token_address(chain, asset, cluster, caps.USDC_MINTS)
 
 
-def quote_params(c: Conversion, cluster: str, src_own: str, dst_own: str, slippage_bps: int) -> dict[str, Any]:
-    """What the core is asked for: every address named, none left to default."""
+def quote_params(c: Conversion, provider: str, cluster: str, src_own: str, dst_own: str, slippage_bps: int) -> dict[str, Any]:
+    """What the core is asked for: every address named, none left to default.
+    The fields stay deBridge's (the module's); the provider rides as a tag on
+    the one free-text field (`slippage`, `dstChainTokenOutAmount`), which the
+    spine reads and takes off (spine/src/wallet_backend.rs)."""
     if c.kind == "swap":
         return {
             "chainId": chains.debridge_id(c.from_chain),
@@ -138,7 +156,7 @@ def quote_params(c: Conversion, cluster: str, src_own: str, dst_own: str, slippa
             "tokenOut": _token(c, "out", cluster),
             "tokenOutRecipient": dst_own,
             "senderAddress": src_own,
-            "slippage": str(Decimal(slippage_bps) / 100),
+            "slippage": f"{provider}:{Decimal(slippage_bps) / 100}",
         }
     return {
         "srcChainId": chains.debridge_id(c.from_chain),
@@ -146,7 +164,7 @@ def quote_params(c: Conversion, cluster: str, src_own: str, dst_own: str, slippa
         "srcChainTokenInAmount": str(c.raw),
         "dstChainId": chains.debridge_id(c.to_chain),
         "dstChainTokenOut": _token(c, "out", cluster),
-        "dstChainTokenOutAmount": "auto",
+        "dstChainTokenOutAmount": f"{provider}:auto",
         "dstChainTokenOutRecipient": dst_own,
         "srcChainOrderAuthorityAddress": src_own,
         "dstChainOrderAuthorityAddress": dst_own,
@@ -189,25 +207,44 @@ class Checked:
     in_market_micro: int
     out_micro: int
     fee_micro: int
-    spender: str | None  # the EVM tx.to, the only address an approval may name
+    spender: str | None  # the only address an approval may name
     order_id: str | None
+    provider: str = "debridge"
+    tool: str | None = None
 
 
-def check_quote(c: Conversion, envelope: Any, cluster: str, the_caps: caps.Caps, now_ms: int) -> Checked:
-    """The quote, checked against the conversion, or rule `quote`."""
+def check_quote(
+    c: Conversion, provider: str, envelope: Any, cluster: str, the_caps: caps.Caps, now_ms: int, src_own: str, dst_own: str,
+) -> Checked:
+    """The quote, checked against the conversion, or rule `quote`: the
+    module's envelope here, the provider's quote in lifi.py or below."""
+    bad = lifi.bad if provider == "lifi" else _bad
     if not isinstance(envelope, Mapping):
-        raise _bad("the core sent no quote")
+        raise bad("the core sent no quote")
     quote_id = envelope.get("quoteId")
     if not isinstance(quote_id, str) or not quote_id:
-        raise _bad("it has no quoteId")
+        raise bad("it has no quoteId")
     if str(envelope.get("kind") or "").lower() != c.kind:
-        raise _bad(f"it is a {envelope.get('kind')!r}, not a {c.kind}")
+        raise bad(f"it is a {envelope.get('kind')!r}, not a {c.kind}")
     family = "evm" if chains.is_evm(c.from_chain) else "solana"
     if envelope.get("signingChain") not in (None, family):
-        raise _bad(f"it would be signed on {envelope.get('signingChain')}, not {family}")
+        raise bad(f"it would be signed on {envelope.get('signingChain')}, not {family}")
     expires = _int(envelope.get("expiresAtMs"), "expiresAtMs")
     if expires <= now_ms:
-        raise _bad("it has expired")
+        raise bad("it has expired")
+    if provider == "lifi":
+        terms = lifi.check(c, envelope.get("quote"), cluster, the_caps, src_own, dst_own)
+        return Checked(
+            quote_id, expires, terms.expected_raw, terms.min_raw, terms.in_market_micro, terms.out_micro,
+            terms.fee_micro, terms.spender, None, "lifi", terms.tool,
+        )
+    return _check_debridge(c, envelope, quote_id, expires, family, cluster, the_caps)
+
+
+def _check_debridge(
+    c: Conversion, envelope: Mapping[str, Any], quote_id: str, expires: int, family: str, cluster: str, the_caps: caps.Caps,
+) -> Checked:
+    """deBridge's quote, checked against the conversion."""
     q = envelope.get("quote")
     if not isinstance(q, Mapping):
         raise _bad("it carries no deBridge quote")
@@ -303,12 +340,12 @@ def _now_ms() -> int:
     return int(hand.now() * 1000)
 
 
-def _quote(c: Conversion, params: dict[str, Any], core: Core) -> Any:
+def _quote(c: Conversion, provider: str, params: dict[str, Any], core: Core) -> Any:
     method = "web3_swap_quote" if c.kind == "swap" else "web3_bridge_quote"
     try:
         return core(method, params, timeout=60)
     except hand.CoreError as exc:
-        raise hand.HandError(f"deBridge could not quote the {c.kind} ({exc})") from None
+        raise hand.HandError(f"{PROVIDER_NAMES[provider]} could not quote the {c.kind} ({exc})") from None
 
 
 def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
@@ -330,10 +367,12 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
     if usd > the_caps.per_tx_micro:
         raise hand.Refused(f"${caps.usd(usd)} is over the ${caps.usd(the_caps.per_tx_micro)} per transaction cap", rule="per_tx")
     _check(checks, "per_tx", f"${caps.usd(usd)} of ${caps.usd(the_caps.per_tx_micro)}")
+    provider = c.provider or the_caps.convert_provider
     src_own = own_address(core, c.from_chain)
     dst_own = own_address(core, c.to_chain)
     summary = {
         "kind": c.kind,
+        "provider": provider,
         "from_chain": c.from_chain,
         "from": c.from_asset,
         "amount_raw": str(c.raw),
@@ -345,7 +384,8 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
     }
     if c.ref:
         summary["ref"] = c.ref
-    params = quote_params(c, cluster, src_own, dst_own, min(the_caps.convert_loss_bps, 100))
+    params = quote_params(c, provider, cluster, src_own, dst_own, min(the_caps.convert_loss_bps, 100))
+    owns = (src_own, dst_own)
 
     with hand.lock("wallet-pay"):
         conn = store.db()
@@ -358,7 +398,7 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
                     rule="half_balance",
                 )
             _check(checks, "half_balance", f"{summary['amount']} of {caps.display(balance, c.from_asset)} {c.from_asset}")
-            checked = check_quote(c, _quote(c, params, core), cluster, the_caps, _now_ms() + EXPIRY_MARGIN_MS)
+            checked = check_quote(c, provider, _quote(c, provider, params, core), cluster, the_caps, _now_ms() + EXPIRY_MARGIN_MS, *owns)
             _check(checks, "quote", _quote_detail(c, checked))
             summary.update(_quoted(c, checked))
             if hand.dry_run():
@@ -369,9 +409,9 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
                 row_id = store.insert_row(
                     conn, "wallet_conversions", kind=c.kind, from_chain=c.from_chain, from_asset=c.from_asset,
                     amount_raw=str(c.raw), usd_micro=usd, to_chain=c.to_chain, to_asset=c.to_asset,
-                    expected_raw=str(checked.min_raw), quote_id=checked.quote_id,
+                    expected_raw=str(checked.min_raw), quote_id=checked.quote_id, provider=provider, tool=checked.tool,
                 )
-            return _execute(conn, row_id, c, cluster, the_caps, params, checked, summary, core)
+            return _execute(conn, row_id, c, provider, owns, cluster, the_caps, params, checked, summary, core)
         finally:
             conn.close()
 
@@ -390,13 +430,15 @@ def _quoted(c: Conversion, checked: Checked) -> dict[str, Any]:
         "minimum_usd": caps.usd(checked.out_micro),
         "fee_usd": caps.usd(checked.fee_micro),
     }
+    if checked.tool:
+        out["tool"] = checked.tool
     if checked.order_id:
         out["order_id"] = checked.order_id
     return out
 
 
-def _approve(conn: Any, row_id: int, c: Conversion, spender: str, core: Core) -> str:
-    """An exact ERC-20 allowance for the input, to deBridge's contract, and
+def _approve(conn: Any, row_id: int, c: Conversion, provider: str, spender: str, core: Core) -> str:
+    """An exact ERC-20 allowance for the input, to the provider's checked contract, and
     its confirmation. An approval moves no funds, so a failure here is a
     plain failure."""
     network = chains.NETWORKS[c.from_chain]
@@ -419,7 +461,7 @@ def _approve(conn: Any, row_id: int, c: Conversion, spender: str, core: Core) ->
             raise hand.HandError("the approval answered without a transaction hash")
     except (hand.HandError, AttributeError) as exc:
         store.update_row(conn, "wallet_conversions", row_id, status="failed", error=f"approval: {exc}"[:300])
-        raise hand.HandError(f"conversion {row_id}: the allowance for deBridge could not be set ({exc}); nothing was swapped") from None
+        raise hand.HandError(f"conversion {row_id}: the allowance for {PROVIDER_NAMES[provider]} could not be set ({exc}); nothing was swapped") from None
     store.update_row(conn, "wallet_conversions", row_id, approval_tx=approval_tx)
     deadline = time.monotonic() + float(hand.setting("WALLET_APPROVAL_WAIT_SECONDS") or APPROVAL_WAIT_SECONDS)
     poll = float(hand.setting("WALLET_APPROVAL_POLL_SECONDS") or 3)
@@ -444,15 +486,15 @@ def _approve(conn: Any, row_id: int, c: Conversion, spender: str, core: Core) ->
 
 
 def _execute(
-    conn: Any, row_id: int, c: Conversion, cluster: str, the_caps: caps.Caps, params: dict[str, Any],
-    checked: Checked, summary: dict[str, Any], core: Core,
+    conn: Any, row_id: int, c: Conversion, provider: str, owns: tuple[str, str], cluster: str, the_caps: caps.Caps,
+    params: dict[str, Any], checked: Checked, summary: dict[str, Any], core: Core,
 ) -> dict[str, Any]:
     if chains.is_evm(c.from_chain) and c.from_asset == "USDC":
-        approval_tx = _approve(conn, row_id, c, checked.spender or "", core)
+        approval_tx = _approve(conn, row_id, c, provider, checked.spender or "", core)
         summary["approval_tx"] = approval_tx
         if checked.expires_at_ms <= _now_ms() + EXPIRY_MARGIN_MS:
             try:
-                fresh = check_quote(c, _quote(c, params, core), cluster, the_caps, _now_ms() + EXPIRY_MARGIN_MS)
+                fresh = check_quote(c, provider, _quote(c, provider, params, core), cluster, the_caps, _now_ms() + EXPIRY_MARGIN_MS, *owns)
             except (hand.Refused, hand.HandError) as exc:
                 store.update_row(conn, "wallet_conversions", row_id, status="failed", error=f"re-quote: {exc}"[:300])
                 raise
@@ -460,7 +502,7 @@ def _execute(
                 store.update_row(conn, "wallet_conversions", row_id, status="failed", error="the new quote names another spender")
                 raise hand.Refused("the new quote goes to another contract than the one approved; nothing was swapped", rule="quote")
             checked = fresh
-            store.update_row(conn, "wallet_conversions", row_id, quote_id=checked.quote_id, expected_raw=str(checked.min_raw))
+            store.update_row(conn, "wallet_conversions", row_id, quote_id=checked.quote_id, expected_raw=str(checked.min_raw), tool=checked.tool)
             summary.update(_quoted(c, checked))
     method = "web3_swap_execute" if c.kind == "swap" else "web3_bridge_execute"
     try:
@@ -477,9 +519,20 @@ def _execute(
         raise hand.HandError(f"conversion {row_id} is in doubt: the core answered without a signature. It is never retried.")
     store.update_row(conn, "wallet_conversions", row_id, status="sent", signature=signature, order_id=checked.order_id)
     sent = {**summary, "conversion_id": row_id, "signature": signature, "url": chains.explorer_tx(c.from_chain, signature, cluster)}
-    if checked.order_id:
-        sent["track"] = f"https://app.debridge.finance/order?orderId={checked.order_id}"
+    track = _track(provider, c.kind, signature, checked.order_id)
+    if track:
+        sent["track"] = track
     return {"sent": sent}
+
+
+def _track(provider: str | None, kind: str, signature: str | None, order_id: str | None) -> str | None:
+    """Where a bridge can be followed to its destination: deBridge's order,
+    or LI.FI's scan of the source transaction."""
+    if order_id:
+        return f"https://app.debridge.finance/order?orderId={order_id}"
+    if provider == "lifi" and kind == "bridge" and signature:
+        return f"https://scan.li.fi/tx/{signature}"
+    return None
 
 
 def conversions(max_rows: int) -> dict[str, Any]:
@@ -496,5 +549,8 @@ def conversions(max_rows: int) -> dict[str, Any]:
         entry["usd"] = caps.usd(int(entry.pop("usd_micro")))
         if entry.get("signature"):
             entry["url"] = chains.explorer_tx(entry["from_chain"], entry["signature"], "mainnet")
+        track = _track(entry.get("provider"), entry["kind"], entry.get("signature"), entry.get("order_id"))
+        if track:
+            entry["track"] = track
         out.append(entry)
     return {"conversions": out}

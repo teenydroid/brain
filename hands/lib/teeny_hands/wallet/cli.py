@@ -19,8 +19,8 @@
   R  conversions [--max N]         the swaps and bridges, newest first
   R  x402 log [--max N]            the paid HTTP requests, newest first
   A  pay                           {to, amount_usdc | amount_sol | amount_eth, chain?, purpose, ref} (pay.py)
-  A  swap                          {chain, from, to, amount}: one chain, through deBridge (convert.py)
-  A  bridge                        {from_chain, from, to_chain, to, amount}: across chains, deBridge DLN
+  A  swap                          {chain, from, to, amount[, provider]}: one chain, through LI.FI or deBridge (convert.py)
+  A  bridge                        {from_chain, from, to_chain, to, amount[, provider]}: across chains, LI.FI or deBridge
   A  x402 fetch                    {url, method?, headers?, body?, max_usd?}: an HTTP request that may pay (x402.py)
   J  buy-tiny                      a share of net inflows into $TINY, buy only (buy.py; bin/tiny-buy)
   O  bills add NAME --usd N --period month|year [--note T], bills list, bills remove NAME
@@ -73,8 +73,8 @@ def parser() -> argparse.ArgumentParser:
     verb("caps", lambda a, _: reads.caps_status(), "the caps it pays under")
     verb("pay", lambda a, body: pay.pay(body), "pay a bounty winner or an allowlisted vendor", body=True)
     verb("buy-tiny", lambda a, _: buy.buy_tiny(), "buy $TINY with a share of net inflows (the pinned job only)")
-    verb("swap", lambda a, body: convert.convert("swap", body), "swap on one chain, to Teeny's own address (deBridge)", body=True)
-    verb("bridge", lambda a, body: convert.convert("bridge", body), "bridge to Teeny's own address on another chain (deBridge DLN)", body=True)
+    verb("swap", lambda a, body: convert.convert("swap", body), "swap on one chain, to Teeny's own address (LI.FI by default, or deBridge)", body=True)
+    verb("bridge", lambda a, body: convert.convert("bridge", body), "bridge to Teeny's own address on another chain (LI.FI by default, or deBridge)", body=True)
     verb("conversions", lambda a, _: convert.conversions(a.max), "swaps and bridges, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
 
     flows = verbs.add_parser("inflows", help="the inflow ledger: deposits to Teeny's wallet").add_subparsers(dest="inflows_verb")
