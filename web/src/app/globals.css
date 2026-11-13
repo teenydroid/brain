@@ -305,14 +305,6 @@ body {
   97% { clip-path: inset(44% 0 36% 0); transform: translate(2px, 0); }
 }
 
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.marquee {
-  animation: marquee 40s linear infinite;
-}
-
 @keyframes hotspot-ping {
   0% { transform: scale(1); opacity: 0.7; }
   100% { transform: scale(1.8); opacity: 0; }
@@ -329,7 +321,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .marquee, .hotspot-ping, .caret {
+  .glitch::before, .glitch::after, .hotspot-ping, .caret {
     animation: none;
   }
 }

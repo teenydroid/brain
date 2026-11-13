@@ -4,10 +4,9 @@ import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 /** The page is one page: the footer jumps down it. */
 const SECTIONS = [
   { href: "#x", label: "Me on X" },
-  { href: "#receipts", label: "My receipts" },
-  { href: "#numbers", label: "My numbers" },
   { href: "#brain", label: "My brain" },
   { href: "#find", label: "Find me" },
+  { href: "#receipts", label: "My receipts" },
 ]
 
 /** The foot of the page: with no header, the way back up it, where I live, and the follow button once more. */

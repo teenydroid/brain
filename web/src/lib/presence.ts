@@ -4,8 +4,8 @@
  *
  * No wallet is listed here. Teeny's wallet is the Solana account its wallet
  * hand reads from the core at run time (`hands/wallet address`); bin/receipts
- * publishes that address as wallet.json, and the front page's wallet card
- * reads it from there (src/lib/wallet.ts), so no address is ever hardcoded.
+ * publishes that address as wallet.json, so no address is ever hardcoded
+ * here.
  * The old Robinhood Chain address the page used to show is not the wallet the
  * hand pays from.
  */

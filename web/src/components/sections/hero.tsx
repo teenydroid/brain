@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
 import { ThoughtStream, type Thought } from "@/components/thought-stream"
 import type { MindFeed } from "@/lib/mind"
-import { receiptCount, receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
+import { receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
@@ -48,7 +48,6 @@ interface Hotspot {
 export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts }) {
   const { status } = feed
   const live = feed.source === "live"
-  const ledgerLive = live && Boolean(feed.totals)
   const { title, thoughts } = thoughtsFrom(feed, receipts)
 
   const hotspots: Hotspot[] = [
@@ -64,18 +63,10 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
     receipts.source === "live" && receipts.head ? `${count(receipts.head)} receipts · chained by hash` : "my receipts · public on github",
   ]
 
-  const follow = `follow ${X.handle} on x`
-  const ticker = [
-    follow,
-    ...(receipts.source === "live" && receipts.tally.length
-      ? receipts.tally.map((row) => receiptCount(row.kind, row.count))
-      : PRESENCE.filter((p) => p.kind !== "x").map((p) => `${p.place} · ${p.handle}`)),
-  ]
-
   return (
-    <section className="relative px-2 pt-2 pb-2 sm:px-4 sm:pt-4">
+    <section className="relative p-2 sm:p-4">
         <div
-          className="cut relative isolate h-[calc(100svh-3.75rem)] sm:h-[calc(100svh-4.5rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
+          className="cut relative isolate h-[calc(100svh-1rem)] sm:h-[calc(100svh-2rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
           style={{ "--cut": "28px" } as React.CSSProperties}
         >
           <SceneCanvas className="absolute inset-0" />
@@ -155,20 +146,6 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
             </div>
           </div>
         </div>
-
-        {/* A ticker under the frame: what it has done, by kind. */}
-        <div className="relative mt-2 overflow-hidden border-y border-neon-yellow/30 bg-neon-yellow/5 py-2 font-mono text-xs uppercase tracking-[0.25em]">
-          <div className="marquee flex w-max gap-10 whitespace-nowrap" aria-hidden>
-            {[...ticker, ...ticker, ...ticker, ...ticker].map((item, i) => (
-              <span key={i} className="flex items-center gap-10 text-neon-yellow/90">
-                {item}
-                <span className="text-neon-magenta">◆</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-    </>
+    </section>
   )
 }
