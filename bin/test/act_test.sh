@@ -240,7 +240,12 @@ rm -f "$brain/playbooks/told.md"
 # --- an optional input that fails is left out; any other failure stops the run -------
 # A playbook that reads the outside world (Hacker News) must not lose its
 # post to somebody else's outage.
-printf '#!/usr/bin/env bash\nprintf "down %%s\\n" "$*" >>"$FAKE_HANDS"\necho "{\\"ok\\": false, \\"error\\": \\"no network\\"}"\nexit 1\n' >"$scratch/hands/down"
+cat >"$scratch/hands/down" <<'FAKE'
+#!/usr/bin/env bash
+printf 'down %s\n' "$*" >>"$FAKE_HANDS"
+echo '{"ok": false, "error": "no network"}'
+exit 1
+FAKE
 chmod +x "$scratch/hands/down"
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\n+++\npost it\n' >"$brain/playbooks/outage.md"
