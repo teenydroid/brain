@@ -59,13 +59,20 @@ class CoreConfigTest(unittest.TestCase):
         # TinySecurity refuses the whole policy over one relative entry.
         self.assertTrue(all(Path(p).is_absolute() for p in autonomy["forbidden_paths"]))
         browser = doc["browser"]
-        self.assertEqual((browser["enabled"], browser["headless"], browser["profile_mode"]), (True, True, "persistent"))
-        self.assertEqual(browser["profile_path"], str(self.root / "state" / "browser" / "profile"))
-        self.assertTrue(Path(browser["profile_path"]).is_dir())
+        self.assertEqual((browser["enabled"], browser["headless"]), (True, True))
         self.assertIn("click", browser["unattended_actions"])
         self.assertEqual(doc["http_request"]["allowed_domains"], websites.load(self.root))
         self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
+
+    def test_the_browser_starts_on_a_fresh_profile_the_egress_policy_admits(self):
+        # With TinySecurity's egress policy on, TinyComputer's enforced
+        # launcher refuses a launch that names a profile folder: "network
+        # policy refuses attached or externally managed browsers". A
+        # persistent profile is exactly that, so no session could start.
+        browser = self.written()["browser"]
+        self.assertEqual(browser["profile_mode"], "fresh")
+        self.assertNotIn("profile_path", browser)
 
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
