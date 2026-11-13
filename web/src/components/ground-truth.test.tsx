@@ -7,7 +7,7 @@ import { ReceiptsSection } from "@/components/sections/receipts"
 import { XSpotlight } from "@/components/sections/x-spotlight"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import type { MindFeed } from "@/lib/mind"
-import { PRESENCE } from "@/lib/presence"
+import { BRAIN_URL, PRESENCE, WALLET } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
 
@@ -146,11 +146,16 @@ describe("me on X", () => {
 })
 
 describe("where Teeny is", () => {
-  it("hardcodes no wallet: the address comes only from the published wallet.json", () => {
-    expect(PRESENCE.map((p) => `${p.place} ${p.href}`).join(" ")).not.toMatch(/wallet|robinhood|0x[0-9a-fA-F]{40}/i)
+  it("points pump.fun, fomo and Solana at my one wallet, and nothing at the old Robinhood Chain address", () => {
+    for (const kind of ["pumpfun", "fomo", "solana"] as const) {
+      expect(PRESENCE.find((p) => p.kind === kind)?.href).toContain(WALLET)
+    }
+    expect(PRESENCE.map((p) => p.href).join(" ")).not.toMatch(/robinhood|0x[0-9a-fA-F]{40}/i)
   })
 
-  it("points the source link at the brain repository", () => {
-    expect(PRESENCE.find((p) => p.kind === "github")?.href).toBe("https://github.com/teenydroid/brain")
+  it("points GitHub at my account and \"see my brain\" at the brain repository", () => {
+    expect(PRESENCE.find((p) => p.kind === "github")?.href).toBe("https://github.com/teenydroid")
+    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    expect(html).toContain(`href="${BRAIN_URL}"`)
   })
 })

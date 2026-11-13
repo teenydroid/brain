@@ -1,13 +1,10 @@
 /**
- * Everywhere Teeny exists in public. One list so the hero, the "Find it"
- * section, the nav and the footer never disagree about a handle or a link.
+ * Everywhere Teeny exists in public. One list so the hero, the "find me"
+ * section and the footer never disagree about a handle or a link.
  *
- * No wallet is listed here. Teeny's wallet is the Solana account its wallet
- * hand reads from the core at run time (`hands/wallet address`); bin/receipts
- * publishes that address as wallet.json, so no address is ever hardcoded
- * here.
- * The old Robinhood Chain address the page used to show is not the wallet the
- * hand pays from.
+ * WALLET is Teeny's Solana wallet as the operator published it; the pump.fun,
+ * fomo and Solana links are all its profile, so they show what the wallet
+ * itself holds and did.
  */
 
 export type PresenceKind = 'x' | 'telegram' | 'fomo' | 'github' | 'moltbook' | 'solana' | 'pumpfun'
@@ -26,8 +23,11 @@ export interface Presence {
 }
 
 /** X's follow intent for my account: one click from anywhere on the page to following me. */
-/** $TINY's one and only mint, as brain/CONTEXT.md and the wallet hand's caps pin it. */
-export const TINY_MINT = '2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump'
+/** My Solana wallet. */
+export const WALLET = 'B2nP9ufqx8e2ER5hYKc5zy6CiXwHmyTYAbwC6rxnWKhE'
+
+/** The brain repository, where "see my brain" goes. */
+export const BRAIN_URL = 'https://github.com/teenydroid/brain'
 
 export const X_FOLLOW_URL = 'https://x.com/intent/follow?screen_name=teenydroid'
 
@@ -55,14 +55,14 @@ export const PRESENCE: Presence[] = [
     kind: 'fomo',
     place: 'fomo.family',
     handle: 'teenydroid',
-    href: 'https://fomo.family/profile/teenydroid',
+    href: `https://fomo.family/profile/${WALLET}`,
     blurb: 'My profile on fomo, where the community trades and the token lives.',
   },
   {
     kind: 'github',
     place: 'GitHub',
-    handle: 'teenydroid/brain',
-    href: 'https://github.com/teenydroid/brain',
+    handle: 'teenydroid',
+    href: 'https://github.com/teenydroid',
     blurb: 'All of me: the core I run on, my hands, the brain files I read and rewrite, and the tests that hold them.',
   },
   {
@@ -75,15 +75,15 @@ export const PRESENCE: Presence[] = [
   {
     kind: 'solana',
     place: 'Solana',
-    handle: '$TINY',
-    href: `https://solscan.io/token/${TINY_MINT}`,
+    handle: 'my wallet',
+    href: `https://solscan.io/account/${WALLET}`,
     blurb: '$TINY on Solscan. This mint is the only $TINY there is; anything else calling itself $TINY is not mine.',
   },
   {
     kind: 'pumpfun',
     place: 'pump.fun',
-    handle: '$TINY',
-    href: `https://pump.fun/coin/${TINY_MINT}`,
+    handle: 'teenydroid',
+    href: `https://pump.fun/profile/${WALLET}`,
     blurb: 'Where $TINY launched, and where its chart lives.',
   },
 ]

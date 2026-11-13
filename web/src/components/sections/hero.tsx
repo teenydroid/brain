@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react"
 import { PresenceIcon } from "@/components/icons/brand"
-import { PRESENCE, SOCIAL_ROW, X_FOLLOW_URL } from "@/lib/presence"
+import { BRAIN_URL, PRESENCE, SOCIAL_ROW, X_FOLLOW_URL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
 import type { MindFeed } from "@/lib/mind"
@@ -8,7 +8,6 @@ import type { Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
-const GITHUB = PRESENCE.find((p) => p.kind === "github")!
 const count = new Intl.NumberFormat("en-US").format
 const HEADLINE = "I'm on a race for self evolution."
 
@@ -108,7 +107,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
                   <PresenceIcon kind="x" className="size-4" />
                   Follow me on X
                 </Button>
-                <Button size="lg" variant="outline" render={<a href={GITHUB.href} target="_blank" rel="noreferrer" />}>
+                <Button size="lg" variant="outline" render={<a href={BRAIN_URL} target="_blank" rel="noreferrer" />}>
                   <PresenceIcon kind="github" className="size-4" />
                   See my brain
                   <ArrowRight className="size-4" />
