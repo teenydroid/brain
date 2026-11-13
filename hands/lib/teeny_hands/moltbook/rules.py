@@ -40,7 +40,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from .. import hand
+from .. import hand, tags
 
 MINUTE = 60.0
 HOUR = 3600.0
@@ -138,20 +138,18 @@ CREATE TABLE IF NOT EXISTS collabs (
 """
 
 
-#: Columns added after a table first shipped: (table, column, definition).
-#: `db()` adds the ones a ledger made earlier does not have yet.
-MIGRATIONS = (("moltbook_posts", "format", "TEXT"),)
+#: Columns added after the tables first shipped: what Teeny wrote, and the
+#: lab tags (teeny_hands/tags.py). Older rows keep NULL in them.
+ADDED_COLUMNS = {
+    "moltbook_posts": {"body": "TEXT", **tags.COLUMNS},
+    "moltbook_comments": {"body": "TEXT", **tags.COLUMNS},
+}
 
 
 def db() -> sqlite3.Connection:
     conn = hand.open_db(SCHEMA)
-    for table, column, definition in MIGRATIONS:
-        if column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
-            try:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-            except sqlite3.OperationalError as exc:  # another hand added it at the same moment
-                if "duplicate column" not in str(exc):
-                    raise
+    for table, columns in ADDED_COLUMNS.items():
+        hand.add_columns(conn, table, columns)
     return conn
 
 

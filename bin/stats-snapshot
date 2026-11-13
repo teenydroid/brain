@@ -5,10 +5,14 @@
 # skipped. Posts may quote only numbers that came from these rows
 # (`hands/stats get`, `hands/stats report`).
 #
-# First, `hands/moltbook metrics refresh` measures Teeny's own Moltbook posts
-# and comments that are due a checkpoint (moltbook_post_metrics). Its line
-# goes to stderr, and a refresh that fails never stops the snapshot, so
-# stdout stays the snapshot's one JSON line.
+# First, `hands/moltbook metrics refresh` and `hands/x metrics refresh`
+# measure Teeny's own posts and replies that are due a checkpoint
+# (moltbook_post_metrics, x_post_metrics). Their lines go to stderr, and a
+# refresh that fails never stops the snapshot, so stdout stays the
+# snapshot's one JSON line.
+#
+# `bin/stats-snapshot metrics` runs only the two refreshes (the pinned
+# `metrics` job, hourly), so the 1h checkpoint is not missed.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -16,4 +20,6 @@ set -euo pipefail
 hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
 cd "$TEENY_ROOT"
 "$hands/moltbook" metrics refresh </dev/null >&2 || log "moltbook metrics refresh failed; the snapshot goes on"
+"$hands/x" metrics refresh </dev/null >&2 || log "x metrics refresh failed; the snapshot goes on"
+[ "${1:-}" = metrics ] && exit 0
 exec "$hands/stats" snapshot </dev/null

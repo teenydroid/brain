@@ -34,7 +34,7 @@ import string
 import sys
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, tags
 from ..rest import RestApi, RestError, quote
 from . import challenge, client, model_read, reads, rules
 
@@ -115,25 +115,6 @@ def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any]) ->
         raise hand.Refused(verdict.reason, rewrite=True, field=verdict.field)
     raise hand.HandError(f"the guard answered {verdict.kind!r}, which hands/moltbook does not publish on")
 
-
-_FORMAT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-
-
-def _format_tag(value: Any) -> str | None:
-    """The post's format tag (confession, claim, news, question ...), for the
-    lab to compare. Optional; a malformed one is an error, not a guess."""
-    if value in (None, ""):
-        return None
-    if not isinstance(value, str) or not _FORMAT.match(value.strip().lower()):
-        raise hand.HandError('"format" is a short lowercase tag (letters, digits, - and _)')
-    return value.strip().lower()
-
-
-def _experiment(value: Any) -> None:
-    """An experiment id may ride along on a post; this hand accepts and ignores
-    it (the lab ledger is a separate hand)."""
-    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, str))):
-        raise hand.HandError('"experiment" is an experiment id')
 
 
 def _link_allowed(url: str) -> None:
@@ -272,9 +253,9 @@ def _settle(conn: sqlite3.Connection, api: RestApi, kind: str, table: str, row_i
 
 
 def post(body: Any, api: RestApi | None = None) -> Json:
-    body = _body(body, ("submolt", "title"), ("body", "url", "type", "format", "experiment"))
-    post_format = _format_tag(body.get("format"))
-    _experiment(body.get("experiment"))
+    body, tagged = tags.split(body)
+    body = _body(body, ("submolt", "title"), ("body", "url", "type"))
+    post_format = tagged["format"]
     submolt = client.submolt_name(body["submolt"])
     title = _string(body, "title")
     text = _string(body, "body", required=False)
@@ -322,8 +303,10 @@ def post(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "post")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status, format) VALUES (?, ?, ?, ?, ?, ?)",
-            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted", post_format),
+            "INSERT INTO moltbook_posts (post_id, at, submolt, title, status, body, format, experiment)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (post_id, hand.now(), submolt, fields["title"], "created" if ver else "posted", fields.get("body"),
+             tagged["format"], tagged["experiment"]),
         )
         out: Json = {"posted": post_id, "submolt": submolt, "title": fields["title"]}
         if ver:
@@ -416,6 +399,7 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
 
 
 def comment(body: Any, api: RestApi | None = None) -> Json:
+    body, tagged = tags.split(body)
     body = _body(body, ("post_id", "body"), ("parent_id",))
     post_id = _full_id(client.object_id(body["post_id"], "post_id"), "post_id")
     parent_id = _full_id(client.object_id(body["parent_id"], "parent_id"), "parent_id") if body.get("parent_id") is not None else None
@@ -452,8 +436,10 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "comment")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status) VALUES (?, ?, ?, ?, ?)",
-            (comment_id, post_id, parent_id, hand.now(), "created" if ver else "posted"),
+            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status, body, format, experiment)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (comment_id, post_id, parent_id, hand.now(), "created" if ver else "posted", text,
+             tagged["format"], tagged["experiment"]),
         )
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:
