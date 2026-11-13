@@ -13,7 +13,11 @@ from teeny_hands.x402 import fund  # noqa: E402
 
 EVM_OWN = "0x" + "1" * 40
 DLN = "0xeF4fB24aD0916217251F553c0596F8Edc630EB66"
-NOW_MS = int(T0 * 1000)
+
+
+def expires() -> int:
+    """A minute after the pinned clock (TEENY_NOW), which the tests move."""
+    return int(hand.now() * 1000) + 60_000
 PRICE = {"SOL": 200, "ETH": 4000, "USDC": 1}
 DECIMALS = {"SOL": 9, "ETH": 18, "USDC": 6}
 MOVING = ("openhuman.web3_swap_execute", "openhuman.web3_bridge_execute", "openhuman.web3_dapp_call",
@@ -38,7 +42,7 @@ def swap_quote(p):
     amount = int(p["tokenInAmount"])
     usd = _usd(_asset(p["tokenIn"]), amount)
     out = int(usd * 0.998 * 1e6)
-    return {"quoteId": "sq", "kind": "swap", "expiresAtMs": NOW_MS + 60_000, "signingChain": "evm", "quote": {
+    return {"quoteId": "sq", "kind": "swap", "expiresAtMs": expires(), "signingChain": "evm", "quote": {
         "tokenIn": {"address": p["tokenIn"], "amount": str(amount), "approximateUsdValue": usd},
         "tokenOut": {"address": p["tokenOut"], "amount": str(out), "minAmount": str(out), "approximateUsdValue": out / 1e6},
         "tx": {"to": DLN, "data": "0x", "value": str(amount) if p["tokenIn"] == chains.EVM_NATIVE else "0"}}}
@@ -51,7 +55,7 @@ def bridge_quote(p):
     out = int(usd * 0.9975 * 1e6)
     solana = p["srcChainId"] == chains.DEBRIDGE_SOLANA
     tx = {"data": "base64tx"} if solana else {"to": DLN, "data": "0x", "value": str(amount) if asset == "ETH" else "0"}
-    return {"quoteId": "bq", "kind": "bridge", "expiresAtMs": NOW_MS + 60_000, "signingChain": "solana" if solana else "evm",
+    return {"quoteId": "bq", "kind": "bridge", "expiresAtMs": expires(), "signingChain": "solana" if solana else "evm",
             "quote": {"estimation": {
                 "srcChainTokenIn": {"address": p["srcChainTokenIn"], "amount": str(amount), "approximateUsdValue": usd},
                 "dstChainTokenOut": {"address": p["dstChainTokenOut"], "amount": str(out), "recommendedAmount": str(out)}},
@@ -59,7 +63,7 @@ def bridge_quote(p):
 
 
 def dapp_call(p):
-    return {"quoteId": "dq", "kind": "dapp_call", "expiresAtMs": NOW_MS + 60_000, "signingChain": "evm",
+    return {"quoteId": "dq", "kind": "dapp_call", "expiresAtMs": expires(), "signingChain": "evm",
             "quote": {"contractAddress": p["contractAddress"], "calldata": p["calldata"], "valueRaw": "0"}}
 
 
@@ -251,9 +255,11 @@ class FundTest(Scratch):
         self.assertEqual(run["outcome"], "in_doubt")
         self.assertIsNotNone(run["conversion_id"])
         self.assertEqual(run["usd_micro"], 4_500_000)
+        self.configure(X402_FUND_MAX_PER_DAY_USD="6")
+        self.core.answers["openhuman.web3_bridge_execute"] = lambda p: {"quoteId": p["quoteId"], "transactionHash": "sig"}
         self.at(T0 + 2 * 3600)
-        out = fund.fund()  # the cooldown is over; the day still counts the one in doubt
-        self.assertEqual(out["plan"]["amount"], "4.5")
+        out = fund.fund()  # the cooldown is over; the day still counts the one in doubt: $6 less $4.50
+        self.assertEqual((out["plan"]["amount"], out["plan"]["clamped_by"]), ("1.5", "X402_FUND_MAX_PER_DAY_USD"))
 
     # --- what it leaves behind ------------------------------------------------------------
 
