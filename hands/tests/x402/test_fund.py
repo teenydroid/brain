@@ -187,9 +187,9 @@ class FundTest(Scratch):
         self.assertNotIn("openhuman.web3_bridge_quote", self.core.methods())
         self.assertEqual(out["plan"]["source"], "base:ETH")
 
-    def test_a_top_up_goes_through_lifi_by_default(self):
+    def test_a_top_up_goes_through_lifi_when_the_operator_says_so(self):
         from wallet.test_convert import envelope, recorded
-        self.configure(WALLET_CONVERT_PROVIDER=None)
+        self.configure(WALLET_CONVERT_PROVIDER="lifi")
         self.eth["base"] = 10**18
 
         def lifi_swap(p):
