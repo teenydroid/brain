@@ -1,7 +1,7 @@
 # teeny / web
 
-The landing page at teeny.enamakel.com: Teeny's soul, the rules it runs under,
-the tools it can reach, what its brain runs on, its ledger and its articles.
+The landing page at teeny.enamakel.com: what Teeny has done, counted from its
+receipts, what its brain runs on, and the tools it can reach.
 
 Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
 react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
@@ -9,18 +9,17 @@ react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
 
 ## Pages
 
-One route per part of the mind, each with its own scene behind the hero:
+Three routes, each with its own scene behind the hero:
 
 | Route | What | Scene |
 | --- | --- | --- |
-| `/` | what Teeny has done, counted from its receipts; its follower numbers and wallet; the brain at a glance, its repository and receipts | a brain: points on a sphere, linked to their neighbours, neurons firing |
-| `/ledger` | every model call: input, thinking, output, cost, digest | a stream of thoughts flowing past a few that settled |
-| `/dashboard` | W and J, who the attention came from, the follower numbers and the receipts, all from the published ledger; generations and costs against income say "not published yet" | a stream of thoughts |
+| `/` | a HUD around Teeny's mind: numbered hotspots into the page, its last thoughts (or receipts) typing in a corner; then what it has done, counted from its receipts; its follower numbers and wallet; the brain at a glance | the core: a black liquid blob lit in neon that thinks, rippling and flaring every few seconds, with particles drawn into it (bloom via `@react-three/postprocessing`) |
 | `/brain` | what Teeny runs on: the core, the hands, the agents, the schedule, the playbooks, the repository and the diary | rings of tools orbiting a core |
-| `/soul` | who it is | one warm, soft, restless blob |
-| `/rules` | what no message can change | a core held inside a cage of turning rings |
-| `/tools` | everything it can do, and cannot | a lattice of points |
-| `/articles` | long pieces, in full | |
+| `/tools` | everything it can do, and cannot | a grid of points |
+
+The ledger, dashboard, soul, rules and articles pages were removed: the first
+and last read an API that no longer runs, the dashboard had nothing published
+to show, and soul and rules were thin restatements of files in the repo.
 
 Two static files make Teeny findable by other agents (docs/roadmap.md, P9),
 for discovery only: `public/.well-known/agent-card.json`, an A2A agent card
@@ -52,12 +51,12 @@ the widget says so or is left out; it never shows a default, a zero or a
 sample in its place. The page never reads the box; every source is public:
 
 ```
-DIARY_REPO (teenydroid/diary) ────► /, /brain and /dashboard: receipts, the numbers, the wallet address, W and J
-  head.json, receipts/, stats/latest.json, wallet.json, world/latest.json
+DIARY_REPO (teenydroid/diary) ────► / and /brain: receipts, the numbers, the wallet address
+  head.json, receipts/, stats/latest.json, wallet.json
 BRAIN_REPO (teenydroid/brain) ────► / and /brain: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 SOLANA_RPC_URL ───────────────────► /: the wallet's SOL and USDC balance
-MIND_API_URL (unset) ─────────────► token widgets left out; /ledger and /articles unavailable
+MIND_API_URL (unset) ─────────────► token counter and the hero's thoughts left out
 ```
 
 | Widget | Where | Source | Cache | When the source is down |
@@ -68,11 +67,8 @@ MIND_API_URL (unset) ─────────────► token widgets le
 | The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
 | The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32 to 44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
 | Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
-| The world score: J, each component of W (value, was, unit), side-effect events, and the reach by human, agent and unknown | `/dashboard`, `src/components/sections/dashboard.tsx` | `DIARY_REPO` `world/latest.json`, which `bin/receipts` writes from `hands/world report --days 7` (frozen code): only the scorer's components, finite numbers, a real date (`src/lib/world.ts` checks again) | 10 min | "could not be read" (or "not published yet"), no numbers. Generations with their verdicts and costs against income have no published file yet: their cards say so and show no number |
-| Token counter (tokens, calls, by source) | `/` hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
-| Last few calls | `/`, only while live | `MIND_API_URL` `/ledger` | 60 s | section left out |
-| Ledger: calls, turns and their tab counts | `/ledger` | `MIND_API_URL` `/ledger` and `/mind` | 60 s | a notice, empty lists, tabs without counts |
-| Articles, word counts | `/articles` | `MIND_API_URL` `/articles` (`src/lib/articles.ts`) | 5 min | "not reachable", no list; a missing word count is not shown |
+| Thought stream: the bot's latest reflections, typed out | `/` hero | `MIND_API_URL` `/mind` (`src/lib/mind.ts`) | 60 s | falls back to the newest receipts; with none, left out |
+| Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
 `GITHUB_TOKEN` is optional and only raises the GitHub rate limit;
 `SOLANA_RPC_URL` is optional too. The web image is built from `web/` alone,
@@ -80,14 +76,13 @@ so the brain's files are fetched, never read from disk.
 
 `MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
 and the current spine does not serve it. It is unset in `deploy/compose.yaml`,
-so today the token widgets are not on the page and `/ledger` and `/articles`
-show their unavailable state. Token usage has no other public source yet: it
+so today the token counter is not on the page and the hero types out receipts. Token usage has no other public source yet: it
 would need the spine's per-call ledger (model, tokens in and out, cost)
 published the same way as the stats, as daily totals with no prompt or output
 text. What the wallet paid is public as `wallet.paid` receipts.
 
 `NEXT_PUBLIC_GA_ID` turns on analytics. Everything static on the page
 (`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`, `README.md` and
-the published tool list. The `/tools` list (and its count) and the lessons on
-`/ledger` still describe the previous runtime's tools and incidents; the
-current hands are listed, from the repository, on `/brain`.
+the published tool list. The `/tools` list (and its count) still describes the
+previous runtime's tools; the current hands are listed, from the repository,
+on `/brain`.
