@@ -303,6 +303,31 @@ class TickTest(unittest.TestCase):
         self.assertIn("ana said gm", journaled[0]["text"])
         self.assertEqual(self.runs()[-1]["journal"]["learned"], True)
 
+    def test_the_journal_says_what_landed_before_what_the_mind_claimed(self):
+        # The mind writes its thought and journal lines before the hands run:
+        # on 2026-11-13 it journaled "receipt delivered" for a comment that
+        # Moltbook refused with a 400, and memory taught the claim as fact.
+        os.environ["FAKE_EXIT_MOLTBOOK"] = "1"
+        stimuli.add("moltbook", "comment", "c1", "where is my receipt?", who="nyna")
+        self.answer({"thought": "receipt delivered to nyna", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
+            {"do": "journal", "text": "promise kept"},
+        ]})
+        self.tick()
+        self.assertIn("comment_moltbook on p1: error, not sent (boom)", self.journal())
+        [learned] = [l for l in self.learned() if l["text"].startswith("journal, ")]
+        text = learned["text"]
+        self.assertTrue(text.startswith("journal, 2026-09-14 07:00: what happened: comment_moltbook on p1: error, not sent (boom)"), text)
+        self.assertIn("what i meant to do, written before the hands answered:", text)
+        self.assertLess(text.index("what happened"), text.index("receipt delivered to nyna"))
+
+    def test_a_dry_run_is_journaled_as_not_sent(self):
+        os.environ["DRY_RUN"] = "1"
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "said gm back", "intents": [{"do": "reply_x", "to": "111", "text": "gm ana"}]})
+        self.tick()
+        self.assertIn("reply_x on 111: dry run, not sent", self.journal())
+
     def test_the_journal_is_kept_but_not_taught_when_learning_is_off(self):
         os.environ["TEENY_MIND_LEARN"] = "0"
         self.answer({"thought": "quiet one", "intents": []})
@@ -810,7 +835,8 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(stimuli.notes(who="ana")["notes"][0]["note"], "builds a cli for crabs")
         learned = [json.loads(l)["params"] for l in self.calls.read_text().splitlines() if '"memory_learn"' in l]
-        self.assertEqual(learned[0]["text"], "about ana: builds a cli for crabs")
+        # Dated, so recall can tell an old fact from a new one.
+        self.assertEqual(learned[0]["text"], "[2026-09-14] about ana: builds a cli for crabs")
 
     def test_a_follow_up_comes_back_when_due(self):
         stimuli.add("x", "mention", "111", "will ship friday", who="ana")
