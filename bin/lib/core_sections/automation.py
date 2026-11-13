@@ -13,8 +13,9 @@ linked module.
                  core's config and the core's own files in the brain
                  `full` keeps cron shell jobs (bin/<job>) running as before:
                  the tier gates what an agent may do, the hands keep the rules
-  [browser]      TinyComputer, headless, a persistent profile under
-                 state/browser/, and the actions an unattended run may take
+  [browser]      TinyComputer, headless, a fresh profile per session,
+                 downloads under state/browser/, and the actions an
+                 unattended run may take
   [http_request] allowed_domains: deploy/browser-allow.txt, which the
                  browser shares
   [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
@@ -104,9 +105,8 @@ def tables(root: Path) -> dict[str, str]:
     from teeny_hands import websites
 
     workbench = root / "state" / "workbench"
-    profile = root / "state" / "browser" / "profile"
     downloads = root / "state" / "browser" / "downloads"
-    for folder in (workbench, profile, downloads, root / "state" / "media"):
+    for folder in (workbench, downloads, root / "state" / "media"):
         folder.mkdir(parents=True, exist_ok=True)
 
     brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
@@ -130,11 +130,15 @@ def tables(root: Path) -> dict[str, str]:
         f'trusted_roots = [{{ path = {_s(str(trusted))}, access = "readwrite" }}]\n'
     )
 
+    # A fresh, disposable profile per session. With TinySecurity's egress
+    # policy on, TinyComputer's enforced launcher refuses a launch that names
+    # a profile folder ("network policy refuses attached or externally
+    # managed browsers"): a profile's own settings could route around the
+    # egress proxy. So `persistent` starts no browser at all.
     browser = (
         "enabled = true\n"
         "headless = true\n"
-        'profile_mode = "persistent"\n'
-        f"profile_path = {_s(str(profile))}\n"
+        'profile_mode = "fresh"\n
         f"download_dir = {_s(str(downloads))}\n"
         f"unattended_actions = {_list(UNATTENDED_ACTIONS)}\n"
     )
