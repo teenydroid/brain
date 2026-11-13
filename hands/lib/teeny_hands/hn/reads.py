@@ -230,16 +230,34 @@ def _hit(hit: Mapping[str, Any]) -> Json:
     return out
 
 
-def search(query: str, tags: str | None, max_results: int, api: RestApi | None = None) -> Json:
-    """Algolia's search over HN, by relevance: stories, comments, or both."""
+#: How far back a search by date may look, in days.
+SEARCH_MAX_DAYS = 30
+
+
+def search(query: str, tags: str | None, max_results: int, api: RestApi | None = None,
+           days: int | None = None) -> Json:
+    """Algolia's search over HN: stories, comments, or both. By relevance;
+    with `days`, by date instead, newest first and nothing older than that
+    (Algolia's /search_by_date), which is what listening wants: what people
+    said this week, not the best-ranked thread of five years ago."""
     if not isinstance(query, str) or not query.strip() or len(query) > 500:
         raise hand.HandError("a search is 1 to 500 characters")
     if tags is not None and tags not in SEARCH_TAGS:
         raise hand.HandError(f"--tags is one of {', '.join(SEARCH_TAGS)}")
+    if days is not None and (isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= SEARCH_MAX_DAYS):
+        raise hand.HandError(f"--days is 1 to {SEARCH_MAX_DAYS}")
     params = [("query", query.strip()), ("hitsPerPage", str(max_results))]
     if tags:
         params.append(("tags", tags))
-    got = CACHE.cached("search", (query.strip(), tags, max_results),
-                       lambda: (api or client.search_api()).call("GET", "/search", params, auth=False))
+    path = "/search"
+    if days is not None:
+        path = "/search_by_date"
+        params.append(("numericFilters", f"created_at_i>{int(hand.now() - days * 86400)}"))
+    got = CACHE.cached("search", (query.strip(), tags, max_results, days),
+                       lambda: (api or client.search_api()).call("GET", path, params, auth=False))
     hits = got.get("hits") if isinstance(got, Mapping) and isinstance(got.get("hits"), list) else []
-    return {"query": query.strip(), "results": [_hit(h) for h in hits if isinstance(h, Mapping) and h.get("objectID")]}
+    out: Json = {"query": query.strip(),
+                 "results": [_hit(h) for h in hits if isinstance(h, Mapping) and h.get("objectID")]}
+    if days is not None:
+        out["days"] = days
+    return out
