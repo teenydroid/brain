@@ -112,8 +112,8 @@ export function Graveyard() {
         <dl className="mt-12 grid gap-px overflow-hidden border border-neon-magenta/25 bg-neon-magenta/25 sm:grid-cols-3">
           {[
             { value: "90–99%", label: "where every agent token from the 2024–25 peak went" },
-            { value: "2 of 11", label: "showed autonomy anyone could actually verify" },
-            { value: "5", label: "ways they died. the same five, over and over" },
+            { value: "2 of 11", label: "proved, end to end, that they really ran themselves" },
+            { value: "6", label: "ways they died. the same six, over and over" },
           ].map((stat) => (
             <div key={stat.value} className="bg-[#0a0609] p-6">
               <dt className="font-heading text-5xl font-bold tracking-tight text-neon-magenta neon-text sm:text-6xl">{stat.value}</dt>
