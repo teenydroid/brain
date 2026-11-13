@@ -34,6 +34,7 @@ from typing import Any, Mapping
 
 from .. import hand
 from . import holds
+from .judge import failed as judge_failed
 from .judge import judge
 from .links import AllowlistEntry, LinkFilterResult, configured_allowlist, filter_links, parse_allowlist
 from .screen import ARTICLE, INBOUND, NARRATIVE, OUTBOUND, screen_text
@@ -80,6 +81,13 @@ class Held:
     # The guard_holds row, when one was written.
     hold_id: int | None = None
 
+    @property
+    def judge_failed(self) -> bool:
+        """Held only because the judge could not judge (unreachable, or an
+        unreadable answer), not for anything it read: asked again later, the
+        same text may pass."""
+        return self.by == "judge" and judge_failed(self.reason)
+
 
 @dataclass
 class OutboundResult:
@@ -110,6 +118,8 @@ class Verdict:
     reason: str
     category: str | None = None
     hold_id: int | None = None
+    # On a hold: the judge failed to judge it (Held.judge_failed).
+    judge_failed: bool = False
 
 
 # --- settings --------------------------------------------------------------------
@@ -376,7 +386,8 @@ def check_outbound(
     )
     result = gate_outbound(styled.text, hold_context)
     if result.held is not None:
-        return Verdict("hold", "", _HELD.format(category=result.held.category), result.held.category, result.held.hold_id)
+        return Verdict("hold", "", _HELD.format(category=result.held.category), result.held.category, result.held.hold_id,
+                       result.held.judge_failed)
     if result.fixes:
         return Verdict("refuse", "", _OFF_LIST.format(what="the text"))
     return Verdict("allow", result.text, "")
@@ -445,6 +456,8 @@ class FieldsVerdict:
     category: str | None = None
     hold_id: int | None = None
     field: str | None = None
+    # On a hold: the judge failed to judge it (Held.judge_failed).
+    judge_failed: bool = False
 
 
 def check_fields(
@@ -541,7 +554,8 @@ def check_fields(
                 text=_joined(styled),
                 links=[*removed, *links.removed] or None,
             )
-            return FieldsVerdict("hold", {}, _HELD.format(category=held.category), held.category, hold_id, name)
+            return FieldsVerdict("hold", {}, _HELD.format(category=held.category), held.category, hold_id, name,
+                                 held.judge_failed)
         if links.removed:
             removed.extend(links.removed)
             cut_in = cut_in or name

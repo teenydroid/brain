@@ -30,6 +30,7 @@ class Verdict:
     reason: str
     category: str | None = None
     hold_id: int | None = None
+    judge_failed: bool = False
 
 def check_outbound(text, *, surface="x", kind="post", replying_to=None, max_emoji=None, context=None):
     if "$FAKE" in text:
