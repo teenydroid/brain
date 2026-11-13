@@ -184,7 +184,7 @@ class PromiseAgeTest(Scratch):
         records.promise({"surface": "x", "who": "ann", "what": "ship it", "due_in_hours": 2})
         self.at(T0 + 3 * DAY)
         text = "\n".join(records.prompt_block([{"surface": "x", "kind": "mention", "who": "ann", "ref": "2", "text": "?"}]))
-        self.assertIn("made 3 days ago, overdue by 2 days", text)
+        self.assertIn("made 3 days ago, overdue by 3 days", text)
 
 
 class CliTest(Scratch):

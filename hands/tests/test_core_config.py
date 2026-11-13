@@ -105,7 +105,9 @@ class CoreConfigTest(unittest.TestCase):
         # thread is a life, so it folds into a free-form summary.
         self.assertEqual(context["compaction_strategy"], "summary")
         self.assertTrue(context["autocompact_enabled"])
-        self.assertEqual(context["keep_recent_tokens"], 20_000)
+        # A fold keeps the last 40k tokens word for word: at 20k the mind kept
+        # about ten beats, and everything older was a summary.
+        self.assertEqual(context["keep_recent_tokens"], 40_000)
         self.assertLess(context["keep_recent_tokens"], context["compaction_trigger_tokens"])
 
     def test_the_trigger_can_be_moved_from_the_environment(self):

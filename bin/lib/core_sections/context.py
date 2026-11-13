@@ -4,7 +4,7 @@ turn is handed (docs/architecture.md, "One mind").
   [context]        compaction_trigger_tokens = 100000: Teeny's mind is one
                    long thread (bin/tick, `teeny:mind`). At 100k tokens the
                    core seals the generation and opens the next with a
-                   summary of it plus the most recent 20k tokens verbatim.
+                   summary of it plus the most recent 40k tokens verbatim.
                    The core's own trigger is min(80% of the window, 350k),
                    which on a 384k model lets a turn grow slow and costly
                    long before it folds.
@@ -40,7 +40,7 @@ from pathlib import Path
 #: Context tokens at which a thread folds into its next generation.
 COMPACTION_TRIGGER_TOKENS = 100_000
 #: Recent tokens kept verbatim across a fold (the rest is summarised).
-KEEP_RECENT_TOKENS = 20_000
+KEEP_RECENT_TOKENS = 40_000
 #: The memory pack recalled before each turn.
 RECALL_BUDGET_TOKENS = 3000
 #: How long a turn waits for the pack recalled for its own message.
