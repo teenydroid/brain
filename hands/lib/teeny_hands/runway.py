@@ -105,7 +105,7 @@ def _cuts(tier: Json | None) -> str:
 def daily() -> Json:
     """Measures, saves, and files one `health · runway` stimulus a UTC day."""
     if not hand.flag("RUNWAY", False):
-        raise hand.Refused("the runway sense is off: RUNWAY=1 in secrets/teeny.env", rule="off")
+        return {"skipped": "the runway sense is off (RUNWAY=1 in secrets/teeny.env turns it on)"}
     table = tiers()
     now = hand.now()
     day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime("%Y-%m-%d")

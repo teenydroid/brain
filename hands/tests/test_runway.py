@@ -141,4 +141,4 @@ class RunwayTest(Scratch):
         out = json.loads(done.stdout)
         self.assertTrue(out["ok"])
         self.assertIn("RUNWAY", out["skipped"])
-        self.assertEqual(self.filed(), [])
+        self.assertEqual(self.inbox(), [])
