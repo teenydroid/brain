@@ -11,8 +11,10 @@ import select
 import subprocess
 import sys
 import time
+import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 from wallet.support import OWN, Scratch, status_with
 
