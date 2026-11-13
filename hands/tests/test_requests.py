@@ -276,6 +276,7 @@ class VoteTest(Scratch):
         self.reply("ann", "@teenydroid 2", T0 + 200)  # changed her mind: the last one counts
         self.reply("bob", "2", T0 + 300)
         self.reply("cat", "3 for sure", T0 + 400, status="held")  # the guard held it
+        self.reply("gus", "3", T0 + 450, status="unscreened")  # the guard has not read it yet
         self.reply("dan", "1", T0 + 500, conversation="other")  # another thread
         self.reply("teenydroid", "1", T0 + 600)  # its own
         self.reply("eve", "nice idea", T0 + 700)  # not a vote
