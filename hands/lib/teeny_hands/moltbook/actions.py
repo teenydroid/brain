@@ -10,6 +10,9 @@ The comment rules, on top of the limits in `rules`:
 - never on Teeny's own post except as its first comment, when nobody else
   has commented yet.
 
+A comment or upvote naming a shortened id (a UUID's first characters, as
+Teeny's memory writes them) is refused before anything is sent (`short_id`).
+
 Under DRY_RUN nothing is written anywhere: Moltbook, the ledger or the
 lockout counter. The answer says what would have happened (`would_*`), after
 every rule ran. Reads a rule needs (the post, its comments, a submolt's
