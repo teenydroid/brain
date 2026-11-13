@@ -356,8 +356,6 @@ class Gate(EvolveCase):
         (tree / "brain" / "playbooks" / "kettle.md").write_text(
             '+++\ndescription = "brew"\noutput = "hand:build kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
             "Brew one thing.\n")
-        env = {**evolve.git_env(), "GIT_INDEX_FILE": str(tree / ".git-index")}
-        env.pop("GIT_INDEX_FILE")
         evolve.git(evolve.in_tree(tree), "add", "-A")
         evolve.git(evolve.in_tree(tree), "commit", "-q", "--no-verify", "-m", "newer main")
         return evolve.git(evolve.in_tree(tree), "rev-parse", "HEAD").strip()
