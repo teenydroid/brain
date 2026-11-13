@@ -163,7 +163,8 @@ class RestApi:
         if not text:
             return {}, received
         parsed = _parse(text)
-        if parsed is None:
+        # JSON's own null is an answer (Hacker News says "no such item" so).
+        if parsed is None and text.strip() != b"null":
             raise RestError(f"{self.name} sent something unreadable")
         return parsed, received
 
