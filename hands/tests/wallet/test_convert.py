@@ -294,7 +294,10 @@ def with_tx_bytes(raw: dict, change) -> dict:
     return raw
 
 
-class LifiTest(Scratch):
+class LifiBase(Scratch):
+    """The fakes for a LI.FI quote: the core answers a recorded one, the
+    chain a simulation."""
+
     settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0"}
 
     def setUp(self):
@@ -346,6 +349,9 @@ class LifiTest(Scratch):
         finally:
             conn.close()
 
+
+
+class LifiTest(LifiBase):
     SOL_TO_BASE = {"from_chain": "solana", "from": "SOL", "to_chain": "base", "to": "USDC", "amount": "0.1"}
     SOL_SWAP = {"chain": "solana", "from": "SOL", "to": "USDC", "amount": "0.1"}
     BASE_TO_ARB = {"from_chain": "base", "from": "USDC", "to_chain": "arbitrum", "to": "USDC", "amount": "20"}
@@ -520,7 +526,7 @@ def base_bytes(address: str) -> bytes:
     return solana.b58decode(address)
 
 
-class ProviderTest(LifiTest):
+class ProviderTest(LifiBase):
     """Who quotes: WALLET_CONVERT_PROVIDER, LI.FI unless it says deBridge,
     and a `provider` field for one call."""
 
