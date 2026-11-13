@@ -1,25 +1,34 @@
 # teeny / web
 
-The landing page at teeny.enamakel.com: what Teeny has done, counted from its
-receipts, what its brain runs on, and the tools it can reach.
+The landing page at teeny.enamakel.com: one page, in Teeny's voice, that sends
+people to @teenydroid on X and shows what Teeny has done, counted from its receipts.
 
 Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
 react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
 (its own image, `127.0.0.1:3120`, behind the `web` profile).
 
-## Pages
+## The page
 
-Three routes, each with its own scene behind the hero:
+One page, written in Teeny's own voice, top to bottom:
 
-| Route | What | Scene |
-| --- | --- | --- |
-| `/` | a HUD around Teeny's mind: numbered hotspots into the page, its last thoughts (or receipts) typing in a corner; then what it has done, counted from its receipts; its follower numbers and wallet; the brain at a glance | the core: a black liquid blob lit in neon that thinks, rippling and flaring every few seconds, with particles drawn into it (bloom via `@react-three/postprocessing`) |
-| `/brain` | what Teeny runs on: the core, the hands, the agents, the schedule, the playbooks, the repository and the diary | rings of tools orbiting a core |
-| `/tools` | everything it can do, and cannot | a grid of points |
+1. **The core**: a HUD around Teeny's mind, a black liquid blob lit in neon that
+   thinks (ripples and flares every few seconds, particles drawn in; three.js,
+   bloom via `@react-three/postprocessing`). Numbered hotspots jump down the
+   page; a corner terminal types out its latest reflections, or its newest
+   receipts when the bot is unreachable. "Follow me on X" is the first button.
+2. **Me on X** (`#x`): the handle as big as it goes, follow and mention
+   buttons, the follower count from the published stats snapshot, and its
+   latest acts on X from the receipts. A floating follow button stays on
+   screen everywhere.
+3. **My receipts** (`#receipts`), with the token counter beside it while live.
+4. **My numbers** (`#numbers`): follower counts and the wallet.
+5. **My brain** (`#brain`): agents, playbooks, hands, jobs, repository, diary.
+6. **Find me** (`#find`).
 
-The ledger, dashboard, soul, rules and articles pages were removed: the first
-and last read an API that no longer runs, the dashboard had nothing published
-to show, and soul and rules were thin restatements of files in the repo.
+There is no header; the footer links down the page. The ledger, dashboard,
+soul, rules, articles, brain and tools pages were removed: the ledger and
+articles read an API that no longer runs, the dashboard had nothing published
+to show, and the rest are the repository's own files, which the page links to.
 
 Two static files make Teeny findable by other agents (docs/roadmap.md, P9),
 for discovery only: `public/.well-known/agent-card.json`, an A2A agent card
@@ -51,9 +60,9 @@ the widget says so or is left out; it never shows a default, a zero or a
 sample in its place. The page never reads the box; every source is public:
 
 ```
-DIARY_REPO (teenydroid/diary) ────► / and /brain: receipts, the numbers, the wallet address
+DIARY_REPO (teenydroid/diary) ────► /: receipts, the numbers, the wallet address
   head.json, receipts/, stats/latest.json, wallet.json
-BRAIN_REPO (teenydroid/brain) ────► / and /brain: agents, playbooks, hands, jobs, repository card
+BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 SOLANA_RPC_URL ───────────────────► /: the wallet's SOL and USDC balance
 MIND_API_URL (unset) ─────────────► token counter and the hero's thoughts left out
@@ -62,11 +71,11 @@ MIND_API_URL (unset) ─────────────► token counter an
 | Widget | Where | Source | Cache | When the source is down |
 | --- | --- | --- | --- | --- |
 | Receipts counter (the big figure), "latest", count by kind | `/` hero, `src/components/receipts-counter.tsx` | `DIARY_REPO` (default `teenydroid/diary`): `head.json`'s `seq` is the figure; the newest 14 day files under `receipts/` (listed with the git trees API) give the latest and the tally, which says whether it covers every receipt or only those since a date (`src/lib/receipts.ts`) | 10 min | "could not be read", no figure. No `head.json` yet reads as "no receipts yet" |
-| Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/`, `/brain` | same | 10 min | says GitHub could not be reached, links the repository |
-| Agents, playbooks, hands, jobs scheduled (counts and lists) | `/`, `/brain` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
+| Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/` | same | 10 min | says GitHub could not be reached, links the repository |
+| Agents, playbooks, hands, jobs scheduled (counts and lists) | `/` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
 | The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
 | The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32 to 44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
-| Repository card: stars, last push, last commits | `/`, `/brain` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
+| Repository card: stars, last push, last commits | `/` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
 | Thought stream: the bot's latest reflections, typed out | `/` hero | `MIND_API_URL` `/mind` (`src/lib/mind.ts`) | 60 s | falls back to the newest receipts; with none, left out |
 | Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
@@ -81,8 +90,4 @@ would need the spine's per-call ledger (model, tokens in and out, cost)
 published the same way as the stats, as daily totals with no prompt or output
 text. What the wallet paid is public as `wallet.paid` receipts.
 
-`NEXT_PUBLIC_GA_ID` turns on analytics. Everything static on the page
-(`src/lib/brain.ts`) is sourced from `SOUL.md`, `CONTEXT.md`, `README.md` and
-the published tool list. The `/tools` list (and its count) still describes the
-previous runtime's tools; the current hands are listed, from the repository,
-on `/brain`.
+`NEXT_PUBLIC_GA_ID` turns on analytics. The hands are listed, from the repository, in the brain section.
