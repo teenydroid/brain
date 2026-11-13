@@ -348,26 +348,38 @@ def people_in(batch: Iterable[Mapping[str, Any]]) -> list[tuple[str, str]]:
     return found
 
 
-def prompt_block(batch: Iterable[Mapping[str, Any]]) -> list[str]:
+def _ledger(rec: Mapping[str, Any]) -> list[str]:
+    lines = [f"asked you to build ({a['at']}, {a['status']}): {a['asked']}" for a in rec.get("asked", [])]
+    for p in rec.get("promises", []):
+        mark = f"; promise #{p['id']}" if p["status"] == "open" else ""
+        lines.append(f"you promised ({_when(p)}{mark}): {p['what']}")
+    return lines
+
+
+def ledger_lines(surface: str, who: str) -> list[str]:
+    """What one person asked Teeny to build and what Teeny promised them, a
+    line each, for a turn addressed to them. [] when there is neither."""
+    rec = record(surface, who)
+    return _ledger(rec) if rec else []
+
+
+def prompt_block(batch: Iterable[Mapping[str, Any]], exclude: Iterable[tuple[str, str]] = ()) -> list[str]:
     """Lines for a beat's prompt: the record of each person this batch is
     from or about who is a regular or holds a promise, and of no one else.
-    Empty when there is nobody to recall."""
+    The (surface, who) pairs in `exclude` are left out: the beat already
+    shows them (an X mention is a turn addressed to its person, with their
+    asks and promises in it). Empty when there is nobody to recall."""
+    skip = {(surface, key(who)) for surface, who in exclude}
     lines: list[str] = []
     conn = db()
     try:
-        for surface, who in people_in(batch)[:MAX_IN_PROMPT]:
+        for surface, who in [p for p in people_in(batch) if p not in skip][:MAX_IN_PROMPT]:
             rec = record(surface, who, conn)
             if not rec or not (rec["regular"] or rec.get("promises")):
                 continue
             lines.append(f"- {who} on {surface}: wrote {rec['messages']} time(s) on {rec['days']} day(s), "
                          f"first {rec.get('first_wrote', '?')}, last {rec.get('last_wrote', '?')}.")
-            for a in rec.get("asked", []):
-                lines.append(f"  asked you to build ({a['at']}, {a['status']}): {a['asked']}")
-            for p in rec.get("promises", []):
-                if p["status"] == "open":
-                    lines.append(f"  you promised ({_when(p)}; promise #{p['id']}): {p['what']}")
-                else:
-                    lines.append(f"  you promised ({_when(p)}): {p['what']}")
+            lines += [f"  {line}" for line in _ledger(rec)]
     finally:
         conn.close()
     if not lines:
