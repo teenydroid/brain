@@ -16,10 +16,13 @@ a night this brings it up to date from inside the day, item by item:
    The text before the first section is the page's own note and has no id.
 2. Gathers what happened since the last reflection: the notes Teeny chose to
    keep (`remember`, in `mind_notes`), what it thought and did each beat
-   (state/tick/runs.jsonl), the follow-ups still waiting, and the page with
-   its ids.
-3. Asks the `teeny` agent on its own thread (`teeny:mind`, so the day is
-   still in context) for a list of operations on the page and a diary
+   (state/tick/runs.jsonl, each send with how it ended and why), what the
+   hands' ledgers counted since then (builds shipped with their links, posts
+   and replies, promises; written by code, so they outrank a beat's
+   thought), the follow-ups still waiting, and the page with its ids.
+3. Asks the `teeny` agent on a thread of its own (`teeny:reflect`,
+   TEENY_REFLECT_THREAD; not the mind's, whose generations its long turns
+   folded every ten beats) for a list of operations on the page and a diary
    entry, as JSON: `add` (section, text), `edit` (id, text) and `retire`
    (id, reason). What no operation names stays as it is (ACE's delta
    updates, arXiv:2510.04618: a page rewritten whole each time collapses
