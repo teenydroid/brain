@@ -33,21 +33,32 @@ from .style import prefix_units
 # Longer than this and it is not a post; the judge reads the front of it.
 MAX_JUDGED_LENGTH = 6_000
 
-# How long the judge may take before it counts as unreachable. Every draft
-# waits on it, so a stuck model is a hold, not a hang.
+# How long one ask may take before it counts as unreachable. Every draft
+# waits on the judge, so a stuck model is a hold, not a hang.
 JUDGE_TIMEOUT = 60.0
 
-# How long the judge waits before asking again after a failed call, so a
-# provider that has just dropped a stream is not hit again the same instant.
-# With two asks of at most JUDGE_TIMEOUT each, a draft waits at most
-# 2 * JUDGE_TIMEOUT + RETRY_BACKOFF on the judge (121.5 s).
-MAX_ASKS = 2
-RETRY_BACKOFFS = (1.5,)
+# How long all the asks for one text may take together, waits included. An
+# ask gets what is left of it (at most JUDGE_TIMEOUT), and one that would get
+# less than MIN_ASK_SECS is not made. So a draft waits at most JUDGE_BUDGET
+# on the judge (120 s, as long as the two asks of 60 s it had before): two
+# asks that time out use it up, while a stream cut (an answer in seconds) is
+# asked all three times.
+JUDGE_BUDGET = 120.0
+MIN_ASK_SECS = 10.0
+
+# How many times one text is asked about before the judge gives up, and how
+# long it waits before the second and the third ask after a failed call, so
+# a provider that has just dropped a stream is not hit again the same
+# instant. Surplus drops streams in bursts (on 2026-11-13, 9 of 10 short
+# calls failed in one minute and 10 of 10 passed a few minutes later), so the
+# second wait is longer than the first.
+MAX_ASKS = 3
+RETRY_BACKOFFS = (2.0, 6.0)
 
 # A failed call whose error says one of these will fail the same way when
 # asked again (a missing token, a refused key, a method or model the core
 # does not have), so it holds at once. Anything else (a cut provider stream,
-# a timeout, a dropped connection, a 5xx) is asked once more.
+# a timeout, a dropped connection, a 5xx) is asked again, up to MAX_ASKS.
 _PERMANENT = re.compile(
     r"no core token|unknown method|method not found|invalid params"
     r"|\b(?:401|402|403|404)\b|unauthori[sz]ed|forbidden|api key|authentication|permission denied"
@@ -226,20 +237,26 @@ def judge(text: str, direction: str) -> JudgeVerdict:
     model = hand.setting("SAFETY_JUDGE_MODEL")
     if model:
         params["model_override"] = model
-    # An unreadable answer is asked once more before it holds: some models
-    # (glm-5.3-flash through Surplus, about one answer in eight) come back
-    # with the opening of the JSON cut off. So is a call that failed for a
-    # reason that may pass (the same provider drops its stream now and then:
-    # "provider stream ended before a completion signal"), after a short
-    # wait. Both share the two asks. A second failure of either kind, or a
-    # failure that will not pass, still holds; nothing here ever turns into a
-    # pass.
+    # An unreadable answer is asked again at once: some models (glm-5.3-flash
+    # through Surplus, about one answer in eight) come back with the opening
+    # of the JSON cut off. So is a call that failed for a reason that may pass
+    # (the same provider drops its stream in bursts: "provider stream ended
+    # before a completion signal"), after a wait (RETRY_BACKOFFS). Both share
+    # the MAX_ASKS asks and the JUDGE_BUDGET. The last failure of either kind,
+    # or a failure that will not pass, still holds; nothing here ever turns
+    # into a pass.
     failure = UNREADABLE
+    started = time.monotonic()
     for attempt in range(MAX_ASKS):
-        if attempt and failure != UNREADABLE:
-            time.sleep(RETRY_BACKOFFS[attempt - 1])
+        if attempt:
+            wait = RETRY_BACKOFFS[min(attempt, len(RETRY_BACKOFFS)) - 1] if failure != UNREADABLE else 0.0
+            if JUDGE_BUDGET - (time.monotonic() - started) - wait < MIN_ASK_SECS:
+                break
+            if wait:
+                time.sleep(wait)
+        left = JUDGE_BUDGET - (time.monotonic() - started)
         try:
-            reply = hand.core("inference_agent_chat_simple", params, timeout=JUDGE_TIMEOUT)
+            reply = hand.core("inference_agent_chat_simple", params, timeout=min(JUDGE_TIMEOUT, left))
         except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
             failure = f"{UNREACHABLE}: {error}"
             if _PERMANENT.search(str(error)):
