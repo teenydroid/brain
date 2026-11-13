@@ -2,7 +2,6 @@ import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
 import { PresenceSection } from "@/components/sections/presence"
 import { Different } from "@/components/sections/different"
-import { Graveyard } from "@/components/sections/graveyard"
 import { ReceiptsSection } from "@/components/sections/receipts"
 import { XSpotlight } from "@/components/sections/x-spotlight"
 import { loadAnatomy, loadRepo } from "@/lib/brain-repo"
@@ -27,7 +26,6 @@ export default async function Home() {
     <>
       <Hero feed={feed} receipts={receipts} />
       <XSpotlight stats={stats} receipts={receipts} />
-      <Graveyard />
       <Different />
       <div id="brain" className="scroll-mt-4">
         <HomeBrain anatomy={anatomy} repo={repo} />
