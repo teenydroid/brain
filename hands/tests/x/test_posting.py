@@ -204,6 +204,60 @@ class GapTest(Posting):
         publish.post({"text": "chart"})
 
 
+    def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
+        publish.post({"text": "look", "quote_of": "555"})
+        self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
+        self.assertEqual(self.ledger()[0]["kind"], "quote")
+        self.assertEqual(self.ledger()[0]["quote_of"], "555")
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "gm"})
+
+    def test_a_reply_does_not_count_toward_the_gap(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "reply", "hi", in_reply_to="5", created_at=T0 - MINUTE)
+        publish.post({"text": "gm"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_two_own_posts_at_once_cannot_both_pass_the_gap(self):
+        # Publishing takes a moment, as X does: without the posting lock the
+        # second claim reads the ledger before the first post is recorded.
+        self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201, delay=0.3)
+        outcomes = []
+
+        def attempt(text):
+            try:
+                outcomes.append(publish.post({"text": text}))
+            except hand.Refused as refused:
+                outcomes.append(refused)
+
+        threads = [threading.Thread(target=attempt, args=(t,)) for t in ("chart", "moon")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sum(isinstance(o, hand.Refused) for o in outcomes), 1, outcomes)
+        self.assertEqual(len(self.posted()), 1)
+        self.assertEqual(len(self.ledger()), 1)
+
+    def test_a_failed_publish_records_nothing(self):
+        self.x.route("POST", "/2/tweets", {"title": "Service Unavailable"}, status=503)
+        with self.assertRaisesRegex(XError, "503"):
+            publish.post({"text": "gm"})
+        self.assertEqual(self.ledger(), [])
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
+        self.assertEqual(publish.post({"text": "gm"})["id"], "101")
+
+    def test_a_ledger_that_cannot_record_is_logged_and_the_post_still_counts(self):
+        broken = mock.patch.object(posting_rules, "record_post", side_effect=sqlite3.OperationalError("disk I/O error"))
+        with broken, contextlib.redirect_stderr(io.StringIO()) as stderr:
+            result = publish.post({"text": "gm"})
+        self.assertEqual(result["id"], "100")
+        self.assertIn("published 100 but could not record it", stderr.getvalue())
+        self.assertEqual(len(self.posted()), 1, "never retried")
+
+
 class DailyCapTest(Posting):
     """Three own posts a UTC day by default (X_POSTS_MAX_PER_DAY); replies are
     never counted."""
@@ -267,59 +321,6 @@ class DailyCapTest(Posting):
         conn.close()
         publish.post({"text": self.TEXTS[0], "format": "gm"})
         self.assertEqual([r["format"] for r in self.ledger()], ["gm"])
-
-    def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
-        publish.post({"text": "look", "quote_of": "555"})
-        self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
-        self.assertEqual(self.ledger()[0]["kind"], "quote")
-        self.assertEqual(self.ledger()[0]["quote_of"], "555")
-        self.at(T0 + HOUR)
-        with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm"})
-
-    def test_a_reply_does_not_count_toward_the_gap(self):
-        conn = hand.db()
-        posting_rules.ensure_schema(conn)
-        posting_rules.record_post(conn, "90", "reply", "hi", in_reply_to="5", created_at=T0 - MINUTE)
-        publish.post({"text": "gm"})
-        self.assertEqual(len(self.posted()), 1)
-
-    def test_two_own_posts_at_once_cannot_both_pass_the_gap(self):
-        # Publishing takes a moment, as X does: without the posting lock the
-        # second claim reads the ledger before the first post is recorded.
-        self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201, delay=0.3)
-        outcomes = []
-
-        def attempt(text):
-            try:
-                outcomes.append(publish.post({"text": text}))
-            except hand.Refused as refused:
-                outcomes.append(refused)
-
-        threads = [threading.Thread(target=attempt, args=(t,)) for t in ("chart", "moon")]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        self.assertEqual(sum(isinstance(o, hand.Refused) for o in outcomes), 1, outcomes)
-        self.assertEqual(len(self.posted()), 1)
-        self.assertEqual(len(self.ledger()), 1)
-
-    def test_a_failed_publish_records_nothing(self):
-        self.x.route("POST", "/2/tweets", {"title": "Service Unavailable"}, status=503)
-        with self.assertRaisesRegex(XError, "503"):
-            publish.post({"text": "gm"})
-        self.assertEqual(self.ledger(), [])
-        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
-        self.assertEqual(publish.post({"text": "gm"})["id"], "101")
-
-    def test_a_ledger_that_cannot_record_is_logged_and_the_post_still_counts(self):
-        broken = mock.patch.object(posting_rules, "record_post", side_effect=sqlite3.OperationalError("disk I/O error"))
-        with broken, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            result = publish.post({"text": "gm"})
-        self.assertEqual(result["id"], "100")
-        self.assertIn("published 100 but could not record it", stderr.getvalue())
-        self.assertEqual(len(self.posted()), 1, "never retried")
 
 
 class AttachmentsTest(Posting):
