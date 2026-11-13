@@ -74,6 +74,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
@@ -894,41 +895,13 @@ def ask(message: str) -> str:
     return proc.stdout
 
 
-def _target(entry: Mapping[str, Any]) -> str:
-    intent = entry.get("intent") or {}
-    if entry.get("do") == "comment_gh" and intent.get("repo"):
-        return f"{intent['repo']}#{intent.get('number')}"
-    found = next((intent.get(k) for k in ("to", "post_id", "comment_id", "message_id", "chat_id", "id", "who") if intent.get(k)), "")
-    return str(found)
-
-
-#: Teeny's own bookkeeping: a refusal of one of these sent nothing to anybody.
-INWARD = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip", "promise", "kept")
-
-
-def _status(r: Mapping[str, Any]) -> str:
-    """How an intent ended, in words that cannot be read as "it landed" when
-    it did not: a dry run and a failed or refused send say "not sent", with
-    the hand's reason."""
-    status = str(r.get("status"))
-    result = r.get("result") if isinstance(r.get("result"), Mapping) else {}
-    if status == "done":
-        return "dry run, not sent" if result.get("dry_run") else "done"
-    if status in ("refused", "error"):
-        reason = " ".join(str(result.get("refused") or result.get("error") or result.get("stderr") or "").split())[:120]
-        said = status if r.get("do") in INWARD else f"{status}, not sent"
-        return f"{said} ({reason})" if reason else said
-    return status
-
-
 def _did(results: list[Mapping[str, Any]]) -> str:
     """What a beat did, as `do on target: status`: never the words sent."""
     bits = []
     for r in results:
         if (r.get("intent") or {}).get("auto"):
             continue
-        target = _target(r)
-        bits.append(f"{r.get('do')}{' on ' + target if target else ''}: {_status(r)}")
+        bits.append(outcomes.line(r))
     return "; ".join(bits) or "nothing, the thought kept to myself"
 
 
