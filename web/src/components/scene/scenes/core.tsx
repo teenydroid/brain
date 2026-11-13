@@ -124,7 +124,8 @@ ${NOISE}
 void main(){
   vec3 N=normalize(vNormal);
   vec3 V=normalize(vView);
-  float ndv=max(dot(N,V),0.0);
+  // Clamped both ways: rounding can push the dot past 1, and pow() of the negative 1-ndv is NaN.
+  float ndv=clamp(dot(N,V),0.0,1.0);
   float fres=pow(1.0-ndv,3.2);
 
   // Rim colour follows where the edge faces: cyan on the left, magenta on the right, yellow across the top.

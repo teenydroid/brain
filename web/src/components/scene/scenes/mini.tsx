@@ -53,7 +53,7 @@ varying vec3 vDir;
 void main(){
   vec3 N=normalize(vNormal);
   vec3 V=normalize(vView);
-  float fres=pow(1.0-max(dot(N,V),0.0),2.6);
+  float fres=pow(1.0-clamp(dot(N,V),0.0,1.0),2.6);
   vec3 rim=mix(uA,uB,smoothstep(-0.6,0.6,N.x+N.y*0.4));
   float spec=pow(max(dot(N,normalize(normalize(vec3(0.5,0.8,0.4))+V)),0.0),60.0);
   float bands=smoothstep(0.96,1.0,sin(vDir.y*9.0+uTime*1.2)*0.5+0.5);
