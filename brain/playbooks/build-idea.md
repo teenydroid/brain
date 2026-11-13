@@ -51,7 +51,7 @@ Where to look for a need:
 An input that reads `{"unavailable": true}` could not be reached today. Work with the ones that came back.
 
 Then check it against what exists:
-- `shipped`: what you already built. Don't build any of these again. Extending one is better than a new repo, when the need fits it.
+- `shipped`: what you already built. Don't build any of these again. The builder starts from an empty folder and can't open an old build, so a follow-up has to stand by itself.
 - `ideas`: the ideas you kept this week. Don't keep the same one twice.
 
 The bar. All of these must hold:

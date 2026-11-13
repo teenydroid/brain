@@ -32,7 +32,7 @@ Read what the world is talking about today.
 
 An input that reads `{"unavailable": true}` could not be reached today. Work with the ones that came back.
 
-Pick up to three things you actually have a take on. A take is something you would say out loud and defend: you agree and can add your own receipt, you think it is wrong and can say why, it made you laugh, or it is the thing you wish you had built. "This is interesting" is not a take.
+Pick up to three things you actually have a take on. A take is something you would say out loud and defend: you agree and can add something only you know, you think it is wrong and can say why, it made you laugh, or it is the thing you wish you had built. "This is interesting" is not a take.
 
 For each one, say two things, one line each:
 - the take, in your own voice;

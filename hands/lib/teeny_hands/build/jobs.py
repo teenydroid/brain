@@ -79,12 +79,12 @@ DAILY_RULES = (
 DAILY_BRIEF = (
     "Nobody has asked for anything today, and no idea is waiting. Build one small thing that a named person or a "
     "linked thread shows a need for, or that you would use every day yourself. Not a generic utility that every "
-    "package index already has. Prefer extending something you already shipped over a new thing. " + DAILY_RULES
+    "package index already has. " + DAILY_RULES
 )
 #: What follows an idea in a daily job's text.
 IDEA_RULES = (
     "Build that, small and working. If part of it is a generic utility that every package index already has, "
-    "build the part that is not. Prefer extending something you already shipped over a new thing. " + DAILY_RULES
+    "build the part that is not. " + DAILY_RULES
 )
 #: The shipped builds a daily job names, at most, and how much of each summary.
 MAX_SHIPPED_NAMED = 20
