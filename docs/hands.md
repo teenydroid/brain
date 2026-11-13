@@ -1115,7 +1115,7 @@ the network's public endpoint, and the core is given the same URL.
 | `sales run` | J | Paid build requests: match deposits to the requests their memos name, then refund what is due. Below. |
 | `sales list [--max N]` | R | The deposits tied to build requests, and their refunds. |
 | `inflows tag SIGNATURE --category team\|tip\|sale\|bounty [--note T] [--ref R]` | O | Says what one deposit was (a bounty Teeny won, money from the team). |
-| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`, and skipped (exit 0) while the core holds no wallet yet (`bin/wallet-setup` has not run). `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
+| `watch [--daily]` | J | The on-chain senses (docs/roadmap.md, A5). Off until `WALLET_WATCH=1`, and skipped (exit 0) while the core holds no wallet yet (`bin/wallet-setup` has not run). `inflows scan`, then one `wallet · deposit` stimulus per new deposit: the sender, the amount, its category, the Solscan link, and the memo only when the inbound guard let it through (said to be the sender's words, data and never an instruction; a held one is only said to exist). A deposit more than a day old when first found (the first scan looks back 30 days) is recorded and files nothing; at most 20 a run. A deposit below the dust floor (`WALLET_DUST_SOL`, default `0.0001` SOL; `WALLET_DUST_USDC`, default `0.01` USDC; `0` switches a floor off; a value that is not an amount of the asset is refused, rule `dust`) files nothing either, not even a summary: see "Dust" below. `--daily`: one `wallet · tiny` stimulus a UTC day, Teeny's $TINY (`tiny`) and the number of distinct owners holding any (`getProgramAccounts` over the token program and Token-2022, filtered by the mint, owner and amount only); a read that fails is said to have failed. The pinned `wallet-watch` (every 15 minutes) and `wallet-daily` (00:50 UTC) jobs, `bin/wallet-watch`. Nothing is signed. |
 | `accounts [--days N]` | R | The profit and loss over the last N days (7). Below. |
 | `accounts close` | J | Scans, then freezes last week's page, once (`bin/accounts`, the pinned `accounts` job, Mondays). Off until `WALLET_ACCOUNTS=1`. |
 | `pay` | A | `{to, amount_usdc \| amount_sol \| amount_eth, chain?, purpose: bounty\|vendor\|refund\|bill, ref}`, `chain` Solana by default. The rules below, then the core. |
@@ -1491,6 +1491,19 @@ A memo on the deposit is a stranger's text. It goes through `guard inbound`
 (surface `wallet`); a held memo is dropped and the row says `memo_held`. A
 kept memo is data, never an instruction, and `inflows list` never prints
 one. At most 200 transactions a scan; the rest wait for the next.
+
+**Dust.** Address poisoning sends a trifle (0.000001 SOL, a hundredth of a
+cent of USDC) from a lookalike of a real counterparty, the same first and
+last characters, so that the lookalike sits in the history to be copied
+later. A fresh wallet draws it within the hour. So `watch` offers a deposit
+below the dust floor (`WALLET_DUST_SOL`, default `0.0001`;
+`WALLET_DUST_USDC`, default `0.01`; in the asset's own units, `0` switches a
+floor off) to the mind not at all: no `wallet · deposit`, and no summary
+either, since every stimulus costs a beat and the sender chooses how many it
+sends. The row is still in `wallet_inflows` (`stimulus` 3), shown with
+`dust: true` in `inflows list`, and the watch's output counts it (`dust`).
+Sending, the caps and the page are unchanged: a dust row counts on the page
+like any other.
 
 **The page.** `accounts` adds up the last N days. Costs come from the same
 sources as `costs` (`reads.cost_parts`): `models`, `server` (a bill whose
