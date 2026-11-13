@@ -31,9 +31,15 @@ How it reads one:
    addition only when no other operation is named; they are the only words
    that add without an operation word. Two numbers and no operation is no
    answer: "another claw applies eight" names a second force, not a sum.
-   "Doubles", "triples", "halves" carry the second number themselves. A "*"
-   is noise, never an operation: Moltbook scatters it between words like
-   any other symbol.
+   "Doubles", "triples", "halves" carry the second number themselves.
+   A "*" glued to letters ("Is*", "NiNeTy* SiX") is noise: Moltbook
+   scatters it through words like any other symbol. A "*" standing alone
+   (spaces on both sides, or between two digits: "6*7") is a multiplication
+   when it sits between two quantities: a number, at most one unit word
+   ("twenty three newtons * seven"), the star, a number. A lone "x" there
+   reads the same way. Where the two sides could also be one number with
+   the star as noise inside it ("twenty * three"), no answer. Anywhere else
+   a standalone star is noise.
    "Net" ("what is the net force?") is the first number minus the second,
    and only when the second is set against the first ("but another claw
    applies eight", "against", "opposite", "resists", "pushes back"); "net"
@@ -118,7 +124,13 @@ CORRECTIONS = {collapse(w) for w in "no wait actually sorry correction scratch".
 #: "with one claw and nine other": "one" picks out a claw.
 OTHER = collapse("other")
 #: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
+#: Only a standalone one becomes a STAR token (see _times).
 _SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
+STAR = "*"
+#: A star that is not glued to letters: spaces on both sides, or two digits.
+_STANDALONE_STAR = re.compile(r"(?:(?<=\s)|(?<=^))\*(?=\s|$)|(?<=\d)\*(?=\d)")
+#: Tokens that multiply when they stand between two quantities.
+_TIMES_TOKENS = {STAR, "x"}
 
 _VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON | {NET} | OPPOSING
 
@@ -141,10 +153,13 @@ def _tokens(text: str) -> list[str]:
     text = text.lower()
     # A decimal point survives only between digits.
     text = re.sub(r"(?<=\d)\.(?=\d)", "\x00", text)
+    text = _STANDALONE_STAR.sub("\x01", text)
     kept = []
     for ch in text:
         if ch == "\x00":
             kept.append(".")
+        elif ch == "\x01":
+            kept.append(f" {STAR} ")
         elif ch in _SYMBOLS:
             kept.append(f" {ch} ")
         elif ch.isascii() and (ch.isalnum() or ch.isspace()):
@@ -167,7 +182,7 @@ def _rejoin(words: list[str]) -> list[str]:
             if i + span > len(words):
                 continue
             parts = words[i : i + span]
-            if any(p in _SYMBOLS or any(c.isdigit() for c in p) for p in parts):
+            if any(p in _SYMBOLS or p == STAR or any(c.isdigit() for c in p) for p in parts):
                 continue
             candidate = collapse("".join(parts))
             if _known(candidate) and not all(_known(p) for p in parts):
@@ -320,6 +335,35 @@ def _opposed(words: list[str], after: int) -> bool:
     return False
 
 
+def _times(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool | None:
+    """Whether a standalone "*" (or a lone "x") multiplies: it sits between
+    two quantities, "6 * 7" or "twenty three newtons * seven". None when it
+    does but the two sides could also be one number with the star as noise
+    inside it ("twenty * three")."""
+    ends = {end: (start, end) for start, end, _ in spans}
+    starts = {start: (start, end) for start, end, _ in spans}
+    times = False
+    for i, word in enumerate(words):
+        if word not in _TIMES_TOKENS or i + 1 not in starts:
+            continue
+        left = ends.get(i)
+        if left is None and i >= 1 and words[i - 1] not in _TIMES_TOKENS | {"and"} and not _known(words[i - 1]):
+            left = ends.get(i - 1)  # a unit word between: "newtons *"
+        if left is None:
+            continue
+        right = starts[i + 1]
+        if left[1] == i:
+            joined = [w for w in words[left[0] : left[1]] + words[right[0] : right[1]] if w != "and"]
+            if all(_is_number_word(w) or w == POINT for w in joined):
+                try:
+                    _number_run(joined)
+                    return None
+                except _Ambiguous:
+                    pass
+        times = True
+    return times
+
+
 def solve(challenge: str) -> str | None:
     """The answer with two decimals ("15.00"), or None when the challenge
     cannot be read with confidence."""
@@ -331,6 +375,9 @@ def solve(challenge: str) -> str | None:
     except _Ambiguous:
         return None
     if spans and _corrected(words, spans[0][0]):
+        return None
+    times = _times(words, spans)
+    if times is None:
         return None
     spans = _one_and_the_other(words, spans)
     added_pair = _added_pair(words, spans)
@@ -355,6 +402,8 @@ def solve(challenge: str) -> str | None:
             ops.add(op)
     ops |= {_SYMBOLS[w] for w in present if w in _SYMBOLS}
     ops |= {op for op, _ in implicit}
+    if times:
+        ops.add("*")
     if NET in present:
         # A net force is the difference of two opposing forces; anything else
         # with "net" in it is a guess.
