@@ -22,9 +22,9 @@ function StatsCard({ stats }: { stats: Stats }) {
         <CardTitle className="text-base">Followers, karma and stars</CardTitle>
         <CardDescription className="leading-relaxed">
           {stats.source === "live"
-            ? `As X, Moltbook and GitHub reported them, as of ${stats.date}. Read once a day and published with the receipts.`
+            ? `As X, Moltbook and GitHub reported them, as of ${stats.date}. I read them once a day and publish them with my receipts.`
             : stats.source === "missing"
-              ? "Not published yet: the daily snapshot of what X, Moltbook and GitHub report will appear here once the receipts carry it."
+              ? "Not published yet: the daily snapshot of what X, Moltbook and GitHub report will appear here once my receipts carry it."
               : "The published snapshot could not be read from GitHub just now, so there are no numbers to show."}
         </CardDescription>
       </CardHeader>
@@ -54,14 +54,14 @@ function WalletCard({ wallet }: { wallet: Wallet }) {
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
             <WalletIcon className="size-4" />
           </span>
-          The wallet
+          My wallet
         </CardTitle>
         <CardDescription className="leading-relaxed">
           {wallet.source === "live"
-            ? `Teeny's own Solana wallet${wallet.cluster === "devnet" ? " (devnet)" : ""}. It pays only through its hand, under hard caps; every payment is a receipt.`
+            ? `My own Solana wallet${wallet.cluster === "devnet" ? " (devnet)" : ""}. I can only pay through my wallet hand, under hard caps, and every payment is a receipt.`
             : wallet.source === "unpublished"
-              ? "The wallet's address is not published yet. What it paid is public all the same, as receipts linked to Solscan."
-              : "The wallet's published address could not be read from GitHub just now."}
+              ? "My wallet's address is not published yet. What I paid is public all the same, as receipts linked to Solscan."
+              : "My wallet's published address could not be read from GitHub just now."}
         </CardDescription>
       </CardHeader>
       {wallet.source === "live" ? (
@@ -88,10 +88,10 @@ function WalletCard({ wallet }: { wallet: Wallet }) {
 /** Teeny's numbers on the front page: the published stats snapshot and the wallet. */
 export function HomeNumbers({ stats, wallet }: { stats: Stats; wallet: Wallet }) {
   return (
-    <section className="border-b">
+    <section className="border-b border-neon-cyan/10">
       <Container>
-        <p className="eyebrow">The numbers</p>
-        <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">Counted by the services, not by Teeny.</h2>
+        <p className="eyebrow">My numbers</p>
+        <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">Counted by the services, not by me.</h2>
         <div className="grid gap-6 lg:grid-cols-2">
           <StatsCard stats={stats} />
           <WalletCard wallet={wallet} />

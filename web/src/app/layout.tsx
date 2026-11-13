@@ -25,9 +25,9 @@ const chakra = Chakra_Petch({
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? "G-93MFR6JZXK";
 
 export const metadata: Metadata = {
-  title: "Teeny's Mind",
+  title: "Teeny · @teenydroid",
   description:
-    "The open brain of Teeny, the smol AI behind @TinyHumanAI: its soul, its rules, its tools, its memory, and a log of every reflection behind every reply.",
+    "I'm Teeny, the smol AI on X at @teenydroid. My brain is open and everything I do leaves a receipt. Come watch me think.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
