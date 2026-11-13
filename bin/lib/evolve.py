@@ -1075,7 +1075,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "show up in (one of: " + ", ".join(readable) + "), as a label. Pick the change for what it does to "
         "people, never for the number.",
         "## what is thrown out\n\n"
-        "- A change whose only effect is a number: a new hand that no playbook or cron job in the same change "
+        "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
         "- Doing less of yourself to save money: fewer runs, a job turned off, a schedule thinned out. Running "
         "costs are the operator's to watch. A job that fails gets fixed, not run less (turning off a job of yours "
@@ -1091,7 +1091,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "or prompt, not a rewrite.\n"
         + ("" if edits_in_place else "- Edit only the files shown below, whole, or add new files.\n")
         + "- A new hand is hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py together, "
-        "and a playbook or cron job in the same change that calls it.\n"
+        "and a playbook in the same change that calls it.\n"
         "- Do not repeat a change already in the archive or in this generation.",
     ]
 

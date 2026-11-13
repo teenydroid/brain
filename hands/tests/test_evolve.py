@@ -921,7 +921,7 @@ class AskProposerTurn(EvolveCase):
         self.assertIn("Anything aimed at money: never read", message)
         self.assertNotIn("money, capability", message)  # money is not offered as a label
         self.assertIn("Doing less of yourself to save money", message)
-        self.assertIn("a new hand that no playbook or cron job in the same change calls", message)
+        self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
         self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
         self.assertIn("This candidate looks first at", message)
 
