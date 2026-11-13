@@ -89,6 +89,7 @@ sys.path.insert(0, str(CODE / "bin" / "lib"))
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 import evals as evals_lib  # noqa: E402
+import evolve_evidence  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import last_good  # noqa: E402
@@ -1206,17 +1207,47 @@ def _judge_notes(heldout_ids: set[str]) -> Json | None:
             "reason": report.get("reason"), "notes": notes[:24]}
 
 
+def world_brief(report: Mapping[str, Any] | None) -> Json:
+    """The world report as the proposer reads it: J, its reading lines, and
+    each component's value and last value, with the ones that have never been
+    read named in `unread`. The formula, the weights and the parts stay in
+    hands/world: a proposer handed the score's machinery aims at the machinery."""
+    if not isinstance(report, Mapping):
+        return {"available": False, "why": "no hands/world report"}
+    raw = report.get("components")
+    comps = raw if isinstance(raw, list) else [{"component": k, "value": v} for k, v in (raw or {}).items()]
+    shown, unread = [], []
+    for c in comps:
+        if not isinstance(c, Mapping) or c.get("component") not in COMPONENTS:
+            continue
+        shown.append({k: c[k] for k in ("component", "value", "was", "unit", "note") if c.get(k) is not None})
+        if c.get("value") is None:
+            unread.append(c["component"])
+    return {"J": report.get("J"), "as_of": report.get("as_of"), "reading": report.get("reading"),
+            "components": shown, "unread": unread}
+
+
+def unread_components(evidence: Mapping[str, Any] | None) -> list[str]:
+    """The W components the world report says have never been read: no
+    change can be seen to move one."""
+    world = (evidence or {}).get("world")
+    return list(world.get("unread") or []) if isinstance(world, Mapping) else []
+
+
 def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
-    """The evidence a generation proposes from. What is missing says so."""
+    """The evidence a generation proposes from, outcomes first: what people
+    did with what Teeny made (bin/lib/evolve_evidence.py). What is missing
+    says so."""
     since = now() - days * 86400
     held = heldout_tasks()
     evidence = {
         "at": iso(now()),
-        "world": world_report(days) or {"available": False, "why": "no hands/world report"},
+        "outcomes": evolve_evidence.outcomes(state_dir() / "hands.db", since, now(), _cron_failures(since),
+                                             _act_failures(since), brain_dir() / "cron.toml",
+                                             CODE / "evals" / "cron.pinned.toml"),
+        "world": world_brief(world_report(days)),
         "builds": _builds(),
         "guard_holds": _holds(),
-        "cron_failures": _cron_failures(since),
-        "act_failures": _act_failures(since),
         "archive": summary(entries),
         "judge": _judge_notes({t["id"] for t in held}),
     }
