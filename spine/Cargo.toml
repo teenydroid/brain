@@ -48,14 +48,17 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "storage-sqlite",
     "inbound-queues",
 ] }
-# The two modules the spine serves from its own executable instead of a
-# downloaded release: TinyComputer (the `browser` tool) and tinywallet (the
-# `web3` domain). Linked, each is the exact `vendor/openhuman` gitlink the core
-# was built against (no contract mismatch, no download at boot), and
-# tinywallet's confidential calls reach it attested as host code.
-# `bin/lib/core_config.py` sets `[modules] overrides` to `source = "linked"`
-# for exactly these two; every other module still loads from its pinned,
-# digest-checked release.
+# The modules compiled into the spine's own executable: TinyComputer (the
+# `browser` tool) and tinywallet (the `web3` domain). Linked, a module is the
+# exact `vendor/openhuman` gitlink the core was built against (no contract
+# mismatch, no download at boot), and tinywallet's confidential calls reach it
+# attested as host code. Only tinywallet is served linked:
+# `bin/lib/core_sections/automation.py` sets `[modules] overrides` to
+# `source = "linked"` for it alone. TinyComputer stays compiled in but loads
+# from its pinned release, because the browser binds a host callback to it and
+# TinyBus refuses a callback-bound load from a linked source ("callback source
+# cannot preserve admitted identity"). Every other module loads from its
+# pinned, digest-checked release.
 openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-modules-linked", default-features = false, features = [
     "tinycomputer",
     "tinywallet",
