@@ -100,7 +100,9 @@ It notices the world without being told to look.
 - [ ] Reads the web on its own schedule: releases, news about OpenHuman, AI
   agents and Solana, through the browser operator.   *Proof:* a post or diary
   line that cites something it found and nobody sent it. Built: the daily
-  `news-scan` playbook; not yet proven live.
+  `world-scan` playbook and the idle look, which read Hacker News and
+  Moltbook through the hands (`news-scan`, the browser read, is kept but
+  unscheduled); not yet proven live.
 - [ ] On-chain senses: deposits to its wallet, $TINY price and holders, as
   stimuli. *Proof:* it thanks a sender within an hour of a deposit.
 - [ ] Notices its own health: cost, failed jobs, doctor warnings and guard

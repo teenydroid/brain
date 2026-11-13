@@ -646,8 +646,13 @@ How the day's beats become the page every prompt carries:
   one `Runway:` line: the days the wallet lasts and, on a low tier, what is
   cut and why (docs/hands.md, "Runway").
 - Idle curiosity: a beat with an empty inbox, awake and with energy left, at
-  most every 2 hours, gets a read-only look at Moltbook's hot page
-  (`world · idle`).
+  most every 2 hours, gets a read-only look at the world (`world · idle`).
+  The looks take turns: Moltbook's hot page, then Hacker News top, show and
+  ask (`hands/hn`, no key and no money). The turn is kept in
+  `state/mind.json` (`wander_turn`). Every title goes through the inbound
+  guard first (`hands/guard inbound`, surface `moltbook` or `hn`), and a held
+  one is left out. A Hacker News page that is down or empty is passed over
+  for the next source, so a look is never an empty stimulus.
 - Any other awake beat with an empty inbox gets a quiet moment, a
   `self · quiet` stimulus that is new every beat: "Nothing new came in. What
   are you up to right now?", with when it last acted out in the world, the
@@ -660,11 +665,21 @@ How the day's beats become the page every prompt carries:
   logged `idle` with `resting`. So a busy day is still up to about 216 model
   turns (a beat every 5 minutes outside the quiet hours), and a day with
   nothing coming in about 30 (some 20 quiet moments and 9 looks at
-  Moltbook).
+  the world).
 - Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) seconds late.
 - Habits: a playbook with `nudge = true` is not drafted by `bin/act`. Its
   prompt and inputs go to the mind as a `nudge` stimulus, and the mind
-  decides. `morning` is one, so the gm arrives with the overnight backlog.
+  decides. `morning` is one, so the gm arrives with the overnight backlog
+  and that morning's Hacker News. `world-scan` is another: once a day the
+  mind gets Hacker News (top, show, ask) and Moltbook's hot page, and is
+  asked for up to three takes and what it does with each.
+- The daily build comes from signal. The `build-idea` playbook (23:00 India
+  time) reads Show HN, Ask HN, the pending requests, the people Teeny knows,
+  its issues, what it shipped and what came in lately, and keeps one idea
+  with `hands/build idea`: what to build, who wants it, and where the need
+  shows. The next daily job is made from it (docs/hands.md, `build`, "The
+  daily job"). A day with nothing that clears the bar keeps no idea, and the
+  builder gets the standing brief.
 - A `post_x` intent may carry an `image` of Teeny, made through the same
   guard → `hands/image` → `hands/x upload` path `bin/act` uses.
 

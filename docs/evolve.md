@@ -202,6 +202,10 @@ media = ["image"]          # optional: the draft may add an "image" or "video"
 name = "stats"
 run = "hands/stats report --days 7"
 required = true            # optional: skip without a model turn when it is empty
+[[inputs]]
+name = "hn"
+run = "hands/hn top --max 5"
+optional = true            # optional: a hand that fails is left out, the run goes on
 +++
 Write one post when a number in the inputs crossed a round value. ...
 ```
