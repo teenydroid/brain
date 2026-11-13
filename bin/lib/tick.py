@@ -299,8 +299,18 @@ MIND_TASK_KIND = "research"
 MIND_TASK_SOURCE = "teeny"
 
 
+#: The caps a host instruction (deploy/tell.sh) lifts to their ceiling, for
+#: the beat that carries it only: the operator asked for the work by name.
+#: The paid ones (web_search, read_page) and watch_hn stay as configured.
+HOST_LIFTS = frozenset({"open_issue", "queue_task", "start_mail"})
+#: Set by _beat while the batch it is answering holds a host instruction.
+_lifted = False
+
+
 def mind_cap(do: str) -> int:
     name, high = MIND_CAPS[do]
+    if _lifted and do in HOST_LIFTS:
+        return high
     return hand.number(name, 0, 0, high)
 
 
