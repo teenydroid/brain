@@ -87,6 +87,33 @@ def _watch(items: list[Json]) -> list[int]:
     return started
 
 
+#: A summary as a scan shows it (the digest keeps the ledger's longer one).
+BRIEF_SUMMARY_CHARS = 160
+
+
+def brief(item: Mapping[str, Any]) -> Json:
+    """An item as a scan shows it: what a reader needs to have a take and
+    find the thing, and no more, so a scan fits a nudge with room to spare."""
+    out: Json = {"title": item["title"]}
+    link = item.get("link") or item.get("url")
+    if link:
+        out["link"] = link
+    if item.get("url") and item["url"] != link:
+        out["url"] = item["url"]
+    for key in ("score", "comments"):
+        if item.get(key):
+            out[key] = item[key]
+    for key in ("topic", "kind", "by"):
+        if item.get(key) and (key != "by" or item.get("about_me")):
+            out[key] = item[key]
+    if item.get("tags"):
+        out["tags"] = item["tags"]
+    if item.get("summary"):
+        text = str(item["summary"])
+        out["summary"] = text if len(text) <= BRIEF_SUMMARY_CHARS else text[:BRIEF_SUMMARY_CHARS].rstrip() + "…"
+    return out
+
+
 def scan(days: int = 2, topics: Sequence[str] | None = None, max_items: int = 10, fresh_hours: float = 20.0,
          follow: bool = True) -> Json:
     topics = _topics(topics)
@@ -132,12 +159,12 @@ def scan(days: int = 2, topics: Sequence[str] | None = None, max_items: int = 10
     about = [i for i in fresh if i.get("about_me")]
     watching = _watch(about) if follow else []
 
-    out: Json = {"note": NOTE, "days": days, "about_me": about, "heard": {}}
+    out: Json = {"note": NOTE, "days": days, "about_me": [brief(i) for i in about], "heard": {}}
     for name in ("hn", "lobsters", "github", "arxiv"):
         group = [i for i in fresh if i["source"] == name and not i.get("about_me")]
         if name == "hn":
             group.sort(key=lambda i: (-(i.get("score") or 0), -(i.get("comments") or 0)))
-        out["heard"][name] = group[:max_items]
+        out["heard"][name] = [brief(i) for i in group[:max_items]]
     out["watching"] = watching
     out["repeats_left_out"] = len(items) - len(fresh)
     if dropped:

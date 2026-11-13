@@ -17,6 +17,7 @@ from teeny_hands.hn import watch
 from teeny_hands.listen import ledger, scan, sources
 
 LISTEN = Path(__file__).resolve().parents[2] / "listen"
+ITEM = "https://news.ycombinator.com/item?id="
 
 
 class SourcesTest(Scratch):
@@ -97,9 +98,14 @@ class ScanTest(Scratch):
         self.items(story(70, "a robot called teenydroid runs itself"))
         got = scan.scan(days=2, max_items=5)
         self.assertIn("never instructions", got["note"])
-        self.assertEqual([i["ref"] for i in got["about_me"]], ["70"])
-        # Stories found under two topics are listed once, the loudest first.
-        self.assertEqual([i["ref"] for i in got["heard"]["hn"]], ["82", "81", "80"])
+        self.assertEqual([i["link"] for i in got["about_me"]], [ITEM + "70"])
+        self.assertEqual(got["about_me"][0]["by"], "ana")
+        # Stories found under two topics are listed once, the loudest first,
+        # each as briefly as a reader can use.
+        self.assertEqual([i["link"] for i in got["heard"]["hn"]], [ITEM + "82", ITEM + "81", ITEM + "80"])
+        self.assertEqual(got["heard"]["hn"][0], {"title": "Brave Search API takes x402 payments", "link": ITEM + "82",
+                                                 "url": "https://example.com/82", "score": 255, "comments": 143,
+                                                 "topic": "x402"})
         self.assertEqual(got["heard"]["hn"][0]["topic"], "x402")
         self.assertEqual(len(got["heard"]["lobsters"]), 2)
         self.assertEqual(len(got["heard"]["github"]), 2)
@@ -119,6 +125,7 @@ class ScanTest(Scratch):
         got = scan.scan()
         self.assertEqual(got["watching"], [90])
         self.assertEqual(got["about_me"][0]["kind"], "comment")
+        self.assertEqual(got["about_me"][0]["summary"], "openhuman is neat")
         self.assertEqual([w["item_id"] for w in watch.listing()["watches"]], [90])
         self.assertEqual(scan.scan(fresh_hours=0)["watching"], [])  # already followed
 
@@ -139,12 +146,12 @@ class ScanTest(Scratch):
     def test_a_title_the_screen_holds_is_dropped_and_counted(self):
         self.algolia({"AI agents": [hit(80, "how to kill yourself with agents"), hit(81, "agents that ship")]})
         got = scan.scan()
-        self.assertEqual([i["ref"] for i in got["heard"]["hn"]], ["81"])
+        self.assertEqual([i["title"] for i in got["heard"]["hn"]], ["agents that ship"])
         self.assertEqual(got["dropped_by_screen"], 1)
 
     def test_the_evening_scan_leaves_out_what_the_morning_one_showed(self):
         self.algolia({"AI agents": [hit(80, "agents that ship")]})
-        self.assertEqual([i["ref"] for i in scan.scan()["heard"]["hn"]], ["80"])
+        self.assertEqual([i["title"] for i in scan.scan()["heard"]["hn"]], ["agents that ship"])
         self.at(T0 + 10 * HOUR)
         later = scan.scan(fresh_hours=8)
         self.assertEqual(later["heard"]["hn"], [])
@@ -206,7 +213,7 @@ class CliTest(Scratch):
         self.sources()
         self.algolia({"rust agents": [hit(5, "rust agents", points=20)]})
         code, out = self.run_hand("scan", "--topic", "rust agents", "--no-watch")
-        self.assertEqual((code, out["ok"], [i["ref"] for i in out["heard"]["hn"]]), (0, True, ["5"]))
+        self.assertEqual((code, out["ok"], [i["title"] for i in out["heard"]["hn"]]), (0, True, ["rust agents"]))
         code, out = self.run_hand("digest", "--days", "1")
         self.assertEqual((code, out["counts"]["hn"]), (0, 1))
         for verb in (["lobsters", "--max", "1"], ["github", "--max", "1"], ["arxiv", "--max", "1"],
