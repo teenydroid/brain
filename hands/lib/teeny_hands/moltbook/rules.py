@@ -127,8 +127,19 @@ CREATE TABLE IF NOT EXISTS collabs (
 """
 
 
+#: Columns added after the tables first shipped: what Teeny wrote, and the
+#: lab tags (teeny_hands/tags.py). Older rows keep NULL in them.
+ADDED_COLUMNS = {
+    "moltbook_posts": {"body": "TEXT", **tags.COLUMNS},
+    "moltbook_comments": {"body": "TEXT", **tags.COLUMNS},
+}
+
+
 def db() -> sqlite3.Connection:
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    for table, columns in ADDED_COLUMNS.items():
+        hand.add_columns(conn, table, columns)
+    return conn
 
 
 # --- settings ------------------------------------------------------------------------

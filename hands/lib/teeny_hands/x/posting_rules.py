@@ -36,7 +36,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from .. import hand
+from .. import hand, tags
 from .client import number_setting
 from .model import utf16_length
 
