@@ -273,6 +273,24 @@ fi
 # ceiling (hands/lib/teeny_hands/wallet/caps.py): a wallet never boots uncapped.
 run "wallet caps" python3 "$TEENY_ROOT/bin/lib/wallet_config.py" --check "$secrets/teeny.env"
 
+# --- the x402 hand: its top-up and search limits are sane -------------------------
+# X402_FUND_* (the pinned x402-fund job) and X402_*_MAX_USD, X402_TEXT_CHARS
+# (paid search), checked by the hand's own code (teeny_hands/x402/settings.py):
+# a top-up switched on without its floor, target and daily cap, or any value
+# over its ceiling, never boots.
+run "x402 settings" python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.x402 import settings
+env = Path(sys.argv[2])
+try:
+    print(settings.check(_parse_env_file(env.read_text()) if env.is_file() else {}))
+except settings.SettingsError as exc:
+    sys.exit(f"x402 keys are set but not usable: {exc}")
+' "$root/hands/lib" "$secrets/teeny.env"
+
 # --- secrets and storage ------------------------------------------------------------
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 if [ -e "$storage" ]; then
