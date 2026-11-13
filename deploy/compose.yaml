@@ -101,7 +101,10 @@ services:
   # they happen, so nothing is searched or billed per post. The vhost routes
   # https://teeny.enamakel.com/api/webhooks/x to 127.0.0.1:3110/webhooks/x.
   # Same image and checkout as the spine; it only writes x_mentions in
-  # state/hands.db, and bin/mentions offers what it queued.
+  # state/hands.db. It screens nothing: it has its own network namespace, so
+  # the core on 127.0.0.1:7788 (and with it the safety judge) is out of its
+  # reach. It queues each mention `unscreened`, and bin/mentions, in the
+  # spine, screens it with the guard before offering it.
   xhook:
     image: teeny-spine:current
     restart: unless-stopped

@@ -7,7 +7,8 @@ Runs as the `xhook` service in deploy/compose.yaml, published on
 127.0.0.1:3110, where the vhost routes https://teeny.enamakel.com/api/webhooks/x
 (deploy/nginx/teeny.enamakel.com.conf). It answers X's CRC challenge, checks
 every delivery's signature, and queues mentions, replies and quotes into
-x_mentions for bin/mentions to offer.
+x_mentions, unscreened: the core (and the safety judge) is not reachable from
+this container, so bin/mentions screens them in the spine before offering.
 """
 import argparse, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "hands", "lib"))

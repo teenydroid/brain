@@ -5,6 +5,9 @@ and offered to the core as inbound events (docs/hands.md, "ingest").
 from a cursor kept in `x_cursor`, so a mention is fetched, and billed, once.
 Each new one becomes a row in `x_mentions`, unique on its post id:
 
+  unscreened  queued by X's webhook (x/webhook.py), which runs where the
+           core, and so the safety judge, is out of reach; the next ingest
+           screens it (`screen_queued`) before anything is offered
   pending  stored, not yet offered (or the offer failed; the next run retries)
   held     the inbound guard held it, or the core's prompt-injection guard
            kept it out of the drafting turn; nothing answers it
@@ -39,7 +42,7 @@ SOURCE = "x:mentions"
 #: Every mention lands in one conversation: one turn answers a batch.
 KEY = "mentions"
 
-STATUSES = ("pending", "held", "skipped", "offered", "drafted", "replied", "refused")
+STATUSES = ("unscreened", "pending", "held", "skipped", "offered", "drafted", "replied", "refused")
 #: What `mark` may set: the outcomes after a draft.
 MARKS = ("drafted", "replied", "refused", "skipped", "held")
 
@@ -112,9 +115,13 @@ def _offer(post: Json) -> None:
     )
 
 
-def _store(conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[str, int], now: float) -> None:
+def _store(
+    conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[str, int], now: float, screen: bool = True
+) -> None:
     """One post into the queue, once: screened, or skipped when it is the
-    account's own or already answered."""
+    account's own or already answered. With `screen` False (X's webhook,
+    where the judge cannot be reached) a post that would be screened is
+    queued `unscreened`, for `screen_queued` to screen in the spine."""
     if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post["id"],)).fetchone():
         return
     status, note, hold_id = "pending", None, None
@@ -122,6 +129,8 @@ def _store(conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[st
         status, note = "skipped", "own post"
     elif conn.execute("SELECT 1 FROM x_replies WHERE in_reply_to = ? AND reply_id IS NOT NULL", (post["id"],)).fetchone():
         status, note = "skipped", "already answered"
+    elif not screen:
+        status = "unscreened"
     else:
         verdict = _screen(post)
         if verdict.kind != "allow":
@@ -145,6 +154,23 @@ def _store(conn, me: Mapping[str, Any], post: Mapping[str, Any], counts: dict[st
         ),
     )
     counts[status] += 1
+
+
+def screen_queued(conn, counts: dict[str, int]) -> None:
+    """Screens each mention the webhook queued unscreened, oldest first: the
+    inbound guard (the lexicon, then the judge) makes it `pending` or `held`,
+    as `_store` would have. Runs in the spine, beside the core; a judge that
+    cannot be reached holds (and the guard's re-screen asks again later)."""
+    for row in conn.execute("SELECT post FROM x_mentions WHERE status = 'unscreened' ORDER BY CAST(id AS INTEGER)").fetchall():
+        post = json.loads(row["post"])
+        verdict = _screen(post)
+        status, note, hold_id = ("pending", None, None) if verdict.kind == "allow" else ("held", verdict.reason, verdict.hold_id)
+        changed = conn.execute(
+            "UPDATE x_mentions SET status = ?, note = ?, hold_id = ?, updated_at = ? WHERE id = ? AND status = 'unscreened'",
+            (status, note, hold_id, hand.now(), post["id"]),
+        ).rowcount
+        if changed:
+            counts[status] += 1
 
 
 def _set_cursor(conn, name: str, since_id: str | None, now: float) -> None:
@@ -178,6 +204,8 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         newest = page.get("newestId") or (max((p["id"] for p in posts), key=int) if posts else None)
         if newest:
             _set_cursor(conn, "mentions", newest, now)
+        screened = {status: 0 for status in STATUSES}
+        screen_queued(conn, screened)
 
         offered, failed = 0, None
         if offer:
@@ -195,6 +223,8 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
                 offered += 1
         new = {status: n for status, n in counts.items() if n}
         result: dict[str, Any] = {"read": len(posts), "new": new, "offered": offered, "cursor": newest or since_id}
+        if any(screened.values()):
+            result["screened"] = {status: n for status, n in screened.items() if n}
         if failed:
             _warn(f"offer failed, left pending: {failed}")
             result["offer_error"] = failed

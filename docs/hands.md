@@ -30,7 +30,7 @@ report they leave beside it.
 
 | Verb | | Does |
 |---|---|---|
-| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Every `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
+| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Then it screens every `unscreened` row the webhook queued the same way (`pending` or `held`; `screened` in its output). Every `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
@@ -144,9 +144,17 @@ through the X Activity API to `post.mention.create`, `post.reply.create` and
 `deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge and
 refuses any delivery whose `x-twitter-webhooks-signature` is not the
 HMAC-SHA256 of the body under `X_API_SECRET`. It queues each post about the
-account by somebody else into `x_mentions` exactly as `ingest` does (screened,
-unique on post id), for the next `ingest` to offer. This is how mentions
-arrive. Nothing is searched or billed per post, and the webhook catches
+account by somebody else into `x_mentions`, unique on post id, as
+`unscreened` (the account's own posts and posts already answered are
+`skipped`, as in `ingest`). It screens nothing: the core, and so the safety
+judge, runs only in the spine's network namespace, which the `xhook`
+container does not share. The next `ingest`, in the spine, screens each
+`unscreened` row through `guard inbound` before it offers anything, so a
+mention still never reaches a model unscreened, and offering waits for that
+run anyway. (Until 2026-11-13 the webhook screened in its own container; the
+judge was never reachable from there, so every mention it asked about was
+held as "the judge could not be reached" until the guard's re-screen let it
+go, 2 to 15 minutes or more later.) This is how mentions arrive. Nothing is searched or billed per post, and the webhook catches
 replies that X's mentions timeline leaves out (2026-11-11: four of nine
 replies to the gm never came back from `/mentions`).
 
@@ -158,6 +166,8 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
                                                 ▼
                      x_mentions row, unique on post id
                        own post, or already answered ──► skipped
+                       from the webhook ───────────────► unscreened
+                         (x ingest, in the spine, screens it next)
                        guard inbound holds it ─────────► held
                        otherwise ──────────────────────► pending
                                                 │
@@ -179,7 +189,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 |---|---|---|
 | `check` | R | Runs, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
-| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
+| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` (for the webhook's mentions too), `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
