@@ -116,8 +116,9 @@ MAX_THOUGHT_CHARS = 300
 #: to 93 KB. The rest of the 64 KiB is room to spare.
 MAX_MESSAGE_BYTES = 56 * 1024
 #: How short a beat's thought and each thing it did are cut, in turn, until
-#: the message fits; past the last, the oldest beats are left out.
-BEAT_CUTS = ((MAX_THOUGHT_CHARS, MAX_THOUGHT_CHARS), (200, 160), (140, 100), (100, 60))
+#: the message fits (None: not cut); past the last, the oldest beats are
+#: left out.
+BEAT_CUTS = ((MAX_THOUGHT_CHARS, None), (200, 160), (140, 100), (100, 60))
 DEFAULT_TZ = "Asia/Kolkata"
 
 #: The shrink check. A day closes a few threads and opens about as many, so
@@ -661,23 +662,49 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
     lines += ["## what you chose to remember today", ""]
     lines += [f"- {'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes] or ["- nothing"]
     lines += ["", "## what you thought and did, beat by beat", ""]
-    for b in beats:
-        did = f" ({'; '.join(b['did'])})" if b["did"] else ""
-        lines.append(f"- {b['at']}: {b['thought'] or '-'}{did}")
-    if not beats:
-        lines.append("- a quiet day")
-    lines += ["", *ledgers(since)]
+    tail = ["", *ledgers(since)]
     for section in (extras.sections if extras else []):
-        lines += ["", section.rstrip()]
-    lines += ["", "## follow-ups still waiting", ""]
+        tail += ["", section.rstrip()]
+    tail += ["", "## follow-ups still waiting", ""]
     for f in waiting:
         due = dt.datetime.fromtimestamp(f["due_at"], _clock().tzinfo)
-        lines.append(f"- {due:%a %d %b %H:%M}: {f['about']}")
+        tail.append(f"- {due:%a %d %b %H:%M}: {f['about']}")
     if not waiting:
-        lines.append("- none")
-    lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
-              shape(light, len(page), forget=bool(extras and extras.forgettable))]
-    return "\n".join(lines)
+        tail.append("- none")
+    tail += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
+             shape(light, len(page), forget=bool(extras and extras.forgettable))]
+    room = MAX_MESSAGE_BYTES - len("\n".join(lines + tail).encode()) - 1
+    return "\n".join(lines + (fit_beats(beats, room) if beats else ["- a quiet day"]) + tail)
+
+
+def _beat_line(beat: Json, thought_chars: int, did_chars: int | None) -> str:
+    def cut(text: str, n: int | None) -> str:
+        return text if n is None or len(text) <= n else text[:n - 1].rstrip() + "…"
+
+    did = f" ({'; '.join(cut(d, did_chars) for d in beat['did'])})" if beat["did"] else ""
+    return f"- {beat['at']}: {cut(beat['thought'], thought_chars) or '-'}{did}"
+
+
+def fit_beats(beats: list[Json], room: int) -> list[str]:
+    """The beats as lines in at most `room` bytes: whole when they fit, then
+    each cut shorter (BEAT_CUTS), then without the oldest, said so."""
+    def size(lines: list[str]) -> int:
+        return sum(len(line.encode()) + 1 for line in lines)
+
+    for thought_chars, did_chars in BEAT_CUTS:
+        lines = [_beat_line(b, thought_chars, did_chars) for b in beats]
+        if size(lines) <= room:
+            return lines
+    kept: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        # Room for the line that says how many were left out.
+        if used + len(line.encode()) + 1 > room - 120:
+            break
+        kept.append(line)
+        used += len(line.encode()) + 1
+    left = len(lines) - len(kept)
+    return [f"- ({left} earlier beats left out: the whole day is more than one message may carry)", *reversed(kept)]
 
 
 #: Asked once, on the same thread, after an answer that was not usable.
