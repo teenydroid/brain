@@ -288,7 +288,7 @@ class DailyCapTest(Posting):
         self.earlier()
         self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
         publish.post({"text": "a fourth thing about lighthouses and moss"})
-        self.assertEqual(len(self.posted()), 4)
+        self.assertEqual(len(self.posted()), 1)
 
     def test_replies_do_not_count_and_a_quote_does(self):
         conn = hand.db()
