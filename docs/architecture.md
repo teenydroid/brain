@@ -119,7 +119,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. |
+| Browser | `[browser]` headless Chromium (in the image), a fresh profile per session (TinyComputer's egress-enforced launcher refuses a named profile folder) and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. |
 | Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; swaps and bridges go through deBridge (`spine/src/debridge.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
@@ -335,6 +335,7 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
    one hand verb each: guard, caps, DRY_RUN          state/mind.json, the journal
             │
             ├── paced refusal ──► wait and retry once, or defer to deferred.json
+            ├── held by a judge outage ──► defer to deferred.json (reply_x, comment_moltbook, reply_mail)
             │
             └── outcome ──► back into hands/stimuli for the next beat
    then: one line in state/tick/runs.jsonl, and a journal entry
@@ -384,7 +385,34 @@ sending, and the hands' ledgers refuse a second reply to one post or a
 second answer to one comment, so nothing goes out twice. One that is still
 held is kept for the beat after; after an hour it goes back to the mind as
 refused. Other refusals (caps, the guard, anything with another rule) are
-never retried.
+never retried, except a guard hold made by a judge outage (below). A beat
+already past its budget sends no more of the file and keeps the rest.
+
+**A reply held by a judge outage is sent again.** The guard's judge fails
+closed (docs/hands.md, `guard`), so when the model provider drops streams in
+bursts (on 2026-11-13 the judge could not be reached about 45 times in an
+hour and a quarter) it holds Teeny's own words as category `unknown`, and
+such a hold expires unsent. The judge itself asks up to three times first.
+When it still fails, the hand's refusal (`refused: held`) carries
+`judge_failed: true`, which only a judge failure sets (its reason starts
+`the judge could not be reached` or is `the judge answered in an unreadable
+shape`); a hold for anything the judge read, `unknown` included, never does.
+For `reply_x`, `comment_moltbook` and `reply_mail` (`RETRIED` in
+`bin/lib/tick.py`) the beat defers the intent to `deferred.json` with `rule:
+judge`, without retrying in the same beat (the judge has just spent its own
+asks), and the next beat sends it first, as above: through the guard again,
+so a draft the judge then reads and holds stays held. Each of those hands
+refuses a second answer to the same thing from its own ledger (one reply per
+X post; once per Moltbook post and per parent comment; once per mail), so a
+retry never says it twice. `say_telegram` and `comment_gh` are left out:
+`hands/telegram send` and `hands/gh comment` keep no such ledger, so a retry
+racing a fresh answer from the mind could post twice. Theirs go back to the
+mind as refused, with "the content guard's judge could not be reached: a
+model outage, not your words". A retried one that goes out tells the mind
+"held last beat only because the content guard's judge could not be
+reached ..., it was screened again and went out by itself"; one the judge
+still cannot screen an hour after the mind decided it goes back to the mind
+as refused, saying so.
 
 **The cron call does not wait for the beat.** The job runs `bin/tick
 --detach`: `bin/lib/detach.py` starts the beat in its own session (stdout

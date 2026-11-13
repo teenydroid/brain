@@ -117,7 +117,8 @@ class TickTest(unittest.TestCase):
             TEENY_QUIET_HOURS="off",
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
-                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN"):
+                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "FAKE_REFUSALS_MAIL", "FAKE_REFUSALS_TELEGRAM",
+                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -820,6 +821,134 @@ class TickTest(unittest.TestCase):
         self.assertEqual(got["resumed"][0]["status"], "done")
         self.assertEqual(self.x_replies()[-1], ("222", "late one"))
         self.assertEqual(len(self.chats()), 1)
+
+    # --- a judge outage: a hold the judge made by failing is sent again --------
+    # The guard's judge fails closed, so a provider dropping streams holds
+    # Teeny's own replies ("unknown", "the judge could not be reached"), and
+    # those holds expire. The hand says `judge_failed`; the beat defers the
+    # reply and the next beat sends it again, through the guard again.
+
+    @staticmethod
+    def judge_down(hold_id: int = 5) -> dict:
+        return {"refused": "held", "category": "unknown", "hold_id": hold_id, "judge_failed": True}
+
+    def test_a_reply_held_because_the_judge_failed_is_sent_again_next_beat(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.judge_down()])
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm ana"}]},
+                    {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "deferred")
+        self.assertEqual(self.x_replies(), [("111", "gm ana")])  # not asked again in the same beat
+        self.assertNotIn(("x", ["mark", "111", "--status", "refused"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(self.x_replies(), [("111", "gm ana"), ("111", "gm ana")])  # word for word, no model turn
+        [resumed] = got["resumed"]
+        self.assertEqual((resumed["do"], resumed["status"]), ("reply_x", "done"))
+        self.assertEqual(len(self.chats()), 2)
+        message = self.chats()[1]["message"]
+        self.assertIn("your reply_x on 111: done", message)
+        self.assertIn("the content guard's judge could not be reached", message)
+        self.assertIn(("x", ["mark", "111", "--status", "replied"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+
+    def test_only_surfaces_that_refuse_a_second_answer_are_retried_after_a_judge_outage(self):
+        # reply_x, comment_moltbook and reply_mail refuse a second answer to
+        # the same thing from their own ledgers. hands/telegram send and
+        # hands/gh comment keep no such ledger, so a retry there could say it
+        # twice: theirs go back to the mind as refused.
+        for name in ("X", "MOLTBOOK", "MAIL", "TELEGRAM", "GH"):
+            os.environ[f"FAKE_REFUSALS_{name}"] = json.dumps([self.judge_down()])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "comment_moltbook", "post_id": "p1", "text": "nice"},
+            {"do": "reply_mail", "message_id": "<m1@x>", "text": "thanks"},
+            {"do": "say_telegram", "chat_id": 42, "text": "hi all"},
+            {"do": "comment_gh", "repo": "teenydroid/hello", "number": 3, "text": "on it"},
+        ]}, {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["deferred", "deferred", "deferred", "refused", "refused"])
+        self.at(300)
+        got = self.tick()
+        self.assertEqual([(r["do"], r["status"]) for r in got["resumed"]],
+                         [("reply_x", "done"), ("comment_moltbook", "done"), ("reply_mail", "done")])
+        self.assertEqual([c["hand"] for c in self.hand_calls()], ["x", "moltbook", "mail", "telegram", "gh", "x", "moltbook", "mail"])
+        message = self.chats()[1]["message"]
+        self.assertIn("your say_telegram", message)
+        self.assertIn("refused: held", message)
+
+    def test_a_beat_out_of_time_keeps_what_it_deferred_for_the_next_one(self):
+        # A judge that times out can take two minutes an ask (JUDGE_BUDGET), so
+        # a beat past its budget sends nothing more and keeps the rest.
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.judge_down()])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        os.environ["TEENY_TICK_BUDGET_SECS"] = "0"
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.assertEqual(len(self.x_replies()), 1)
+        os.environ.pop("TEENY_TICK_BUDGET_SECS")
+        self.at(600)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        self.assertEqual(len(self.x_replies()), 2)
+
+    def test_a_real_content_hold_is_never_retried(self):
+        profanity = {"refused": "held", "category": "profanity", "hold_id": 6}
+        unread = {"refused": "held", "category": "unknown", "hold_id": 7}  # the judge read it and named no category
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([profanity, unread])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "gm too"},
+        ]}, {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "refused"])
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(got.get("resumed"), None)
+        self.assertEqual(len(self.x_replies()), 2)
+        self.assertNotIn("judge could not be reached", self.chats()[1]["message"])
+
+    def test_a_reply_the_judge_still_cannot_screen_after_an_hour_goes_back_to_the_mind(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.judge_down(5), self.judge_down(6), self.judge_down(7)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        got = self.tick()  # still down: kept for the beat after, nothing said yet
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.assertNotIn("reply_x on 111", self.chats()[-1]["message"])
+        self.at(3700)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "refused")
+        message = self.chats()[-1]["message"]
+        self.assertIn("your reply_x on 111: refused: held", message)
+        self.assertIn("the content guard's judge could not be reached", message)
+        self.at(4000)
+        self.tick()
+        self.assertEqual(len(self.x_replies()), 3)
+
+    def test_a_retried_reply_the_judge_then_reads_and_holds_says_so(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.judge_down(), {"refused": "held", "category": "hate", "hold_id": 8}])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "refused")
+        message = self.chats()[-1]["message"]
+        self.assertIn("your reply_x on 111: refused: held", message)
+        self.assertIn("tried again by itself this beat", message)
+        self.at(600)
+        self.tick()
+        self.assertEqual(len(self.x_replies()), 2)
 
     def test_what_the_hands_did_comes_back_next_beat(self):
         os.environ["FAKE_EXIT_X"] = "2"
