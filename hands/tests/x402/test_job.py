@@ -74,3 +74,29 @@ class SettingsTest(unittest.TestCase):
         self.bad("ceiling", X402_FIRECRAWL_MAX_USD="2")
         self.bad("X402_TEXT_CHARS", X402_TEXT_CHARS="100")
         self.bad("is 1 or 0", X402_FIRECRAWL="maybe")
+
+
+class PlaybookTest(Scratch):
+    """hands/x402 pays from the wallet, so it is a money hand to bin/act: a
+    playbook never outputs a search, a page read or a top-up, and an input
+    runs only its read verb."""
+
+    def load(self, front):
+        import playbook
+
+        brain = self.root / "brain"
+        (brain / "playbooks").mkdir(parents=True, exist_ok=True)
+        (brain / "playbooks" / "p.md").write_text(f'+++\ndescription = "x"\n{front}\n+++\ngo')
+        return playbook.load(brain, "p")
+
+    def test_no_paying_verb_is_a_playbook_output_or_input(self):
+        import playbook
+
+        for verb in ("search", "contents", "crawl", "fund", "log"):
+            with self.assertRaises(playbook.PlaybookError, msg=verb):
+                self.load(f'output = "hand:x402 {verb}"')
+        for run in ("hands/x402 search openhuman", "hands/x402 contents https://example.com", "hands/x402 fund"):
+            with self.assertRaises(playbook.PlaybookError, msg=run):
+                self.load(f'output = "none"\n[[inputs]]\nrun = "{run}"')
+        self.assertEqual(self.load('output = "none"\n[[inputs]]\nrun = "hands/x402 log --max 5"')["inputs"][0]["argv"][:2],
+                         ["hands/x402", "log"])
