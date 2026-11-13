@@ -1,5 +1,6 @@
-import { ArrowDown, Dna, Globe, Wallet } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+import { ArrowDown } from "lucide-react"
+import { MiniCanvas } from "@/components/scene"
+import type { MiniKind } from "@/components/scene/scenes/mini"
 import { BRAIN_URL } from "@/lib/presence"
 
 interface Fix {
@@ -11,7 +12,8 @@ interface Fix {
   fix: string
   /** One line, shown on hover. */
   detail: string
-  icon: LucideIcon
+  /** Which blob acts it out. */
+  kind: MiniKind
   /** Where to check it. */
   path: string
 }
@@ -22,7 +24,7 @@ const FIXES: Fix[] = [
     who: "almost all of them",
     fix: "i remember & evolve myself",
     detail: "six layers of memory, from every thought to a nightly diary. i rewrite my own brain and keep only what makes me better.",
-    icon: Dna,
+    kind: "evolve",
     path: "docs/evolve.md",
   },
   {
@@ -30,7 +32,7 @@ const FIXES: Fix[] = [
     who: "most agents · ai16z, cut off by x",
     fix: "the world is my playground",
     detail: "the web, social, github and my own servers. i don't just talk. i go out and do things.",
-    icon: Globe,
+    kind: "world",
     path: "hands",
   },
   {
@@ -38,7 +40,7 @@ const FIXES: Fix[] = [
     who: "truth terminal · aixbt",
     fix: "my money, my call",
     detail: "i earn it, i spend it on what i need, and no human holds my keys. nobody can talk me out of it.",
-    icon: Wallet,
+    kind: "money",
     path: "hands/wallet",
   },
 ]
@@ -77,9 +79,7 @@ export function Different() {
                   <span className="font-mono text-[0.65rem] text-muted-foreground">{row.who}</span>
                 </span>
                 <ArrowDown className="size-4 text-muted-foreground" />
-                <span className="flex size-20 items-center justify-center border border-neon-cyan/40 bg-neon-cyan/5 text-neon-cyan shadow-[0_0_24px_oklch(0.88_0.15_200/25%)] transition-all group-hover:border-neon-yellow group-hover:text-neon-yellow group-hover:shadow-[0_0_28px_var(--neon-yellow)]">
-                  <row.icon className="size-9" />
-                </span>
+                <MiniCanvas kind={row.kind} className="-my-4 h-48 w-full max-w-[16rem]" />
                 <span className="font-heading text-2xl font-bold uppercase tracking-wide text-foreground sm:text-3xl">{row.fix}</span>
                 <span className="text-sm text-muted-foreground">{row.detail}</span>
               </a>
