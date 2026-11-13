@@ -139,6 +139,26 @@ class StatsTest(unittest.TestCase):
         rows = rules.db().execute("SELECT target_id, checkpoint, score FROM moltbook_post_metrics").fetchall()
         self.assertEqual([tuple(r) for r in rows], [("p1", 1, 4)])
 
+    def test_bin_stats_snapshot_metrics_refreshes_both_surfaces_and_takes_no_snapshot(self):
+        from teeny_hands.moltbook import rules
+        from teeny_hands.x import metrics, posting_rules
+
+        rules.db().execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status)"
+                           " VALUES ('p1', ?, 'general', 't', 'verified')", (T0 - 2 * 3600,))
+        self.fake.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 4, "comment_count": 1}})
+        posting_rules.record_post(metrics.db(), "42", "post", "gm", created_at=T0 - 2 * 3600)
+        self.fake.route("GET", "/2/tweets", {"data": [{"id": "42", "text": "gm", "public_metrics": {"like_count": 3}}]})
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot"), "metrics"], capture_output=True,
+                              text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual([tuple(r) for r in rules.db().execute("SELECT target_id, checkpoint FROM moltbook_post_metrics")],
+                         [("p1", 1)])
+        self.assertEqual([tuple(r) for r in metrics.db().execute("SELECT post_id, checkpoint, likes FROM x_post_metrics")],
+                         [("42", 1, 3)])
+        self.assertEqual(self.rows(), [])
+
     def test_bin_stats_snapshot_goes_on_when_the_moltbook_refresh_fails(self):
         self.configure(MOLTBOOK_API_KEY=None)
         env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
