@@ -265,11 +265,16 @@ class DailyCapTest(Posting):
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi")
 
+    def earlier(self, kinds=("post", "post", "post"), at=T0 - 6 * HOUR) -> None:
+        """Own posts already in the ledger (the fake X answers every post with
+        id 100, so a test seeds the earlier ones)."""
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        for n, (kind, text) in enumerate(zip(kinds, self.TEXTS)):
+            posting_rules.record_post(conn, f"8{n}", kind, text, created_at=at + n * 60, quote_of="5" if kind == "quote" else None)
+
     def test_a_fourth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
-        for n, text in enumerate(self.TEXTS):
-            self.at(T0 + n * HOUR)
-            publish.post({"text": text})
-        self.at(T0 + 4 * HOUR)
+        self.earlier()
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": "a fourth thing about lighthouses and moss"})
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
@@ -280,9 +285,7 @@ class DailyCapTest(Posting):
             publish.post({"text": "a fourth thing about lighthouses and moss"})
 
     def test_the_next_utc_day_starts_again(self):
-        for n, text in enumerate(self.TEXTS):
-            self.at(T0 + n * HOUR)
-            publish.post({"text": text})
+        self.earlier()
         self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
         publish.post({"text": "a fourth thing about lighthouses and moss"})
         self.assertEqual(len(self.posted()), 4)
@@ -292,18 +295,16 @@ class DailyCapTest(Posting):
         posting_rules.ensure_schema(conn)
         for n in range(5):
             posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
-        publish.post({"text": self.TEXTS[0]})
-        publish.post({"text": "look at this one", "quote_of": "555"})
-        publish.post({"text": self.TEXTS[2]})
+        self.earlier(kinds=("post", "quote", "post"))
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": "one more about lighthouses and moss"})
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
 
     def test_the_cap_is_a_setting(self):
         self.configure(X_POSTS_MAX_PER_DAY="1")
-        publish.post({"text": self.TEXTS[0]})
+        self.earlier(kinds=("post",))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": self.TEXTS[1]})
+            publish.post({"text": "a different thing about lighthouses"})
 
     def test_a_format_tag_is_kept_and_a_bad_one_is_an_error(self):
         publish.post({"text": self.TEXTS[0], "format": "Proof", "experiment": 4})
