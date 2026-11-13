@@ -313,6 +313,30 @@ class TickTest(unittest.TestCase):
         self.assertIn("Monday 14 September 2026, 07:00 your time (07:00 UTC)", message)
         self.assertIn("You woke on Saturday 12 September 2026: today is day 3.", message)
 
+    def test_an_x_mention_comes_with_what_it_answers_and_what_teeny_said_lately(self):
+        from teeny_hands.x import mentions, posting_rules
+
+        conn = hand.db()
+        conn.executescript(posting_rules.SCHEMA + mentions.SCHEMA)
+        conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES ('50', 'post', 'gm. coffee first', ?)", (T0 - 3600,))
+        conn.execute("INSERT INTO x_mentions (id, author_username, text, post, status, seen_at, updated_at)"
+                     " VALUES ('40', 'ana', 'gm', '{}', 'replied', ?, ?)", (T0, T0))
+        conn.execute("INSERT INTO x_posts (id, kind, text, in_reply_to, created_at)"
+                     " VALUES ('41', 'reply', 'gm ana, one coin, never sold', '40', ?)", (T0 - 600,))
+        conn.close()
+        stimuli.add("x", "mention", "51", "what's the plan today?", who="ana", payload={"in_reply_to": "50"})
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("in reply to your post (1 h ago): gm. coffee first", message)
+        self.assertIn("you last said to @ana (10 min ago): gm ana, one coin, never sold", message)
+        self.assertIn("## what you said on X lately", message)
+
+    def test_a_beat_with_nothing_from_x_carries_no_x_history(self):
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        self.assertNotIn("what you said on X lately", self.chats()[0]["message"])
+
     def test_the_journal_says_what_landed_before_what_the_mind_claimed(self):
         # The mind writes its thought and journal lines before the hands run:
         # on 2026-11-13 it journaled "receipt delivered" for a comment that
