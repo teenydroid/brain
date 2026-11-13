@@ -1,40 +1,39 @@
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
-import { HomeLedger } from "@/components/sections/home-ledger"
-import { HomeNumbers } from "@/components/sections/home-numbers"
-import { Overview } from "@/components/sections/overview"
 import { PresenceSection } from "@/components/sections/presence"
+import { Different } from "@/components/sections/different"
+import { ReceiptsSection } from "@/components/sections/receipts"
+import { XSpotlight } from "@/components/sections/x-spotlight"
 import { loadAnatomy, loadRepo } from "@/lib/brain-repo"
-import { loadLedger } from "@/lib/ledger"
 import { loadMind } from "@/lib/mind"
 import { loadReceipts } from "@/lib/receipts"
 import { loadStats } from "@/lib/stats"
-import { loadWallet } from "@/lib/wallet"
 
 // Everything is read at render time and the page is rebuilt at most once a
 // minute; each fetch keeps its own cache (GitHub reads for ten minutes to an
-// hour, the Solana balances for five minutes, the bot's feeds for a minute).
+// hour, the bot's feeds for a minute).
 export const revalidate = 60
 
 export default async function Home() {
-  const [feed, ledger, anatomy, repo, receipts, stats, wallet] = await Promise.all([
+  const [feed, anatomy, repo, receipts, stats] = await Promise.all([
     loadMind(),
-    loadLedger({ limit: 8 }),
     loadAnatomy(),
     loadRepo(),
     loadReceipts(),
     loadStats(),
-    loadWallet(),
   ])
   return (
     <>
       <Hero feed={feed} receipts={receipts} />
-      <HomeNumbers stats={stats} wallet={wallet} />
-      <HomeBrain anatomy={anatomy} repo={repo} receipts={receipts} />
-      {/* The last few model calls, only while the bot's ledger answers: unreachable, the section is left out. */}
-      {ledger.source === "live" ? <HomeLedger ledger={ledger} /> : null}
-      <PresenceSection />
-      <Overview />
+      <XSpotlight stats={stats} receipts={receipts} />
+      <Different />
+      <div id="brain" className="scroll-mt-4">
+        <HomeBrain anatomy={anatomy} repo={repo} />
+      </div>
+      <div id="find">
+        <PresenceSection />
+      </div>
+      <ReceiptsSection feed={feed} receipts={receipts} />
     </>
   )
 }

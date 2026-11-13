@@ -7,11 +7,11 @@ import { PRESENCE } from "@/lib/presence"
 /** Where Teeny can be found, one card per place. */
 export function PresenceSection() {
   return (
-    <section className="border-b">
+    <section className="border-b border-neon-cyan/10">
       <Container>
-        <p className="mb-2 font-mono text-xs uppercase tracking-widest text-primary">Find it</p>
-        <h2 className="mb-8 text-2xl font-semibold tracking-tight sm:text-3xl">
-          One mind, in a few places.
+        <p className="eyebrow">find me</p>
+        <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
+          one mind, a few places.
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PRESENCE.map((p) => (

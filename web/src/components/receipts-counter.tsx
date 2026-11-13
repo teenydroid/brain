@@ -17,11 +17,11 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
       <div className="flex flex-col gap-2">
         <p className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-muted-foreground">
           <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-primary" : "bg-destructive")} />
-          things teeny has done, each with a receipt
+          things i have done, each with a receipt
         </p>
         {!live ? (
           <p className="max-w-xl text-sm text-muted-foreground">
-            The receipts could not be read from GitHub just now, so there is no count to show. They are all in{" "}
+            my receipts could not be read from github just now, so there is no count to show. they are all in{" "}
             <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
               the receipts repository
             </a>
@@ -29,7 +29,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
           </p>
         ) : !receipts.head ? (
           <p className="max-w-xl text-sm text-muted-foreground">
-            No receipts yet: the first post, reply or payment that goes out will be the first line in{" "}
+            no receipts yet: the first post, reply or payment i send will be the first line in{" "}
             <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
               the receipts repository
             </a>
@@ -42,11 +42,11 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
             </span>
             <p className="text-sm text-muted-foreground">
               {newest ? `latest: ${receiptLabel(newest.kind)}, ${receiptTime(newest.at)} · ` : ""}
-              every one is a line in{" "}
+              every one is a line in my{" "}
               <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
-                the receipts
+                receipts
               </a>
-              , chained by hash and linked to where it can be checked
+              , tamper-evident and linked to where it can be checked
             </p>
           </>
         )}
