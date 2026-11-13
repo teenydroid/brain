@@ -73,7 +73,7 @@ _EVM = re.compile(r"\b0x[0-9a-fA-F]{40}\b")
 _BASE58 = re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{32,44}\b")
 #: A Telegram chat id, a phone number: 7 to 13 digits on their own (an X
 #: post id is 18 or more and public; a year or a count is shorter).
-_LONG_NUMBER = re.compile(r"(?<![\w.])-?\d{7,13}(?![\w.])")
+_LONG_NUMBER = re.compile(r"(?<![\w-])(?<!\d\.)-?\d{7,13}(?!\w)(?!\.\d)")
 
 
 def enabled() -> bool:
