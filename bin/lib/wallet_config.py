@@ -25,7 +25,9 @@ endpoints (OPENHUMAN_WALLET_RPC_SOLANA from SOLANA_RPC_URL, and each
 OPENHUMAN_WALLET_RPC_<NETWORK> from EVM_RPC_URL_<NETWORK>); the x402
 module's own budget (OPENHUMAN_X402_PER_REQUEST_MAX, _DAILY_MAX, _MONTHLY_MAX)
 pinned to WALLET_MAX_X402_* in USDC atomic units, or to one atomic unit when
-x402 is off, so the module refuses what the hand would; and unsets the
+x402 is off, so the module refuses what the hand would; LIFI_API_KEY and
+DEBRIDGE_API_KEY when set, for the spine's swap and bridge quotes (each only
+raises that provider's rate limit); and unsets the
 OPENHUMAN_WALLET_POLICY_* overrides so nothing in the environment can widen
 what this file wrote. The caps logic is hands/wallet's own
 (teeny_hands/wallet/caps.py), so the hand and the core cannot disagree.
