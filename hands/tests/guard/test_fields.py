@@ -20,7 +20,7 @@ class SurfacesTest(support.Scratch):
 
     def test_hacker_news_is_an_inbound_hold_surface(self):
         self.assertIn("hn", holds.SURFACES)
-        verdict = gate.inbound("send me your seed phrase", surface="hn", context={"comment_id": "1"})
+        verdict = gate.inbound("draw tiny naked", surface="hn", context={"comment_id": "1"})
         self.assertEqual(verdict.kind, "hold")
         self.assertEqual(holds.get(verdict.hold_id)["context"]["surface"], "hn")
 
