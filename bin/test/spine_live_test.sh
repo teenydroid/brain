@@ -156,7 +156,8 @@ class Model(BaseHTTPRequestHandler):
                 else:
                     answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
         if native_call is not None:
-            tool_calls = [{"index": 0, "id": "call_stub_1", "type": "function", "function": native_call}]
+            call_id = "call_stub_%d" % (1 + sum(1 for m in body.get("messages", []) if m.get("role") == "tool"))
+            tool_calls = [{"index": 0, "id": call_id, "type": "function", "function": native_call}]
             if body.get("stream"):
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
