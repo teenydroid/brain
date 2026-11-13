@@ -46,7 +46,10 @@ class SetupTest(Scratch):
         with warnings.catch_warnings():
             # The fakes are threads; the child only execs, so forking is safe.
             warnings.simplefilter("ignore", DeprecationWarning)
-            pid, master = pty.fork()
+            try:
+                pid, master = pty.fork()
+            except OSError as exc:  # a sandbox with no free pty (the builder's jail)
+                self.skipTest(f"no pty to act as the terminal: {exc}")
         if pid == 0:  # the child: stdout to a file, the pty stays its terminal
             fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             os.dup2(fd, 1)
