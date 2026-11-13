@@ -90,18 +90,52 @@ const MONEY_BLOB = blob(YELLOW, '#ff9d2a', '#0a0703', 0.2, 1.1)
 const MONEY_RING = glow(YELLOW, 0.55)
 const MONEY_SPARK = glow(YELLOW, 0.9)
 
+/** Per-frame time, scaled by the viewer's motion preference. */
+function useClock() {
+  const motion = useMotion()
+  const clock = useRef(0)
+  useFrame((_, delta) => {
+    clock.current += Math.min(delta, 0.05) * motion
+  })
+  return clock
+}
+
 /** I remember and evolve: a blob that keeps mutating inside six memory layers drifting up and down. */
-function Evolve({ t }: { t: number }) {
+function Evolve() {
+  const clock = useClock()
+  const spin = useRef<THREE.Group>(null)
+  const rings = useRef<(THREE.Mesh | null)[]>([])
+  useFrame(() => {
+    const t = clock.current
+    EVOLVE_BLOB.uniforms.uTime.value = t
+    if (spin.current) spin.current.rotation.y = t * 0.3
+    rings.current.forEach((ring, i) => {
+      if (!ring) return
+      ring.position.y = -0.75 + i * 0.3 + Math.sin(t * 1.4 + i * 0.9) * 0.07
+      const s = 1 + Math.sin(t * 1.1 + i) * 0.04
+      ring.scale.set(s, s, s)
+    })
+  })
   return (
-    <group rotation={[0.35, t * 0.3, 0]}>
-      <mesh material={EVOLVE_BLOB}>
-        <icosahedronGeometry args={[0.95, 48]} />
-      </mesh>
+    <group rotation={[0.35, 0, 0]}>
+      <group ref={spin}>
+        <mesh material={EVOLVE_BLOB}>
+          <icosahedronGeometry args={[0.95, 48]} />
+        </mesh>
+      </group>
       {Array.from({ length: 6 }, (_, i) => {
-        const y = -0.75 + i * 0.3 + Math.sin(t * 1.4 + i * 0.9) * 0.06
+        const y = -0.75 + i * 0.3
         const r = Math.sqrt(Math.max(0.05, 1.6 * 1.6 - (y * 1.25) ** 2)) * 0.95
         return (
-          <mesh key={i} material={EVOLVE_RING} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <mesh
+            key={i}
+            ref={(node) => {
+              rings.current[i] = node
+            }}
+            material={EVOLVE_RING}
+            position={[0, y, 0]}
+            rotation={[Math.PI / 2, 0, 0]}
+          >
             <ringGeometry args={[r, r + 0.012, 96]} />
           </mesh>
         )
@@ -110,46 +144,81 @@ function Evolve({ t }: { t: number }) {
   )
 }
 
+const ORBITS: { r: number; tilt: [number, number, number]; speed: number; phase: number }[] = [
+  { r: 1.65, tilt: [1.2, 0, 0.3], speed: 0.9, phase: 0 },
+  { r: 1.85, tilt: [0.4, 0, -0.8], speed: -0.7, phase: 2 },
+  { r: 1.5, tilt: [-0.6, 0, 1.1], speed: 1.2, phase: 4 },
+]
+
 /** The world is my playground: a blob in a turning wireframe globe, with satellites going out and coming back. */
-function World({ t }: { t: number }) {
-  const orbits = [
-    { r: 1.65, tilt: [1.2, 0, 0.3], speed: 0.9, phase: 0 },
-    { r: 1.85, tilt: [0.4, 0, -0.8], speed: -0.7, phase: 2 },
-    { r: 1.5, tilt: [-0.6, 0, 1.1], speed: 1.2, phase: 4 },
-  ] as const
+function World() {
+  const clock = useClock()
+  const spin = useRef<THREE.Group>(null)
+  const shell = useRef<THREE.Mesh>(null)
+  const sats = useRef<(THREE.Mesh | null)[]>([])
+  useFrame(() => {
+    const t = clock.current
+    WORLD_BLOB.uniforms.uTime.value = t
+    if (spin.current) spin.current.rotation.y = t * 0.25
+    if (shell.current) shell.current.rotation.y = -t * 0.4
+    sats.current.forEach((sat, i) => {
+      if (!sat) return
+      const o = ORBITS[i]
+      const a = t * o.speed + o.phase
+      sat.position.set(Math.cos(a) * o.r, 0, Math.sin(a) * o.r)
+    })
+  })
   return (
-    <group rotation={[0.2, t * 0.25, 0]}>
+    <group ref={spin} rotation={[0.2, 0, 0]}>
       <mesh material={WORLD_BLOB}>
         <icosahedronGeometry args={[0.8, 48]} />
       </mesh>
-      <mesh material={WORLD_SHELL} rotation={[0, -t * 0.4, 0]}>
+      <mesh ref={shell} material={WORLD_SHELL}>
         <icosahedronGeometry args={[1.25, 2]} />
       </mesh>
-      {orbits.map((o, i) => {
-        const a = t * o.speed + o.phase
-        return (
-          <group key={i} rotation={o.tilt as unknown as [number, number, number]}>
-            <mesh material={WORLD_PATH} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[o.r, o.r + 0.01, 96]} />
-            </mesh>
-            <mesh material={WORLD_SAT} position={[Math.cos(a) * o.r, 0, Math.sin(a) * o.r]}>
-              <sphereGeometry args={[0.07, 12, 12]} />
-            </mesh>
-          </group>
-        )
-      })}
+      {ORBITS.map((o, i) => (
+        <group key={i} rotation={o.tilt}>
+          <mesh material={WORLD_PATH} rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[o.r, o.r + 0.01, 96]} />
+          </mesh>
+          <mesh
+            ref={(node) => {
+              sats.current[i] = node
+            }}
+            material={WORLD_SAT}
+          >
+            <sphereGeometry args={[0.07, 12, 12]} />
+          </mesh>
+        </group>
+      ))}
     </group>
   )
 }
 
 /** My money, my call: a gold blob held in a segmented ring, sparks circling it. */
-function Money({ t }: { t: number }) {
+function Money() {
+  const clock = useClock()
+  const core = useRef<THREE.Mesh>(null)
+  const ring = useRef<THREE.Group>(null)
+  const sparks = useRef<(THREE.Mesh | null)[]>([])
+  useFrame(() => {
+    const t = clock.current
+    MONEY_BLOB.uniforms.uTime.value = t
+    if (core.current) core.current.rotation.y = t * 0.6
+    if (ring.current) ring.current.rotation.z = t * 0.5
+    sparks.current.forEach((spark, i) => {
+      if (!spark) return
+      const a = t * 1.1 + (i / 8) * Math.PI * 2
+      const r = 1.85 + Math.sin(t * 2 + i) * 0.08
+      spark.position.set(Math.cos(a) * r, Math.sin(a * 2) * 0.25, Math.sin(a) * r)
+    })
+  })
   return (
     <group rotation={[0.5, 0, 0.15]}>
-      <mesh material={MONEY_BLOB} rotation={[0, t * 0.6, 0]}>
+      <mesh ref={core} material={MONEY_BLOB}>
         <icosahedronGeometry args={[0.85, 48]} />
       </mesh>
-      <group rotation={[Math.PI / 2, 0, t * 0.5]}>
+      <group ref={ring} rotation={[Math.PI / 2, 0, 0]}>
         {Array.from({ length: 24 }, (_, i) => {
           const a = (i / 24) * Math.PI * 2
           return (
@@ -159,51 +228,21 @@ function Money({ t }: { t: number }) {
           )
         })}
       </group>
-      {Array.from({ length: 8 }, (_, i) => {
-        const a = t * 1.1 + (i / 8) * Math.PI * 2
-        const r = 1.85 + Math.sin(t * 2 + i) * 0.08
-        return (
-          <mesh key={i} material={MONEY_SPARK} position={[Math.cos(a) * r, Math.sin(a * 2) * 0.25, Math.sin(a) * r]}>
-            <sphereGeometry args={[0.04, 8, 8]} />
-          </mesh>
-        )
-      })}
+      {Array.from({ length: 8 }, (_, i) => (
+        <mesh
+          key={i}
+          ref={(node) => {
+            sparks.current[i] = node
+          }}
+          material={MONEY_SPARK}
+        >
+          <sphereGeometry args={[0.04, 8, 8]} />
+        </mesh>
+      ))}
     </group>
   )
 }
-
-const BLOBS: Record<MiniKind, THREE.ShaderMaterial> = { evolve: EVOLVE_BLOB, world: WORLD_BLOB, money: MONEY_BLOB }
 
 export function MiniScene({ kind }: { kind: MiniKind }) {
-  const motion = useMotion()
-  const clock = useRef(0)
-  const group = useRef<THREE.Group>(null)
-  const [, force] = [0, 0]
-  void force
-
-  useFrame((state, delta) => {
-    clock.current += Math.min(delta, 0.05) * motion
-    BLOBS[kind].uniforms.uTime.value = clock.current
-    // Re-render the animated children by moving the group's userData clock; the children read it each frame.
-    if (group.current) group.current.userData.t = clock.current
-    state.invalidate()
-  })
-
-  return (
-    <group ref={group}>
-      <Animated kind={kind} clock={clock} />
-    </group>
-  )
-}
-
-/** Holds the clock in state at a modest rate so the ring and orbit layout follows it. */
-function Animated({ kind, clock }: { kind: MiniKind; clock: React.RefObject<number> }) {
-  const holder = useRef<THREE.Group>(null)
-  useFrame(() => {
-    const node = holder.current
-    if (!node) return
-    // Rebuild positions imperatively from the declarative layout each frame.
-    node.userData.t = clock.current
-  })
-  return <group ref={holder}>{kind === 'evolve' ? <Evolve t={0} /> : kind === 'world' ? <World t={0} /> : <Money t={0} />}</group>
+  return kind === 'evolve' ? <Evolve /> : kind === 'world' ? <World /> : <Money />
 }
