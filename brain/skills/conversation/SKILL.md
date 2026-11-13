@@ -125,7 +125,7 @@ Each of these is a way to leave a gap the reader wants to fill.
 - **The callback poll.** Refer to something the community said last week
   and ask if it held up.
 
-For **media** (the morning post, the chart, a generated picture or clip): the
+For **media** (the morning post, a generated picture or clip): the
 caption is the conversation, the media is the reason to stop scrolling. The
 caption always carries one of the shapes above; "here is a picture of Tiny
 doing X" is a description, not a post. The story in the picture gives the
