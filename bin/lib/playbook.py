@@ -5,7 +5,7 @@ check every playbook a cron names); never by a model.
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
 Prints {name, nudge, description, output, surface, max_per_day, inputs: [{name,
-argv}], prompt} or exits non-zero with what is wrong.
+argv, required, optional}], prompt} or exits non-zero with what is wrong.
 
     +++
     description = "the morning post"
@@ -28,6 +28,10 @@ argv}], prompt} or exits non-zero with what is wrong.
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those
                                # (an "ok" key aside)
+    optional = true            # optional: a hand that fails (an outage on
+                               # somebody else's site) is left out of the
+                               # inputs as {"unavailable": true} instead of
+                               # stopping the run; never with required
     +++
     the prompt: what to read in the inputs and what to draft.
 
@@ -209,10 +213,15 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     parsed = []
     for i, entry in enumerate(inputs):
         where = f"{path}: inputs[{i}]"
-        if not isinstance(entry, dict) or set(entry) - {"name", "run", "required"} or not isinstance(entry.get("run"), str):
-            raise PlaybookError(f"{where}: an input is {{name, run, required?}}")
+        if (not isinstance(entry, dict) or set(entry) - {"name", "run", "required", "optional"}
+                or not isinstance(entry.get("run"), str)):
+            raise PlaybookError(f"{where}: an input is {{name, run, required?, optional?}}")
         if not isinstance(entry.get("required", False), bool):
             raise PlaybookError(f"{where}: required is true or false")
+        if not isinstance(entry.get("optional", False), bool):
+            raise PlaybookError(f"{where}: optional is true or false")
+        if entry.get("optional") and entry.get("required"):
+            raise PlaybookError(f"{where}: an input is optional or required, not both")
         input_name = entry.get("name", f"input-{i}")
         if not isinstance(input_name, str) or not NAME.fullmatch(input_name):
             raise PlaybookError(f"{where}: name must be lowercase letters, digits and dashes")
@@ -222,6 +231,7 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
                 "argv": _datajob_argv(entry["run"], where, brain) if entry["run"].startswith(DATAJOB)
                 else _hand_argv(entry["run"], where, hands_dir),
                 "required": entry.get("required", False),
+                "optional": entry.get("optional", False),
             }
         )
 

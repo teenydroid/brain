@@ -11,7 +11,8 @@
 # 1. The day's budget: a playbook takes at most `max_per_day` actions a day
 #    (state/act/<name>/<date>); a skip is free.
 # 2. The inputs: each is a hand verb, run with DRY_RUN=1 forced, so even a
-#    mislabelled verb cannot write. Their JSON goes to the model as data.
+#    mislabelled verb cannot write. Their JSON goes to the model as data. A
+#    hand that fails stops the run, unless the input is `optional`.
 # 3. The draft (or, for a playbook with `nudge = true`, a nudge to Teeny's
 #    mind instead, which decides on its next beat): one turn as the `act` agent (brain/agents/act.toml): no tools,
 #    so no shell and no file writes, whoever started it. It answers JSON.
@@ -137,6 +138,13 @@ while IFS= read -r input; do
       { record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg o "${got:0:500}" \
         '{ok: false, playbook: $p, error: "input \($i) failed", stdout: $o}')"; exit 1; }
   elif ! got="$(cd "$TEENY_ROOT" && DRY_RUN=1 "$hands/${argv[0]#hands/}" "${argv[@]:1}" </dev/null 2>"$dir/input.err")"; then
+    if [ "$(jq -r .optional <<<"$input")" = true ]; then
+      # An optional input (`optional = true`) reads somebody else's site: its
+      # outage is left out of the inputs, and the run goes on without it.
+      log "$name: optional input $input_name failed; going on without it"
+      inputs="$(jq -c --arg k "$input_name" '. + {($k): {unavailable: true}}' <<<"$inputs")"
+      continue
+    fi
     record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg e "$(tail -c 500 "$dir/input.err")" --arg o "${got:0:500}" \
       '{ok: false, playbook: $p, error: "input \($i) failed", stderr: $e, stdout: $o}')"
     exit 1
