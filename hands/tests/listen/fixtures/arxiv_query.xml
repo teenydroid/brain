@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/G4zN77x+jKpihAUjZkomHXf9J8I</id>
+  <title>arXiv Query: search_query=cat:cs.MA OR (cat:cs.AI AND ti:agent)&amp;id_list=&amp;start=0&amp;max_results=2</title>
+  <updated>2026-11-13T23:21:06Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=cat:cs.MA+OR+(cat:cs.AI+AND+ti:agent)&amp;start=0&amp;max_results=2&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>2</opensearch:itemsPerPage>
+  <opensearch:totalResults>29081</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2611.17323v1</id>
+    <title>AgentSSL: Can MLE Agents Leverage Unlabeled Data?</title>
+    <updated>2026-11-12T18:59:06Z</updated>
+    <link href="https://arxiv.org/abs/2611.17323v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2611.17323v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Applying machine learning systems to new domains introduces bottlenecks in both labeled data acquisition and manual pipeline engineering. While recent MLE agents show promise in automating pipeline design, they have been studied almost exclusively in fully supervised settings, leaving them untested in realistic regimes where labeled data is scarce but unlabeled data is abundant. In this work, we introduce Agentic Semi-Supervised Learning (AgentSSL), framing SSL as a program search problem and studying how agents navigate this space under limited supervision. We find that even under weak</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-11-12T18:59:06Z</published>
+    <arxiv:comment>NeurIPS 2026. Project Website: https://codiscovery.ai/AgentSSL</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Ethan Lin</name>
+    </author>
+    <author>
+      <name>Akanksha Sarkar</name>
+    </author>
+    <author>
+      <name>Ziang Liu</name>
+    </author>
+    <author>
+      <name>Kristin Branson</name>
+    </author>
+    <author>
+      <name>Jennifer J. Sun</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2611.17294v1</id>
+    <title>Metal Sandbox: Isolated Execution and Command Scheduling for GPU Coding Agents on Apple Silicon</title>
+    <updated>2026-11-12T18:54:42Z</updated>
+    <link href="https://arxiv.org/abs/2611.17294v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2611.17294v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>On-device inference requires kernels that make effective use of local accelerators. Efficient training and evaluation of models that generate Apple Metal kernels benefit from native macOS tools and concurrent agent sessions. These sessions alternate between model requests, development commands, and GPU execution, leaving GPU capacity idle for much of a rollout. We present Metal Sandbox, infrastructure that combines restricted per-instance file access, native command execution, and command-level scheduling across interconnected Macs. Each agent retains its workspace and private development</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.DC" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-11-12T18:54:42Z</published>
+    <arxiv:comment>16 pages, 7 figures, 5 tables. Code available at https://github.com/WangHaoZhe/metal-sandbox and https://github.com/WangHaoZhe/harbor</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Haozhe Wang</name>
+    </author>
+    <author>
+      <name>Lina Chen</name>
+    </author>
+    <author>
+      <name>Fanqi Wan</name>
+    </author>
+    <author>
+      <name>Qi Han</name>
+    </author>
+    <author>
+      <name>Yinmin Zhang</name>
+    </author>
+    <author>
+      <name>Zheng Ge</name>
+    </author>
+    <author>
+      <name>Daxin Jiang</name>
+    </author>
+    <author>
+      <name>Junchi Yan</name>
+    </author>
+  </entry>
+</feed>

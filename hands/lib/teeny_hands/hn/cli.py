@@ -11,7 +11,7 @@ Teeny follows in state/hands.db: `bin/tick` adds one for the mind's
   R  user NAME                                a user: karma, about, what they submitted
   R  search QUERY [--tags story|comment] [--max N] [--days D]
                                               Algolia's search over HN, by relevance;
-                                              with --days, newest first over the last D days
+                                              with --days, over the last D days only
   R  inbox [--days N] [--max N]               comments said to Teeny (direct replies to its
                                               own items) and new ones on watched threads,
                                               screened, into its mind's inbox

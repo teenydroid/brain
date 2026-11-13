@@ -236,10 +236,11 @@ SEARCH_MAX_DAYS = 30
 
 def search(query: str, tags: str | None, max_results: int, api: RestApi | None = None,
            days: int | None = None) -> Json:
-    """Algolia's search over HN: stories, comments, or both. By relevance;
-    with `days`, by date instead, newest first and nothing older than that
-    (Algolia's /search_by_date), which is what listening wants: what people
-    said this week, not the best-ranked thread of five years ago."""
+    """Algolia's search over HN, by relevance: stories, comments, or both.
+    With `days`, only what was posted in the last `days` days, still ranked by
+    relevance (which weighs points): what listening wants is this week's
+    conversation, not the best thread of five years ago, and not the newest
+    post nobody has read yet either."""
     if not isinstance(query, str) or not query.strip() or len(query) > 500:
         raise hand.HandError("a search is 1 to 500 characters")
     if tags is not None and tags not in SEARCH_TAGS:
@@ -249,12 +250,10 @@ def search(query: str, tags: str | None, max_results: int, api: RestApi | None =
     params = [("query", query.strip()), ("hitsPerPage", str(max_results))]
     if tags:
         params.append(("tags", tags))
-    path = "/search"
     if days is not None:
-        path = "/search_by_date"
         params.append(("numericFilters", f"created_at_i>{int(hand.now() - days * 86400)}"))
     got = CACHE.cached("search", (query.strip(), tags, max_results, days),
-                       lambda: (api or client.search_api()).call("GET", path, params, auth=False))
+                       lambda: (api or client.search_api()).call("GET", "/search", params, auth=False))
     hits = got.get("hits") if isinstance(got, Mapping) and isinstance(got.get("hits"), list) else []
     out: Json = {"query": query.strip(),
                  "results": [_hit(h) for h in hits if isinstance(h, Mapping) and h.get("objectID")]}
