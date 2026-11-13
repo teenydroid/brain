@@ -559,7 +559,8 @@ def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     note = _text(intent, "note")
     who = intent.get("who") if isinstance(intent.get("who"), str) and intent["who"].strip() else None
     stored = stimuli.note(note, who=who, tick=tick)
-    learned = _learn(f"about {who}: {note}" if who else note, "fact", 0.7)
+    day = f"{rhythm.local():%Y-%m-%d}"
+    learned = _learn(f"[{day}] about {who}: {note}" if who else f"[{day}] {note}", "fact", 0.7)
     return {"ok": True, "noted": stored["id"], "learned": learned}
 
 
@@ -901,6 +902,25 @@ def _target(entry: Mapping[str, Any]) -> str:
     return str(found)
 
 
+#: Teeny's own bookkeeping: a refusal of one of these sent nothing to anybody.
+INWARD = ("remember", "follow_up", "drop_follow_up", "feel", "journal", "skip", "promise", "kept")
+
+
+def _status(r: Mapping[str, Any]) -> str:
+    """How an intent ended, in words that cannot be read as "it landed" when
+    it did not: a dry run and a failed or refused send say "not sent", with
+    the hand's reason."""
+    status = str(r.get("status"))
+    result = r.get("result") if isinstance(r.get("result"), Mapping) else {}
+    if status == "done":
+        return "dry run, not sent" if result.get("dry_run") else "done"
+    if status in ("refused", "error"):
+        reason = " ".join(str(result.get("refused") or result.get("error") or result.get("stderr") or "").split())[:120]
+        said = status if r.get("do") in INWARD else f"{status}, not sent"
+        return f"{said} ({reason})" if reason else said
+    return status
+
+
 def _did(results: list[Mapping[str, Any]]) -> str:
     """What a beat did, as `do on target: status`: never the words sent."""
     bits = []
@@ -908,7 +928,7 @@ def _did(results: list[Mapping[str, Any]]) -> str:
         if (r.get("intent") or {}).get("auto"):
             continue
         target = _target(r)
-        bits.append(f"{r.get('do')}{' on ' + target if target else ''}: {r.get('status')}")
+        bits.append(f"{r.get('do')}{' on ' + target if target else ''}: {_status(r)}")
     return "; ".join(bits) or "nothing, the thought kept to myself"
 
 
@@ -933,7 +953,10 @@ def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
             fh.write(f"# {now:%A %d %B %Y}\n")
         fh.write("\n" + "\n".join(entry))
     text = " ".join([thought or "(no thought)", *lines])
-    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: {text} (did: {did})", "other", 0.5)
+    # What the hands did comes first: the thought and the journal lines were
+    # written before any hand ran, and can claim a send that never landed.
+    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: what happened: {did}. "
+                     f"what i meant to do, written before the hands answered: {text}", "other", 0.5)
     return {"file": str(page.relative_to(hand.state_dir().parent)), "learned": learned}
 
 
