@@ -24,7 +24,8 @@ road every public word takes, and one step more first:
 
 - **redacted by code**: Telegram chat ids and other long bare numbers,
   email addresses, wallet addresses other than $TINY's own, and the query
-  of any URL become `[redacted]`;
+  of any URL become `[redacted]`, and a link to a site off the guard's
+  allowlist is cut (the guard would refuse the whole page for it);
 - **the secret gate** (the receipts' `check_secrets`: every value in
   secrets/*.env, the usual key shapes); a snapshot that trips it is
   withheld, never published and never retried;
@@ -101,7 +102,11 @@ def redact(text: str) -> str:
     text = _EVM.sub(REDACTED, text)
     text = _BASE58.sub(lambda m: m.group(0) if m.group(0) == TINY_MINT or not _looks_like_address(m.group(0))
                        else REDACTED, text)
-    return _LONG_NUMBER.sub(REDACTED, text)
+    text = _LONG_NUMBER.sub(REDACTED, text)
+    # A link the guard would refuse loses the whole snapshot; cut just the link.
+    from teeny_hands.guard import links
+
+    return links.filter_links(text, links.configured_allowlist()).text
 
 
 def _looks_like_address(word: str) -> bool:

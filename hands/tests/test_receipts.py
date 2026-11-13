@@ -880,7 +880,8 @@ class MemorySnapshotsTest(ReceiptsCase):
                         "0x52908400098527886E0F7030069857D2E4169EE7", "token=abc123"):
             self.assertNotIn(private, text)
         self.assertIn(self.MINT, text)  # its own token stays
-        self.assertIn("https://example.com/page", text)
+        self.assertNotIn("example.com", text)  # off the allowlist: cut, not the whole page lost
+        self.assertIn("for more", text)
         self.assertIn("[redacted]", text)
 
     def test_a_snapshot_the_guard_holds_is_withheld_and_never_retried(self):
