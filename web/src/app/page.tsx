@@ -1,8 +1,8 @@
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
 import { HomeNumbers } from "@/components/sections/home-numbers"
-import { Overview } from "@/components/sections/overview"
 import { PresenceSection } from "@/components/sections/presence"
+import { XSpotlight } from "@/components/sections/x-spotlight"
 import { loadAnatomy, loadRepo } from "@/lib/brain-repo"
 import { loadMind } from "@/lib/mind"
 import { loadReceipts } from "@/lib/receipts"
@@ -26,6 +26,7 @@ export default async function Home() {
   return (
     <>
       <Hero feed={feed} receipts={receipts} />
+      <XSpotlight stats={stats} receipts={receipts} />
       <div id="numbers">
         <HomeNumbers stats={stats} wallet={wallet} />
       </div>
@@ -35,7 +36,6 @@ export default async function Home() {
       <div id="find">
         <PresenceSection />
       </div>
-      <Overview />
     </>
   )
 }
