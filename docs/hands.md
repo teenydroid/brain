@@ -597,7 +597,7 @@ constant).
 
 | Verb | | Does |
 |---|---|---|
-| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped`, one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
+| `snapshot` | J | Today's W: one row per component into `world_scores`, keyed (date, component). A second snapshot the same UTC day replaces the day's values. A component whose sources are all missing is `skipped` (`tiny` and `money` while the core holds no wallet yet), one whose source errs is `failed`, and the rest still land. A component with no row that day neither gains nor loses. It only reads and records, so `DRY_RUN` does not affect it. |
 | `report [--days N]` | R | The latest W and, per component, its value N days (7) before, the plain `delta_log`, the capped `credit`, its weight, offset `c` and `daily_cap`, and its `contribution` to J. Then the penalty, J, the formula, and a `reading`: one plain sentence per component, for a playbook to hand a model. With no snapshot yet, J is null and the reading says to quote nothing. |
 | `history [--days N]` | R | The rows of the last N days (7), one entry per day: each component's value and its parts. |
 
