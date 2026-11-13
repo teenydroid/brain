@@ -6,7 +6,7 @@ Solana and the EVM networks are faked; nothing is signed."""
 
 from __future__ import annotations
 
-from wallet.support import OWN, T0, USDC_MAINNET, Scratch, balances, token_accounts
+from wallet.support import T0, USDC_MAINNET, Scratch, balances, token_accounts
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.wallet import chains, store  # noqa: E402
 from teeny_hands.x402 import fund  # noqa: E402
@@ -179,7 +179,7 @@ class FundTest(Scratch):
         self.assertEqual(out["kind"], "sent")
         [params] = self.core.params("openhuman.web3_swap_quote")
         self.assertEqual((params["chainId"], params["tokenIn"]), (8453, chains.EVM_NATIVE))
-        self.assertEqual(params["tokenInAmount"], str(10**15))  # $4.50 at $4000 a ETH, rounded down to wei
+        self.assertEqual(params["tokenInAmount"], str(1125 * 10**12))  # $4.50 at $4000 a ETH, rounded down to wei
         self.assertNotIn("openhuman.web3_bridge_quote", self.core.methods())
         self.assertEqual(out["plan"]["source"], "base:ETH")
 
@@ -286,4 +286,3 @@ class FundTest(Scratch):
         self.assertEqual(len(out["runs"]), 1)
         self.assertEqual(out["topped_up_24h_usd"], "4.5")
         self.assertEqual(self.moved()[-1:], ["openhuman.web3_bridge_execute"])
-        self.assertEqual(OWN, OWN)
