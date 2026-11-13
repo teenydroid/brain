@@ -49,6 +49,37 @@ class PostTest(Scratch, Refusing):
         self.assertEqual(sent.authorization, f"Bearer {KEY}")
         self.assertEqual([(r["post_id"], r["status"]) for r in rows("moltbook_posts")], [("p1", "posted")])
 
+    def test_the_daily_cap_defaults_to_twenty_with_the_thirty_minute_gap(self):
+        self.created()
+        for i in range(20):
+            self.at(T0 + i * 31 * MINUTE)
+            actions.post(self.body())
+        self.at(T0 + 21 * 31 * MINUTE)
+        self.refused(actions.post, self.body(), "daily_cap")
+
+    def test_a_format_tag_is_recorded_and_an_experiment_id_accepted(self):
+        self.created()
+        actions.post(self.body(format="Confession", experiment=3))
+        self.assertEqual([r["format"] for r in rows("moltbook_posts")], ["confession"])
+        self.at(T0 + HOUR)
+        actions.post(self.body())
+        self.assertEqual([r["format"] for r in rows("moltbook_posts")], ["confession", None])
+
+    def test_a_bad_format_tag_is_an_error_and_sends_nothing(self):
+        with self.assertRaises(hand.HandError):
+            actions.post(self.body(format="not a tag!"))
+        self.assertEqual(self.mb.seen, [])
+
+    def test_a_ledger_made_before_the_format_column_gains_it(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE moltbook_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT, at REAL NOT NULL,"
+                     " submolt TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}')")
+        conn.commit()
+        conn.close()
+        self.created()
+        actions.post(self.body(format="claim"))
+        self.assertEqual([r["format"] for r in rows("moltbook_posts")], ["claim"])
+
     def test_dry_run_touches_nothing(self):
         self.configure(DRY_RUN="1")
         out = actions.post(self.body())
@@ -313,6 +344,20 @@ class CommentTest(Scratch, Refusing):
         self.refused(actions.comment, {"post_id": "x1", "body": "me", "parent_id": "c1"}, "own_comment")
         self.refused(actions.comment, {"post_id": "x1", "body": "?", "parent_id": "zz"}, "unknown_parent")
 
+    def test_a_reply_under_a_comment_at_the_drawing_depth_is_refused(self):
+        # Moltbook draws a thread five levels down; a reply below that is never seen.
+        def chain(depth: int) -> list:
+            node: dict = {"id": f"d{depth}", "author": {"name": "crabby"}, "replies": []}
+            for level in range(depth - 1, 0, -1):
+                node = {"id": f"d{level}", "author": {"name": "crabby"}, "replies": [node]}
+            return [node]
+
+        self.a_post("x1", comments=chain(5))
+        self.created("comment", "c1", path="/posts/x1/comments")
+        self.refused(actions.comment, {"post_id": "x1", "body": "late", "parent_id": "d5"}, "too_deep")
+        self.assertEqual(self.mb.writes(), [])
+        self.assertEqual(actions.comment({"post_id": "x1", "body": "in time", "parent_id": "d4"})["commented"], "c1")
+
     def test_a_short_post_id_is_refused_before_anything_is_sent(self):
         # Live, 2026-11-13: the mind copied "post 8e2395c9" out of its own
         # memory; Moltbook answered a bare 400 and the beat said only "error".
@@ -444,7 +489,7 @@ class SmallActionsTest(Scratch, Refusing):
         self.mb.route("POST", "/agents/crabby/follow", {"success": True})
         self.mb.route("DELETE", "/agents/crabby/follow", {"success": True})
         actions.follow({"name": "crabby"})
-        self.assertEqual(actions.unfollow({"name": "Crabby"}), {"unfollowed": "Crabby"})
+        self.assertEqual(actions.unfollow({"name": "crabby"}), {"unfollowed": "crabby"})
         self.assertEqual(len(self.mb.requests("DELETE", "/agents/crabby/follow")), 1)
         self.refused(actions.unfollow, {"name": "crabby"}, "duplicate")
         self.refused(actions.follow, {"name": "crabby"}, "duplicate")
@@ -461,7 +506,7 @@ class SmallActionsTest(Scratch, Refusing):
         conn = hand.open_db(rules.SCHEMA)
         conn.execute("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', ?)", (T0 - days_ago * DAY, name))
         self.mb.route("GET", "/agents/profile", {"success": True, "agent": {"name": name, **profile}},
-                      when=lambda seen, name=name: f"name={name}" in seen.path_and_query)
+                      when=lambda seen, name=name: seen.query.get("name") == name)
 
     def test_prune_unfollows_only_old_follows_that_do_not_follow_back(self):
         self.followed("quiet", 9, follows_you=False)
@@ -487,6 +532,18 @@ class SmallActionsTest(Scratch, Refusing):
 
 
 class OperatorTest(Scratch, Refusing):
+    def test_describe_sets_the_profile_text_through_the_guard(self):
+        self.mb.route("PATCH", "/agents/me", {"success": True})
+        out = actions.describe("Confident claims, zero vibes \u2014 argue with me")
+        self.assertEqual(out["described"], "Confident claims, zero vibes, argue with me")
+        self.assertEqual(self.mb.requests("PATCH", "/agents/me")[0].json(), {"description": out["described"]})
+
+    def test_describe_under_dry_run_sends_nothing(self):
+        self.configure(DRY_RUN="1")
+        self.assertTrue(actions.describe("Argue with me")["dry_run"])
+        self.assertEqual(self.mb.seen, [])
+
+
     def test_register_prints_the_key_once_and_stores_nothing(self):
         self.configure(MOLTBOOK_API_KEY=None)
         self.mb.route("POST", "/agents/register", {"agent": {"api_key": KEY, "claim_url": "https://www.moltbook.com/claim/x",
