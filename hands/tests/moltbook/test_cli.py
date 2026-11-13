@@ -101,3 +101,26 @@ class CliTest(Scratch):
         code, out = self.run_hand("register", "--name", "teenydroid", "--description", "codes in public", key_may_print=True)
         self.assertEqual((code, out["api_key"]), (0, KEY))
         self.assertEqual(self.leaked(), [])
+
+
+class PruneJobTest(Scratch):
+    """bin/moltbook-prune, the weekly pinned job, calls `hands/moltbook prune`."""
+
+    def test_the_weekly_job_unfollows_who_does_not_follow_back(self):
+        import tomllib
+        from teeny_hands import hand
+        from teeny_hands.moltbook import rules
+
+        repo = MOLTBOOK.parents[1]
+        pinned = tomllib.loads((repo / "evals" / "cron.pinned.toml").read_text())["jobs"]["moltbook-prune"]
+        self.assertEqual((pinned["command"], pinned["schedule"]), ("bin/moltbook-prune", "30 17 * * 6"))
+        conn = rules.db()
+        conn.execute("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', 'quiet')", (T0 - 9 * 86400,))
+        self.mb.route("GET", "/agents/profile", {"success": True, "agent": {"name": "quiet", "follows_you": False}})
+        self.mb.route("DELETE", "/agents/quiet/follow", {"success": True})
+        env = {**os.environ, "TEENY_HANDS": str(MOLTBOOK.parent)}
+        done = subprocess.run([str(repo / "bin" / "moltbook-prune")], capture_output=True, text=True, env=env,
+                              timeout=60, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout.splitlines()[-1])["unfollowed"], ["quiet"])
+        self.assertEqual(len(self.mb.requests("DELETE", "/agents/quiet/follow")), 1)
