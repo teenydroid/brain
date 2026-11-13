@@ -188,10 +188,11 @@ def check(c: Any, q: Any, cluster: str, the_caps: caps.Caps, src_own: str, dst_o
     tx = _mapping(q.get("tx"))
     spender: str | None = None
     if chains.is_evm(c.from_chain):
-        extra, spender = _check_evm(c, tx, estimate)
+        extra, spender = _check_evm(c, tx, estimate, dst_own)
     else:
         extra = _check_solana(c, tx, cluster, src_own, dst_own, expected)
-    extra_micro = extra * _native_price(q, c.from_chain, the_caps) // 10 ** caps.DECIMALS["SOL" if c.from_chain == chains.SOLANA else "ETH"] if extra > 0 else 0
+    native = "SOL" if c.from_chain == chains.SOLANA else chains.NETWORKS[c.from_chain].native
+    extra_micro = extra * _native_price(q, c.from_chain, the_caps) // 10 ** caps.DECIMALS[native] if extra > 0 else 0
     fee_micro = max(listed, extra_micro)
 
     loss = in_market + fee_micro - out_micro
@@ -204,7 +205,7 @@ def check(c: Any, q: Any, cluster: str, the_caps: caps.Caps, src_own: str, dst_o
     return Terms(expected, min_raw, in_market, out_micro, fee_micro, spender, tool)
 
 
-def _check_evm(c: Any, tx: Mapping[str, Any], estimate: Mapping[str, Any]) -> tuple[int, str | None]:
+def _check_evm(c: Any, tx: Mapping[str, Any], estimate: Mapping[str, Any], dst_own: str) -> tuple[int, str | None]:
     """(native wei sent beyond the input, the approval spender)."""
     diamond = DIAMOND[c.from_chain]
     to = tx.get("to")
@@ -215,7 +216,7 @@ def _check_evm(c: Any, tx: Mapping[str, Any], estimate: Mapping[str, Any]) -> tu
         calldata = bytes.fromhex(str(data).removeprefix("0x"))
     except ValueError:
         raise bad("its transaction data is not hex") from None
-    if _recipient_bytes(c.to_chain, c.recipient) not in calldata:
+    if _recipient_bytes(c.to_chain, dst_own) not in calldata:
         raise bad("its transaction does not name the recipient")
     spender = None
     native = chains.NETWORKS[c.from_chain].native
