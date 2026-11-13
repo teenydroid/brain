@@ -157,6 +157,8 @@ class ScanTest(Scratch):
         self.assertEqual(later["heard"]["hn"], [])
         self.assertEqual(later["heard"]["lobsters"], [])
         self.assertGreater(later["repeats_left_out"], 0)
+        # 0 shows everything again, repeats and all.
+        self.assertEqual([i["title"] for i in scan.scan(fresh_hours=0)["heard"]["hn"]], ["agents that ship"])
 
     def test_the_playbook_may_name_its_own_topics_within_bounds(self):
         self.algolia({})

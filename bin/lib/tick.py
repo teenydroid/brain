@@ -104,6 +104,13 @@ MAX_INTENTS = 8
 #: The most people one beat shows the X history of (their earlier words and
 #: the conversation so far); anyone past them gets its first line only.
 MAX_HISTORIES = 8
+#: The own X posts a day Teeny keeps to (brain/cron.toml's header). hands/x
+#: holds only the three-hour gap; this is said in every beat that may post,
+#: with how many went out in the last 24 hours.
+OWN_POSTS_PER_DAY = 3
+#: Replies to one person in 24 hours past which a beat says so: a tag, a gm
+#: or a cheer from someone answered this often can go unanswered.
+REPLIES_PER_PERSON_DAY = 3
 #: The batch: at most this many stimuli and about this much text.
 MAX_STIMULI = 25
 MAX_CHARS = 30_000
@@ -660,6 +667,7 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
     lines.extend(_people(batch, exclude=[("x", who) for who in people]))
     if any(s["surface"] == "x" or s["surface"] == "nudge" for s in batch):
         lines.extend(_x_lately())
+        lines.extend(_x_own_posts())
     lines.append(shape())
     return "\n".join(lines)
 
@@ -695,6 +703,7 @@ def _x_turn(mentions: list[Mapping[str, Any]], full: bool = True) -> list[str]:
     history = _x_history(handle, [str(m["ref"]) for m in mentions])
     lines += history if full else history[:1]
     lines += _x_ledger(handle)
+    lines += _x_answered_today(handle)
     for n, m in enumerate(mentions):
         lines += ["", f"ref: {m['ref']}" + (f" · {_ago(m['at'])}" if several else "")]
         answers = _x_answering(m)
@@ -740,6 +749,48 @@ def _x_answering(s: Mapping[str, Any]) -> str | None:
     except Exception as exc:  # noqa: BLE001
         print(f"[tick] x context unavailable: {type(exc).__name__}", file=sys.stderr)
         return None
+
+
+def _x_count(sql: str, params: tuple) -> int | None:
+    """One count from hands/x's ledgers, read only; None when they can't be
+    read (no ledger yet, or locked), and the beat goes on without it."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            return int(conn.execute(sql, params).fetchone()[0])
+        finally:
+            conn.close()
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def _x_answered_today(handle: str) -> list[str]:
+    """Said when Teeny has already answered this person REPLIES_PER_PERSON_DAY
+    times in the last 24 hours (on 2026-11-13 most of a day's replies went to
+    the same few accounts tagging it, the same bit every time)."""
+    n = _x_count("SELECT COUNT(*) FROM x_posts p JOIN x_mentions m ON p.in_reply_to = m.id"
+                 " WHERE p.kind = 'reply' AND lower(m.author_username) = lower(?) AND p.created_at >= ?",
+                 (handle, hand.now() - 86400))
+    if n is None or n < REPLIES_PER_PERSON_DAY:
+        return []
+    return [f"You have answered @{handle} {n} times in the last 24 h. Another reply only for a real question you have "
+            "not answered yet; a tag, a gm or a cheer from them can go unanswered now."]
+
+
+def _x_own_posts() -> list[str]:
+    """How many own posts (and quotes) went out in the last 24 hours, against
+    the day's OWN_POSTS_PER_DAY, for a beat that may post."""
+    n = _x_count("SELECT COUNT(*) FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?",
+                 (hand.now() - 86400,))
+    if n is None:
+        return []
+    line = f"Own posts on X (not replies) in the last 24 h: {n} of the {OWN_POSTS_PER_DAY} a day you keep to."
+    if n >= OWN_POSTS_PER_DAY:
+        line += " They are spent: a take goes to Moltbook, a reply or your notes until tomorrow."
+    return [line, ""]
 
 
 def _x_lately() -> list[str]:

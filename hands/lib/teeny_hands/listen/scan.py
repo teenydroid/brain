@@ -15,8 +15,8 @@ counted, never shown. No model reads it here; the turn that does is the
 tool-less mind, which takes it as data (docs/architecture.md, "One mind").
 
 Each item is kept in the ledger (ledger.py). A scan shows only what is
-fresh: first heard within `fresh_hours`, so the evening does not repeat the
-morning. A Hacker News thread about Teeny is followed (hands/hn `watch`, at
+fresh: first heard within `fresh_hours` (0 shows everything), so the
+evening does not repeat the morning. A Hacker News thread about Teeny is followed (hands/hn `watch`, at
 most WATCH_PER_SCAN a scan, within its own cap), so what people say in it
 comes back through `hn inbox`, screened, as it is said.
 
@@ -155,7 +155,7 @@ def scan(days: int = 2, topics: Sequence[str] | None = None, max_items: int = 10
 
     first = ledger.record(items)
     cutoff = hand.now() - fresh_hours * 3600
-    fresh = [i for i in items if first[(i["source"], i["ref"])] >= cutoff]
+    fresh = [i for i in items if not fresh_hours or first[(i["source"], i["ref"])] >= cutoff]
     about = [i for i in fresh if i.get("about_me")]
     watching = _watch(about) if follow else []
 
