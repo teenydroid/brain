@@ -111,6 +111,22 @@ class HoldLogContractTest(support.Scratch):
             t.join()
         self.assertEqual(len([h for h in got if h is not None]), 1, got)
 
+    def test_the_same_inbound_item_held_again_while_pending_is_one_hold(self):
+        moltbook = {"surface": "moltbook", "post_id": "p1", "comment_id": "c1", "author": "crab"}
+        first = hold("a captcha killed it", context=moltbook, category="violence", reason='contains "killed"')
+        again = hold("a captcha killed it", context=dict(moltbook), category="violence", reason='contains "killed"')
+        self.assertEqual(again["id"], first["id"])
+        self.assertEqual(len(holds.list_holds()), 1)
+        # Another item, other words, or a hold already decided: a new hold.
+        other = hold("a captcha killed it", context={**moltbook, "comment_id": "c2"})
+        reworded = hold("a captcha killed it twice", context=moltbook)
+        holds.decide(first["id"], "rejected")
+        after = hold("a captcha killed it", context=moltbook)
+        self.assertEqual(len({first["id"], other["id"], reworded["id"], after["id"]}), 4)
+        # An outbound draft is the account's own: each attempt is its own hold.
+        draft = hold("gm frens", direction="outbound", kind="draft")
+        self.assertNotEqual(hold("gm frens", direction="outbound", kind="draft")["id"], draft["id"])
+
     def test_stamps_holds_with_the_hand_clock(self):
         import os
 
