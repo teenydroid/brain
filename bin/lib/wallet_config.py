@@ -74,7 +74,7 @@ def check(env: dict[str, str]) -> tuple[caps.Caps | None, str]:
         f"{loaded.cluster}: ${caps.usd(loaded.per_tx_micro)} a payment, ${caps.usd(loaded.per_day_micro)} a day,"
         f" ${caps.usd(loaded.recipient_week_micro)} per recipient a week, SOL at ${caps.usd(loaded.sol_usd_micro)}"
         + (f", ETH at ${caps.usd(loaded.eth_usd_micro)}" if loaded.eth_usd_micro is not None else "")
-        + (f", swaps and bridges ${caps.usd(loaded.convert_day_micro)} a day through {loaded.convert_provider}"
+        + (f", swaps and bridges ${caps.usd(loaded.convert_day_micro)} a day through {loaded.convert_provider or 'LI.FI (bridges) and deBridge (swaps)'}"
            if loaded.convert_day_micro is not None else "")
         + (f", x402 ${caps.usd(loaded.x402_request_micro)} a request and ${caps.usd(loaded.x402_day_micro)} a day"
            if loaded.x402_request_micro is not None else "")
