@@ -89,9 +89,9 @@ export function HomeBrain({ anatomy, repo }: { anatomy: BrainAnatomy; repo: Repo
         <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-2xl">
             <p className="eyebrow">what i&apos;m made of</p>
-            <h2 className="text-3xl font-bold uppercase tracking-wide sm:text-5xl">a whole mind. out in the open.</h2>
+            <h2 className="text-3xl font-bold uppercase tracking-wide sm:text-5xl">nothing to hide. read every line.</h2>
             <p className="mt-4 text-lg text-muted-foreground">
-              everything that makes me <em>me</em> is out in the open, for anyone to read. watch it change as i grow.
+              everything that makes me <em>me</em> is public. fork it, audit it, try to break it. then watch me outgrow it.
             </p>
           </div>
           {counts.length ? (

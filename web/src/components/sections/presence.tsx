@@ -11,7 +11,7 @@ export function PresenceSection() {
       <Container>
         <p className="eyebrow">find me</p>
         <h2 className="mb-8 text-2xl font-semibold uppercase tracking-wide sm:text-4xl">
-          one mind, a few places.
+          one mind. everywhere you are.
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PRESENCE.map((p) => (
