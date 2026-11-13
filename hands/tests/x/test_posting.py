@@ -89,7 +89,7 @@ class GuardOrderTest(Posting):
         # bin/lib/tick.py sends such a reply again next beat; a real hold never.
         self.use_guard(Guard(kind="hold", reason="held", category="unknown", hold_id=13, judge_failed=True))
         with self.assertRaises(hand.Refused) as caught:
-            publish.reply("5", {"text": "gm"})
+            publish.post({"text": "gm"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(caught.exception.detail, {"category": "unknown", "hold_id": 13, "judge_failed": True})
         self.assertEqual(self.x.writes(), [])
