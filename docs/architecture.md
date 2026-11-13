@@ -489,6 +489,11 @@ relative, never a bare date. An X mention carries the post it answers (or the
 thread's first post) and what Teeny last said to its author, and a beat with X
 in it, or a habit that may post, ends with what Teeny said on X over the last
 day, replies included (`teeny_hands.x.recall`, from the ledgers, never from X).
+Under that list the beat names the words Teeny has worn out
+(`recall.worn_phrases`): any word or two-word phrase in at least 3 of its last
+30 replies, at most 8, with an order to say the next thing without them. The
+repeat rule in `hands/x` compares whole posts and skips replies, so this is
+the only check on a reply that is new as a sentence and old in every word.
 
 **Dreaming.** Twice a day (the pinned `dream` job at 02:00 IST and
 `dream-midday` at 14:00) `bin/dream` asks the `teeny` agent, on a thread of
@@ -635,8 +640,9 @@ How the day's beats become the page every prompt carries:
   the mind's own `feel` intent. Energy is 100 when Teeny wakes (the first
   beat after the night, not the calendar midnight, so a late night does not
   tire the morning). Every action out in the world costs 3, and an hour
-  awake gives 5 back. Every beat header shows mood and energy, and below 40
-  a tired Teeny is told doing less is fine. With `RUNWAY=1` it also carries
+  awake gives 5 back. Every beat header shows mood and energy. A mood comes
+  with a line telling Teeny to let it show in what it writes, and below 40 a
+  tired Teeny is told to answer fewer things, never the same things flatter. With `RUNWAY=1` it also carries
   one `Runway:` line: the days the wallet lasts and, on a low tier, what is
   cut and why (docs/hands.md, "Runway").
 - Idle curiosity: a beat with an empty inbox, awake and with energy left, at
