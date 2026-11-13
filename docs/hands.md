@@ -946,7 +946,7 @@ shipped build first. Both ask for the Python standard library only, a
 README, passing tests, and a report of what was built, for whom, and what it
 could not do. Both end with the builds already shipped (request and daily
 jobs, the newest 20, each repository and the first line of its summary) and
-"Don't build any of these again; extending one is fine."
+"Don't build any of these again."
 
 How the builder and cron hand work back and forth, and the states a job
 moves through (`teeny_hands/build/jobs.py`):

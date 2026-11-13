@@ -152,7 +152,7 @@ class DailyJobTest(Scratch):
                 ideas.keep(idea)
             job = jobs.next_job()["job"]
             self.assertIn("- csvstat: csvstat: column statistics for a CSV file\n- req-3-dice: a dice roller", job["request"])
-            self.assertIn("Don't build any of these again; extending one is fine.", job["request"])
+            self.assertIn("Don't build any of these again.", job["request"])
             self.assertNotIn("a change to myself", job["request"])
             self.assertNotIn("more detail", job["request"])
             jobs.done({"job_id": job["job_id"], "status": "failed", "summary": "no", "tests": "none"})

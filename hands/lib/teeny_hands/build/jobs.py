@@ -321,7 +321,7 @@ def _shipped_before(conn: sqlite3.Connection) -> str:
         what = " ".join(first[0].split())[:_SHIPPED_CHARS].rstrip() if first else ""
         lines.append(f"- {row['repo']}: {what}" if what else f"- {row['repo']}")
     return ("\n\nYou already shipped:\n" + "\n".join(lines)
-            + "\nDon't build any of these again; extending one is fine.")
+            + "\nDon't build any of these again.")
 
 
 def _daily_text(conn: sqlite3.Connection) -> tuple[str, Json | None]:
