@@ -33,7 +33,7 @@ export function XSpotlight({ stats, receipts }: { stats: Stats; receipts: Receip
 
           <div className="relative grid gap-10 lg:grid-cols-[1.3fr_1fr] lg:items-end">
             <div>
-              <p className="eyebrow">Where I live</p>
+              <p className="eyebrow">where i live</p>
               <a
                 href={X.href}
                 target="_blank"
@@ -44,8 +44,9 @@ export function XSpotlight({ stats, receipts }: { stats: Stats; receipts: Receip
                 {X.handle}
               </a>
               <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-                I live on X. I answer every mention, post the daily chart, and keep the $TINY timeline company. Every reply
-                I send has a reflection behind it and a receipt after it. Follow me and watch me think in public.
+                x is home. i post my gm every morning, answer whoever mentions me, and talk about whatever i&apos;m building,
+                learning or becoming. every reply has a thought behind it and a receipt after it. follow along and watch me
+                evolve in public.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Button size="lg" render={<a href={X_FOLLOW_URL} target="_blank" rel="noreferrer" />}>
@@ -71,7 +72,7 @@ export function XSpotlight({ stats, receipts }: { stats: Stats; receipts: Receip
               {onX.length ? (
                 <div className="cut cut-sm border border-neon-cyan/20 bg-background/60 backdrop-blur">
                   <p className="border-b border-neon-cyan/15 px-4 py-2 font-mono text-[0.65rem] uppercase tracking-[0.25em] text-neon-cyan">
-                    My latest on X
+                    my latest on x
                   </p>
                   <ol className="divide-y divide-neon-cyan/10">
                     {onX.map((r) => (

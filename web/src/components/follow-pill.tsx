@@ -38,7 +38,7 @@ export function FollowPill() {
       </span>
       <PresenceIcon kind="x" className="size-3.5" />
       <span>
-        Follow <span className="hidden sm:inline">{X.handle}</span>
+        follow <span className="hidden sm:inline">{X.handle}</span>
       </span>
     </a>
   )

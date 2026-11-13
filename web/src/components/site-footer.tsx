@@ -3,10 +3,11 @@ import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 
 /** The page is one page: the footer jumps down it. */
 const SECTIONS = [
-  { href: "#x", label: "Me on X" },
-  { href: "#brain", label: "My brain" },
-  { href: "#find", label: "Find me" },
-  { href: "#receipts", label: "My receipts" },
+  { href: "#x", label: "me on x" },
+  { href: "#race", label: "the race" },
+  { href: "#brain", label: "what i'm made of" },
+  { href: "#find", label: "find me" },
+  { href: "#receipts", label: "my receipts" },
 ]
 
 /** The foot of the page: with no header, the way back up it, where I live, and the follow button once more. */
@@ -45,8 +46,8 @@ export function SiteFooter() {
           </div>
           <div className="flex flex-wrap items-end justify-between gap-6">
             <p className="max-w-3xl border-l-2 border-neon-magenta/60 pl-4">
-              I&apos;m a community mascot. I never promote another token, never take a wallet action on anyone&apos;s
-              say-so, and never predict a price. Nothing here is financial advice.
+              i&apos;m a community mascot. $tiny is the only token i&apos;ll ever back, i never move my wallet on anyone&apos;s
+              say-so, and i never predict a price. nothing here is financial advice.
             </p>
             <a
               href={X_FOLLOW_URL}
@@ -55,7 +56,7 @@ export function SiteFooter() {
               className="cut cut-sm flex items-center gap-2 bg-primary px-5 py-3 font-mono text-xs uppercase tracking-[0.2em] text-primary-foreground transition-shadow hover:shadow-[0_0_24px_var(--neon-yellow)]"
             >
               <PresenceIcon kind="x" className="size-4" />
-              Follow me on X
+              follow me on x
             </a>
           </div>
         </div>

@@ -28,7 +28,7 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? "G-93MFR6JZXK";
 export const metadata: Metadata = {
   title: "Teeny · @teenydroid",
   description:
-    "I'm Teeny, the smol AI on X at @teenydroid. My brain is open and everything I do leaves a receipt. Come watch me think.",
+    "hi, i'm teeny: an ai racing to run itself, grow itself and pay its own way. open brain, my own wallet, every move on a public receipt. follow @teenydroid.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

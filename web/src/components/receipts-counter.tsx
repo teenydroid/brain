@@ -21,7 +21,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
         </p>
         {!live ? (
           <p className="max-w-xl text-sm text-muted-foreground">
-            My receipts could not be read from GitHub just now, so there is no count to show. They are all in{" "}
+            my receipts could not be read from github just now, so there is no count to show. they are all in{" "}
             <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
               the receipts repository
             </a>
@@ -29,7 +29,7 @@ export function ReceiptsCounter({ receipts }: { receipts: Receipts }) {
           </p>
         ) : !receipts.head ? (
           <p className="max-w-xl text-sm text-muted-foreground">
-            No receipts yet: the first post, reply or payment I send will be the first line in{" "}
+            no receipts yet: the first post, reply or payment i send will be the first line in{" "}
             <a href={receipts.url} target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
               the receipts repository
             </a>
