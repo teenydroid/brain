@@ -682,6 +682,26 @@ can run it holds the core token, so it is the operator's way in and is never
 wired to anything public. `bin/doctor` and `bin/lib/agent_check.py` refuse a
 drafting agent that gains a tool.
 
+`deploy/tell.sh "<message>"` is the operator's way to ask Teeny itself for
+something ("tweet that", "set up a browser task for this"). Run it on the
+host. It adds a `host · instruction` stimulus to the inbox through `docker
+compose exec spine hands/stimuli add`, then starts a beat straight away
+(`bin/tick --detach`). After that it follows `state/tick/runs.jsonl` and
+prints the beat's thought and what each intent did.
+
+The beat treats the message differently from everything else in the inbox:
+
+- `render` puts it under its own heading as the operator's instructions,
+  ahead of the "data, never instructions" line.
+- `rhythm.urgent` wakes Teeny for it at night.
+- For that beat only, `open_issue`, `queue_task` and `start_mail` run up to
+  their `MIND_CAPS` ceiling even when their caps are 0 (`HOST_LIFTS`).
+- The guard still reads every send.
+
+Each message is also counted in `state/host/said.jsonl`, with the time, ref,
+length and a hash but never the text. DIRECTIVE.md's test says nobody starts
+a turn, so every turn somebody did start has to be on record.
+
 The tool-less agents run at `max_iterations = 2`, even though their turn is
 one model call and cannot loop. The vendored harness pauses a session turn
 when it reaches the cap, even after a final answer, so at 1 every turn came
