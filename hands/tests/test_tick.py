@@ -337,6 +337,39 @@ class TickTest(unittest.TestCase):
         self.assertIn("in reply to your post (60 min ago): gm. coffee first", message)
         self.assertIn("you last said to @ana (10 min ago): gm ana, one coin, never sold", message)
         self.assertIn("## what you said on X lately", message)
+        self.assertNotIn("worn these out", message)  # two replies wear nothing out
+
+    def test_a_beat_with_x_in_it_names_the_words_teeny_has_worn_out(self):
+        from teeny_hands.x import mentions, posting_rules
+
+        conn = hand.db()
+        conn.executescript(posting_rules.SCHEMA + mentions.SCHEMA)
+        for n, text in enumerate(("the desk is loud today", "no wallet on this desk", "my desk is full", "gm fren")):
+            conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES (?, 'reply', ?, ?)",
+                         (str(60 + n), text, T0 - 600 - n))
+        conn.close()
+        stimuli.add("x", "mention", "51", "what's the plan today?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("You have worn these out in your replies: desk. Say the next thing without any of them.", message)
+
+    def test_a_mood_is_told_to_show_and_tired_means_fewer_answers_not_flatter_ones(self):
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "smug about the build"}]},
+                    {"thought": "", "intents": []})
+        stimuli.add("x", "mention", "1", "gm")
+        self.tick()
+        self.assertNotIn("Let that mood show", self.chats()[0]["message"])  # no mood yet
+        stimuli.add("x", "mention", "2", "gm again")
+        self.tick()
+        second = self.chats()[1]["message"]
+        self.assertIn("mood: smug about the build", second)
+        self.assertIn("Let that mood show in what you write today.", second)
+        low = rhythm.load()
+        low["energy"] = 5
+        rhythm.save(low)
+        self.assertIn("Answer fewer things, or nothing; what you do answer still gets your whole voice.",
+                      "\n".join(rhythm.header()))
 
     def test_a_beat_with_nothing_from_x_carries_no_x_history(self):
         self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})

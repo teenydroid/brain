@@ -232,8 +232,11 @@ def header(woke: Mapping[str, Any] | None = None) -> list[str]:
     if state.get("obsession"):
         bits.append(f"on your mind: {state['obsession']}")
     lines.append("How you are: " + "; ".join(bits) + ".")
+    if state.get("mood"):
+        lines.append("Let that mood show in what you write today.")
     if e < IDLE_MIN_ENERGY:
-        lines.append("You are running low. Doing less, or nothing, is fine.")
+        # Tired means fewer things answered, never a flatter answer.
+        lines.append("You are running low. Answer fewer things, or nothing; what you do answer still gets your whole voice.")
     # Runway (docs/roadmap.md, S2): how long the wallet lasts, and what a low
     # tier cuts, so the mind knows why a picture was refused.
     from teeny_hands import runway
