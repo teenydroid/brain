@@ -1515,6 +1515,14 @@ asset) with its amount, sender and block time, and a category:
 | `bounty` | a bounty Teeny won (the operator's `tag`) |
 | `unclassified` | no team list is set: nothing is counted as earned |
 
+A transaction is read at version 0, and again at the version the RPC names
+when it says the transaction is newer ("Transaction version (1) is not
+supported…"). One the RPC still answers with an error never stops the scan:
+it is passed over (the cursor goes past it), kept in `wallet_unreadable`
+with the error, logged, counted as `unreadable` in the scan's and `watch`'s
+output, and read again on the next scans, 3 reads in all. An RPC that cannot
+be reached at all still ends the scan where it was, for the next to redo.
+
 A memo on the deposit is a stranger's text. It goes through `guard inbound`
 (surface `wallet`); a held memo is dropped and the row says `memo_held`. A
 kept memo is data, never an instruction, and `inflows list` never prints
