@@ -262,6 +262,9 @@ cat >"$scratch/fake-oh" <<'FAKE'
 case "$1" in
   cron_list) cat "$FAKE_JOBS" ;;
   config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
+  modules_browser_check_readiness)
+    ready='{"module_ready": true, "chrome_ready": true}'
+    printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
   *) echo "unexpected method $1" >&2; exit 1 ;;
 esac
 FAKE
@@ -306,6 +309,18 @@ check "--live fails when a cron agent turn gets only the core's default 120 s" \
   grep -q '^FAIL cron agent turn budget: ' "$scratch/doctor.log"
 live_doctor || true
 check "--live passes the budget bin/spine sets" grep -q '^ok   cron agent turn budget' "$scratch/doctor.log"
+
+# 2026-11-13: every browser call the operator made failed with "module
+# 'tinycomputer' callback source cannot preserve admitted identity" (the core
+# was told to serve TinyComputer linked), and only the operator's own report
+# said so. The core's readiness probe loads the module and opens Chrome.
+FAKE_BROWSER='{"module_ready": false, "chrome_ready": false, "error": "TinyComputer module is unavailable"}' live_doctor || true
+check "--live fails when the TinyComputer browser module cannot load" \
+  grep -q '^FAIL browser: .*TinyComputer module is unavailable' "$scratch/doctor.log"
+FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "Chrome could not start: no binary"}' live_doctor || true
+check "--live fails when Chrome does not start" grep -q '^FAIL browser: .*Chrome could not start' "$scratch/doctor.log"
+live_doctor || true
+check "--live passes a browser that loads and starts Chrome" grep -q '^ok   browser: ' "$scratch/doctor.log"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'

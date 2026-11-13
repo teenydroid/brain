@@ -64,9 +64,17 @@ class CoreConfigTest(unittest.TestCase):
         self.assertTrue(Path(browser["profile_path"]).is_dir())
         self.assertIn("click", browser["unattended_actions"])
         self.assertEqual(doc["http_request"]["allowed_domains"], websites.load(self.root))
-        self.assertEqual(doc["modules"]["overrides"],
-                         [{"id": "tinycomputer", "source": "linked"}, {"id": "tinywallet", "source": "linked"}])
+        self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
+
+    def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
+        # The browser loads TinyComputer with a host callback (the consequence
+        # gate on browser egress), and TinyBus admits a callback-bound load
+        # only from the pinned release or a local file. Linked, every browser
+        # call fails with "module 'tinycomputer' callback source cannot
+        # preserve admitted identity".
+        overrides = self.written()["modules"]["overrides"]
+        self.assertNotIn("tinycomputer", [entry["id"] for entry in overrides])
 
     def test_the_evolvers_lab_writes_its_worktree_and_nothing_of_the_core(self):
         os.environ.update(SPINE_LAB="1", SPINE_LAB_EDIT="1")

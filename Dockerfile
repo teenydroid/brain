@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # The spine image: teeny-spine (OpenHuman's host, built here from the
-# vendored library, with TinyComputer and tinywallet linked in), OpenHuman's
+# vendored library, with tinywallet linked in), OpenHuman's
 # pinned module releases, Chromium for the browser, and the tools bin/ needs. Teeny's scripts and brain are not baked in; deploy/compose.yaml
 # mounts the checkout at /srv/teeny, so a job or cron.toml change is a pull and
 # a restart, not a rebuild.
@@ -52,8 +52,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # vendor/openhuman): Chromium at /usr/bin/chromium, which
 # bin/lib/core_sections/automation.py writes as `[browser] chrome_path`
 # (TEENY_CHROME_PATH below), with fonts so pages render. TinyComputer itself
-# is linked into teeny-spine, so there is no module library to copy or
-# attest. agent-browser adds --no-sandbox and --disable-dev-shm-usage itself
+# is its pinned release (bin/lib/core_sections/automation.py says why it is
+# not served linked), staged with the others below. agent-browser adds --no-sandbox and --disable-dev-shm-usage itself
 # inside a container. bubblewrap is TinyBox's namespace sandbox, which the
 # builder's shell commands run under (brain/agents/builder.toml).
 RUN apt-get update && apt-get install -y --no-install-recommends \

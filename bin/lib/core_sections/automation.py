@@ -1,7 +1,7 @@
 """The scheduled agents' settings (docs/architecture.md, "Scheduled agents"):
 how long a cron shell job may run, the autonomy policy and what the agents'
-file tools may reach, the browser, the websites it may open, and the two
-linked modules.
+file tools may reach, the browser, the websites it may open, and the
+linked module.
 
   [cron]         shell_timeout_secs: bin/ jobs that draft several turns
                  take minutes, not the core's default 120 s
@@ -17,8 +17,8 @@ linked modules.
                  state/browser/, and the actions an unattended run may take
   [http_request] allowed_domains: deploy/browser-allow.txt, which the
                  browser shares
-  [modules]      TinyComputer and tinywallet from the spine's own executable
-                 (spine/Cargo.toml), every other module from its release
+  [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
+                 every other module, TinyComputer included, from its release
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
@@ -68,7 +68,12 @@ CHROME_CANDIDATES = (
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 )
 
-LINKED_MODULES = ("tinycomputer", "tinywallet")
+#: Modules served from the spine's own executable. Not TinyComputer: the
+#: browser loads it with a host callback (the consequence gate on browser
+#: egress), and TinyBus admits a callback-bound load only from the pinned
+#: release or a local file, so linked every browser call fails with "module
+#: 'tinycomputer' callback source cannot preserve admitted identity".
+LINKED_MODULES = ("tinywallet",)
 
 
 def _hands_lib(root: Path) -> None:

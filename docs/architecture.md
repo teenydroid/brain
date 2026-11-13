@@ -119,7 +119,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. TinyComputer and tinywallet are linked into `teeny-spine` (`spine/Cargo.toml`). |
+| Browser | `[browser]` headless Chromium (in the image), a persistent profile and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. The allowed websites are `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. |
 | Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; swaps and bridges go through deBridge (`spine/src/debridge.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
@@ -753,8 +753,8 @@ A desk is the simplest safe choice, and the one that works at this pin:
 inbound sources) and writes each module in `bin/lib/core_sections/` into
 the core's config, replacing each table whole. `automation.py` owns `[cron]`
 (`shell_timeout_secs = 1800`), `[autonomy]`, `[browser]`, `[http_request]`
-(`allowed_domains` from `deploy/browser-allow.txt`) and `[modules]` (the two
-linked modules). `context.py` owns `[context]` and `secrets.py` owns
+(`allowed_domains` from `deploy/browser-allow.txt`) and `[modules]` (tinywallet, the
+linked module). `context.py` owns `[context]` and `secrets.py` owns
 `[secrets]`.
 
 **What the builder may not do.** It has no token (its shell cannot read
