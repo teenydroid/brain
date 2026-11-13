@@ -475,10 +475,44 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
             lines.append("details: " + json.dumps(payload, ensure_ascii=False, sort_keys=True)[:1500])
         lines.append("")
         lines.append(s["text"])
+        if (s["surface"], s["kind"]) == ("x", "mention"):
+            lines.extend(_x_context(s))
         lines.append("")
     lines.extend(_people(batch))
+    if any(s["surface"] == "x" or s["surface"] == "nudge" for s in batch):
+        lines.extend(_x_lately())
     lines.append(shape())
     return "\n".join(lines)
+
+
+def _x_context(s: Mapping[str, Any]) -> list[str]:
+    """Under an X mention: the post it answers and what Teeny last said to
+    its author, from the hands' ledgers (teeny_hands.x.recall). A ledger that
+    can't be read leaves the mention as it was."""
+    try:
+        from teeny_hands.x import recall
+
+        found = recall.mention_context(str(s["ref"]), s.get("who"), s.get("payload") or {})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x context unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    return ["", *found] if found else []
+
+
+def _x_lately() -> list[str]:
+    """What Teeny said on X over the last day, replies included, for a beat
+    that has X in it or a habit that may post (the prompt's own "what you
+    said lately" holds posts only, and only as of the last rebuild)."""
+    try:
+        from teeny_hands.x import recall
+
+        found = recall.said_lately()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x history unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    if not found:
+        return []
+    return ["", found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:]]
 
 
 def _people(batch: list[Mapping[str, Any]]) -> list[str]:
