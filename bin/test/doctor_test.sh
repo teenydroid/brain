@@ -262,7 +262,9 @@ cat >"$scratch/fake-oh" <<'FAKE'
 case "$1" in
   cron_list) cat "$FAKE_JOBS" ;;
   config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
-  modules_browser_check_readiness) printf '%s\n' "${FAKE_BROWSER:-{\"module_ready\": true, \"chrome_ready\": true\}}" ;;
+  modules_browser_check_readiness)
+    ready='{"module_ready": true, "chrome_ready": true}'
+    printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
   *) echo "unexpected method $1" >&2; exit 1 ;;
 esac
 FAKE
