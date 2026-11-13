@@ -90,6 +90,11 @@ def configured_allowlist() -> list[AllowlistEntry]:
 
 
 # Common enough that a bare "name.tld" in a post is a link everybody taps.
+# eth, sol, crypto, nft and dao are not in the root zone but are names wallet
+# browsers open (ENS, SNS, Unstoppable). Words that are only identifiers,
+# like "wallet", "token", "swap", "dex", "defi" and "coin", are not here: none
+# is a delegated tld, no app makes them tappable, and they name things such
+# as the teeny.wallet-watch job.
 LINKABLE_TLDS = frozenset(
     """
     com net org io ai co me app dev xyz fun place so gg to ly sh link site online info biz tv cc
@@ -99,7 +104,7 @@ LINKABLE_TLDS = frozenset(
     cz be at dk ie pt gr nz za mx ar cl ng ke eu is im ac st fm am ws tk ml ga cf gq pw icu click
     monster rest bond cyou buzz cam quest sbs lat mov zip work guru ninja email team trade markets
     capital fund ventures partners solutions services agency studio games game social chat wiki
-    blog tools systems foundation dao nft coin token wallet swap dex defi
+    blog tools systems foundation dao nft
     """.split()
 )
 
@@ -117,11 +122,15 @@ def deobfuscate(text: str) -> str:
 
 
 # `(?<![\w@.-])` in the legacy pattern, `\w` being ASCII there: a link glued to
-# a word, an address or a handle is not a link of its own.
+# a word, an address or a handle is not a link of its own. A bare name's tld
+# has to end where the name does, as it does for a linkifier: in
+# "teeny.wallet-watch" or "a.ai-thing" the letters after the dot are the
+# start of a longer word, not a tld. A dot is a boundary, so "evil.com" in
+# "evil.com.foo-bar" is still found; an underscore is too, as on X.
 _URL_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_@.\-])"
     r"""(?:(?:[hH][tT][tT][pP][sS]?://|[wW][wW][wW]\.)[^\s<>"'()\[\]{}]+"""
-    r"""|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,24}(?::[0-9]{2,5})?(?:/[^\s<>"'()\[\]{}]*)?)"""
+    r"""|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,24}(?![A-Za-z0-9-])(?::[0-9]{2,5})?(?:/[^\s<>"'()\[\]{}]*)?)"""
 )
 
 
