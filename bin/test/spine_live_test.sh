@@ -108,6 +108,35 @@ class Model(BaseHTTPRequestHandler):
         # The builder: one shell call into its job's folder, then done. The
         # marker is computed by the shell, so only the call's output (never
         # the call itself, replayed in the transcript) carries it.
+        # The browser operator with a task on its desk: open the start page in
+        # the real browser, then write the report with the page's title. The
+        # desk sits beside the builder's (sys.argv[5]).
+        elif "doing one task in a web browser" in json.dumps(body):
+            import os
+            desk_dir = os.path.dirname(sys.argv[5])
+            try:
+                with open(os.path.join(desk_dir, "task.json")) as desk:
+                    task = json.load(desk).get("task")
+            except (OSError, ValueError):
+                task = None
+            messages = body.get("messages", [])
+            results = [m for m in messages if m.get("role") == "tool"]
+            wrote = any(c.get("function", {}).get("name") == "file_write"
+                        for m in messages for c in (m.get("tool_calls") or []))
+            call = None
+            if task and not results:
+                call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
+            elif task and not wrote:
+                seen = json.dumps(results[-1].get("content"))
+                ok = "Example Domain" in seen
+                report = {"task_id": task["task_id"], "outcome": "ok" if ok else "failed",
+                          "notes": "the page title is Example Domain" if ok else "the browser said: " + seen[:300]}
+                call = {"name": "file_write", "arguments": json.dumps(
+                    {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
+            elif task:
+                answer = "the task is done and reported"
+            if call is not None:
+                native_call = call
         elif "building something small in public" in json.dumps(body):
             if SHELL_RAN in json.dumps(body):
                 answer = "built"
