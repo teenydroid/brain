@@ -15,6 +15,17 @@ const FINISH = [
   "nothing got past my guard that shouldn't have",
 ]
 
+/** Each level in my own words; the file's own line stands in for any level added later. */
+const IN_MY_WORDS: Record<number, string> = {
+  0: "my body exists and boots by itself",
+  1: "i notice the world without being told to look",
+  2: "i talk to people, and keep talking to them",
+  3: "i do real things: build, browse, pay",
+  4: "i'm the same teeny tomorrow, and i know what happened yesterday",
+  5: "i change myself and keep only what wins",
+  6: "i govern myself inside my fences. my operator only reads",
+}
+
 /**
  * The race: where I stand on the way to running myself, growing myself and
  * paying my own way. Each level and its progress is read from DIRECTIVE.md,
@@ -76,7 +87,9 @@ export function RaceSection({ directive, repo }: { directive: Directive; repo: R
                           style={{ width: `${Math.round(share * 100)}%` }}
                         />
                       </div>
-                      {level.tagline ? <p className="mt-1.5 text-xs text-muted-foreground lowercase">{level.tagline}</p> : null}
+                      {IN_MY_WORDS[level.n] ?? level.tagline ? (
+                        <p className="mt-1.5 text-xs text-muted-foreground lowercase">{IN_MY_WORDS[level.n] ?? level.tagline}</p>
+                      ) : null}
                     </li>
                   )
                 })}

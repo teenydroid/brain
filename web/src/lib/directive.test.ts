@@ -18,7 +18,9 @@ The body exists and boots by itself.
 
 ## Level 5: self-evolution
 
-It changes itself and keeps only what wins.
+### a sub-heading is not the tagline
+
+It changes itself and keeps only what wins (`docs/evolve.md`).
 
 - [ ] bin/evolve, human-gated first.
 - [ ] Ten generations promoted.

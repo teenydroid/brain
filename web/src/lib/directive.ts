@@ -47,8 +47,8 @@ export function parseDirective(text: string): Level[] {
       current.total++
     } else if (/^- \[ \]/.test(line)) {
       current.total++
-    } else if (!current.tagline && line.trim() && !line.startsWith('-')) {
-      current.tagline = line.trim()
+    } else if (!current.tagline && line.trim() && !line.startsWith('-') && !line.startsWith('#')) {
+      current.tagline = line.trim().replace(/\s*\(`[^`]*`\)/g, '').replace(/`/g, '')
     }
   }
   return levels.filter((level) => level.total > 0)
