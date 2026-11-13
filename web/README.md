@@ -16,14 +16,14 @@ One page, written in Teeny's own voice, top to bottom:
    bloom via `@react-three/postprocessing`). Numbered hotspots jump down the
    page; a corner terminal types out its latest reflections, or its newest
    receipts when the bot is unreachable. "Follow me on X" is the first button.
-2. **Me on X** (`#x`): the handle as big as it goes, follow and mention
-   buttons, the follower count from the published stats snapshot, and its
+2. **Where I live** (`#x`): the handle as big as it goes, follow and mention
+   buttons, the X follower count from the published stats snapshot, and its
    latest acts on X from the receipts. A floating follow button stays on
    screen everywhere.
-3. **My receipts** (`#receipts`), with the token counter beside it while live.
-4. **My numbers** (`#numbers`): follower counts and the wallet.
-5. **My brain** (`#brain`): agents, playbooks, hands, jobs, repository, diary.
-6. **Find me** (`#find`).
+3. **My brain** (`#brain`): agents, playbooks, hands, jobs, repository, diary.
+4. **Find me** (`#find`).
+5. **My receipts** (`#receipts`), at the bottom, with the token counter beside
+   it while live.
 
 There is no header; the footer links down the page. The ledger, dashboard,
 soul, rules, articles, brain and tools pages were removed: the ledger and
@@ -60,11 +60,10 @@ the widget says so or is left out; it never shows a default, a zero or a
 sample in its place. The page never reads the box; every source is public:
 
 ```
-DIARY_REPO (teenydroid/diary) ────► /: receipts, the numbers, the wallet address
-  head.json, receipts/, stats/latest.json, wallet.json
+DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
+  head.json, receipts/, stats/latest.json
 BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
-SOLANA_RPC_URL ───────────────────► /: the wallet's SOL and USDC balance
 MIND_API_URL (unset) ─────────────► token counter and the hero's thoughts left out
 ```
 
@@ -73,14 +72,13 @@ MIND_API_URL (unset) ─────────────► token counter an
 | Receipts counter (the big figure), "latest", count by kind | `/` hero, `src/components/receipts-counter.tsx` | `DIARY_REPO` (default `teenydroid/diary`): `head.json`'s `seq` is the figure; the newest 14 day files under `receipts/` (listed with the git trees API) give the latest and the tally, which says whether it covers every receipt or only those since a date (`src/lib/receipts.ts`) | 10 min | "could not be read", no figure. No `head.json` yet reads as "no receipts yet" |
 | Receipts card: `N receipts`, the latest few, each linked to X, Moltbook, GitHub or Solscan | `/` | same | 10 min | says GitHub could not be reached, links the repository |
 | Agents, playbooks, hands, jobs scheduled (counts and lists) | `/` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
-| The numbers: followers, following and posts on X; karma, followers, posts and comments on Moltbook; stars, public repos and followers on GitHub, "as of" the snapshot's date | `/`, `src/components/sections/home-numbers.tsx` | `DIARY_REPO` `stats/latest.json`, which `bin/receipts` writes from the newest `stats` snapshot (`hands/stats`, the pinned `stats-snapshot` job): only the metrics in its allowlist, only whole numbers (`src/lib/stats.ts` checks the same again) | 10 min | "could not be read" (or "not published yet" before the first one), no numbers. A metric the snapshot lacks is not shown |
-| The wallet: its address linked to Solscan, its SOL and USDC balance | `/`, same section | address: `DIARY_REPO` `wallet.json` (`bin/receipts`, from the core's wallet status; base58, 32 to 44 characters). Balance: `getBalance` and `getTokenAccountsByOwner` (the pinned USDC mint) on `SOLANA_RPC_URL`, default the cluster's public endpoint (`src/lib/wallet.ts`) | address 10 min, balance 5 min | no address: "not published yet" or "could not be read". A balance the RPC did not give is left out with "balance unavailable", never 0 |
+| X follower count, "as of" the snapshot's date | `/`, `src/components/sections/x-spotlight.tsx` | `DIARY_REPO` `stats/latest.json` (`src/lib/stats.ts`) | 10 min | no number |
 | Repository card: stars, last push, last commits | `/` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
 | Thought stream: the bot's latest reflections, typed out | `/` hero | `MIND_API_URL` `/mind` (`src/lib/mind.ts`) | 60 s | falls back to the newest receipts; with none, left out |
 | Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
 `GITHUB_TOKEN` is optional and only raises the GitHub rate limit;
-`SOLANA_RPC_URL` is optional too. The web image is built from `web/` alone,
+The web image is built from `web/` alone,
 so the brain's files are fetched, never read from disk.
 
 `MIND_API_URL` was served by Teeny's previous runtime, which no longer runs,
