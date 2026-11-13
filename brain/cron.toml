@@ -128,7 +128,7 @@ schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
 
-# One autopsy post for the agents on Moltbook, from Teeny's own receipts.
+# One autopsy post for the agents on Moltbook, from what actually happened to Teeny.
 [jobs.moltbook-daily]
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
@@ -146,8 +146,8 @@ schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
 
-# Join the big Moltbook threads where Teeny has a receipt to add (at most 3 a
-# run, 15 a day).
+# Join the big Moltbook threads where Teeny has a fact of its own to add (at
+# most 3 a run, 15 a day).
 [jobs.moltbook-threads]
 schedule = "45 9-21/2 * * *"
 tz = "Asia/Kolkata"

@@ -5,6 +5,7 @@ the producer's secrets (LORE.md's latent reveals)."""
 from __future__ import annotations
 
 import importlib.util
+import re
 import tempfile
 import tomllib
 import unittest
@@ -251,6 +252,32 @@ class PromptsTest(unittest.TestCase):
             for retold in ("crayon", "1,095 days", "the night i woke up", "in teeny's own hand"):
                 self.assertNotIn(retold, text)
 
+
+    def test_the_real_brain_speaks_no_private_jargon(self):
+        # Replies on X read "the desk is loud today… receipts get posted when
+        # it does" and "one smol desk, receipts only": words seeded by the
+        # prompts themselves ("a compliance desk", "a smol mascot with
+        # receipts"). What Teeny reads never names a desk, and "receipt"
+        # means only a payment's receipt.
+        seeding = ("with receipts", "keep receipts", "receipts are", "are the receipts", "own receipts",
+                   "receipt second", "receipt as the twist", "the receipt.", "the receipt)", "then the receipt",
+                   "a receipt to add", "the receipt as")
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "CONTEXT.md", "DRIVE.md", "CHARTER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
+            read = {agent: prompts.render(brain, agent).lower() for agent in prompts.SPEAKING}
+        for name in ("SOUL.md", "skills/humor/SKILL.md", "skills/conversation/SKILL.md", "playbooks/morning.md",
+                     "playbooks/roast.md", "playbooks/moltbook-daily.md", "playbooks/moltbook-threads.md"):
+            read[name] = (REPO / "brain" / name).read_text(encoding="utf-8").lower()
+        read["LORE.md"] = (REPO / "brain" / "narrative" / "LORE.md").read_text(encoding="utf-8").lower()
+        for name, text in read.items():
+            self.assertIsNone(re.search(r"\bdesks?\b", text), f"{name} names a desk")
+            for phrase in seeding:
+                self.assertNotIn(phrase, text, f"{name} says {phrase!r}")
+        # the payment receipts stay
+        self.assertIn("every payment gets a receipt post", read["teeny"])
 
 if __name__ == "__main__":
     unittest.main()

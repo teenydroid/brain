@@ -67,7 +67,8 @@ them), `failed`, and the no-ops `asleep`, `busy` and `idle` (`resting` when
 the quiet back-off held the beat, bin/lib/rhythm.py), which are also
 `idle: true` so the reflection passes over them. Each beat that
 thought is also an entry in Teeny's private journal,
-state/journal/<local date>.md, and in the core's memory (journal()).
+state/journal/<local date>.md (journal()), which the core's memory does
+not learn.
 """
 
 from __future__ import annotations
@@ -100,6 +101,9 @@ import rhythm  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
 MAX_INTENTS = 8
+#: The most people one beat shows the X history of (their earlier words and
+#: the conversation so far); anyone past them gets its first line only.
+MAX_HISTORIES = 8
 #: The batch: at most this many stimuli and about this much text.
 MAX_STIMULI = 25
 MAX_CHARS = 30_000
@@ -627,7 +631,15 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
     ]
     if any(s["surface"] == "hn" for s in batch):
         lines += [HN_READ_ONLY, ""]
+    people = _x_people(batch)
+    turned: list[str] = []
     for s in batch:
+        handle = _x_handle(s)
+        if handle:
+            if handle.lower() not in turned:
+                turned.append(handle.lower())
+                lines.extend(_x_turn(people[handle.lower()], full=len(turned) <= MAX_HISTORIES))
+            continue
         who = f" from {s['who']}" if s.get("who") else ""
         payload = s.get("payload") or {}
         if (s["surface"], s["kind"]) == ("self", "follow_up"):
@@ -642,27 +654,92 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         lines.append("")
         lines.append(s["text"])
         if (s["surface"], s["kind"]) == ("x", "mention"):
-            lines.extend(_x_context(s))
+            answers = _x_answering(s)
+            lines.extend(["", answers] if answers else [])
         lines.append("")
-    lines.extend(_people(batch))
+    lines.extend(_people(batch, exclude=[("x", who) for who in people]))
     if any(s["surface"] == "x" or s["surface"] == "nudge" for s in batch):
         lines.extend(_x_lately())
     lines.append(shape())
     return "\n".join(lines)
 
 
-def _x_context(s: Mapping[str, Any]) -> list[str]:
-    """Under an X mention: the post it answers and what Teeny last said to
-    its author, from the hands' ledgers (teeny_hands.x.recall). A ledger that
-    can't be read leaves the mention as it was."""
+def _x_handle(s: Mapping[str, Any]) -> str:
+    """The handle an X mention is from, without its @; "" for anything else."""
+    if (s["surface"], s["kind"]) != ("x", "mention") or not isinstance(s.get("who"), str):
+        return ""
+    return s["who"].strip().lstrip("@").strip()
+
+
+def _x_people(batch: list[Mapping[str, Any]]) -> dict[str, list[Mapping[str, Any]]]:
+    """The batch's X mentions by who wrote them (lowercase), in batch order."""
+    people: dict[str, list[Mapping[str, Any]]] = {}
+    for s in batch:
+        handle = _x_handle(s)
+        if handle:
+            people.setdefault(handle.lower(), []).append(s)
+    return people
+
+
+def _x_turn(mentions: list[Mapping[str, Any]], full: bool = True) -> list[str]:
+    """One person's X mentions in a beat, as a turn addressed to them: who
+    they are to Teeny (their history, teeny_hands.x.recall; what they asked
+    and were promised, teeny_hands.people), then what they say now, each
+    message with its ref and what it answers, then the cue to answer them.
+    `full` False (a beat with more than MAX_HISTORIES people) keeps only the
+    first line of their history."""
+    handle = _x_handle(mentions[0])
+    them = f"@{handle}"
+    several = len(mentions) > 1
+    lines = [f"### {them} on X{f' · {len(mentions)} new messages' if several else ''} · {_ago(mentions[0]['at'])}"]
+    history = _x_history(handle, [str(m["ref"]) for m in mentions])
+    lines += history if full else history[:1]
+    lines += _x_ledger(handle)
+    for n, m in enumerate(mentions):
+        lines += ["", f"ref: {m['ref']}" + (f" · {_ago(m['at'])}" if several else "")]
+        answers = _x_answering(m)
+        lines += [answers] if answers else []
+        lines.append(f'{"Then" if n else "Now"} {them} says: "{m["text"]}"')
+    return [*lines, "", f"Your response to {them} — or let it go.", ""]
+
+
+def _x_history(handle: str, refs: list[str]) -> list[str]:
+    """Their history with Teeny on X, from the hands' ledgers. A ledger that
+    can't be read leaves it out."""
     try:
         from teeny_hands.x import recall
 
-        found = recall.mention_context(str(s["ref"]), s.get("who"), s.get("payload") or {})
+        return recall.history(handle, exclude=refs)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] x history unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+
+
+def _x_ledger(handle: str) -> list[str]:
+    """What they asked Teeny to build and what Teeny promised them."""
+    try:
+        from teeny_hands.people import records
+
+        found = records.ledger_lines("x", handle)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] people records unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    if not found:
+        return []
+    kept = ["When you keep a promise, say so with `kept`."] if any("; promise #" in line for line in found) else []
+    return [f"What your ledgers hold about @{handle}:", *(f"- {line}" for line in found), *kept]
+
+
+def _x_answering(s: Mapping[str, Any]) -> str | None:
+    """The post an X mention answers, from the hands' ledgers
+    (teeny_hands.x.recall). A ledger that can't be read leaves it out."""
+    try:
+        from teeny_hands.x import recall
+
+        return recall.answering(str(s["ref"]), _x_handle(s) or None, s.get("payload") or {})
     except Exception as exc:  # noqa: BLE001
         print(f"[tick] x context unavailable: {type(exc).__name__}", file=sys.stderr)
-        return []
-    return ["", *found] if found else []
+        return None
 
 
 def _x_lately() -> list[str]:
@@ -698,14 +775,15 @@ def _worn() -> list[str]:
             + ". Say the next thing without any of them."]
 
 
-def _people(batch: list[Mapping[str, Any]]) -> list[str]:
+def _people(batch: list[Mapping[str, Any]], exclude: list[tuple[str, str]] = ()) -> list[str]:
     """The records of the people this batch is from or about, and of nobody
     else (hands/people, docs/roadmap.md A9): what they asked and what Teeny
-    promised them. A record that can't be read leaves the beat as it was."""
+    promised them. The X people the beat addresses (`exclude`) have theirs in
+    their own turn. A record that can't be read leaves the beat as it was."""
     try:
         from teeny_hands.people import records
 
-        return records.prompt_block(batch)
+        return records.prompt_block(batch, exclude=exclude)
     except Exception as exc:  # noqa: BLE001
         print(f"[tick] people records unavailable: {type(exc).__name__}", file=sys.stderr)
         return []
@@ -1230,11 +1308,13 @@ def _did(results: list[Mapping[str, Any]]) -> str:
 
 
 def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
-    """The beat in Teeny's private journal, state/journal/<local date>.md, and
-    in the core's memory (kind "other", unless TEENY_MIND_LEARN=0): the time,
-    the thought, its own `journal` lines, and what it did with statuses. What
-    was said to it, and what it said back, stay with the surfaces and the
-    hands."""
+    """The beat in Teeny's private journal, state/journal/<local date>.md: the
+    time, the thought, its own `journal` lines, and what it did with
+    statuses. What was said to it, and what it said back, stay with the
+    surfaces and the hands. The journal is not taught to the core's memory:
+    learned every beat, its private monologue came back through recall into
+    every turn, and replies to strangers spoke its jargon. `remember` is what
+    Teeny chooses to keep."""
     now = rhythm.local()
     lines = [t.strip() for r in results if r.get("do") == "journal" and r.get("status") == "done"
              and isinstance(t := (r.get("intent") or {}).get("text"), str) and t.strip()]
@@ -1249,12 +1329,7 @@ def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
         if fh.tell() == 0:
             fh.write(f"# {now:%A %d %B %Y}\n")
         fh.write("\n" + "\n".join(entry))
-    text = " ".join([thought or "(no thought)", *lines])
-    # What the hands did comes first: the thought and the journal lines were
-    # written before any hand ran, and can claim a send that never landed.
-    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: what happened: {did}. "
-                     f"what i meant to do, written before the hands answered: {text}", "other", 0.5)
-    return {"file": str(page.relative_to(hand.state_dir().parent)), "learned": learned}
+    return {"file": str(page.relative_to(hand.state_dir().parent))}
 
 
 def _record(line: Mapping[str, Any]) -> None:

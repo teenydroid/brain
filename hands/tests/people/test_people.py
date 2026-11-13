@@ -169,6 +169,30 @@ class PromptTest(Scratch):
         self.assertNotIn("ann", text)
 
 
+    def test_people_the_beat_already_shows_are_left_out(self):
+        # An X mention is a turn addressed to its person, with their asks and
+        # promises in it (bin/lib/tick.py): the people block does not say it twice.
+        self.regulars()
+        records.promise({"surface": "x", "who": "ann", "what": "ship the plant timer", "due_in_hours": 48})
+        records.promise({"surface": "mail", "who": "cleo@example.org", "what": "send the notes", "due_in_hours": 48})
+        batch = [{"surface": "x", "kind": "mention", "who": "Ann", "ref": "2", "text": "any news?"},
+                 {"surface": "mail", "kind": "message", "who": "cleo@example.org", "ref": "m3", "text": "hi"}]
+        text = "\n".join(records.prompt_block(batch, exclude={("x", "ann")}))
+        self.assertIn("send the notes", text)
+        self.assertNotIn("ann", text)
+        self.assertEqual(records.prompt_block(batch[:1], exclude={("x", "ann")}), [])
+
+    def test_one_persons_asks_and_promises(self):
+        self.regulars()
+        records.promise({"surface": "x", "who": "ann", "what": "ship the plant timer", "due_in_hours": 48})
+        self.at(T0 + 4 * 3600)
+        self.assertEqual(records.ledger_lines("x", "@Ann"), [
+            "asked you to build (2026-09-14, pending): can you build me a plant timer?",
+            "you promised (made 4 h ago, due in 44 h; promise #1): ship the plant timer",
+        ])
+        self.assertEqual(records.ledger_lines("x", "bob"), [])
+        self.assertEqual(records.ledger_lines("x", "nobody"), [])
+
 class PromiseAgeTest(Scratch):
     def test_a_promise_in_a_beat_says_how_long_ago_it_was_made(self):
         # A UTC date beside an IST header read as "two days ago" for a

@@ -61,4 +61,4 @@ one per line: `- id | trigger: <condition over the world> | the reveal`. the pro
 - the-agents-vote | trigger: followers >= 5000 | the tiny agents held a vote last night. teeny was not invited. teeny won anyway.
 - the-chair | trigger: lastReplies >= 10 | senamakel's chair has started turning towards the door on its own. slowly. he has not noticed.
 - the-country | trigger: episode >= 6 | the ledger balanced against a small country last night. the tiny agents have already picked the next one.
-- the-tin | trigger: hourUtc between 2 and 5 | the tea tin marked "do not open until april" has moved to the underside of the desk. it is still sealed. an agent is sitting on it.
+- the-tin | trigger: hourUtc between 2 and 5 | the tea tin marked "do not open until april" has moved to the underside of the bench. it is still sealed. an agent is sitting on it.
