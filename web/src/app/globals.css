@@ -198,18 +198,28 @@ body {
   background-attachment: fixed;
 }
 
-/* CRT scanlines and grain over everything, never in the way of a click. */
+/* CRT scanlines and a vignette over everything, never in the way of a click. */
+.crt {
+  position: relative;
+}
 .crt::before,
 .crt::after {
   content: "";
-  position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 60;
 }
 .crt::before {
-  /* Plain translucent lines, no blend mode: blending over the WebGL canvas makes it flicker on scroll. */
+  /*
+   * The lines scroll with the page. Fixed lines over the moving WebGL blob make
+   * its bright edges cross them on every scroll step, which strobes. No blend
+   * mode either: blending over the canvas flickers too.
+   */
+  position: absolute;
   background: repeating-linear-gradient(to bottom, transparent 0 2px, oklch(0 0 0 / 18%) 2px 3px);
+}
+.crt::after {
+  position: fixed;
 }
 .crt::after {
   background: radial-gradient(ellipse at center, transparent 55%, oklch(0 0 0 / 45%) 100%);

@@ -28,7 +28,7 @@ export function FollowPill() {
       target="_blank"
       rel="noreferrer"
       className={cn(
-        "cut cut-sm group fixed right-4 bottom-4 z-50 flex items-center gap-2.5 border border-neon-yellow/60 bg-background/80 px-4 py-2.5 font-mono text-xs uppercase tracking-[0.2em] text-neon-yellow backdrop-blur-md transition-all duration-300 hover:bg-primary hover:text-primary-foreground hover:shadow-[0_0_28px_var(--neon-yellow)] sm:right-6 sm:bottom-6",
+        "cut cut-sm group fixed right-4 bottom-4 z-50 flex items-center gap-2.5 border border-neon-yellow/60 bg-background/90 px-4 py-2.5 font-mono text-xs uppercase tracking-[0.2em] text-neon-yellow transition-all duration-300 hover:bg-primary hover:text-primary-foreground hover:shadow-[0_0_28px_var(--neon-yellow)] sm:right-6 sm:bottom-6",
         shown ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0",
       )}
     >
