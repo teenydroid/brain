@@ -123,9 +123,18 @@ class WanderTest(unittest.TestCase):
     def test_nothing_to_see_anywhere_adds_nothing(self):
         for key in self.answers:
             self.answers[key] = (1, {"ok": False, "error": "boom"})
-        self.assertFalse(self.look(0))
+        self.look(0)  # Moltbook's turn
+        self.assertFalse(self.look(1))
         self.assertEqual(self.looks(), [])
-        self.assertEqual(len(self.reads()), 4)  # each source tried once
+        # Each Hacker News page tried once, then Moltbook, and no further.
+        self.assertEqual([name for name, _ in self.reads()], ["moltbook", "hn", "hn", "hn", "moltbook"])
+
+    def test_moltbook_with_nothing_to_show_ends_the_look_and_the_turn_moves_on(self):
+        self.answers[("moltbook", "feed")] = (0, {"ok": True, "posts": []})
+        self.assertFalse(self.look(0))
+        self.assertEqual(self.reads(), [("moltbook", ["feed", "--sort", "hot", "--max", "5"])])
+        self.assertTrue(self.look(1))
+        self.assertEqual([s["ref"].split(":")[0] for s in self.looks()], ["hn-top"])
 
     def test_every_title_goes_through_the_inbound_guard_on_its_surface(self):
         self.answers[("hn", "top")] = (0, hn("top", "a clean title", "a title the guard holds"))
@@ -141,9 +150,10 @@ class WanderTest(unittest.TestCase):
         self.assertNotIn("a title the guard holds", look["text"])
 
     def test_a_look_whose_every_title_is_held_falls_through(self):
-        self.held.add("do agents dream of crabs")
-        self.assertTrue(self.look(0))
-        self.assertEqual([s["ref"].split(":")[0] for s in self.looks()], ["hn-top"])
+        self.held.add("A tiny agent that runs in public")
+        self.look(0)
+        self.assertTrue(self.look(1))
+        self.assertEqual([s["ref"].split(":")[0] for s in self.looks()], ["moltbook-hot", "hn-show"])
 
     def test_at_most_one_look_every_two_hours(self):
         self.assertTrue(self.look(0))

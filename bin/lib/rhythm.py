@@ -351,9 +351,11 @@ def wander(run_hand: RunHand) -> bool:
     """With nothing to answer, maybe look at the world: one read-only peek,
     added as a `world · idle` stimulus. True when it added one.
 
-    The looks take turns (LOOKS). A source that is down, empty, or whose
-    every title the guard held is passed over for the next, so a look is
-    never an empty stimulus; the turn moves on past the one that worked."""
+    The looks take turns (LOOKS). A Hacker News page that is down, empty,
+    or whose every title the guard held is passed over for the next source,
+    so a look is never an empty stimulus; the turn moves on past the one
+    that worked. Moltbook with nothing to show ends the look, as it always
+    has (the beat gets its quiet moment instead), and the turn moves on."""
     if is_night():
         return False
     state = load()
@@ -372,16 +374,17 @@ def wander(run_hand: RunHand) -> bool:
         index = (turn + step) % len(LOOKS)
         name, hand_name, argv = LOOKS[index]
         code, out = run_hand(hand_name, list(argv), None)
-        if code != 0 or not isinstance(out, Mapping):
+        found = None
+        if code == 0 and isinstance(out, Mapping):
+            found = _moltbook_look(run_hand, out) if hand_name == "moltbook" else _hn_look(run_hand, name, out)
+        if found is None and hand_name != "moltbook":
             continue
-        found = _moltbook_look(run_hand, out) if hand_name == "moltbook" else _hn_look(run_hand, name, out)
-        if found is None:
-            continue
-        lines, payload = found
-        # Read again: the header or a hand may have saved the state meanwhile.
         state = load()
         state["wander_turn"] = (index + 1) % len(LOOKS)
         save(state)
+        if found is None:
+            return False
+        lines, payload = found
         return stimuli.add("world", "idle", f"{name}:{int(hand.now())}", "\n".join(lines), payload=payload)
     return False
 
