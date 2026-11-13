@@ -203,6 +203,36 @@ class DreamTest(unittest.TestCase):
         self.assertEqual(len(chats), 2)
         self.assertIn("c9", chats[1]["params"]["message"])
 
+    def test_a_busy_day_still_fits_the_size_the_core_accepts(self):
+        # A dream once came to 93 KB, and the core held it unanswered
+        # (`input.oversized`, past 64 KiB): each section has a budget.
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import dream
+        import reflect
+
+        words = "said something long about crabs and receipts and the bounty " * 5
+        for n in range(120):
+            stimuli.add("x", "mention", f"m{n}", f"{n:03d} {words}", who=f"p{n}", at=T0 - 7200 + n * 10)
+        self.items.write_text(json.dumps([
+            {"id": f"id{n}", "kind": "learning", "meta": {"observed_at": "2026-09-14T05:00:00Z"},
+             "text": f"learning {n:03d} {words}"} for n in range(80)]))
+        self.answer({"ops": [{"op": "forget", "item": "c80", "reason": "never shown"}]}, {"ops": [], "diary": "d"})
+        got = self.dream()
+        message = self.message()
+        self.assertLessEqual(len(message.encode()), reflect.MAX_MESSAGE_BYTES)
+        said = message.split("## what people said", 1)[1].split("\n## ", 1)[0]
+        held = message.split("## what your memory holds", 1)[1].split("\n## ", 1)[0]
+        self.assertLessEqual(len(said.encode()), dream.SAID_BYTES)
+        self.assertLessEqual(len(held.encode()), dream.LEARNINGS_BYTES)
+        # The newest of what people said is kept, and the newest learnings.
+        self.assertIn("119 said", said)
+        self.assertIn("[c1] ", held)
+        self.assertNotIn("[c80] ", held)
+        # A learning left out of the message is not one it may forget.
+        self.assertEqual(self.calls_of("memory_forget"), [])
+        self.assertIn("c80", self.calls_of("inference_agent_chat")[1]["params"]["message"])
+        self.assertTrue(got["ok"], got)
+
     def test_more_forgets_than_the_cap_change_nothing(self):
         many = [{"op": "forget", "item": "c1", "reason": "x"}] * 21
         self.answer({"ops": many}, {"ops": many})
