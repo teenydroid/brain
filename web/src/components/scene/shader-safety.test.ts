@@ -3,7 +3,8 @@ import { BLOB } from './scenes/core'
 import { EVOLVE_BLOB } from './scenes/mini'
 
 /** The first argument of every pow() call in a GLSL source. */
-function powBases(source: string): string[] {
+function powBases(glsl: string): string[] {
+  const source = glsl.replace(/\/\/[^\n]*/g, '')
   const bases: string[] = []
   let at = source.indexOf('pow(')
   while (at !== -1) {
