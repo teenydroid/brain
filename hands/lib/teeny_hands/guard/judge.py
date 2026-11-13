@@ -72,6 +72,12 @@ _PERMANENT = re.compile(
 UNREACHABLE = "the judge could not be reached"
 UNREADABLE = "the judge answered in an unreadable shape"
 
+
+def failed(reason: str) -> bool:
+    """Whether a hold's reason is the judge failing to judge (unreachable or
+    unreadable) rather than a verdict it gave."""
+    return reason.startswith(UNREACHABLE) or reason == UNREADABLE
+
 CATEGORIES = ("none", "sexual", "violence", "weapons", "drugs", "hate", "self-harm", "extremism", "profanity")
 
 
