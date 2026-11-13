@@ -1013,7 +1013,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         message = self.chats()[2]["message"]
         self.assertIn("your reply_x on 111: done", message)
-        self.assertIn("rewritten to 25", message)
+        self.assertIn("you rewrote it to 25 characters in the same beat", message)
 
     def test_a_rewrite_that_is_still_too_long_is_refused_without_another_try(self):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404)])
@@ -1033,6 +1033,7 @@ class TickTest(unittest.TestCase):
         self.at(300)
         self.tick()
         self.assertIn("your reply_x on 111: refused: the text is 404 characters", self.chats()[2]["message"])
+        self.assertIn("your one rewrite came back 299 characters, still over, so nothing was sent", self.chats()[2]["message"])
 
     def test_a_rewrite_the_hand_refuses_again_is_not_rewritten_twice(self):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404), self.too_long(290)])
@@ -1115,6 +1116,10 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual([r["status"] for r in got["results"]], ["refused", "done", "done"])
         self.assertEqual([t for _, t in self.x_replies()][1:], [self.LONG.strip(), "quoted, it fits", self.LONG.strip(), "fenced, it fits"])
+        self.at(300)
+        self.tick()
+        self.assertIn("your one rewrite came back empty",
+                      self.chats()[4]["message"])
 
     def test_what_the_hands_did_comes_back_next_beat(self):
         os.environ["FAKE_EXIT_X"] = "2"
