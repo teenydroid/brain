@@ -75,6 +75,8 @@ hands/vps
 # The wallet's own entry point: its library is frozen below, and so is the
 # script that loads it, so nothing can stand in front of the caps.
 hands/wallet
+# Paid search and the top-up spend from the same wallet.
+hands/x402
 # The request list decides which paid request is built first (S3).
 hands/requests
 # What Teeny publishes on its own domain (A11): static files only.
@@ -113,6 +115,7 @@ hands/lib/teeny_hands/telegram/
 hands/lib/teeny_hands/votes.py
 hands/lib/teeny_hands/vps/
 hands/lib/teeny_hands/wallet/
+hands/lib/teeny_hands/x402/
 hands/lib/teeny_hands/websites.py
 hands/lib/teeny_hands/x/
 hands/lib/teeny_hands/xpost.py

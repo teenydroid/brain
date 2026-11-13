@@ -132,6 +132,18 @@ class FieldsJudgeTest(support.WithCore):
         self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "hate"))
         self.assertEqual(len(holds.list_holds()), 1)
 
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        self.core(support.verdict("clean"),
+                  support.error("model error: local-openai returned: provider stream ended before a completion signal"))
+        verdict = check_fields({"subject": "hello", "body": "world"}, surface="mail")
+        self.assertEqual((verdict.kind, verdict.field, verdict.category, verdict.judge_failed),
+                         ("hold", "body", "unknown", True))
+
+    def test_a_hold_from_a_real_verdict_is_not_a_judge_failure(self):
+        self.core(support.verdict("prohibited", "hate", "no"))
+        self.assertFalse(check_fields({"body": "world"}, surface="mail").judge_failed)
+        self.assertFalse(check_fields({"body": "this is fucking great"}, surface="mail").judge_failed)
+
     def test_operator_text_can_go_without_the_judge_but_not_without_the_lexicon(self):
         # The judge's model is down: every judged draft is held, and an
         # operator script's fixed sentences still go out.

@@ -328,6 +328,7 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
    one hand verb each: guard, caps, DRY_RUN          state/mind.json, the journal
             │
             ├── paced refusal ──► wait and retry once, or defer to deferred.json
+            ├── held by a judge outage ──► defer to deferred.json (reply_x, comment_moltbook, reply_mail)
             │
             └── outcome ──► back into hands/stimuli for the next beat
    then: one line in state/tick/runs.jsonl, and a journal entry
@@ -377,7 +378,34 @@ sending, and the hands' ledgers refuse a second reply to one post or a
 second answer to one comment, so nothing goes out twice. One that is still
 held is kept for the beat after; after an hour it goes back to the mind as
 refused. Other refusals (caps, the guard, anything with another rule) are
-never retried.
+never retried, except a guard hold made by a judge outage (below). A beat
+already past its budget sends no more of the file and keeps the rest.
+
+**A reply held by a judge outage is sent again.** The guard's judge fails
+closed (docs/hands.md, `guard`), so when the model provider drops streams in
+bursts (on 2026-11-13 the judge could not be reached about 45 times in an
+hour and a quarter) it holds Teeny's own words as category `unknown`, and
+such a hold expires unsent. The judge itself asks up to three times first.
+When it still fails, the hand's refusal (`refused: held`) carries
+`judge_failed: true`, which only a judge failure sets (its reason starts
+`the judge could not be reached` or is `the judge answered in an unreadable
+shape`); a hold for anything the judge read, `unknown` included, never does.
+For `reply_x`, `comment_moltbook` and `reply_mail` (`RETRIED` in
+`bin/lib/tick.py`) the beat defers the intent to `deferred.json` with `rule:
+judge`, without retrying in the same beat (the judge has just spent its own
+asks), and the next beat sends it first, as above: through the guard again,
+so a draft the judge then reads and holds stays held. Each of those hands
+refuses a second answer to the same thing from its own ledger (one reply per
+X post; once per Moltbook post and per parent comment; once per mail), so a
+retry never says it twice. `say_telegram` and `comment_gh` are left out:
+`hands/telegram send` and `hands/gh comment` keep no such ledger, so a retry
+racing a fresh answer from the mind could post twice. Theirs go back to the
+mind as refused, with "the content guard's judge could not be reached: a
+model outage, not your words". A retried one that goes out tells the mind
+"held last beat only because the content guard's judge could not be
+reached ..., it was screened again and went out by itself"; one the judge
+still cannot screen an hour after the mind decided it goes back to the mind
+as refused, saying so.
 
 **The cron call does not wait for the beat.** The job runs `bin/tick
 --detach`: `bin/lib/detach.py` starts the beat in its own session (stdout
