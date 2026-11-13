@@ -315,9 +315,10 @@ def with_tx_bytes(raw: dict, change) -> dict:
 
 class LifiBase(Scratch):
     """The fakes for a LI.FI quote: the core answers a recorded one, the
-    chain a simulation."""
+    chain a simulation. LI.FI quotes both kinds here; who quotes by default
+    is ProviderTest's."""
 
-    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0"}
+    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0", "WALLET_CONVERT_PROVIDER": "lifi"}
 
     def setUp(self):
         super().setUp()
