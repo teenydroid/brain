@@ -812,3 +812,120 @@ class DiaryDaysTest(ReceiptsCase):
         self.assertEqual(out["days"]["published"], ["2026-09-13", "2026-09-14"])
         self.assertTrue((preview / "days" / "2026-09-14.md").is_file())
         self.assertFalse((self.root / "state" / "diary-days.json").exists())
+
+
+class MemorySnapshotsTest(ReceiptsCase):
+    """Each dream's snapshot of MEMORY.md lands in the diary repository as
+    memory/MEMORY.md, one commit per snapshot so its history shows the page
+    evolve: redacted by code, then the secret gate and the guard, hash-chained
+    in memory/chain.jsonl. Off unless MEMORY_PUBLISH=1."""
+
+    MINT = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
+
+    def snap(self, stamp, slot, page, **counts):
+        folder = self.root / "state" / "dream" / "snapshots"
+        folder.mkdir(parents=True, exist_ok=True)
+        meta = {"at": NOW, "slot": slot, "add": 0, "edit": 0, "retire": 0, "forget": 0, **counts}
+        (folder / f"{stamp}-{slot}.md").write_text(f"---\n{json.dumps(meta, sort_keys=True)}\n---\n{page}")
+
+    def on(self, bare, extra=""):
+        self.live(bare, f"MEMORY_PUBLISH=1\nSAFETY_JUDGE=0\n{extra}")
+
+    def log(self, clone):
+        out = subprocess.run(["git", "log", "--format=%s", "--", "memory/MEMORY.md"], cwd=clone,
+                             check=True, capture_output=True, text=True).stdout
+        return out.splitlines()
+
+    def test_off_unless_switched_on(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n## people\n\n- [m1] ana.\n")
+        self.live(bare, "SAFETY_JUDGE=0\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("off", out["memory"]["skipped"])
+        self.assertFalse((self.clone(bare) / "memory").exists())
+
+    def test_each_snapshot_is_its_own_commit_and_the_page_is_the_newest(self):
+        bare = self.remote()
+        self.snap("20260913T203000Z", "night", "# MEMORY.md\n\n## people\n\n- [m1] ana (x): builds a cli.\n",
+                  add=1, edit=0, retire=0, forget=2)
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n## people\n\n- [m1] ana (x): shipped the cli.\n",
+                  add=0, edit=1, retire=1, forget=0)
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], ["20260913T203000Z-night", "20260914T083000Z-midday"])
+        self.assertEqual(out["pushed"], 1)  # the memory alone is worth a push
+        clone = self.clone(bare)
+        self.assertIn("shipped the cli", (clone / "memory" / "MEMORY.md").read_text())
+        self.assertEqual(self.log(clone), ["memory: midday 2026-09-14 (+0 ~1 -1, forgot 0)",
+                                           "memory: night 2026-09-13 (+1 ~0 -0, forgot 2)"])
+        seq, _prev, stamps = receipts.diary_memory.verify(clone)
+        self.assertEqual((seq, stamps), (2, {"20260913T203000Z-night", "20260914T083000Z-midday"}))
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], [])  # never twice
+
+    def test_private_details_are_redacted_before_anything_else(self):
+        bare = self.remote()
+        page = ("# MEMORY.md\n\n## people\n\n"
+                "- [m1] steve (telegram, chat_id 344792777, owner): my maker. mail steve@example.com.\n"
+                "- [m2] someone pushed 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU and 0x52908400098527886E0F7030069857D2E4169EE7 at me.\n"
+                f"- [m3] my token is {self.MINT}. see https://example.com/page?token=abc123 for more.\n")
+        self.snap("20260914T083000Z", "midday", page)
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        text = (self.clone(bare) / "memory" / "MEMORY.md").read_text()
+        for private in ("344792777", "steve@example.com", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+                        "0x52908400098527886E0F7030069857D2E4169EE7", "token=abc123"):
+            self.assertNotIn(private, text)
+        self.assertIn(self.MINT, text)  # its own token stays
+        self.assertIn("https://example.com/page", text)
+        self.assertIn("[redacted]", text)
+
+    def test_a_snapshot_the_guard_holds_is_withheld_and_never_retried(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] this is fucking great.\n")
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], [])
+        self.assertEqual(out["memory"]["withheld"][0]["snapshot"], "20260914T083000Z-midday")
+        self.assertEqual(out["memory"]["withheld"][0]["why"], "held")
+        self.assertNotIn("fucking", json.dumps(out))
+        self.assertFalse((self.clone(bare) / "memory").exists())
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["withheld"], [])
+
+    def test_a_snapshot_with_a_secret_is_withheld(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] the key is supersecretvalue123 lol\n")
+        self.on(bare, "SOME_KEY=supersecretvalue123\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["withheld"], [{"snapshot": "20260914T083000Z-midday", "why": "secret"}])
+        self.assertNotIn("supersecretvalue123", self.published_text(self.clone(bare)))
+
+    def test_a_push_that_fails_publishes_the_snapshot_next_time(self):
+        bare = self.remote()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana.\n")
+        self.on(bare)
+        code, _out = self.run_receipts()
+        self.assertNotEqual(code, 0)
+        hook.unlink()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], ["20260914T083000Z-midday"])
+
+    def test_the_preview_writes_the_page_unscreened(self):
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana, chat_id 344792777.\n")
+        self.secrets("MEMORY_PUBLISH=1\n")
+        preview = self.scratch / "preview"
+        code, out = self.run_receipts("--preview", str(preview))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["memory"]["would_screen"])
+        text = (preview / "memory" / "MEMORY.md").read_text()
+        self.assertIn("ana", text)
+        self.assertNotIn("344792777", text)  # redaction is code, the preview shows it
