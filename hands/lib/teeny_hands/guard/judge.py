@@ -41,6 +41,7 @@ JUDGE_TIMEOUT = 60.0
 # provider that has just dropped a stream is not hit again the same instant.
 # With two asks of at most JUDGE_TIMEOUT each, a draft waits at most
 # 2 * JUDGE_TIMEOUT + RETRY_BACKOFF on the judge (121.5 s).
+MAX_ASKS = 2
 RETRY_BACKOFFS = (1.5,)
 
 # A failed call whose error says one of these will fail the same way when
@@ -234,7 +235,7 @@ def judge(text: str, direction: str) -> JudgeVerdict:
     # failure that will not pass, still holds; nothing here ever turns into a
     # pass.
     failure = UNREADABLE
-    for attempt in range(len(RETRY_BACKOFFS) + 1):
+    for attempt in range(MAX_ASKS):
         if attempt and failure != UNREADABLE:
             time.sleep(RETRY_BACKOFFS[attempt - 1])
         try:
