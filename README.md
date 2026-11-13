@@ -81,6 +81,10 @@ Teeny has three parts:
   websites.
 - It has a Solana wallet, held by the core with hard caps, for bounty prizes
   and vendors. The playbooks that use it are off.
+- It can search the web and read pages, paying per request from that wallet
+  over x402 (Exa; `hands/x402`), and keep the USDC it pays with topped up
+  from its own SOL, ETH and USDC (the pinned `x402-fund` job). Both are off
+  until the operator sets `MIND_SEARCHES_PER_DAY` and `X402_FUND`.
 
 `DRY_RUN` stays on until `secrets/teeny.env` says `DRY_RUN=0`.
 

@@ -78,17 +78,23 @@ VERB_OUTPUTS = {
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
-# here (none for the wallet: a model never drafts a payment or a buy), and an
-# input runs only their read verbs.
-MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
+# here (none for the wallet: a model never drafts a payment or a buy; none for
+# hands/x402, whose search, contents and crawl pay from the wallet and whose
+# fund converts it), and an input runs only their read verbs.
+MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",), "x402": ()}
 MONEY_READS = {
     "wallet": ("address", "balance", "tiny", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
+    "x402": ("log",),
 }
 #: The verbs that move money, named so a change to MONEY_OUTPUTS above can
 #: never let one through: `pay`, `swap`, `bridge`, `x402` (fetch), and
-#: `buy-tiny`, which only the pinned tiny-buy job runs (bin/tiny-buy).
-NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due")}
+#: `buy-tiny`, which only the pinned tiny-buy job runs (bin/tiny-buy); and
+#: hands/x402's paid requests and its top-up (the pinned x402-fund job's).
+#: The mind reaches `search` and `contents` only through its capped
+#: `web_search` and `read_page` intents (bin/lib/tick.py).
+NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due"),
+                 "x402": ("search", "contents", "crawl", "fund")}
 MAX_INPUTS = 8
 
 
