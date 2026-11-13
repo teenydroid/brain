@@ -729,17 +729,21 @@ def _fail(exc: Exception, answer: str, light: bool) -> Json:
 def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | None = None) -> Outcome | Json:
     """The outcome of the answer, asked about once more when it is not
     usable; or the failure, as the result to return."""
+    forgettable = extras.forgettable if extras and extras.forgettable else None
+    thread = extras.thread if extras else None
     try:
-        return interpret(said, page, start)
+        return interpret(said, page, start, forgettable)
     except Unusable as first:
         # Once more on the same thread, the day still in context: a short
         # reminder of the shape costs far less than losing the night.
+        ops = _ops(forgettable is not None)
+        shape_again = '{"ops": %s}' % ops if light else '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % ops
         try:
-            again = ask(AGAIN.format(error=first, shape=AGAIN_LIGHT_SHAPE if light else AGAIN_SHAPE))
+            again = ask(AGAIN.format(error=first, shape=shape_again), thread)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
         try:
-            return interpret(again, page, start)
+            return interpret(again, page, start, forgettable)
         except NoJSON as exc:
             # Still no JSON: the page itself (the newer answer first) is
             # taken as the page, under the same shrink check.
@@ -827,7 +831,7 @@ def diary_notes(since: float, until: float) -> str | None:
     return "## notes\n\n" + "\n".join(found) + "\n" if found else None
 
 
-def reflect(light: bool = False) -> Json:
+def reflect(light: bool = False, extras: Extras | None = None) -> Json:
     since = _since(light)
     # The live page, started from the committed seed on a checkout without one.
     path = prompts.seed_memory(BRAIN)
@@ -836,10 +840,11 @@ def reflect(light: bool = False) -> Json:
     given = assign_ids(page, _next_id(page))
     start = _next_id(page)
     try:
-        said = ask(render(since, light, render_page(page) if on_disk.strip() else ""))
+        said = ask(render(since, light, render_page(page) if on_disk.strip() else "", extras),
+                   extras.thread if extras else None)
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "error": f"the turn failed: {exc}"}
-    got = _settle(said, page, start, light)
+    got = _settle(said, page, start, light, extras)
     if isinstance(got, dict):
         return got
     now = _clock()
@@ -853,6 +858,8 @@ def reflect(light: bool = False) -> Json:
     out: Json = {"ok": True, "memory_chars": len(got.page), "how": got.how, "retired": len(got.retired)}
     if got.counts:
         out["ops"] = got.counts
+    if got.forgets:
+        out["forgets"] = got.forgets
     if given:
         out["ids_given"] = given
     if got.how == "as_page":
