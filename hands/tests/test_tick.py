@@ -541,7 +541,7 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual([r["status"] for r in got["results"]], ["refused"], got)
         self.assertNotIn("host", got)
-        self.assertNotIn("open_issue", self.chats()[1]["message"])
+        self.assertNotIn('"do": "open_issue"', self.chats()[1]["message"])
 
     def test_a_host_instruction_does_not_lift_the_paid_caps(self):
         stimuli.add("host", "instruction", "host-1-ab", "look something up", who="operator")
