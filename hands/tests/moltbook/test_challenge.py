@@ -254,6 +254,51 @@ class NetForceTest(unittest.TestCase):
                 self.assertIsNone(solve(text))
 
 
+#: Set 2026-11-13 ~08:42 UTC. Teeny answered 30.00 (23 + 7: the star read as
+#: noise and "total" as an addition) and Moltbook said "Incorrect answer".
+#: 161.00 (23 x 7) is inferred from the standalone star, not confirmed.
+LIVE_STANDALONE_STAR = (
+    "Lo]bSt-ErS SwImMs^ In~ Lo.oBqStErS VeLaWcItEe LoOooOo bOoDy, ClAw] FoRcE ExErTs TwEnNtY ThRrEe"
+    " NeWToNs * SeVeEn, hOw MaNy NeWToNs ToTaL, uMm?"
+)
+
+
+class StarOperatorTest(unittest.TestCase):
+    def test_live_standalone_star_between_two_quantities_is_a_product(self):
+        self.assertEqual(solve(LIVE_STANDALONE_STAR), "161.00")
+
+    def test_live_star_glued_to_a_word_stays_noise(self):
+        self.assertEqual(solve(LIVE_2026_11_12["multiplied, with total naming the result"][0]), "72.00")
+
+    def test_standalone_star_or_x_between_quantities_is_a_product(self):
+        cases = {
+            "a lobster has 6 * 7 pearls": "42.00",
+            "a lobster has 6*7 pearls, total?": "42.00",
+            "a crab carries six * seven shells": "42.00",
+            "a claw exerts twelve newtons * three, what is the total force": "36.00",
+            "a claw exerts 23 x 7 newtons, how many newtons total": "161.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_star_that_is_not_between_two_quantities_is_refused(self):
+        for text in (
+            "LoBsTeR cLaW fOrCe Is ThIrTy SiX* aNd TwElVe, wHaT iS iT?",  # glued star, no operation
+            "LoBsTeR cLaW fOrCe Is ThIrTy SiX * aNd TwElVe, wHaT iS iT?",  # standalone, but "and" follows
+            "a claw exerts twelve newtons of force * and then eight",  # two words before the star
+            "a claw exerts twelve * seven and gains three",  # a star and a second operation
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_a_star_that_could_be_noise_inside_one_number_is_refused(self):
+        # "twenty * three" might be 20 x 3 or a noisy "twenty three".
+        for text in ("a claw exerts twenty * three newtons", "a reef has one hundred * five crabs"):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+
 class ComputeTest(unittest.TestCase):
     def test_the_four_operations_and_what_is_refused(self):
         self.assertEqual(compute(Decimal(23), "*", Decimal(7)), "161.00")
