@@ -10,6 +10,9 @@ The comment rules, on top of the limits in `rules`:
 - never on Teeny's own post except as its first comment, when nobody else
   has commented yet.
 
+A comment or upvote naming a shortened id (a UUID's first characters, as
+Teeny's memory writes them) is refused before anything is sent (`short_id`).
+
 Under DRY_RUN nothing is written anywhere: Moltbook, the ledger or the
 lockout counter. The answer says what would have happened (`would_*`), after
 every rule ran. Reads a rule needs (the post, its comments, a submolt's
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import string
 import sys
 from typing import Any, Mapping
 
@@ -68,6 +72,27 @@ def _string(body: Mapping[str, Any], key: str, required: bool = True) -> str | N
         if not required and value == "":
             return None
         raise hand.HandError(f'"{key}" must be a non-empty string')
+    return value
+
+
+#: Moltbook's ids are UUIDs. A leading slice of one (Teeny's memory and
+#: journal shorten them, "post 8e2395c9") names nothing Moltbook knows, and it
+#: answers a bare 400 the mind cannot learn from: refused here, by name.
+_UUID_SHAPE = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+
+def _full_id(value: str, what: str) -> str:
+    """The id, unless it is a UUID cut short (8 or more of its first
+    characters, not all 36)."""
+    short = 8 <= len(value) < len(_UUID_SHAPE) and all(
+        c == "-" if s == "-" else c in string.hexdigits for c, s in zip(value, _UUID_SHAPE)
+    )
+    if short:
+        raise hand.Refused(
+            f'"{what}" {value} is a shortened id: Moltbook ids are whole UUIDs (36 characters, four dashes)'
+            " and it does not know this one. Use the full id from the batch, not a short one from memory",
+            rule="short_id", rewrite=True, field=what,
+        )
     return value
 
 
@@ -345,8 +370,8 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
 
 def comment(body: Any, api: RestApi | None = None) -> Json:
     body = _body(body, ("post_id", "body"), ("parent_id",))
-    post_id = client.object_id(body["post_id"], "post_id")
-    parent_id = client.object_id(body["parent_id"], "parent_id") if body.get("parent_id") is not None else None
+    post_id = _full_id(client.object_id(body["post_id"], "post_id"), "post_id")
+    parent_id = _full_id(client.object_id(body["parent_id"], "parent_id"), "parent_id") if body.get("parent_id") is not None else None
     text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
     conn = rules.db()
     with hand.lock("moltbook-write"):
@@ -423,7 +448,7 @@ def upvote(body: Any, api: RestApi | None = None) -> Json:
     if ("post_id" in body) == ("comment_id" in body):
         raise hand.HandError('an upvote names exactly one of "post_id" or "comment_id"')
     key = "post_id" if "post_id" in body else "comment_id"
-    target = client.object_id(body[key], key)
+    target = _full_id(client.object_id(body[key], key), key)
     table, column, noun = (
         ("moltbook_posts", "post_id", "post") if key == "post_id" else ("moltbook_comments", "comment_id", "comment")
     )
