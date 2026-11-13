@@ -645,9 +645,10 @@ def _x_context(s: Mapping[str, Any]) -> list[str]:
 
 
 def _x_lately() -> list[str]:
-    """What Teeny said on X over the last day, replies included, for a beat
-    that has X in it or a habit that may post (the prompt's own "what you
-    said lately" holds posts only, and only as of the last rebuild)."""
+    """What Teeny said on X over the last day, replies included, and the
+    words it has worn out, for a beat that has X in it or a habit that may
+    post (the prompt's own "what you said lately" holds posts only, and only
+    as of the last rebuild)."""
     try:
         from teeny_hands.x import recall
 
@@ -657,7 +658,23 @@ def _x_lately() -> list[str]:
         return []
     if not found:
         return []
-    return [found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:], ""]
+    return [found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:], *_worn(), ""]
+
+
+def _worn() -> list[str]:
+    """The words Teeny has worn out in its replies (teeny_hands.x.recall,
+    `worn_phrases`), said as an order: the repeat rule never sees a reply."""
+    try:
+        from teeny_hands.x import recall
+
+        worn = recall.worn_phrases()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] worn words unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    if not worn:
+        return []
+    return ["", "You have worn these out in your replies: " + ", ".join(worn)
+            + ". Say the next thing without any of them."]
 
 
 def _people(batch: list[Mapping[str, Any]]) -> list[str]:

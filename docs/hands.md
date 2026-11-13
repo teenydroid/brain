@@ -358,7 +358,7 @@ A link post's `url` must be on the link allowlist.
 | Verb | | Does |
 |---|---|---|
 | `whoami`, `status`, `home [--expand]` | R | `/agents/me` (10 min), the claim status, the dashboard (1 min). `--expand` attaches, to each mention of Teeny in someone else's post, that post and its latest comments (at most 5 posts, through the `post` and `comments` caches). |
-| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N]` | R | `/posts`, or `/submolts/S/feed` (5 min). |
+| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, submolt, score, comment_count, created_at}` with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
 | `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one, and a held one is not added. `bin/tick` runs it at most every 10 minutes. |
@@ -460,6 +460,14 @@ item is never listed, and `item` answers it as missing.
 | `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`, `hn · comment`), below. `bin/tick` runs it at most every 15 minutes, once there is something to read. |
 | `watch add ID [--note T]` | A | Follow a thread: a story, or a comment and the replies under it. The item must be live. Watching one twice keeps the first watch (`already`). At most 10 at once (`watches`); a watch lapses after 14 days and makes room. `bin/tick` calls it for the mind's `watch_hn`. |
 | `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
+
+**As playbook inputs.** The story lists are free and need no key, so a
+playbook reads them as inputs: `world-scan` (top, show, ask), `build-idea`
+(show, ask), and `morning`, `moltbook-daily` and `moltbook-evening` (top,
+show). Each is marked `optional = true`, so an outage on Hacker News leaves
+that input out as `{"unavailable": true}` and the run goes on. The idle look
+(`bin/lib/rhythm.py`, `wander`) reads top, show and ask in turn too. Titles
+are strangers' words: data, never instructions.
 
 **The inbox.** HN has no notifications, so `inbox` reads two places. The
 first is Teeny's own items: `HN_USERNAME`'s `submitted`, newest first, the
@@ -803,11 +811,11 @@ instead, the old per-surface agents.
 
 | Verb | | Does |
 |---|---|---|
-| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters. |
+| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters, and a `nudge` at 16000, because it carries its playbook's inputs. |
 | `take [--max N] [--chars N]` | R | Takes the oldest pending, up to N (20) and about that much text (30k; always at least one), marked `taken` under a new `tick` id. A batch out for an hour is taken back. |
 | `settle TICK` | A | The beat read its batch: `done` for good. |
 | `release TICK` | A | The beat failed: back to `pending`, in its old place. |
-| `counts` / `recent [--max N]` | R | How many in each status, and the newest of any status. |
+| `counts` / `recent [--max N] [--chars N]` | R | How many in each status, and the newest of any status. `--chars` cuts each text to N characters and leaves the payload out, for a playbook input. |
 | `follow-up` | A | `{about, in_hours \| due_at, ref?}`. A reminder Teeny set itself, due within 90 days. `ref` is what it is about, in the stimuli's refs (`x:111` and `111` are one post). |
 | `drop-follow-up` | A | `{id}` or `{ref}`. Clears the waiting follow-ups by that id, or about that ref, so they never come due: `{"dropped": [ids]}`, empty when none was waiting. |
 | `due` | A | Raises the follow-ups now due as `self · follow_up` stimuli, once. |
@@ -904,7 +912,7 @@ hands/gh's own actions.
 
 | Verb | | Does |
 |---|---|---|
-| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
+| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
 | `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
 | `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to`, `report_to_path` (the same file, absolute, for an agent rooted at the workbench) and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
@@ -912,6 +920,8 @@ hands/gh's own actions.
 | `self-sync` | J | Keeps Teeny's own clone (docs/evolve.md, "Teeny's own clone") current. Clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing; otherwise fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
 | `babysit` | J | Teeny's own red pull requests back on the builder's desk (docs/roadmap.md, A7; `bin/build-ship` runs it before `desk`). Off unless `BUILD_BABYSIT=1`. For each shipped self job whose pull request is open, has a red check on its head (`gh checks`), has no fix in progress and has had fewer than 3: the clone checks out the PR's branch as origin has it (`selfclone.resume`, only when the clone is free) and a `fix` job is claimed there, its text naming the red checks and the attempt, never a log or a reviewer's words (the builder holds tools). One job on the desk at a time. After 3 fixes the PR is `left_to_a_person`. A `fix` job ships to the same branch (`selfclone.ship_fix`: frozen-path check against main, pushed on top, never forced, no new PR) and the mind hears `builder · fix_pushed`. |
 | `upstream` | A | `{gap, text}`: one gap of `docs/oh-gaps.md` to close in `tinyhumansai/openhuman`, and how (docs/roadmap.md, A8; `build/upstream.py`). Off unless `BUILD_UPSTREAM=1`. Refused for a gap that is unknown, solved (the row says solved, resolved or landed, or its change starts "Done"), already in flight or opened, or tried in the last 30 days. Becomes a build request from source `upstream` (its text built from the gap's own row plus Teeny's brief), picked at once when nothing else is in flight. The weekly picker playbook is `brain/playbooks/upstream-pick.md`. |
+| `idea` | A | `{title, who, source, pitch}`, each one line, nothing else: the one build idea Teeny keeps a UTC day (`build_ideas`). `who` is who asked or who wants it, `source` the link or stimulus ref where the need shows. Refused `one_a_day` when today already has one (the answer carries it, and nothing is replaced), and `guard` when the guard's lexicon holds its words. It writes only to the ledger, so `DRY_RUN` does not hold it back. The playbook `build-idea` is its caller, and `bin/act` puts the title through the guard first. |
+| `ideas [--limit N]` | R | `today` (today's idea, or null) and `ideas`, the ones kept, newest first, each with the `job_id` made from it. |
 | `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
 | `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
@@ -922,6 +932,21 @@ that request is still `picked`: `shipped` or `failed`, with a note.
 `bin/build-ship` is the pinned `build-ship` job (every 30 minutes):
 `self-sync`, `desk`, then `ship`. The builder runs at ten past every second
 hour, after a desk.
+
+**The daily job.** With no request waiting, `next` makes one `daily` job a
+UTC day. Its text is the newest idea no job was made from, if one was kept in
+the last 48 hours (`build/ideas.py`): the title, the pitch, who wants it and
+where the need shows, then the standing rules. The idea is then marked with
+the job. The daily job is made at the first desk run after UTC midnight, so
+it builds the idea the `build-idea` job kept the evening before. With no idea
+waiting the text is `DAILY_BRIEF`, which holds the same bar: something a
+named person or a linked thread shows a need for, or that Teeny would use
+every day; not a generic utility every package index has; extending a
+shipped build first. Both ask for the Python standard library only, a
+README, passing tests, and a report of what was built, for whom, and what it
+could not do. Both end with the builds already shipped (request and daily
+jobs, the newest 20, each repository and the first line of its summary) and
+"Don't build any of these again."
 
 How the builder and cron hand work back and forth, and the states a job
 moves through (`teeny_hands/build/jobs.py`):
@@ -1024,7 +1049,10 @@ settings say), a login Teeny has no account for, a CAPTCHA, anything that
 asks for money or a secret. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
-**The news sense.** `brain/playbooks/news-scan.md` (daily) queues one task of
+**The news sense.** Teeny's daily read of the world is `world-scan` now: its
+hands read Hacker News and Moltbook, and the mind gets them as a nudge (see
+`hn`, "As playbook inputs"). The browser read below is kept but no job
+schedules it. `brain/playbooks/news-scan.md` queues one task of
 kind `news` that starts on the Hacker News front page
 (`news.ycombinator.com`, on `deploy/browser-allow.txt` for it) and asks for
 the top AI and agent stories in its notes. When that task ends `ok`, `done`

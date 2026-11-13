@@ -337,6 +337,37 @@ class TickTest(unittest.TestCase):
         self.assertIn("in reply to your post (60 min ago): gm. coffee first", message)
         self.assertIn("you last said to @ana (10 min ago): gm ana, one coin, never sold", message)
         self.assertIn("## what you said on X lately", message)
+        self.assertNotIn("worn these out", message)  # two replies wear nothing out
+
+    def test_a_beat_with_x_in_it_names_the_words_teeny_has_worn_out(self):
+        from teeny_hands.x import mentions, posting_rules
+
+        conn = hand.db()
+        conn.executescript(posting_rules.SCHEMA + mentions.SCHEMA)
+        for n, text in enumerate(("the desk is loud today", "no wallet on this desk", "my desk is full", "gm fren")):
+            conn.execute("INSERT INTO x_posts (id, kind, text, created_at) VALUES (?, 'reply', ?, ?)",
+                         (str(60 + n), text, T0 - 600 - n))
+        conn.close()
+        stimuli.add("x", "mention", "51", "what's the plan today?", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("You have worn these out in your replies: desk. Say the next thing without any of them.", message)
+
+    def test_a_mood_is_told_to_show_and_tired_means_fewer_answers_not_flatter_ones(self):
+        likes = [{"do": "like_x", "id": str(n)} for n in range(8)]
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "smug about the build"}, *likes]},
+                    {"thought": "", "intents": likes}, {"thought": "", "intents": likes}, {"thought": "", "intents": []})
+        for n in range(4):
+            stimuli.add("x", "mention", str(n), "gm")
+            self.tick()
+        first, last = self.chats()[0]["message"], self.chats()[-1]["message"]
+        self.assertNotIn("Let that mood show", first)  # no mood yet
+        self.assertNotIn("running low", first)
+        self.assertIn("mood: smug about the build", last)
+        self.assertIn("Let that mood show in what you write today.", last)
+        self.assertIn("You are running low. Answer fewer things, or nothing; what you do answer still gets your whole voice.",
+                      last)
 
     def test_a_beat_with_nothing_from_x_carries_no_x_history(self):
         self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})

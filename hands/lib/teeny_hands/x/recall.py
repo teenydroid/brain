@@ -1,6 +1,7 @@
 """What a beat needs to answer an X mention without contradicting itself
 (bin/lib/tick.py, `render`): the post a mention answers, what Teeny last said
-to that person, and what it said on X lately, replies included.
+to that person, what it said on X lately, replies included, and the words it
+has worn out in its replies.
 
 Everything is read from the hands' own ledgers in state/hands.db (x_posts,
 x_mentions, x_cache), read-only, and never from X: a paid lookup per mention
@@ -13,7 +14,9 @@ afternoon said "two days old", "day two" and "day three".
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from collections import Counter
 from typing import Any, Mapping
 
 from .. import hand
@@ -24,6 +27,24 @@ LATELY_SECS = 86400
 LATELY_MAX = 10
 #: How much of any one post is shown.
 CLIP = 220
+#: How many of Teeny's latest replies `worn_phrases` reads.
+WORN_REPLIES = 30
+#: A word or a two-word phrase in this many of them is worn.
+WORN_MIN = 3
+#: The most it lists.
+WORN_MAX = 8
+
+#: Handles, cashtags and links: never words of Teeny's own.
+_NOT_WORDS = re.compile(r"https?://\S+|[@$#]\w+")
+_WORD = re.compile(r"[a-z][a-z']*[a-z]")
+#: Words every reply needs. A phrase made only of these is not a habit.
+_COMMON = frozenset("""
+about after again all also and any are aren't because been before being but can can't could did didn't does doesn't
+doing don't down each even ever every for from get gets got had has have haven't her here him his how i'm i've into
+isn't it's its just like more most much not now off one only other our out over own same she should some still such
+than that that's the their them then there these they this those though through too under until very was wasn't
+were what when where which while who why will with won't would yet you you're your yours
+""".split())
 
 
 def _clip(text: Any) -> str:
@@ -139,3 +160,39 @@ def said_lately() -> list[str]:
         to = f"to @{r['who']}" if r["kind"] == "reply" and r["who"] else "a reply" if r["kind"] == "reply" else f"a {r['kind']}"
         lines.append(f"- {_ago(r['created_at'])}, {to}: {_clip(r['text'])}")
     return lines
+
+
+def _words(text: str) -> list[str]:
+    return _WORD.findall(_NOT_WORDS.sub(" ", str(text or "").lower()))
+
+
+def worn_phrases() -> list[str]:
+    """The words and two-word phrases Teeny keeps reaching for: in at least
+    WORN_MIN of its last WORN_REPLIES replies, the most used first, at most
+    WORN_MAX. A reply counts once however often it says the word. A word that
+    is worn only as part of a worn phrase is listed as the phrase.
+
+    hands/x's repeat rule compares whole posts and skips replies, so nothing
+    else notices a reply that is new as a sentence and old in every word."""
+    conn = _connect()
+    if conn is None:
+        return []
+    try:
+        rows = _rows(conn, "SELECT text FROM x_posts WHERE kind = 'reply' ORDER BY created_at DESC LIMIT ?",
+                     (WORN_REPLIES,))
+    finally:
+        conn.close()
+    singles: Counter[str] = Counter()
+    pairs: Counter[tuple[str, str]] = Counter()
+    for r in rows:
+        words = _words(r["text"])
+        singles.update({w for w in words if len(w) >= 3 and w not in _COMMON})
+        pairs.update({(a, b) for a, b in zip(words, words[1:]) if a not in _COMMON and b not in _COMMON})
+    worn = {" ".join(pair): n for pair, n in pairs.items() if n >= WORN_MIN}
+    for word, n in singles.items():
+        if n < WORN_MIN:
+            continue
+        inside = max((m for pair, m in pairs.items() if m >= WORN_MIN and word in pair), default=0)
+        if inside * 4 < n * 3:  # mostly said outside the phrase: the word itself is the habit
+            worn[word] = n
+    return [phrase for phrase, _ in sorted(worn.items(), key=lambda kv: (-kv[1], kv[0]))[:WORN_MAX]]

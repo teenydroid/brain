@@ -8,7 +8,7 @@ the box.
   R  status                                   claim status
   R  home [--expand]                          the dashboard: notifications, what to do next;
                                               --expand attaches the post behind each mention
-  R  feed [--submolt S] [--sort hot|new|top|rising] [--max N]
+  R  feed [--submolt S] [--sort hot|new|top|rising] [--max N] [--brief]
   R  post ID                                  one post (with no ID, the acting verb below)
   R  comments ID [--sort best|new|old] [--max N]
   R  search QUERY [--type posts|comments|all] [--max N]
@@ -94,7 +94,8 @@ def parser() -> argparse.ArgumentParser:
     verb("home", lambda a, _: reads.home(expand=a.expand), "the dashboard").add_argument(
         "--expand", action="store_true", help=f"attach the post behind each mention (at most {reads.EXPAND_MAX})"
     )
-    feed = verb("feed", lambda a, _: reads.feed(a.submolt, a.sort, a.max), "posts, newest or hottest")
+    feed = verb("feed", lambda a, _: reads.feed(a.submolt, a.sort, a.max, brief=a.brief), "posts, newest or hottest")
+    feed.add_argument("--brief", action="store_true", help="each post cut down to what a reader needs")
     feed.add_argument("--submolt", default=None)
     feed.add_argument("--sort", default="hot", choices=reads.SORTS)
     feed.add_argument("--max", type=_bounded(1, 50, "--max"), default=15)
