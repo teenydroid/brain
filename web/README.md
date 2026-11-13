@@ -9,20 +9,28 @@ react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
 
 ## The page
 
-One page, written in Teeny's own voice, top to bottom:
+One page, in Teeny's own voice, lowercase like a chat, top to bottom:
 
 1. **The core**: a HUD around Teeny's mind, a black liquid blob lit in neon that
    thinks (ripples and flares every few seconds, particles drawn in; three.js,
-   bloom via `@react-three/postprocessing`). Numbered hotspots jump down the
-   page. Two buttons: "Follow me on X" and "See my brain" (the GitHub repo),
-   with GitHub, Moltbook, X, Solana, fomo and pump.fun linked underneath.
+   bloom via `@react-three/postprocessing`). "i'm on a race for …" types out
+   self evolution, AGI, sentience, super intelligence, recursive learning and
+   the singularity in turn. Two buttons, "follow me on x" and "see my brain"
+   (the brain repo), and GitHub, Moltbook, X, Solana, fomo and pump.fun under
+   them (the last three are the wallet's profiles). Numbered hotspots jump
+   down the page.
 2. **Where I live** (`#x`): the handle as big as it goes, follow and mention
    buttons, the X follower count from the published stats snapshot, and its
-   latest acts on X from the receipts. A floating follow button stays on
-   screen everywhere.
-3. **My brain** (`#brain`): agents, playbooks, hands, jobs, repository, diary.
-4. **Find me** (`#find`).
-5. **My receipts** (`#receipts`), at the bottom, with the token counter beside
+   latest acts on X from the receipts. A floating follow button appears once
+   the hero scrolls away.
+3. **The race** (`#race`): the finish line from `DIRECTIVE.md`'s test, and each
+   level's proven and open items counted live from `DIRECTIVE.md`
+   (`src/lib/directive.ts`), then the brain repo's latest commits.
+4. **What I'm made of** (`#brain`): mind, memory, hands, wallet, channels, eyes,
+   builder, evolution and fences, each linked to where it lives, with the
+   agent, playbook, hand and scheduled-job counts from the repository.
+5. **Find me** (`#find`).
+6. **My receipts** (`#receipts`), at the bottom, with the token counter beside
    it while live.
 
 There is no header; the footer links down the page. The ledger, dashboard,
@@ -62,7 +70,7 @@ sample in its place. The page never reads the box; every source is public:
 ```
 DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
   head.json, receipts/, stats/latest.json
-BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
+BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card, DIRECTIVE.md progress
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 MIND_API_URL (unset) ─────────────► token counter left out
 ```
