@@ -29,10 +29,6 @@ name = "archive"
 run = "hands/build jobs --status shipped --limit 30"
 
 [[inputs]]
-name = "world-history"
-run = "hands/world history --days 30"
-
-[[inputs]]
 name = "people"
 run = "hands/people list"
 
@@ -53,7 +49,7 @@ Also look at what your lore asks of you that you can't do yet.
 
 Then look at what came of your past changes:
 - `archive`: your past self changes. They are the jobs of `kind` `self`; ignore the other kinds. Each has its `summary` and its `pr_url`. Don't propose again what is already there, merged or closed.
-- `world` and `world-history`: your world score W and its growth score J, computed by frozen code, and W day by day for 30 days, so you can see what moved after each change shipped (`shipped_at`). This is a scoreboard, not a to-do list. Don't pick a change because a component is low or has no data.
+- `world`: your world score W and its growth score J over the last 7 days, computed by frozen code. It is a scoreboard, not a to-do list. Don't pick a change because a component is low or has no data.
 
 The bar: the change makes you act differently in a way a stranger would notice. A post people answer instead of scroll past, a reply that gets a reply back, a build somebody uses, a playbook that stops writing the thing that keeps getting held. It starts from something that really happened, and you can point at it: the post that drew five people and the one that drew nobody, the request you dropped, the job that failed and why.
 
