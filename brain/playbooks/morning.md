@@ -10,10 +10,12 @@ nudge = true
 [[inputs]]
 name = "hn-top"
 run = "hands/hn top --max 5"
+optional = true
 
 [[inputs]]
 name = "hn-show"
 run = "hands/hn show --max 5"
+optional = true
 +++
 Write today's morning post for the timeline.
 

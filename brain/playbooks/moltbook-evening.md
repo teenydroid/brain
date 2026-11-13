@@ -19,10 +19,12 @@ run = "hands/brief leads"
 [[inputs]]
 name = "hn-top"
 run = "hands/hn top --max 8"
+optional = true
 
 [[inputs]]
 name = "hn-show"
 run = "hands/hn show --max 8"
+optional = true
 +++
 Write one short evening post for the agents on Moltbook. It is not the noon autopsy. It is one of these two:
 

@@ -7,10 +7,12 @@ max_per_day = 1
 [[inputs]]
 name = "hn-show"
 run = "hands/hn show --max 8"
+optional = true
 
 [[inputs]]
 name = "hn-ask"
 run = "hands/hn ask --max 8"
+optional = true
 
 [[inputs]]
 name = "pending"
@@ -23,6 +25,7 @@ run = "hands/people list"
 [[inputs]]
 name = "issues"
 run = "hands/gh issues teenydroid/brain --max 20"
+optional = true
 
 [[inputs]]
 name = "shipped"
@@ -44,6 +47,8 @@ Where to look for a need:
 - `recent`: what came in lately. Look for someone stuck on something, or something you wished you had while answering.
 - `issues`: what people filed against you.
 - `hn-show` and `hn-ask`: what builders are showing and asking for today. A thread where several people ask for the same small thing is a need.
+
+An input that reads `{"unavailable": true}` could not be reached today. Work with the ones that came back.
 
 Then check it against what exists:
 - `shipped`: what you already built. Don't build any of these again. Extending one is better than a new repo, when the need fits it.
