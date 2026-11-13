@@ -146,6 +146,15 @@ class DreamTest(unittest.TestCase):
         self.assertIn("x · ana · 10 min ago: can you build me a crab cli?", message)
         self.assertNotIn("a quiet moment to yourself", message)
 
+    def test_it_goes_over_hacker_news_and_what_it_read_of_the_world(self):
+        stimuli.add("hn", "comment", "42", "your agent posted this? neat", who="pg", at=T0 - 1200)
+        stimuli.add("world", "idle", "hn-top:1", "Hacker News is open:\n- A tiny agent that runs in public", at=T0 - 600)
+        self.answer({"ops": [], "diary": "d"})
+        self.dream()
+        message = self.message()
+        self.assertIn("hn · pg · 20 min ago: your agent posted this? neat", message)
+        self.assertIn("world · what you read · 10 min ago: Hacker News is open: - A tiny agent that runs in public", message)
+
     def test_it_goes_over_the_tasks(self):
         conn = hand.open_db(requests.SCHEMA)
         conn.execute("INSERT INTO build_requests (source, source_id, author, text, created_at, status)"
