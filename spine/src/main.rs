@@ -10,6 +10,7 @@
 
 mod debridge;
 mod lifi;
+mod wallet_backend;
 
 use openhuman_rpc::embed::process;
 
