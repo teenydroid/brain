@@ -6,6 +6,14 @@ media = ["image"]
 # A habit, not an order: the mind gets this with the night's backlog when it
 # wakes, and says gm its own way, or not at all.
 nudge = true
+
+[[inputs]]
+name = "hn-top"
+run = "hands/hn top --max 5"
+
+[[inputs]]
+name = "hn-show"
+run = "hands/hn show --max 5"
 +++
 Write today's morning post for the timeline.
 
