@@ -47,3 +47,6 @@ __pycache__/
 /brain/keyring/
 /brain/dev-keychain.json.lock
 /*.log
+
+# Pages a playbook saves for reading (news-scan); never committed.
+/downloads/
