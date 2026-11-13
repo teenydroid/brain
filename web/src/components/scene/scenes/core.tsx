@@ -264,6 +264,37 @@ function think(elapsed: number, dt: number, motion: number) {
   return MIND
 }
 
+/**
+ * How far the blob may dart from the centre. It stays well inside the inner
+ * ring (radius 2.35 around a 1.7 blob), so the orbits always surround it.
+ */
+export const REACH = { x: 0.42, y: 0.28, z: 0.25, yaw: 0.8, pitch: 0.5, roll: 0.25 }
+
+/**
+ * The blob's own will: it holds still, then snaps somewhere new, sharp and
+ * decisive, like it just made up its mind. Mostly a hold of up to two
+ * seconds, sometimes a quick double take. It ignores the pointer.
+ */
+export const DART = {
+  next: 0.8,
+  pos: new THREE.Vector3(),
+  rot: new THREE.Vector3(),
+  /** 1 right after a dart, easing to 0: the shudder of a hard stop. */
+  kick: 0,
+}
+
+const spread = (reach: number, random: () => number) => (random() * 2 - 1) * reach
+
+/** Picks the next spot and when to leave it. Pure apart from writing into DART. */
+export function dart(elapsed: number, random: () => number = Math.random) {
+  if (elapsed <= DART.next) return false
+  DART.next = elapsed + (random() < 0.25 ? 0.22 + random() * 0.2 : 0.7 + random() * 1.4)
+  DART.pos.set(spread(REACH.x, random), spread(REACH.y, random), spread(REACH.z, random))
+  DART.rot.set(spread(REACH.pitch, random), spread(REACH.yaw, random), spread(REACH.roll, random))
+  DART.kick = 1
+  return true
+}
+
 export const BLOB = new THREE.ShaderMaterial({
   vertexShader: BLOB_VERTEX,
   fragmentShader: BLOB_FRAGMENT,
@@ -345,7 +376,8 @@ const BACKDROP = new THREE.ShaderMaterial({
 export function CoreScene() {
   const motion = useMotion()
   const { viewport, size } = useThree()
-  const group = useRef<THREE.Group>(null)
+  const orbits = useRef<THREE.Group>(null)
+  const body = useRef<THREE.Group>(null)
   const clock = useRef(0)
 
   // The backdrop sits at z = -4 and has to cover the whole frame from there.
@@ -370,13 +402,28 @@ export function CoreScene() {
     BACKDROP.uniforms.uTime.value = t
     ;(BACKDROP.uniforms.uAspect.value as THREE.Vector2).set(far.width / far.height, 1)
 
-    if (group.current) {
-      // The pointer leans it; when no one is pointing it drifts on its own.
+    // The orbits lean toward the pointer; when no one is pointing they drift on their own.
+    if (orbits.current) {
       const px = motion ? state.pointer.x : 0
       const py = motion ? state.pointer.y : 0
-      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, px * 0.45 + Math.sin(t * 0.12) * 0.25, 0.04)
-      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, -py * 0.3 + Math.cos(t * 0.09) * 0.1, 0.04)
-      group.current.position.y = Math.sin(t * 0.5) * 0.06
+      orbits.current.rotation.y = THREE.MathUtils.lerp(orbits.current.rotation.y, px * 0.45 + Math.sin(t * 0.12) * 0.25, 0.04)
+      orbits.current.rotation.x = THREE.MathUtils.lerp(orbits.current.rotation.x, -py * 0.3 + Math.cos(t * 0.09) * 0.1, 0.04)
+    }
+
+    // The blob goes where it wants: a fast, firm snap to each new spot, a small shudder as it stops.
+    if (body.current && motion) {
+      dart(t)
+      const snap = 1 - Math.exp(-dt * 15)
+      DART.kick = Math.max(0, DART.kick - dt * 3.5)
+      const shudder = DART.kick * DART.kick * 0.035
+      body.current.position.set(
+        THREE.MathUtils.lerp(body.current.position.x, DART.pos.x, snap) + Math.sin(t * 47) * shudder,
+        THREE.MathUtils.lerp(body.current.position.y, DART.pos.y, snap) + Math.sin(t * 53 + 1.3) * shudder,
+        THREE.MathUtils.lerp(body.current.position.z, DART.pos.z, snap),
+      )
+      body.current.rotation.x = THREE.MathUtils.lerp(body.current.rotation.x, DART.rot.x, snap)
+      body.current.rotation.y = THREE.MathUtils.lerp(body.current.rotation.y, DART.rot.y, snap)
+      body.current.rotation.z = THREE.MathUtils.lerp(body.current.rotation.z, DART.rot.z, snap)
     }
   })
 
@@ -385,16 +432,20 @@ export function CoreScene() {
       <mesh position={[0, 0, -4]} material={BACKDROP}>
         <planeGeometry args={[far.width * 1.05, far.height * 1.05]} />
       </mesh>
-      <group ref={group} scale={scale}>
-        <mesh material={BLOB}>
-          <icosahedronGeometry args={[1, 96]} />
-        </mesh>
-        <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
-        {RINGS.map((ring, i) => (
-          <mesh key={i} material={ring.material} rotation={ring.tilt}>
-            <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
+      <group scale={scale}>
+        <group ref={body}>
+          <mesh material={BLOB}>
+            <icosahedronGeometry args={[1, 96]} />
           </mesh>
-        ))}
+        </group>
+        <group ref={orbits}>
+          <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
+          {RINGS.map((ring, i) => (
+            <mesh key={i} material={ring.material} rotation={ring.tilt}>
+              <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
+            </mesh>
+          ))}
+        </group>
       </group>
     </>
   )
