@@ -121,7 +121,7 @@ class WithCore(Scratch):
         fake = FakeCore(*replies)
         self.addCleanup(fake.close)
         # A failed call is asked again after a pause; the fake core needs none.
-        backoff = mock.patch.object(judge, "RETRY_BACKOFF", 0.0)
+        backoff = mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0))
         backoff.start()
         self.addCleanup(backoff.stop)
         (self.root / "state").mkdir(exist_ok=True)
