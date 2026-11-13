@@ -201,6 +201,19 @@ class XApi:
         posts = model.to_posts([response.get("data")], response.get("includes"))
         return posts[0] if posts else None
 
+    def own_posts(self, post_ids: Sequence[str]) -> list[Json]:
+        """Up to 100 of the account's own posts by id, in one lookup, with
+        their counters (impressions included: they are the author's to see).
+        Signed as the account and never cached, so the counters are today's
+        and X bills them as owned reads. A post X no longer has is left out."""
+        ids = [i for i in post_ids if i][:100]
+        if not ids:
+            return []
+        response = self.call(
+            "GET", "/2/tweets", [("ids", ",".join(ids)), ("tweet.fields", "created_at,public_metrics")], user=True
+        )
+        return model.to_posts(response.get("data"), response.get("includes"))
+
     def search_page(self, query: str, options: SearchOptions) -> Json:
         """One page of a recent search (the last 7 days)."""
         # X's floor is 10, so asking for fewer still bills for 10.
