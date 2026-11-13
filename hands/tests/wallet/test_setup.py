@@ -112,6 +112,16 @@ class SetupTest(Scratch):
         self.assertNotIn("word", str(setup))
         self.assertEqual(self.core.params("openhuman.wallet_generate_mnemonic"), [{"wordCount": 24}])
 
+    def test_a_box_without_pty_devices_skips_the_terminal_tests(self):
+        # The builder's jail has no free pty: the terminal tests must skip
+        # there, not error, or every self-build's suite fails on them.
+        def no_pty():
+            raise OSError("out of pty devices")
+
+        with mock.patch.object(pty, "fork", no_pty):
+            with self.assertRaises(unittest.SkipTest):
+                self.on_tty()
+
     def test_refuses_without_a_terminal(self):
         done = subprocess.run([sys.executable, "-I", "-B", str(SETUP)], capture_output=True, text=True, env=os.environ,
                               stdin=subprocess.DEVNULL, start_new_session=True, timeout=30)
