@@ -72,6 +72,17 @@ AMOUNTS = {"amount_usdc": "USDC", "amount_sol": "SOL", "amount_eth": "ETH"}
 Core = Callable[..., Any]
 
 
+class NoWallet(hand.HandError):
+    """The core holds no wallet on the chain asked for: bin/wallet-setup has
+    not run. Still a HandError (exit 1) for anything that would move money;
+    the observing jobs (the wallet watch, the world snapshot's wallet parts)
+    catch it and answer SKIPPED_NO_WALLET instead of failing."""
+
+
+#: What an observing job answers while there is no wallet to observe.
+SKIPPED_NO_WALLET = "no wallet yet (the operator runs bin/wallet-setup once)"
+
+
 @dataclass(frozen=True)
 class Payment:
     to: str
@@ -190,7 +201,7 @@ def own_address(core: Core = hand.core, chain: str = chains.SOLANA) -> str:
         if isinstance(account, Mapping) and account.get("chain") == family and valid(account.get("address")):
             return str(account["address"])
     name = "EVM" if family == "evm" else "Solana"
-    raise hand.HandError(f"the core has no {name} wallet; the operator runs bin/wallet-setup once")
+    raise NoWallet(f"the core has no {name} wallet; the operator runs bin/wallet-setup once")
 
 
 def native_balance(core: Core = hand.core, chain: str = chains.SOLANA) -> int:

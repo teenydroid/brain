@@ -25,7 +25,8 @@ table it lands in.
               (not inbound, not approved, not cleared), and wallet payments
               now in doubt
 
-Every source is optional. A source that is missing is skipped and said so,
+Every source is optional. A source that is missing is skipped and said so
+(tiny and money while the core holds no wallet yet),
 one that fails is reported, and the rest still land. A component whose
 sources are all missing writes no row that day, so it neither gains nor
 loses. One row per (date, component): a second snapshot the same UTC day
@@ -225,10 +226,21 @@ def attention(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     return weighted, detail
 
 
+def _no_wallet_skips(read: Callable[..., Json]) -> Json:
+    """A wallet read, or Skip while the core holds no wallet yet (nothing to
+    read is not a failed source)."""
+    from ..wallet.pay import SKIPPED_NO_WALLET, NoWallet
+
+    try:
+        return read()
+    except NoWallet:
+        raise Skip(SKIPPED_NO_WALLET) from None
+
+
 def tiny(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     from ..wallet import reads
 
-    held = reads.tiny()
+    held = _no_wallet_skips(reads.tiny)
     return float(held["amount"]), {"parts": {"tokens": held["amount"]}, "mint": held["mint"], "cluster": held["cluster"]}
 
 
@@ -236,7 +248,7 @@ def money(conn: sqlite3.Connection, date: str) -> tuple[float, Json]:
     from ..wallet import caps, reads
 
     notes: list[str] = []
-    got = reads.balance()
+    got = _no_wallet_skips(reads.balance)
     usdc = int(got["usdc"]["raw"]) / 10 ** caps.DECIMALS["USDC"]
     sol_tokens = int(got["sol"]["raw"]) / 10 ** caps.DECIMALS["SOL"]
     sol_usd_text = hand.setting(caps.SOL_USD)

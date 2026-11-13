@@ -131,6 +131,26 @@ class WatchTest(Scratch):
             self.assertIn("WALLET_WATCH", out["skipped"])
         self.assertEqual(self.chain.calls, [])
 
+    def test_with_no_wallet_yet_the_watch_and_daily_are_skipped_not_failed(self):
+        # bin/wallet-setup has not run: there is nothing to watch, which is not a failure.
+        self.core.answers["openhuman.wallet_status"] = {"configured": False, "accounts": []}
+        for verb in (senses.watch, senses.daily):
+            out = verb()
+            self.assertEqual(out["skipped"], "no wallet yet (the operator runs bin/wallet-setup once)")
+        self.assertEqual(self.inbox(), [])
+        self.assertEqual(self.chain.calls, [])
+        self.assertEqual(self.moved(), [])
+
+    def test_the_pinned_jobs_with_no_wallet_yet_are_skipped_not_failed(self):
+        # The scheduler counts a non-zero exit as a failed job, every 15 minutes.
+        self.core.answers["openhuman.wallet_status"] = {"configured": False, "accounts": []}
+        for args in ((), ("daily",)):
+            done = self.job(*args)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertTrue(out["ok"])
+            self.assertIn("no wallet yet", out["skipped"])
+
     def test_the_pinned_job_switched_on_still_refuses_a_broken_rule(self):
         self.configure(WALLET_TEAM_ADDRESSES="not-an-address")
         done = self.job()
