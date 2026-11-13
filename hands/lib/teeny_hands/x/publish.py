@@ -70,13 +70,27 @@ def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapp
     raise hand.HandError(f"the guard answered {verdict.kind!r}, which hands/x does not publish on")
 
 
-def _draft(body: Any, *, quote: bool) -> tuple[str, list[str], str | None, str | None]:
+_FORMAT = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _format_tag(value: Any) -> str | None:
+    """The format tag of an own post (gm, take, quote, proof, day-n, question,
+    clip, vote ...), kept for the lab to compare. Optional."""
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not _FORMAT.match(value.strip().lower()):
+        raise hand.HandError('"format" is a short lowercase tag (letters, digits, - and _)')
+    return value.strip().lower()
+
+
+def _draft(body: Any, *, quote: bool) -> tuple[str, list[str], str | None, str | None, str | None]:
     """The stdin body: text, media ids, a Giphy id, and for an own post the
-    post it quotes. Anything else in it is refused, so a URL cannot ride in
-    under a field this hand ignores."""
+    post it quotes and its format tag (an `experiment` id is accepted and
+    ignored). Anything else in it is refused, so a URL cannot ride in under a
+    field this hand ignores."""
     if not isinstance(body, Mapping):
         raise hand.HandError('stdin must be a JSON object with "text"')
-    allowed = {"text", "media_ids", "gif_id"} | ({"quote_of"} if quote else set())
+    allowed = {"text", "media_ids", "gif_id"} | ({"quote_of", "format", "experiment"} if quote else set())
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
@@ -92,7 +106,10 @@ def _draft(body: Any, *, quote: bool) -> tuple[str, list[str], str | None, str |
     quote_of = body.get("quote_of")
     if quote_of is not None and not rules.is_x_id(quote_of):
         raise hand.HandError('"quote_of" must be a numeric X post id')
-    return text, list(media_ids), gif_id, quote_of
+    experiment = body.get("experiment")
+    if experiment is not None and (isinstance(experiment, bool) or not isinstance(experiment, (int, str))):
+        raise hand.HandError('"experiment" is an experiment id')
+    return text, list(media_ids), gif_id, quote_of, _format_tag(body.get("format"))
 
 
 def _dry(text: str, kind: str, **extra: Any) -> Json:
@@ -109,7 +126,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     the process-wide posting lock, so two jobs firing in the same minute
     cannot both read the ledger before either is recorded. `approved`: a
     released hold, which skips the guard only."""
-    text, media_ids, gif_id, quote_of = _draft(body, quote=True)
+    text, media_ids, gif_id, quote_of, post_format = _draft(body, quote=True)
     kind = "quote" if quote_of else "post"
     if not approved:
         text = _guarded(text, kind)
@@ -133,7 +150,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
-            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids)
+            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, post_format=post_format)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
@@ -152,7 +169,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     it, before the ledger or anything else that can fail."""
     if not rules.is_x_id(to):
         raise hand.HandError("--to must be a numeric X post id")
-    text, media_ids, gif_id, _ = _draft(body, quote=False)
+    text, media_ids, gif_id, _, _ = _draft(body, quote=False)
     x = x or twitr.client()
     reads = cache.reads(x)
     target = reads.get_post(to)
