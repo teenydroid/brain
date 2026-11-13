@@ -75,6 +75,16 @@ command = "bin/receipts"
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
 
+# How Teeny's own posts and replies landed, every hour (bin/stats-snapshot
+# metrics): `hands/moltbook metrics refresh` and `hands/x metrics refresh`
+# record each write about 1h, 24h and 72h after it went out. Reads only;
+# X bills each post read as an owned read ($0.001), at most 30 a run.
+# Operator-owned, like the snapshot: the scoreboard and the lab score from
+# these rows.
+[jobs.metrics]
+schedule = "25 * * * *"
+command = "bin/stats-snapshot metrics"
+
 # Today's world score W into state/hands.db (bin/world-snapshot): attention,
 # $TINY held, money, capability, shipped, the lore arcs, and the penalty for
 # side effects, one row each per UTC day, read from the other hands' data by
