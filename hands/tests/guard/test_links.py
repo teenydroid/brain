@@ -65,7 +65,12 @@ class FindLinksTest(unittest.TestCase):
                 self.assertEqual(raws(f"ran {name} at 9"), [])
 
     def test_a_tld_glued_to_more_name_is_not_a_link(self):
-        self.assertEqual(raws("a.ai-thing and x.com2 and x.com.foo-bar"), [])
+        self.assertEqual(raws("a.ai-thing and x.com2"), [])
+
+    def test_a_host_glued_to_more_name_still_yields_the_part_a_linkifier_would_tap(self):
+        # "evil.com" ends at a dot here, which is a boundary, so it is still
+        # found and judged: missing a link is worse than one refusal too many.
+        self.assertEqual(raws("evil.com.foo-bar"), ["evil.com"])
 
     def test_identifier_words_are_not_link_tlds(self):
         for name in ("teeny.wallet", "app.token", "pool.swap", "ray.dex", "my.defi", "doge.coin"):
