@@ -106,6 +106,8 @@ def is_night(at: float | None = None) -> bool:
 
 def urgent(s: Mapping[str, Any]) -> bool:
     payload = s.get("payload") or {}
+    if s.get("surface") == "host":
+        return True  # the operator, from the host (deploy/tell.sh): asked for now
     if s.get("surface") == "telegram" and payload.get("owner"):
         return True  # its makers, in a DM: always worth waking for
     return (s.get("surface"), payload.get("status")) in URGENT

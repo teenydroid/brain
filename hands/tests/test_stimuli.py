@@ -51,6 +51,9 @@ class InboxTest(Scratch):
     def test_the_health_check_is_a_surface(self):
         self.assertTrue(stimuli.add("health", "alarm", "outage:1", "your model is not answering"))
 
+    def test_the_operator_on_the_host_is_a_surface(self):
+        self.assertTrue(stimuli.add("host", "instruction", "host-1-ab", "tweet that", who="operator"))
+
     def test_hacker_news_is_a_surface(self):
         self.assertTrue(stimuli.add("hn", "comment", "42", "nice work", who="pg"))
         self.assertEqual(stimuli.bare_ref("hn:42"), "42")
