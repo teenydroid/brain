@@ -976,6 +976,149 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(len(self.x_replies()), 2)
 
+    # --- over-length refusals: one rewrite in the same beat -----------------
+
+    @staticmethod
+    def too_long(length: int, limit: int = 280, field: str | None = None) -> dict:
+        """The guard's refusal of a draft over its limit, in its own words
+        (gate._hard_limits), as every hand passes it on."""
+        from teeny_hands.guard.gate import _hard_limits
+
+        refusal = {"refused": _hard_limits(field or "text", "a" * length, limit, 1), "rewrite": True}
+        return {**refusal, "field": field} if field else refusal
+
+    LONG = "the long version " * 24  # 408 characters
+
+    def rewrites(self) -> list[str]:
+        return [c["message"] for c in self.chats()[1:] if not c["message"].lstrip().startswith("#")]
+
+    def test_an_over_long_reply_is_rewritten_once_in_the_same_beat_and_sent(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404)])
+        stimuli.add("x", "mention", "111", "gm", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": self.LONG}]},
+                    "gm ana, the short version", {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(self.x_replies(), [("111", self.LONG.strip()), ("111", "gm ana, the short version")])
+        [result] = got["results"]
+        self.assertEqual(result["status"], "done", result)
+        self.assertTrue(result["rewritten"])
+        self.assertEqual(result["rewrite"], {"length": 404, "limit": 280, "target": 260, "new_length": 25})
+        self.assertEqual(result["intent"]["text"], "gm ana, the short version")
+        # The rewrite is asked on the mind's own thread, with the numbers it cannot count.
+        self.assertEqual(len(self.chats()), 2)
+        ask = self.chats()[1]
+        self.assertEqual(ask["thread_id"], self.chats()[0]["thread_id"])
+        for said in ("404 characters", "280", "at most 260 characters", self.LONG.strip(), "text only"):
+            self.assertIn(said, ask["message"])
+        self.assertIn(("x", ["mark", "111", "--status", "replied"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.assertEqual(json.loads((self.root / "state" / "mind.json").read_text())["actions_today"], 1)
+        self.at(300)
+        self.tick()
+        message = self.chats()[2]["message"]
+        self.assertIn("your reply_x on 111: done", message)
+        self.assertIn("rewritten to 25", message)
+
+    def test_a_rewrite_that_is_still_too_long_is_refused_without_another_try(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": self.LONG}]},
+                    "still " * 50, {"thought": "", "intents": []})
+        got = self.tick()
+        self.assertEqual(self.x_replies(), [("111", self.LONG.strip())])  # the long rewrite is never sent
+        self.assertEqual(len(self.chats()), 2)
+        [result] = got["results"]
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("404 characters", result["result"]["refused"])
+        self.assertFalse(result["rewritten"])
+        self.assertEqual(result["rewrite"]["new_length"], 299)
+        self.assertEqual(result["intent"]["text"], self.LONG)
+        self.assertIn(("x", ["mark", "111", "--status", "refused"]), [(m["hand"], m["argv"][:4]) for m in self.marks()])
+        self.at(300)
+        self.tick()
+        self.assertIn("your reply_x on 111: refused: the text is 404 characters", self.chats()[2]["message"])
+
+    def test_a_rewrite_the_hand_refuses_again_is_not_rewritten_twice(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404), self.too_long(290)])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": self.LONG}]}, "short")
+        got = self.tick()
+        self.assertEqual(self.x_replies(), [("111", self.LONG.strip()), ("111", "short")])
+        self.assertEqual(len(self.chats()), 2)
+        [result] = got["results"]
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("290 characters", result["result"]["refused"])
+
+    def test_the_x_hands_own_length_refusal_is_rewritten_too(self):
+        own = {"refused": "the post is 300 characters; X allows 280", "rule": "length", "length": 300, "limit": 280,
+               "rewrite": True}
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([own])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.LONG}]}, "a post that fits")
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "done")
+        self.assertEqual([c["body"]["text"] for c in self.hand_calls()], [self.LONG.strip(), "a post that fits"])
+
+    def test_every_surface_with_a_length_limit_gets_its_one_rewrite(self):
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.too_long(10050, 10000, "body")])
+        os.environ["FAKE_REFUSALS_TELEGRAM"] = json.dumps([self.too_long(4200, 4096, "text")])
+        os.environ["FAKE_REFUSALS_MAIL"] = json.dumps([self.too_long(10100, 10000, "body")])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "comment_moltbook", "post_id": "p1", "text": "long comment"},
+            {"do": "say_telegram", "chat_id": 42, "text": "long message"},
+            {"do": "reply_mail", "message_id": "<m1@x>", "text": "long mail"},
+        ]}, "short comment", "short message", "short mail")
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done"] * 3)
+        self.assertEqual([r["rewrite"]["target"] for r in got["results"]], [9980, 4076, 9980])
+        bodies = [c["body"].get("body") or c["body"].get("text") for c in self.hand_calls()]
+        self.assertEqual(bodies, ["long comment", "short comment", "long message", "short message", "long mail", "short mail"])
+
+    def test_a_refusal_that_is_not_about_length_is_never_rewritten(self):
+        emoji = {"refused": "the text has 3 emoji and this account allows at most 1 per post. Rewrite it and call the tool again.",
+                 "rewrite": True}
+        title = self.too_long(400, 300, "title")  # a field the intent's text is not
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([emoji, {"refused": "held", "category": "profanity", "hold_id": 3}])
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([title])
+        os.environ["FAKE_EXIT_MAIL"] = "2"
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": "gm"},
+            {"do": "reply_x", "to": "222", "text": "gm too"},
+            {"do": "comment_moltbook", "post_id": "p1", "text": "nice"},
+            {"do": "reply_mail", "message_id": "<m1@x>", "text": "thanks"},
+        ]}, "should never be asked")
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused"] * 4)
+        self.assertEqual(len(self.chats()), 1)
+        self.assertEqual(len(self.hand_calls()), 4)
+        self.assertFalse(any("rewritten" in r for r in got["results"]))
+
+    def test_no_rewrite_is_asked_once_the_beat_is_out_of_time(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404)])
+        os.environ["TEENY_TICK_BUDGET_SECS"] = "0"
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": self.LONG}]}, "short")
+        got = self.tick()
+        self.assertEqual(len(self.chats()), 1)
+        self.assertEqual(len(self.x_replies()), 1)
+        [result] = got["results"]
+        self.assertEqual(result["status"], "refused")
+        self.assertFalse(result["rewritten"])
+        self.assertIn("time", result["rewrite"]["skipped"])
+
+    def test_an_empty_rewrite_is_refused_and_the_answer_is_unwrapped_before_it_is_measured(self):
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404), None, self.too_long(404), None])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "reply_x", "to": "111", "text": self.LONG},
+            {"do": "reply_x", "to": "222", "text": self.LONG},
+            {"do": "reply_x", "to": "333", "text": self.LONG},
+        ]}, "   ", '"quoted, it fits"', '```\nfenced, it fits\n```')
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "done", "done"])
+        self.assertEqual([t for _, t in self.x_replies()][1:], [self.LONG.strip(), "quoted, it fits", self.LONG.strip(), "fenced, it fits"])
+
     def test_what_the_hands_did_comes_back_next_beat(self):
         os.environ["FAKE_EXIT_X"] = "2"
         stimuli.add("x", "mention", "111", "gm")
