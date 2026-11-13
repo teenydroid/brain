@@ -1,11 +1,9 @@
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
-import { HomeLedger } from "@/components/sections/home-ledger"
 import { HomeNumbers } from "@/components/sections/home-numbers"
 import { Overview } from "@/components/sections/overview"
 import { PresenceSection } from "@/components/sections/presence"
 import { loadAnatomy, loadRepo } from "@/lib/brain-repo"
-import { loadLedger } from "@/lib/ledger"
 import { loadMind } from "@/lib/mind"
 import { loadReceipts } from "@/lib/receipts"
 import { loadStats } from "@/lib/stats"
@@ -17,9 +15,8 @@ import { loadWallet } from "@/lib/wallet"
 export const revalidate = 60
 
 export default async function Home() {
-  const [feed, ledger, anatomy, repo, receipts, stats, wallet] = await Promise.all([
+  const [feed, anatomy, repo, receipts, stats, wallet] = await Promise.all([
     loadMind(),
-    loadLedger({ limit: 8 }),
     loadAnatomy(),
     loadRepo(),
     loadReceipts(),
@@ -35,8 +32,6 @@ export default async function Home() {
       <div id="brain" className="scroll-mt-16">
         <HomeBrain anatomy={anatomy} repo={repo} receipts={receipts} />
       </div>
-      {/* The last few model calls, only while the bot's ledger answers: unreachable, the section is left out. */}
-      {ledger.source === "live" ? <HomeLedger ledger={ledger} /> : null}
       <div id="find" className="scroll-mt-16">
         <PresenceSection />
       </div>

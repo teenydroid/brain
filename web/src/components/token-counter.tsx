@@ -141,8 +141,7 @@ export function TokenCounter({ initial, source }: { initial: Totals; source: "li
         <Digits value={all.tokens.total} className="text-6xl font-semibold sm:text-7xl lg:text-8xl" />
         <p className="text-sm text-muted-foreground">
           across {formatTokens(all.calls)} model calls
-          {first ? `, counting since ${since(first)}` : ", counting from the first call the ledger sees"} · every one is a row in the{" "}
-          <a href="/ledger" className="underline underline-offset-4 hover:text-foreground">ledger</a>
+          {first ? `, counting since ${since(first)}` : ", counting from the first call the ledger sees"} · every one is a row in the bot's ledger
         </p>
       </div>
 

@@ -4,10 +4,9 @@ import { ReceiptsCounter } from "@/components/receipts-counter"
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
 import { HomeNumbers } from "@/components/sections/home-numbers"
-import { Ledger } from "@/components/sections/ledger"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
-import type { LedgerFeed } from "@/lib/ledger"
 import type { MindFeed } from "@/lib/mind"
+import { PAGES } from "@/lib/pages"
 import { PRESENCE } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
@@ -44,7 +43,6 @@ const MIND_DOWN: MindFeed = {
   status: { mode: "langgraph", dryRun: false, model: "—", queue: { pending: 0, done: 0, failed: 0 } },
   reflections: [],
 }
-const LEDGER_DOWN: LedgerFeed = { source: "unavailable", generatedAt: "2026-11-12T00:00:00Z", entries: [] }
 
 describe("the receipts counter", () => {
   it("shows the chain's length, the latest receipt and the count by kind", () => {
@@ -74,16 +72,10 @@ describe("the hero", () => {
     expect(shown).toContain("7 replies on x")
   })
 
-  it("does not lead with the ledger while the ledger is unreachable", () => {
+  it("links only to pages the site still has", () => {
     const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
-    expect(html).not.toContain('href="/ledger"')
-  })
-})
-
-describe("the ledger page", () => {
-  it("puts no counts on its tabs when the bot is unreachable", () => {
-    const shown = text(renderToStaticMarkup(<Ledger ledger={LEDGER_DOWN} mind={MIND_DOWN} />))
-    expect(shown).not.toMatch(/Calls · 0|The account · 0|The brain · 0|Turns · 0/)
+    const internal = [...html.matchAll(/href="(\/[^"#]*)"/g)].map((m) => m[1])
+    for (const href of internal) expect(["/", ...PAGES.map((p) => p.slug)]).toContain(href)
   })
 })
 

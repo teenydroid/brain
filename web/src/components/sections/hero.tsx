@@ -59,9 +59,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
     { href: "#receipts", label: "Receipts", place: "left-[56%] top-[18%] sm:left-[58%]" },
     { href: "#numbers", label: "Numbers", place: "right-[10%] top-[30%] sm:right-[24%] sm:top-[26%]" },
     { href: "#brain", label: "Brain", place: "left-[8%] top-[34%] sm:left-[27%]" },
-    ledgerLive
-      ? { href: "/ledger", label: "Ledger", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" }
-      : { href: "#find", label: "Find it", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
+    { href: "/tools", label: "Tools", place: "left-[18%] top-[62%] sm:left-[33%] sm:top-[64%]" },
   ]
 
   const readouts = [

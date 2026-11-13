@@ -8,11 +8,7 @@ import type { SceneName } from '@/lib/pages'
 import { BrainScene } from './scenes/brain'
 import { CoreScene } from './scenes/core'
 import { GridScene } from './scenes/grid'
-import { LatticeScene } from './scenes/lattice'
 import { OrbitScene } from './scenes/orbit'
-import { ShardsScene } from './scenes/shards'
-import { SoulScene } from './scenes/soul'
-import { StreamScene } from './scenes/stream'
 
 interface SceneSpec {
   component: React.ComponentType
@@ -25,12 +21,8 @@ interface SceneSpec {
 const SCENES: Record<SceneName, SceneSpec> = {
   core: { component: CoreScene, camera: [0, 0, 6.2], fov: 45, post: true },
   brain: { component: BrainScene, camera: [0, 0, 6] },
-  stream: { component: StreamScene, camera: [0, 0.4, 7], fov: 45 },
-  soul: { component: SoulScene, camera: [0, 0, 5.2] },
-  lattice: { component: LatticeScene, camera: [0, 0.6, 6] },
   orbit: { component: OrbitScene, camera: [0, 2.4, 6.5] },
   grid: { component: GridScene, camera: [0, 0, 7] },
-  shards: { component: ShardsScene, camera: [0, 0, 8.5] },
 }
 
 const ABERRATION = new Vector2(0.0009, 0.0006)
