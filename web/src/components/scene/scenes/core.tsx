@@ -342,6 +342,7 @@ export function CoreScene() {
   const { viewport, size } = useThree()
   const group = useRef<THREE.Group>(null)
   const clock = useRef(0)
+  const hide = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('hide') ?? '' : ''
 
   // The backdrop sits at z = -4 and has to cover the whole frame from there.
   const far = viewport.getCurrentViewport(undefined, new THREE.Vector3(0, 0, -4))
@@ -377,16 +378,16 @@ export function CoreScene() {
 
   return (
     <>
-      <mesh position={[0, 0, -4]} material={BACKDROP}>
+      <mesh visible={!hide.includes('backdrop')} position={[0, 0, -4]} material={BACKDROP}>
         <planeGeometry args={[far.width * 1.05, far.height * 1.05]} />
       </mesh>
       <group ref={group} scale={scale}>
-        <mesh material={BLOB}>
+        <mesh visible={!hide.includes('blob')} material={BLOB}>
           <icosahedronGeometry args={[1, 96]} />
         </mesh>
-        <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
+        <points visible={!hide.includes('swarm')} geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
         {RINGS.map((ring, i) => (
-          <mesh key={i} material={ring.material} rotation={ring.tilt}>
+          <mesh visible={!hide.includes('rings')} key={i} material={ring.material} rotation={ring.tilt}>
             <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
           </mesh>
         ))}
