@@ -74,7 +74,7 @@ class SearchTest(Scratch):
         self.assertFalse({k.lower() for k in params["headers"]} & {"authorization", "x-api-key"}, "x402 needs no key")
         self.assertEqual(self.sent_body(), {"query": "openhuman agent", "numResults": 3, "type": "auto",
                                             "contents": {"text": {"maxCharacters": 4000}}})
-        self.assertEqual((out["provider"], out["paid_usd"]), ("exa", "0.01"))
+        self.assertEqual((out["provider"], out["paid_usd"]), ("exa", "0.007"))
         self.assertEqual(self.rows()[0]["status"], "paid")
 
     def test_highlights_and_summary_ask_for_those_contents(self):
@@ -155,7 +155,7 @@ class SearchTest(Scratch):
         self.assertEqual(len(self.fetched()), 1)
         self.assertEqual(second["results"], first["results"])
         self.assertTrue(second["cached"])
-        self.assertEqual(second["paid_usd"], "0.00")
+        self.assertEqual(second["paid_usd"], "0")
         search.search("same", n=3)  # another question
         self.assertEqual(len(self.fetched()), 2)
         self.at(1_789_369_200.0 + 3601)
@@ -186,18 +186,14 @@ class SearchTest(Scratch):
         self.refused(lambda: search.search("q"), "host")
 
     def test_a_day_at_its_cap_tries_one_top_up_and_never_retries(self):
-        self.configure(WALLET_MAX_X402_PER_DAY_USD="0.05")
-        search.search("one")  # 0.007 paid
+        self.configure(WALLET_MAX_X402_PER_REQUEST_USD="0.02", WALLET_MAX_X402_PER_DAY_USD="0.02")
         self.core.answers[FETCH] = Failure("connection reset")  # in doubt: counts at its 0.02 cap
         with self.assertRaises(hand.HandError):
-            search.search("two")
-        search.search("three")
-        with self.assertRaises(hand.Refused) as caught:
-            search.search("four")  # 0.007 + 0.02 + 0.02 leaves less than nothing? no: 0.003 left
-        self.assertIn(caught.exception.detail["rule"], ("per_day_x402",))
-        self.assertIn("funding", caught.exception.detail)
-        self.assertEqual(caught.exception.detail["funding"]["skipped"].split(" ")[0], "x402")
-        self.assertEqual(len(self.fetched()), 3)
+            search.search("one")
+        error = self.refused(lambda: search.search("two"), "per_day_x402")
+        self.assertIn("funding", error.detail)
+        self.assertTrue(error.detail["funding"]["skipped"].startswith("x402 funding is off"))
+        self.assertEqual(len(self.fetched()), 1, "the refused request is never sent, and never retried")
 
     def test_an_unpaid_402_tries_one_top_up_and_is_not_retried(self):
         self.core.answers[FETCH] = answer({"error": "X402_VERIFICATION_FAILED", "reason": "insufficient_funds"},
@@ -218,5 +214,5 @@ class SearchTest(Scratch):
         self.core.answers[FETCH] = answer("<html>oops</html>")
         with self.assertRaises(hand.HandError) as caught:
             search.search("q")
-        self.assertIn("0.01", str(caught.exception))
+        self.assertIn("$0.007", str(caught.exception))
         self.assertIn("unreadable", str(caught.exception))
