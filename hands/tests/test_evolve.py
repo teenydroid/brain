@@ -343,6 +343,44 @@ class Gate(EvolveCase):
                                           "new": "import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        pass\n"}])
         self.assertTrue(checks["new hands have tests"]["ok"], checks["new hands have tests"])
 
+    def newer_main(self):
+        """A main ahead of this checkout, as Teeny's clone is when the box
+        has not pulled yet: its frozen playbook rules know a verb this
+        checkout's do not, and one of its playbooks uses it. Gen 4 on the box
+        (2026-11-13) was exactly this: every candidate failed `doctor --root`
+        on main's own upstream-pick playbook."""
+        tree = self.worktree("newer")
+        rules = tree / "bin" / "lib" / "playbook.py"
+        rules.write_text(rules.read_text().replace('"build": ("self", "upstream", "idea"),',
+                                                   '"build": ("self", "upstream", "idea", "kettle"),'))
+        (tree / "brain" / "playbooks" / "kettle.md").write_text(
+            '+++\ndescription = "brew"\noutput = "hand:build kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
+            "Brew one thing.\n")
+        env = {**evolve.git_env(), "GIT_INDEX_FILE": str(tree / ".git-index")}
+        env.pop("GIT_INDEX_FILE")
+        evolve.git(evolve.in_tree(tree), "add", "-A")
+        evolve.git(evolve.in_tree(tree), "commit", "-q", "--no-verify", "-m", "newer main")
+        return evolve.git(evolve.in_tree(tree), "rev-parse", "HEAD").strip()
+
+    def test_the_gate_checks_with_the_bases_own_frozen_code_not_this_checkouts(self):
+        base = self.newer_main()
+        tree = self.root / "trees" / "cand"
+        evolve.add_worktree(evolve.source(), tree, base)
+        evolve.apply_edits(tree, [self.playbook_edit("Name the person who shipped it.")])
+        out = evolve.gate(tree, base)
+        checks = {c["check"]: c for c in out["checks"]}
+        self.assertTrue(checks["doctor --root"]["ok"], checks["doctor --root"])
+        self.assertTrue(checks["seed-cron --check"]["ok"], checks["seed-cron --check"])
+        self.assertTrue(checks["eval invariants"]["ok"], checks["eval invariants"])
+
+    def test_a_failing_doctor_check_is_named_in_the_detail(self):
+        text = self.base_text("brain/playbooks/morning.md")
+        line = next(l for l in text.splitlines() if l.startswith("output = "))
+        out, checks = self.gated([{"path": "brain/playbooks/morning.md", "old": line, "new": 'output = "hand:guard check"'}])
+        self.assertFalse(checks["doctor --root"]["ok"])
+        self.assertIn("FAIL playbook morning", checks["doctor --root"]["detail"])
+        self.assertIn("cannot be an output", checks["doctor --root"]["detail"])
+
     def test_a_cron_rule_broken_fails_seed_cron(self):
         out, checks = self.gated([self.cron_edit()])
         self.assertFalse(checks["seed-cron --check"]["ok"])
