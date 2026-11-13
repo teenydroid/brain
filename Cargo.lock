@@ -2563,9 +2563,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3227,7 +3227,7 @@ dependencies = [
  "serde_path_to_error",
  "sha2 0.10.9",
  "starship-battery",
- "sysinfo",
+ "sysinfo 0.33.1",
  "tar",
  "tempfile",
  "thiserror 2.0.20",
@@ -4093,9 +4093,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",
@@ -4898,6 +4898,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sysinfo"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ab6a2f8bfe508deb3c6406578252e491d299cbbf3bc0529ecc3313aee4a52f"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "tar"
 version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5304,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "tinychannels-bus"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.23.1",
  "schemars",
@@ -5357,7 +5371,7 @@ dependencies = [
  "log",
  "serde_json",
  "sha2 0.10.9",
- "sysinfo",
+ "sysinfo 0.33.1",
  "thiserror 2.0.20",
  "tinycomputer-bus",
  "tinycomputer-core",
@@ -5709,7 +5723,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemory-api"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5723,7 +5737,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemory-integrations"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5748,7 +5762,7 @@ dependencies = [
 
 [[package]]
 name = "tinymemory-tools"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "async-lock",
  "async-trait",
@@ -5768,7 +5782,7 @@ dependencies = [
 
 [[package]]
 name = "tinyredact"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "log",
  "regex",
@@ -5826,7 +5840,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "tinystoragedrivers-api",
  "tinystoragedrivers-blob",
@@ -5840,7 +5854,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-api"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5853,14 +5867,14 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-blob"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "bytes",
  "futures-core",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tinystoragedrivers-api",
  "tinystoragedrivers-connect",
  "tinystoragedrivers-types",
@@ -5868,7 +5882,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-bus"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -5878,7 +5892,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-busproxy"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5895,7 +5909,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-connect"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -5906,7 +5920,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-document"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -5923,15 +5937,15 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-fence"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "libc",
- "sysinfo",
+ "sysinfo 0.38.4",
 ]
 
 [[package]]
 name = "tinystoragedrivers-kv"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "serde",
@@ -5943,7 +5957,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-queue"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -5958,7 +5972,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-secrets"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "async-trait",
  "atomicwrites",
@@ -5983,7 +5997,7 @@ dependencies = [
 
 [[package]]
 name = "tinystoragedrivers-types"
-version = "2.1.2"
+version = "2.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -6046,7 +6060,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "bitcoin",
  "bs58",
@@ -6068,7 +6082,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet-bus"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6077,7 +6091,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet-crypto"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "async-trait",
  "bech32 0.12.0",
@@ -6093,7 +6107,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet-module"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -6122,7 +6136,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet-web3"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -6141,7 +6155,7 @@ dependencies = [
 
 [[package]]
 name = "tinywallet-x402"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
