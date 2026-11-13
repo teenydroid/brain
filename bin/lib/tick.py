@@ -512,7 +512,7 @@ def _x_lately() -> list[str]:
         return []
     if not found:
         return []
-    return ["", found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:]]
+    return [found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:], ""]
 
 
 def _people(batch: list[Mapping[str, Any]]) -> list[str]:

@@ -328,7 +328,7 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
         self.tick()
         message = self.chats()[0]["message"]
-        self.assertIn("in reply to your post (1 h ago): gm. coffee first", message)
+        self.assertIn("in reply to your post (60 min ago): gm. coffee first", message)
         self.assertIn("you last said to @ana (10 min ago): gm ana, one coin, never sold", message)
         self.assertIn("## what you said on X lately", message)
 
