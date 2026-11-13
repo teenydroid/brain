@@ -79,7 +79,9 @@ float field(vec3 d){
   // A thought landing: a ring running out across the skin from where it hit.
   float a=acos(clamp(dot(d,uRipple),-1.0,1.0));
   float front=uRippleAge*1.6;
-  float ring=exp(-pow((a-front)*5.0,2.0));
+  // Square by hand: pow() of a negative base is undefined in GLSL and comes out NaN on Metal.
+  float k=(a-front)*5.0;
+  float ring=exp(-k*k);
   n+=ring*0.16*exp(-uRippleAge*0.8);
   return n;
 }
@@ -94,7 +96,9 @@ void main(){
   float e=0.012;
   vec3 pt=shape(normalize(d+t*e));
   vec3 pb=shape(normalize(d+b*e));
-  vec3 n=normalize(cross(pt-p,pb-p));
+  // Guard the normal: a collapsed cross product would normalise to NaN.
+  vec3 c=cross(pt-p,pb-p);
+  vec3 n=dot(c,c)>1e-12?normalize(c):d;
   if(dot(n,d)<0.0) n=-n;
   vDir=d;
   vLift=field(d);
