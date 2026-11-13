@@ -311,8 +311,10 @@ reset
 "$seed" --dry-run --file "$here/../../brain/cron.toml" --pinned "$here/../../evals/cron.pinned.toml" 2>"$scratch/stderr"
 check "brain/cron.toml parses and plans" grep -q 'teeny.heartbeat' "$scratch/stderr"
 check "and the mind's tick is pinned beside it" grep -q 'teeny.tick' "$scratch/stderr"
-check "and its nightly reflection" grep -q 'teeny.reflect' "$scratch/stderr"
-check "and its midday one" grep -q 'teeny.reflect-midday' "$scratch/stderr"
+check "and its nightly dream" grep -qE 'teeny\.dream +0 2 \* \* \* .*bin/dream --detach' "$scratch/stderr"
+check "and its midday one" grep -qE 'teeny\.dream-midday +0 14 \* \* \* .*bin/dream --light --detach' "$scratch/stderr"
+check "and the receipts after each" grep -qE 'teeny\.receipts +30 2,14 \* \* \*' "$scratch/stderr"
+check "and no reflection of its own any more" bash -c "! grep -q 'teeny.reflect' '$scratch/stderr'"
 check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
 
 if [ "$failures" -gt 0 ]; then

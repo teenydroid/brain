@@ -813,10 +813,14 @@ class ReflectTest(unittest.TestCase):
             time.sleep(0.1)
         self.fail("timed out waiting")
 
-    def test_the_pinned_reflections_run_detached(self):
+    def test_the_pinned_jobs_dream_detached_and_no_longer_reflect(self):
+        # bin/dream is the reflection with more to go on (bin/lib/dream.py);
+        # bin/reflect stays for a run by hand.
         jobs = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]
-        self.assertEqual(jobs["reflect"]["command"], "bin/reflect --detach")
-        self.assertEqual(jobs["reflect-midday"]["command"], "bin/reflect --light --detach")
+        self.assertEqual(jobs["dream"]["command"], "bin/dream --detach")
+        self.assertEqual(jobs["dream-midday"]["command"], "bin/dream --light --detach")
+        self.assertNotIn("reflect", jobs)
+        self.assertNotIn("reflect-midday", jobs)
 
     def test_the_cron_call_starts_the_night_and_returns(self):
         stimuli.note("builds a cli for crabs", who="ana")
