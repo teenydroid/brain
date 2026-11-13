@@ -117,7 +117,7 @@ class TickTest(unittest.TestCase):
             TEENY_QUIET_HOURS="off",
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
-                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD"):
+                    "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -302,6 +302,16 @@ class TickTest(unittest.TestCase):
         self.assertEqual(journaled[0]["kind"], "other")
         self.assertIn("ana said gm", journaled[0]["text"])
         self.assertEqual(self.runs()[-1]["journal"]["learned"], True)
+
+    def test_each_beat_says_the_date_with_its_year_and_how_old_teeny_is(self):
+        # With no anchor, replies on one afternoon said "two days old",
+        # "day two" and "day three".
+        os.environ["TEENY_BORN"] = "2026-09-12"
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("Monday 14 September 2026, 07:00 your time (07:00 UTC)", message)
+        self.assertIn("You woke on Saturday 12 September 2026: today is day 3.", message)
 
     def test_the_journal_says_what_landed_before_what_the_mind_claimed(self):
         # The mind writes its thought and journal lines before the hands run:
