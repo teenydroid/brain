@@ -60,7 +60,10 @@ def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapp
     if verdict.kind == "allow" and isinstance(verdict.text, str) and verdict.text.strip():
         return verdict.text
     if verdict.kind == "hold":
-        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id)
+        # judge_failed: the judge could not judge it, so the tick sends it again
+        # next beat (bin/lib/tick.py, RETRIED); a hold it read is never sent again.
+        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id,
+                            **({"judge_failed": True} if verdict.judge_failed else {}))
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True)
     # An answer this hand does not understand is not an "allow".
