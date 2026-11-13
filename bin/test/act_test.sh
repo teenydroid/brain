@@ -237,6 +237,30 @@ printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/que
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
 
+# --- an optional input that fails is left out; any other failure stops the run -------
+# A playbook that reads the outside world (Hacker News) must not lose its
+# post to somebody else's outage.
+printf '#!/usr/bin/env bash\nprintf "down %%s\\n" "$*" >>"$FAKE_HANDS"\necho "{\\"ok\\": false, \\"error\\": \\"no network\\"}"\nexit 1\n' >"$scratch/hands/down"
+chmod +x "$scratch/hands/down"
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+answer '{"action": "post", "text": "gm anyway"}'
+out="$(run outage)" && status=0 || status=$?
+check "an input that fails stops the run" test "$status" = 1
+check "and says which" test "$(jq -r .error <<<"$out")" = "input world failed"
+check "before any draft" test ! -s "$FAKE_CALLS"
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\noptional = true\n[[inputs]]\nname = "feed"\nrun = "hands/x search gm"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+out="$(run outage)"
+check "an optional input that fails does not stop the run" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "the model is told it could not be read" test "$(jq -r .message "$FAKE_CALLS" | grep -c '"world":{"unavailable":true}')" = 1
+check "and still gets the inputs that worked" grep -q 'what are you building' <<<"$(jq -r .message "$FAKE_CALLS")"
+printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/down read"\noptional = "yes"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+check "refuses an optional that is not true or false" bash -c "! '$act' --check outage >/dev/null 2>&1"
+printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/down read"\noptional = true\nrequired = true\n+++\npost it\n' >"$brain/playbooks/outage.md"
+check "refuses an input that is both optional and required" bash -c "! '$act' --check outage >/dev/null 2>&1"
+rm -f "$brain/playbooks/outage.md" "$scratch/hands/down"
+
 # --- media: a picture of Teeny on a post ---------------------------------------------
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
