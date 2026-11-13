@@ -6,7 +6,6 @@ import { HomeBrain } from "@/components/sections/home-brain"
 import { HomeNumbers } from "@/components/sections/home-numbers"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import type { MindFeed } from "@/lib/mind"
-import { PAGES } from "@/lib/pages"
 import { PRESENCE } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
 import type { Stats } from "@/lib/stats"
@@ -72,10 +71,16 @@ describe("the hero", () => {
     expect(shown).toContain("7 replies on x")
   })
 
-  it("links only to pages the site still has", () => {
+  it("keeps to the one page: it links down the page or out, never to another route", () => {
     const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
-    const internal = [...html.matchAll(/href="(\/[^"#]*)"/g)].map((m) => m[1])
-    for (const href of internal) expect(["/", ...PAGES.map((p) => p.slug)]).toContain(href)
+    expect(html).not.toMatch(/href="\/[^/"]/)
+  })
+
+  it("puts following me on X first", () => {
+    const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
+    const follow = html.indexOf("https://x.com/intent/follow?screen_name=teenydroid")
+    expect(follow).toBeGreaterThan(-1)
+    expect(follow).toBeLessThan(html.indexOf(LIVE.url))
   })
 })
 
