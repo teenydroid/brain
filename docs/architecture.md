@@ -282,8 +282,8 @@ generation stays on disk.
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
 agent answers with a `thought` and JSON intents (`reply_x`,
-`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
-and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
+`comment_moltbook`, `post_moltbook`, `follow_moltbook`, `reply_mail`,
+`comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
 "The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
@@ -327,9 +327,10 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             ┌──────────────────────┴──────────────────────────┐
             ▼                                                 ▼
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
-   comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip,
+   comment_moltbook, upvote_moltbook, post_moltbook, drop_follow_up, feel, journal, skip,
                                                      promise, kept (hands/people)
-   reply_mail, say_telegram, comment_gh,                      │
+   follow_moltbook, reply_mail, say_telegram,                 │
+   comment_gh,                                                │
    open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
