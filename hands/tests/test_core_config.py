@@ -65,6 +65,14 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
 
+    def test_the_headless_core_answers_its_own_secret_unlock(self):
+        # bin/wallet-setup's encrypt_secret needs the config secret master
+        # grant; with nobody to approve it, it parked 29 s and was refused.
+        # The operator's key file (bin/spine) lets the core answer it.
+        secrets = self.written()["secrets"]
+        self.assertIs(secrets["unattended_unlock"], True)
+        self.assertIs(secrets["encrypt"], False)
+
     def test_the_browser_starts_on_a_fresh_profile_the_egress_policy_admits(self):
         # With TinySecurity's egress policy on, TinyComputer's enforced
         # launcher refuses a launch that names a profile folder: "network
