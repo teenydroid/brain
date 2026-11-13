@@ -83,7 +83,7 @@ def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any]) ->
         # judge_failed: the judge could not judge it, so the tick sends it again
         # next beat (bin/lib/tick.py, RETRIED); a hold it read is never sent again.
         raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id, field=verdict.field,
-                            **({"judge_failed": True} if verdict.judge_failed else {}))
+                           **({"judge_failed": True} if verdict.judge_failed else {}))
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True, field=verdict.field)
     raise hand.HandError(f"the guard answered {verdict.kind!r}, which hands/moltbook does not publish on")
