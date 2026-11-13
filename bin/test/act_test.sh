@@ -488,6 +488,8 @@ refuses "refuses the builder's ship as an output" $'+++\ndescription = "x"\noutp
 refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\noutput = "hand:build next"\n+++\ngo'
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
 check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build idea"\nsurface = "github"\n+++\ngo' >"$brain/playbooks/ideaprop.md"
+check "allows keeping the day's build idea (build idea) as an output" bash -c "'$act' --check ideaprop >/dev/null"
 rm -f "$brain/playbooks/selfprop.md"
 # An upstream contribution (docs/roadmap.md, A8): a draft names one gap; the
 # hand gates the rest (BUILD_UPSTREAM, the gap list, the external PR rules).
