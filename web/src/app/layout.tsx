@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Chakra_Petch, Geist, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import { SiteFooter } from "@/components/site-footer";
-import { SiteNav } from "@/components/site-nav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,7 +48,6 @@ gtag('config', '${GA_ID}');`}
             </Script>
           </>
         ) : null}
-        <SiteNav />
         <main className="flex-1">{children}</main>
         <SiteFooter />
       </body>

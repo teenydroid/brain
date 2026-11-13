@@ -1,16 +1,26 @@
+import Link from "next/link"
 import { PresenceIcon } from "@/components/icons/brand"
+import { PAGES } from "@/lib/pages"
 import { PRESENCE } from "@/lib/presence"
 
+/** The foot of every page, and with no header, its only way around: home, the pages, and where Teeny lives. */
 export function SiteFooter() {
   return (
-    <footer className="relative border-t border-neon-cyan/15">
+    <footer className="relative mt-auto border-t border-neon-cyan/15">
       <div className="hazard h-1 opacity-60" />
       <div className="dot-grid">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 text-sm text-muted-foreground sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <p className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground">
-              teeny <span className="text-neon-magenta">//</span> <span className="text-neon-cyan">open brain</span>
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-6">
+            <Link href="/" className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground hover:text-neon-yellow">
+              teeny <span className="text-neon-magenta">{"//"}</span> <span className="text-neon-cyan">open brain</span>
+            </Link>
+            <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-xs uppercase tracking-[0.25em]">
+              {PAGES.map((page) => (
+                <Link key={page.slug} href={page.slug} className="transition-colors hover:text-neon-yellow">
+                  {page.label}
+                </Link>
+              ))}
+            </nav>
             <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">
               {PRESENCE.map((p) => (
                 <li key={p.kind}>

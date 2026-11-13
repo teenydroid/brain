@@ -75,9 +75,9 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
 
   return (
     <>
-      <section className="relative px-2 pt-16 pb-2 sm:px-4">
+      <section className="relative px-2 pt-2 pb-2 sm:px-4 sm:pt-4">
         <div
-          className="cut relative isolate h-[calc(100svh-4.75rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
+          className="cut relative isolate h-[calc(100svh-3.75rem)] sm:h-[calc(100svh-4.5rem)] min-h-[640px] overflow-hidden border border-neon-cyan/20 bg-[#06060b]"
           style={{ "--cut": "28px" } as React.CSSProperties}
         >
           <SceneCanvas name="core" className="absolute inset-0" />
@@ -171,7 +171,7 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
       </section>
 
       {/* The counters, under the frame. */}
-      <section id="receipts" className="relative scroll-mt-16 border-b border-neon-cyan/10">
+      <section id="receipts" className="relative border-b border-neon-cyan/10">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-14 sm:px-6 lg:grid-cols-2">
           <div className="cut brackets relative border border-neon-cyan/15 bg-card p-6">
             <p className="eyebrow">Receipts</p>

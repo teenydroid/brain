@@ -26,13 +26,13 @@ export default async function Home() {
   return (
     <>
       <Hero feed={feed} receipts={receipts} />
-      <div id="numbers" className="scroll-mt-16">
+      <div id="numbers">
         <HomeNumbers stats={stats} wallet={wallet} />
       </div>
-      <div id="brain" className="scroll-mt-16">
+      <div id="brain">
         <HomeBrain anatomy={anatomy} repo={repo} receipts={receipts} />
       </div>
-      <div id="find" className="scroll-mt-16">
+      <div id="find">
         <PresenceSection />
       </div>
       <Overview />
