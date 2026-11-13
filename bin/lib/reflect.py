@@ -110,6 +110,14 @@ from teeny_hands import hand, stimuli  # noqa: E402
 MAX_BEATS = 240
 #: A beat's thought, beyond which it is cut in the message.
 MAX_THOUGHT_CHARS = 300
+#: The most the message may be. The core holds any prompt past 64 KiB for
+#: review and never answers it (`input.oversized`, MAX_PROMPT_BYTES in
+#: vendor/openhuman's prompt_injection/detector.rs): a day of 111 beats came
+#: to 93 KB. The rest of the 64 KiB is room to spare.
+MAX_MESSAGE_BYTES = 56 * 1024
+#: How short a beat's thought and each thing it did are cut, in turn, until
+#: the message fits; past the last, the oldest beats are left out.
+BEAT_CUTS = ((MAX_THOUGHT_CHARS, MAX_THOUGHT_CHARS), (200, 160), (140, 100), (100, 60))
 DEFAULT_TZ = "Asia/Kolkata"
 
 #: The shrink check. A day closes a few threads and opens about as many, so
