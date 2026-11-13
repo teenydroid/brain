@@ -467,7 +467,8 @@ class LifiTest(LifiBase):
         raw = recorded("base_usdc_to_arbitrum")
         raw["action"]["toAddress"] = "0x" + "2" * 40
         self.lifi("bridge", raw)
-        self.refused("bridge", self.BASE_TO_ARB, "quote")
+        error = self.refused("bridge", self.BASE_TO_ARB, "quote")
+        self.assertIn("recipient is not Teeny's", error.reason)
 
     def test_a_transaction_that_does_not_name_the_recipient_is_refused(self):
         # NEAR Intents: a deposit address, the recipient kept off-chain.
@@ -485,7 +486,8 @@ class LifiTest(LifiBase):
                 node = node[key]
             node[path[-1]] = value
             self.lifi("bridge", raw)
-            self.refused("bridge", self.BASE_TO_ARB, "quote")
+            error = self.refused("bridge", self.BASE_TO_ARB, "quote")
+            self.assertRegex(error.reason, "input|output|from base to arbitrum")
 
     def test_a_quote_that_loses_too_much_is_refused(self):
         raw = recorded("base_usdc_to_arbitrum")
@@ -498,13 +500,13 @@ class LifiTest(LifiBase):
         raw = recorded("base_usdc_to_arbitrum")
         raw["estimate"]["feeCosts"][0].update(included=False, amountUSD="0.9")  # 4.5% on $20
         self.lifi("bridge", raw)
-        self.refused("bridge", self.BASE_TO_ARB, "quote")
+        self.assertIn("lose $0.95", self.refused("bridge", self.BASE_TO_ARB, "quote").reason)
 
     def test_eth_sent_beyond_the_input_counts_as_a_loss(self):
         raw = recorded("base_usdc_to_arbitrum")
         raw["transactionRequest"]["value"] = hex(10**15)  # 0.001 ETH, about $1.93
         self.lifi("bridge", raw)
-        self.refused("bridge", self.BASE_TO_ARB, "quote")
+        self.assertIn("lose $1.98", self.refused("bridge", self.BASE_TO_ARB, "quote").reason)
 
     def test_sol_the_quote_does_not_report_counts_as_a_loss(self):
         # Live, this bridge took 3.37m lamports more than the input and the fee:
@@ -517,17 +519,17 @@ class LifiTest(LifiBase):
     def test_a_simulation_that_fails_or_takes_more_usdc_is_refused(self):
         self.lifi("bridge", recorded("sol_to_base_usdc"))
         self.simulate(0, err={"InstructionError": [2, "Custom"]})
-        self.refused("bridge", self.SOL_TO_BASE, "quote")
+        self.assertIn("simulation failed", self.refused("bridge", self.SOL_TO_BASE, "quote").reason)
         self.lifi("bridge", recorded("sol_usdc_to_base_usdc"))
         self.simulate(15_000, usdc_taken=21 * 10**6)
-        self.refused("bridge", self.SOL_USDC_TO_BASE, "quote")
+        self.assertIn("more USDC", self.refused("bridge", self.SOL_USDC_TO_BASE, "quote").reason)
 
     def test_a_solana_transaction_teeny_does_not_pay_for_or_another_must_still_sign_is_refused(self):
         raw = recorded("sol_usdc_to_base_usdc")
         # Mayan's own signature wiped: the module would sign and send it half-signed.
         self.lifi("bridge", with_tx_bytes(raw, lambda wire: wire.__setitem__(slice(65, 129), bytes(64))))
         self.simulate(15_000, usdc_taken=20 * 10**6)
-        self.refused("bridge", self.SOL_USDC_TO_BASE, "quote")
+        self.assertIn("a signature Teeny cannot give", self.refused("bridge", self.SOL_USDC_TO_BASE, "quote").reason)
         # Someone else's key as the fee payer, Teeny's nowhere.
         swap = recorded("sol_to_usdc_swap")
         def stranger(wire):
@@ -535,7 +537,7 @@ class LifiTest(LifiBase):
             wire[at:at + 32] = bytes(range(32))
         self.lifi("swap", with_tx_bytes(swap, stranger))
         self.simulate(100_000_000)
-        self.refused("swap", self.SOL_SWAP, "quote")
+        self.assertIn("not paid for and signed by Teeny", self.refused("swap", self.SOL_SWAP, "quote").reason)
 
     def test_an_answer_that_is_not_lifis_is_refused(self):
         self.core.answers["openhuman.web3_bridge_quote"] = bridge_quote
