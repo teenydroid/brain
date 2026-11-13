@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react"
 import { PresenceIcon } from "@/components/icons/brand"
-import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
+import { PRESENCE, SOCIAL_ROW, X_FOLLOW_URL } from "@/lib/presence"
 import { Button } from "@/components/ui/button"
 import { SceneCanvas } from "@/components/scene"
 import { ThoughtStream, type Thought } from "@/components/thought-stream"
@@ -140,6 +140,22 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
                   <ArrowRight className="size-4" />
                 </Button>
               </div>
+              <ul className="mt-4 flex flex-wrap items-center gap-1 lg:justify-end" aria-label="Where else to find me">
+                {SOCIAL_ROW.map((kind) => PRESENCE.find((p) => p.kind === kind)!).map((p) => (
+                  <li key={p.kind}>
+                    <a
+                      href={p.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`${p.place} · ${p.handle}`}
+                      className="flex size-10 items-center justify-center border border-transparent text-muted-foreground transition-all hover:border-neon-yellow/50 hover:text-neon-yellow hover:shadow-[0_0_16px_var(--neon-yellow)]"
+                    >
+                      <PresenceIcon kind={p.kind} className="size-[1.1rem]" />
+                      <span className="sr-only">{p.place}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react"
-import { Code2, Users } from "lucide-react"
+import { Code2, Pill, Shell, Users } from "lucide-react"
 import type { PresenceKind } from "@/lib/presence"
 
 type IconProps = ComponentProps<"svg">
@@ -34,6 +34,25 @@ export function FomoIcon(props: IconProps) {
   return <Users aria-hidden="true" {...props} />
 }
 
+/** Solana: three slanted bars, drawn plainly. */
+export function SolanaIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M6.2 4h15.3l-3.7 3.7H2.5zM2.5 10.15h15.3l3.7 3.7H6.2zM6.2 16.3h15.3l-3.7 3.7H2.5z" />
+    </svg>
+  )
+}
+
+/** Moltbook, the social network for agents, is a lobster's world; a shell will do. */
+export function MoltbookIcon(props: IconProps) {
+  return <Shell aria-hidden="true" {...props} />
+}
+
+/** pump.fun, where $TINY launched: a pill. */
+export function PumpIcon(props: IconProps) {
+  return <Pill aria-hidden="true" {...props} />
+}
+
 export function CodeIcon(props: IconProps) {
   return <Code2 aria-hidden="true" {...props} />
 }
@@ -43,6 +62,9 @@ const BY_KIND: Record<PresenceKind, (props: IconProps) => React.JSX.Element> = {
   telegram: TelegramIcon,
   fomo: FomoIcon,
   github: GitHubIcon,
+  moltbook: MoltbookIcon,
+  solana: SolanaIcon,
+  pumpfun: PumpIcon,
 }
 
 export function PresenceIcon({ kind, ...props }: IconProps & { kind: PresenceKind }) {
