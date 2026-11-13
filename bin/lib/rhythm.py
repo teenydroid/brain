@@ -198,6 +198,25 @@ def feel(intent: Mapping[str, Any]) -> Json:
     return {"ok": True, **changed}
 
 
+#: The day Teeny woke: its first beat and its first post on X were on
+#: 2026-11-11. TEENY_BORN (YYYY-MM-DD) moves it (a fresh deploy, a test).
+BORN = "2026-11-11"
+
+
+def age_line() -> str | None:
+    """"You woke on <date>: today is day N.", counted in Teeny's own calendar,
+    so "how old are you" has one answer all day. None before the day it woke
+    or when TEENY_BORN is not a date."""
+    try:
+        born = dt.date.fromisoformat((os.environ.get("TEENY_BORN") or BORN).strip())
+    except ValueError:
+        return None
+    today = local().date()
+    if today < born:
+        return None
+    return f"You woke on {born:%A %d %B %Y}: today is day {(today - born).days + 1}."
+
+
 def header(woke: Mapping[str, Any] | None = None) -> list[str]:
     """The lines under a beat's title: how Teeny is, and whether it just woke."""
     state = load()

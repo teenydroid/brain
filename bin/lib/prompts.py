@@ -194,16 +194,14 @@ def _now() -> float:
     return float(pinned) if pinned else dt.datetime.now(dt.timezone.utc).timestamp()
 
 
-def last_week(brain: Path) -> str:
-    """What Teeny did over the last 7 days, counted from its own ledgers
-    (docs/roadmap.md, A10): posts and replies on X, visible Moltbook writes,
-    builds shipped, pull requests opened and payments made. Only rows the
-    hands wrote, never a model's account, so "what did you do last week"
-    has a true answer in the prompt. "" when there is no ledger."""
+def ledger(brain: Path, since: float) -> list[str] | None:
+    """What the hands' ledgers hold since `since`, one line per kind: posts
+    and replies on X, visible Moltbook writes, builds shipped, pull requests
+    opened and payments made. Only rows the hands wrote, never a model's
+    account. None when there is no ledger."""
     path = _ledgers(brain)
     if not path.is_file():
-        return ""
-    since = _now() - WEEK_SECS
+        return None
     lines: list[str] = []
     try:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
@@ -224,9 +222,10 @@ def last_week(brain: Path) -> str:
             lines.append(f"- X: {posts} post(s), {replies} repl(ies). Moltbook: {molt} post(s) and comment(s) people can see.")
             built = rows("SELECT repo, summary FROM build_jobs WHERE status = 'shipped' AND shipped_at >= ?"
                          " ORDER BY shipped_at DESC LIMIT ?", (since, WEEK_ITEMS))
+            urls = dict(rows("SELECT repo, repo_url FROM build_jobs WHERE status = 'shipped' AND shipped_at >= ?", (since,)))
             lines.append("- builds shipped: " + ("; ".join(
-                f"{repo} ({(summary or '').splitlines()[0][:100] if summary else 'no summary'})" for repo, summary in built)
-                or "none"))
+                f"{urls.get(repo) or repo} ({(summary or '').splitlines()[0][:100] if summary else 'no summary'})"
+                for repo, summary in built) or "none"))
             prs = rows("SELECT repo, ref FROM gh_actions WHERE verb = 'open-pr' AND at >= ? ORDER BY at DESC LIMIT ?",
                        (since, WEEK_ITEMS))
             lines.append("- pull requests opened: " + (", ".join(f"{repo}#{ref}" for repo, ref in prs) or "none"))
@@ -237,6 +236,16 @@ def last_week(brain: Path) -> str:
         finally:
             conn.close()
     except sqlite3.Error:
+        return None
+    return lines
+
+
+def last_week(brain: Path) -> str:
+    """What Teeny did over the last 7 days, counted from its own ledgers
+    (docs/roadmap.md, A10), so "what did you do last week" has a true answer
+    in the prompt. "" when there is no ledger."""
+    lines = ledger(brain, _now() - WEEK_SECS)
+    if lines is None:
         return ""
     return ("## what you did last week\n\n"
             "Counted from your own ledgers over the last 7 days. Asked what you did, say this and only this: "
