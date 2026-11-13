@@ -67,7 +67,7 @@ describe("the receipts counter", () => {
 describe("the hero", () => {
   it("shows no token figure when the token ledger is unreachable", () => {
     const shown = text(renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />))
-    expect(shown).not.toMatch(/tokens teeny has burned|last known figure|model calls/)
+    expect(shown).not.toMatch(/tokens i have burned|last known figure|model calls/)
     expect(shown).toContain("7 replies on x")
   })
 
