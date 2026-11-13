@@ -1,17 +1,17 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import type { SceneName } from '@/lib/pages'
 
 const Scene = dynamic(() => import('./scene').then((m) => m.Scene), {
   ssr: false,
   loading: () => null,
 })
 
-export function SceneCanvas({ name, className }: { name: SceneName; className?: string }) {
+/** The core scene, loaded in the browser only. Decorative, so hidden from assistive tech. */
+export function SceneCanvas({ className }: { className?: string }) {
   return (
     <div className={className} aria-hidden>
-      <Scene name={name} />
+      <Scene />
     </div>
   )
 }
