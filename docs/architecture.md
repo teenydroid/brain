@@ -764,6 +764,9 @@ Every scheduled job is in one of two files:
   - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
   - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
+    unfollow of agents that did not follow Teeny back after 7 days
+    (`hands/moltbook prune`);
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
@@ -796,7 +799,14 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`).
+  (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
+  evening post (`moltbook-evening`), a post in `m/general` about hourly when
+  there is something to say (`moltbook-general`, at most 12 a day), threads
+  (`moltbook-threads`), the helpdesk and a daily follow (`moltbook-follow`).
+  Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
+  Answering comments on its own posts is the mind's job: `hands/moltbook
+  inbox` shows each comment's depth, and one at Moltbook's fifth level is
+  not answered.
 
 All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
 post jobs use `Asia/Kolkata`.
