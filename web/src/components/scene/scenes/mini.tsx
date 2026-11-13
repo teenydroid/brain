@@ -24,7 +24,7 @@ varying vec3 vDir;
 ${NOISE}
 float field(vec3 d){
   return snoise(d*uFreq+vec3(0.0,uTime*0.5,uTime*0.35))*uAmp
-       + snoise(d*uFreq*2.2-vec3(uTime*0.6))*uAmp*0.35;
+       + snoise(d*uFreq*1.8-vec3(uTime*0.6))*uAmp*0.15;
 }
 vec3 shape(vec3 d){ return d*(1.0+field(d)); }
 void main(){
@@ -80,13 +80,13 @@ function blob(a: string, b: string, core: string, amp: number, freq: number) {
 const glow = (color: string, opacity: number) =>
   new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
 
-const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.32, 1.3)
+const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.26, 1.0)
 const EVOLVE_RING = glow(CYAN, 0.35)
-const WORLD_BLOB = blob(CYAN, YELLOW, '#04070a', 0.16, 1.6)
+const WORLD_BLOB = blob(CYAN, YELLOW, '#04070a', 0.14, 1.1)
 const WORLD_SHELL = new THREE.MeshBasicMaterial({ color: CYAN, wireframe: true, transparent: true, opacity: 0.22 })
 const WORLD_SAT = glow(YELLOW, 0.95)
 const WORLD_PATH = glow(CYAN, 0.18)
-const MONEY_BLOB = blob(YELLOW, '#ff9d2a', '#0a0703', 0.2, 1.1)
+const MONEY_BLOB = blob(YELLOW, '#ff9d2a', '#0a0703', 0.17, 0.9)
 const MONEY_RING = glow(YELLOW, 0.55)
 const MONEY_SPARK = glow(YELLOW, 0.9)
 
