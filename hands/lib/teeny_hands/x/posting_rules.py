@@ -87,6 +87,13 @@ _MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    add_tag_columns(conn)
+
+
+def add_tag_columns(conn: sqlite3.Connection) -> None:
+    """`format` and `experiment` on x_posts (teeny_hands/tags.py), added to
+    a ledger created before they existed."""
+    hand.add_columns(conn, "x_posts", tags.COLUMNS)
 
 
 def iso(seconds: float) -> str:
@@ -260,11 +267,17 @@ def record_post(
     quote_of: str | None = None,
     media: Sequence[str] = (),
     created_at: float | None = None,
+    format: str | None = None,
+    experiment: int | None = None,
 ) -> None:
-    """The own-post ledger. The hand writes it; `cadence` reads it."""
+    """The own-post ledger. The hand writes it; `cadence` reads it. `format`
+    and `experiment` are the lab tags (teeny_hands/tags.py)."""
+    add_tag_columns(conn)
     conn.execute(
-        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)), hand.now() if created_at is None else created_at),
+        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
+         hand.now() if created_at is None else created_at, format, experiment),
     )
 
 
