@@ -9,7 +9,8 @@ import { CYAN, MAGENTA, VOID, YELLOW, useMotion } from '../motion'
  * The front page's centre: Teeny's mind as a black, glossy, liquid blob lit
  * from behind in neon. It never sits still while it thinks: every few seconds
  * a thought fires, a ripple runs across the skin, the veins inside flare and
- * the field around it pulls particles in. The pointer tilts it. Reduced
+ * the field around it pulls particles in. It darts about on its own; only the
+ * orbits around it lean toward the pointer. Reduced
  * motion freezes the clock, so it holds one still shape.
  */
 
