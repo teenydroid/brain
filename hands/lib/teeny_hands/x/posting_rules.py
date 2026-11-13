@@ -95,6 +95,10 @@ _MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
     # A ledger made before the format tag gains its column (a tolerant
     # migration: a table that already has it is left alone).
     if "format" not in {row[1] for row in conn.execute("PRAGMA table_info(x_posts)")}:

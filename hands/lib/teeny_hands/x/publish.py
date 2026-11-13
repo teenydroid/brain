@@ -16,6 +16,7 @@ the 280 cap and DRY_RUN still apply.
 from __future__ import annotations
 
 import random
+import re
 import sys
 from typing import Any, Mapping
 
@@ -118,7 +119,9 @@ def _dry(text: str, kind: str, **extra: Any) -> Json:
 
 
 def _db():
-    return open_db(rules.SCHEMA)
+    conn = open_db(rules.SCHEMA)
+    rules.migrate(conn)
+    return conn
 
 
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
