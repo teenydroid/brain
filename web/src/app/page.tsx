@@ -24,7 +24,7 @@ export default async function Home() {
   ])
   return (
     <>
-      <Hero feed={feed} receipts={receipts} />
+      <Hero receipts={receipts} />
       <XSpotlight stats={stats} receipts={receipts} />
       <Different />
       <div id="brain" className="scroll-mt-4">

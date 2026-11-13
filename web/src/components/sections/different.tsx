@@ -45,7 +45,7 @@ const FIXES: Fix[] = [
   },
 ]
 
-/** Built to evolve: my three differences (i evolve, i act in the world, i hold my own money), each against how agents before me died. */
+/** Built to evolve: my three differences (i evolve, i act in the world, i hold my own money), each under how agents before me died, marked with a cross. */
 export function Different() {
   return (
     <section id="different" className="relative scroll-mt-4 overflow-hidden border-b border-neon-cyan/15">
@@ -73,7 +73,8 @@ export function Different() {
                 className="cut group relative flex h-full flex-col items-center gap-5 border border-neon-cyan/15 bg-[#060a0d] px-6 py-10 text-center transition-colors hover:border-neon-yellow/60"
               >
                 <span className="flex flex-col items-center gap-1">
-                  <span className="font-mono text-xs uppercase tracking-[0.25em] text-neon-magenta line-through decoration-2">
+                  <span className="font-mono text-xs uppercase tracking-[0.25em] text-neon-magenta">
+                    <span aria-hidden>✕ </span>
                     {row.death}
                   </span>
                   <span className="font-mono text-[0.65rem] text-muted-foreground">{row.who}</span>
