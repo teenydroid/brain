@@ -53,7 +53,7 @@ varying vec3 vDir;
 void main(){
   vec3 N=normalize(vNormal);
   vec3 V=normalize(vView);
-  float fres=pow(1.0-max(dot(N,V),0.0),2.6);
+  float fres=pow(1.0-clamp(dot(N,V),0.0,1.0),2.6);
   vec3 rim=mix(uA,uB,smoothstep(-0.6,0.6,N.x+N.y*0.4));
   float spec=pow(max(dot(N,normalize(normalize(vec3(0.5,0.8,0.4))+V)),0.0),60.0);
   float bands=smoothstep(0.96,1.0,sin(vDir.y*9.0+uTime*1.2)*0.5+0.5);
@@ -80,7 +80,7 @@ function blob(a: string, b: string, core: string, amp: number, freq: number) {
 const glow = (color: string, opacity: number) =>
   new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
 
-const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.26, 1.0)
+export const EVOLVE_BLOB = blob(CYAN, MAGENTA, '#05040a', 0.26, 1.0)
 const EVOLVE_RING = glow(CYAN, 0.35)
 const WORLD_BLOB = blob(CYAN, YELLOW, '#04070a', 0.14, 1.1)
 const WORLD_SHELL = new THREE.MeshBasicMaterial({ color: CYAN, wireframe: true, transparent: true, opacity: 0.22 })
