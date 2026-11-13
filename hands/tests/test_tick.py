@@ -819,6 +819,25 @@ class TickTest(unittest.TestCase):
         self.assertIn("your say_telegram", message)
         self.assertIn("refused: held", message)
 
+    def test_a_beat_out_of_time_keeps_what_it_deferred_for_the_next_one(self):
+        # A judge that times out can take two minutes an ask (JUDGE_BUDGET), so
+        # a beat past its budget sends nothing more and keeps the rest.
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.judge_down()])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.at(300)
+        os.environ["TEENY_TICK_BUDGET_SECS"] = "0"
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.assertEqual(len(self.x_replies()), 1)
+        os.environ.pop("TEENY_TICK_BUDGET_SECS")
+        self.at(600)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        self.assertEqual(len(self.x_replies()), 2)
+
     def test_a_real_content_hold_is_never_retried(self):
         profanity = {"refused": "held", "category": "profanity", "hold_id": 6}
         unread = {"refused": "held", "category": "unknown", "hold_id": 7}  # the judge read it and named no category
