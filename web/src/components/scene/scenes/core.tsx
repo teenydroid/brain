@@ -266,10 +266,11 @@ function think(elapsed: number, dt: number, motion: number) {
 }
 
 /**
- * How far the blob may dart from the centre. It stays well inside the inner
- * ring (radius 2.35 around a 1.7 blob), so the orbits always surround it.
+ * How far the blob may dart from the centre, in scene units (the frame is
+ * about 5 tall). Far enough that every move reads as a move, near enough that
+ * the tilted orbits still wrap round it.
  */
-export const REACH = { x: 0.42, y: 0.28, z: 0.25, yaw: 0.8, pitch: 0.5, roll: 0.25 }
+export const REACH = { x: 0.7, y: 0.42, z: 0.3, yaw: 0.9, pitch: 0.55, roll: 0.3 }
 
 /**
  * The blob's own will: it holds still, then snaps somewhere new, sharp and
