@@ -472,6 +472,37 @@ class ReflectTest(unittest.TestCase):
         self.assertNotIn("05:00:00Z", message)
         self.assertNotIn("05:05:00Z", message)
 
+    def test_a_long_day_still_fits_the_size_the_core_accepts(self):
+        # The core holds any prompt past 64 KiB for review and never answers
+        # it (`input.oversized`): a full day of beats once came to 93 KB.
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import reflect
+
+        long = "a thought that goes on about crabs and receipts and the day " * 6
+        self.beats(*[{"at": f"2026-09-14T{h:02d}:{m:02d}:00Z", "ok": True, "kind": "beat",
+                      "thought": f"beat {h:02d}{m:02d} {long}",
+                      "results": [{"do": "journal", "status": "done", "intent": {"text": long}},
+                                  {"do": "comment_moltbook", "status": "error", "intent": {"post_id": "p1"},
+                                   "result": {"ok": False, "error": long}}]}
+                     for h in range(0, 7) for m in range(0, 60, 2)])
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertLessEqual(len(message.encode()), reflect.MAX_MESSAGE_BYTES)
+        # Shortened before anything is left out: the newest beat is there.
+        self.assertIn("beat 0658", message)
+        self.assertIn("## MEMORY.md as it stands", message)
+
+    def test_a_short_day_is_given_in_full(self):
+        long = "a thought that goes on about crabs " * 8
+        self.beats({"at": "2026-09-14T06:00:00Z", "ok": True, "kind": "beat", "thought": long.strip(),
+                    "results": [{"do": "journal", "status": "done", "intent": {"text": long.strip()}}]})
+        self.answer({"memory": NEW_MEMORY, "diary": "d"})
+        self.reflect()
+        message = self.chats()[0]["message"]
+        self.assertIn(long.strip()[:300], message)
+        self.assertNotIn("left out", message)
+
     def test_a_send_that_failed_is_reviewed_with_its_reason_not_as_a_bare_status(self):
         self.beats({"at": "2026-09-14T06:00:00Z", "ok": True, "kind": "beat", "thought": "receipt delivered",
                     "results": [{"do": "comment_moltbook", "status": "error", "intent": {"post_id": "p1"},
