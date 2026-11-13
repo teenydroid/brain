@@ -119,6 +119,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
         rules.check_gap(conn)
+        rules.check_daily_cap(conn)
         rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
