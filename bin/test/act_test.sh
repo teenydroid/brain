@@ -320,7 +320,6 @@ answer '{"action": "post", "text": "proof", "images": ["a diff", "a BAD scene"],
 out="$(run pic)"
 check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\]}' "$FAKE_HANDS"
 reset
-out="$(FAKE_MEDIA_FAIL=1 run pic)"
 reset
 answer '{"action": "post", "text": "look at this", "quote_of": "12345", "format": "quote"}'
 out="$(run pic)"
@@ -329,6 +328,7 @@ reset
 answer '{"action": "post", "text": "plain"}'
 out="$(run pic)"
 check "a plain post sends neither" grep -q '^x post DRY_RUN= stdin={"text":"plain"}' "$FAKE_HANDS"
+reset
 printf '+++\ndescription = "test"\noutput = "hand:lab post"\nmedia = ["image", "video"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
 answer '{"action": "hand", "text": "gm", "video": "waves", "image": "at the desk"}'
 run pic >/dev/null
