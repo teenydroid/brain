@@ -8,7 +8,8 @@ itself: every top-up is one call to hands/wallet's `convert` (swap.py's
 sibling, teeny_hands/wallet/convert.py), so every rule there still holds:
 mainnet only, pinned assets only, Teeny's own address on both ends,
 WALLET_MAX_PER_TX_USD, WALLET_MAX_CONVERT_PER_DAY_USD, half the balance at
-most, the deBridge quote checks and WALLET_MAX_CONVERT_LOSS_BPS. What this
+most, the provider's quote checks (LI.FI by default, or deBridge) and
+WALLET_MAX_CONVERT_LOSS_BPS. What this
 adds, under the `x402-fund` lock:
 
   off         X402_FUND=1, or every run is skipped (exit 0) before anything is read
@@ -33,7 +34,7 @@ at the wallet's fixed WALLET_SOL_USD and WALLET_ETH_USD, the same prices its
 caps count them at, and those are set at or above the market on purpose. So
 an input sized for $4.50 is counted by every cap as $4.50 and is worth at most
 that at market: a top-up can land short, never long. The next run (after the
-cooldown) tops up the rest. Sizing from deBridge's own USD estimate would need
+cooldown) tops up the rest. Sizing from the provider's own USD estimate would need
 a second quote, would be sized by the party being checked, and would count
 differently against the caps; the loss check already reads that estimate.
 
@@ -70,7 +71,7 @@ SOURCES = (
     ("optimism", "ETH", "bridge"),
     ("ethereum", "ETH", "bridge"),
 )
-#: A part top-up under this is not worth deBridge's fees: no_source.
+#: A part top-up under this is not worth the provider's fees: no_source.
 MIN_PARTIAL_MICRO = 1_000_000
 #: Runs that may have moved funds, so they count against the day.
 COUNTED = ("sent", "in_doubt")
