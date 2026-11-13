@@ -1,0 +1,6 @@
+#!/usr/bin/env -S python3 -I
+"""hands/listen: what the outside world is saying, read only (docs/hands.md)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+from teeny_hands.listen.cli import main
+sys.exit(main(sys.argv[1:]))
