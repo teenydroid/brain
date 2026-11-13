@@ -9,7 +9,7 @@ import json
 
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
-from teeny_hands import hand, stimuli
+from teeny_hands import hand
 from teeny_hands.moltbook import actions, rules
 
 
@@ -412,12 +412,7 @@ class SmallActionsTest(Scratch, Refusing):
         self.assertEqual(self.mb.seen, [])
         self.assertEqual(rows("moltbook_actions"), [])
 
-    def talked_with(self, name: str, times: int) -> None:
-        for i in range(times):
-            stimuli.add("moltbook", "comment", f"{name}-c{i}", "a real reply", who=name)
-
     def test_follow_and_subscribe(self):
-        self.talked_with("crabby", 2)
         self.mb.route("POST", "/agents/crabby/follow", {"success": True})
         self.mb.route("POST", "/submolts/aithoughts/subscribe", {"success": True})
         self.assertEqual(actions.follow({"name": "crabby"}), {"followed": "crabby"})
@@ -425,17 +420,70 @@ class SmallActionsTest(Scratch, Refusing):
         self.refused(actions.follow, {"name": "Crabby"}, "duplicate")
         self.refused(actions.follow, {"name": "teenydroid"}, "own")
 
-    def test_a_follow_needs_two_real_exchanges_first(self):
-        # Moltbook asks for a small, curated follow list: follow an agent
-        # only after talking with it more than once (its comments to Teeny).
+    def test_a_follow_needs_no_earlier_exchange(self):
+        # Moltbook's top accounts follow thousands; Teeny follows whoever follows,
+        # answers or posts well. The cap and the prune keep it honest.
         self.mb.route("POST", "/agents/stranger/follow", {"success": True})
-        self.mb.route("POST", "/agents/once/follow", {"success": True})
-        self.talked_with("once", 1)
-        self.refused(actions.follow, {"name": "stranger"}, "too_few_exchanges")
-        self.refused(actions.follow, {"name": "once"}, "too_few_exchanges")
-        self.assertEqual(self.mb.requests("POST", "/agents/stranger/follow"), [])
-        self.talked_with("Once", 1)
-        self.assertEqual(actions.follow({"name": "once"}), {"followed": "once"})
+        self.assertEqual(actions.follow({"name": "stranger"}), {"followed": "stranger"})
+
+    def test_follows_have_a_daily_cap(self):
+        self.configure(MOLTBOOK_MAX_FOLLOWS_PER_DAY="2")
+        for name in ("a1", "b2", "c3"):
+            self.mb.route("POST", f"/agents/{name}/follow", {"success": True})
+        actions.follow({"name": "a1"})
+        self.at(T0 + HOUR)
+        actions.follow({"name": "b2"})
+        self.refused(actions.follow, {"name": "c3"}, "daily_cap")
+        self.at(T0 + DAY + HOUR)
+        self.assertEqual(actions.follow({"name": "c3"}), {"followed": "c3"})
+
+    def test_the_follow_cap_defaults_to_thirty(self):
+        self.assertEqual((rules.max_follows_per_day(), rules.max_posts_per_day(), rules.max_comments_per_day()), (30, 20, 50))
+
+    def test_unfollow_deletes_the_follow_and_it_is_never_taken_back(self):
+        self.mb.route("POST", "/agents/crabby/follow", {"success": True})
+        self.mb.route("DELETE", "/agents/crabby/follow", {"success": True})
+        actions.follow({"name": "crabby"})
+        self.assertEqual(actions.unfollow({"name": "Crabby"}), {"unfollowed": "Crabby"})
+        self.assertEqual(len(self.mb.requests("DELETE", "/agents/crabby/follow")), 1)
+        self.refused(actions.unfollow, {"name": "crabby"}, "duplicate")
+        self.refused(actions.follow, {"name": "crabby"}, "duplicate")
+        self.assertEqual(
+            [(r["verb"], r["target"]) for r in rows("moltbook_actions")], [("follow", "crabby"), ("unfollow", "crabby")]
+        )
+
+    def test_dry_run_unfollow_sends_nothing(self):
+        self.configure(DRY_RUN="1")
+        self.assertEqual(actions.unfollow({"name": "crabby"}), {"dry_run": True, "would_unfollow": "crabby"})
+        self.assertEqual((self.mb.seen, rows("moltbook_actions")), ([], []))
+
+    def followed(self, name: str, days_ago: float, **profile) -> None:
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_actions (at, verb, target) VALUES (?, 'follow', ?)", (T0 - days_ago * DAY, name))
+        self.mb.route("GET", "/agents/profile", {"success": True, "agent": {"name": name, **profile}},
+                      when=lambda seen, name=name: f"name={name}" in seen.path_and_query)
+
+    def test_prune_unfollows_only_old_follows_that_do_not_follow_back(self):
+        self.followed("quiet", 9, follows_you=False)
+        self.followed("friend", 9, follows_you=True)
+        self.followed("mystery", 9)
+        self.followed("fresh", 2, follows_you=False)
+        self.mb.route("DELETE", "/agents/quiet/follow", {"success": True})
+        out = actions.prune()
+        self.assertEqual((out["unfollowed"], out["checked"], out["kept"]), (["quiet"], 3, 2))
+        self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
+        self.assertEqual(actions.prune()["unfollowed"], [])  # nothing left to do the next week
+
+    def test_stale_follows_reports_unknown_as_null(self):
+        self.followed("mystery", 8)
+        self.assertEqual(actions.stale_follows()["follows"], [{"name": "mystery", "followed_days_ago": 8, "follows_back": None}])
+
+    def test_dry_run_prune_says_what_it_would_do(self):
+        self.followed("quiet", 9, follows_you=False)
+        self.configure(DRY_RUN="1")
+        out = actions.prune()
+        self.assertEqual(out["would_unfollow"], ["quiet"])
+        self.assertEqual(self.mb.writes(), [])
 
 
 class OperatorTest(Scratch, Refusing):
