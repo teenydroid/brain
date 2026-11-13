@@ -73,14 +73,14 @@ ${NOISE}
 
 float field(vec3 d){
   float t=uTime;
-  float n=snoise(d*0.85+vec3(0.0,t*0.16,t*0.11))*0.36;
-  n+=snoise(d*1.8+vec3(t*0.22,0.0,-t*0.18))*(0.10+0.10*uThink);
+  float n=snoise(d*0.85+vec3(0.0,t*0.24,t*0.17))*0.4;
+  n+=snoise(d*1.8+vec3(t*0.34,0.0,-t*0.28))*(0.10+0.17*uThink);
   n+=snoise(d*4.2-vec3(t*0.4))*(0.015+0.03*uThink);
   // A thought landing: a ring running out across the skin from where it hit.
   float a=acos(clamp(dot(d,uRipple),-1.0,1.0));
   float front=uRippleAge*1.6;
   float ring=exp(-pow((a-front)*5.0,2.0));
-  n+=ring*0.09*exp(-uRippleAge*0.9);
+  n+=ring*0.16*exp(-uRippleAge*0.8);
   return n;
 }
 
@@ -142,7 +142,7 @@ void main(){
   float vein=1.0-smoothstep(0.0,0.02+0.025*uThink,v);
   float v2=abs(snoise(vDir*5.0-vec3(uTime*0.5)));
   vein+=(1.0-smoothstep(0.0,0.015,v2))*0.35*uThink;
-  vein*=(0.04+0.55*uThink)*smoothstep(0.25,0.95,ndv);
+  vein*=(0.06+0.8*uThink)*smoothstep(0.25,0.95,ndv);
   vec3 veinCol=mix(uCyan,uMagenta,0.5+0.5*sin(vDir.y*3.0+uTime*0.6));
 
   vec3 col=vec3(0.006,0.005,0.012);
@@ -164,7 +164,7 @@ varying float vHeat;
 varying float vFade;
 void main(){
   // Each mote spirals in from the outer field toward the skin and is taken in.
-  float life=fract(uTime*(0.035+aSeed.x*0.05)*(1.0+uThink*1.6)+aSeed.y);
+  float life=fract(uTime*(0.06+aSeed.x*0.08)*(1.0+uThink*2.2)+aSeed.y);
   float r=mix(5.4,1.8,pow(life,1.4));
   float theta=aSeed.z*6.2831+life*(2.5+aSeed.x*3.0);
   float phi=acos(2.0*fract(aSeed.y*7.13+aSeed.z*3.1)-1.0)+sin(life*3.0+aSeed.x*9.0)*0.2;
@@ -238,23 +238,23 @@ void main(){
 }
 `
 
-const SWARM = 1400
+const SWARM = 2200
 
 // Everything the scene draws, made once at module load. There is only ever
 // one core on the page, and keeping these outside React lets the frame loop
 // write their uniforms without fighting the compiler's immutability rules.
 
-/** The thinking rhythm: a thought every 2.2 to 4.6 s, think jumps up and eases back, a ripple starts somewhere new. */
+/** The thinking rhythm: a thought every 1.2 to 2.8 s, think jumps up and eases back, a ripple starts somewhere new. */
 const MIND = { think: 0.25, next: 1.2, age: 10, origin: new THREE.Vector3(0, 1, 0) }
 
 function think(elapsed: number, dt: number, motion: number) {
   if (motion > 0 && elapsed > MIND.next) {
-    MIND.next = elapsed + 2.2 + Math.random() * 2.4
+    MIND.next = elapsed + 1.2 + Math.random() * 1.6
     MIND.think = 1
     MIND.age = 0
     MIND.origin.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize()
   }
-  MIND.think = Math.max(0.22, MIND.think - dt * 0.45)
+  MIND.think = Math.max(0.3, MIND.think - dt * 0.6)
   MIND.age += dt
   return MIND
 }

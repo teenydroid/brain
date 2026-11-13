@@ -282,13 +282,13 @@ body {
     color: var(--neon-cyan);
     transform: translate(-2px, 0);
     clip-path: inset(0 0 100% 0);
-    animation: glitch-a 5s infinite steps(1);
+    animation: glitch-a 3s infinite steps(1);
   }
   .glitch::after {
     color: var(--neon-magenta);
     transform: translate(2px, 0);
     clip-path: inset(100% 0 0 0);
-    animation: glitch-b 5s infinite steps(1);
+    animation: glitch-b 3s infinite steps(1);
   }
 }
 
