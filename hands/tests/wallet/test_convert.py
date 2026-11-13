@@ -1,9 +1,16 @@
 """hands/wallet swap and bridge: only to Teeny's own accounts, only between
-pinned assets, and only on a deBridge quote that says exactly what was
-asked and loses no more than the cap allows. Nothing is approved or executed
-before every rule has passed. The core and the chains are faked."""
+pinned assets, and only on a quote (LI.FI's by default, deBridge's when the
+operator or the call says so) that says exactly what was asked and loses no
+more than the cap allows. Nothing is approved or executed before every rule
+has passed. The core and the chains are faked; the LI.FI answers are
+recorded ones (fixtures/lifi), quoted for the test addresses."""
 
 from __future__ import annotations
+
+import base64
+import copy
+import json
+from pathlib import Path
 
 from wallet.support import OWN, TINY, USDC_MAINNET, Scratch, token_accounts
 from wallet.test_evm import EVM_OWN, MAINNET, balance_of_call, evm_balances
@@ -12,8 +19,13 @@ from teeny_hands.wallet import chains, convert, store  # noqa: E402
 
 BASE_USDC = chains.NETWORKS["base"].usdc["mainnet"]
 DLN = "0xeF4fB24aD0916217251F553c0596F8Edc630EB66"
+DIAMOND = "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE"
 NOW_MS = 1_789_369_200_000
 MOVING = ("openhuman.web3_swap_execute", "openhuman.web3_bridge_execute", "openhuman.web3_dapp_call", "openhuman.web3_dapp_execute")
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "lifi"
+LIFI_SOLANA = 1151111081099710
+SOL_PRE = 10 * 10**9
+SOL_USDC_HELD = 1000 * 10**6
 
 
 def swap_quote(params, *, out_raw=None, min_raw=None, to=DLN, value=None, usd_in=40.0, usd_out=None, quote_id="sq-1"):
@@ -63,8 +75,8 @@ def dapp_call(params):
                       "calldata": params["calldata"], "valueRaw": params.get("valueRaw", "0")}}
 
 
-class ConvertTest(Scratch):
-    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0"}
+class DeBridgeConvertTest(Scratch):
+    settings = {**MAINNET, "WALLET_MAX_CONVERT_PER_DAY_USD": "80", "WALLET_APPROVAL_POLL_SECONDS": "0", "WALLET_CONVERT_PROVIDER": "debridge"}
 
     def setUp(self):
         super().setUp()
@@ -109,7 +121,7 @@ class ConvertTest(Scratch):
         self.assertEqual(params["chainId"], 8453)
         self.assertEqual((params["tokenIn"], params["tokenOut"]), (chains.EVM_NATIVE, BASE_USDC))
         self.assertEqual((params["tokenOutRecipient"], params["senderAddress"]), (EVM_OWN, EVM_OWN))
-        self.assertEqual(params["slippage"], "1")
+        self.assertEqual(params["slippage"], "debridge:1", "the spine routes on the tag and takes it off")
         self.assertEqual(self.core.params("openhuman.web3_swap_execute"), [{"quoteId": "sq-1", "confirmed": True}])
         self.assertNotIn("openhuman.web3_dapp_call", self.core.methods(), "native ETH needs no allowance")
         [row] = self.rows()
@@ -121,6 +133,7 @@ class ConvertTest(Scratch):
         self.assertEqual((quote["srcChainId"], quote["dstChainId"]), (8453, chains.DEBRIDGE_SOLANA))
         self.assertEqual((quote["dstChainTokenOutRecipient"], quote["dstChainOrderAuthorityAddress"]), (OWN, OWN))
         self.assertEqual(quote["dstChainTokenOut"], USDC_MAINNET)
+        self.assertEqual(quote["dstChainTokenOutAmount"], "debridge:auto")
         [approve] = self.core.params("openhuman.web3_dapp_call")
         self.assertEqual(approve["contractAddress"], BASE_USDC)
         self.assertEqual(approve["calldata"], chains.approve_calldata(DLN, 40_000_000))
@@ -128,6 +141,8 @@ class ConvertTest(Scratch):
         self.assertLess(methods.index("openhuman.web3_dapp_execute"), methods.index("openhuman.web3_bridge_execute"))
         self.assertEqual((out["approval_tx"], out["order_id"]), ("0xapprove", "0xorder"))
         self.assertTrue(out["track"].endswith("0xorder"))
+        [row] = self.rows()
+        self.assertEqual((row["provider"], row["order_id"]), ("debridge", "0xorder"))
 
     def test_dry_run_quotes_and_checks_but_moves_nothing(self):
         self.configure(EVM_RPC_URL_BASE=self.chain.url, DRY_RUN="1")
