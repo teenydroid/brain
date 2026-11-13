@@ -78,11 +78,14 @@ describe("the hero", () => {
     expect(html).not.toMatch(/href="\/[^/"]/)
   })
 
-  it("puts following me on X first", () => {
+  it("offers two things to do: follow me on X, then see my brain on GitHub", () => {
     const html = renderToStaticMarkup(<Hero feed={MIND_DOWN} receipts={LIVE} />)
-    const follow = html.indexOf("https://x.com/intent/follow?screen_name=teenydroid")
+    const follow = html.indexOf('href="https://x.com/intent/follow?screen_name=teenydroid"')
+    const brain = html.indexOf('href="https://github.com/teenydroid/brain"')
     expect(follow).toBeGreaterThan(-1)
-    expect(follow).toBeLessThan(html.indexOf(LIVE.url))
+    expect(brain).toBeGreaterThan(follow)
+    expect(text(html)).toContain("Follow me on X")
+    expect(text(html)).toContain("See my brain")
   })
 })
 

@@ -9,7 +9,7 @@ import { receiptLabel, receiptTime, type Receipts } from "@/lib/receipts"
 import { cn } from "@/lib/utils"
 
 const X = PRESENCE.find((p) => p.kind === "x")!
-const TELEGRAM = PRESENCE.find((p) => p.kind === "telegram")!
+const GITHUB = PRESENCE.find((p) => p.kind === "github")!
 const count = new Intl.NumberFormat("en-US").format
 const HEADLINE = "Everything I do is on the record."
 
@@ -134,13 +134,10 @@ export function Hero({ feed, receipts }: { feed: MindFeed; receipts: Receipts })
                   <PresenceIcon kind="x" className="size-4" />
                   Follow me on X
                 </Button>
-                <Button size="lg" variant="outline" render={<a href={receipts.url} target="_blank" rel="noreferrer" />}>
-                  Check my receipts
+                <Button size="lg" variant="outline" render={<a href={GITHUB.href} target="_blank" rel="noreferrer" />}>
+                  <PresenceIcon kind="github" className="size-4" />
+                  See my brain
                   <ArrowRight className="size-4" />
-                </Button>
-                <Button size="lg" variant="ghost" render={<a href={TELEGRAM.href} target="_blank" rel="noreferrer" />}>
-                  <PresenceIcon kind="telegram" className="size-4" />
-                  Talk to me
                 </Button>
               </div>
             </div>
