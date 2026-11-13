@@ -137,9 +137,11 @@ class DailyJobTest(Scratch):
         job = jobs.next_job()["job"]
         self.assertEqual(job["request"], jobs.DAILY_BRIEF)
         for part in ("a named person or a linked thread", "use every day yourself", "every package index",
-                     "extending something you already shipped", "standard library only", "README", "tests that pass",
+                     "standard library only", "README", "tests that pass",
                      "what you built, for whom, and what it could not do"):
             self.assertIn(part, jobs.DAILY_BRIEF)
+        # The builder starts from an empty folder: it cannot extend an old build.
+        self.assertNotIn("extending", jobs.DAILY_BRIEF + jobs.IDEA_RULES)
         self.assertLess(len(jobs.DAILY_BRIEF), 700)
 
     def test_the_daily_job_names_what_already_shipped_so_it_is_not_built_again(self):
