@@ -14,7 +14,7 @@ from pathlib import Path
 
 from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Scratch, token_accounts
 from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, Chain, sig, usdc_tx
-from teeny_hands import hand, stimuli
+from teeny_hands import stimuli
 from teeny_hands.wallet import senses, solana
 
 HOLDER_A = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"
@@ -76,10 +76,9 @@ class WatchTest(Scratch):
     def test_off_unless_wallet_watch_is_set(self):
         self.configure(WALLET_WATCH=None)
         for verb in (senses.watch, senses.daily):
-            with self.assertRaises(hand.Refused) as no:
-                verb()
-            self.assertEqual(no.exception.detail["rule"], "off")
+            self.assertIn("WALLET_WATCH", verb()["skipped"])
         self.assertEqual(self.chain.calls, [])
+        self.assertEqual(self.inbox(), [])
 
     def test_the_daily_read_files_balance_and_holders_once_a_day(self):
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(1_500_000_000, TINY)
@@ -115,3 +114,25 @@ class WatchTest(Scratch):
                               env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(json.loads(done.stdout)["filed"], 1)
+
+    def job(self, *args: str) -> subprocess.CompletedProcess:
+        hands = Path(__file__).resolve().parents[2]
+        return subprocess.run([str(hands.parent / "bin" / "wallet-watch"), *args], capture_output=True, text=True,
+                              env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
+
+    def test_the_pinned_jobs_switched_off_are_skipped_not_failed(self):
+        # The scheduler counts a non-zero exit as a failed job, every 15 minutes.
+        self.configure(WALLET_WATCH=None)
+        for args in ((), ("daily",)):
+            done = self.job(*args)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertTrue(out["ok"])
+            self.assertIn("WALLET_WATCH", out["skipped"])
+        self.assertEqual(self.chain.calls, [])
+
+    def test_the_pinned_job_switched_on_still_refuses_a_broken_rule(self):
+        self.configure(WALLET_TEAM_ADDRESSES="not-an-address")
+        done = self.job()
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertEqual(json.loads(done.stdout)["rule"], "team")

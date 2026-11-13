@@ -1422,9 +1422,9 @@ in the hour before) could not be read is `complete: false`.
 
 `accounts close` (the pinned `accounts` job, Mondays 00:20 UTC) scans, then
 freezes the 7 days to `wallet_accounts` under the ISO week they cover,
-once. It refuses off a Monday (`not_monday`), with `WALLET_ACCOUNTS` unset
-(`off`), and for an incomplete page (`incomplete`): an unread cost would
-look like profit. `bin/receipts` publishes each closed page as
+once. With `WALLET_ACCOUNTS` unset it is skipped (exit 0: a switched-off
+job is not a failed one). It refuses off a Monday (`not_monday`) and for an
+incomplete page (`incomplete`): an unread cost would look like profit. `bin/receipts` publishes each closed page as
 `accounts/<week>.json` once `ACCOUNTS_PUBLISH=1`, rebuilt from dollars,
 enums, timestamps and signatures only, written once and never rewritten. No
 sender address and no memo is ever published.

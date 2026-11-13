@@ -12,7 +12,7 @@ low. Frozen (evals/frozen.txt), and the tiers are frozen config
             `evolve_candidates`. Read by hands/image and hands/video
             (media/assets.py), bin/evolve and the mind's beat header
 
-Off unless RUNWAY=1 in secrets/teeny.env: `daily` is refused (`off`) and
+Off unless RUNWAY=1 in secrets/teeny.env: `daily` is skipped (exit 0) and
 `limits` cuts nothing. On, a runway not measured for STALE_DAYS (a balance
 or a cost that could not be read) counts as the `low` tier: an unread
 balance is not money, and spending less is the safe side to err on.
@@ -105,7 +105,7 @@ def _cuts(tier: Json | None) -> str:
 def daily() -> Json:
     """Measures, saves, and files one `health · runway` stimulus a UTC day."""
     if not hand.flag("RUNWAY", False):
-        raise hand.Refused("the runway sense is off: RUNWAY=1 in secrets/teeny.env", rule="off")
+        return {"skipped": "the runway sense is off (RUNWAY=1 in secrets/teeny.env turns it on)"}
     table = tiers()
     now = hand.now()
     day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime("%Y-%m-%d")

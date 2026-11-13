@@ -11,8 +11,8 @@ moves or asks the core to, and nothing here pays.
              the number of accounts holding $TINY. The pinned
              `wallet-daily` job.
 
-Both are off unless WALLET_WATCH=1 in secrets/teeny.env (a refusal, rule
-`off`). A deposit older than a day when first seen (the first scan looks back
+Both are off unless WALLET_WATCH=1 in secrets/teeny.env (skipped, exit 0: a
+switched-off job is not a failed one). A deposit older than a day when first seen (the first scan looks back
 30 days) is recorded but files no stimulus, so turning the watch on does not
 flood the inbox; at most MAX_PER_RUN stimuli a run, the rest on the next.
 """
@@ -39,9 +39,12 @@ TOKEN_2022 = "TokenzQdBNbLqP5VjB6TPMNHSs8YRUJ5MmbGyM3Qd6S9M"
 TOKEN_ACCOUNT_SIZE = 165
 
 
-def _on() -> None:
-    if not hand.flag("WALLET_WATCH", False):
-        raise hand.Refused("the wallet watch is off: WALLET_WATCH=1 in secrets/teeny.env", rule="off")
+#: What the pinned jobs answer while WALLET_WATCH is not set.
+OFF: Json = {"skipped": "the wallet watch is off (WALLET_WATCH=1 in secrets/teeny.env turns it on)"}
+
+
+def _on() -> bool:
+    return hand.flag("WALLET_WATCH", False)
 
 
 def _short(address: str | None) -> str:
@@ -68,7 +71,8 @@ def deposit_text(row: Mapping[str, Any]) -> str:
 
 def watch() -> Json:
     """Scans, then files one stimulus per deposit not yet filed."""
-    _on()
+    if not _on():
+        return dict(OFF)
     scanned = accounts.scan()
     now = hand.now()
     filed: list[str] = []
@@ -132,7 +136,8 @@ def holders(cluster: str, mint: str) -> int:
 def daily() -> Json:
     """One `wallet · tiny` stimulus a day (UTC): balance and holders. A read
     that fails is said as failed, never guessed."""
-    _on()
+    if not _on():
+        return dict(OFF)
     day = _dt.datetime.fromtimestamp(hand.now(), _dt.timezone.utc).strftime("%Y-%m-%d")
     out: Json = {"date": day}
     lines = []

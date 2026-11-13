@@ -235,10 +235,9 @@ class AccountsTest(Scratch):
 
     def test_closing_is_off_by_default(self):
         self.configure(WALLET_ACCOUNTS=None)
-        with self.assertRaises(hand.Refused) as no:
-            accounts.close()
-        self.assertEqual(no.exception.detail["rule"], "off")
+        self.assertIn("WALLET_ACCOUNTS", accounts.close()["skipped"])
         self.assertEqual(self.chain.calls, [])
+        self.assertEqual(accounts.closed_pages(), [])
 
     def test_closing_is_refused_off_a_monday(self):
         self.at(T0 + DAY)
@@ -271,6 +270,13 @@ class AccountsTest(Scratch):
         done = subprocess.run([str(job)], capture_output=True, text=True, env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(json.loads(done.stdout)["week"], "2026-W37")
+        # Switched off is skipped, exit 0: the scheduler counts non-zero as a failed job.
         self.configure(WALLET_ACCOUNTS=None)
         done = subprocess.run([str(job)], capture_output=True, text=True, env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
-        self.assertEqual((done.returncode, json.loads(done.stdout)["refused"]), (2, "the weekly accounts are off: WALLET_ACCOUNTS=1 in secrets/teeny.env"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("WALLET_ACCOUNTS", json.loads(done.stdout)["skipped"])
+        # Switched on, a real refusal still exits 2.
+        self.configure(WALLET_ACCOUNTS="1")
+        self.at(T0 + DAY)
+        done = subprocess.run([str(job)], capture_output=True, text=True, env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
+        self.assertEqual((done.returncode, json.loads(done.stdout)["rule"]), (2, "not_monday"))

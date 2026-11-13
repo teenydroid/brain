@@ -131,9 +131,7 @@ class BillsTest(Scratch):
     def test_off_by_default_nothing_moves(self):
         self.invoice()
         self.configure(VPS_PAY_BILLS=None)
-        with self.assertRaises(hand.Refused) as no:
-            bills.pay_due()
-        self.assertEqual(no.exception.detail["rule"], "off")
+        self.assertIn("VPS_PAY_BILLS", bills.pay_due()["skipped"])
         with self.assertRaises(hand.Refused) as no:
             pay.pay({"to": VENDOR, "amount_usdc": "24", "purpose": "bill", "ref": "vps:eqvps:INV-1"})
         self.assertEqual(no.exception.detail["rule"], "off")
@@ -158,6 +156,20 @@ class BillsTest(Scratch):
         purposes = [r[0] for r in conn.execute("SELECT purpose FROM wallet_payments")]
         conn.close()
         self.assertEqual(purposes, ["bill"])
+
+    def test_the_pinned_job_switched_off_is_skipped_not_failed(self):
+        # The scheduler counts a non-zero exit as a failed job.
+        self.invoice()
+        self.configure(VPS_PAY_BILLS=None)
+        hands = Path(__file__).resolve().parents[2]
+        done = subprocess.run([str(hands.parent / "bin" / "pay-bills")], capture_output=True, text=True,
+                              env={**os.environ, "TEENY_HANDS": str(hands)}, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        out = json.loads(done.stdout)
+        self.assertTrue(out["ok"])
+        self.assertIn("VPS_PAY_BILLS", out["skipped"])
+        self.assertEqual(self.moved(), [])
+        self.assertEqual(self.rows()[0]["status"], "due")
 
 
 Json = dict
