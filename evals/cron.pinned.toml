@@ -250,7 +250,7 @@ enabled = false
 # money shown apart, frozen into state/hands.db once. Mondays, 00:20 UTC, so
 # the seven days it covers are the ISO week it is named for. The receipts job
 # publishes closed pages when ACCOUNTS_PUBLISH=1. OFF unless WALLET_ACCOUNTS=1
-# in secrets/teeny.env (each run a refusal until then). Operator-owned: Teeny
+# in secrets/teeny.env (each run skipped until then). Operator-owned: Teeny
 # does not get to decide whether its books are kept.
 [jobs.accounts]
 schedule = "20 0 * * 1"

@@ -465,7 +465,7 @@ def week_of(at: float) -> str:
 
 def close() -> Json:
     """Scans the deposits, then freezes last week's page into
-    `wallet_accounts`, once. Off unless WALLET_ACCOUNTS=1. Run on a Monday
+    `wallet_accounts`, once. Skipped unless WALLET_ACCOUNTS=1. Run on a Monday
     (UTC) by the pinned job, so the 7 days it covers are the week it is
     named for, give or take the minutes past midnight it ran (the page
     carries its exact `from` and `to`). An incomplete page (a cost source

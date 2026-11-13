@@ -20,7 +20,8 @@ purpose `bill`).
 An invoice is `due`, then `paid` (with the payment), or `in_doubt` (the
 execute went out and did not come back: never retried, a person reads the
 core's ledger and the chain). A refusal (a cap, a limit) leaves it `due`
-and moves nothing. Off until VPS_PAY_BILLS=1 (`off`).
+and moves nothing. Off until VPS_PAY_BILLS=1: `pay-due` is skipped (exit 0)
+and `pay` refuses a bill (`off`).
 
 Why the operator records the invoice: neither provider's API states a
 crypto invoice's address and amount in a form this hand can read (Vultr is
@@ -188,7 +189,7 @@ def pay_due() -> Json:
     from ..wallet import store as wallet_store
 
     if not hand.flag("VPS_PAY_BILLS", False):
-        raise hand.Refused("paying bills is off: VPS_PAY_BILLS=1 in secrets/teeny.env", rule="off")
+        return {"skipped": "paying bills is off (VPS_PAY_BILLS=1 in secrets/teeny.env turns it on)"}
     conn = db()
     try:
         rows = conn.execute("SELECT * FROM vps_invoices WHERE status = 'due' AND due_at <= ? ORDER BY due_at, id",

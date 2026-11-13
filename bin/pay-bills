@@ -5,7 +5,7 @@
 # allowlisted address on the invoice, its exact amount in USDC, once, under
 # the wallet's four caps and the bill limits in evals/prices.toml. Each paid
 # bill gets a receipt like any payment. An in-doubt payment is never retried.
-# Off unless secrets/teeny.env sets VPS_PAY_BILLS=1 (a refusal, exit 2).
+# Off unless secrets/teeny.env sets VPS_PAY_BILLS=1 (skipped, exit 0, when off).
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"

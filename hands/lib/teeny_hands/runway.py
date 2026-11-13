@@ -12,7 +12,7 @@ low. Frozen (evals/frozen.txt), and the tiers are frozen config
             `evolve_candidates`. Read by hands/image and hands/video
             (media/assets.py), bin/evolve and the mind's beat header
 
-Off unless RUNWAY=1 in secrets/teeny.env: `daily` is refused (`off`) and
+Off unless RUNWAY=1 in secrets/teeny.env: `daily` is skipped (exit 0) and
 `limits` cuts nothing. On, a runway not measured for STALE_DAYS (a balance
 or a cost that could not be read) counts as the `low` tier: an unread
 balance is not money, and spending less is the safe side to err on.

@@ -5,7 +5,7 @@
 # freezes last week's profit and loss, what running Teeny cost against what it
 # earned with the team's money shown apart, into state/hands.db, once. The
 # receipts job publishes closed pages when ACCOUNTS_PUBLISH=1. Off unless
-# secrets/teeny.env sets WALLET_ACCOUNTS=1 (a refusal, exit 2, when off); an
+# secrets/teeny.env sets WALLET_ACCOUNTS=1 (skipped, exit 0, when off); an
 # incomplete week (a cost source unread) is refused, never closed as profit.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh

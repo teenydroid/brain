@@ -14,7 +14,7 @@ from pathlib import Path
 
 from wallet.support import DAY, HOUR, OWN, STRANGER, T0, TINY, USDC_MAINNET, Scratch, token_accounts
 from wallet.test_accounts import TEAM, TOKEN_ACCOUNT, Chain, sig, usdc_tx
-from teeny_hands import hand, stimuli
+from teeny_hands import stimuli
 from teeny_hands.wallet import senses, solana
 
 HOLDER_A = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"
