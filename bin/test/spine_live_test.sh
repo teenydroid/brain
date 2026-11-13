@@ -487,14 +487,29 @@ else
 fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
+# It does a real task in the real browser: the stub model opens the start
+# page and reports its title. On 2026-11-13 the one task on the box failed
+# ("TinyComputer browser unavailable") while every check here passed; a
+# browser that cannot finish a task must fail this test.
+printf 'example.com\n' >>"$root/deploy/browser-allow.txt"
+jq -cn '{goal: "read the title of the page", start_url: "https://example.com/", done_when: "you know the title"}' |
+  "$root/hands/tasks" add --source live-test >"$scratch/task-add.log" 2>&1 || true
+"$root/bin/tasks-desk" >"$scratch/tasks-desk.log" 2>&1 || true
 operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
 if [ -n "$operator_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 60); do
-    grep -q 'tool spec filter:' <<<"$(agent_tools operator)" && break
+  for _ in $(seq 1 120); do
+    [ -s "$root/state/workbench/desk/task-done.json" ] && break
     sleep 1
   done
 fi
+"$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+task_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
+if ! check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok; then
+  printf '     task: %s\n' "$task_row" >&2
+  grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
+fi
+check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
 check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
 check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
 check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
