@@ -327,10 +327,10 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             ┌──────────────────────┴──────────────────────────┐
             ▼                                                 ▼
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
-   comment_moltbook, upvote_moltbook, post_moltbook, drop_follow_up, feel, journal, skip,
+   comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip,
                                                      promise, kept (hands/people)
-   follow_moltbook, reply_mail, say_telegram,                 │
-   comment_gh,                                                │
+   post_moltbook, follow_moltbook, reply_mail,                │
+   say_telegram, comment_gh,                                  │
    open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
