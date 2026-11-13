@@ -175,25 +175,6 @@ def clamp(share_micro: int, bounds: list[tuple[str, int]]) -> tuple[int, str]:
 # --- what the chain says (internal reads; `hands/wallet tiny` is the public verb) -------------
 
 
-def _token_accounts(cluster: str, owner: str, mint: str) -> dict[str, int]:
-    """{token account: raw amount} for one owner and mint. Internal to the
-    buy; the read verbs do their own."""
-    result = solana.rpc(cluster, "getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
-    accounts = result.get("value") if isinstance(result, dict) else None
-    if not isinstance(accounts, list):
-        raise hand.HandError("Solana RPC getTokenAccountsByOwner sent no account list")
-    out: dict[str, int] = {}
-    for account in accounts:
-        try:
-            info = account["account"]["data"]["parsed"]["info"]
-            if info.get("mint") != mint:
-                continue
-            out[str(account["pubkey"])] = int(info["tokenAmount"]["amount"])
-        except (KeyError, TypeError, ValueError):
-            raise hand.HandError("Solana RPC sent a token account it could not read") from None
-    return out
-
-
 def _signers(tx: Mapping[str, Any]) -> set[str]:
     keys = (((tx.get("transaction") or {}).get("message") or {}).get("accountKeys")) or []
     out = set()
@@ -227,7 +208,7 @@ def earned_since(cluster: str, own: str, mint: str, since: float, team: frozense
     seen: set[str] = set()
     signatures: list[str] = []
     truncated = False
-    for account in sorted(_token_accounts(cluster, own, mint)):
+    for account in sorted(solana.token_accounts(cluster, own, mint)):
         before: str | None = None
         while not truncated:
             options: dict[str, Any] = {"limit": PAGE, "commitment": "confirmed"}
@@ -401,7 +382,7 @@ def plan(conn: Any, c: caps.Caps, config: BuyConfig, own: str) -> dict[str, Any]
     net = earned["micro"] - spent
     share_micro = share_of(net, config.share)
     now = hand.now()
-    usdc_balance = sum(_token_accounts(c.cluster, own, c.usdc_mint).values())
+    usdc_balance = sum(solana.token_accounts(c.cluster, own, c.usdc_mint).values())
     bounds = [
         ("per_buy", config.per_buy_micro),
         ("per_tx", c.per_tx_micro),
@@ -585,8 +566,8 @@ def simulate(c: caps.Caps, own: str, tx_b64: str, amount: int, least: int) -> st
     """Why the unsigned swap must not be signed, or None when it may: it
     succeeds, takes at most `amount` USDC, and gives at least `least` $TINY
     to the $TINY accounts Teeny already holds (a first buy opens one)."""
-    usdc = _token_accounts(c.cluster, own, c.usdc_mint)
-    tiny = _token_accounts(c.cluster, own, OUTPUT_MINT)
+    usdc = solana.token_accounts(c.cluster, own, c.usdc_mint)
+    tiny = solana.token_accounts(c.cluster, own, OUTPUT_MINT)
     addresses = sorted(usdc) + sorted(tiny)
     result = solana.rpc(
         c.cluster,

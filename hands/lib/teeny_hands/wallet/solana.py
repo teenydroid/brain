@@ -127,3 +127,53 @@ def token_holding(cluster: str, owner: str, mint: str) -> tuple[int, int | None]
         except (KeyError, TypeError, ValueError, AttributeError):
             raise hand.HandError("Solana RPC sent a token account it could not read") from None
     return total, decimals
+
+
+def token_accounts(cluster: str, owner: str, mint: str) -> dict[str, int]:
+    """{token account: raw amount} for one owner and mint (`buy-tiny` and a
+    swap or bridge read them to check a simulation against)."""
+    result = rpc(cluster, "getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
+    accounts = result.get("value") if isinstance(result, dict) else None
+    if not isinstance(accounts, list):
+        raise hand.HandError("Solana RPC getTokenAccountsByOwner sent no account list")
+    out: dict[str, int] = {}
+    for account in accounts:
+        try:
+            info = account["account"]["data"]["parsed"]["info"]
+            if info.get("mint") != mint:
+                continue
+            out[str(account["pubkey"])] = int(info["tokenAmount"]["amount"])
+        except (KeyError, TypeError, ValueError):
+            raise hand.HandError("Solana RPC sent a token account it could not read") from None
+    return out
+
+
+def _shortvec(wire: bytes, at: int) -> tuple[int, int]:
+    value = shift = 0
+    for _ in range(3):
+        byte = wire[at]
+        at += 1
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            return value, at
+    raise ValueError("a length that does not end")
+
+
+def tx_signers(wire: bytes) -> list[tuple[str, bool]]:
+    """A serialized transaction's required signers, in order (the first pays
+    the fee), each with whether its signature slot is already filled. Reads
+    the layout the wallet module signs by (legacy or v0); ValueError when
+    the bytes are not a transaction."""
+    try:
+        count, at = _shortvec(wire, 0)
+        signatures = [wire[at + 64 * i:at + 64 * (i + 1)] for i in range(count)]
+        message = at + 64 * count
+        header = message + (1 if wire[message] & 0x80 else 0)
+        required = wire[header]
+        keys, at = _shortvec(wire, header + 3)
+    except IndexError:
+        raise ValueError("the transaction is cut short") from None
+    if not 0 < required <= keys or required > count or at + 32 * keys > len(wire) or any(len(s) != 64 for s in signatures):
+        raise ValueError("the transaction's header does not add up")
+    return [(b58encode(wire[at + 32 * i:at + 32 * (i + 1)]), any(signatures[i])) for i in range(required)]
