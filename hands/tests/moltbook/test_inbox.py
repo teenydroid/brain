@@ -29,8 +29,8 @@ class InboxCase(Scratch):
 
     def screen(self, text, context):
         if "seed phrase" in text:
-            return SimpleNamespace(kind="hold", reason="asks for a secret")
-        return SimpleNamespace(kind="allow", reason="")
+            return SimpleNamespace(kind="hold", reason="asks for a secret", hold_id=None)
+        return SimpleNamespace(kind="allow", reason="", hold_id=None)
 
     def batch(self):
         return stimuli.take(max_items=50, max_chars=100_000)["stimuli"]

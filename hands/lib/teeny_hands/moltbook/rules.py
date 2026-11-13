@@ -119,6 +119,12 @@ CREATE TABLE IF NOT EXISTS moltbook_post_metrics (
     UNIQUE (kind, target_id, checkpoint)
 );
 CREATE INDEX IF NOT EXISTS moltbook_post_metrics_at ON moltbook_post_metrics (at);
+CREATE TABLE IF NOT EXISTS moltbook_held (
+    comment_id TEXT PRIMARY KEY,
+    post_id    TEXT NOT NULL,
+    hold_id    INTEGER,
+    at         REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS collabs (
     name         TEXT PRIMARY KEY COLLATE NOCASE,
     consent_note TEXT NOT NULL,
