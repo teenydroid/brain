@@ -29,13 +29,12 @@ def runs(book: dict) -> dict[str, list[str]]:
 
 
 class IntakeTest(unittest.TestCase):
-    def test_world_scan_is_a_habit_that_reads_hacker_news_and_moltbook(self):
+    def test_world_scan_is_a_habit_that_listens_twice_a_day(self):
         book = load("world-scan")
-        self.assertEqual((book["output"], book["nudge"]), ("none", True))
+        self.assertEqual((book["output"], book["nudge"], book["max_per_day"]), ("none", True, 2))
         self.assertEqual(runs(book), {
-            "hn-top": ["hands/hn", "top", "--max", "10"],
-            "hn-show": ["hands/hn", "show", "--max", "8"],
-            "hn-ask": ["hands/hn", "ask", "--max", "5"],
+            "heard": ["hands/listen", "scan", "--max", "5"],
+            "hn-top": ["hands/hn", "top", "--max", "6"],
             "moltbook-hot": ["hands/moltbook", "feed", "--sort", "hot", "--max", "5", "--brief"],
         })
 
@@ -44,20 +43,23 @@ class IntakeTest(unittest.TestCase):
         self.assertEqual((book["output"], book["surface"], book["nudge"]), ("hand:build idea", "github", False))
         got = runs(book)
         self.assertLessEqual(len(got), playbook.MAX_INPUTS)
-        for name in ("hn-show", "hn-ask", "pending", "people", "issues", "shipped", "recent"):
+        for name in ("hn-show", "heard", "pending", "people", "issues", "shipped", "recent"):
             self.assertIn(name, got)
+        self.assertEqual(got["heard"], ["hands/listen", "digest", "--days", "2", "--max", "6"])
         self.assertEqual(got["shipped"], ["hands/build", "jobs", "--status", "shipped", "--limit", "30"])
 
-    def test_the_posting_playbooks_read_hacker_news_and_self_improve_reads_people(self):
-        for name in ("morning", "moltbook-daily", "moltbook-evening"):
+    def test_the_posting_playbooks_read_what_was_heard_and_self_improve_reads_people(self):
+        for name in ("moltbook-daily", "moltbook-evening"):
             got = runs(load(name))
             self.assertEqual((got["hn-top"][:2], got["hn-show"][:2]), (["hands/hn", "top"], ["hands/hn", "show"]), name)
+        for name in ("morning", "moltbook-daily", "moltbook-evening"):
+            self.assertEqual(runs(load(name))["heard"][:3], ["hands/listen", "digest", "--days"], name)
         self.assertEqual(runs(load("self-improve"))["people"], ["hands/people", "list"])
 
     def test_a_read_of_somebody_elses_site_never_costs_the_run(self):
-        for name in ("morning", "moltbook-daily", "moltbook-evening", "build-idea"):
+        for name in ("world-scan", "morning", "moltbook-daily", "moltbook-evening", "build-idea"):
             for i in load(name)["inputs"]:
-                if i["argv"][0] == "hands/hn":
+                if i["argv"][0] in ("hands/hn", "hands/listen"):
                     self.assertTrue(i["optional"], (name, i["name"]))
                     self.assertFalse(i["required"], (name, i["name"]))
 
@@ -65,6 +67,8 @@ class IntakeTest(unittest.TestCase):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
         self.assertLessEqual(len(jobs), cron_policy.MAX_JOBS)
         self.assertEqual(jobs["world-scan"]["command"], "bin/act world-scan")
+        # Two listens a day from one job: the cap has no room for a second.
+        self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
         self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
         for name in ("world-scan", "build-idea", "shipped"):
             self.assertTrue(jobs[name].get("enabled", True), name)

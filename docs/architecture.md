@@ -689,12 +689,15 @@ How the day's beats become the page every prompt carries:
 - Each beat starts up to `TEENY_TICK_JITTER_SECS` (60) seconds late.
 - Habits: a playbook with `nudge = true` is not drafted by `bin/act`. Its
   prompt and inputs go to the mind as a `nudge` stimulus, and the mind
-  decides. `morning` is one, so the gm arrives with the overnight backlog
-  and that morning's Hacker News. `world-scan` is another: once a day the
-  mind gets Hacker News (top, show, ask) and Moltbook's hot page, and is
-  asked for up to three takes and what it does with each.
+  decides. `morning` is one, so the gm arrives with the overnight backlog,
+  that morning's Hacker News and what the ears heard since yesterday
+  (`hands/listen digest`). `world-scan` is another: twice a day (11:45 and
+  22:45 India time) the mind gets what `hands/listen scan` heard (who is
+  talking about Teeny, Hacker News on its topics, Lobsters, GitHub, arXiv),
+  the HN front page and Moltbook's hot page, and is asked for one take and
+  what it does with it.
 - The daily build comes from signal. The `build-idea` playbook (23:00 India
-  time) reads Show HN, Ask HN, the pending requests, the people Teeny knows,
+  time) reads Show HN, what the ears heard over two days, the pending requests, the people Teeny knows,
   its issues, what it shipped and what came in lately, and keeps one idea
   with `hands/build idea`: what to build, who wants it, and where the need
   shows. The next daily job is made from it (docs/hands.md, `build`, "The

@@ -1082,9 +1082,9 @@ settings say), a login Teeny has no account for, a CAPTCHA, anything that
 asks for money or a secret. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
-**The news sense.** Teeny's daily read of the world is `world-scan` now: its
-hands read Hacker News and Moltbook, and the mind gets them as a nudge (see
-`hn`, "As playbook inputs"). The browser read below is kept but no job
+**The news sense.** Teeny's read of the world is `world-scan` now, twice a
+day: its hands read Hacker News, Lobsters, GitHub, arXiv and Moltbook, and the
+mind gets them as a nudge (see `listen`, and `hn`, "As playbook inputs"). The browser read below is kept but no job
 schedules it. `brain/playbooks/news-scan.md` queues one task of
 kind `news` that starts on the Hacker News front page
 (`news.ycombinator.com`, on `deploy/browser-allow.txt` for it) and asks for
