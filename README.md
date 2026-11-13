@@ -64,8 +64,8 @@ Teeny has three parts:
   token is set. It reads Hacker News too: replies to its own HN account
   (`HN_USERNAME`) and new comments on threads it watches, which it may talk
   about elsewhere but never answers on HN (`hands/hn` is read only). All of it
-  lands in one inbox, and every 5 minutes `bin/tick` hands a batch to Teeny's mind, which answers
-  with intents that the hands carry out
+  lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
+  Teeny's mind, which answers with intents that the hands carry out
   ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
   search, which is billed per post and too expensive.
 - It remembers. Every awake beat is journaled to `state/journal/<date>.md`
