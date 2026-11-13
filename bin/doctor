@@ -5,7 +5,8 @@
 #   bin/doctor --root DIR      the same, on another checkout (a candidate brain)
 #   bin/doctor --live          also the running core: /health, cron in step
 #                              with brain/cron.toml, every enabled job's next
-#                              run current, the heartbeat fresh
+#                              run current, the heartbeat fresh, the
+#                              browser loads and starts Chrome
 #   bin/doctor --full          also the hands' unit tests
 #
 # Teeny edits its own brain: SOUL.md, CONTEXT.md, playbooks, crons. This is
@@ -118,6 +119,21 @@ agent_turn_budget() {
     return 1
   fi
   echo "${secs}s"
+}
+
+# The browser loads and Chrome starts: the core's readiness probe loads
+# TinyComputer and opens and closes one disposable, non-navigating Chrome
+# session. On 2026-11-13 every browser call failed with "module
+# 'tinycomputer' callback source cannot preserve admitted identity" and only
+# the operator's report said so.
+browser_ready() {
+  local answer
+  answer="$(OH_TIMEOUT=60 oh modules_browser_check_readiness)" || return 1
+  if ! jq -e '.module_ready == true and .chrome_ready == true' <<<"$answer" >/dev/null; then
+    jq -r '"module_ready=\(.module_ready) chrome_ready=\(.chrome_ready): \(.error // "no reason given")"' <<<"$answer"
+    return 1
+  fi
+  echo "TinyComputer serving, Chrome starts"
 }
 
 # --- the brain -----------------------------------------------------------------
@@ -323,6 +339,7 @@ if [ "$live" = 1 ]; then
     run "cron in step" cron_in_step
     run "cron next runs are current" cron_current
     run "cron agent turn budget" agent_turn_budget
+    run "browser" browser_ready
   else
     note "core /health" fail "no answer at $OH_URL"
   fi
