@@ -1,7 +1,7 @@
 'use client'
 
 import { useFrame, useThree } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { useRef } from 'react'
 import * as THREE from 'three'
 import { CYAN, MAGENTA, VOID, YELLOW, useMotion } from '../motion'
 
@@ -240,118 +240,108 @@ void main(){
 
 const SWARM = 1400
 
-function useThinking(motion: number) {
-  // A thought every 2.2 to 4.6 seconds: think jumps up and eases back, and a ripple starts somewhere new.
-  const state = useRef({ think: 0.25, next: 1.2, age: 10, origin: new THREE.Vector3(0, 1, 0) })
-  return (elapsed: number, dt: number) => {
-    const s = state.current
-    if (motion > 0 && elapsed > s.next) {
-      s.next = elapsed + 2.2 + Math.random() * 2.4
-      s.think = 1
-      s.age = 0
-      s.origin.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize()
-    }
-    s.think = Math.max(0.22, s.think - dt * 0.45)
-    s.age += dt
-    return s
+// Everything the scene draws, made once at module load. There is only ever
+// one core on the page, and keeping these outside React lets the frame loop
+// write their uniforms without fighting the compiler's immutability rules.
+
+/** The thinking rhythm: a thought every 2.2 to 4.6 s, think jumps up and eases back, a ripple starts somewhere new. */
+const MIND = { think: 0.25, next: 1.2, age: 10, origin: new THREE.Vector3(0, 1, 0) }
+
+function think(elapsed: number, dt: number, motion: number) {
+  if (motion > 0 && elapsed > MIND.next) {
+    MIND.next = elapsed + 2.2 + Math.random() * 2.4
+    MIND.think = 1
+    MIND.age = 0
+    MIND.origin.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize()
   }
+  MIND.think = Math.max(0.22, MIND.think - dt * 0.45)
+  MIND.age += dt
+  return MIND
 }
+
+const BLOB = new THREE.ShaderMaterial({
+  vertexShader: BLOB_VERTEX,
+  fragmentShader: BLOB_FRAGMENT,
+  uniforms: {
+    uTime: { value: 0 },
+    uThink: { value: 0.25 },
+    uRadius: { value: 1.7 },
+    uRipple: { value: new THREE.Vector3(0, 1, 0) },
+    uRippleAge: { value: 10 },
+    uCyan: { value: new THREE.Color(CYAN) },
+    uMagenta: { value: new THREE.Color(MAGENTA) },
+    uYellow: { value: new THREE.Color(YELLOW) },
+  },
+})
+
+const SWARM_GEOMETRY = (() => {
+  const seeds = new Float32Array(SWARM * 3)
+  for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random()
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 3))
+  // Positions are computed in the shader; three.js still wants an attribute to size the draw.
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SWARM * 3), 3))
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 6)
+  return geometry
+})()
+
+const SWARM_MATERIAL = new THREE.ShaderMaterial({
+  vertexShader: SWARM_VERTEX,
+  fragmentShader: SWARM_FRAGMENT,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  uniforms: {
+    uTime: { value: 0 },
+    uThink: { value: 0 },
+    uPixel: { value: 16 },
+    uCyan: { value: new THREE.Color(CYAN) },
+    uYellow: { value: new THREE.Color(YELLOW) },
+  },
+})
+
+const RINGS = [
+  { radius: 2.35, width: 0.012, color: CYAN, segments: 96, speed: 0.02, duty: 0.55, opacity: 0.5, tilt: [1.25, 0.2, 0] as [number, number, number] },
+  { radius: 2.7, width: 0.035, color: MAGENTA, segments: 18, speed: -0.015, duty: 0.3, opacity: 0.45, tilt: [1.4, -0.35, 0.3] as [number, number, number] },
+  { radius: 3.15, width: 0.008, color: YELLOW, segments: 240, speed: 0.01, duty: 0.25, opacity: 0.55, tilt: [1.1, 0.5, -0.2] as [number, number, number] },
+].map((ring) => ({
+  ...ring,
+  material: new THREE.ShaderMaterial({
+    vertexShader: RING_VERTEX,
+    fragmentShader: RING_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(ring.color) },
+      uTime: { value: 0 },
+      uSegments: { value: ring.segments },
+      uSpeed: { value: ring.speed },
+      uDuty: { value: ring.duty },
+      uOpacity: { value: ring.opacity },
+    },
+  }),
+}))
+
+const BACKDROP = new THREE.ShaderMaterial({
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: BACKDROP_FRAGMENT,
+  depthWrite: false,
+  uniforms: {
+    uVoid: { value: new THREE.Color(VOID) },
+    uCyan: { value: new THREE.Color(CYAN) },
+    uMagenta: { value: new THREE.Color(MAGENTA) },
+    uTime: { value: 0 },
+    uAspect: { value: new THREE.Vector2(1, 1) },
+  },
+})
 
 export function CoreScene() {
   const motion = useMotion()
   const { viewport, size } = useThree()
   const group = useRef<THREE.Group>(null)
   const clock = useRef(0)
-  const thinking = useThinking(motion)
-
-  const blob = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        vertexShader: BLOB_VERTEX,
-        fragmentShader: BLOB_FRAGMENT,
-        uniforms: {
-          uTime: { value: 0 },
-          uThink: { value: 0.25 },
-          uRadius: { value: 1.7 },
-          uRipple: { value: new THREE.Vector3(0, 1, 0) },
-          uRippleAge: { value: 10 },
-          uCyan: { value: new THREE.Color(CYAN) },
-          uMagenta: { value: new THREE.Color(MAGENTA) },
-          uYellow: { value: new THREE.Color(YELLOW) },
-        },
-      }),
-    [],
-  )
-
-  const swarm = useMemo(() => {
-    const seeds = new Float32Array(SWARM * 3)
-    for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random()
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 3))
-    // Positions are computed in the shader; three.js still wants an attribute to size the draw.
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SWARM * 3), 3))
-    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 6)
-    const material = new THREE.ShaderMaterial({
-      vertexShader: SWARM_VERTEX,
-      fragmentShader: SWARM_FRAGMENT,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: {
-        uTime: { value: 0 },
-        uThink: { value: 0 },
-        uPixel: { value: 16 },
-        uCyan: { value: new THREE.Color(CYAN) },
-        uYellow: { value: new THREE.Color(YELLOW) },
-      },
-    })
-    return { geometry, material }
-  }, [])
-
-  const rings = useMemo(
-    () =>
-      [
-        { radius: 2.35, width: 0.012, color: CYAN, segments: 96, speed: 0.02, duty: 0.55, opacity: 0.5, tilt: [1.25, 0.2, 0] },
-        { radius: 2.7, width: 0.035, color: MAGENTA, segments: 18, speed: -0.015, duty: 0.3, opacity: 0.45, tilt: [1.4, -0.35, 0.3] },
-        { radius: 3.15, width: 0.008, color: YELLOW, segments: 240, speed: 0.01, duty: 0.25, opacity: 0.55, tilt: [1.1, 0.5, -0.2] },
-      ].map((ring) => ({
-        ...ring,
-        material: new THREE.ShaderMaterial({
-          vertexShader: RING_VERTEX,
-          fragmentShader: RING_FRAGMENT,
-          transparent: true,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          blending: THREE.AdditiveBlending,
-          uniforms: {
-            uColor: { value: new THREE.Color(ring.color) },
-            uTime: { value: 0 },
-            uSegments: { value: ring.segments },
-            uSpeed: { value: ring.speed },
-            uDuty: { value: ring.duty },
-            uOpacity: { value: ring.opacity },
-          },
-        }),
-      })),
-    [],
-  )
-
-  const backdrop = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-        fragmentShader: BACKDROP_FRAGMENT,
-        depthWrite: false,
-        uniforms: {
-          uVoid: { value: new THREE.Color(VOID) },
-          uCyan: { value: new THREE.Color(CYAN) },
-          uMagenta: { value: new THREE.Color(MAGENTA) },
-          uTime: { value: 0 },
-          uAspect: { value: new THREE.Vector2(1, 1) },
-        },
-      }),
-    [],
-  )
 
   // The backdrop sits at z = -4 and has to cover the whole frame from there.
   const far = viewport.getCurrentViewport(undefined, new THREE.Vector3(0, 0, -4))
@@ -362,18 +352,18 @@ export function CoreScene() {
     const dt = Math.min(delta, 0.05) * motion
     clock.current += dt
     const t = clock.current
-    const s = thinking(t, dt)
+    const s = think(t, dt, motion)
 
-    blob.uniforms.uTime.value = t
-    blob.uniforms.uThink.value = s.think
-    blob.uniforms.uRippleAge.value = s.age
-    ;(blob.uniforms.uRipple.value as THREE.Vector3).copy(s.origin)
-    swarm.material.uniforms.uTime.value = t
-    swarm.material.uniforms.uThink.value = s.think
-    swarm.material.uniforms.uPixel.value = 16 * state.viewport.dpr
-    for (const ring of rings) ring.material.uniforms.uTime.value = t
-    backdrop.uniforms.uTime.value = t
-    ;(backdrop.uniforms.uAspect.value as THREE.Vector2).set(far.width / far.height, 1)
+    BLOB.uniforms.uTime.value = t
+    BLOB.uniforms.uThink.value = s.think
+    BLOB.uniforms.uRippleAge.value = s.age
+    ;(BLOB.uniforms.uRipple.value as THREE.Vector3).copy(s.origin)
+    SWARM_MATERIAL.uniforms.uTime.value = t
+    SWARM_MATERIAL.uniforms.uThink.value = s.think
+    SWARM_MATERIAL.uniforms.uPixel.value = 16 * state.viewport.dpr
+    for (const ring of RINGS) ring.material.uniforms.uTime.value = t
+    BACKDROP.uniforms.uTime.value = t
+    ;(BACKDROP.uniforms.uAspect.value as THREE.Vector2).set(far.width / far.height, 1)
 
     if (group.current) {
       // The pointer leans it; when no one is pointing it drifts on its own.
@@ -387,16 +377,16 @@ export function CoreScene() {
 
   return (
     <>
-      <mesh position={[0, 0, -4]} material={backdrop}>
+      <mesh position={[0, 0, -4]} material={BACKDROP}>
         <planeGeometry args={[far.width * 1.05, far.height * 1.05]} />
       </mesh>
       <group ref={group} scale={scale}>
-        <mesh material={blob}>
+        <mesh material={BLOB}>
           <icosahedronGeometry args={[1, 96]} />
         </mesh>
-        <points geometry={swarm.geometry} material={swarm.material} />
-        {rings.map((ring, i) => (
-          <mesh key={i} material={ring.material} rotation={ring.tilt as [number, number, number]}>
+        <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
+        {RINGS.map((ring, i) => (
+          <mesh key={i} material={ring.material} rotation={ring.tilt}>
             <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
           </mesh>
         ))}
