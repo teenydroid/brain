@@ -270,12 +270,14 @@ function think(elapsed: number, dt: number, motion: number) {
  * about 5 tall). Far enough that every move reads as a move, near enough that
  * the tilted orbits still wrap round it.
  */
-export const REACH = { x: 0.7, y: 0.42, z: 0.3, yaw: 0.9, pitch: 0.55, roll: 0.3 }
+export const REACH = { x: 0.7, y: 0.42, z: 0.3 }
 
 /**
  * The blob's own will: it holds still, then snaps somewhere new, sharp and
- * decisive, like it just made up its mind. Mostly a hold of up to two
- * seconds, sometimes a quick double take. It ignores the pointer.
+ * decisive, like it just made up its mind. Each move starts from where the
+ * last one stopped, so it wanders on and keeps turning instead of springing
+ * back to the middle. Mostly a hold of up to two seconds, sometimes a quick
+ * double take. It ignores the pointer.
  */
 export const DART = {
   next: 0.8,
@@ -285,14 +287,38 @@ export const DART = {
   kick: 0,
 }
 
-const spread = (reach: number, random: () => number) => (random() * 2 - 1) * reach
+/** How far one move goes, in scene units, and how much one move turns it, in radians. */
+export const STEP = { min: 0.22, max: 0.55, turnMin: 0.35, turnMax: 1.1 }
 
-/** Picks the next spot and when to leave it. Pure apart from writing into DART. */
+const MOVE = new THREE.Vector3()
+const between = (lo: number, hi: number, random: () => number) => lo + random() * (hi - lo)
+const sign = (random: () => number) => (random() < 0.5 ? -1 : 1)
+
+/** Keeps a coordinate inside its reach by bouncing it off the edge, so a move near the edge turns back in. */
+function bounce(v: number, reach: number) {
+  if (v > reach) return Math.max(-reach, 2 * reach - v)
+  if (v < -reach) return Math.min(reach, -2 * reach - v)
+  return v
+}
+
+/** Picks the next spot, on from the current one, and when to leave it. Writes into DART. */
 export function dart(elapsed: number, random: () => number = Math.random) {
   if (elapsed <= DART.next) return false
   DART.next = elapsed + (random() < 0.25 ? 0.22 + random() * 0.2 : 0.7 + random() * 1.4)
-  DART.pos.set(spread(REACH.x, random), spread(REACH.y, random), spread(REACH.z, random))
-  DART.rot.set(spread(REACH.pitch, random), spread(REACH.yaw, random), spread(REACH.roll, random))
+  // Mostly across the screen, a little up and down, a little toward you.
+  const heading = random() * Math.PI * 2
+  MOVE.set(Math.cos(heading), Math.sin(heading) * 0.75, (random() * 2 - 1) * 0.5)
+    .normalize()
+    .multiplyScalar(between(STEP.min, STEP.max, random))
+  DART.pos.set(
+    bounce(DART.pos.x + MOVE.x, REACH.x),
+    bounce(DART.pos.y + MOVE.y, REACH.y),
+    bounce(DART.pos.z + MOVE.z, REACH.z),
+  )
+  // Turning adds up: it keeps rotating on from its last pose rather than rewinding.
+  DART.rot.x += sign(random) * between(STEP.turnMin, STEP.turnMax, random) * 0.5
+  DART.rot.y += sign(random) * between(STEP.turnMin, STEP.turnMax, random)
+  DART.rot.z += sign(random) * between(STEP.turnMin, STEP.turnMax, random) * 0.3
   DART.kick = 1
   return true
 }
