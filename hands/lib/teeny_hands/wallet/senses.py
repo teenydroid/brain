@@ -13,9 +13,10 @@ moves or asks the core to, and nothing here pays.
 
 Both are off unless WALLET_WATCH=1 in secrets/teeny.env (skipped, exit 0: a
 switched-off job is not a failed one), and skipped the same way while the
-core holds no wallet yet (bin/wallet-setup has not run). A deposit older than a day when first seen (the first scan looks back
-30 days) is recorded but files no stimulus, so turning the watch on does not
-flood the inbox; at most MAX_PER_RUN stimuli a run, the rest on the next.
+core holds no wallet yet (bin/wallet-setup has not run). A deposit older
+than a day when first seen (the first scan looks back 30 days) is recorded
+but files no stimulus, so turning the watch on does not flood the inbox; at
+most MAX_PER_RUN stimuli a run, the rest on the next.
 """
 
 from __future__ import annotations
