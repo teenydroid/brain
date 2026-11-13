@@ -147,8 +147,8 @@ def people_said(since: float) -> list[str]:
     newest = [f"- {surface} · {who or UNNAMED.get(surface, 'someone')} · {rhythm.ago(at)}: {_clip(text, SAID_CHARS)}"
               for surface, who, text, at in rows]
     lines, kept = _fit(head, newest, SAID_BYTES)
-    # Read oldest first, as it happened.
-    return ["\n".join(lines[:len(head)] + lines[len(head):len(head) + kept][::-1] + lines[len(head) + kept:])]
+    # Read oldest first, as it happened: what was left out came before.
+    return ["\n".join(head + lines[len(head) + kept:] + newest[:kept][::-1])]
 
 
 def tasks(since: float) -> list[str]:
