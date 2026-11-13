@@ -102,15 +102,15 @@ for line in lines:
     if ref not in (rec.get("host") or []):
         other = other or rec.get("kind") not in ("busy",)
         continue
-    print(f"beat {rec.get(\"tick\", \"?\")} ({rec.get(\"kind\")}) at {rec.get(\"at\")}")
+    print("beat %s (%s) at %s" % (rec.get("tick", "?"), rec.get("kind"), rec.get("at")))
     if not rec.get("ok"):
-        print(f"failed: {rec.get(\"error\")}")
+        print("failed: %s" % rec.get("error"))
         sys.exit(1)
     if rec.get("thought"):
-        print(f"thought: {rec[\"thought\"]}")
+        print("thought: %s" % rec["thought"])
     for r in rec.get("results") or []:
-        result = json.dumps(r.get("result"), ensure_ascii=False)
-        print(f"- {r.get(\"do\")}: {r.get(\"status\")}  {result[:300]}")
+        result = json.dumps(r.get("result"), ensure_ascii=False)[:300]
+        print("- %s: %s  %s" % (r.get("do"), r.get("status"), result))
     sys.exit(0)
 sys.exit(4 if other else 3)'
 }
