@@ -67,7 +67,8 @@ them), `failed`, and the no-ops `asleep`, `busy` and `idle` (`resting` when
 the quiet back-off held the beat, bin/lib/rhythm.py), which are also
 `idle: true` so the reflection passes over them. Each beat that
 thought is also an entry in Teeny's private journal,
-state/journal/<local date>.md, and in the core's memory (journal()).
+state/journal/<local date>.md (journal()), which the core's memory does
+not learn.
 """
 
 from __future__ import annotations
@@ -1269,11 +1270,13 @@ def _did(results: list[Mapping[str, Any]]) -> str:
 
 
 def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
-    """The beat in Teeny's private journal, state/journal/<local date>.md, and
-    in the core's memory (kind "other", unless TEENY_MIND_LEARN=0): the time,
-    the thought, its own `journal` lines, and what it did with statuses. What
-    was said to it, and what it said back, stay with the surfaces and the
-    hands."""
+    """The beat in Teeny's private journal, state/journal/<local date>.md: the
+    time, the thought, its own `journal` lines, and what it did with
+    statuses. What was said to it, and what it said back, stay with the
+    surfaces and the hands. The journal is not taught to the core's memory:
+    learned every beat, its private monologue came back through recall into
+    every turn, and replies to strangers spoke its jargon. `remember` is what
+    Teeny chooses to keep."""
     now = rhythm.local()
     lines = [t.strip() for r in results if r.get("do") == "journal" and r.get("status") == "done"
              and isinstance(t := (r.get("intent") or {}).get("text"), str) and t.strip()]
@@ -1288,12 +1291,7 @@ def journal(kind: str, thought: str, results: list[Mapping[str, Any]]) -> Json:
         if fh.tell() == 0:
             fh.write(f"# {now:%A %d %B %Y}\n")
         fh.write("\n" + "\n".join(entry))
-    text = " ".join([thought or "(no thought)", *lines])
-    # What the hands did comes first: the thought and the journal lines were
-    # written before any hand ran, and can claim a send that never landed.
-    learned = _learn(f"journal, {now:%Y-%m-%d %H:%M}: what happened: {did}. "
-                     f"what i meant to do, written before the hands answered: {text}", "other", 0.5)
-    return {"file": str(page.relative_to(hand.state_dir().parent)), "learned": learned}
+    return {"file": str(page.relative_to(hand.state_dir().parent))}
 
 
 def _record(line: Mapping[str, Any]) -> None:

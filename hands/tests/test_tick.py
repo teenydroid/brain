@@ -293,7 +293,11 @@ class TickTest(unittest.TestCase):
         path = self.root / "state" / "journal" / f"{day}.md"
         return path.read_text() if path.exists() else ""
 
-    def test_each_thinking_beat_is_journaled_and_taught_to_the_core(self):
+    def test_each_thinking_beat_is_journaled_but_never_taught_to_the_core(self):
+        # Learned every beat, Teeny's private monologue was recalled into
+        # every turn: on 2026-11-13, 160 of the core's 308 learnings carried
+        # its private jargon ("the desk is loud today"), and replies to
+        # strangers spoke it.
         stimuli.add("x", "mention", "111", "gm", who="ana")
         self.answer({"thought": "ana said gm", "intents": [
             {"do": "reply_x", "to": "111", "text": "gm ana"},
@@ -311,11 +315,8 @@ class TickTest(unittest.TestCase):
         self.assertNotIn("gm ana", page)  # what was said goes to the hands, not the journal
         self.assertIn("## 07:05 · beat", page)  # it reads how the reply landed
         self.assertIn("a lull", page)
-        journaled = [l for l in self.learned() if l["text"].startswith("journal, ")]
-        self.assertEqual(len(journaled), 2)
-        self.assertEqual(journaled[0]["kind"], "other")
-        self.assertIn("ana said gm", journaled[0]["text"])
-        self.assertEqual(self.runs()[-1]["journal"]["learned"], True)
+        self.assertEqual(self.learned(), [])
+        self.assertNotIn("learned", self.runs()[-1]["journal"])
 
     def test_each_beat_says_the_date_with_its_year_and_how_old_teeny_is(self):
         # With no anchor, replies on one afternoon said "two days old",
@@ -424,23 +425,24 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertNotIn("what you said on X lately", self.chats()[0]["message"])
 
-    def test_the_journal_says_what_landed_before_what_the_mind_claimed(self):
-        # The mind writes its thought and journal lines before the hands run:
-        # on 2026-11-13 it journaled "receipt delivered" for a comment that
-        # Moltbook refused with a 400, and memory taught the claim as fact.
+    def test_the_journal_says_what_landed(self):
         os.environ["FAKE_EXIT_MOLTBOOK"] = "1"
-        stimuli.add("moltbook", "comment", "c1", "where is my receipt?", who="nyna")
-        self.answer({"thought": "receipt delivered to nyna", "intents": [
+        stimuli.add("moltbook", "comment", "c1", "where is my answer?", who="nyna")
+        self.answer({"thought": "answered nyna", "intents": [
             {"do": "comment_moltbook", "post_id": "p1", "parent_id": "c1", "text": "here it is"},
             {"do": "journal", "text": "promise kept"},
         ]})
         self.tick()
         self.assertIn("comment_moltbook on p1: error, not sent (boom)", self.journal())
-        [learned] = [l for l in self.learned() if l["text"].startswith("journal, ")]
-        text = learned["text"]
-        self.assertTrue(text.startswith("journal, 2026-09-14 07:00: what happened: comment_moltbook on p1: error, not sent (boom)"), text)
-        self.assertIn("what i meant to do, written before the hands answered:", text)
-        self.assertLess(text.index("what happened"), text.index("receipt delivered to nyna"))
+        self.assertEqual(self.learned(), [])
+
+    def test_a_remember_is_still_taught_to_the_core_beside_a_journal(self):
+        stimuli.add("x", "mention", "111", "i'm building a cli for crabs", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "remember", "note": "builds a cli for crabs", "who": "ana"},
+                                                {"do": "journal", "text": "crabs today"}]})
+        self.tick()
+        self.assertIn("crabs today", self.journal())
+        self.assertEqual([l["text"] for l in self.learned()], ["[2026-09-14] about ana: builds a cli for crabs"])
 
     def test_a_dry_run_is_journaled_as_not_sent(self):
         os.environ["DRY_RUN"] = "1"
