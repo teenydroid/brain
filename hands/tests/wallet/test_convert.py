@@ -340,6 +340,8 @@ class LifiBase(Scratch):
             convert.convert(kind, body)
         self.assertEqual(caught.exception.detail.get("rule"), rule, caught.exception.reason)
         self.assertEqual(self.moved(), [], "a refusal must not approve or execute")
+        if rule == "quote":
+            self.assertIn("the LI.FI quote is not usable", caught.exception.reason, "refused by the LI.FI check, not by accident")
         return caught.exception
 
     def rows(self):
@@ -518,7 +520,8 @@ class LifiTest(LifiBase):
 
     def test_an_answer_that_is_not_lifis_is_refused(self):
         self.core.answers["openhuman.web3_bridge_quote"] = bridge_quote
-        self.refused("bridge", self.BASE_TO_ARB, "quote")
+        error = self.refused("bridge", self.BASE_TO_ARB, "quote")
+        self.assertIn("not LI.FI's", error.reason)
 
 
 def base_bytes(address: str) -> bytes:
