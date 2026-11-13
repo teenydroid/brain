@@ -249,6 +249,24 @@ class PostTest(Scratch, Refusing):
 
 
 class CommentTest(Scratch, Refusing):
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        # bin/lib/tick.py sends such an answer again next beat; a real hold never.
+        from unittest import mock
+        from guard.support import FakeCore, error
+        from teeny_hands.guard import judge
+
+        core = FakeCore(error("model error: local-openai returned: provider stream ended before a completion signal"))
+        self.addCleanup(core.close)
+        (self.root / "state").mkdir(exist_ok=True)
+        (self.root / "state" / "core.url").write_text(core.url + "\n")
+        (self.root / "secrets" / "core.token").write_text("tok\n")
+        self.configure(SAFETY_JUDGE="1")
+        self.a_post("x1")
+        with mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0)), self.assertRaises(hand.Refused) as caught:
+            actions.comment({"post_id": "x1", "body": "nice"})
+        self.assertEqual(caught.exception.reason, "held")
+        self.assertEqual((caught.exception.detail["category"], caught.exception.detail.get("judge_failed")), ("unknown", True))
+
     def test_comments_with_the_guards_rewrite(self):
         self.a_post("x1")
         self.created("comment", "c1", path="/posts/x1/comments")

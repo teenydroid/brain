@@ -27,6 +27,23 @@ class ReplyTest(Scratch, Refusing):
         self.inbox(message("<m1@x>"))
         self.am.route("POST", path_of("<m1@x>") + "/reply", {"message_id": "<r1@x>", "thread_id": "t-<m1@x>"})
 
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        # bin/lib/tick.py sends such an answer again next beat; a real hold never.
+        from unittest import mock
+        from guard.support import FakeCore, error
+        from teeny_hands.guard import judge
+
+        core = FakeCore(error("model error: local-openai returned: provider stream ended before a completion signal"))
+        self.addCleanup(core.close)
+        (self.root / "state").mkdir(exist_ok=True)
+        (self.root / "state" / "core.url").write_text(core.url + "\n")
+        (self.root / "secrets" / "core.token").write_text("tok\n")
+        self.configure(SAFETY_JUDGE="1")
+        with mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0)), self.assertRaises(hand.Refused) as caught:
+            actions.reply({"message_id": "<m1@x>", "body": "thanks"})
+        self.assertEqual(caught.exception.reason, "held")
+        self.assertEqual((caught.exception.detail["category"], caught.exception.detail.get("judge_failed")), ("unknown", True))
+
     def test_replies_with_the_guards_rewrite_and_records_it(self):
         out = actions.reply({"message_id": "<m1@x>", "body": "thanks — will look"})
         self.assertEqual((out["replied"], out["to"], out["message_id"]), ("<m1@x>", "ana@example.com", "<r1@x>"))
