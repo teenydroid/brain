@@ -27,7 +27,7 @@ class PinnedJobTest(Scratch):
         self.assertNotEqual(jobs["x402-fund"].get("enabled"), False)
         self.assertTrue(os.access(REPO / "bin" / "x402-fund", os.X_OK))
         flat = cron_policy.load(REPO / "brain" / "cron.toml", REPO / "evals" / "cron.pinned.toml")
-        self.assertIn("x402-fund", [j["name"] for j in flat])
+        self.assertIn("teeny.x402-fund", [j["name"] for j in flat])
 
     def test_switched_off_the_job_is_skipped_not_failed(self):
         done = subprocess.run([str(REPO / "bin" / "x402-fund")], capture_output=True, text=True, timeout=60,

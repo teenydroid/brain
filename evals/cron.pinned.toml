@@ -273,6 +273,17 @@ schedule = "50 0 * * *"
 tz = "UTC"
 command = "bin/wallet-watch daily"
 
+# Keep the x402 rail funded (bin/x402-fund; docs/hands.md, "x402"): when USDC
+# on Base, what paid search and twitr.sh are paid from, is under
+# X402_FUND_FLOOR_USD, top it up toward X402_FUND_TARGET_USD from the wallet's
+# own pinned SOL, ETH and USDC, only through hands/wallet's swap and bridge
+# (every rule and cap they keep), at most X402_FUND_MAX_PER_DAY_USD a day and
+# never while a top-up is in flight. OFF unless X402_FUND=1 in
+# secrets/teeny.env. Operator-owned: money moves here, never from a playbook.
+[jobs.x402-fund]
+schedule = "13-59/30 * * * *"
+command = "bin/x402-fund"
+
 # Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
 # wallet holds over what running Teeny cost a day this week, as one
 # `health · runway` stimulus, and the tier from evals/runway.toml that cuts
