@@ -123,6 +123,12 @@ class HoldLogContractTest(support.Scratch):
         holds.decide(first["id"], "rejected")
         after = hold("a captcha killed it", context=moltbook)
         self.assertEqual(len({first["id"], other["id"], reworded["id"], after["id"]}), 4)
+        # Another finding on the same item (the judge failing, then a
+        # verdict) is its own hold: the re-screen treats the two apart.
+        outage = hold("a captcha killed it", context={**moltbook, "comment_id": "c3"}, category="unknown",
+                      reason="the judge could not be reached: x", by="judge")
+        verdict = hold("a captcha killed it", context={**moltbook, "comment_id": "c3"})
+        self.assertNotEqual(outage["id"], verdict["id"])
         # An outbound draft is the account's own: each attempt is its own hold.
         draft = hold("gm frens", direction="outbound", kind="draft")
         self.assertNotEqual(hold("gm frens", direction="outbound", kind="draft")["id"], draft["id"])
