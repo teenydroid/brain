@@ -18,7 +18,8 @@
 //! | `tokenOutRecipient` / `dstChainTokenOutRecipient` | `toAddress`              |
 //! | `slippage` (percent, or `auto`)                | `slippage` (a fraction)     |
 //!
-//! Every query also asks for `order=CHEAPEST`. A field the module does not
+//! Every query also asks for `order=CHEAPEST` and `denyBridges=near` (below,
+//! in `request_for`). A field the module does not
 //! send today is refused, not dropped, so nothing it adds later reaches LI.FI
 //! unseen. EVM addresses go lowercased: LI.FI checks a mixed-case address's
 //! EIP-55 checksum and refuses a wrong one, and lowercase carries none.
@@ -136,6 +137,11 @@ pub fn request_for(call: &WalletBackendCall) -> Result<Request, String> {
         }
     }
     query.push(("order".to_string(), "CHEAPEST".to_string()));
+    // NEAR Intents sends the input to a deposit address and keeps the
+    // recipient off-chain, so nothing in the signed transaction says where
+    // the money lands; hands/wallet refuses such a quote. Not asking for it
+    // lets LI.FI offer a route the hand can check instead.
+    query.push(("denyBridges".to_string(), "near".to_string()));
     Ok(Request { path: "/v1/quote", query })
 }
 
