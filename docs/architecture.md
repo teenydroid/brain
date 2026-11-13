@@ -473,13 +473,14 @@ The last three are also `idle: true`, which the reflection passes over
 (`bin/receipts` never reads this log). After each beat that thought,
 `bin/tick` writes a journal entry (Teeny's local time, the thought, its own
 `journal` lines, and what it did as `do on target: status`; never the words
-sent or received) to `state/journal/<local date>.md` and to the core's
-memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`). The
-thought and the journal lines are written before any hand runs, so they can
-claim a send that never landed; the statuses (`bin/lib/outcomes.py`) say
-"not sent" for a dry run or a failed or refused send, with the hand's reason,
-and the memory entry puts what happened first and the mind's own words after,
-marked as written before the hands answered.
+sent or received) to `state/journal/<local date>.md`. The journal is not
+taught to the core's memory: learned every beat, Teeny's private monologue
+came back through recall into every turn (on 2026-11-13, 160 of 308
+learnings), and replies to strangers spoke its private jargon. What Teeny
+wants kept goes in through `remember`. The thought and the journal lines are
+written before any hand runs, so they can claim a send that never landed; the
+statuses (`bin/lib/outcomes.py`) say "not sent" for a dry run or a failed or
+refused send, with the hand's reason.
 
 **What a beat shows.** The header carries the date with its year, the time in
 Teeny's calendar and in UTC, and how old Teeny is ("You woke on Wednesday 11
@@ -508,7 +509,8 @@ or so). It works from:
   GitHub, the wallet), who and when, clipped;
 - the tasks: build requests and their status, build jobs, browser tasks;
 - the learnings the core's memory took in (`memory_items_list`, kind
-  `learning`: the journal, `remember`, the diary; never a conversation),
+  `learning`: `remember`, the diary, and journal entries learned before
+  2026-11-13; never a conversation),
   newest first, each with an alias such as `[c3]`;
 - the follow-ups still waiting, and the page as it stands.
 
@@ -604,7 +606,7 @@ How the day's beats become the page every prompt carries:
    ├─► state/tick/runs.jsonl          thought, intents, outcomes ─────────────┐
    ├─► mind_notes                     `remember` notes (also memory_learn) ───┤
    ├─► follow-ups still waiting       in hands/stimuli ───────────────────────┤
-   └─► state/journal/<date>.md        and memory_learn (not read by reflect)  │
+   └─► state/journal/<date>.md        never learned (not read by reflect)     │
                                                                               │
  bin/dream --light (14:00 IST)    ─┐                                          │
  bin/dream         (02:00 IST)    ─┴─► the teeny agent on teeny:dream ◄───────┘
