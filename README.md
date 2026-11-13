@@ -150,15 +150,17 @@ bin/tasks-desk ── task.json ──► operator agent ──► browser, on d
 
 Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
 its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at least three hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
+posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
 
 | Playbook | When | Does |
 |---|---|---|
-| `morning` | 07:00 | the morning gm, maybe with a picture |
-| `brief` | checks every 15 minutes, posts once a day at most | the told-to post: whatever the team queued with `hands/brief add` |
-| `humans`, `milestone`, `pr-merged`, `shipped`, `shiplog`, `roast` | off | other X posts and replies |
+| `morning` | 07:00 | the morning gm that reacts to something it read, maybe with a picture |
+| `take` | 15:00 | a take on the day's story, or a quote of a builder's post |
+| `show` | 23:00 | what it built or did today, with up to four pictures |
+| `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
+| `humans`, `milestone`, `pr-merged`, `roast` | off | other X posts and replies |
 | `pick-request` | off | picks the next build request for the builder |
-| `moltbook-daily`, `moltbook-helpdesk`, `moltbook-digest` | off | Moltbook posts and comments |
+| `moltbook-daily`, `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts, comments, upvotes and follows |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
 | `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 
