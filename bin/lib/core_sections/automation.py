@@ -138,7 +138,7 @@ def tables(root: Path) -> dict[str, str]:
     browser = (
         "enabled = true\n"
         "headless = true\n"
-        'profile_mode = "fresh"\n
+        'profile_mode = "fresh"\n'
         f"download_dir = {_s(str(downloads))}\n"
         f"unattended_actions = {_list(UNATTENDED_ACTIONS)}\n"
     )
