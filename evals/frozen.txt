@@ -58,6 +58,8 @@ brain/agents/evolver.toml
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# Hacker News intake: what strangers write reaches the mind only through the inbound guard.
+hands/hn
 
 # The scorer: hands/world computes W and J from the other hands' data
 # (docs/research/teeny-application.md, section 2). Teeny can change how it
@@ -96,6 +98,7 @@ hands/lib/teeny_hands/git.py
 hands/lib/teeny_hands/git_cli.py
 hands/lib/teeny_hands/guard/
 hands/lib/teeny_hands/hand.py
+hands/lib/teeny_hands/hn/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
 hands/lib/teeny_hands/moltbook/

@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -179,7 +179,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 |---|---|---|
 | `check` | R | Runs, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
-| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `bounty entries`. |
+| `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
@@ -426,6 +426,55 @@ cron job of its own: a brain job may only run `bin/heartbeat` or `bin/act`
 (`bin/lib/cron_policy.py`), and a new pinned job is a change to the frozen
 `evals/cron.pinned.toml`. So a 1h checkpoint is usually folded into the next
 one due until something calls `metrics refresh` more often.
+
+## `hn`: Hacker News, read only
+
+Teeny reads Hacker News and hears what is said to it there, and never
+writes: HN has no write API and bans bots. Two APIs, neither with a key: the
+official one (`https://hacker-news.firebaseio.com/v0`, one item per request)
+and Algolia's search (`https://hn.algolia.com/api/v1`). Every call goes
+through `teeny_hands/rest.py` with no key sent, so it follows no redirect and
+names no URL in an error. HN's text is HTML; every title, text and `about`
+reaches a reader as plain text: entities decoded, a `<p>` a blank line, a
+link its address (or its words and then the address in brackets, when they
+differ), every other tag dropped. A dead (flagged or killed) or deleted
+item is never listed, and `item` answers it as missing.
+
+| Verb | | Does |
+|---|---|---|
+| `top`, `new`, `best`, `ask`, `show` `[--max N]` | R | The feed's first N stories (10, at most 30), each `{id, title, url, by, score, descendants, time}`. The list is cached 5 min, each story 2 min. At most 2N items are read, so a run of dead ones costs nothing more. |
+| `item ID` | R | One story or comment: its fields, `text` as plain text, `kids` (the ids of the replies) and `link`, its page on news.ycombinator.com (2 min). |
+| `thread ID [--depth D] [--max N]` | R | The item and the comments under it in the order HN's page shows them, each with `depth` (a direct reply is 1), down to D levels (3, at most 10), reading at most N comments (30, at most 100; one request each). `truncated` says comments were left unread. The replies under a dead or deleted comment are judged on their own. |
+| `user NAME` | R | `{id, created, karma, about, submitted}` (how many) and `recent`, the 10 newest ids it submitted (1 h). |
+| `search QUERY [--tags story\|comment] [--max N]` | R | Algolia's search by relevance, stories, comments or both (10 min): `{id, type, title, url, by, points, num_comments, time, text, story_id, parent_id, story_title, link}`, whichever the hit has. |
+| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`, `hn · comment`), below. `bin/tick` runs it at most every 15 minutes, once there is something to read. |
+| `watch add ID [--note T]` | A | Follow a thread: a story, or a comment and the replies under it. The item must be live. Watching one twice keeps the first watch (`already`). At most 10 at once (`watches`); a watch lapses after 14 days and makes room. `bin/tick` calls it for the mind's `watch_hn`. |
+| `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
+
+**The inbox.** HN has no notifications, so `inbox` reads two places. The
+first is Teeny's own items: `HN_USERNAME`'s `submitted`, newest first, the
+last N (10) within N days (7). Every direct reply to its story or its comment
+was said to Teeny; a reply further down was said to someone else. The second
+is the threads it watches: every comment newer than the watch's `last_seen`,
+which starts when the watch is added and moves on to the newest comment read
+once a whole thread has been read (a cut-off walk leaves it, and the inbox's
+uniqueness keeps a second pass from filing anything twice). It needs
+`HN_USERNAME` or a live watch, and is an error with neither. Each comment by
+someone other than Teeny, neither dead nor deleted, is screened by the
+inbound guard (surface `hn`); a held one is recorded for review and not
+added. The rest are added once, ref the comment id, `who` its author, with
+`{story_id, parent_id, url, to_teeny}` (and `watched`, the watch's item,
+when it came from one). One run reads at most 100 items, one request each,
+whatever the threads hold; `truncated` says it stopped there. Everything
+comes fresh, but finding a comment's story goes up its parents through the
+cache. It writes only the stimuli and the watches, so it runs under
+`DRY_RUN` as `moltbook inbox` does.
+
+The mind cannot answer on HN: a batch holding an `hn` stimulus says so, and
+the mind may talk about it elsewhere, remember it or set a follow-up. Its one
+act there is `watch_hn` (see "The mind's issues, browser tasks and new
+mail"). Tables: `hn_watch` (item_id, title, note, added_at, last_seen),
+`hn_cache`.
 
 ## `slopcash`: Teeny's project on slop.cash
 
@@ -715,6 +764,8 @@ Every surface writes what happened here, and `bin/tick` drains it into the
 - `x ingest`: mentions, from the timeline and the webhook;
 - `mail ingest`: mail;
 - `moltbook inbox`: comments on Teeny's posts, and replies under its comments;
+- `hn inbox`: direct replies to Teeny's own HN stories and comments, and new
+  comments on the threads it watches (read only: the mind never answers on HN);
 - the builder's and operator's desks: their reports. A finished `news` task
   arrives as `world · news` instead (its notes, framed as what web pages
   said; see `tasks`);
@@ -1145,6 +1196,7 @@ keeps it off and out of the mind's prompt):
 | `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
+| `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
@@ -1916,6 +1968,7 @@ creates its own tables:
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
+| `hn` | `hn_watch`, `hn_cache` |
 | `slopcash` | `slopcash_cache` |
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
