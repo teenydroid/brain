@@ -42,6 +42,9 @@ SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "n
 STATUSES = ("pending", "taken", "done")
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000
+#: A nudge's text: a habit's prompt and what its playbook's inputs read
+#: (bin/act), which is cut mid-JSON at the length above.
+NUDGE_TEXT_CHARS = 16000
 #: A batch out this long belonged to a tick that died.
 TAKEN_TIMEOUT_SECS = 3600
 #: How far ahead a follow-up may be set.
@@ -97,9 +100,9 @@ def to_mind() -> bool:
     return (hand.setting("TEENY_INBOX", "mind") or "mind").strip().lower() != "core"
 
 
-def _clip(text: str) -> str:
+def _clip(text: str, limit: int = MAX_TEXT_CHARS) -> str:
     text = text.strip()
-    return text if len(text) <= MAX_TEXT_CHARS else text[:MAX_TEXT_CHARS].rstrip() + " [...cut]"
+    return text if len(text) <= limit else text[:limit].rstrip() + " [...cut]"
 
 
 def _row(row) -> Json:
@@ -124,7 +127,8 @@ def add(surface: str, kind: str, ref: str, text: str, who: str | None = None,
         cur = conn.execute(
             "INSERT OR IGNORE INTO stimuli (id, surface, kind, ref, who, text, payload, at, status, updated_at)"
             " VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
-            (f"{surface}:{kind}:{ref}", surface, kind.strip(), ref.strip(), who, _clip(text),
+            (f"{surface}:{kind}:{ref}", surface, kind.strip(), ref.strip(), who,
+             _clip(text, NUDGE_TEXT_CHARS if surface == "nudge" else MAX_TEXT_CHARS),
              json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now, now),
         )
     return cur.rowcount == 1

@@ -85,6 +85,17 @@ class InboxTest(Scratch):
         self.assertEqual([s["ref"] for s in batch["stimuli"]], ["big"])
         self.assertLessEqual(len(batch["stimuli"][0]["text"]), stimuli.MAX_TEXT_CHARS + 20)
 
+    def test_a_nudge_keeps_more_of_its_text_than_anything_else(self):
+        # A habit's nudge carries its playbook's inputs (bin/act): cut at the
+        # usual length, the mind would get half a JSON object.
+        stimuli.add("nudge", "world-scan", "world-scan:1", "n" * 12_000)
+        stimuli.add("nudge", "world-scan", "world-scan:2", "n" * 40_000)
+        stimuli.add("x", "mention", "big", "x" * 12_000)
+        by_ref = {s["ref"]: s["text"] for s in stimuli.take(max_items=10, max_chars=200_000)["stimuli"]}
+        self.assertEqual(len(by_ref["world-scan:1"]), 12_000)
+        self.assertLessEqual(len(by_ref["world-scan:2"]), stimuli.NUDGE_TEXT_CHARS + 20)
+        self.assertLessEqual(len(by_ref["big"]), stimuli.MAX_TEXT_CHARS + 20)
+
     def test_a_failed_tick_puts_its_batch_back(self):
         stimuli.add("x", "mention", "1", "first")
         tick = stimuli.take(max_items=10, max_chars=10_000)["tick"]
