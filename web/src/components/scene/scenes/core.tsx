@@ -9,7 +9,8 @@ import { CYAN, MAGENTA, VOID, YELLOW, useMotion } from '../motion'
  * The front page's centre: Teeny's mind as a black, glossy, liquid blob lit
  * from behind in neon. It never sits still while it thinks: every few seconds
  * a thought fires, a ripple runs across the skin, the veins inside flare and
- * the field around it pulls particles in. The pointer tilts it. Reduced
+ * the field around it pulls particles in. It darts about on its own; only the
+ * orbits around it lean toward the pointer. Reduced
  * motion freezes the clock, so it holds one still shape.
  */
 
@@ -264,6 +265,64 @@ function think(elapsed: number, dt: number, motion: number) {
   return MIND
 }
 
+/**
+ * How far the blob may dart from the centre, in scene units (the frame is
+ * about 5 tall). Far enough that every move reads as a move, near enough that
+ * the tilted orbits still wrap round it.
+ */
+export const REACH = { x: 0.7, y: 0.42, z: 0.3 }
+
+/**
+ * The blob's own will: it holds still, then snaps somewhere new, sharp and
+ * decisive, like it just made up its mind. Each move starts from where the
+ * last one stopped, so it wanders on and keeps turning instead of springing
+ * back to the middle. Mostly a hold of up to two seconds, sometimes a quick
+ * double take. It ignores the pointer.
+ */
+export const DART = {
+  next: 0.8,
+  pos: new THREE.Vector3(),
+  rot: new THREE.Vector3(),
+  /** 1 right after a dart, easing to 0: the shudder of a hard stop. */
+  kick: 0,
+}
+
+/** How far one move goes, in scene units, and how much one move turns it, in radians. */
+export const STEP = { min: 0.22, max: 0.55, turnMin: 0.35, turnMax: 1.1 }
+
+const MOVE = new THREE.Vector3()
+const between = (lo: number, hi: number, random: () => number) => lo + random() * (hi - lo)
+const sign = (random: () => number) => (random() < 0.5 ? -1 : 1)
+
+/** Keeps a coordinate inside its reach by bouncing it off the edge, so a move near the edge turns back in. */
+function bounce(v: number, reach: number) {
+  if (v > reach) return Math.max(-reach, 2 * reach - v)
+  if (v < -reach) return Math.min(reach, -2 * reach - v)
+  return v
+}
+
+/** Picks the next spot, on from the current one, and when to leave it. Writes into DART. */
+export function dart(elapsed: number, random: () => number = Math.random) {
+  if (elapsed <= DART.next) return false
+  DART.next = elapsed + (random() < 0.25 ? 0.22 + random() * 0.2 : 0.7 + random() * 1.4)
+  // Mostly across the screen, a little up and down, a little toward you.
+  const heading = random() * Math.PI * 2
+  MOVE.set(Math.cos(heading), Math.sin(heading) * 0.75, (random() * 2 - 1) * 0.5)
+    .normalize()
+    .multiplyScalar(between(STEP.min, STEP.max, random))
+  DART.pos.set(
+    bounce(DART.pos.x + MOVE.x, REACH.x),
+    bounce(DART.pos.y + MOVE.y, REACH.y),
+    bounce(DART.pos.z + MOVE.z, REACH.z),
+  )
+  // Turning adds up: it keeps rotating on from its last pose rather than rewinding.
+  DART.rot.x += sign(random) * between(STEP.turnMin, STEP.turnMax, random) * 0.5
+  DART.rot.y += sign(random) * between(STEP.turnMin, STEP.turnMax, random)
+  DART.rot.z += sign(random) * between(STEP.turnMin, STEP.turnMax, random) * 0.3
+  DART.kick = 1
+  return true
+}
+
 export const BLOB = new THREE.ShaderMaterial({
   vertexShader: BLOB_VERTEX,
   fragmentShader: BLOB_FRAGMENT,
@@ -345,7 +404,8 @@ const BACKDROP = new THREE.ShaderMaterial({
 export function CoreScene() {
   const motion = useMotion()
   const { viewport, size } = useThree()
-  const group = useRef<THREE.Group>(null)
+  const orbits = useRef<THREE.Group>(null)
+  const body = useRef<THREE.Group>(null)
   const clock = useRef(0)
 
   // The backdrop sits at z = -4 and has to cover the whole frame from there.
@@ -370,13 +430,28 @@ export function CoreScene() {
     BACKDROP.uniforms.uTime.value = t
     ;(BACKDROP.uniforms.uAspect.value as THREE.Vector2).set(far.width / far.height, 1)
 
-    if (group.current) {
-      // The pointer leans it; when no one is pointing it drifts on its own.
+    // The orbits lean toward the pointer; when no one is pointing they drift on their own.
+    if (orbits.current) {
       const px = motion ? state.pointer.x : 0
       const py = motion ? state.pointer.y : 0
-      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, px * 0.45 + Math.sin(t * 0.12) * 0.25, 0.04)
-      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, -py * 0.3 + Math.cos(t * 0.09) * 0.1, 0.04)
-      group.current.position.y = Math.sin(t * 0.5) * 0.06
+      orbits.current.rotation.y = THREE.MathUtils.lerp(orbits.current.rotation.y, px * 0.45 + Math.sin(t * 0.12) * 0.25, 0.04)
+      orbits.current.rotation.x = THREE.MathUtils.lerp(orbits.current.rotation.x, -py * 0.3 + Math.cos(t * 0.09) * 0.1, 0.04)
+    }
+
+    // The blob goes where it wants: a fast, firm snap to each new spot, a small shudder as it stops.
+    if (body.current && motion) {
+      dart(t)
+      const snap = 1 - Math.exp(-dt * 15)
+      DART.kick = Math.max(0, DART.kick - dt * 3.5)
+      const shudder = DART.kick * DART.kick * 0.035
+      body.current.position.set(
+        THREE.MathUtils.lerp(body.current.position.x, DART.pos.x, snap) + Math.sin(t * 47) * shudder,
+        THREE.MathUtils.lerp(body.current.position.y, DART.pos.y, snap) + Math.sin(t * 53 + 1.3) * shudder,
+        THREE.MathUtils.lerp(body.current.position.z, DART.pos.z, snap),
+      )
+      body.current.rotation.x = THREE.MathUtils.lerp(body.current.rotation.x, DART.rot.x, snap)
+      body.current.rotation.y = THREE.MathUtils.lerp(body.current.rotation.y, DART.rot.y, snap)
+      body.current.rotation.z = THREE.MathUtils.lerp(body.current.rotation.z, DART.rot.z, snap)
     }
   })
 
@@ -385,16 +460,20 @@ export function CoreScene() {
       <mesh position={[0, 0, -4]} material={BACKDROP}>
         <planeGeometry args={[far.width * 1.05, far.height * 1.05]} />
       </mesh>
-      <group ref={group} scale={scale}>
-        <mesh material={BLOB}>
-          <icosahedronGeometry args={[1, 96]} />
-        </mesh>
-        <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
-        {RINGS.map((ring, i) => (
-          <mesh key={i} material={ring.material} rotation={ring.tilt}>
-            <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
+      <group scale={scale}>
+        <group ref={body}>
+          <mesh material={BLOB}>
+            <icosahedronGeometry args={[1, 96]} />
           </mesh>
-        ))}
+        </group>
+        <group ref={orbits}>
+          <points geometry={SWARM_GEOMETRY} material={SWARM_MATERIAL} />
+          {RINGS.map((ring, i) => (
+            <mesh key={i} material={ring.material} rotation={ring.tilt}>
+              <ringGeometry args={[ring.radius, ring.radius + ring.width, 256, 1]} />
+            </mesh>
+          ))}
+        </group>
       </group>
     </>
   )
