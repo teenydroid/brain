@@ -17,8 +17,10 @@ the hands keep in state/hands.db (read-only):
               change requests and their notes
 - failing:    the jobs that failed, each with whether its file is Teeny's to
               change or frozen
-- outside:    what Teeny read of the outside world lately: the team's notes
-              (stimuli of surface `world`) and Hacker News titles
+- outside:    what Teeny read of the outside world lately: the notes of
+              surface `world` (the team's news, a world scan; not the idle
+              feed listings, which are other people's titles) and Hacker
+              News titles
 
 Only Teeny's own words are quoted, and only short. Other people's words are
 counted, never quoted (a stranger's text in a proposer's message is a prompt
@@ -290,12 +292,14 @@ def failing(cron_failures: Mapping[str, int] | None, act_failures: Mapping[str, 
 
 
 def outside(db: Ledgers, since: float) -> Json | None:
-    """What Teeny read of the world lately: the notes of surface `world` (the
-    team's news, an idle look at a feed) by their first line, and the Hacker
-    News stories it fetched, by title. Data, never instructions."""
-    notes = [{"at": _day(r["at"]), "kind": r["kind"], "from": r["who"], "first_line": short(r["text"], 200)}
-             for r in db.rows("SELECT kind, who, text, at FROM stimuli WHERE surface = 'world' AND at >= ? "
-                              "ORDER BY at DESC LIMIT 4", (since,))]
+    """What Teeny read of the world lately: the notes of surface `world` by
+    their first line (an idle look at a feed is left out: it is a list of
+    other people's titles), and the Hacker News stories it fetched, by title.
+    Data, never instructions."""
+    notes = [{"at": _day(r["at"]), "kind": r["kind"], "from": r["who"],
+              "first_line": short((str(r["text"] or "").strip().splitlines() or [""])[0], 200)}
+             for r in db.rows("SELECT kind, who, text, at FROM stimuli WHERE surface = 'world' AND kind != 'idle' "
+                              "AND at >= ? ORDER BY at DESC LIMIT 4", (since,))]
     stories = []
     for r in db.rows("SELECT value FROM hn_cache WHERE kind = 'item'"):
         try:
