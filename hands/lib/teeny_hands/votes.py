@@ -9,8 +9,8 @@ number. The count is code, never a model:
   `hands/x ingest`) whose text, after any leading @handles, starts with an
   option's number ("2", "#2", "vote 2");
 - one account, one vote: an account's last vote before the close counts;
-- replies the inbound guard held, the account's own posts, and anything seen
-  after the close are not counted;
+- replies the inbound guard held or has not screened yet, the account's own
+  posts, and anything seen after the close are not counted;
 - the most votes wins; a tie, or no votes, has no winner.
 
 It is advisory and narrow: the winner becomes the next request `pick` takes,
@@ -88,7 +88,7 @@ def count(conn: sqlite3.Connection, vote: Mapping[str, Any]) -> Json:
             (vote["post_id"], vote["post_id"], vote["opened_at"], vote["closes_at"]),
         ).fetchall()
         for r in rows:
-            if r["status"] in ("held", "skipped"):
+            if r["status"] in ("unscreened", "held", "skipped"):
                 continue
             who = str(r["author_id"] or "").strip() or str(r["author_username"] or "").strip().lower()
             if not who or str(r["author_username"] or "").lower() == me:
