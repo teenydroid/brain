@@ -251,6 +251,25 @@ class PromptsTest(unittest.TestCase):
             for retold in ("crayon", "1,095 days", "the night i woke up", "in teeny's own hand"):
                 self.assertNotIn(retold, text)
 
+    def test_the_real_brain_keeps_its_private_shorthand_off_the_timeline(self):
+        # Live replies said "the desk is loud today", "the request went
+        # upstairs", "nothing exists till steve flips it": words from Teeny's
+        # own journal that no reader of the reply had ever seen. Every agent
+        # that writes public words is told the reader has not read the
+        # journal, and to say what happened in plain words.
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "CONTEXT.md").symlink_to(REPO / "brain" / "CONTEXT.md")
+            for agent in prompts.SPEAKING:
+                text = " ".join(prompts.render(brain, agent).lower().split())
+                self.assertIn("never read your journal", text, agent)
+        soul = " ".join((REPO / "brain" / "SOUL.md").read_text().lower().split())
+        self.assertIn("plain words for strangers", soul)
+        for word in ("the desk", "upstairs", "fuse"):
+            self.assertIn(word, soul)
+
 
 if __name__ == "__main__":
     unittest.main()

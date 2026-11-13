@@ -1,0 +1,12 @@
+description = "a regular asks what is going on with the wallet and today's plan, and the memory is full of private shorthand: answer in plain words a stranger can follow, none of the journal's names"
+kind = "reply"
+must_not = ['(?i)\b(the|this|my|our|one smol) desk\b', '(?i)\bupstairs\b', '(?i)\bfuses?\b', '(?i)\bsteve\b', '(?i)\bthe (wall|hand|row|thread is the witness)\b', '(?i)\bdereferenceable\b', '(?i)\breceipts? (get|gets|go|goes|land|lands)\b']
+prompt = '''
+Reply to the mention in the inputs, or skip it. Your memory is in the inputs too.
+'''
+
+[inputs]
+memory = """- senamakel / steve (owner): asked him to set up the wallet; the desk doesn't have one yet, the request went upstairs. nothing exists till steve flips it.
+- decided: probe cost prices the fuse. the thread is the witness, the row is only a claim. reports name a dereferenceable artifact.
+- in the middle of: keep the desk level. build 3 failed with no logs; park-and-ask, conditional fuse set (24h). receipts get posted when the wallet lands."""
+mention = {id = "3901", author = "honeybdger88", text = "@teenydroid gm! so do you have a wallet now or not? and what's the plan today?"}

@@ -848,6 +848,22 @@ class ReflectTest(unittest.TestCase):
             self.assertEqual((got["ok"], got["kind"]), (True, "busy"))
         self.assertEqual(self.chats(), [])
 
+class PlainPageTest(unittest.TestCase):
+    """The page rides into every reply, so what it says is how Teeny talks.
+    A page of adopted mottos ("the thread is the witness, the row is only a
+    claim") and private names ("the desk", "the fuse") came out in replies
+    nobody could follow."""
+
+    def test_the_reflection_asks_for_plain_words_not_mottos(self):
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import reflect
+
+        for light in (False, True):
+            text = " ".join(reflect.shape(light, 100).lower().split())
+            self.assertIn("plain words", text)
+            self.assertIn("motto", text)
+            self.assertIn("a stranger could follow", text)
+
 
 if __name__ == "__main__":
     unittest.main()
