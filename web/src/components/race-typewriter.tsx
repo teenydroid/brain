@@ -38,7 +38,7 @@ export function RaceTypewriter() {
   return (
     <>
       <span className="sr-only">{RACES.join(", ")}.</span>
-      <span aria-hidden className="text-neon-yellow neon-text">
+      <span aria-hidden className="neon-text block min-h-[2.04em] text-neon-yellow">
         {(reduced ? RACES[0] : word.slice(0, shown)) || "​"}
         <span className="caret ml-1 inline-block h-[0.8em] w-[0.12em] translate-y-[0.05em] bg-neon-yellow align-baseline" />
       </span>
