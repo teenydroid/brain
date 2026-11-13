@@ -12,12 +12,15 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from wallet.support import DAY, HOUR, OWN, STRANGER, T0, USDC_MAINNET, Scratch, token_accounts
+from wallet.support import DAY, HOUR, OWN, STRANGER, T0, USDC_MAINNET, Failure, HttpStatus, Scratch, token_accounts
 from teeny_hands import hand
 from teeny_hands.wallet import accounts, reads
 
 TEAM = "Hx6LbkMHe69DYawhPyVNs8Apa6tyfogfzQV6a7XkwKcE"
 TOKEN_ACCOUNT = "TokenAcct1111111111111111111111111111111111"
+#: What the live RPC answered for a version-1 transaction read at version 0.
+V1_REFUSED = ('Transaction version (1) is not supported by the requesting client. Please try the request again'
+              ' with the following configuration parameter: "maxSupportedTransactionVersion": 1')
 
 
 def sig(n: int) -> str:
@@ -173,6 +176,72 @@ class AccountsTest(Scratch):
         with self.assertRaises(hand.Refused) as no:
             accounts.scan()
         self.assertEqual(no.exception.detail["rule"], "team")
+
+    # --- a transaction the RPC will not return --------------------------------------------------
+
+    def tx_reads(self, signature: str) -> list[int]:
+        """The maxSupportedTransactionVersion of each getTransaction for `signature`."""
+        return [p[1]["maxSupportedTransactionVersion"] for p in self.chain.params("getTransaction") if p[0] == signature]
+
+    def test_an_unreadable_transaction_never_stops_the_scan(self):
+        # Live, 2026-11-13: one version-1 transaction the RPC would not return
+        # aborted every wallet-watch run, and no deposit after it was sensed.
+        bad = self.deposit(1, T0 - 2 * HOUR, Failure(V1_REFUSED))
+        good = self.deposit(2, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        with self.assertLogs("teeny_hands.wallet.accounts", "WARNING") as logged:
+            out = accounts.scan()
+        self.assertEqual((out["count"], out["unreadable"]), (1, 1))
+        self.assertEqual([r["signature"] for r in self.rows()], [good])
+        self.assertEqual(out["through"], accounts._iso(T0 - HOUR))
+        self.assertIn(bad[:8], logged.output[0])
+        self.assertNotIn(bad, logged.output[0])
+        self.assertIn("Transaction version (1)", logged.output[0])
+
+    def test_an_unreadable_transaction_is_retried_on_a_few_scans_then_left(self):
+        bad = self.deposit(1, T0 - 2 * HOUR, Failure(V1_REFUSED))
+        self.deposit(2, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        with self.assertLogs("teeny_hands.wallet.accounts", "WARNING"):
+            for _ in range(accounts.UNREADABLE_TRIES + 2):
+                accounts.scan()
+        self.assertEqual(self.tx_reads(bad).count(0), accounts.UNREADABLE_TRIES)
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_a_retried_transaction_that_reads_is_recorded(self):
+        bad = self.deposit(1, T0 - 2 * HOUR, Failure("Transaction history is not available from this node"))
+        with self.assertLogs("teeny_hands.wallet.accounts", "WARNING"):
+            self.assertEqual(accounts.scan()["unreadable"], 1)
+        self.ledger.txs[bad] = usdc_tx(STRANGER, 2_000_000)
+        out = accounts.scan()
+        self.assertEqual((out["count"], out["unreadable"]), (1, 0))
+        self.assertEqual([r["signature"] for r in self.rows()], [bad])
+        # Read once, it is no longer retried.
+        accounts.scan()
+        self.assertEqual(len(self.tx_reads(bad)), 2)
+
+    def test_a_newer_transaction_version_is_read_at_the_version_the_rpc_names(self):
+        v1 = usdc_tx(STRANGER, 3_000_000)
+
+        def transaction(params: list[Any]) -> Any:
+            if params[0] == sig(1) and params[1]["maxSupportedTransactionVersion"] < 1:
+                return Failure(V1_REFUSED)
+            return self.ledger.transaction(params)
+
+        self.deposit(1, T0 - HOUR, v1)
+        self.chain.answers["getTransaction"] = transaction
+        out = accounts.scan()
+        self.assertEqual((out["count"], out["unreadable"]), (1, 0))
+        self.assertEqual(self.tx_reads(sig(1)), [0, 1])
+        self.assertEqual(self.rows()[0]["amount_raw"], 3_000_000)
+
+    def test_an_rpc_that_cannot_be_reached_stops_the_scan_where_it_was(self):
+        # Not one transaction's fault: nothing is marked, nothing is skipped,
+        # and the next scan reads it all.
+        self.deposit(1, T0 - HOUR, usdc_tx(STRANGER, 1_000_000))
+        self.chain.answers["getTransaction"] = HttpStatus(503)
+        with self.assertRaises(hand.HandError):
+            accounts.scan()
+        self.chain.answers["getTransaction"] = self.ledger.transaction
+        self.assertEqual(accounts.scan()["count"], 1)
 
     # --- the page ------------------------------------------------------------------------------
 
