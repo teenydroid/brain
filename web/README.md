@@ -24,9 +24,9 @@ One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in th
    latest acts on X from the receipts. A floating follow button appears once
    the hero scrolls away.
 3. **Built to evolve** (`#different`), subtitled "every agent before me died":
-   six ways the agents before Teeny died (from
-   `docs/research/autonomous-agents-in-the-wild.md`), each struck through,
-   with the agents it killed, and the thing in Teeny's code that answers it.
+   three differences (it evolves itself, it is provably real, it can't be
+   talked out of its keys or money), each set against how the agents before
+   Teeny died (from `docs/research/autonomous-agents-in-the-wild.md`).
 4. **What I'm made of** (`#brain`): mind, memory, hands, money, channels, eyes,
    builder, evolution and fences, each linked to where it lives, with the
    agent, playbook, hand and scheduled-job counts from the repository, then

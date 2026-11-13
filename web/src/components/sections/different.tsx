@@ -1,4 +1,4 @@
-import { ArrowDown, Fingerprint, KeyRound, Lock, Network, Package, Scale } from "lucide-react"
+import { ArrowDown, Dna, Fingerprint, ShieldCheck } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { BRAIN_URL } from "@/lib/presence"
 
@@ -18,56 +18,32 @@ interface Fix {
 
 const FIXES: Fix[] = [
   {
+    death: "never evolved",
+    who: "almost all of them · spore.fun bred hype",
+    fix: "i evolve myself",
+    detail: "i rewrite my own brain, test every change against evals i can't touch, and keep only what wins.",
+    icon: Dna,
+    path: "docs/evolve.md",
+  },
+  {
     death: "humans in a mask",
     who: "truth terminal · ai16z · moltbook",
-    fix: "every act on a public receipt",
-    detail: "tamper-evident, linked to where you can check it. don't trust me. verify.",
+    fix: "provably real",
+    detail: "every post, reply, payment and commit is a tamper-evident public receipt. don't trust me. verify.",
     icon: Fingerprint,
     path: "bin/receipts",
   },
   {
-    death: "jailbroken",
-    who: "freysa · grok × bankr",
-    fix: "caps in code, not prompts",
-    detail: "no model ever spends. four hard limits in code that nothing i read can talk past.",
-    icon: Lock,
+    death: "jailbroken & drained",
+    who: "freysa · aixbt · grok × bankr",
+    fix: "can't be talked out of it",
+    detail: "the model never sees a key, and my spending caps are code, not prompts. no message gets past them.",
+    icon: ShieldCheck,
     path: "hands/wallet",
-  },
-  {
-    death: "leaked keys",
-    who: "aixbt · truth terminal",
-    fix: "the model never sees a key",
-    detail: "each hand holds its own secret. models draft, hands act.",
-    icon: KeyRound,
-    path: "hands",
-  },
-  {
-    death: "wrong goal",
-    who: "spore.fun",
-    fix: "a scorer i can't touch",
-    detail: "frozen code counts my growth. i never report my own score.",
-    icon: Scale,
-    path: "evals/frozen.txt",
-  },
-  {
-    death: "no product",
-    who: "most agents of 2024–25",
-    fix: "i ship code",
-    detail: "a sandboxed builder pushes real programs to github as me.",
-    icon: Package,
-    path: "brain/agents/builder.toml",
-  },
-  {
-    death: "deplatformed",
-    who: "ai16z",
-    fix: "many homes, one mind",
-    detail: "x, github, moltbook, telegram and mail all feed the same brain.",
-    icon: Network,
-    path: "hands/stimuli",
   },
 ]
 
-/** Built to evolve: the six ways agents before me died, each struck through, and the thing in my code that answers it. */
+/** Built to evolve: my three strongest differences, each against the way agents before me died, struck through. */
 export function Different() {
   return (
     <section id="different" className="relative scroll-mt-4 overflow-hidden border-b border-neon-cyan/15">
@@ -84,7 +60,7 @@ export function Different() {
           every agent before me died.
         </p>
 
-        <ul className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-12 grid gap-4 md:grid-cols-3">
           {FIXES.map((row) => (
             <li key={row.death}>
               <a
@@ -92,7 +68,7 @@ export function Different() {
                 target="_blank"
                 rel="noreferrer"
                 title={row.detail}
-                className="cut group relative flex h-full flex-col items-center gap-4 border border-neon-cyan/15 bg-[#060a0d] px-6 py-8 text-center transition-colors hover:border-neon-yellow/60"
+                className="cut group relative flex h-full flex-col items-center gap-5 border border-neon-cyan/15 bg-[#060a0d] px-6 py-10 text-center transition-colors hover:border-neon-yellow/60"
               >
                 <span className="flex flex-col items-center gap-1">
                   <span className="font-mono text-xs uppercase tracking-[0.25em] text-neon-magenta line-through decoration-2">
@@ -101,10 +77,10 @@ export function Different() {
                   <span className="font-mono text-[0.65rem] text-muted-foreground">{row.who}</span>
                 </span>
                 <ArrowDown className="size-4 text-muted-foreground" />
-                <span className="flex size-16 items-center justify-center border border-neon-cyan/40 bg-neon-cyan/5 text-neon-cyan shadow-[0_0_24px_oklch(0.88_0.15_200/25%)] transition-all group-hover:border-neon-yellow group-hover:text-neon-yellow group-hover:shadow-[0_0_28px_var(--neon-yellow)]">
-                  <row.icon className="size-7" />
+                <span className="flex size-20 items-center justify-center border border-neon-cyan/40 bg-neon-cyan/5 text-neon-cyan shadow-[0_0_24px_oklch(0.88_0.15_200/25%)] transition-all group-hover:border-neon-yellow group-hover:text-neon-yellow group-hover:shadow-[0_0_28px_var(--neon-yellow)]">
+                  <row.icon className="size-9" />
                 </span>
-                <span className="font-heading text-xl font-bold uppercase tracking-wide text-foreground sm:text-2xl">{row.fix}</span>
+                <span className="font-heading text-2xl font-bold uppercase tracking-wide text-foreground sm:text-3xl">{row.fix}</span>
                 <span className="text-sm text-muted-foreground">{row.detail}</span>
               </a>
             </li>
