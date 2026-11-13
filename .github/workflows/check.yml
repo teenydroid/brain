@@ -44,9 +44,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p teeny-spine
+      - name: Chrome diagnostics
+        run: |
+          for c in /usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome; do ls -la "$c"; readlink -f "$c"; "$c" --version || true; done
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          echo "DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unset} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset} HOME=$HOME"
+          ls -la ~/.cache/fontconfig /var/cache/fontconfig 2>&1 | head -5; fc-list | wc -l
+          nproc; free -m
+          for i in 1 2 3; do diag/launch.sh /usr/bin/chromium; done
+          for i in 1 2; do diag/launch.sh /usr/bin/google-chrome; done
+          diag/launch.sh /usr/bin/chromium --no-sandbox
       - run: bin/test/spine_live_test.sh
         env:
           OPENHUMAN_CORE_BIN: target/release/teeny-spine
+          TEENY_CHROME_PATH: ${{ github.workspace }}/diag/chrome-wrap.sh
+          REAL_CHROME: /usr/bin/chromium
+          CHROME_DIAG_LOG: /tmp/chrome-diag.log
+      - name: Chrome launch log
+        if: always()
+        run: cat /tmp/chrome-diag.log || true
 
   scripts:
     runs-on: ubuntu-latest
