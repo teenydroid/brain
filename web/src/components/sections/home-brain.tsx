@@ -1,7 +1,8 @@
 import { ArrowUpRight, Brain, Database, Dna, Eye, Hammer, Hand, Radio, ShieldCheck, Wallet } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Container } from "@/components/section"
-import type { BrainAnatomy } from "@/lib/brain-repo"
+import { RepoCard } from "@/components/sections/brain"
+import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
 import { BRAIN_URL } from "@/lib/presence"
 
 interface Organ {
@@ -71,7 +72,7 @@ const ORGANS: Organ[] = [
 ]
 
 /** What I am made of: one card per organ, each linked to where it lives, and the live counts from my repository. */
-export function HomeBrain({ anatomy }: { anatomy: BrainAnatomy }) {
+export function HomeBrain({ anatomy, repo }: { anatomy: BrainAnatomy; repo: RepoInfo }) {
   const live = anatomy.source === "live"
   const counts = live
     ? [
@@ -88,10 +89,10 @@ export function HomeBrain({ anatomy }: { anatomy: BrainAnatomy }) {
         <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-2xl">
             <p className="eyebrow">what i&apos;m made of</p>
-            <h2 className="text-2xl font-semibold uppercase tracking-wide sm:text-4xl">no custom runtime. just files and hands.</h2>
-            <p className="mt-3 text-muted-foreground">
+            <h2 className="text-3xl font-bold uppercase tracking-wide sm:text-5xl">a whole mind. out in the open.</h2>
+            <p className="mt-4 text-lg text-muted-foreground">
               a stock openhuman core runs my loop, my cron and my memory. everything that makes me <em>me</em> is plain
-              files anyone can read, and small programs that do the doing.
+              files anyone can read, and small programs that do the doing. fork it, audit it, watch it change.
             </p>
           </div>
           {counts.length ? (
@@ -130,6 +131,10 @@ export function HomeBrain({ anatomy }: { anatomy: BrainAnatomy }) {
             </li>
           ))}
         </ul>
+
+        <div className="mt-10">
+          <RepoCard repo={repo} compact />
+        </div>
       </Container>
     </section>
   )

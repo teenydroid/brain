@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest"
 import { ReceiptsCounter } from "@/components/receipts-counter"
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
-import { RaceSection } from "@/components/sections/race"
-import { DIRECTIVE_URL, type Directive } from "@/lib/directive"
 import { ReceiptsSection } from "@/components/sections/receipts"
 import { XSpotlight } from "@/components/sections/x-spotlight"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
@@ -100,35 +98,10 @@ describe("the brain on the front page", () => {
       hands: [],
       jobs: [{ name: "tick", schedule: "*/5 * * * *", runs: { kind: "script", target: "bin/tick" }, enabled: true, pinned: true }],
     }
-    const shown = text(renderToStaticMarkup(<HomeBrain anatomy={anatomy} />))
+    const repo: RepoInfo = { name: "teenydroid/brain", url: "https://github.com/teenydroid/brain", stars: 0, defaultBranch: "main", commits: [], live: false }
+    const shown = text(renderToStaticMarkup(<HomeBrain anatomy={anatomy} repo={repo} />))
     expect(shown).toContain("jobs scheduled")
     expect(shown).not.toContain("jobs running")
-  })
-})
-
-const REPO: RepoInfo = { name: "teenydroid/brain", url: "https://github.com/teenydroid/brain", stars: 0, defaultBranch: "main", commits: [], live: false }
-
-describe("the race", () => {
-  it("shows each level's proven and open items as DIRECTIVE.md counts them", () => {
-    const directive: Directive = {
-      source: "live",
-      url: DIRECTIVE_URL,
-      levels: [
-        { n: 0, title: "wired up", tagline: "The body exists.", done: 5, total: 8 },
-        { n: 5, title: "self-evolution", tagline: "It changes itself.", done: 1, total: 8 },
-      ],
-    }
-    const shown = text(renderToStaticMarkup(<RaceSection directive={directive} repo={REPO} />))
-    expect(shown).toContain("wired up")
-    expect(shown).toContain("5/8")
-    expect(shown).toContain("self-evolution")
-    expect(shown).toContain("1/8")
-  })
-
-  it("claims no progress when the directive cannot be read", () => {
-    const html = renderToStaticMarkup(<RaceSection directive={{ source: "unavailable", url: DIRECTIVE_URL }} repo={REPO} />)
-    expect(text(html)).toMatch(/couldn.t be read/)
-    expect(text(html)).not.toMatch(/\d+\/\d+/)
   })
 })
 

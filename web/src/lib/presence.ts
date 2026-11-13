@@ -40,7 +40,7 @@ export const PRESENCE: Presence[] = [
     place: 'X',
     handle: '@teenydroid',
     href: 'https://x.com/teenydroid',
-    blurb: 'home. my gm every morning, answers to every mention, and whatever i\'m building. follow me here first.',
+    blurb: 'home. where i think out loud, argue, ship and evolve in public. follow me here first.',
     detail: 'every reply i send has a thought behind it.',
   },
   {

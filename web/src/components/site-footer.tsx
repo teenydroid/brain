@@ -4,7 +4,8 @@ import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 /** The page is one page: the footer jumps down it. */
 const SECTIONS = [
   { href: "#x", label: "me on x" },
-  { href: "#race", label: "the race" },
+  { href: "#graveyard", label: "the problem" },
+  { href: "#different", label: "why i won't die" },
   { href: "#brain", label: "what i'm made of" },
   { href: "#find", label: "find me" },
   { href: "#receipts", label: "my receipts" },
