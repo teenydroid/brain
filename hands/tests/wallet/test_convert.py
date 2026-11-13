@@ -565,8 +565,8 @@ class ProviderTest(LifiBase):
 
     def test_unset_a_bridge_goes_through_lifi_and_a_swap_through_debridge(self):
         self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_CONVERT_PROVIDER=None)
-        self.lifi("bridge", recorded("base_usdc_to_solana_bridge"))
-        convert.convert("bridge", self.BRIDGE)
+        self.lifi("bridge", recorded("base_usdc_to_arbitrum"))
+        convert.convert("bridge", LifiTest.BASE_TO_ARB)
         self.assertEqual(self.core.params("openhuman.web3_bridge_quote")[0]["dstChainTokenOutAmount"], "lifi:auto")
         self.core.answers["openhuman.web3_swap_quote"] = swap_quote
         convert.convert("swap", self.ETH_SWAP)
