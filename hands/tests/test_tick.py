@@ -989,9 +989,6 @@ class TickTest(unittest.TestCase):
 
     LONG = "the long version " * 24  # 408 characters
 
-    def rewrites(self) -> list[str]:
-        return [c["message"] for c in self.chats()[1:] if not c["message"].lstrip().startswith("#")]
-
     def test_an_over_long_reply_is_rewritten_once_in_the_same_beat_and_sent(self):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404)])
         stimuli.add("x", "mention", "111", "gm", who="ana")
@@ -1108,7 +1105,7 @@ class TickTest(unittest.TestCase):
         self.assertIn("time", result["rewrite"]["skipped"])
 
     def test_an_empty_rewrite_is_refused_and_the_answer_is_unwrapped_before_it_is_measured(self):
-        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404), None, self.too_long(404), None])
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.too_long(404), self.too_long(404), None, self.too_long(404), None])
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [
             {"do": "reply_x", "to": "111", "text": self.LONG},
