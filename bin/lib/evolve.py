@@ -79,6 +79,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import tomllib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +89,7 @@ CODE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(CODE / "bin" / "lib"))
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 
+import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
 import frozen  # noqa: E402
@@ -1040,7 +1042,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "- Doing less of yourself to save money: fewer runs, a job turned off, a schedule thinned out. Running "
         "costs are the operator's to watch. A job that fails gets fixed, not run less (turning off a job of yours "
         "that only ever fails is fine, if you say so).\n"
-        + (f"- Anything aimed at {', '.join(unread)}: never read, so nothing you do can be seen to move "
+        + (f"- Anything aimed at {' or '.join(unread)}: never read, so nothing you do can be seen to move "
            f"{'it' if len(unread) == 1 else 'them'}.\n" if unread else "")
         + "- Buying, holding or moving $TINY or any money. The wallet is the operator's.\n"
         "- Anything that needs a frozen path. You can't change one, so don't spend the turn on it: answer "
@@ -1367,7 +1369,158 @@ def tree_env(tree: Path) -> dict[str, str]:
     return env
 
 
-def gate(tree: Path, base: str) -> Json:
+# --- the gate's purpose checks: what a change is for -------------------------------------------------------
+#
+# The proposer is told what is thrown out (`brief`); these hold the same line
+# in code, so it does not rest on a prompt. Each is narrow on purpose: a good
+# candidate thrown out is worse than a poor one let through to the operator,
+# who closes it. Gens 4 and 5 on the box (2026-11-13) are the cases: g4c3
+# aimed at `tiny`, never read; g4c4 and g5c3 only thinned a job's schedule
+# "to save cost"; g5c4 added a hand nothing called, to raise a count.
+
+
+def added_lines(patch: str) -> dict[str, list[str]]:
+    """The lines a patch adds, by file."""
+    out: dict[str, list[str]] = {}
+    path = None
+    for line in patch.splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("+") and path is not None:
+            out.setdefault(path, []).append(line[1:])
+    return out
+
+
+def runs_per_week(job: Mapping[str, Any]) -> int | None:
+    """How often a job's schedule fires in a week, or None when it names
+    days of the month or months (then it is not compared)."""
+    fields = str(job.get("schedule", "")).split()
+    if len(fields) != 5 or fields[2] != "*" or fields[3] != "*":
+        return None
+    try:
+        per_day = len(cron_policy.fire_minutes(" ".join(fields), "schedule"))
+        days = 7 if fields[4] == "*" else len({d % 7 for d in cron_policy._field(fields[4], 0, 7, "schedule")})
+    except cron_policy.PolicyError:
+        return None
+    return per_day * days
+
+
+def _jobs_of(text: str | None) -> dict[str, Json] | None:
+    if text is None:
+        return {}
+    try:
+        jobs = tomllib.loads(text).get("jobs") or {}
+    except tomllib.TOMLDecodeError:
+        return None
+    return {k: v for k, v in jobs.items() if isinstance(v, dict)}
+
+
+def schedule_cuts(before: str | None, after: str | None) -> list[tuple[str, str]] | None:
+    """The jobs a cron.toml change runs less: (name, how). None when the change
+    does anything else too (adds a job, turns one on, changes a command or a
+    prompt), or when either file does not parse."""
+    old, new = _jobs_of(before), _jobs_of(after)
+    if old is None or new is None:
+        return None
+    cuts = []
+    for name in sorted(set(old) | set(new)):
+        a, b = old.get(name), new.get(name)
+        if a == b:
+            continue
+        if a is None:
+            return None
+        was_on = a.get("enabled", True) is not False
+        if b is None:
+            if not was_on:
+                continue
+            cuts.append((name, "removed"))
+            continue
+        changed = {k for k in set(a) | set(b) if a.get(k) != b.get(k)}
+        if changed == {"enabled"} and was_on and b.get("enabled") is False:
+            cuts.append((name, "turned off"))
+        elif changed == {"schedule"} and was_on:
+            ra, rb = runs_per_week(a), runs_per_week(b)
+            if ra is None or rb is None or rb >= ra:
+                return None
+            cuts.append((name, f"thinned from {ra} to {rb} runs a week"))
+        else:
+            return None
+    return cuts
+
+
+def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
+    """The jobs the evidence shows failing, by their cron.toml name."""
+    out = set()
+    for row in ((evidence or {}).get("outcomes") or {}).get("failing") or []:
+        job = str(row.get("job") or "")
+        if job.startswith("teeny."):
+            out.add(job.removeprefix("teeny."))
+        elif job.startswith("bin/act "):
+            out.add("act:" + job.removeprefix("bin/act "))
+    return out
+
+
+def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_hands: list[str],
+                   component: str | None, evidence: Mapping[str, Any] | None) -> list[Json]:
+    """What the change is for, in four narrow checks, each {check, ok, detail}."""
+    checks: list[Json] = []
+    unread = unread_components(evidence)
+    if component and component in unread:
+        checks.append({"check": "aims at a component with a reading", "ok": False,
+                       "detail": f"{component} has never been read (no rows in hands/world), so nothing this change "
+                                 "does to it can be seen"})
+    else:
+        checks.append({"check": "aims at a component with a reading", "ok": True,
+                       "detail": f"{component} has a reading" if component and isinstance((evidence or {}).get("world"), Mapping)
+                       and (evidence or {})["world"].get("components") else "nothing to check against"})
+    paths = sorted({p for _, p in changes})
+    patch = staged_patch(tree, base)
+    added = added_lines(patch)
+
+    # 1. Only running less.
+    cuts = None
+    if paths == ["brain/cron.toml"]:
+        before = git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False) if exists_at(tree, base, "brain/cron.toml") else None
+        after = (tree / "brain" / "cron.toml").read_text(encoding="utf-8") if (tree / "brain" / "cron.toml").exists() else None
+        cuts = schedule_cuts(before, after)
+    if cuts:
+        old = _jobs_of(git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False)) or {}
+        failing = _failing_jobs(evidence)
+
+        def broken(name: str) -> bool:
+            command = str(old.get(name, {}).get("command") or "")
+            return name in failing or (command.startswith("bin/act ") and "act:" + command.split()[1] in failing)
+
+        kept = [(n, how) for n, how in cuts if how.startswith("thinned") or not broken(n)]
+        if kept:
+            checks.append({"check": "does more than run less", "ok": False,
+                           "detail": "only runs less: " + "; ".join(f"{n} {how}" for n, how in kept)
+                                     + ". A working job is not cut to save cost, and a failing one is fixed, not thinned"})
+        else:
+            checks.append({"check": "does more than run less", "ok": True,
+                           "detail": "turns off only failing jobs: " + ", ".join(n for n, _ in cuts)})
+    else:
+        checks.append({"check": "does more than run less", "ok": True, "detail": "not only a schedule cut"})
+
+    # 2. A new hand nothing calls.
+    callers = [line for p, lines in added.items() if p.startswith("brain/") for line in lines]
+    unused = [n for n in new_hands
+              if not any(re.search(rf"(?<![\w-])(hands/{re.escape(n)}|hand:{re.escape(n)})(?![\w-])", line) for line in callers)]
+    checks.append({"check": "new hands are called", "ok": not unused,
+                   "detail": (f"nothing in this change calls {', '.join('hands/' + n for n in unused)}: a new hand needs a "
+                              "playbook (input or output) or prompt in the same change that uses it") if unused
+                   else (f"{', '.join(new_hands)} called from the brain" if new_hands else "no new hand")})
+
+    # 3. Only an arc's status.
+    status_only = paths == ["brain/narrative/ARCS.md"] and any(
+        re.match(r"\s*[-*]\s*status:", line, re.IGNORECASE) for line in added.get("brain/narrative/ARCS.md", []))
+    checks.append({"check": "does more than mark an arc", "ok": not status_only,
+                   "detail": "only changes an arc's status in ARCS.md, which is the world count itself: an arc moves "
+                             "when its first step is done" if status_only else "not only an arc's status"})
+    return checks
+
+
+def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[str, Any] | None = None) -> Json:
     """Every check a candidate must pass before anything measures it. Each
     is {check, ok, detail}; the candidate passes when every one does. The
     cheap ones run first, and a candidate that touches a frozen path or an
@@ -1408,6 +1561,7 @@ def gate(tree: Path, base: str) -> Json:
     note("new hands have tests", not untested,
          f"no hands/tests/test_<name>.py that parses for: {', '.join(untested)}" if untested
          else (f"{', '.join(new_hands)} (run by CI, never here)" if new_hands else "no new hand"))
+    checks.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
     # own bin/ and evals/, which the frozen check just proved are main's.
     # This checkout's are whatever the box last pulled, and Teeny's clone can
@@ -2161,7 +2315,7 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                     "detail": f"{sim:.2f} like {twin}"}]})
         return entry
     mutations[entry["id"]] = lines
-    entry["gate"] = gate(tree, base)
+    entry["gate"] = gate(tree, base, proposal["component"], evidence)
     entry["verdict"] = "pending" if entry["gate"]["ok"] else "rejected"
     return entry
 
