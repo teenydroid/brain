@@ -656,7 +656,6 @@ def describe(description: str, api: RestApi | None = None) -> Json:
         return {"dry_run": True, "would_describe": description}
     api = api or client.api()
     api.call("PATCH", "/agents/me", body={"description": description})
-    reads.CACHE.clear() if hasattr(reads.CACHE, "clear") else None
     return {"described": description}
 
 
