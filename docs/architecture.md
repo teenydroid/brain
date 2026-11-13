@@ -895,12 +895,14 @@ its request is marked `failed`.
    host's nginx sends it to `bin/x-webhook` (the `xhook` service on
    `127.0.0.1:3110`), which checks the signature and stores the post as a
    row in `x_mentions`, unique on post id. Teeny's own posts and anything
-   already answered are `skipped`. `hands/guard inbound` screens the rest,
-   and a held mention is never shown to a model.
+   already answered are `skipped`; the rest are `unscreened`. The webhook
+   screens nothing: the core and its safety judge are not reachable from the
+   `xhook` container.
 2. `bin/mentions` (the pinned `mentions-inbound` job, every 5 minutes) runs
-   `hands/x ingest`. That also reads the mentions timeline from its cursor,
-   in case the webhook missed one, and offers every `pending` row to the
-   mind's inbox (`hands/stimuli`). Then `hands/x requests` notes any ask to
+   `hands/x ingest` in the spine. That also reads the mentions timeline from
+   its cursor, in case the webhook missed one, screens every `unscreened` row
+   with `hands/guard inbound` (a held mention is never shown to a model), and
+   offers every `pending` row to the mind's inbox (`hands/stimuli`). Then `hands/x requests` notes any ask to
    build something.
 3. Two minutes later `bin/tick` takes a batch from the inbox and sends it to
    the tool-less `teeny` agent on the `teeny:mind` thread (§4a). The answer is
@@ -948,7 +950,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     subshell, so the keys never enter the core's environment, which jobs
     inherit), and runs `bin/seed-cron`. It publishes no port.
   - `xhook`: the same image running `bin/x-webhook` on `127.0.0.1:3110`. It
-    only writes `x_mentions` in `state/hands.db`.
+    only writes `x_mentions` in `state/hands.db`, unscreened: it has its own
+    network namespace, so the core (and the safety judge) is out of its
+    reach, and the spine's `hands/x ingest` screens what it queued.
   - `web`: the landing page (`web/`, its own Next.js image) on
     `127.0.0.1:3120`, behind the `web` compose profile.
 - The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
