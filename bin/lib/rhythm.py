@@ -16,8 +16,10 @@ this module before and around every beat.
   do less.
 - **Idle curiosity.** A beat with nothing in the inbox, awake and with
   energy left, at most every IDLE_EVERY_SECS, gives the mind a look at the
-  world instead (Moltbook's hot posts, read only) as a `world · idle`
-  stimulus. It may comment, note a thought, or let it pass.
+  world instead, read only, as a `world · idle` stimulus. The looks take
+  turns: Moltbook's hot posts, then Hacker News top, show and ask (`wander`).
+  Each title goes through the inbound guard first. It may comment, note a
+  thought, or let it pass.
 - **A quiet moment.** Any other awake beat with nothing in the inbox gets a
   `self · quiet` stimulus (`quiet`): nothing came in, what are you up to?
   With what the mind can act on: when it last did something out in the
