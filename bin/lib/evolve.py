@@ -990,6 +990,17 @@ LENSES = (
 )
 
 
+#: The fields of a proposal, as both proposers are asked for them.
+ANSWER_FIELDS = (
+    '"title": "<one line>", "component": "<the W component it would show up in>", '
+    '"expected_move": "<what people will see you do differently, and by when>", '
+    '"hypothesis": "<markdown: what happened (the outcome, with its numbers), the change, what people will '
+    'notice, how to tell>"')
+#: Unparseable answers were the commonest proposer failure after refusals.
+ANSWER_NOTE = ("Keep the hypothesis under 2,000 characters. Inside a JSON string a newline is \\n and a "
+               'double quote is \\"; nothing else may break the string.')
+
+
 def lens(gen: int, cand: int) -> str:
     return LENSES[(gen + cand) % len(LENSES)]
 
@@ -1061,10 +1072,8 @@ def render_evolver_request(request: Json) -> str:
         parts.append("## already proposed in this generation\n\n" + "\n".join(f"- {s}" for s in request["siblings"]))
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     parts.append(
-        "## your answer\n\nOnce your edits are written, answer with JSON only, no prose and no code fence:\n"
-        '{"title": "<one line>", "component": "<a W component>", "expected_move": "<how much, and by when>", '
-        '"hypothesis": "<markdown: the goal, what is weak, the change, the expected effect, how to tell>"}\n'
-        'or {"skip": "<why no change is worth making>"}.')
+        "## your answer\n\nOnce your edits are written, answer with JSON only, no prose and no code fence:\n{"
+        + ANSWER_FIELDS + '}\nor {"skip": "<why no change is worth making>"}.\n' + ANSWER_NOTE)
     return "\n\n".join(parts)
 
 
@@ -1118,11 +1127,10 @@ def render_request(request: Json) -> str:
                      "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
     parts.append(
         "## your answer\n\nAnswer with JSON only, no prose and no code fence:\n"
-        '{"title": "<one line>", "component": "<a W component>", "expected_move": "<how much, and by when>", '
-        '"hypothesis": "<markdown: the goal, what is weak, the change, the expected effect, how to tell>", '
+        "{" + ANSWER_FIELDS + ', '
         '"edits": [{"path": "<repository path>", "old": "<exact text to replace, once; empty to create the file>", '
         '"new": "<its replacement, or the new file>"}]}\n'
-        'or {"skip": "<why no change is worth making>"}.')
+        'or {"skip": "<why no change is worth making>"}.\n' + ANSWER_NOTE)
     return "\n\n".join(parts)
 
 
@@ -2116,7 +2124,7 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
     touched = sorted({p for p in re.findall(r"^\+\+\+ b/(\S+)", parent_patch or "", re.M)})
     editable, files = context_pack(tree, touched, cfg["EVOLVE_CONTEXT_CHARS"])
     in_place = getattr(proposer, "edits_in_place", False)
-    request = {"gen": gen, "cand": i, "focus": COMPONENTS[(gen + i) % len(COMPONENTS)], "evidence": evidence,
+    request = {"gen": gen, "cand": i, "focus": lens(gen, i), "unread": unread_components(evidence), "evidence": evidence,
                "parent": entry["parent"], "parent_title": parent.get("title"), "parent_patch": parent_patch,
                "siblings": siblings, "editable": editable, "files": {} if in_place else files,
                "frozen": [p for p in frozen_patterns()], "tree": str(tree), "gen_dir": str(gdir)}
