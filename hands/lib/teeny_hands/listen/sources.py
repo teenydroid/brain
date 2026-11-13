@@ -113,6 +113,7 @@ def _text(name: str, base: str, path: str, query: list[tuple[str, str]]) -> str:
         with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
             body = response.read(MAX_BYTES + 1)
     except urllib.error.HTTPError as exc:
+        exc.close()
         raise hand.HandError(f"{name} answered {exc.code}") from None
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise hand.HandError(f"could not reach {name} ({type(getattr(exc, 'reason', exc)).__name__})") from None

@@ -186,6 +186,7 @@ class DigestTest(Scratch):
         self.at(T0 + (ledger.KEEP_DAYS + 1) * DAY)
         ledger.record([])
         conn = ledger.db()
+        self.addCleanup(conn.close)
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM listen_heard").fetchone()[0], 0)
 
 
