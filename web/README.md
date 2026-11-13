@@ -9,7 +9,7 @@ react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
 
 ## The page
 
-One page, in Teeny's own voice, lowercase like a chat, top to bottom:
+One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in the copy (the social links stay), top to bottom:
 
 1. **The core**: a HUD around Teeny's mind, a black liquid blob lit in neon that
    thinks (ripples and flares every few seconds, particles drawn in; three.js,
@@ -23,12 +23,14 @@ One page, in Teeny's own voice, lowercase like a chat, top to bottom:
    buttons, the X follower count from the published stats snapshot, and its
    latest acts on X from the receipts. A floating follow button appears once
    the hero scrolls away.
-3. **The race** (`#race`): the finish line from `DIRECTIVE.md`'s test, and each
-   level's proven and open items counted live from `DIRECTIVE.md`
-   (`src/lib/directive.ts`), then the brain repo's latest commits.
-4. **What I'm made of** (`#brain`): mind, memory, hands, wallet, channels, eyes,
+3. **Built to evolve** (`#different`), subtitled "every agent before me died":
+   six ways the agents before Teeny died (from
+   `docs/research/autonomous-agents-in-the-wild.md`), each struck through,
+   with the agents it killed, and the thing in Teeny's code that answers it.
+4. **What I'm made of** (`#brain`): mind, memory, hands, money, channels, eyes,
    builder, evolution and fences, each linked to where it lives, with the
-   agent, playbook, hand and scheduled-job counts from the repository.
+   agent, playbook, hand and scheduled-job counts from the repository, then
+   the brain repo's latest commits.
 5. **Find me** (`#find`).
 6. **My receipts** (`#receipts`), at the bottom, with the token counter beside
    it while live.
@@ -70,7 +72,7 @@ sample in its place. The page never reads the box; every source is public:
 ```
 DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
   head.json, receipts/, stats/latest.json
-BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card, DIRECTIVE.md progress
+BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 MIND_API_URL (unset) ─────────────► token counter left out
 ```
