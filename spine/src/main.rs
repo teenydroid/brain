@@ -5,8 +5,9 @@
 //! `teeny-spine serve`, `teeny-spine cron list` and the rest behave exactly
 //! as the upstream binary does. Teeny adds no behaviour here beyond linking
 //! two modules in (TinyComputer and tinywallet) and answering the wallet
-//! module's swap and bridge quotes from deBridge directly (`debridge.rs`);
-//! what Teeny does lives in `brain/` and `bin/`. `bin/spine` runs it.
+//! module's swap and bridge quotes from LI.FI or deBridge directly
+//! (`wallet_backend.rs`, `lifi.rs`, `debridge.rs`); what Teeny does lives in
+//! `brain/` and `bin/`. `bin/spine` runs it.
 
 mod debridge;
 mod lifi;
@@ -26,9 +27,9 @@ fn main() {
     // only where the config's `[modules] overrides` says `source = "linked"`.
     openhuman_modules_linked::install();
 
-    // Swap and bridge quotes from deBridge's public API, ahead of the
-    // tinyhumans proxy (which needs a signed-in session Teeny does not have).
-    debridge::install();
+    // Swap and bridge quotes from LI.FI's or deBridge's public API, ahead of
+    // the tinyhumans proxy (which needs a signed-in session Teeny does not have).
+    wallet_backend::install();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(err) = openhuman_rpc::host::cli(&args) {
