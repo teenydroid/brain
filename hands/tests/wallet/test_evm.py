@@ -134,6 +134,16 @@ class CapsTest(Scratch):
         with self.assertRaises(caps.CapsError):
             caps.load(hand.secrets())
 
+    def test_swaps_and_bridges_go_through_lifi_unless_the_operator_says_debridge(self):
+        self.assertEqual(caps.load(hand.secrets()).convert_provider, "lifi")
+        self.configure(WALLET_CONVERT_PROVIDER="debridge")
+        self.assertEqual(caps.load(hand.secrets()).convert_provider, "debridge")
+        for unknown in ("jupiter", "LI.FI", "lifi debridge"):
+            self.configure(WALLET_CONVERT_PROVIDER=unknown)
+            with self.assertRaises(caps.CapsError) as caught:
+                caps.load(hand.secrets())
+            self.assertIn("WALLET_CONVERT_PROVIDER", str(caught.exception))
+
     def test_a_loss_above_its_ceiling_is_refused(self):
         self.configure(WALLET_MAX_CONVERT_LOSS_BPS="5000")
         with self.assertRaises(caps.CapsError):
