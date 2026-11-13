@@ -44,6 +44,14 @@
    state/tick/deferred.json and the next beat sends it first, before taking
    its batch, without a model turn (resume). The entry says `paced`; the
    outcome the mind reads says how it went out.
+7. A judge outage is deferred the same way. The guard's judge fails closed,
+   so a model provider dropping streams holds Teeny's own words as
+   "unknown"; the hand's refusal then says `judge_failed`. For the outward
+   intents whose hands refuse a second answer to the same thing (RETRIED:
+   reply_x, comment_moltbook, reply_mail) the beat defers it, `rule`
+   JUDGE_OUTAGE, and the next beat sends it again, through the guard again,
+   until DEFERRED_MAX_AGE_SECS. A hold for anything the judge read is never
+   retried. The outcome tells the mind it went out after a judge outage.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -109,6 +117,18 @@ DEFAULT_BUDGET_SECS = 240.0
 #: A deferred intent still held this long after the mind decided it goes
 #: back to the mind as refused instead of being tried again.
 DEFERRED_MAX_AGE_SECS = 3600
+#: Outward intents a beat defers when the guard held them only because its
+#: judge could not judge (a model outage: the hand's refusal says
+#: `judge_failed`), and the next beat sends again, through the guard again.
+#: Each of these hands refuses a second answer to the same thing from its own
+#: ledger (hands/x one reply per post, Moltbook once per post and per parent,
+#: hands/mail once per message), so a retry never says it twice. Not here:
+#: say_telegram and comment_gh, whose hands keep no such ledger (a retry
+#: racing a fresh answer from the mind could post twice); theirs go back to
+#: the mind as refused, saying the judge was down.
+RETRIED = ("reply_x", "comment_moltbook", "reply_mail")
+#: The `rule` a deferral for a judge outage is filed under.
+JUDGE_OUTAGE = "judge"
 
 Json = dict[str, Any]
 
@@ -703,14 +723,23 @@ def _paced_wait(do: Any, code: int, out: Mapping[str, Any]) -> float | None:
     return float(wait)
 
 
+def _judge_failed(code: int, out: Mapping[str, Any]) -> bool:
+    """Whether a refusal is the guard holding a draft only because its judge
+    could not judge it, not for anything it read."""
+    return code == 2 and out.get("refused") == "held" and out.get("judge_failed") is True
+
+
 def _send(do: str, name: str, argv: list[str], body: Any, deadline: float) -> tuple[int, Json, Json | None]:
     """The hand call, and once more after a short pacing wait when the beat
-    has the time. The third value says how it was paced (None when it was
-    not); `deferred` there means it is still held and should wait for the
-    next beat."""
+    has the time. The third value says how it was held back (None when it
+    was not): its `rule` (the pacing's, or JUDGE_OUTAGE), and `deferred` when
+    it is still held and should wait for the next beat. A judge outage is
+    never retried in the same beat: the judge has just spent its own asks."""
     if do in MIND_CAPS:
         _count_capped(do)
     code, out = _run_hand(name, argv, body)
+    if do in RETRIED and _judge_failed(code, out):
+        return code, out, {"rule": JUDGE_OUTAGE, "deferred": True}
     wait = _paced_wait(do, code, out)
     if wait is None:
         return code, out, None
@@ -722,7 +751,9 @@ def _send(do: str, name: str, argv: list[str], body: Any, deadline: float) -> tu
     time.sleep(pause)
     paced["waited"] = round(pause, 3)
     code, out = _run_hand(name, argv, body)
-    if _paced_wait(do, code, out) is not None:
+    if do in RETRIED and _judge_failed(code, out):
+        paced.update(rule=JUDGE_OUTAGE, deferred=True)
+    elif _paced_wait(do, code, out) is not None:
         paced["deferred"] = True  # held again: one retry a beat, the next beat sends it
     return code, out, paced
 
@@ -777,7 +808,8 @@ def resume(deadline: float) -> list[Json]:
     The list is cleared before anything is sent (a beat that dies halfway
     never sends it twice; the hands' ledgers refuse a second answer anyway).
     One still held is kept for the next beat, until DEFERRED_MAX_AGE_SECS,
-    and then goes back to the mind as refused."""
+    and then goes back to the mind as refused. Once the beat is past its
+    budget (TEENY_TICK_BUDGET_SECS) the rest are kept unsent for the next."""
     items = _load_deferred()
     if not items:
         return []
@@ -787,13 +819,22 @@ def resume(deadline: float) -> list[Json]:
         do, intent = item.get("do"), item.get("intent") or {}
         entry: Json = {"do": do}
         try:
+            if time.monotonic() >= deadline:
+                # Out of time (a judge that times out takes up to two minutes an
+                # ask): nothing more is sent this beat; the next one sends it.
+                entry.update(status="deferred", result={"kept": "the beat ran out of time"})
+                _defer(item)
+                entry["intent"] = dict(intent)
+                results.append(entry)
+                continue
             name, argv, body = ROUTES[do](intent)
             code, out, paced = _send(do, name, argv, body, deadline)
-            entry["paced"] = {**(paced or {}), "resumed": True, "deferred_at": item.get("deferred_at")}
+            entry["paced"] = {**(paced or {}), "resumed": True, "deferred_at": item.get("deferred_at"),
+                              "held_by": item.get("rule") or PACED.get(do)}
             held = bool(paced and paced.get("deferred"))
             if held and hand.now() - float(item.get("deferred_at") or 0) < DEFERRED_MAX_AGE_SECS:
                 entry.update(status="deferred", result=out)
-                _defer(item)
+                _defer({**item, "rule": paced["rule"]})
             else:
                 entry["paced"].pop("deferred", None)
                 _landed(entry, do, intent, code, out, [], [])
@@ -852,7 +893,7 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                         # first (resume), so nothing is reported or marked yet.
                         entry.update(status="deferred", result=out)
                         _defer({"tick": tick, "n": n, "do": do, "intent": dict(intent), "deferred_at": hand.now(),
-                                "wait_seconds": paced["wait_seconds"]})
+                                "rule": paced["rule"], "wait_seconds": paced.get("wait_seconds")})
                     else:
                         _landed(entry, do, intent, code, out, parked, set_now)
             else:
@@ -885,7 +926,16 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     target = next((entry["intent"].get(k) for k in ("to", "post_id", "message_id", "repo", "id") if entry["intent"].get(k)), "")
     text = f"your {do}{' on ' + str(target) if target else ''}: {what}"
     paced = entry.get("paced") or {}
-    if paced.get("resumed"):
+    if paced.get("resumed") and paced.get("held_by") == JUDGE_OUTAGE:
+        if entry["status"] == "done":
+            text += ("; held last beat only because the content guard's judge could not be reached (a model outage,"
+                     " not your words), it was screened again and went out by itself at the start of this one, as you wrote it")
+        elif _judge_failed(2, result):
+            text += ("; the content guard's judge could not be reached for an hour (a model outage, not your words),"
+                     " so it was not sent")
+        else:
+            text += "; tried again by itself this beat, after the content guard's judge could not be reached last beat"
+    elif paced.get("resumed"):
         if entry["status"] == "done":
             text += "; held by the pacing last beat, it went out by itself at the start of this one, as you wrote it"
         elif result.get("rule") == PACED.get(do):
@@ -894,6 +944,8 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
             text += "; tried again by itself this beat, after the pacing held it last beat"
     elif paced.get("waited") and entry["status"] == "done":
         text += f" (it waited {paced['waited']:.0f} s for the pacing)"
+    elif entry["status"] == "refused" and _judge_failed(2, result):
+        text += " (the content guard's judge could not be reached: a model outage, not your words)"
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}

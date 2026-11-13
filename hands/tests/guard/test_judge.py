@@ -5,8 +5,10 @@ against a fake core rather than a scripted model."""
 from __future__ import annotations
 
 import json
+from unittest import mock
 
 from . import support
+from teeny_hands import hand
 from teeny_hands.guard import judge as judge_module
 from teeny_hands.guard.judge import MAX_JUDGED_LENGTH, RULES, UNREACHABLE, UNREADABLE, JudgeVerdict, judge
 
@@ -112,13 +114,13 @@ class JudgeTest(support.WithCore):
         self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a greeting"))
         self.assertEqual(len(core.calls), 2)
 
-    def test_still_fails_closed_when_the_second_answer_is_unreadable_too(self):
+    def test_still_fails_closed_when_every_answer_is_unreadable(self):
         cut = support.result({"response": 'eeting", "verdict": "clean"}'})
-        core = self.core(cut, cut)
+        core = self.core(cut, cut, cut, support.verdict("clean"))
         self.assertEqual(
             judge("gm", "outbound"), JudgeVerdict("prohibited", "unknown", "the judge answered in an unreadable shape")
         )
-        self.assertEqual(len(core.calls), 2)
+        self.assertEqual(len(core.calls), 3)
 
     def test_a_readable_answer_is_never_asked_twice(self):
         core = self.core(support.verdict("prohibited", "sexual", "explicit"))
@@ -144,13 +146,21 @@ class JudgeTest(support.WithCore):
         self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a greeting"))
         self.assertEqual(len(core.calls), 2)
 
-    def test_fails_closed_as_unreachable_when_the_stream_is_cut_twice(self):
-        core = self.core(support.error(STREAM_CUT))
+    def test_asks_a_third_time_when_the_provider_stream_is_cut_twice(self):
+        # Surplus drops streams in bursts: 9 of 10 short calls failed in one
+        # minute on 2026-11-13, and all ten passed a few minutes later.
+        core = self.core(support.error(STREAM_CUT), support.error(STREAM_CUT), support.verdict("clean", "none", "a greeting"))
+        self.assertEqual(judge("gm", "outbound"), JudgeVerdict("clean", None, "a greeting"))
+        self.assertEqual(len(core.calls), 3)
+
+    def test_fails_closed_as_unreachable_when_the_stream_is_cut_three_times(self):
+        core = self.core(support.error(STREAM_CUT), support.error(STREAM_CUT), support.error(STREAM_CUT),
+                         support.verdict("clean"))
         down = judge("gm", "outbound")
         self.assertEqual((down.verdict, down.category), ("prohibited", "unknown"))
         self.assertTrue(down.reason.startswith(f"{UNREACHABLE}: "), down.reason)
         self.assertIn("provider stream ended", down.reason)
-        self.assertEqual(len(core.calls), 2)
+        self.assertEqual(len(core.calls), 3)
 
     def test_a_permanent_core_error_fails_closed_without_asking_again(self):
         for message in [
@@ -179,23 +189,62 @@ class JudgeTest(support.WithCore):
                 self.assertEqual(judge("gm", "outbound").verdict, "clean")
                 self.assertEqual(len(core.calls), 2)
 
-    def test_an_unreadable_answer_and_a_stream_cut_share_the_two_asks(self):
+    def test_an_unreadable_answer_and_stream_cuts_share_the_three_asks(self):
         cut = support.result({"response": 'eeting", "verdict": "clean"}'})
-        core = self.core(cut, support.error(STREAM_CUT), support.verdict("clean"))
+        core = self.core(cut, support.error(STREAM_CUT), support.error(STREAM_CUT), support.verdict("clean"))
         down = judge("gm", "outbound")
         self.assertEqual((down.verdict, down.category), ("prohibited", "unknown"))
         self.assertTrue(down.reason.startswith(f"{UNREACHABLE}: "), down.reason)
-        self.assertEqual(len(core.calls), 2)
+        self.assertEqual(len(core.calls), 3)
 
-    def test_a_stream_cut_and_an_unreadable_answer_share_the_two_asks(self):
+    def test_a_stream_cut_and_unreadable_answers_share_the_three_asks(self):
         cut = support.result({"response": 'eeting", "verdict": "clean"}'})
-        core = self.core(support.error(STREAM_CUT), cut, support.verdict("clean"))
+        core = self.core(support.error(STREAM_CUT), cut, cut, support.verdict("clean"))
         self.assertEqual(judge("gm", "outbound"), JudgeVerdict("prohibited", "unknown", UNREADABLE))
-        self.assertEqual(len(core.calls), 2)
+        self.assertEqual(len(core.calls), 3)
 
-    def test_waits_a_moment_before_asking_again_after_a_failed_call(self):
-        self.assertGreaterEqual(judge_module.RETRY_BACKOFF, 1.0)
-        self.assertLessEqual(judge_module.RETRY_BACKOFF, 2.0)
+    def test_waits_longer_before_each_ask_after_a_failed_call(self):
+        self.core(support.error(STREAM_CUT))
+        slept: list[float] = []
+        with mock.patch.object(judge_module, "RETRY_BACKOFFS", (2.0, 6.0)), \
+                mock.patch.object(judge_module.time, "sleep", slept.append):
+            self.assertEqual(judge("gm", "outbound").category, "unknown")
+        self.assertEqual(slept, [2.0, 6.0])
+
+    def test_an_unreadable_answer_is_asked_again_without_waiting(self):
+        cut = support.result({"response": 'eeting", "verdict": "clean"}'})
+        self.core(cut, cut, support.verdict("clean"))
+        slept: list[float] = []
+        with mock.patch.object(judge_module, "RETRY_BACKOFFS", (2.0, 6.0)), \
+                mock.patch.object(judge_module.time, "sleep", slept.append):
+            self.assertEqual(judge("gm", "outbound").verdict, "clean")
+        self.assertEqual(slept, [])
+
+    def test_the_asks_together_never_take_longer_than_the_budget(self):
+        # Every ask times out: the worst case. The asks shrink to what is
+        # left of JUDGE_BUDGET, and one that would have too little is not made.
+        self.core(support.verdict("clean"))
+        clock = [1000.0]
+        timeouts: list[float] = []
+
+        def timed_out(method, params, timeout):
+            timeouts.append(timeout)
+            clock[0] += timeout
+            raise hand.CoreError("core unreachable: timed out")
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        with mock.patch.object(judge_module, "RETRY_BACKOFFS", (2.0, 6.0)), \
+                mock.patch.object(judge_module.time, "sleep", sleep), \
+                mock.patch.object(judge_module.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(judge_module.hand, "core", timed_out):
+            down = judge("gm", "outbound")
+        self.assertEqual((down.verdict, down.category), ("prohibited", "unknown"))
+        self.assertTrue(down.reason.startswith(f"{UNREACHABLE}: "), down.reason)
+        self.assertEqual(timeouts, [judge_module.JUDGE_TIMEOUT, judge_module.JUDGE_BUDGET - judge_module.JUDGE_TIMEOUT - 2.0])
+        self.assertLessEqual(clock[0] - 1000.0, judge_module.JUDGE_BUDGET)
+        self.assertEqual(judge_module.JUDGE_BUDGET, 120.0)
 
     def test_reads_only_the_front_of_a_very_long_text(self):
         core = self.core(support.verdict("clean"))

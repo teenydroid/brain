@@ -178,7 +178,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | Verb | | Does |
 |---|---|---|
 | `check` | R | Runs, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
-| `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field)`. |
+| `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
 | `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` and the webhook, `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
@@ -211,6 +211,25 @@ key stays in the core's encrypted store. It fails closed: an unreachable core
 or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
 lexicon and the links.
 
+**Asking again.** One text gets up to three asks (`MAX_ASKS`). A call that
+failed for a reason that may pass (a cut provider stream, a timeout, a
+dropped connection, a 5xx) is asked again after 2 s, then after 6 s
+(`RETRY_BACKOFFS`); an unreadable answer is asked again at once; a failure
+that will not pass (no core token, an unknown method, a 401/402/403/404, a
+refused key, no model configured) holds at once. Every ask gets what is left
+of `JUDGE_BUDGET` (120 s), at most `JUDGE_TIMEOUT` (60 s), and one that
+would get under 10 s is not made, so the worst case, every ask timing out,
+is 120 s on the judge for one text: two asks of 60 s and 58 s around the
+2 s wait. A stream cut answers in seconds, so a burst of them is asked all
+three times. The last failure still holds; nothing ever turns into a pass.
+
+A hold the judge made only by failing is marked on the verdict:
+`Verdict.judge_failed` and `FieldsVerdict.judge_failed` (`Held.judge_failed`:
+held `by` the judge with a failure reason). `hands/x`, `hands/moltbook` and
+`hands/mail` add `"judge_failed": true` to their `refused: held` answer, and
+`bin/tick` sends such a reply again next beat (docs/architecture.md, §4a); a
+hold from a real verdict never carries it.
+
 Holds are written best-effort and never turn into a publish.
 
 **Re-screening.** A hold the judge made only because it failed (its reason
@@ -229,6 +248,9 @@ minutes (`teeny_hands.guard.rescreen`):
   `cleared`. A real verdict is written on the hold (its category and
   reason), and the hold stays. Another failure leaves it for the next run.
 - A draft of Teeny's own is `expired`, never sent late; Teeny drafts afresh.
+  (A reply, Moltbook comment or mail reply held this way is sent again by
+  the next beat of `bin/tick`, through the guard again, under a new hold if
+  the judge fails again; the expired hold is the old attempt.)
 
 Re-screening never touches a hold from a real verdict (the lexicon, the links,
 the judge naming a reason) or one an operator has decided, and it never

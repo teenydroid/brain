@@ -11,8 +11,10 @@ import select
 import subprocess
 import sys
 import time
+import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 from wallet.support import OWN, Scratch, status_with
 
@@ -44,7 +46,10 @@ class SetupTest(Scratch):
         with warnings.catch_warnings():
             # The fakes are threads; the child only execs, so forking is safe.
             warnings.simplefilter("ignore", DeprecationWarning)
-            pid, master = pty.fork()
+            try:
+                pid, master = pty.fork()
+            except OSError as exc:  # a sandbox with no free pty (the builder's jail)
+                self.skipTest(f"no pty to act as the terminal: {exc}")
         if pid == 0:  # the child: stdout to a file, the pty stays its terminal
             fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             os.dup2(fd, 1)
@@ -111,6 +116,16 @@ class SetupTest(Scratch):
         self.assertNotIn("force", setup)
         self.assertNotIn("word", str(setup))
         self.assertEqual(self.core.params("openhuman.wallet_generate_mnemonic"), [{"wordCount": 24}])
+
+    def test_a_box_without_pty_devices_skips_the_terminal_tests(self):
+        # The builder's jail has no free pty: the terminal tests must skip
+        # there, not error, or every self-build's suite fails on them.
+        def no_pty():
+            raise OSError("out of pty devices")
+
+        with mock.patch.object(pty, "fork", no_pty):
+            with self.assertRaises(unittest.SkipTest):
+                self.on_tty()
 
     def test_refuses_without_a_terminal(self):
         done = subprocess.run([sys.executable, "-I", "-B", str(SETUP)], capture_output=True, text=True, env=os.environ,
