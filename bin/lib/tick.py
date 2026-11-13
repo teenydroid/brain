@@ -54,6 +54,12 @@
    JUDGE_OUTAGE, and the next beat sends it again, through the guard again,
    until DEFERRED_MAX_AGE_SECS. A hold for anything the judge read is never
    retried. The outcome tells the mind it went out after a judge outage.
+8. An outward intent refused as too long (REWRITTEN; the guard's hard
+   limits or hands/x's 280) gets one rewrite in the same beat: the mind is
+   told the exact length, the limit and a target under it, its answer is
+   measured here, and only a fit goes to the same hand (guard again). Still
+   over, empty, failed, or out of time: refused as the hand said, never cut.
+   The entry says `rewritten` and `rewrite` (the lengths).
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -70,6 +76,7 @@ import datetime as dt
 import json
 import os
 import random
+import re
 import sqlite3
 import subprocess
 import sys
@@ -85,6 +92,7 @@ ROOT = Path(os.environ.get("TEENY_ROOT") or CODE)
 sys.path.insert(0, str(CODE / "hands" / "lib"))
 
 from teeny_hands import hand, stimuli  # noqa: E402
+from teeny_hands.guard.style import post_length  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import outcomes  # noqa: E402
@@ -132,6 +140,18 @@ DEFERRED_MAX_AGE_SECS = 3600
 RETRIED = ("reply_x", "comment_moltbook", "reply_mail")
 #: The `rule` a deferral for a judge outage is filed under.
 JUDGE_OUTAGE = "judge"
+#: Outward intents whose words a hand refuses as too long (the guard's hard
+#: limits, gate.LIMITS, and hands/x's own 280): such a refusal gets one
+#: rewrite from the mind in the same beat (_rewrite), never a cut.
+REWRITTEN = ("reply_x", "post_x", "comment_moltbook", "reply_mail", "say_telegram", "comment_gh")
+#: How far under the limit the rewrite is asked to land: the mind cannot
+#: count characters, so it is given room.
+REWRITE_MARGIN = 20
+#: The least time left in the beat for a rewrite to be asked at all.
+REWRITE_MIN_SECS = 20.0
+#: The guard's words for a field over its limit (gate._hard_limits); `text`
+#: and `body` are the intent's own words, a title or subject is not.
+_OVER_LIMIT = re.compile(r"the (text|body) is (\d+) characters, over the (\d+) limit\.")
 
 Json = dict[str, Any]
 
@@ -846,6 +866,55 @@ def _judge_failed(code: int, out: Mapping[str, Any]) -> bool:
     return code == 2 and out.get("refused") == "held" and out.get("judge_failed") is True
 
 
+def _too_long(code: int, out: Mapping[str, Any]) -> tuple[int, int] | None:
+    """The measured length and the limit, when a refusal says the intent's
+    words are over it: hands/x's own (`rule` length) or the guard's."""
+    if code != 2 or out.get("rewrite") is not True:
+        return None
+    length, limit = out.get("length"), out.get("limit")
+    if out.get("rule") == "length" and all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in (length, limit)):
+        return length, limit
+    match = _OVER_LIMIT.fullmatch(str(out.get("refused") or ""))
+    return (int(match.group(2)), int(match.group(3))) if match else None
+
+
+def _unwrapped(said: str) -> str:
+    """The rewrite as the mind answered it, without a code fence or one pair
+    of quotes around it. Nothing inside is touched."""
+    text = said.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0].strip()
+    for left, right in (('"', '"'), ("\u201c", "\u201d")):
+        inside = text[1:-1]
+        if len(text) >= 2 and text[0] == left and text[-1] == right and left not in inside and right not in inside:
+            text = inside.strip()
+    return text
+
+
+def _rewrite(do: str, intent: Mapping[str, Any], length: int, limit: int, deadline: float) -> tuple[Json | None, Json]:
+    """One rewrite of a refused over-long draft, asked of the mind on its own
+    thread with the numbers it cannot count, and measured here before it is
+    sent. The intent with the new words when they fit the limit (the hand and
+    its guard still judge them), else None; and what happened, for the entry."""
+    target = max(1, limit - REWRITE_MARGIN)
+    log: Json = {"length": length, "limit": limit, "target": target}
+    left = deadline - time.monotonic()
+    if left < REWRITE_MIN_SECS:
+        return None, {**log, "skipped": "the beat ran out of time"}
+    ask_for = (f"Your {do} was refused before it went out: it is {length} characters, over the {limit} limit. "
+               f"Rewrite it to at most {target} characters; keep the meaning and your voice. "
+               f"Answer with the text only: no JSON, no quotes, nothing else.\n\n{_text(intent)}")
+    try:
+        text = _unwrapped(ask(ask_for, timeout=left))
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return None, {**log, "failed": str(exc)[:300]}
+    log["new_length"] = post_length(text)
+    if not text or log["new_length"] > limit:
+        return None, log
+    return {**intent, "text": text}, log
+
+
 def _send(do: str, name: str, argv: list[str], body: Any, deadline: float) -> tuple[int, Json, Json | None]:
     """The hand call, and once more after a short pacing wait when the beat
     has the time. The third value says how it was held back (None when it
@@ -998,11 +1067,24 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
+                    media_ids: list[str] = []
                     if do == "post_x" and isinstance(intent.get("image"), str) and intent["image"].strip():
                         media_ids, entry["media"] = _picture(intent["image"].strip())
                         if media_ids:
                             body = {**body, "media_ids": media_ids}
                     code, out, paced = _send(do, name, argv, body, deadline)
+                    over = _too_long(code, out) if do in REWRITTEN else None
+                    if over:
+                        # One rewrite, same beat, same intent (not another
+                        # action); refused again, it stays refused.
+                        rewritten, entry["rewrite"] = _rewrite(do, intent, *over, deadline)
+                        entry["rewritten"] = rewritten is not None
+                        if rewritten is not None:
+                            intent = rewritten
+                            name, argv, body = ROUTES[do](intent)
+                            if media_ids:
+                                body = {**body, "media_ids": media_ids}
+                            code, out, paced = _send(do, name, argv, body, deadline)
                     if paced:
                         entry["paced"] = paced
                     if paced and paced.get("deferred"):
@@ -1063,6 +1145,14 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += f" (it waited {paced['waited']:.0f} s for the pacing)"
     elif entry["status"] == "refused" and _judge_failed(2, result):
         text += " (the content guard's judge could not be reached: a model outage, not your words)"
+    rewrite = entry.get("rewrite") or {}
+    if entry.get("rewritten"):
+        text += (f"; it was {rewrite['length']} characters, over the {rewrite['limit']} limit, so you rewrote it"
+                 f" to {rewrite['new_length']} characters in the same beat")
+    elif rewrite.get("new_length"):
+        text += f"; your one rewrite came back {rewrite['new_length']} characters, still over, so nothing was sent"
+    elif "new_length" in rewrite:
+        text += "; your one rewrite came back empty, so nothing was sent"
     if do in SEARCHES and entry["status"] == "done" and not result.get("dry_run"):
         text += _found(result)
     if entry.get("resolved"):
@@ -1077,14 +1167,14 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
 # --- one beat ------------------------------------------------------------------------------
 
 
-def ask(message: str) -> str:
+def ask(message: str, timeout: float = 1800) -> str:
     thread = os.environ.get("TEENY_MIND_THREAD") or "teeny:mind"
     proc = subprocess.run(
         [str(CODE / "bin" / "ask"), "--agent", "teeny", "--thread", thread],
         input=message,
         capture_output=True,
         text=True,
-        timeout=1800,
+        timeout=timeout,
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[-500:] or "the turn failed")

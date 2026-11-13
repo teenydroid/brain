@@ -336,6 +336,7 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
             │
             ├── paced refusal ──► wait and retry once, or defer to deferred.json
             ├── held by a judge outage ──► defer to deferred.json (reply_x, comment_moltbook, reply_mail)
+            ├── refused as too long ──► one rewrite from the mind, measured, sent once more
             │
             └── outcome ──► back into hands/stimuli for the next beat
    then: one line in state/tick/runs.jsonl, and a journal entry
@@ -413,6 +414,30 @@ model outage, not your words". A retried one that goes out tells the mind
 reached ..., it was screened again and went out by itself"; one the judge
 still cannot screen an hour after the mind decided it goes back to the mind
 as refused, saying so.
+
+**An over-long draft is rewritten once, in the same beat.** The model
+cannot count characters, so a reply over X's 280 used to cost a whole beat
+per try (on 2026-11-13 a `reply_x` was refused at 404, then at 306, before a
+third beat's draft fit). The refusal already carries the measure: the
+guard's "the text is 404 characters, over the 280 limit." (`gate.LIMITS`,
+in UTF-16 units; `body` on Moltbook, mail and GitHub) or `hands/x`'s own
+`rule: length` with `length` and `limit`. For `reply_x`, `post_x`,
+`comment_moltbook`, `reply_mail`, `say_telegram` and `comment_gh`
+(`REWRITTEN` in `bin/lib/tick.py`) such a refusal of the intent's own words
+(not a title or a subject) gets one more ask on the `teeny:mind` thread: the
+exact length, the limit, and "rewrite it to at most N characters, keep the
+meaning and your voice; answer with the text only", where N is the limit
+less 20. The answer is unwrapped (a code fence, one pair of quotes) and
+measured here the way the guard measures; when it fits the limit it goes
+through the same hand, guard and all, as the same intent (no new action
+under the cap of 8). When it does not fit, comes back empty, or the ask
+fails, the intent stays refused with the hand's first reason, and is never
+cut. There is one rewrite per intent: a rewrite the hand refuses again is
+refused. The ask is skipped when less than 20 s of the beat's budget is
+left, and is given only what remains. The entry says `rewritten` (true or
+false) and `rewrite` (`length`, `limit`, `target`, `new_length`, or why it
+was `skipped` or `failed`), and the outcome tells the mind "you rewrote it
+to N characters in the same beat" or that its one rewrite was still over.
 
 **The cron call does not wait for the beat.** The job runs `bin/tick
 --detach`: `bin/lib/detach.py` starts the beat in its own session (stdout
