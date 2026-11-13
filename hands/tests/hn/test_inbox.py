@@ -78,13 +78,14 @@ class SaidToTeenyTest(Inbox):
         self.assertEqual(sorted(self.batch()), ["31"])  # the newest, 30, only
 
     def test_one_run_reads_a_bounded_number_of_items(self):
+        self.user(ME, [20])
         self.items(story(20, "Show HN: Teeny", by=ME, kids=list(range(1000, 1300))))
         for kid in range(1000, 1300):
             self.items(comment(kid, 20, f"comment {kid}", by="crowd"))
         out = inbox.scan()
         self.assertTrue(out["truncated"])
-        self.assertLessEqual(self.fetched(), inbox.MAX_FETCH)
-        self.assertEqual(out["added"], inbox.MAX_FETCH - 2)  # less 30 and 20 themselves
+        self.assertEqual(self.fetched(), inbox.MAX_FETCH)
+        self.assertEqual(out["added"], inbox.MAX_FETCH - 1)  # every read but the story's own
 
     def test_it_needs_teenys_name_or_a_watch(self):
         self.configure(HN_USERNAME=None)
@@ -122,8 +123,7 @@ class WatchedThreadTest(Inbox):
                    comment(54, 50, "later still", by="cy", at=T0 + 40 * MINUTE))
         # A comment the inbox already filed, gone from the queue, is not filed again
         # as new: last_seen has moved past it.
-        with stimuli.db() as conn:
-            conn.execute("DELETE FROM stimuli")
+        stimuli.db().execute("DELETE FROM stimuli")
         self.at(T0 + 45 * MINUTE)
         self.assertEqual(inbox.scan()["added"], 1)
         self.assertEqual(sorted(self.batch()), ["54"])
