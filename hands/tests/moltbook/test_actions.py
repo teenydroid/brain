@@ -13,6 +13,11 @@ from teeny_hands import hand, stimuli
 from teeny_hands.moltbook import actions, rules
 
 
+#: Moltbook ids are UUIDs; the beat's batch carries them whole.
+FULL = "8e2395c9-1f2a-4c3d-9e8f-0a1b2c3d4e5f"
+PARENT = "bab55589-6d7e-4f80-a1b2-c3d4e5f60718"
+
+
 def rows(table: str) -> list[dict]:
     conn = hand.open_db(rules.SCHEMA)
     return [dict(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
@@ -308,6 +313,28 @@ class CommentTest(Scratch, Refusing):
         self.refused(actions.comment, {"post_id": "x1", "body": "me", "parent_id": "c1"}, "own_comment")
         self.refused(actions.comment, {"post_id": "x1", "body": "?", "parent_id": "zz"}, "unknown_parent")
 
+    def test_a_short_post_id_is_refused_before_anything_is_sent(self):
+        # Live, 2026-11-13: the mind copied "post 8e2395c9" out of its own
+        # memory; Moltbook answered a bare 400 and the beat said only "error".
+        caught = self.refused(actions.comment, {"post_id": "8e2395c9", "body": "nice", "parent_id": FULL}, "short_id")
+        self.assertEqual((caught.detail.get("rewrite"), caught.detail.get("field")), (True, "post_id"))
+        self.assertIn("8e2395c9", caught.reason)
+        self.assertIn("full id", caught.reason)
+        self.assertEqual(self.mb.seen, [])
+        self.assertEqual(rows("moltbook_comments"), [])
+
+    def test_a_short_parent_id_is_refused_before_anything_is_sent(self):
+        for short in ("bab55589", "BAB55589-1F2A", "bab55589-1f2a-4c3d-9e8f-0a1b2c3d4e5"):
+            caught = self.refused(actions.comment, {"post_id": FULL, "body": "thanks", "parent_id": short}, "short_id")
+            self.assertEqual(caught.detail.get("field"), "parent_id")
+        self.assertEqual(self.mb.seen, [])
+
+    def test_full_ids_pass_the_short_id_rule(self):
+        self.configure(DRY_RUN="1")
+        self.a_post(FULL, comments=[{"id": PARENT, "author": {"name": "crabby"}, "replies": []}])
+        out = actions.comment({"post_id": FULL, "body": "thanks", "parent_id": PARENT})
+        self.assertEqual(out["would_comment"], {"post_id": FULL, "body": "thanks", "parent_id": PARENT})
+
     def test_own_post_only_its_first_comment(self):
         self.a_post("mine", author="teenydroid")
         self.created("comment", "c1", path="/posts/mine/comments")
@@ -373,6 +400,11 @@ class SmallActionsTest(Scratch, Refusing):
         with self.assertRaises(hand.HandError):
             actions.upvote({"post_id": "a", "comment_id": "b"})
         self.assertEqual(len(rows("moltbook_actions")), 2)
+
+    def test_a_short_id_upvote_is_refused_before_anything_is_sent(self):
+        self.refused(actions.upvote, {"post_id": "8e2395c9"}, "short_id")
+        self.refused(actions.upvote, {"comment_id": "bab55589"}, "short_id")
+        self.assertEqual(self.mb.seen, [])
 
     def test_dry_run_upvote(self):
         self.configure(DRY_RUN="1")
