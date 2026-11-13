@@ -42,6 +42,14 @@
    state/tick/deferred.json and the next beat sends it first, before taking
    its batch, without a model turn (resume). The entry says `paced`; the
    outcome the mind reads says how it went out.
+7. A judge outage is deferred the same way. The guard's judge fails closed,
+   so a model provider dropping streams holds Teeny's own words as
+   "unknown"; the hand's refusal then says `judge_failed`. For the outward
+   intents whose hands refuse a second answer to the same thing (RETRIED:
+   reply_x, comment_moltbook, reply_mail) the beat defers it, `rule`
+   JUDGE_OUTAGE, and the next beat sends it again, through the guard again,
+   until DEFERRED_MAX_AGE_SECS. A hold for anything the judge read is never
+   retried. The outcome tells the mind it went out after a judge outage.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
@@ -773,8 +781,8 @@ def resume(deadline: float) -> list[Json]:
     The list is cleared before anything is sent (a beat that dies halfway
     never sends it twice; the hands' ledgers refuse a second answer anyway).
     One still held is kept for the next beat, until DEFERRED_MAX_AGE_SECS,
-    and then goes back to the mind as refused; so is one the beat has no time
-    left to send (TEENY_TICK_BUDGET_SECS)."""
+    and then goes back to the mind as refused. Once the beat is past its
+    budget (TEENY_TICK_BUDGET_SECS) the rest are kept unsent for the next."""
     items = _load_deferred()
     if not items:
         return []
