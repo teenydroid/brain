@@ -248,12 +248,19 @@ handed four things beyond the message:
   and logs it after (it skips both on a turn with no thread). The evals draft
   each sample on a fresh `eval:<uuid>` thread and stay blind to it.
 - Recall and the memory block: `[memory.recall] budget_tokens = 3000` before
-  each turn, and a 1500-token `memory_block` at each new generation.
+  each turn, and a `memory_block` at each new generation (2000 tokens for
+  `teeny`, 1500 for `act`). `[memory] recall_each_turn_ms = 3000` makes each
+  turn wait up to 3 s for the pack recalled for its own message; unset, a turn
+  only took the pack an earlier turn left in a cache that lives 60 s, so a
+  beat five minutes after the last got none. `build_beliefs_every = 0`: a beat
+  logs its whole batch as "the user", and beliefs built from that read "the
+  user energy level 56". Every `memory_learn` from tick and reflect carries
+  its date, since the core dates only conversation hits.
 
 A thread folds at **100k tokens** (`[context] compaction_trigger_tokens`,
 `bin/lib/core_sections/context.py`): the core seals the generation and opens
-the next with a free-form summary of it plus the last 20k tokens verbatim.
-The sealed generation stays on disk.
+the next with a summary of it plus the last 40k tokens verbatim. The sealed
+generation stays on disk.
 
 **One mind.** Every surface writes to one inbox (`hands/stimuli`):
 
@@ -414,14 +421,34 @@ The last three are also `idle: true`, which the reflection passes over
 `bin/tick` writes a journal entry (Teeny's local time, the thought, its own
 `journal` lines, and what it did as `do on target: status`; never the words
 sent or received) to `state/journal/<local date>.md` and to the core's
-memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`).
+memory (`memory_learn`, kind `other`; not when `TEENY_MIND_LEARN=0`). The
+thought and the journal lines are written before any hand runs, so they can
+claim a send that never landed; the statuses (`bin/lib/outcomes.py`) say
+"not sent" for a dry run or a failed or refused send, with the hand's reason,
+and the memory entry puts what happened first and the mind's own words after,
+marked as written before the hands answered.
+
+**What a beat shows.** The header carries the date with its year, the time in
+Teeny's calendar and in UTC, and how old Teeny is ("You woke on Wednesday 11
+November 2026: today is day 3", `rhythm.age_line`, `TEENY_BORN`). A promise in
+`## people in this batch` says how long ago it was made and when it is due,
+relative, never a bare date. An X mention carries the post it answers (or the
+thread's first post) and what Teeny last said to its author, and a beat with X
+in it, or a habit that may post, ends with what Teeny said on X over the last
+day, replies included (`teeny_hands.x.recall`, from the ledgers, never from X).
 
 **Reflection.** Once a night (the pinned `reflect` job, 02:00 IST),
-`bin/reflect` asks the mind, on `teeny:mind` with the day still in context,
-to bring `MEMORY.md` up to date. It works from what the mind chose to
-remember (`mind_notes`), what it thought and did each beat that thought,
-quiet ones included (`state/tick/runs.jsonl`), the follow-ups still waiting,
-and the page as it stands.
+`bin/reflect` asks the `teeny` agent, on a thread of its own
+(`teeny:reflect`), to bring `MEMORY.md` up to date. It used to run on
+`teeny:mind`, where its turns (45k characters in, as much out) folded the
+mind's generation every ten beats or so; everything it reviews comes in the
+message. It works from what the mind chose to remember (`mind_notes`), what
+it thought and did each beat that thought, quiet ones included
+(`state/tick/runs.jsonl`, each send with how it ended and why), what the
+hands' ledgers counted since the last reflection (builds shipped with their
+links, posts and replies, promises; written by code, and right where a beat
+says otherwise), the follow-ups still waiting, and the page as it stands. The
+page keeps a `what i have shipped` section, and no raw ids or retry counts.
 
 The page is never rewritten whole, because a page rewritten twice a day
 collapses into thin summaries (ACE, arXiv:2510.04618;
@@ -489,7 +516,7 @@ How the day's beats become the page every prompt carries:
    └─► state/journal/<date>.md        and memory_learn (not read by reflect)  │
                                                                               │
  bin/reflect --light (14:00 IST)  ─┐                                          │
- bin/reflect         (02:00 IST)  ─┴─► the teeny agent on teeny:mind ◄────────┘
+ bin/reflect         (02:00 IST)  ─┴─► the teeny agent on teeny:reflect ◄─────┘
                                        + MEMORY.md as it stands, with ids
                                               │
                                               ▼
@@ -547,7 +574,7 @@ are built at boot (§4a).
 
 | Agent | Started by | Tools |
 |---|---|---|
-| `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/reflect` | none |
+| `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/reflect` (thread `teeny:reflect`) | none |
 | `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
