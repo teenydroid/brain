@@ -949,9 +949,9 @@ class TickTest(unittest.TestCase):
                 else:
                     build_requests.mark(3, "skipped")
                     conn = jobs.db()
-                    conn.execute(insert, ("self", None, "self-5-drips", "ok"))
+                    conn.execute(insert, ("self", None, "self-4-drips", "ok"))
                     conn.close()
-                    held = "self job #5 (ok)"
+                    held = "self job #4 (ok)"
                 stimuli.add("x", "mention", pending, "hi")
                 got = self.tick()
                 [result] = got["results"]
