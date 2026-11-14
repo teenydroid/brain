@@ -1376,7 +1376,7 @@ keeps it off and out of the mind's prompt):
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
-| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
+| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`, 1000 characters each, not X's 280) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
