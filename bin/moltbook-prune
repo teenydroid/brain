@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# The weekly unfollow (evals/cron.pinned.toml, moltbook-prune): `hands/moltbook
+# prune` takes Teeny off its own follow list for every agent it followed 7 or
+# more days ago whose profile says it does not follow back. A profile that does
+# not say stays followed. The hand holds the rules; this only calls it. Under
+# DRY_RUN the hand says what it would do and does nothing.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/moltbook" prune </dev/null

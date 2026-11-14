@@ -305,6 +305,30 @@ run plain >/dev/null
 check "a playbook without media never makes a picture" test "$(hand_calls image)" = 0
 check "and never tells the model it may" bash -c "! grep -q 'character sheet' <<<\"\$(jq -r .message '$FAKE_CALLS')\""
 reset
+# Up to four pictures on one post, a quote, a format tag.
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
+answer '{"action": "post", "text": "proof", "images": ["a diff", "a terminal", "a live page", "a graph", "a fifth one"]}'
+out="$(run pic)"
+check "tells the model it may give several pictures" grep -q '"images"' <<<"$(jq -r .message "$FAKE_CALLS")"
+check "makes four pictures at most" test "$(hand_calls image)" = 4
+check "uploads each" test "$(hand_calls x)" = 5
+check "posts with a list of four media ids" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "says what it attached" test "$(jq -r '.actions[0].media.images | length' <<<"$out")" = 4
+reset
+answer '{"action": "post", "text": "proof", "images": ["a diff", "a BAD scene"], "image": "a terminal"}'
+out="$(run pic)"
+check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\]}' "$FAKE_HANDS"
+reset
+reset
+answer '{"action": "post", "text": "look at this", "quote_of": "12345", "format": "quote"}'
+out="$(run pic)"
+check "a quote carries the post it quotes and its format" grep -q '^x post DRY_RUN= stdin={"text":"look at this","quote_of":"12345","format":"quote"}' "$FAKE_HANDS"
+reset
+answer '{"action": "post", "text": "plain"}'
+out="$(run pic)"
+check "a plain post sends neither" grep -q '^x post DRY_RUN= stdin={"text":"plain"}' "$FAKE_HANDS"
+reset
 printf '+++\ndescription = "test"\noutput = "hand:lab post"\nmedia = ["image", "video"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
 answer '{"action": "hand", "text": "gm", "video": "waves", "image": "at the desk"}'
 run pic >/dev/null

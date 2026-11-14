@@ -19,7 +19,7 @@ import random
 import sys
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, tags
 from . import open_db, twitr
 from . import cache, media
 from . import posting_rules as rules
@@ -109,6 +109,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     the process-wide posting lock, so two jobs firing in the same minute
     cannot both read the ledger before either is recorded. `approved`: a
     released hold, which skips the guard only."""
+    body, tagged = tags.split(body)
     text, media_ids, gif_id, quote_of = _draft(body, quote=True)
     kind = "quote" if quote_of else "post"
     if not approved:
@@ -119,6 +120,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
         rules.check_gap(conn)
+        rules.check_daily_cap(conn)
         rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
@@ -132,7 +134,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
-            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids)
+            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, **tagged)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
@@ -151,6 +153,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     it, before the ledger or anything else that can fail."""
     if not rules.is_x_id(to):
         raise hand.HandError("--to must be a numeric X post id")
+    body, tagged = tags.split(body)
     text, media_ids, gif_id, _ = _draft(body, quote=False)
     x = x or twitr.client()
     reads = cache.reads(x)
@@ -200,7 +203,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
         for step, record in (
             ("reply id", lambda: rules.record_reply_id(conn, to, reply_id)),
             ("pacing", lambda: rules.advance_pacing(conn, random.random())),
-            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids)),
+            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids, **tagged)),
         ):
             try:
                 record()

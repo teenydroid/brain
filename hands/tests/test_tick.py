@@ -108,7 +108,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -795,6 +795,49 @@ class TickTest(unittest.TestCase):
         message = self.chats()[0]["message"]
         self.assertIn('"do": "watch_hn"', message)
         self.assertIn("at most 2 today", message)
+
+    def test_the_lab_intents_are_on_by_default_and_go_to_hands_lab(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "propose_experiment", "surface": "moltbook", "hypothesis": "confessions get comments",
+             "format": "confession", "posts": 3, "deadline_days": 7, "extra": "dropped"},
+            {"do": "conclude_experiment", "id": 2, "verdict": "fails", "lesson": "gm posts do nothing here"},
+            {"do": "propose_experiment", "surface": "x", "hypothesis": "b", "format": "take", "posts": 1, "deadline_days": 2},
+            {"do": "propose_experiment", "surface": "x", "hypothesis": "c", "format": "gm", "posts": 1, "deadline_days": 2},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done", "done", "done", "refused"])
+        self.assertIn("today's 2 propose_experiment intent(s) are spent", got["results"][3]["result"]["refused"])
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls[:2], [
+            ("lab", ["propose", "--source", "mind"], {"surface": "moltbook", "hypothesis": "confessions get comments",
+                                                      "format": "confession", "posts": 3, "deadline_days": 7}),
+            ("lab", ["conclude"], {"id": 2, "verdict": "fails", "lesson": "gm posts do nothing here"}),
+        ])
+        message = self.chats()[0]["message"]
+        self.assertIn('"do": "propose_experiment"', message)
+        self.assertIn('"do": "conclude_experiment"', message)
+
+    def test_the_lab_intents_can_be_switched_off(self):
+        self.caps(MIND_EXPERIMENTS_PER_DAY=0)
+        self.answer({"thought": "", "intents": [{"do": "propose_experiment", "surface": "x", "hypothesis": "a",
+                                                 "format": "take", "posts": 1, "deadline_days": 2}]})
+        got = self.tick()
+        self.assertIn("MIND_EXPERIMENTS_PER_DAY", got["results"][0]["result"]["refused"])
+        self.assertNotIn('"do": "propose_experiment"', self.chats()[0]["message"])
+
+    def test_every_beat_shows_the_scoreboard(self):
+        from teeny_hands.lab import ledger
+        from teeny_hands.stats import collect
+
+        collect.db().execute("INSERT INTO stats (date, source, metric, value, at) VALUES ('2026-09-14', 'x', 'followers', 330, 0)")
+        ledger.propose({"surface": "x", "hypothesis": "a take beats a gm", "format": "take", "posts": 3, "deadline_days": 7})
+        self.tick()
+        message = self.chats()[0]["message"]
+        block = message[message.index("## scoreboard"):]
+        block = block[: block.index("\n\n", len("## scoreboard\n\n"))]
+        self.assertIn("Audience: x.followers 330", block)
+        self.assertIn("#1 x `take` (result): 0 of 3 posts measured", block)
+        self.assertLessEqual(len(block), 1500)
 
     def test_a_task_the_guard_holds_never_reaches_the_queue(self):
         self.caps(MIND_TASKS_PER_DAY=3)
@@ -1779,6 +1822,58 @@ class TickTest(unittest.TestCase):
         self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
                          "teeny at the desk with coffee [g]")
         self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "media_ids": ["777"]})
+
+    def test_the_mind_can_post_on_moltbook_and_follow_there(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "post_moltbook", "title": "retries are not recovery", "text": "I retried it nine times.", "format": "claim"},
+            {"do": "post_moltbook", "submolt": "builds", "title": "a build note", "text": "body", "url": "https://github.com/teenydroid/x"},
+            {"do": "follow_moltbook", "name": "crabby"},
+        ]})
+        self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [
+            ("moltbook", ["post"], {"submolt": "general", "title": "retries are not recovery",
+                                    "body": "I retried it nine times.", "format": "claim"}),
+            ("moltbook", ["post"], {"submolt": "builds", "title": "a build note", "body": "body",
+                                    "url": "https://github.com/teenydroid/x"}),
+            ("moltbook", ["follow"], {"name": "crabby"}),
+        ])
+
+    def test_a_moltbook_post_needs_a_title_and_a_body(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_moltbook", "text": "no title"}, {"do": "follow_moltbook"}]})
+        self.tick()
+        self.assertEqual(self.hand_calls(), [])
+
+    def test_a_post_can_carry_up_to_four_pictures_a_quote_and_a_format(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{
+            "do": "post_x", "text": "diff, terminal, page", "quote_of": "4242", "format": "proof",
+            "images": ["a diff on a screen", "a terminal", "a live page", "a graph", "a fifth scene"], "image": "a sixth"}]})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        self.assertEqual(len([c for c in log if (c["hand"], c["argv"][0]) == ("image", "generate")]), 4)
+        self.assertEqual(len([c for c in log if (c["hand"], c["argv"][0]) == ("x", "upload")]), 4)
+        self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"],
+                         {"text": "diff, terminal, page", "quote_of": "4242", "format": "proof", "media_ids": ["777"] * 4})
+        entry = self.runs()[-1]["results"][0]
+        self.assertEqual(len(entry["media"]["images"]), 4)
+
+    def test_a_reply_can_carry_a_picture_or_a_gif(self):
+        stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "55", "text": "gm", "image": "teeny waving"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        replies = [c for c in log if c["argv"][:1] == ["reply"]]
+        self.assertEqual(replies[0]["body"], {"text": "gm", "media_ids": ["777"]})
+        stimuli.add("x", "mention", "56", "gm again", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "56", "text": "gm", "gif_id": "abc123", "image": "ignored"}]})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        replies = [c for c in log if c["argv"][:1] == ["reply"]]
+        self.assertEqual(replies[-1]["body"], {"text": "gm", "gif_id": "abc123"})
 
     def test_every_beat_is_logged(self):
         stimuli.add("x", "mention", "111", "gm")

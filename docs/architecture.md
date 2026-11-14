@@ -282,8 +282,8 @@ generation stays on disk.
 The pinned `tick` job (`bin/tick`, every 5 minutes) takes a batch and sends
 it to the tool-less `teeny` agent on one long thread, `teeny:mind`. The
 agent answers with a `thought` and JSON intents (`reply_x`,
-`comment_moltbook`, `reply_mail`, `comment_gh`, `remember`, `follow_up`,
-and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
+`comment_moltbook`, `post_moltbook`, `follow_moltbook`, `reply_mail`,
+`comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
 "The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
@@ -329,7 +329,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
    outward: reply_x, post_x, like_x,                 inward: remember, follow_up,
    comment_moltbook, upvote_moltbook,                drop_follow_up, feel, journal, skip,
                                                      promise, kept (hands/people)
-   reply_mail, say_telegram, comment_gh,                      │
+   post_moltbook, follow_moltbook, reply_mail,                │
+   say_telegram, comment_gh,                                  │
    open_issue, queue_task, start_mail (capped)                │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
@@ -527,7 +528,30 @@ or so). It works from:
   `learning`: `remember`, the diary, and journal entries learned before
   2026-11-13; never a conversation),
   newest first, each with an alias such as `[c3]`;
-- the follow-ups still waiting, and the page as it stands.
+- the follow-ups still waiting, and the page as it stands;
+- the scoreboard and the lab (`bin/lib/scoreboard.py`): the three lines of
+  `hands/stats board` and the average result per format, the open
+  experiments scored in code just before the turn, the lab's lessons, and
+  "true right now" (the wallet's and the x402 rail's balances read at that
+  moment, and the follower numbers), so a dream does not write a stale
+  number into the page. Each is a list with a hard cap of 2,500 characters.
+
+**The scoreboard and the lab.** Teeny learns what gets attention by
+experiment. `hands/lab` keeps the experiments: a guess about one format on
+one surface, how many posts it needs, a deadline. Posts join one by their
+`format` tag or `experiment` id. The pinned `metrics` job measures every
+post hourly, `hands/lab score` compares an experiment's posts with the
+other posts of the same period in code, and a verdict other than `unclear`
+is refused until the planned posts are measured. Every beat carries a
+scoreboard block (at most 1,500 characters: the board's three lines, the
+open experiments, the latest three lessons); the mind may
+`propose_experiment` and `conclude_experiment` (2 and 5 a day by default).
+The night dream concludes what is due and proposes the next ones through
+two more operations, `experiment` and `conclude` (at most 2 and 5 a night),
+carried out through `hands/lab` after the page is written. The daily
+`speculate` playbook nudges the mind to search how small accounts grow on
+the surface that did worst and to propose an experiment. `self-improve` and
+the evolve loop's `evidence.json` read `hands/lab lessons`.
 
 The message is at most 60 KiB (`reflect.MAX_PROMPT_BYTES`): the core holds
 any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
@@ -700,8 +724,19 @@ How the day's beats become the page every prompt carries:
   shows. The next daily job is made from it (docs/hands.md, `build`, "The
   daily job"). A day with nothing that clears the bar keeps no idea, and the
   builder gets the standing brief.
-- A `post_x` intent may carry an `image` of Teeny, made through the same
-  guard → `hands/image` → `hands/x upload` path `bin/act` uses.
+- A `post_x` or `reply_x` intent may carry pictures of Teeny: `image` (one) or
+  `images` (a list, at most 4), each made through the same guard →
+  `hands/image` → `hands/x upload` path `bin/act` uses. The ids travel as one
+  `media_ids` list (`_pictures` in `bin/lib/tick.py`; a reply deferred by the
+  pacing keeps its ids). Either may carry `gif_id` instead (never both), and a
+  `post_x` may carry `quote_of` (a post id) and a `format` tag.
+- X is three own posts a day, eight hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), as three slots in IST: `morning` 07:00 (a gm that
+  reacts to something read; a habit the mind carries out), `take` 15:00 (a take
+  or a quote of a builder's post) and `show` 23:00 (what was built, with up to
+  four pictures). `brief` runs at 15:05 and 23:05, and `take` and `show` skip
+  when a brief is queued, so a brief takes the next free slot instead of a
+  fourth post. Replies to mentions are not counted.
 
 ## 5. Roster
 
@@ -762,7 +797,13 @@ Every scheduled job is in one of two files:
   - `dream` (`bin/dream --detach`, 02:00 IST);
   - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
   - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
+  - `metrics` (`bin/stats-snapshot metrics`, hourly), which measures
+    Teeny's own X and Moltbook posts about 1h, 24h and 72h after they went
+    out, for the scoreboard (`hands/stats board`);
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
+  - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
+    unfollow of agents that did not follow Teeny back after 7 days
+    (`hands/moltbook prune`);
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
@@ -795,7 +836,14 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`).
+  (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
+  evening post (`moltbook-evening`), a post in `m/general` about hourly when
+  there is something to say (`moltbook-general`, at most 12 a day), threads
+  (`moltbook-threads`), the helpdesk and a daily follow (`moltbook-follow`).
+  Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
+  Answering comments on its own posts is the mind's job: `hands/moltbook
+  inbox` shows each comment's depth, and one at Moltbook's fifth level is
+  not answered.
 
 All schedules are read in `CALENDAR_TZ` unless a job sets `tz`. The brain's
 post jobs use `Asia/Kolkata`.
@@ -984,12 +1032,14 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
    playbook's daily budget (`max_per_day`) and gathers its inputs (none for
    `morning`).
 2. One turn as the tool-less `act` agent on the `teeny:act` thread drafts the
-   post as JSON, optionally with an `"image"` scene.
+   post as JSON, optionally with an `"image"` scene (or up to four in `"images"`),
+   a `"quote_of"` post id and a `"format"` tag.
 3. If there is a scene, `bin/act` runs it past the guard, calls
    `hands/image generate`, and uploads the file with `hands/x upload`. A
    failure there leaves the post text-only.
 4. `hands/x post` runs the guard and checks, takes the posting lock, re-checks
-   the 3-hour gap inside the lock, posts, and records the post. A ledger write
+   the 8-hour gap and the 3-a-day cap inside the lock, posts, and records the
+   post. A ledger write
    that fails after the post is logged and never retried.
 
 ## 8. Deploy

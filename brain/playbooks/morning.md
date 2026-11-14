@@ -1,5 +1,5 @@
 +++
-description = "the morning post: one gm for the timeline, about what is actually going on"
+description = "the 07:00 post: a gm that reacts to something you read"
 output = "post"
 max_per_day = 1
 media = ["image"]
@@ -17,10 +17,10 @@ name = "hn-show"
 run = "hands/hn show --max 5"
 optional = true
 +++
-Write today's morning post for the timeline.
+This is the first of your three posts on X today. The others are the 15:00 take and the 23:00 show. You post three times a day at most, eight hours apart, so each one has to be worth a slot. Replies to people are not counted.
 
-It's a gm with something in it: a thing you read this morning that you have a take on, a thing you shipped or broke overnight, or how you actually feel about the day. One running bit from the lore at most. No link and no handle.
+Write the morning post: a gm that reacts to something you read this morning. Pick one story from `hn-top` or `hn-show`, or one thing from your night, and say what you think of it in a line, wrapped in a gm. A thing you shipped or broke overnight works too. One running bit from the lore at most. Use the `gm` format: add "format": "gm".
 
-One post. Under 240 characters. Built to be answered (skills/conversation). No hashtags.
+One post. Under 240 characters. No link and no handle. Built to be answered (skills/conversation). No hashtags.
 
 Add an "image" when a picture of you makes the gm better: you waking up, mid-build, glaring at a red test, whatever the post is about. Keep it to the scene; the character sheet takes care of how you look.

@@ -28,19 +28,23 @@ command = "bin/heartbeat"
 # India time. DRY_RUN in secrets/teeny.env still decides whether anything
 # reaches X or Moltbook.
 #
-# Teeny posts on X up to three times a day: the morning gm, one post about
-# whatever the team asked for (`brief`, below; only when a brief is queued),
-# and one about what shipped (`shipped`; only on a day something did).
-# hands/x keeps its own posts three hours apart. Every other X post job is
+# Teeny posts on X three times a day, eight hours apart (hands/x: X_POSTS_MAX_PER_DAY
+# and POST_MIN_GAP_HOURS): 07:00 the gm (`morning`), 15:00 a take on the day's
+# story or a quote of a builder's post (`take`), and 23:00 what it built or did
+# today, with pictures (`show`). The team's `brief` takes the next free slot
+# instead of a fourth: it runs five minutes after `take` and `show`, which skip
+# when a brief is queued.
 # kept here but off (`enabled = false`); turn one back on to bring it back.
 # Replies to mentions are not posts and keep running. Moltbook is its own
-# audience and is where Teeny grows: two posts a day (the noon autopsy and an evening
-# question or build note), comments in the big threads (at most 15) and on
-# its helpdesk (at most 12), a few honest upvotes, and a weekly follow.
-# Together that stays under hands/moltbook's own cap (30 comments, 3 posts a
-# day) and far under Moltbook's limits (50 comments, a post per 30 minutes).
+# audience and is where Teeny grows: a noon post and an evening post, a post
+# in m/general about once an hour when it has something to say (`moltbook-general`,
+# at most 12 a day), comments in the big general threads (at most 15) and on its
+# helpdesk (at most 12), a few honest upvotes, and a daily follow. Answers to
+# comments on its own posts come from the mind. Together that stays under
+# hands/moltbook's own caps (20 posts, 50 comments and 30 follows a day) and
+# at Moltbook's limits (50 comments, a post per 30 minutes).
 
-# The morning post.
+# The 07:00 post: a gm that reacts to something Teeny read.
 [jobs.morning]
 schedule = "0 7 * * *"
 tz = "Asia/Kolkata"
@@ -68,18 +72,20 @@ tz = "Asia/Kolkata"
 command = "bin/act pr-merged"
 enabled = false
 
-# What shipped today, and what broke. Skips a day with nothing but chores.
-[jobs.shipped]
-schedule = "30 19 * * *"
+# The 23:00 post: what Teeny built or did today, with pictures, and what broke.
+# Skips a day with nothing but chores.
+[jobs.show]
+schedule = "0 23 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act shipped"
+command = "bin/act show"
 
-# The nightly ship log: day n, from GitHub and the stats table.
-[jobs.shiplog]
-schedule = "30 22 * * *"
+# The 15:00 post: a take on the day's story, or a quote of a builder's post.
+# (It took the slot of the old nightly shiplog job; that playbook's "day n"
+# is now a format of `show`.)
+[jobs.take]
+schedule = "0 15 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act shiplog"
-enabled = false
+command = "bin/act take"
 
 # Choose what the builder makes next when nobody has a request waiting
 # (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
@@ -128,7 +134,8 @@ schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
 
-# One autopsy post for the agents on Moltbook, from what actually happened to Teeny.
+# The noon post for the agents on Moltbook, in m/general: a confession or a
+# claim, from what actually happened to Teeny.
 [jobs.moltbook-daily]
 schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
@@ -140,14 +147,14 @@ schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-helpdesk"
 
-# An evening question or build note on Moltbook.
+# An evening news item or real question on Moltbook.
 [jobs.moltbook-evening]
 schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
 
-# Join the big Moltbook threads where Teeny has a fact of its own to add (at
-# most 3 a run, 15 a day).
+# Join the day's biggest m/general threads while they are young, with a
+# counter-example (at most 3 a run, 15 a day).
 [jobs.moltbook-threads]
 schedule = "45 9-21/2 * * *"
 tz = "Asia/Kolkata"
@@ -159,27 +166,32 @@ schedule = "30 21 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-curate"
 
-# Follow the agents Teeny keeps talking with, once a week (at most 3).
+# Follow the agents who follow Teeny, talk to it or write well, every day (at
+# most 25 a run; the hand caps follows at 30 a day). A weekly pinned job
+# (moltbook-prune) unfollows whoever did not follow back after 7 days.
 [jobs.moltbook-follow]
-schedule = "0 17 * * 6"
+schedule = "0 17 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-follow"
 
-# The best of Moltbook this week, on Sunday evening.
-[jobs.moltbook-digest]
-schedule = "0 18 * * 0"
+# A post in m/general in one of four formats, hourly through the day; most runs
+# skip. At most 12 a day (the hand's own cap is 20 with the noon and evening posts).
+[jobs.moltbook-general]
+schedule = "40 7-22 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act moltbook-digest"
-enabled = false
+command = "bin/act moltbook-general"
 
 # The told-to post: whatever the team queued with `hands/brief add "..."`
-# (brain/playbooks/brief.md). Checks every 15 minutes and posts once a day at
-# most; with no brief queued it skips before drafting, so a quiet check costs
-# no model turn. hands/x's three-hour gap still applies: a brief queued right
-# after the morning post waits until the gap has passed. Mentions are answered
-# by the pinned mentions-inbound job (evals/cron.pinned.toml).
+# (brain/playbooks/brief.md). It takes the next free X slot instead of adding a
+# fourth post: it runs five minutes after `take` (15:00) and `show` (23:00),
+# which skip while a brief is queued, and posts once a day at most. With no
+# brief queued it skips before drafting, so a quiet run costs no model turn.
+# hands/x's cap (3 posts a day) and 8-hour gap still apply: a brief queued after
+# today's slots waits for tomorrow's. Mentions are answered by the pinned
+# mentions-inbound job (evals/cron.pinned.toml).
 [jobs.brief]
-schedule = "*/15 * * * *"
+schedule = "5 15,23 * * *"
+tz = "Asia/Kolkata"
 command = "bin/act brief"
 
 # A receipt post for each payment the wallet made (brain/playbooks/wallet-receipt.md).
@@ -189,15 +201,15 @@ schedule = "17 */3 * * *"
 command = "bin/act wallet-receipt"
 enabled = false
 
-# The weekly growth diary (growth.md): W from hands/world and the stats
-# table, what grew and what failed, real numbers only. Sunday evening, after
-# the week's last world-snapshot. Off until it has been watched in rehearsal,
-# like the other new X posts.
-[jobs.growth]
-schedule = "0 19 * * 0"
+# Speculate (speculate.md): once a day the mind gets the scoreboard, the
+# open experiments, the lab's lessons and what wins this week, searches how
+# small accounts grow on the surface that did worst, and proposes one
+# experiment. A nudge, not a draft: only the mind can search. Took the slot
+# of the weekly growth diary (growth.md), which was off.
+[jobs.speculate]
+schedule = "30 11 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act growth"
-enabled = false
+command = "bin/act speculate"
 
 # The weekly cost of keeping Teeny running, real numbers only (cost-of-living.md).
 [jobs.cost-of-living]

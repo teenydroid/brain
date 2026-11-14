@@ -6,10 +6,16 @@ posts Teeny is part of: its own recent posts (every comment on them is said
 to Teeny) and the posts it commented on (only replies under Teeny's own
 comments are). Each one by someone else is screened by the inbound guard and,
 when allowed, added to the stimuli inbox once: `moltbook · comment`, ref the
-comment id, with the post and parent ids `comment_moltbook` needs to answer.
+comment id, with the post and parent ids `comment_moltbook` needs to answer,
+its `depth` in the tree and whether it `can_answer` (Moltbook draws five levels).
+A comment the guard held is kept in `moltbook_held`, as X keeps a held
+mention, and left for the hold's review: the guard's re-screen returns it
+to the inbox (`release_held`) once it finds it clean.
 
-Reads only; it answers nobody. Re-running it is free: the inbox ignores a
-comment it already has.
+Reads only; it answers nobody. Re-running it is free: a comment already in
+the inbox, or already held, is passed over before the guard sees it again
+(2026-11-13: one held comment was screened and held anew on every run, a
+dozen pending holds for one comment).
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ from typing import Any, Mapping
 from .. import hand, stimuli
 from ..rest import RestApi
 from . import reads, rules
-from .actions import _author, _walk
+from .actions import _author, _depths, _walk
 
 Json = dict[str, Any]
 
@@ -51,15 +57,31 @@ def _posts(conn, since: float, max_posts: int) -> dict[str, bool]:
     return out
 
 
+def _known(conn, inbox, cid: str) -> bool:
+    """Whether a comment was settled by an earlier scan: in the inbox, or held."""
+    if conn.execute("SELECT 1 FROM moltbook_held WHERE comment_id = ?", (cid,)).fetchone():
+        return True
+    return inbox.execute("SELECT 1 FROM stimuli WHERE id = ?", (f"moltbook:comment:{cid}",)).fetchone() is not None
+
+
+def _keep_held(conn, cid: str, post_id: str, hold_id: int | None) -> None:
+    with hand.transaction(conn):
+        conn.execute("INSERT OR IGNORE INTO moltbook_held (comment_id, post_id, hold_id, at) VALUES (?, ?, ?, ?)",
+                     (cid, post_id, hold_id, hand.now()))
+
+
 def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json:
     conn = rules.db()
+    known = stimuli.db()
     me = reads.me_name(api).lower()
     posts = _posts(conn, hand.now() - days * 86400, max_posts)
     added = held = seen = 0
     errors: list[str] = []
     for post_id, own in posts.items():
         try:
-            tree = list(_walk(reads.comments(post_id, "new", 100, api, fresh=True).get("comments")))
+            nodes = reads.comments(post_id, "new", 100, api, fresh=True).get("comments")
+            tree = list(_walk(nodes))
+            depths = _depths(nodes)
         except hand.HandError as exc:
             errors.append(f"{post_id}: {exc}")
             continue
@@ -74,11 +96,17 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json
             if not said_to_teeny:
                 continue
             seen += 1
+            if _known(conn, known, str(cid)):
+                continue
             verdict = _screen(text, {"post_id": post_id, "comment_id": str(cid), "author": author})
             if verdict.kind != "allow":
+                _keep_held(conn, str(cid), post_id, verdict.hold_id)
                 held += 1
                 continue
-            payload = {"post_id": post_id, "on_own_post": own}
+            depth = depths.get(str(cid), 1)
+            # Moltbook draws five levels; an answer below the last is never
+            # seen, so a comment at that level is read but cannot be answered.
+            payload = {"post_id": post_id, "on_own_post": own, "depth": depth, "can_answer": depth < rules.MAX_REPLY_DEPTH}
             if parent is not None:
                 payload["parent_id"] = parent
                 payload["answering_teeny"] = parent in mine
@@ -93,7 +121,8 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json
 def release_held(context: Mapping[str, Any], text: str) -> bool:
     """A comment the guard held, into the inbox as `scan` would have added it,
     once the guard's re-screen found it clean. False when the inbox already
-    has it (a later scan let it through, or a second hold of it cleared)."""
+    has it (an earlier release, or a hold of it from before scans kept held
+    comments, cleared first). Later scans pass it over either way."""
     post_id = str(context["post_id"])
     own = rules.db().execute(
         f"SELECT 1 FROM moltbook_posts WHERE post_id = ? AND status IN ({','.join('?' * len(rules.COUNTED))})",

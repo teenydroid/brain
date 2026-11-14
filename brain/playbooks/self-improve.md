@@ -21,20 +21,21 @@ name = "recent"
 run = "hands/stimuli recent --max 30"
 
 [[inputs]]
-name = "world"
-run = "hands/world report --days 7"
+name = "lessons"
+run = "hands/lab lessons --max 10"
 
 [[inputs]]
 name = "archive"
 run = "hands/build jobs --status shipped --limit 30"
 
 [[inputs]]
-name = "world-history"
-run = "hands/world history --days 30"
-
-[[inputs]]
 name = "people"
 run = "hands/people list"
+
+[[inputs]]
+name = "frozen"
+run = "hands/build frozen"
+optional = true
 +++
 Propose one change to yourself, the one that would help you most today. The builder makes it in your own clone and opens it as a pull request, and the operator merges it or closes it.
 
@@ -46,17 +47,19 @@ Look at what went wrong or went missing lately:
 
 Also look at what your lore asks of you that you can't do yet.
 
-Then look at how you are growing:
-- `world`: your world score W and its growth score J over the last 7 days, computed by frozen code. Read its `reading` lines first. The component with the smallest `contribution`, or one with a `note` saying it has no data, is usually where the most is left.
+Then look at what came of your past changes:
 - `archive`: your past self changes. They are the jobs of `kind` `self`; ignore the other kinds. Each has its `summary` and its `pr_url`. Don't propose again what is already there, merged or closed.
-- `world-history`: W day by day for 30 days, so you can see what moved in the days after each of those changes shipped (`shipped_at`).
+- `lessons`: what your lab's experiments found about what gets attention, newest first, each with its verdict and numbers counted in code. A change that follows a lesson (a playbook that writes more of what `works`, less of what `fails`) beats a guess.
 
-Pick the single change that fixes the most for the least. It must be one of:
-- an agent prompt (`brain/agents/*.md`) or a playbook (`brain/playbooks/*.md`) that answers better, skips the right things, or stops repeating itself;
-- a skill (`brain/skills/**`), or a job in `brain/cron.toml`;
-- a new hand (`hands/<name>`, `hands/lib/teeny_hands/<name>/` and its tests) for something you keep needing and can't do.
+The bar: the change makes you act differently in a way a stranger would notice. A post people answer instead of scroll past, a reply that gets a reply back, a build somebody uses, a playbook that stops writing the thing that keeps getting held. It starts from something that really happened, and you can point at it: the post that drew five people and the one that drew nobody, the request you dropped, the job that failed and why.
 
-Never propose a change to anything frozen. That covers `bin/`, `spine/`, `vendor/`, `deploy/`, `evals/`, `.github/`, `DIRECTIVE.md`, the agent definitions (`*.toml`), `hands/guard`, `hands/x`, `hands/world` (the scorer) and the existing hand library. The OpenHuman core is the operator's: if the fix belongs there, skip and say so. Nothing touching wallets, keys, money or the guard.
+These don't count, so don't propose them:
+- a change whose only effect is a number: a hand nobody calls, a file added so a count goes up, an arc marked started with nothing done;
+- doing less to save money: fewer runs, a job turned off, a schedule thinned out. A job that fails gets fixed, not run less;
+- anything aimed at a part of W that has never been read;
+- buying, holding or moving $TINY or any money. The wallet is the operator's.
+
+`frozen` lists every path you can't change, and `often_wanted` says where the frozen things a change most often reaches for live and what is yours to change instead. The builder's daily brief is one of them: it is `hands/lib/teeny_hands/build/jobs.py`, frozen, and `brain/playbooks/build-idea.md` is yours. Read it before you choose. If the fix you want lives in a frozen path, skip and name the file and the change the operator should make; the builder can't ship it either. The OpenHuman core is the operator's too: if the fix belongs there, skip and say so. Nothing touching wallets, keys, money or the guard.
 
 Skip only when one of your own changes is still in flight: a `self` request in `pending`, or a job of kind `self` in `builds` that is not finished (`failed` and `shipped` are finished). One at a time.
 
@@ -67,7 +70,7 @@ Make it a delta edit. A change to an existing prompt, playbook or skill adds, ed
 Write it as a brief for the builder, in a few short paragraphs:
 1. What to change: the file, and the one bullet you add, edit or retire in it.
 2. Why: the evidence above, quoted or counted.
-3. What it moves: the W component (attention, tiny, money, capability, shipped or world), how far you expect it to move in 7 days (a size from the `world` input, like "attention Δlog +0.02"), and which step of the flywheel it turns: act, attention, mindshare, holding or capability.
-4. How you will know it worked: what `hands/world report` should show a week after it merges.
+3. Who notices: what people will see you do differently, and which W component (attention, tiny, money, capability, shipped or world) that would show up in. The component is a label; the change is for the people.
+4. How you will know it worked: what you will see a week after it merges, in the replies, the builds or the jobs, not only in `hands/world report`.
 
 It must be small enough to build and test in one run. Answer {"action": "hand", "text": "<the brief>"}. If nothing is worth changing today, skip with the reason.

@@ -179,6 +179,22 @@ def open_db(schema: str) -> sqlite3.Connection:
     raise AssertionError("unreachable")
 
 
+def add_columns(conn: sqlite3.Connection, table: str, columns: Mapping[str, str]) -> None:
+    """Adds each of `columns` (name -> declaration, nullable or with a
+    default) that `table` lacks, so a table created before a column existed
+    keeps its rows and gains the column. Another hand adding the same column
+    at the same moment is not an error."""
+    have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, declaration in columns.items():
+        if name in have:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
+
+
 def number(name: str, default: int, low: int, high: int) -> int:
     """A whole-number setting, clamped to [low, high]; the default when it is
     unset or unreadable, so a typo cannot lift a cap."""

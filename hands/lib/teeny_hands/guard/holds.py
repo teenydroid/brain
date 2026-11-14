@@ -192,12 +192,27 @@ def record(
     text: str,
     links: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Writes one hold, pending review, and returns it."""
+    """Writes one hold, pending review, and returns it. Somebody else's
+    message held again, for the same reason by the same check, while that
+    first hold is still pending (the same context, so the same item, and the
+    same words) is that hold, returned as it is: an intake that sees the item
+    again must not pile up copies for the operator. Another finding on the
+    item (the judge failing, then a verdict) is a hold of its own, and a
+    draft of the account's own is a new hold each time."""
     _one_of("direction", direction, DIRECTIONS)
     _one_of("kind", kind, KINDS)
     _one_of("by", by, BY)
     _one_of("surface", (context or {}).get("surface"), SURFACES)
+    serialized = json.dumps(context, ensure_ascii=False, sort_keys=True)
     with _store() as conn, hand.transaction(conn):
+        if direction == "inbound":
+            same = conn.execute(
+                "SELECT id FROM guard_holds WHERE status = 'pending' AND direction = ? AND kind = ? AND context = ?"
+                " AND text = ? AND category = ? AND reason = ? AND held_by = ? ORDER BY id LIMIT 1",
+                (direction, kind, serialized, text, category, reason, by),
+            ).fetchone()
+            if same is not None:
+                return _select(conn, same["id"])  # type: ignore[return-value]
         cursor = conn.execute(
             "INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text, links)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -205,7 +220,7 @@ def record(
                 _iso_now(),
                 direction,
                 kind,
-                json.dumps(context, ensure_ascii=False, sort_keys=True),
+                serialized,
                 category,
                 reason,
                 by,

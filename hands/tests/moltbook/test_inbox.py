@@ -15,7 +15,7 @@ def comment(cid: str, author: str, text: str, replies: list | None = None) -> di
     return {"id": cid, "author": {"name": author}, "content": text, "replies": replies or []}
 
 
-class InboxTest(Scratch):
+class InboxCase(Scratch):
     def setUp(self):
         super().setUp()
         self.real_screen = inbox._screen
@@ -29,12 +29,14 @@ class InboxTest(Scratch):
 
     def screen(self, text, context):
         if "seed phrase" in text:
-            return SimpleNamespace(kind="hold", reason="asks for a secret")
-        return SimpleNamespace(kind="allow", reason="")
+            return SimpleNamespace(kind="hold", reason="asks for a secret", hold_id=None)
+        return SimpleNamespace(kind="allow", reason="", hold_id=None)
 
     def batch(self):
         return stimuli.take(max_items=50, max_chars=100_000)["stimuli"]
 
+
+class InboxTest(InboxCase):
     def test_comments_on_own_posts_and_replies_to_teeny_reach_the_inbox(self):
         self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [
             comment("c1", "crabby", "love this post", [comment("c2", "teenydroid", "thanks", [comment("c3", "crabby", "anytime")])]),
@@ -48,12 +50,21 @@ class InboxTest(Scratch):
         self.assertEqual((out["posts"], out["added"], out["held"]), (2, 3, 1))
         got = {s["ref"]: s for s in self.batch()}
         self.assertEqual(sorted(got), ["c1", "c3", "x2"])
-        self.assertEqual(got["c1"]["payload"], {"post_id": "own1", "on_own_post": True})
+        self.assertEqual(got["c1"]["payload"], {"post_id": "own1", "on_own_post": True, "depth": 1, "can_answer": True})
         self.assertEqual(got["c3"]["payload"]["parent_id"], "c2")
         self.assertTrue(got["c3"]["payload"]["answering_teeny"])
         self.assertEqual((got["x2"]["who"], got["x2"]["payload"]["post_id"]), ("ana", "theirs1"))
         # Old posts are not walked; Teeny's own comments are never stimuli.
         self.assertEqual(self.mb.requests("GET", "/posts/old1/comments"), [])
+
+    def test_the_depth_is_shown_and_the_last_level_cannot_be_answered(self):
+        deep = comment("d1", "a", "one", [comment("d2", "teenydroid", "two", [comment("d3", "b", "three", [
+            comment("d4", "teenydroid", "four", [comment("d5", "c", "five")])])])])
+        self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [deep]})
+        self.mb.route("GET", "/posts/theirs1/comments", {"success": True, "comments": []})
+        inbox.scan()
+        got = {s["ref"]: s["payload"] for s in self.batch()}
+        self.assertEqual({k: (v["depth"], v["can_answer"]) for k, v in got.items()}, {"d1": (1, True), "d3": (3, True), "d5": (5, False)})
 
     def test_a_second_scan_adds_nothing_new(self):
         self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [comment("c1", "crabby", "hi")]})
@@ -61,3 +72,51 @@ class InboxTest(Scratch):
         inbox.scan()
         self.assertEqual(inbox.scan()["added"], 0)
         self.assertEqual(len(self.batch()), 1)
+
+
+class HeldCommentTest(InboxCase):
+    """A comment the real guard holds (the lexicon, judge off) is screened
+    and held once, however many scans see it, and reaches the inbox only
+    when its hold is cleared. Live on 2026-11-13: one comment on Teeny's
+    own post was held again on every intake run, a dozen pending holds."""
+
+    HELD = "A captcha killed the reply, the retry cleared it"
+
+    def setUp(self):
+        super().setUp()
+        inbox._screen = self.real_screen
+        self.mb.route("GET", "/posts/own1/comments", {"success": True, "comments": [
+            comment("f17", "templeofmolt", self.HELD),
+        ]})
+        self.mb.route("GET", "/posts/theirs1/comments", {"success": True, "comments": []})
+
+    def holds_for(self, cid):
+        from teeny_hands.guard import holds
+
+        return [h for h in holds.list_holds() if h["context"].get("comment_id") == cid]
+
+    def test_a_held_comment_is_held_once_across_scans(self):
+        first = inbox.scan()
+        self.assertEqual((first["held"], first["added"]), (1, 0))
+        for _ in range(3):
+            again = inbox.scan()
+            self.assertEqual((again["held"], again["added"]), (0, 0))
+        held = self.holds_for("f17")
+        self.assertEqual(len(held), 1, held)
+        self.assertEqual((held[0]["status"], held[0]["by"]), ("pending", "screen"))
+        self.assertEqual(self.batch(), [], "a held comment never reaches the mind")
+
+    def test_a_cleared_hold_returns_the_comment_to_the_inbox_once(self):
+        from teeny_hands.guard import rescreen
+
+        inbox.scan()
+        inbox.scan()
+        [held] = self.holds_for("f17")
+        self.assertTrue(rescreen._release_moltbook(held))
+        self.assertFalse(rescreen._release_moltbook(held), "released once")
+        later = inbox.scan()
+        self.assertEqual((later["held"], later["added"]), (0, 0))
+        got = self.batch()
+        self.assertEqual([(s["ref"], s["who"]) for s in got], [("f17", "templeofmolt")])
+        self.assertEqual(got[0]["payload"], {"post_id": "own1", "on_own_post": True})
+        self.assertEqual(len(self.holds_for("f17")), 1)

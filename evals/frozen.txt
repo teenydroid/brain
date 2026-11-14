@@ -113,6 +113,7 @@ hands/lib/teeny_hands/slopcash/
 hands/lib/teeny_hands/stats/
 hands/lib/teeny_hands/stimuli.py
 hands/lib/teeny_hands/stimuli_cli.py
+hands/lib/teeny_hands/tags.py
 hands/lib/teeny_hands/tasks/
 hands/lib/teeny_hands/telegram/
 hands/lib/teeny_hands/votes.py
@@ -128,6 +129,11 @@ hands/lib/teeny_hands/xpost.py
 # here, so a proposal cannot redefine how success is checked.
 hands/goals
 hands/lib/teeny_hands/goals/
+
+# The lab ledger: how an experiment Teeny proposed is scored, and when a
+# verdict is allowed, is frozen code, like the goal checks.
+hands/lab
+hands/lib/teeny_hands/lab/
 
 # The autonomy ladder's reads and the fence-proposal issue (docs/roadmap.md,
 # G3): how a proposal is built and capped is the operator's; the playbook

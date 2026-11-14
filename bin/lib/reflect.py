@@ -138,6 +138,12 @@ MAX_RETIRES = 8
 #: bin/lib/dream.py). Each is archived first; past this the answer is asked
 #: about again, and a second answer past it changes nothing.
 MAX_FORGETS = 20
+#: The most lab operations one night dream may carry (bin/lib/dream.py runs
+#: them through hands/lab, which keeps its own limits): new experiments, and
+#: verdicts on open ones.
+MAX_LAB_EXPERIMENTS = 2
+MAX_LAB_CONCLUDES = 5
+LAB_LIMITS = {"experiment": MAX_LAB_EXPERIMENTS, "conclude": MAX_LAB_CONCLUDES}
 #: What a page crowding the limit is told: merging keeps what each item
 #: said, where truncation would cut blind.
 CROWDED_AT = 0.9
@@ -314,6 +320,8 @@ class Outcome:
     counts: dict[str, int] = field(default_factory=dict)
     #: Learnings to take out of the core's memory: {alias, id, text, reason}.
     forgets: list[Json] = field(default_factory=list)
+    #: Lab operations for hands/lab: {op: experiment|conclude, ...fields}.
+    lab: list[Json] = field(default_factory=list)
 
 
 @dataclass
@@ -328,6 +336,8 @@ class Extras:
     sections: list[str] = field(default_factory=list)
     forgettable: dict[str, Json] = field(default_factory=dict)
     thread: str | None = None
+    #: Whether the answer may carry the lab's `experiment` and `conclude`.
+    lab: bool = False
 
 
 def _id(value: Any) -> str:
@@ -338,7 +348,7 @@ def _id(value: Any) -> str:
 
 
 def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
-              forgets: list[Json] | None = None) -> tuple[Page, list[Json], dict[str, int]]:
+              forgets: list[Json] | None = None, lab: list[Json] | None = None) -> tuple[Page, list[Json], dict[str, int]]:
     """The page after the operations, in order, and the items they retired.
     With `forgettable` (a dream), `forget` is an operation too: it leaves
     the page alone and adds the learning to `forgets`."""
@@ -349,11 +359,21 @@ def apply_ops(page: Page, ops: Any, forgettable: dict[str, Json] | None = None,
     counts = {"add": 0, "edit": 0, "retire": 0}
     if forgettable is not None:
         counts["forget"] = 0
+    if lab is not None:
+        counts.update(experiment=0, conclude=0)
     added: list[Item] = []
     for n, op in enumerate(ops, 1):
         kind = op.get("op") if isinstance(op, dict) else None
         if kind not in counts:
             raise Unusable(f"operation {n} is not {', '.join(list(counts)[:-1])} or {list(counts)[-1]}")
+        if kind in LAB_LIMITS:
+            # Checked by hands/lab when the dream carries it out; here only
+            # its count, so a dream cannot flood the ledger.
+            counts[kind] += 1
+            if counts[kind] > LAB_LIMITS[kind]:
+                raise Unusable(f"it has more than {LAB_LIMITS[kind]} {kind} operations; that is the most one dream may carry")
+            lab.append({k: v for k, v in op.items()})  # type: ignore[union-attr]
+            continue
         if kind == "forget":
             alias = str(op.get("item") or "").strip().strip("[]").lower()
             if alias not in (forgettable or {}):
@@ -456,14 +476,16 @@ def _json(text: str) -> Json:
     raise NoJSON("no JSON object in the answer")
 
 
-def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | None = None) -> Outcome:
+def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | None = None,
+              lab: bool = False) -> Outcome:
     """The JSON answer applied to the page and checked."""
     value = _json(text)
     diary = value.get("diary")
     diary = diary.strip() if isinstance(diary, str) else ""
     forgets: list[Json] = []
+    lab_ops: list[Json] | None = [] if lab else None
     if "ops" in value:
-        new, retired, counts = apply_ops(page, value["ops"], forgettable, forgets)
+        new, retired, counts = apply_ops(page, value["ops"], forgettable, forgets, lab_ops)
         assign_ids(new, start)
         how = "ops"
     else:
@@ -473,7 +495,7 @@ def interpret(text: str, page: Page, start: int, forgettable: dict[str, Json] | 
         counts, how = {}, "whole_page"
     after = render_page(new)
     check(render_page(page), after, len(retired))
-    return Outcome(after, diary, retired, how, counts, forgets)
+    return Outcome(after, diary, retired, how, counts, forgets, lab_ops or [])
 
 
 #: The sections a page always has: an answer with one of them is the page.
@@ -536,19 +558,29 @@ _CROWDED = (" That is close: retire what no longer matters, and merge items that
 _LORE = """This page outranks the lore. When the day moved past something in the story (a running bit that has gone stale, a goal that changed, a scene you have told enough), write that down under what i have decided, and it holds over the lore from then on. Do not retell your origin: you were born once, and saying so again adds nothing."""
 
 
-def _ops(forget: bool) -> str:
-    return _OPS[:-1] + ", " + _FORGET_OP + "]" if forget else _OPS
+_LAB_OPS = ('{"op": "experiment", "surface": "x|moltbook", "hypothesis": "<your guess, one line>", '
+            '"format": "<the tag its posts will carry>", "posts": <1 to 20>, "deadline_days": <1 to 30>}, '
+            '{"op": "conclude", "id": <experiment #>, "verdict": "works|fails|unclear", "lesson": "<one line>"}')
+
+_LAB = """`experiment` and `conclude` run your lab (hands/lab); they do not touch the page. Under "your experiments", conclude each one marked due: `works` or `fails` when its numbers say so, `unclear` when they do not, with one lesson you will act on. A verdict other than unclear needs all its planned posts measured. Then propose what to test next, at most {most} a night: one guess about one format on the surface doing worst on the scoreboard, never one that repeats a lesson. Tag those posts with the format. The numbers are counted in code; never write one you did not read here."""
 
 
-def shape(light: bool, chars: int, forget: bool = False) -> str:
+def _ops(forget: bool, lab: bool = False) -> str:
+    ops = _OPS[:-1] + ", " + _FORGET_OP + "]" if forget else _OPS
+    return ops[:-1] + ", " + _LAB_OPS + "]" if lab else ops
+
+
+def shape(light: bool, chars: int, forget: bool = False, lab: bool = False) -> str:
     limits = _LIMITS.format(chars=chars, most=prompts.MEMORY_MAX_CHARS, retires=MAX_RETIRES, shrink=MAX_SHRINK,
                             crowded=_CROWDED if chars > prompts.MEMORY_MAX_CHARS * CROWDED_AT else "")
     how = [_HOW, _FORGET.format(most=MAX_FORGETS)] if forget else [_HOW]
+    if lab:
+        how.append(_LAB.format(most=MAX_LAB_EXPERIMENTS))
     if light:
-        answer = '{"ops": %s}' % _ops(forget)
+        answer = '{"ops": %s}' % _ops(forget, lab)
         return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, *how,
                             "Add what the day has brought so far. No diary now: that is tonight.", limits])
-    answer = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _ops(forget)
+    answer = '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % _ops(forget, lab)
     return "\n\n".join(["## your answer", "Answer with one JSON object and nothing else:", answer, *how, _LORE, limits,
                         "`diary` is a few sentences in your own voice about the day: what happened, what you learned, how you feel about it."])
 
@@ -727,7 +759,7 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
         if not waiting:
             lines.append("- none")
         lines += ["", "## MEMORY.md as it stands, each item with its id", "", page.strip() or "(empty)", "",
-                  shape(light, len(page), forget=bool(extras and extras.forgettable))]
+                  shape(light, len(page), forget=bool(extras and extras.forgettable), lab=bool(extras and extras.lab))]
         return "\n".join(lines)
 
     return _fit(compose, _beats(since), list(extras.sections) if extras else [])
@@ -792,19 +824,20 @@ def _settle(said: str, page: Page, start: int, light: bool, extras: Extras | Non
     usable; or the failure, as the result to return."""
     forgettable = extras.forgettable if extras and extras.forgettable else None
     thread = extras.thread if extras else None
+    lab = bool(extras and extras.lab)
     try:
-        return interpret(said, page, start, forgettable)
+        return interpret(said, page, start, forgettable, lab)
     except Unusable as first:
         # Once more on the same thread, the day still in context: a short
         # reminder of the shape costs far less than losing the night.
-        ops = _ops(forgettable is not None)
+        ops = _ops(forgettable is not None, lab)
         shape_again = '{"ops": %s}' % ops if light else '{"ops": %s, "diary": "<tonight\'s diary entry>"}' % ops
         try:
             again = ask(AGAIN.format(error=first, shape=shape_again), thread)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return {"ok": False, "error": f"the turn failed: {exc}", "answer": said[:500]}
         try:
-            return interpret(again, page, start, forgettable)
+            return interpret(again, page, start, forgettable, lab)
         except NoJSON as exc:
             # Still no JSON: the page itself (the newer answer first) is
             # taken as the page, under the same shrink check.
@@ -921,6 +954,8 @@ def reflect(light: bool = False, extras: Extras | None = None) -> Json:
         out["ops"] = got.counts
     if got.forgets:
         out["forgets"] = got.forgets
+    if got.lab:
+        out["lab_ops"] = got.lab
     if given:
         out["ids_given"] = given
     if got.how == "as_page":

@@ -16,6 +16,8 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
   J  requests [--max N]     asks to build something in the stored mentions, into build_requests
+  J  metrics refresh        own posts and replies due a checkpoint (1h, 24h, 72h) into x_post_metrics
+  R  metrics list [--days N]  the latest row per own post measured in the last N days (7)
   O  twitr-connect HANDLE   start linking HANDLE to the wallet on twitr.sh: a link for the operator
   O  twitr-accounts         the X accounts linked to the wallet on twitr.sh
 
@@ -30,7 +32,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, mentions, publish, twitr
+from . import cache, media, mentions, metrics, publish, twitr
 from .client import number_setting
 from .model import SearchOptions
 
@@ -98,6 +100,17 @@ def _requests(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return mentions.note_requests(args.max)
 
 
+def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
+
+
+def _days(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 30:
+        raise argparse.ArgumentTypeError("--days is 1..30")
+    return number
+
+
 def _twitr_connect(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return twitr.TwitrApi.from_settings().connect(args.handle)
 
@@ -157,6 +170,9 @@ def parser() -> argparse.ArgumentParser:
     marking.add_argument("--note", default=None)
     noting = verb("requests", _requests, "asks to build something in the stored mentions, into build_requests")
     noting.add_argument("--max", type=_bounded_scan, default=200)
+    measuring = verb("metrics", _metrics, "how the account's own posts and replies landed")
+    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("--days", type=_days, default=7)
     verb("twitr-connect", _twitr_connect, "start linking an X account to the wallet on twitr.sh").add_argument("handle")
     verb("twitr-accounts", _twitr_accounts, "the X accounts linked to the wallet on twitr.sh")
     return root
