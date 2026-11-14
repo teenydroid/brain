@@ -691,8 +691,15 @@ class TickTest(unittest.TestCase):
         self.assertIn('"do": "open_issue"', message)
         self.assertIn("at most 3 today", message)
 
+    def test_the_mind_may_queue_up_to_twenty_browser_tasks_a_day(self):
+        tick = _tick_module()
+        for given, cap in (("20", 20), ("99", 20), ("7", 7)):
+            with self.subTest(given=given):
+                self.caps(MIND_TASKS_PER_DAY=given)
+                self.assertEqual(tick.mind_cap("queue_task"), cap)
+
     def test_each_new_intent_has_a_daily_cap_that_counts_what_reached_the_hand(self):
-        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 10
+        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 20
         os.environ["FAKE_EXIT_GH"] = "2"  # a refused issue still counts
         self.answer({"thought": "", "intents": [self.ISSUE, self.ISSUE, self.ISSUE]})
         got = self.tick()
