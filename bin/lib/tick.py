@@ -716,8 +716,9 @@ CAPPED_SHAPES = {
                       'who asked, how you will know it worked>"}: how a change to yourself (a new hand, a playbook, a '
                       "prompt) gets built; the builder makes it in your clone and it opens as a pull request for the "
                       "operator. The builder has no network: the brief carries every outside fact it needs (endpoints, "
-                      "formats), looked up by you first. Frozen paths it can't change; name those for the operator. Picked at the next pick-request and built at the builder's next run, so never "
-                      '"building now"; one at a time; at most %d today',
+                      "formats), looked up by you first. Frozen paths it can't change; name those for the operator. "
+                      "Picked at the next pick-request and built at the builder's next run, so never \"building now\"; "
+                      "one at a time; at most %d today",
 }
 
 
