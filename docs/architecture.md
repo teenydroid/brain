@@ -524,6 +524,7 @@ or so). It works from:
 - what people said on the outside surfaces (X, Moltbook, mail, Telegram,
   GitHub, the wallet), who and when, clipped;
 - the tasks: build requests and their status, build jobs, browser tasks;
+- where the builder stands: its last five jobs with status and link, whatever the window, so the page's word on builds is checked against them every dream (a build that shipped while no dream looked once left the page saying an older build had failed);
 - the learnings the core's memory took in (`memory_items_list`, kind
   `learning`: `remember`, the diary, and journal entries learned before
   2026-11-13; never a conversation),

@@ -10,6 +10,8 @@ night), with more to go on and one more thing it may do:
   who and when, their words clipped. Never Teeny's own moments or the hands'
   outcomes, which the beats already carry.
 - **The tasks**: build requests and their status, build jobs, browser tasks.
+- **Where the builder stands**: its last few jobs with status and link,
+  whatever the window, so the page cannot keep a stale word on builds.
 - **What the core's memory holds**: the learnings written since the last
   dream (the journal, `remember`, the diary; `memory_items_list`, kind
   `learning`, never a conversation), each with a short alias, `[c3]`.
@@ -71,6 +73,10 @@ SAID_CHARS = 200
 #: The most tasks of each kind, and how much of each.
 MAX_TASKS = 20
 TASK_CHARS = 160
+#: The builder's latest jobs, listed whatever the window: a job that moved
+#: while no dream was looking (2026-11-13, the switch from reflect) left the
+#: page saying "build 3 failed" after builds 4 and 5 had shipped.
+BUILDER_JOBS = 5
 #: The most learnings listed (newest first), how many a page of the core's
 #: listing holds, and how much of each.
 MAX_LEARNINGS = 80
@@ -159,6 +165,30 @@ def tasks(since: float) -> list[str]:
     lines += [f"- build #{n} {repo or ''}: {status}{' (' + _clip(summary, TASK_CHARS) + ')' if summary else ''}"
               for n, repo, status, summary in built]
     lines += [f"- browser task #{n}: {_clip(goal, TASK_CHARS)} ({status})" for n, goal, status in browsed]
+    return ["\n".join(lines)]
+
+
+def builder() -> list[str]:
+    """The builder's last BUILDER_JOBS jobs with their status and link,
+    whenever they moved, so what the page says about builds can be checked
+    against them every time."""
+    conn = _ledger()
+    if conn is None:
+        return []
+    try:
+        rows = _rows(conn, "SELECT id, repo, status, summary, coalesce(pr_url, repo_url) FROM build_jobs"
+                           " ORDER BY id DESC LIMIT ?", (BUILDER_JOBS,))
+    finally:
+        conn.close()
+    if not rows:
+        return []
+    lines = ["## where the builder stands", "",
+             "Your last builds, newest first, whenever they moved. What the page says about your builds "
+             "must agree with these.", ""]
+    for n, repo, status, summary, link in rows:
+        first = (summary or "").strip().splitlines()[0] if (summary or "").strip() else ""
+        lines.append(f"- build #{n} {repo or ''}: {status}{', ' + link if link else ''}"
+                     f"{' (' + _clip(first, TASK_CHARS) + ')' if first else ''}")
     return ["\n".join(lines)]
 
 
@@ -285,6 +315,7 @@ def dream(light: bool = False) -> Json:
     sections: list[str] = []
     sections += people_said(since)
     sections += tasks(since)
+    sections += builder()
     held, aliases = learnings(since)
     sections += held
     # The scoreboard, the lab and what is true right now (bin/lib/scoreboard.py);
