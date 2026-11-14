@@ -1391,7 +1391,8 @@ from the wallet, and no playbook output may (`MONEY_OUTPUTS`).
 ### `swap` and `bridge`: LI.FI or deBridge, between Teeny's own accounts
 
 Neither verb can pay anyone: the output goes to Teeny's own address on the
-destination chain, named explicitly in every quote request. The quote comes
+destination chain, named explicitly in every quote request. The one exception
+is below ("Paying a vendor through a bridge"), and no body field reaches it. The quote comes
 from the core (`web3_swap_quote`, `web3_bridge_quote`), which asks the
 provider's public API through the spine. Upstream answers these through the
 TinyHumans backend, which needs a signed-in session Teeny does not have.
@@ -1510,6 +1511,33 @@ cap and is never retried. Rows from before LI.FI read as deBridge's. Under
 simulated, which signs nothing) and the answer is `would_convert`.
 `hands/x402 fund` tops up through these same verbs, so it takes the same
 provider and every rule here.
+
+**Paying a vendor through a bridge** (`convert("bridge", body, pay_to=ADDRESS,
+pay_ref=REF)`). The output lands at ADDRESS instead of Teeny's own. Only
+Python callers pass it: `hands/surplus`'s sweep, to the surplus wallet. The
+`hands/wallet bridge` body has no such field, so neither the mind nor a
+playbook can name a recipient. On top of every rule above, each refused with
+its `rule`:
+
+- a bridge only, through LI.FI only, with a ref, to a valid address on the
+  destination chain that is not Teeny's own (`payee`). LI.FI's check reads
+  the recipient inside the signed transaction itself (the quote is refused
+  when it names anyone else); a deBridge order keeps it where this hand
+  cannot read it;
+- the address is an allowlisted vendor on the destination chain (`vendor`);
+- the ref was never paid or tried (`duplicate`);
+- the last 24 hours of payments stay within `WALLET_MAX_PER_DAY_USD`
+  (`per_day`), and this address's last 7 days within
+  `WALLET_MAX_PER_RECIPIENT_WEEK_USD` (`per_recipient_week`), the input
+  counted at the fixed prices.
+
+It is a payment as much as a conversion. The `wallet_conversions` row carries
+the `recipient`, and a `wallet_payments` row (purpose `vendor`, the input
+asset and amount on the source chain, the source transaction's signature) is
+written with it, so every cap, ledger, receipt and audit that reads payments
+counts it. That row follows the conversion: `paid` when it is sent,
+`in_doubt` or `failed` with it. `hands/x402 fund` does not mistake such a
+bridge for a top-up in flight.
 
 ### `x402 fetch`: a request that pays for itself
 
