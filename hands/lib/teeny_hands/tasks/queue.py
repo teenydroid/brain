@@ -678,7 +678,6 @@ def _tell_findings(kind: str, task_id: int, start_url: str, notes: str, shots: l
 REPORT_SHAPE = (
     '{"task_id": <the task_id above>, "outcome": "ok", "failed", "needs_human" or "needs_code", '
     '"notes": "<what happened>", "code_from": "<with needs_code only: the domain the mail comes from>", '
-    '"screenshots": ["<path of an image you saved in screenshot_dir>", ...], '
     '"account": {"handle": "<with a signup task that ended ok only: the user name or address you signed up as; '
     'never a password>"}}'
 )
