@@ -355,7 +355,8 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
 def via_oh(method: str, params: Mapping[str, Any]) -> Any:
     """One call through bin/oh (or $TEENY_OH), as bin/seed-cron makes them."""
     oh = os.environ.get("TEENY_OH") or str(CODE / "bin" / "oh")
-    done = subprocess.run([oh, method, json.dumps(params, separators=(",", ":"))], capture_output=True, text=True, timeout=120)
+    done = subprocess.run([oh, method, json.dumps(params, separators=(",", ":"))],
+                          capture_output=True, text=True, timeout=120)
     if done.returncode != 0:
         raise hand.HandError((done.stderr or done.stdout).strip() or f"{method} failed")
     return json.loads(done.stdout) if done.stdout.strip() else None

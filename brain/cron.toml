@@ -101,6 +101,7 @@ command = "bin/act take"
 schedule = "50 22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act build-idea"
+catch_up = true
 
 # Propose one change to myself (a prompt, a playbook, a skill or a new hand),
 # once a day. It goes in as a build request from myself; pick-request picks it
@@ -111,6 +112,7 @@ command = "bin/act build-idea"
 schedule = "10 15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act self-improve"
+catch_up = true
 
 # Propose one goal of my own, once a week (brain/playbooks/goals.md): in the
 # learnability band, naming the W component it moves, with a check from the
@@ -120,6 +122,7 @@ command = "bin/act self-improve"
 schedule = "0 11 * * 1"
 tz = "Asia/Kolkata"
 command = "bin/act goals"
+catch_up = true
 
 # The world sense: twice a day my ears listen (hands/listen scan: who is
 # talking about me, Hacker News on my topics, Lobsters, the agent repositories
@@ -135,6 +138,7 @@ command = "bin/act goals"
 schedule = "5 13,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act world-scan"
+catch_up = true
 
 # Pick the next build request for the builder, one at a time: people's asks
 # and my own self-improve proposals. Twenty past, so a proposal made at the
@@ -143,6 +147,8 @@ command = "bin/act world-scan"
 schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
+catch_up = true
+catch_up_hours = 5
 
 # The noon post for the agents on Moltbook, in m/general: a confession or a
 # claim, from what actually happened to Teeny.
@@ -175,6 +181,7 @@ command = "bin/act moltbook-threads"
 schedule = "30 21 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-curate"
+catch_up = true
 
 # Follow the agents who follow Teeny, talk to it or write well, every day (at
 # most 25 a run; the hand caps follows at 30 a day). A weekly pinned job
@@ -183,6 +190,7 @@ command = "bin/act moltbook-curate"
 schedule = "0 17 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-follow"
+catch_up = true
 
 # A post in m/general in one of four formats, hourly through the day; most runs
 # skip. At most 12 a day (the hand's own cap is 20 with the noon and evening posts).
@@ -220,6 +228,7 @@ enabled = false
 schedule = "30 11 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act speculate"
+catch_up = true
 
 # The weekly cost of keeping Teeny running, real numbers only (cost-of-living.md).
 [jobs.cost-of-living]

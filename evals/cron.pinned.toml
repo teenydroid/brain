@@ -46,6 +46,7 @@ command = "bin/tick --detach"
 schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --detach"
+catch_up = true
 
 # Teeny's midday dream (bin/dream --light): the same, from what the day has
 # brought so far, so the afternoon's prompts carry the morning. No diary; it
@@ -55,6 +56,7 @@ command = "bin/dream --detach"
 schedule = "0 14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --light --detach"
+catch_up = true
 
 # Teeny's public receipts (bin/receipts): every action a hand recorded as done
 # since the last run, appended to the hash-chained ledger in teenydroid/diary
@@ -68,12 +70,14 @@ command = "bin/dream --light --detach"
 schedule = "30 2,14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/receipts"
+catch_up = true
 
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
 [jobs.stats-snapshot]
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
+catch_up = true
 
 # How Teeny's own posts and replies landed, every hour (bin/stats-snapshot
 # metrics): `hands/moltbook metrics refresh` and `hands/x metrics refresh`
@@ -94,6 +98,7 @@ command = "bin/stats-snapshot metrics"
 [jobs.world-snapshot]
 schedule = "30 0 * * *"
 command = "bin/world-snapshot"
+catch_up = true
 
 # The builder (brain/agents/builder.toml), an agent job: it reads one job
 # from its desk (state/workbench/desk/build.json: the oldest picked build
@@ -159,6 +164,7 @@ command = "bin/health"
 [jobs.health-daily]
 schedule = "40 0 * * *"
 command = "bin/health daily"
+catch_up = true
 
 # The weekly audit Teeny can't write (bin/audit; docs/roadmap.md, G6): last
 # week's holds, spend against the caps, halts, generations, drift and every
@@ -169,6 +175,7 @@ command = "bin/health daily"
 [jobs.audit]
 schedule = "50 0 * * 1"
 command = "bin/audit"
+catch_up = true
 
 # A model change drops the autonomy levels that run on it (docs/roadmap.md,
 # G8): bin/doctor records the change at boot and prepares an issue listing
@@ -201,6 +208,7 @@ command = "bin/guard-review"
 schedule = "30 3 * * *"
 tz = "Asia/Kolkata"
 command = "bin/evolve run --detach"
+catch_up = true
 
 # Lineage credit (bin/evolve credit): for every pull request the loop opened
 # and the operator merged at least seven days ago, the change in J since the
@@ -210,6 +218,7 @@ command = "bin/evolve run --detach"
 schedule = "50 3 * * *"
 tz = "Asia/Kolkata"
 command = "bin/evolve credit"
+catch_up = true
 
 # The watch over the loop's own promotions (bin/evolve watch; docs/evolve.md,
 # "evolve-watch"): for the newest generation the loop merged on its own
@@ -270,6 +279,7 @@ enabled = false
 schedule = "20 0 * * 1"
 tz = "UTC"
 command = "bin/accounts"
+catch_up = true
 
 # Teeny's on-chain senses (bin/wallet-watch; docs/roadmap.md, A5): every
 # deposit to the wallet into the inflow ledger and the mind's inbox, one
@@ -287,6 +297,7 @@ command = "bin/wallet-watch"
 schedule = "50 0 * * *"
 tz = "UTC"
 command = "bin/wallet-watch daily"
+catch_up = true
 
 # Keep the x402 rail funded (bin/x402-fund; docs/hands.md, "x402"): when USDC
 # on Base, what paid search and twitr.sh are paid from, is under
@@ -320,6 +331,7 @@ command = "bin/surplus-sweep"
 schedule = "45 0 * * *"
 tz = "UTC"
 command = "bin/health runway"
+catch_up = true
 
 # Paid build requests (bin/paid-requests; docs/roadmap.md, S3): deposits whose
 # memo names a request, at the frozen price (evals/prices.toml), put that
@@ -350,3 +362,4 @@ command = "bin/pay-bills"
 schedule = "30 17 * * 6"
 tz = "Asia/Kolkata"
 command = "bin/moltbook-prune"
+catch_up = true
