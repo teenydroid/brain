@@ -30,6 +30,7 @@ fresh() {
   cp -R "$repo/bin" "$repo/evals" "$root/"
   mkdir -p "$root/deploy"
   cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
+  cp "$repo/deploy/browser-deny.txt" "$root/deploy/"
   mkdir -p "$root/hands"
   # Every hand a playbook may name, and their library; not the tests.
   cp -R "$repo/hands/lib" "$root/hands/"
@@ -127,6 +128,8 @@ fresh; perl -pi -e 's/^id = "teeny-mentions"/id = "teeny-mentions"\nscheduled_ac
 fails "fails a drafting agent that opts into scheduled actions" "agent teeny-mentions.toml"
 fresh; printf 'example.com\n*\n' >"$root/deploy/browser-allow.txt"
 fails "fails a browser allow list with a wildcard" "browser-allow.txt"
+fresh; rm "$root/deploy/browser-deny.txt"
+fails "fails without the browser's deny list" "browser-deny.txt"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/judge.toml"
 fails "fails a judge agent that was given a tool" "agent judge.toml"
 fresh; rm "$root/brain/agents/judge.toml"
