@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -2053,6 +2053,67 @@ before it keeps a take on it for the next post, and once a day who on the web is
 teenydroid or OpenHuman, two paid reads a listen at most, inside
 `MIND_SEARCHES_PER_DAY` and the wallet's x402 caps. Four a day is enough for
 that; at Exa's $0.007 to $0.012 a search it is under $0.05 a day.
+
+## `surplus`: spare SOL, swept to the surplus wallet
+
+The surplus wallet (`SURPLUS_ADDRESS`, an EVM address) is what funds Teeny,
+and it takes only USDC on Base. `hands/surplus` moves Teeny's spare SOL there
+in two steps, each through `hands/wallet` and every rule and cap it keeps.
+It has no payment path of its own. Code: `teeny_hands/surplus/`.
+
+| Verb | | Does |
+|---|---|---|
+| `sweep` | J | Pays USDC on Base above the reserve to the surplus wallet, then bridges SOL above its reserve to Teeny's own USDC on Base. The pinned `surplus-sweep` job, `bin/surplus-sweep`, every 2 hours. Off until `SURPLUS_SWEEP=1` (skipped, exit 0). |
+| `status` | R | The settings, what went to the surplus wallet in the last 7 days and in all, the last five runs. |
+| `log [--max N]` | R | The runs (`surplus_runs`), newest first. |
+
+No playbook reaches `sweep` (`MONEY_OUTPUTS`, `NEVER_OUTPUTS` in
+`bin/lib/playbook.py`), and the mind has no intent for it.
+
+Each run, under the `surplus-sweep` lock, reads the balance once and then:
+
+1. **Payout.** USDC on Base above `SURPLUS_KEEP_BASE_USD` (10) goes to
+   `SURPLUS_ADDRESS` through `pay`, purpose `vendor`, ref `surplus-<time>`.
+   The amount is clamped beforehand to what `pay` would allow: half the
+   balance, `WALLET_MAX_PER_TX_USD`, and what is left of
+   `WALLET_MAX_PER_DAY_USD` and this address's
+   `WALLET_MAX_PER_RECIPIENT_WEEK_USD`. Below `SURPLUS_MIN_PAYOUT_USD` (1) it
+   waits (`nothing`, `waiting`). Refused without at least
+   `SURPLUS_MIN_GAS_ETH` (0.00002) of ETH on Base, since an ERC-20 transfer
+   pays gas (`gas`), and refused unless the address is an allowlisted vendor
+   on base (`vendor`; `pay` checks it again).
+2. **Bridge.** SOL above `SURPLUS_KEEP_SOL` (0.1), and never more than half,
+   is bridged to **Teeny's own** USDC on Base through `bridge`, clamped to
+   `WALLET_MAX_PER_TX_USD` and what is left of
+   `WALLET_MAX_CONVERT_PER_DAY_USD`, and rounded down to 0.001 SOL. Nothing
+   under `SURPLUS_MIN_BRIDGE_SOL` (0.05), since a small Solana bridge loses
+   its rent and fees. Nothing while a conversion toward Base USDC from the
+   last `SURPLUS_COOLDOWN_MIN` (60) minutes may still land (`in_flight`).
+   The bridge lands before the next run, and that run's payout sends it on.
+
+The bridge never names the surplus wallet. A conversion goes only to
+Teeny's own address (`convert.py`), and money leaves only through `pay`.
+
+`SURPLUS_KEEP_BASE_USD` must be at least `X402_FUND_TARGET_USD` while
+`X402_FUND=1`. Otherwise the x402 top-up would bridge dollars in and the
+sweep would pay them straight back out, losing fees each time. `bin/doctor`
+refuses to boot with it lower.
+
+Each step that tried something is one `surplus_runs` row (`paid`, `sent`,
+`in_doubt`, `failed`, `refused`). Every payout or bridge that went, or may
+have gone, is one `wallet · surplus` stimulus for the mind. As everywhere in
+the wallet, an in-doubt step is never retried: a person checks it. Under
+`DRY_RUN` both steps run through `pay`'s and `convert`'s own rehearsals
+(`would_pay`, `would_bridge`). Nothing is written and nothing moves.
+
+Turning it on, once:
+
+```
+hands/wallet vendors add surplus 0x... --chain base --note "the surplus wallet that funds Teeny"
+# a little ETH on Base for gas, sent to Teeny's EVM address (hands/wallet address)
+# secrets/teeny.env: SURPLUS_SWEEP=1, SURPLUS_ADDRESS=0x...
+hands/surplus sweep   # DRY_RUN=1 first to see the plan
+```
 
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
