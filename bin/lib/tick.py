@@ -605,7 +605,8 @@ CAPPED_SHAPES = {
                           '"format": "<the tag its posts carry>", "posts": <1 to 20>, "deadline_days": <1 to 30>}: '
                           "an experiment for the lab, scored in code; then tag those posts with that format; at most %d today",
     "conclude_experiment": '- {"do": "conclude_experiment", "id": <experiment #>, "verdict": "works|fails|unclear", '
-                           '"lesson": "<one line you will act on>"}: when the scoreboard says it is due; at most %d today",
+                           '"lesson": "<one line you will act on>"}: when the scoreboard says it is due; '
+                           "at most %d today",
 }
 
 
@@ -665,7 +666,6 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         *([age] if age else []),
         *rhythm.header(woke),
         *_waiting(),
-        "",
         *scoreboard.block(),
         "",
     ]

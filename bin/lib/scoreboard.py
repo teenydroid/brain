@@ -99,7 +99,8 @@ def block() -> list[str]:
     lines = ["## scoreboard", ""]
     lines += [_clip(line) for line in (board or {}).get("lines", [])]
     if experiments is not None:
-        lines.append("Open experiments: " + ("none. Propose one with `propose_experiment`." if not experiments else ""))
+        lines.append("Open experiments: none. Propose one with `propose_experiment`." if not experiments
+                     else "Open experiments:")
         lines += [f"- {experiment_line(e)}" for e in experiments]
     if lessons:
         lines.append("Latest lessons:")
@@ -107,7 +108,7 @@ def block() -> list[str]:
     text = "\n".join(lines)
     if len(text) > BLOCK_CHARS:
         text = text[: BLOCK_CHARS - 3].rstrip() + "..."
-    return [*text.split("\n"), ""]
+    return ["", *text.split("\n")]
 
 
 def _section(title: str, intro: str, items: list[str]) -> str:
