@@ -254,6 +254,17 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
   else
     log "model: not configured (no LADDER_URL in $env_file)"
   fi
+  # The captcha solver's key (bin/lib/core_sections/automation.py turns the
+  # solver on): stored as the core's `typesafe` credential, never its
+  # environment. Once stored it can be dropped from spine.env.
+  if [ -n "${TYPESAFE_API_KEY:-}" ]; then
+    oh auth_store_provider_credentials "$(jq -cn --arg k "$TYPESAFE_API_KEY" \
+      '{provider: "provider:typesafe", token: $k, setActive: true}')" >/dev/null ||
+      die "captcha: the core did not store the TypeSafe key"
+    log "captcha: TypeSafe key stored; browser tasks try a CAPTCHA before stopping for a person"
+  else
+    log "captcha: no TYPESAFE_API_KEY in $env_file; keeping the key the core already stores, if any"
+  fi
   if [ -n "${CORTEX_API_URL:-}" ]; then
     result="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \
       '{engine: "cortexdb", endpoint: $u} + (if $k != "" then {api_key: $k} else {} end)')")" ||
