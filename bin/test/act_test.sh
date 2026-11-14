@@ -321,6 +321,36 @@ out="$(run pic)"
 check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\]}' "$FAKE_HANDS"
 reset
 reset
+# A browser task's screenshots on a post: `shots: <task id>`.
+reset
+mkdir -p "$scratch/state/media/tasks/5" "$scratch/state/media/tasks/6"
+for n in a b c; do : >"$scratch/state/media/tasks/5/$n.png"; done
+: >"$scratch/state/media/tasks/5/notes.txt"
+: >"$scratch/state/media/tasks/6/x.png"
+answer '{"action": "post", "text": "seen", "shots": 5, "images": ["a diff", "a terminal"]}'
+out="$(run pic)"
+check "tells the model it may name a task's screenshots" grep -q '"shots"' <<<"$(jq -r .message "$FAKE_CALLS")"
+check "uploads that task's image files only" test "$(grep -c "^x upload --file $scratch/state/media/tasks/5/[abc].png " "$FAKE_HANDS")" = 3
+check "makes only the one picture that still fits" test "$(hand_calls image)" = 1
+check "posts the screenshots first, four ids in all" grep -q '^x post DRY_RUN= stdin={"text":"seen","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "says what it attached" test "$(jq -r '.actions[0].media.shots.media_ids | length' <<<"$out")" = 3
+reset
+answer '{"action": "post", "text": "seen", "shots": 99}'
+out="$(run pic)"
+check "a task without screenshots leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "and says why" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "no screenshots for that task"
+reset
+answer '{"action": "post", "text": "seen", "shots": "../../secrets"}'
+out="$(run pic)"
+check "a task id that is not a number reads no path" test "$(hand_calls x)" = 1
+check "and the post still goes out" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+reset
+mkdir -p "$scratch/state/media/tasks/6"
+: >"$scratch/state/media/tasks/6/x.png"
+FAKE_UPLOAD_FAIL=1 answer '{"action": "post", "text": "seen", "shots": 6}'
+out="$(FAKE_UPLOAD_FAIL=1 run pic)"
+check "a failed upload leaves the post going without it" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "and says the upload failed" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "upload failed"
 answer '{"action": "post", "text": "look at this", "quote_of": "12345", "format": "quote"}'
 out="$(run pic)"
 check "a quote carries the post it quotes and its format" grep -q '^x post DRY_RUN= stdin={"text":"look at this","quote_of":"12345","format":"quote"}' "$FAKE_HANDS"

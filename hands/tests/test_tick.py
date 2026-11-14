@@ -1902,6 +1902,77 @@ class TickTest(unittest.TestCase):
         entry = self.runs()[-1]["results"][0]
         self.assertEqual(len(entry["media"]["images"]), 4)
 
+    def shots(self, task_id: int, names=("a.png", "b.png"), junk=True):
+        folder = self.root / "state" / "media" / "tasks" / str(task_id)
+        folder.mkdir(parents=True)
+        for n in names:
+            (folder / n).write_bytes(b"png")
+        if junk:
+            (folder / "notes.txt").write_text("x")
+        return folder
+
+    def sent(self, verb: str) -> list[dict]:
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        return [c for c in log if c["argv"][:1] == [verb]]
+
+    def test_a_post_can_carry_a_browser_tasks_screenshots_ahead_of_pictures(self):
+        folder = self.shots(7, ("a.png", "b.png", "c.png"))
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{
+            "do": "post_x", "text": "the page", "shots": 7, "images": ["a diff", "a terminal"]}]})
+        self.tick()
+        uploads = [c for c in self.sent("upload") if c["hand"] == "x"]
+        self.assertEqual([c["argv"] for c in uploads[:3]],
+                         [["upload", "--file", str(folder / n)] for n in ("a.png", "b.png", "c.png")])
+        self.assertEqual(len(self.sent("generate")), 1)
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "the page", "media_ids": ["777"] * 4})
+        self.assertEqual(len(self.runs()[-1]["results"][0]["media"]["shots"]["media_ids"]), 3)
+
+    def test_a_reply_can_carry_screenshots(self):
+        self.shots(7, ("a.png",))
+        stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "55", "text": "look", "shots": "7"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        self.assertEqual(self.sent("reply")[0]["body"], {"text": "look", "media_ids": ["777"]})
+
+    def test_screenshots_never_block_a_post(self):
+        self.shots(8, ("a.png",))
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "post_x", "text": "unknown task", "shots": 404}]})
+        self.tick()
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "unknown task"})
+        entry = self.runs()[-1]["results"][0]
+        self.assertEqual(entry["status"], "done")
+        self.assertEqual(entry["media"]["shots"]["skipped"], "no screenshots for that task")
+
+    def test_a_shots_value_that_is_not_a_task_id_reads_no_path(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "shots": "../../secrets"}]})
+        self.tick()
+        self.assertEqual(self.sent("upload"), [])
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "t"})
+        self.assertIn("task id", self.runs()[-1]["results"][0]["media"]["shots"]["skipped"])
+
+    def test_a_failed_screenshot_upload_leaves_the_post_going(self):
+        self.shots(9, ("a.png",))
+        stimuli.add("x", "mention", "1", "gm")
+        os.environ["FAKE_UPLOAD_FAIL"] = "1"
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "shots": 9}]})
+        self.tick()
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "t"})
+        self.assertEqual(self.runs()[-1]["results"][0]["media"]["shots"]["skipped"], "upload failed")
+
+    def test_a_deferred_post_keeps_its_screenshot_ids(self):
+        self.shots(7, ("a.png",))
+        stimuli.add("x", "mention", "1", "gm")
+        os.environ["FAKE_PACE_X"] = "1"
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "later", "shots": 7}]})
+        self.tick()
+        kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
+        self.assertEqual(kept[0]["media_ids"], ["777"])
+
     def test_a_reply_can_carry_a_picture_or_a_gif(self):
         stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
         self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "55", "text": "gm", "image": "teeny waving"}]},
