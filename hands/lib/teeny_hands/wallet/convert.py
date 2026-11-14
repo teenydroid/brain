@@ -11,7 +11,8 @@ names one: bin/lib/tick.py forwards only the fields above.
 
 A swap stays on one chain; a bridge crosses. Either way the output goes only
 to Teeny's own address on the destination chain, derived from the same
-recovery phrase: neither verb can pay anyone. The quote comes from the core
+recovery phrase: neither verb can pay anyone. The one exception is below,
+"Paying a vendor through a bridge", and no body field reaches it. The quote comes from the core
 (`web3_swap_quote`, `web3_bridge_quote`), which asks the provider through the
 spine (spine/src/wallet_backend.rs routes on a tag this hand puts on the
 body); the core signs only on `*_execute`.
@@ -56,6 +57,32 @@ Solana quote is simulated, which signs nothing) and the answer is
 Live, under the `wallet-pay` lock the payments share: a `wallet_conversions`
 row is written `pending` first, with the provider (and LI.FI's `tool`). An
 execute that fails after it was sent is `in_doubt` and is never retried.
+
+Paying a vendor through a bridge. `convert("bridge", body, pay_to=ADDRESS,
+pay_ref=REF)` sends the output to ADDRESS instead of Teeny's own. Only Python
+callers pass it (hands/surplus's sweep); the CLI body has no such field, so
+neither the mind nor a playbook can name a recipient. On top of every rule
+above, each refused with its `rule`:
+
+  payee             a bridge only, through LI.FI only (lifi.py checks the
+                    recipient inside the signed transaction itself; a
+                    deBridge order keeps it where this hand cannot read it),
+                    with a ref, to a valid address on the destination chain
+                    that is not Teeny's own
+  vendor            the address is in the `vendors` allowlist on the
+                    destination chain
+  duplicate         this ref was never paid or tried (purpose `vendor`)
+  per_day           the last 24 hours of payments stay within
+  per_recipient_week  WALLET_MAX_PER_DAY_USD, and this address's last 7 days
+                    within WALLET_MAX_PER_RECIPIENT_WEEK_USD, the input
+                    counted at the wallet's fixed prices
+
+It is a payment as much as a conversion: the conversion row carries the
+`recipient`, and a `wallet_payments` row (purpose `vendor`, the input asset
+and amount on the source chain, the source transaction's signature) is
+written with it, so every cap, ledger, receipt and audit that reads payments
+counts it. That row follows the conversion: `paid` when it is sent,
+`in_doubt` or `failed` with it.
 """
 
 from __future__ import annotations
@@ -144,8 +171,12 @@ def _token(c: Conversion, side: str, cluster: str) -> str:
     return chains.token_address(chain, asset, cluster, caps.USDC_MINTS)
 
 
-def quote_params(c: Conversion, provider: str, cluster: str, src_own: str, dst_own: str, slippage_bps: int) -> dict[str, Any]:
+def quote_params(
+    c: Conversion, provider: str, cluster: str, src_own: str, dst_own: str, slippage_bps: int, recipient: str | None = None,
+) -> dict[str, Any]:
     """What the core is asked for: every address named, none left to default.
+    The output goes to `recipient` (a vendor paid through a bridge), else to
+    Teeny's own `dst_own`.
     The fields stay deBridge's (the module's); the provider rides as a tag on
     the one free-text field (`slippage`, `dstChainTokenOutAmount`), which the
     spine reads and takes off (spine/src/wallet_backend.rs)."""
@@ -155,7 +186,7 @@ def quote_params(c: Conversion, provider: str, cluster: str, src_own: str, dst_o
             "tokenIn": _token(c, "in", cluster),
             "tokenInAmount": str(c.raw),
             "tokenOut": _token(c, "out", cluster),
-            "tokenOutRecipient": dst_own,
+            "tokenOutRecipient": recipient or dst_own,
             "senderAddress": src_own,
             "slippage": f"{provider}:{Decimal(slippage_bps) / 100}",
         }
@@ -166,7 +197,7 @@ def quote_params(c: Conversion, provider: str, cluster: str, src_own: str, dst_o
         "dstChainId": chains.debridge_id(c.to_chain),
         "dstChainTokenOut": _token(c, "out", cluster),
         "dstChainTokenOutAmount": f"{provider}:auto",
-        "dstChainTokenOutRecipient": dst_own,
+        "dstChainTokenOutRecipient": recipient or dst_own,
         "srcChainOrderAuthorityAddress": src_own,
         "dstChainOrderAuthorityAddress": dst_own,
     }
@@ -349,7 +380,58 @@ def _quote(c: Conversion, provider: str, params: dict[str, Any], core: Core) -> 
         raise hand.HandError(f"{PROVIDER_NAMES[provider]} could not quote the {c.kind} ({exc})") from None
 
 
-def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
+@dataclass(frozen=True)
+class Payee:
+    address: str
+    ref: str
+
+
+def _payee(c: Conversion, provider: str, pay_to: Any, pay_ref: Any, dst_own: str) -> Payee:
+    from .pay import valid_address
+
+    if c.kind != "bridge":
+        raise hand.Refused("only a bridge pays a vendor", rule="payee")
+    if provider != "lifi":
+        raise hand.Refused("a bridge pays a vendor only through LI.FI, whose recipient is checked in the signed transaction",
+                           rule="payee")
+    if not isinstance(pay_ref, str) or not pay_ref.strip() or len(pay_ref) > 100:
+        raise hand.Refused("a bridge that pays a vendor has a ref, at most 100 characters", rule="payee")
+    if not isinstance(pay_to, str) or not valid_address(c.to_chain, pay_to):
+        raise hand.Refused(f"that is not a valid {c.to_chain} address", rule="payee")
+    if chains.same_address(c.to_chain, pay_to, dst_own):
+        raise hand.Refused("that is Teeny's own address; a plain bridge goes there", rule="payee")
+    return Payee(pay_to, pay_ref.strip())
+
+
+def _payee_rules(conn: Any, c: Conversion, payee: Payee, usd: int, the_caps: caps.Caps, checks: list[dict[str, Any]]) -> str:
+    """pay's ledger rules for a vendor paid through a bridge; the vendor's name."""
+    vendor = store.vendor_by_address(conn, payee.address, c.to_chain)
+    if vendor is None:
+        raise hand.Refused(f"that address is not in the vendors allowlist for {c.to_chain}", rule="vendor")
+    _check(checks, "vendor", f"allowlisted as {vendor['name']} on {c.to_chain}")
+    prior = store.active_for_ref(conn, "vendor", payee.ref)
+    if prior is not None:
+        raise hand.Refused(f"vendor {payee.ref} was already paid or tried", rule="duplicate", payment_id=prior["id"],
+                           status=prior["status"])
+    _check(checks, "duplicate", "never paid or tried before")
+    now = hand.now()
+    day = store.spent_since(conn, now - store.DAY)
+    if day + usd > the_caps.per_day_micro:
+        raise hand.Refused(
+            f"that would take the last 24 hours to ${caps.usd(day + usd)}, over the ${caps.usd(the_caps.per_day_micro)} a day cap",
+            rule="per_day")
+    _check(checks, "per_day", f"${caps.usd(day + usd)} of ${caps.usd(the_caps.per_day_micro)} in 24h")
+    week = store.spent_since(conn, now - store.WEEK, payee.address)
+    if week + usd > the_caps.recipient_week_micro:
+        raise hand.Refused(
+            f"that would take this address's last 7 days to ${caps.usd(week + usd)}, over the"
+            f" ${caps.usd(the_caps.recipient_week_micro)} cap", rule="per_recipient_week")
+    _check(checks, "per_recipient_week",
+           f"${caps.usd(week + usd)} of ${caps.usd(the_caps.recipient_week_micro)} to this address in 7d")
+    return str(vendor["name"])
+
+
+def convert(kind: str, body: Any, core: Core = hand.core, pay_to: str | None = None, pay_ref: str | None = None) -> dict[str, Any]:
     try:
         cluster = caps.cluster(hand.secrets())
     except caps.CapsError as exc:
@@ -371,6 +453,10 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
     provider = c.provider or caps.provider_for(the_caps, c.kind)
     src_own = own_address(core, c.from_chain)
     dst_own = own_address(core, c.to_chain)
+    payee = _payee(c, provider, pay_to, pay_ref, dst_own) if pay_to is not None else None
+    if payee is not None:
+        _check(checks, "payee", f"a LI.FI bridge to {payee.address}, ref {payee.ref}")
+    recipient = payee.address if payee is not None else dst_own
     summary = {
         "kind": c.kind,
         "provider": provider,
@@ -381,12 +467,13 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
         "usd": caps.usd(usd),
         "to_chain": c.to_chain,
         "to": c.to_asset,
-        "recipient": dst_own,
+        "recipient": recipient,
     }
     if c.ref:
         summary["ref"] = c.ref
-    params = quote_params(c, provider, cluster, src_own, dst_own, min(the_caps.convert_loss_bps, 100))
-    owns = (src_own, dst_own)
+    params = quote_params(c, provider, cluster, src_own, dst_own, min(the_caps.convert_loss_bps, 100),
+                          recipient if payee is not None else None)
+    owns = (src_own, recipient)
 
     with hand.lock("wallet-pay"):
         conn = store.db()
@@ -399,20 +486,45 @@ def convert(kind: str, body: Any, core: Core = hand.core) -> dict[str, Any]:
                     rule="half_balance",
                 )
             _check(checks, "half_balance", f"{summary['amount']} of {caps.display(balance, c.from_asset)} {c.from_asset}")
+            if payee is not None:
+                summary["vendor"] = _payee_rules(conn, c, payee, usd, the_caps, checks)
+                summary["ref"] = payee.ref
             checked = check_quote(c, provider, _quote(c, provider, params, core), cluster, the_caps, _now_ms() + EXPIRY_MARGIN_MS, *owns)
             _check(checks, "quote", _quote_detail(c, checked))
             summary.update(_quoted(c, checked))
             if hand.dry_run():
                 return {"dry_run": True, "would_convert": summary, "checks": checks}
 
+            payment_id = None
             with hand.transaction(conn):
                 _day_rule(conn, usd, the_caps, [])
+                if payee is not None:
+                    _payee_rules(conn, c, payee, usd, the_caps, [])
                 row_id = store.insert_row(
                     conn, "wallet_conversions", kind=c.kind, from_chain=c.from_chain, from_asset=c.from_asset,
                     amount_raw=str(c.raw), usd_micro=usd, to_chain=c.to_chain, to_asset=c.to_asset,
                     expected_raw=str(checked.min_raw), quote_id=checked.quote_id, provider=provider, tool=checked.tool,
+                    recipient=payee.address if payee is not None else None,
                 )
-            return _execute(conn, row_id, c, provider, owns, cluster, the_caps, params, checked, summary, core)
+                if payee is not None:
+                    payment_id = store.insert_pending(
+                        conn, cluster=cluster, asset=c.from_asset, amount_raw=c.raw, usd_micro=usd, to_address=payee.address,
+                        purpose="vendor", ref=payee.ref, chain=c.from_chain,
+                    )
+            if payment_id is None:
+                return _execute(conn, row_id, c, provider, owns, cluster, the_caps, params, checked, summary, core)
+            try:
+                out = _execute(conn, row_id, c, provider, owns, cluster, the_caps, params, checked, summary, core)
+            except (hand.Refused, hand.HandError) as exc:
+                row = conn.execute("SELECT status FROM wallet_conversions WHERE id = ?", (row_id,)).fetchone()
+                status = row["status"] if row is not None else "in_doubt"
+                # A conversion still pending when its execute fails may have gone: in doubt, never retried.
+                store.update(conn, payment_id, status={"failed": "failed", "refused": "refused"}.get(status, "in_doubt"),
+                             error=str(exc)[:300])
+                raise
+            store.update(conn, payment_id, status="paid", signature=out["sent"]["signature"], quote_id=checked.quote_id)
+            out["sent"]["payment_id"] = payment_id
+            return out
         finally:
             conn.close()
 
