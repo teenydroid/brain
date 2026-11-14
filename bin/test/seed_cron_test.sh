@@ -299,6 +299,77 @@ seed
 check "an updated job is not re-armed on top" test "$(calls cron_update)" = 1
 check "and is updated" grep -q '^\[seed-cron\] update  teeny.heartbeat' "$scratch/stderr"
 
+# --- a daily slot missed across a restart is caught up, once -----------------------
+# 2026-11-13 and 11-14: a deploy restarted the spine while teeny.self-improve
+# was running; this boot's re-arm moved it to tomorrow and the day's run was
+# lost. A job with `catch_up = true` is run once now instead (bin/lib/catch_up.py).
+export TEENY_STATE="$scratch/state" TEENY_STORAGE="$scratch/storage.db" TEENY_QUIET_HOURS=off
+mkdir -p "$TEENY_STATE"
+# The core's storage as it would be: the jobs the fake knows, by id, no runs.
+storage_from_fake() {
+  rm -f "$TEENY_STORAGE"
+  python3 - "$FAKE_JOBS" "$TEENY_STORAGE" <<'PY'
+import datetime as dt, json, sqlite3, sys
+jobs = json.load(open(sys.argv[1]))
+db = sqlite3.connect(sys.argv[2])
+db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+           " updated_ms integer default 0, deleted integer default 0, body text)")
+for job in jobs:
+    if not job.get("next_run"):
+        continue
+    next_ms = int(dt.datetime.fromisoformat(job["next_run"].replace("Z", "+00:00")).timestamp() * 1000)
+    body = {"name": job["name"], "enabled": job["enabled"], "next_run_ms": next_ms, "schedule": job["schedule"]}
+    db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job["id"], json.dumps(body)))
+db.commit()
+PY
+}
+# A daily job at the minute eight minutes ago (UTC), next run still on it.
+slot="$(date -u -d '-8 minutes' '+%M %H')"
+printf '[jobs.daily]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n[jobs.plain]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\n' "$slot" "$slot" >"$toml"
+reset
+for n in daily plain; do
+  jq -c --arg n "teeny.$n" --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: ("id-" + $n), name: $n,
+    job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+    enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+done
+: >"$FAKE_CALLS"
+seed --dry-run
+check "--dry-run reports the catch-up" grep -q 'catch up teeny.daily' "$scratch/stderr"
+check "--dry-run runs nothing" test "$(calls cron_run)" = 0
+# The re-arm moves both to tomorrow (the fake: an hour on); storage follows.
+seed_after_rearm() { seed; }
+storage_from_fake
+seed
+check "re-arms both missed jobs" test "$(calls cron_update)" = 2
+storage_from_fake
+seed
+check "catches up the one with catch_up, at boot" grep -qF 'cron_run {"job_id":"id-teeny.daily"}' "$FAKE_CALLS"
+check "and says so" grep -q 'caught up teeny.daily (its .* slot)' "$scratch/stderr"
+check "leaves the other to its next slot" bash -c "! grep -q 'id-teeny.plain\"}' <(grep '^cron_run' '$FAKE_CALLS')"
+: >"$FAKE_CALLS"
+seed
+check "never runs the same slot twice across boots" test "$(calls cron_run)" = 0
+# A job seeding adds now has no slot of its own to catch up.
+printf '[jobs.fresh]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n' "$slot" >"$toml"
+reset
+storage_from_fake
+seed
+storage_from_fake
+seed
+check "a job just added is not caught up" test "$(calls cron_run)" = 0
+unset TEENY_STATE TEENY_STORAGE TEENY_QUIET_HOURS
+
+refuses "refuses a catch-up window as long as the gap between slots" \
+  $'[jobs.x]\nschedule = "0 9,15 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true'
+refuses "refuses a catch-up window on a job every hour" \
+  $'[jobs.x]\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 1'
+refuses "refuses catch_up_hours without catch_up" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up_hours = 3'
+refuses "refuses a catch-up window over 12 hours" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 13'
+refuses "refuses a non-boolean catch_up" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = "yes"'
+
 # --- --check validates without asking the core anything --------------------------
 reset
 printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
