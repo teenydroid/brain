@@ -44,9 +44,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p teeny-spine
+      # Google Chrome, not the runner's /usr/bin/chromium (the first browser
+      # bin/lib/core_sections/automation.py finds). That one is a bare Chromium
+      # snapshot: it has no AppArmor profile, so it needs --no-sandbox here
+      # (apparmor_restrict_unprivileged_userns=1), and its first cold launch took
+      # ~10 s to DevTools in an idle step against ~4 s for Chrome. Beside a
+      # freshly booted spine it sometimes passed the readiness probe's 30 s cap,
+      # and bin/doctor --live failed "Chrome launch timed out" on about half the
+      # runs. The box runs Debian's chromium (TEENY_CHROME_PATH in the image).
       - run: bin/test/spine_live_test.sh
         env:
           OPENHUMAN_CORE_BIN: target/release/teeny-spine
+          TEENY_CHROME_PATH: /usr/bin/google-chrome
 
   scripts:
     runs-on: ubuntu-latest

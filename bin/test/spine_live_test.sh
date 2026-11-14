@@ -108,6 +108,35 @@ class Model(BaseHTTPRequestHandler):
         # The builder: one shell call into its job's folder, then done. The
         # marker is computed by the shell, so only the call's output (never
         # the call itself, replayed in the transcript) carries it.
+        # The browser operator with a task on its desk: open the start page in
+        # the real browser, then write the report with the page's title. The
+        # desk sits beside the builder's (sys.argv[5]).
+        elif "doing one task in a web browser" in json.dumps(body):
+            import os
+            desk_dir = os.path.dirname(sys.argv[5])
+            try:
+                with open(os.path.join(desk_dir, "task.json")) as desk:
+                    task = json.load(desk).get("task")
+            except (OSError, ValueError):
+                task = None
+            messages = body.get("messages", [])
+            results = [m for m in messages if m.get("role") == "tool"]
+            wrote = any(c.get("function", {}).get("name") == "file_write"
+                        for m in messages for c in (m.get("tool_calls") or []))
+            call = None
+            if task and not results:
+                call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
+            elif task and not wrote:
+                seen = json.dumps(results[-1].get("content"))
+                ok = "Example Domain" in seen
+                report = {"task_id": task["task_id"], "outcome": "ok" if ok else "failed",
+                          "notes": "the page title is Example Domain" if ok else "the browser said: " + seen[:300]}
+                call = {"name": "file_write", "arguments": json.dumps(
+                    {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
+            elif task:
+                answer = "the task is done and reported"
+            if call is not None:
+                native_call = call
         elif "building something small in public" in json.dumps(body):
             if SHELL_RAN in json.dumps(body):
                 answer = "built"
@@ -127,7 +156,8 @@ class Model(BaseHTTPRequestHandler):
                 else:
                     answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
         if native_call is not None:
-            tool_calls = [{"index": 0, "id": "call_stub_1", "type": "function", "function": native_call}]
+            call_id = "call_stub_%d" % (1 + sum(1 for m in body.get("messages", []) if m.get("role") == "tool"))
+            tool_calls = [{"index": 0, "id": call_id, "type": "function", "function": native_call}]
             if body.get("stream"):
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
@@ -183,6 +213,8 @@ cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
 cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
+# The operator's real browser task below opens example.com (IANA's, always up).
+printf 'example.com\n' >>"$root/deploy/browser-allow.txt"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/MEMORY.seed.md" "$root/brain/"
 # No live page yet, as on a fresh checkout: the boot starts it from the seed.
@@ -457,14 +489,29 @@ else
 fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
+# It does a real task in the real browser: the stub model opens the start
+# page and reports its title. On 2026-11-13 the one task on the box failed
+# ("TinyComputer browser unavailable") while every check here passed; a
+# browser that cannot finish a task must fail this test.
+jq -cn '{goal: "read the title of the page", start_url: "https://example.com/", done_when: "you know the title"}' |
+  "$root/hands/tasks" add --source live-test >"$scratch/task-add.log" 2>&1 || true
+"$root/bin/tasks-desk" >"$scratch/tasks-desk.log" 2>&1 || true
 operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
 if [ -n "$operator_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 60); do
-    grep -q 'tool spec filter:' <<<"$(agent_tools operator)" && break
+  for _ in $(seq 1 120); do
+    [ -s "$root/state/workbench/desk/task-done.json" ] && break
     sleep 1
   done
 fi
+"$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+task_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
+check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok
+if [ "$(jq -r .status <<<"$task_row")" != ok ]; then
+  printf '     task: %s\n' "$task_row" >&2
+  grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
+fi
+check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
 check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
 check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
 check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
