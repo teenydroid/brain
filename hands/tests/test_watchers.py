@@ -93,6 +93,7 @@ ENVIRONMENT = {
     "SPINE_NATIVE_TOOLS": "the tool protocol, from secrets/spine.env",
     "CORTEX_API_URL": "the memory engine, from secrets/spine.env",
     "CORTEX_API_KEY": "the memory engine's key, from secrets/spine.env",
+    "TYPESAFE_API_KEY": "the captcha solver's key, from secrets/spine.env in a subshell",
 }
 
 _ENV_READ = re.compile(
