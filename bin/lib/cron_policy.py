@@ -40,7 +40,7 @@ written here, in code it cannot edit:
   pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
   hours late is a different act, not a late one. That last rule reads the
   playbook, which Teeny edits apart from this file: under --strict
-  (bin/seed-cron --check: bin/doctor's gate, the evolve gate) a catch-up job
+  (bin/seed-cron --check: the evolve gate's check of a candidate) a catch-up job
   whose playbook speaks in public, or cannot be read, is an error; at boot it
   only switches that job's catch-up off and says so on stderr, because a
   playbook edit must never stop Teeny from booting.
