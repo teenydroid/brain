@@ -4,11 +4,13 @@
 //! the shared host entry [`openhuman_rpc::host::cli`] does everything, so
 //! `teeny-spine serve`, `teeny-spine cron list` and the rest behave exactly
 //! as the upstream binary does. Teeny adds no behaviour here beyond linking
-//! two modules in (TinyComputer and tinywallet) and answering the wallet
+//! two modules in (TinyComputer and tinywallet), answering the wallet
 //! module's swap and bridge quotes from LI.FI or deBridge directly
-//! (`wallet_backend.rs`, `lifi.rs`, `debridge.rs`); what Teeny does lives in
+//! (`wallet_backend.rs`, `lifi.rs`, `debridge.rs`), and keeping the
+//! browser's pictures of pages as files (`browser_pictures.rs`); what Teeny does lives in
 //! `brain/` and `bin/`. `bin/spine` runs it.
 
+mod browser_pictures;
 mod debridge;
 mod lifi;
 mod wallet_backend;
@@ -30,6 +32,10 @@ fn main() {
     // Swap and bridge quotes from LI.FI's or deBridge's public API, ahead of
     // the tinyhumans proxy (which needs a signed-in session Teeny does not have).
     wallet_backend::install();
+
+    // Pictures of the pages the browser reaches, into the folder bin/spine
+    // names (`TEENY_BROWSER_PICTURES`), where hands/tasks collects them.
+    browser_pictures::install();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(err) = openhuman_rpc::host::cli(&args) {
