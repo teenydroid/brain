@@ -941,7 +941,7 @@ the next offer carries), then writes the next job or task to
               state/workbench/desk/build.json        state/workbench/desk/task.json
                              │                                      │
    agent job: builder (10 */2)                      agent job: operator (40 *)
-   shell (Landlock: writes state/workbench/ only),  browser (deploy/browser-allow.txt),
+   shell (Landlock: writes state/workbench/ only),  browser (public web minus deploy/browser-deny.txt),
    file tools                                       file_read, file_write
                              │                                      │
                              ▼                                      ▼
