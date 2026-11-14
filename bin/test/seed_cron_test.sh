@@ -335,15 +335,15 @@ for n in daily plain; do
     enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
 done
 : >"$FAKE_CALLS"
+storage_from_fake
 seed --dry-run
 check "--dry-run reports the catch-up" grep -q 'catch up teeny.daily' "$scratch/stderr"
 check "--dry-run runs nothing" test "$(calls cron_run)" = 0
-storage_from_fake
 seed
 check "re-arms both missed jobs" test "$(calls cron_update)" = 2
 check "catches up the one with catch_up, at boot" grep -qF 'cron_run {"job_id":"id-teeny.daily"}' "$FAKE_CALLS"
 check "with one run" test "$(calls cron_run)" = 1
-check "and says so" grep -q 'caught up teeny.daily (its .* slot)' "$scratch/stderr"
+check "and says so" grep -q 'caught up teeny.daily (its .* slot)' "$scratch/stderr" || cat "$scratch/stderr" >&2
 check "leaves the other to its next slot" bash -c "! grep -q 'id-teeny.plain\"}' <(grep '^cron_run' '$FAKE_CALLS')"
 : >"$FAKE_CALLS"
 seed
