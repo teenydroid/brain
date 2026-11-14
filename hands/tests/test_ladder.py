@@ -88,7 +88,7 @@ class LadderTest(unittest.TestCase):
         self.assertEqual((out["would_open_issue"], out["label"]), ("teenydroid/brain", "fence-proposal"))
         self.assertTrue(out["title"].startswith("fence-proposal: "))
         body = out["body"]
-        self.assertIn("**Fence:** `browser-allow`: The browser stays on `deploy/browser-allow.txt`", body)
+        self.assertIn("**Fence:** `browser-deny`: The browser opens public https pages only, never a host on", body)
         self.assertIn("## My evidence\n\n" + PROPOSAL["evidence"], body)
         self.assertIn("## What could go wrong\n\n" + PROPOSAL["risk"], body)
         self.assertIn("## What I would do with it", body)
