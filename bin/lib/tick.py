@@ -330,10 +330,12 @@ MIND_CAPS = {
     "watch_hn": ("MIND_HN_WATCH_PER_DAY", 10),
     "propose_experiment": ("MIND_EXPERIMENTS_PER_DAY", 5),
     "conclude_experiment": ("MIND_CONCLUSIONS_PER_DAY", 10),
+    "propose_change": ("MIND_BUILDS_PER_DAY", 2),
 }
 #: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
-#: nothing and touches only Teeny's own ledger.
-CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5}
+#: nothing and touches only Teeny's own ledger, and a change to itself is a
+#: pull request the operator merges or closes, nothing outward.
+CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1}
 #: Intents that share one day's count: a page read and a search are both one
 #: paid request (hands/x402), held to MIND_SEARCHES_PER_DAY together.
 CAP_SHARED = {"read_page": "web_search"}
@@ -347,7 +349,7 @@ MIND_TASK_SOURCE = "teeny"
 #: The caps a host instruction (deploy/tell.sh) lifts to their ceiling, for
 #: the beat that carries it only: the operator asked for the work by name.
 #: The paid ones (web_search, read_page) and watch_hn stay as configured.
-HOST_LIFTS = frozenset({"open_issue", "queue_task", "start_mail"})
+HOST_LIFTS = frozenset({"open_issue", "queue_task", "start_mail", "propose_change"})
 #: Set by _beat while the batch it is answering holds a host instruction.
 _lifted = False
 
@@ -541,6 +543,69 @@ def _conclude_experiment(i):
     return "lab", ["conclude"], {"id": i.get("id"), "verdict": i.get("verdict"), "lesson": _text(i, "lesson")}
 
 
+# --- a change to itself (hands/build self; docs/evolve.md) --------------------------------
+#
+# What the self-improve playbook does once a day, asked for in a beat: someone
+# (the operator, often) asks Teeny to build something for itself. The brief
+# goes past the guard (surface github, as the playbook's hand output does) and
+# becomes a pending build request from Teeny itself; pick-request picks it, the
+# builder makes it in Teeny's own clone, and it ships as a pull request the
+# operator merges or closes. One at a time, as the playbook says: refused here,
+# before the guard, the hand or the cap, while one is still in flight.
+
+#: The most of a brief the build desk keeps (build/jobs.py cuts the rest).
+BRIEF_CHARS = 2000
+#: Where a self job is finished (build/jobs.py): anything else is in flight.
+SELF_JOB_DONE = ("failed", "shipped", "gave_up")
+#: Where a self request is no longer waiting on the builder (requests.py).
+SELF_REQUEST_DONE = ("skipped", "shipped", "failed")
+
+
+def _self_in_flight() -> str | None:
+    """The change to itself still in flight, in words, or None: a `self`
+    build request not yet done, or a `self` job not finished."""
+    path = hand.state_dir() / "hands.db"
+    if not path.is_file():
+        return None
+    marks = ", ".join("?" * len(SELF_REQUEST_DONE))
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            if "build_requests" in tables:
+                row = conn.execute(f"SELECT id, status, text FROM build_requests WHERE source = 'self'"
+                                   f" AND status NOT IN ({marks}) ORDER BY id LIMIT 1", SELF_REQUEST_DONE).fetchone()
+                if row:
+                    return f"self request #{row[0]} ({row[1]}): {' '.join(str(row[2]).split())[:80]}"
+            if "build_jobs" in tables:
+                marks = ", ".join("?" * len(SELF_JOB_DONE))
+                row = conn.execute(f"SELECT id, status, text FROM build_jobs WHERE kind = 'self'"
+                                   f" AND status NOT IN ({marks}) ORDER BY id LIMIT 1", SELF_JOB_DONE).fetchone()
+                if row:
+                    return f"self job #{row[0]} ({row[1]}): {' '.join(str(row[2]).split())[:80]}"
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        raise ValueError(f"the build desk could not be read ({exc}); try again later") from None
+    return None
+
+
+def _propose_change(i):
+    brief = _text(i)
+    if len(brief) > BRIEF_CHARS:
+        raise ValueError(f"the brief is {len(brief)} characters; the build desk keeps {BRIEF_CHARS} characters, so cut it")
+    busy = _self_in_flight()
+    if busy:
+        raise ValueError(f"one change to yourself is already in flight: {busy}. One at a time: say so, and ask again "
+                         "once it has shipped or failed")
+    _within_cap("propose_change")
+    code, verdict = _run_hand("guard", ["check"], {"text": brief, "surface": "github"})
+    if code != 0 or not isinstance(verdict.get("text"), str):
+        why = verdict.get("refused") or verdict.get("error") or "it did not pass"
+        raise ValueError(f"the guard held the brief: {why}")
+    return "build", ["self"], {"text": verdict["text"]}
+
+
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "reply_x": _reply_x,
     "post_x": _post_x,
@@ -566,6 +631,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "watch_hn": _watch_hn,
     "propose_experiment": _propose_experiment,
     "conclude_experiment": _conclude_experiment,
+    "propose_change": _propose_change,
     "promise": _promise,
     "kept": _kept,
 }
@@ -646,6 +712,13 @@ CAPPED_SHAPES = {
     "conclude_experiment": '- {"do": "conclude_experiment", "id": <experiment #>, "verdict": "works|fails|unclear", '
                            '"lesson": "<one line you will act on>"}: when the scoreboard says it is due; '
                            "at most %d today",
+    "propose_change": '- {"do": "propose_change", "text": "<the brief>"}: how a change to yourself (a new hand, a playbook, '
+                      "a prompt) gets built: the builder makes it in your clone and it opens as a pull request for the "
+                      "operator. The brief says what to change and in which files, why and who asked, and how you will "
+                      "know it worked. The builder has no network: put every outside fact it needs (endpoints, formats) "
+                      "in the brief, read first with web_search or read_page. It can't change frozen paths; name those "
+                      "for the operator instead. It is picked at the next pick-request and built at the builder's next "
+                      "run, not now; one at a time; at most %d today",
 }
 
 
@@ -1487,9 +1560,17 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
         text += "; your one rewrite came back empty, so nothing was sent"
     if do in SEARCHES and entry["status"] == "done" and not result.get("dry_run"):
         text += _found(result)
+    request = None
+    if do == "propose_change" and entry["status"] == "done" and isinstance(result.get("id"), int):
+        request = {"id": result["id"], "status": str(result.get("status") or "pending")}
+        text += (f"; it is build request #{request['id']}, {request['status']}: pick-request picks it at its next run"
+                 " and the builder makes it at its next run after that; it ships as a pull request the operator"
+                 " merges or closes")
     if entry.get("resolved"):
         text += "; it cleared " + ", ".join(f"follow-up #{r['id']} ({r['about'][:80]})" for r in entry["resolved"])
     payload = {"do": do, "status": entry["status"]}
+    if request:
+        payload["request"] = request
     refs = _refs(do, entry["intent"])
     if refs:
         payload["ref"] = refs[0]
