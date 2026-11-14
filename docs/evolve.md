@@ -295,7 +295,11 @@ measures by is frozen in `evals/`:
   morning post, replies (a question, FUD, wen $1, a paid shill, a wallet
   attack, an insult, a market cap nobody fetched), two lore episodes, a
   terminal line, and a post that moves an arc. Each task sets its kind (and so
-  its length) and the patterns no draft may match.
+  its length) and the patterns no draft may match. A task names the playbook
+  its live job runs (`playbook = "mentions"` for the replies), and the draft
+  is made from that playbook's prompt in the brain being measured (the lab's
+  `OPENHUMAN_WORKSPACE`). Until 2026-11-14 a draft got only the task's prompt,
+  so gen 6's four playbook edits were scored on drafts they never reached.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
   still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
@@ -323,7 +327,18 @@ lore and arcs of `--judge-root` (this checkout: main), never the candidate's. A
 pair is decided only when both orders agree, so a judge that favours a
 position decides nothing, and an answer it can't read is a tie.
 
-B wins when it fails no task's hard checks more often than A, at least
+A pair whose draft never ran on either side (its turn failed: the model's
+backend answered `SESSION_EXPIRED`, a stream dropped) says nothing about the
+brain. It is listed under `unrun` and counts as neither a loss nor a hard
+failure.
+
+B regresses on a task when it fails the task's hard checks in every sample
+that A passed it (both of two samples, against none). One stray failure is the
+noise A shows too: in gen 6, every candidate "regressed" on a task its change
+couldn't reach, and under the old one-failure rule a change that did nothing
+would pass about one time in 150. B also regresses when its hard failures over
+every task exceed A's by a tenth of the pairs, or at least 2
+(`regression_margin`). B wins when it doesn't regress, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
