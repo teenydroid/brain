@@ -94,7 +94,13 @@ pub fn prune(dir: &Path, keep: usize) {
     let mut pictures: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.file_name().and_then(|n| n.to_str()).is_some_and(is_ours))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(is_ours)
+        })
         .collect();
     if pictures.len() <= keep {
         return;
@@ -168,7 +174,7 @@ mod tests {
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|n| n.ends_with(".png"))
+            .filter(|n| is_ours(n))
             .collect();
         names.sort();
         assert_eq!(names.len(), MAX_KEPT);
@@ -182,8 +188,13 @@ mod tests {
     fn only_its_own_names_are_pruned() {
         assert!(is_ours("1789369260000-000001.png"));
         assert!(is_ours("1789369260000-000001.jpeg"));
-        for other in ["holiday.png", "1789369260000-1.png", "1789369260000-000001.gif", ".1789369260000-000001.png.part"] {
+        for other in [
+            "holiday.png",
+            "1789369260000-1.png",
+            "1789369260000-000001.gif",
+            ".1789369260000-000001.png.part",
+        ] {
             assert!(!is_ours(other), "{other}");
         }
-}
+    }
 }
