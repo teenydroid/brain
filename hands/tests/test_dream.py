@@ -217,7 +217,7 @@ class DreamTest(unittest.TestCase):
         sys.path.insert(0, str(REPO / "bin" / "lib"))
         import reflect
 
-        for n in range(120):
+        for n in range(200):
             stimuli.note(f"note {n} " + "a long thing i chose to remember about the day " * 14, who="ana")
         self.answer({"ops": [], "diary": "d"})
         got = self.dream()
@@ -226,7 +226,7 @@ class DreamTest(unittest.TestCase):
         self.assertLessEqual(len(message.encode("utf-8")), reflect.MAX_PROMPT_BYTES)
         self.assertIn("- [m1] ana (x): builds a cli for crabs.", message)
         # The newest note is kept, the oldest go first, and it says so.
-        self.assertIn("note 119 ", message)
+        self.assertIn("note 199 ", message)
         self.assertNotIn("note 0 ", message)
         self.assertRegex(message, r"the \d+ earliest notes are left out")
 
