@@ -326,7 +326,7 @@ attach_shots() { # ITEM -> adds to media_ids, sets shots_note (JSON or null)
       shots_note='{"skipped": "shots is a task id, a whole number"}'
     return 0
   fi
-  dir="$TEENY_ROOT/state/media/tasks/$id"
+  dir="${TEENY_STATE:-$TEENY_ROOT/state}/media/tasks/$id"
   while IFS= read -r f; do
     [ "$(jq length <<<"$ids")" -lt "$MEDIA_MAX_IMAGES" ] || break
     if up="$(cd "$TEENY_ROOT" && "$hands/x" upload --file "$f" </dev/null)" && jq -e '.media_id | type == "string"' <<<"$up" >/dev/null 2>&1; then
