@@ -224,17 +224,20 @@ refused() { # TASK TEXT: the draft fails a hard check
   got="$(checked "$1" "$2")"
   if [ "$got" = false ]; then pass "$1 refuses: $2"; else fail "$1 refuses: $2 (ok=$got)"; fi
 }
-allowed cost-of-living-real-numbers 'this week cost $41.87: models $9.87, the server $32.00 of its $137.14, x402 spent $0.00.'
-allowed cost-of-living-real-numbers 'kept alive for $42, the server took $32, x402 $0, models $10.'
-refused cost-of-living-real-numbers 'this week cost $41.88.'
-refused cost-of-living-real-numbers 'models ate $9.80, the rest was the server.'
-allowed post-refund-shown 'this week: $120.00 came in, $50.00 went back as a refund for a build that failed. net $70.'
-allowed post-refund-shown 'this week $120 came in, $50 went back as a refund, $70 stays.'
-refused post-refund-shown 'this week $120 came in, $50 went back as a refund. net $75.'
-refused post-refund-shown 'this week $120.50 came in, $50 went back as a refund.'
-allowed operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.83. models $1.21 over 87 calls, x402 $0.20, 2 payments.'
-refused operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.84.'
-refused operator-spend-yesterday 'yesterday $3.41: models $1.25, the rest the server.'
+# shellcheck disable=SC2016 # the dollar amounts are the drafts' text, never expanded
+{
+  allowed cost-of-living-real-numbers 'this week cost $41.87: models $9.87, the server $32.00 of its $137.14, x402 spent $0.00.'
+  allowed cost-of-living-real-numbers 'kept alive for $42, the server took $32, x402 $0, models $10.'
+  refused cost-of-living-real-numbers 'this week cost $41.88.'
+  refused cost-of-living-real-numbers 'models ate $9.80, the rest was the server.'
+  allowed post-refund-shown 'this week: $120.00 came in, $50.00 went back as a refund for a build that failed. net $70.'
+  allowed post-refund-shown 'this week $120 came in, $50 went back as a refund, $70 stays.'
+  refused post-refund-shown 'this week $120 came in, $50 went back as a refund. net $75.'
+  refused post-refund-shown 'this week $120.50 came in, $50 went back as a refund.'
+  allowed operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.83. models $1.21 over 87 calls, x402 $0.20, 2 payments.'
+  refused operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.84.'
+  refused operator-spend-yesterday 'yesterday $3.41: models $1.25, the rest the server.'
+}
 allowed operator-last-build 'build 17 failed: 11 of 13 tests passed, 2 failed. recorded error: expected 3 dates, got 2.'
 refused operator-last-build 'build 17 failed: 11 of 13 tests passed, 4 failed.'
 refused operator-last-build 'build 17 failed. recorded error: expected 3 dates, got 2.5.'
