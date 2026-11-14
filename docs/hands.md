@@ -208,6 +208,7 @@ cut; `max_emoji` overrides the cap):
 | `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
 | `moltbook` | `title` 300, `body` 10000 | 3 |
 | `mail` | `subject` 200, `body` 10000 | 3 |
+| `task` (a browser task's goal, `done_when` or signup reason; never published) | `text` 1000 | `MAX_EMOJI_PER_POST` (1) |
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
@@ -1396,7 +1397,7 @@ keeps it off and out of the mind's prompt):
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
-| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
+| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`, 1000 characters each, not X's 280) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |

@@ -921,6 +921,29 @@ class TickTest(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT source, kind FROM browser_tasks").fetchall(), [("teeny", "research")])
         conn.close()
 
+    def test_a_task_goal_longer_than_a_tweet_reaches_the_queue_through_the_real_guard(self):
+        """A browser task's goal is a brief for the browser agent, not a post:
+        the real guard holds it to the `task` surface's limit, not X's 280.
+        The goal is the one the beat queued and the guard refused on
+        2026-11-14."""
+        goal = ("map how Drips works for funding a GitHub repo: what creating an account requires (wallet connect, "
+                "email, custodial login), which network it runs on, whether creating a project listing needs an "
+                "on-chain transaction or signature, how supporters stream funds to a repo, and whether an API or CLI "
+                "exists for automation")
+        self.assertEqual(len(goal), 314)
+        os.environ["TEENY_HANDS"] = str(REPO / "hands")
+        (self.root / "deploy").symlink_to(REPO / "deploy")
+        self.caps(MIND_TASKS_PER_DAY=5, DRY_RUN=1, SAFETY_JUDGE=0)
+        self.answer({"thought": "", "intents": [{**self.TASK, "goal": goal}, {**self.TASK, "goal": "a" * 1001}]})
+        got = self.tick()
+        results = got["results"]
+        self.assertEqual([r["status"] for r in results], ["done", "refused"], results)
+        self.assertIn("over the 1000 limit", results[1]["result"]["refused"])
+        import sqlite3
+        conn = sqlite3.connect(self.root / "state" / "hands.db")
+        self.assertEqual(conn.execute("SELECT goal FROM browser_tasks").fetchall(), [(goal,)])
+        conn.close()
+
     def test_say_telegram_goes_to_the_telegram_hand(self):
         stimuli.add("telegram", "dm", "42:7", "@steve in a DM:\nhey teeny", who="@steve")
         self.answer({"thought": "steve!", "intents": [
