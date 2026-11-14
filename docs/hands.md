@@ -2070,7 +2070,7 @@ It has no payment path of its own. Code: `teeny_hands/surplus/`.
 
 | Verb | | Does |
 |---|---|---|
-| `sweep` | J | Pays USDC on Base above the reserve to the surplus wallet, then bridges SOL above its reserve to Teeny's own USDC on Base. The pinned `surplus-sweep` job, `bin/surplus-sweep`, every 2 hours. Off until `SURPLUS_SWEEP=1` (skipped, exit 0). |
+| `sweep` | J | Pays USDC on Base above the reserve to the surplus wallet, then bridges SOL above its reserve straight into USDC on Base at the surplus wallet. The pinned `surplus-sweep` job, `bin/surplus-sweep`, every 2 hours. Off until `SURPLUS_SWEEP=1` (skipped, exit 0). |
 | `status` | R | The settings, what went to the surplus wallet in the last 7 days and in all, the last five runs. |
 | `log [--max N]` | R | The runs (`surplus_runs`), newest first. |
 
@@ -2090,16 +2090,20 @@ Each run, under the `surplus-sweep` lock, reads the balance once and then:
    pays gas (`gas`), and refused unless the address is an allowlisted vendor
    on base (`vendor`; `pay` checks it again).
 2. **Bridge.** SOL above `SURPLUS_KEEP_SOL` (0.1), and never more than half,
-   is bridged to **Teeny's own** USDC on Base through `bridge`, clamped to
-   `WALLET_MAX_PER_TX_USD` and what is left of
-   `WALLET_MAX_CONVERT_PER_DAY_USD`, and rounded down to 0.001 SOL. Nothing
-   under `SURPLUS_MIN_BRIDGE_SOL` (0.05), since a small Solana bridge loses
-   its rent and fees. Nothing while a conversion toward Base USDC from the
-   last `SURPLUS_COOLDOWN_MIN` (60) minutes may still land (`in_flight`).
-   The bridge lands before the next run, and that run's payout sends it on.
+   is bridged through LI.FI straight into USDC on Base **at the surplus
+   wallet**, ref `surplus-bridge-<time>`. It is clamped beforehand to what
+   is left of `WALLET_MAX_CONVERT_PER_DAY_USD` and of what a payment to the
+   surplus wallet may take (`WALLET_MAX_PER_TX_USD`, `WALLET_MAX_PER_DAY_USD`,
+   this address's `WALLET_MAX_PER_RECIPIENT_WEEK_USD`), and rounded down to
+   0.001 SOL. Nothing under `SURPLUS_MIN_BRIDGE_SOL` (0.05), since a small
+   Solana bridge loses its rent and fees. It needs no gas on Base, and the
+   USDC lands at the surplus wallet itself, so nothing waits on it.
 
-The bridge never names the surplus wallet. A conversion goes only to
-Teeny's own address (`convert.py`), and money leaves only through `pay`.
+The bridge is `wallet`'s one way to pay through a bridge (`convert(...,
+pay_to=, pay_ref=)`, "Paying a vendor through a bridge" under `swap` and
+`bridge`): no body field names a recipient, so neither the mind nor a
+playbook reaches it. It is a payment as much as a conversion: it has its
+own `wallet_payments` row, so every payment cap and ledger counts it.
 
 `SURPLUS_KEEP_BASE_USD` must be at least `X402_FUND_TARGET_USD` while
 `X402_FUND=1`. Otherwise the x402 top-up would bridge dollars in and the
@@ -2117,7 +2121,7 @@ Turning it on, once:
 
 ```
 hands/wallet vendors add surplus 0x... --chain base --note "the surplus wallet that funds Teeny"
-# a little ETH on Base for gas, sent to Teeny's EVM address (hands/wallet address)
+# for the payout step only: a little ETH on Base for gas, sent to Teeny's EVM address (hands/wallet address)
 # secrets/teeny.env: SURPLUS_SWEEP=1, SURPLUS_ADDRESS=0x...
 hands/surplus sweep   # DRY_RUN=1 first to see the plan
 ```
