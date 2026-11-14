@@ -48,7 +48,7 @@ class Scratch(unittest.TestCase):
         hand._ENV_CACHE = None
         self.tmp.cleanup()
 
-    def run_keychain(self, *argv, tty=False):
+    def run_keychain(self, *argv):
         return subprocess.run([sys.executable, str(KEYCHAIN), *argv], capture_output=True, text=True,
                               env={**os.environ}, stdin=subprocess.DEVNULL)
 
@@ -131,11 +131,19 @@ class CliTest(Scratch):
         self.assertEqual(refused.returncode, 2)
         self.assertFalse((self.root / "state" / "keychain.db").exists() and store.listing()["accounts"])
 
-    def test_secret_answers_on_a_pipe_for_the_page_host(self):
+    def fill(self, host):
+        return subprocess.run([str(REPO / "bin" / "keychain-fill"), host], capture_output=True, text=True,
+                              env={**os.environ}, stdin=subprocess.DEVNULL)
+
+    def test_only_the_browsers_fill_gets_the_password_of_the_page_host(self):
         self.run_keychain("create", "--site", "example.com", "--handle", "teeny")
-        got = self.run_keychain("secret", "--host", "www.example.com")
+        got = self.fill("www.example.com")
         self.assertEqual((got.returncode, got.stdout), (0, self.password("example.com")))
-        self.assertEqual(self.run_keychain("secret", "--host", "example.com.evil.io").returncode, 1)
+        self.assertEqual(self.fill("example.com.evil.io").returncode, 1)
+        # Run as a playbook input would run it: no fill flag, no password.
+        direct = self.run_keychain("secret", "--host", "example.com")
+        self.assertEqual(direct.returncode, 2)
+        self.assertNotIn(self.password("example.com"), direct.stdout + direct.stderr)
 
     def test_reveal_refuses_anything_but_a_terminal(self):
         self.run_keychain("create", "--site", "example.com", "--handle", "teeny")
