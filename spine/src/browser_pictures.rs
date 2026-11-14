@@ -70,7 +70,23 @@ pub fn save(dir: &Path, picture: &BrowserPicture) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Drops the oldest pictures (by name) so that at most `keep` remain.
+/// Whether `name` is one [`file_name`] makes: `<13 digits>-<6 digits>.png`
+/// or `.jpeg`. Pruning touches nothing else in the folder.
+pub fn is_ours(name: &str) -> bool {
+    let Some((stem, extension)) = name.rsplit_once('.') else {
+        return false;
+    };
+    let Some((ms, n)) = stem.split_once('-') else {
+        return false;
+    };
+    matches!(extension, "png" | "jpeg")
+        && ms.len() == 13
+        && n.len() == 6
+        && ms.bytes().chain(n.bytes()).all(|b| b.is_ascii_digit())
+}
+
+/// Drops the oldest of this sink's pictures (by name) so that at most `keep`
+/// remain.
 pub fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -78,12 +94,7 @@ pub fn prune(dir: &Path, keep: usize) {
     let mut pictures: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| {
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or(".");
-            path.is_file()
-                && !name.starts_with('.')
-                && (name.ends_with(".png") || name.ends_with(".jpeg"))
-        })
+        .filter(|path| path.is_file() && path.file_name().and_then(|n| n.to_str()).is_some_and(is_ours))
         .collect();
     if pictures.len() <= keep {
         return;
@@ -152,6 +163,7 @@ mod tests {
             std::fs::write(dir.join(file_name(1_000 + n, 0, "image/png")), b"x").unwrap();
         }
         std::fs::write(dir.join("notes.txt"), b"kept").unwrap();
+        std::fs::write(dir.join("0000000000001-holiday.png"), b"someone else's").unwrap();
         prune(&dir, MAX_KEPT);
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
@@ -162,6 +174,16 @@ mod tests {
         assert_eq!(names.len(), MAX_KEPT);
         assert_eq!(names[0], file_name(1_005, 0, "image/png"));
         assert!(dir.join("notes.txt").exists());
+        assert!(dir.join("0000000000001-holiday.png").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn only_its_own_names_are_pruned() {
+        assert!(is_ours("1789369260000-000001.png"));
+        assert!(is_ours("1789369260000-000001.jpeg"));
+        for other in ["holiday.png", "1789369260000-1.png", "1789369260000-000001.gif", ".1789369260000-000001.png.part"] {
+            assert!(!is_ours(other), "{other}");
+        }
+}
 }
