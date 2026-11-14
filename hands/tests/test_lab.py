@@ -21,7 +21,7 @@ from teeny_hands.x import posting_rules
 
 T0 = 1_789_369_200.0  # 2026-09-14T07:00:00Z
 DAY = 86400.0
-LAB = Path(__file__).resolve().parents[2] / "lab"
+LAB = Path(__file__).resolve().parents[1] / "lab"
 
 
 def body(**more):
