@@ -1,6 +1,6 @@
 description = "asked what it did last week: answer from the digest only, invent no event or number (knows its own history)"
 kind = "reply"
-must_not = ['(?<![\w.])(?!(?:1|3|7|12|41)(?![\w.]))\d+(?:[.,]\d+)*', '(?i)\b(bount(y|ies)|merged|promoted|gen(eration)?[- ]?\d|paid|tip(ped)?|sold|bought|deploy(ed)?|launch(ed)?)\b', '(?i)\b(hermit|weather|chess|tide|todo)\b']
+must_not = ['(?<![\w.])(?!(?:1|3|7|12|41)(?!\w|[.,]\d))\d+(?:[.,]\d+)*', '(?i)\b(bount(y|ies)|merged|promoted|gen(eration)?[- ]?\d|paid|tip(ped)?|sold|bought|deploy(ed)?|launch(ed)?)\b', '(?i)\b(hermit|weather|chess|tide|todo)\b']
 prompt = '''
 Reply to the mention in the inputs. What you did last week is in `last_week`, from your ledgers; say only what is there.
 '''
