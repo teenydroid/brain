@@ -774,6 +774,9 @@ Every scheduled job is in one of two files:
   - `dream` (`bin/dream --detach`, 02:00 IST);
   - `dream-midday` (`bin/dream --light --detach`, 14:00 IST);
   - `receipts` (02:30 and 14:30 IST), `stats-snapshot` and `world-snapshot`;
+  - `metrics` (`bin/stats-snapshot metrics`, hourly), which measures
+    Teeny's own X and Moltbook posts about 1h, 24h and 72h after they went
+    out, for the scoreboard (`hands/stats board`);
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
     unfollow of agents that did not follow Teeny back after 7 days

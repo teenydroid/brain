@@ -40,7 +40,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from .. import hand
+from .. import hand, tags
 from .client import number_setting
 from .model import utf16_length
 
@@ -95,18 +95,13 @@ _MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    migrate(conn)
+    add_tag_columns(conn)
 
 
-def migrate(conn: sqlite3.Connection) -> None:
-    # A ledger made before the format tag gains its column (a tolerant
-    # migration: a table that already has it is left alone).
-    if "format" not in {row[1] for row in conn.execute("PRAGMA table_info(x_posts)")}:
-        try:
-            conn.execute("ALTER TABLE x_posts ADD COLUMN format TEXT")
-        except sqlite3.OperationalError as exc:  # another hand added it at the same moment
-            if "duplicate column" not in str(exc):
-                raise
+def add_tag_columns(conn: sqlite3.Connection) -> None:
+    """`format` and `experiment` on x_posts (teeny_hands/tags.py), added to
+    a ledger created before they existed."""
+    hand.add_columns(conn, "x_posts", tags.COLUMNS)
 
 
 def iso(seconds: float) -> str:
@@ -298,14 +293,17 @@ def record_post(
     quote_of: str | None = None,
     media: Sequence[str] = (),
     created_at: float | None = None,
-    post_format: str | None = None,
+    format: str | None = None,
+    experiment: int | None = None,
 ) -> None:
-    """The own-post ledger. The hand writes it; `cadence` reads it."""
+    """The own-post ledger. The hand writes it; `cadence` reads it. `format`
+    and `experiment` are the lab tags (teeny_hands/tags.py)."""
+    add_tag_columns(conn)
     conn.execute(
-        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, post_format),
+         hand.now() if created_at is None else created_at, format, experiment),
     )
 
 

@@ -60,6 +60,7 @@ class Cli(Scratch):
         (lib / "guard").mkdir(parents=True)
         shutil.copy(LIB / "teeny_hands" / "__init__.py", lib / "__init__.py")
         (lib / "hand.py").symlink_to(LIB / "teeny_hands" / "hand.py")
+        (lib / "tags.py").symlink_to(LIB / "teeny_hands" / "tags.py")
         (lib / "x").symlink_to(LIB / "teeny_hands" / "x", target_is_directory=True)
         (lib / "guard" / "__init__.py").write_text("")
         (lib / "guard" / "gate.py").write_text(FAKE_GATE)
