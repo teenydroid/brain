@@ -26,11 +26,11 @@ from teeny_hands import hand  # noqa: E402
 from teeny_hands.ladder import cli  # noqa: E402
 
 PROPOSAL = {
-    "fence": "browser-allow",
-    "title": "allow the GitHub docs website for the browser",
-    "ask": "add the GitHub docs host to the allowed websites list",
-    "evidence": "three news tasks this week stopped at a GitHub docs link (L3.browser_week 4/7)",
-    "would_do": "read the Actions docs before babysitting my own pull requests",
+    "fence": "browser-deny",
+    "title": "let the browser read one forum the deny list blocks",
+    "ask": "take the forum's host off the browser's deny list",
+    "evidence": "three browse tasks this week stopped at a link to it (L3.browser_week 4/7)",
+    "would_do": "read the threads where agent builders compare tools",
     "risk": "a docs page could carry injected instructions; the operator task stays read-only and its notes are data",
 }
 
@@ -79,7 +79,7 @@ class LadderTest(unittest.TestCase):
     def test_fences_are_the_charters(self):
         out = cli.fences()
         ids = {f["id"] for f in out["fences"]}
-        self.assertTrue({"guard", "wallet-caps", "browser-allow", "ladder", "reviewer"} <= ids)
+        self.assertTrue({"guard", "wallet-caps", "browser-deny", "ladder", "reviewer"} <= ids)
         self.assertIn("ladder:merge", out["capabilities"])
 
     def test_a_dry_run_names_the_fence_the_evidence_and_the_risk(self):
