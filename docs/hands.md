@@ -1135,6 +1135,9 @@ task (the mind's `queue_task`, `MIND_TASKS_PER_DAY`, at most 20) that ends
 `ok` comes back like the news: one `world · browse` or `world · research`
 stimulus with the notes framed as what pages said, and the screenshots'
 paths in its payload.
+The stimulus text says how many screenshots the task saved, and a
+`post_x` or `reply_x` with `shots: <task id>` posts them (uploaded from
+`state/media/tasks/<id>/`, screenshots first, four in all).
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended

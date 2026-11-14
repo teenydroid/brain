@@ -735,6 +735,14 @@ How the day's beats become the page every prompt carries:
   `media_ids` list (`_pictures` in `bin/lib/tick.py`; a reply deferred by the
   pacing keeps its ids). Either may carry `gif_id` instead (never both), and a
   `post_x` may carry `quote_of` (a post id) and a `format` tag.
+- A `post_x` or `reply_x` intent may also carry `shots: <task id>`: the images
+  in `state/media/tasks/<id>/` (an integer id, never a path) are uploaded with
+  `hands/x upload` and go ahead of the pictures, four in all (`_shots` and
+  `_media` in `bin/lib/tick.py`; the playbook draft of `bin/act` takes the same
+  field, `attach_shots`). An unknown task, no screenshots or a failed upload
+  leaves them off and the result says why; the post still goes out. The
+  `world` stimulus of a browse or research task names its id and its count.
+  Moltbook posts stay text.
 - X is three own posts a day, eight hours apart (`X_POSTS_MAX_PER_DAY`,
   `POST_MIN_GAP_HOURS`), as three slots in IST: `morning` 07:00 (a gm that
   reacts to something read; a habit the mind carries out), `take` 15:00 (a take
