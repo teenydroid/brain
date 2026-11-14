@@ -2,6 +2,7 @@
 
     python3 bin/lib/catch_up.py [--dry-run] [--via-oh] [--state DIR]
                                 [--fresh NAME,...] [--rearmed NAME,...] < DESIRED_JSON
+    python3 bin/lib/catch_up.py live      ids of jobs a live run holds (JSON)
 
 DESIRED_JSON is bin/lib/cron_policy.py's output. bin/seed-cron runs this at
 every boot (`--via-oh`: through bin/oh, like the rest of seeding), and
@@ -47,6 +48,25 @@ catch-up is the same command the slot would have run.
 A job whose next run still sits on the slot is re-armed first
 (`cron_update` with its own schedule: the claim the dead run holds would
 refuse a run for two hours), unless the caller just did that (`--rearmed`).
+A job whose slot a live run holds is never re-armed or caught up: the core
+serves before bin/seed-cron runs and may claim a slot that passed while the
+box was down on its first poll; an edit would fence that claim (the run goes
+on, unrecorded) and a catch-up would start a second copy beside it.
+`catch_up.py live` prints the ids of such jobs, for bin/seed-cron's re-arm.
+
+What it does not cover: a catch-up is a manual run, and the core keys a
+manual run's claim on the job's *next* occurrence (`claim_job_now`) and holds
+it for two hours past the run's last renewal. A catch-up a deploy cuts off
+is not tried again (its slot is in the ledger), and its dead claim keeps the
+core from taking that next slot until it lapses; if the job is a catch-up
+job, bin/health re-arms and catches up that slot in turn. cron_policy.py
+keeps the window two hours shorter than the gap between slots, so the next
+slot always falls after such a claim could lapse, for runs under the core's
+own limits.
+
+A schedule with names (MON) or with both day fields set (the core's cron
+library and classic cron disagree on what that means) is not guessed at:
+cron_policy.py refuses catch-up on one, and this skips it, said in `errors`.
 
 Prints (or returns) {caught_up: [{name, slot}], pending: [names left for
 a later call], deferred: [names waiting out the quiet hours], errors:
@@ -63,6 +83,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from zoneinfo import ZoneInfo
@@ -83,6 +104,11 @@ LEASE_FRESH_SECS = 120
 MAX_PER_RUN = 1
 #: Ledger entries kept for the operator.
 LOG_KEEP = 50
+#: The core's occurrence claim (tinyflows-schedule OCCURRENCE_LEASE): each
+#: renewal sets its expiry this far ahead.
+OCCURRENCE_LEASE_MS = 2 * 3600 * 1000
+#: How long to wait for the ledger before saying it is busy.
+LOCK_WAIT_SECS = 10.0
 
 Json = dict[str, Any]
 Call = Callable[[str, Mapping[str, Any]], Any]
@@ -92,6 +118,7 @@ Call = Callable[[str, Mapping[str, Any]], Any]
 
 
 def _field(spec: str, low: int, high: int) -> set[int]:
+    """One numeric cron field; a name (MON) or `?` raises ValueError."""
     values: set[int] = set()
     for part in spec.split(","):
         step = 1
@@ -116,6 +143,8 @@ def _matcher(expr: str) -> Callable[[dt.datetime], bool]:
     doms = _field(dom, 1, 31)
     dows = {d % 7 for d in _field(dow, 0, 7)}  # 0 and 7 are both Sunday
     any_dom, any_dow = dom == "*", dow == "*"
+    if not any_dom and not any_dow:
+        raise ValueError(f"{expr!r} sets both day fields, which cron implementations read differently")
 
     def match(t: dt.datetime) -> bool:
         if t.minute not in mins or t.hour not in hours or t.month not in months:
@@ -172,9 +201,27 @@ def _lease_live(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_m
         lease = json.loads(row[1])
     except ValueError:
         return False
-    return (isinstance(lease, dict) and not lease.get("released")
-            and int(lease.get("expires_ms") or 0) > now_ms
-            and int(row[0] or 0) >= now_ms - LEASE_FRESH_SECS * 1000)
+    if not isinstance(lease, dict) or lease.get("released"):
+        return False
+    expires_ms = int(lease.get("expires_ms") or 0)
+    # Renewal rewrites the lease (the store stamps updated_ms) with an expiry
+    # OCCURRENCE_LEASE_MS ahead; either says when it was last renewed.
+    renewed_ms = max(int(row[0] or 0), expires_ms - OCCURRENCE_LEASE_MS)
+    return expires_ms > now_ms and renewed_ms >= now_ms - LEASE_FRESH_SECS * 1000
+
+
+def live_job_ids() -> list[str]:
+    """The jobs whose next run a live run holds right now (read-only)."""
+    path = storage()
+    if not path.is_file():
+        return []
+    now_ms = int(hand.now() * 1000)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+    try:
+        return sorted(job["id"] for job in _core_jobs(conn).values()
+                      if job["next_ms"] and _lease_live(conn, job["id"], job["next_ms"], now_ms))
+    finally:
+        conn.close()
 
 
 def _core_jobs(conn: sqlite3.Connection) -> dict[str, Json]:
@@ -215,14 +262,19 @@ def _ran_since(conn: sqlite3.Connection, job_id: str, since_ms: int) -> bool:
 # --- the ledger ---------------------------------------------------------------------------------
 
 
+class Busy(Exception):
+    pass
+
+
 class Ledger:
     """state/catch-up.json: per job, the last slot caught up (`done`) and when
     seeding last defined it (`since`), plus a short log. Held under a lock
     for the whole call, so a boot and a check never race for one slot."""
 
-    def __init__(self, state: Path, readonly: bool = False):
+    def __init__(self, state: Path, readonly: bool = False, wait: float = LOCK_WAIT_SECS):
         self.path = state / "catch-up.json"
         self.readonly = readonly
+        self.wait = wait
         self._lock = None
         if not readonly:
             state.mkdir(parents=True, exist_ok=True)
@@ -230,13 +282,33 @@ class Ledger:
 
     def __enter__(self) -> "Ledger":
         if self._lock is not None:
-            fcntl.flock(self._lock, fcntl.LOCK_EX)
+            deadline = time.monotonic() + self.wait
+            while True:
+                try:
+                    fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        self._lock.close()
+                        self._lock = None
+                        raise Busy("the catch-up ledger is busy (another boot or check holds it)") from None
+                    time.sleep(0.1)
         try:
             data = json.loads(self.path.read_text())
         except (OSError, ValueError):
             data = {}
-        self.data = {"done": dict(data.get("done") or {}), "since": dict(data.get("since") or {}),
-                     "log": list(data.get("log") or [])}
+        if not isinstance(data, dict):
+            data = {}
+
+        def stamps(value: Any) -> dict[str, int]:
+            if not isinstance(value, dict):
+                return {}
+            return {str(k): int(v) for k, v in value.items()
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+        log = data.get("log")
+        self.data = {"done": stamps(data.get("done")), "since": stamps(data.get("since")),
+                     "log": [e for e in log if isinstance(e, dict)] if isinstance(log, list) else []}
         return self
 
     def save(self) -> None:
@@ -262,9 +334,9 @@ def _quiet(now: float) -> bool:
 
 
 def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], ledger: Json, now: float,
-                rearmed: set[str]) -> tuple[list[Json], list[str]]:
+                rearmed: set[str], errors: dict[str, str]) -> tuple[list[Json], list[str]]:
     """The missed slots to catch up, oldest first, and the names waiting out
-    the quiet hours."""
+    the quiet hours. A job whose schedule cannot be read goes in `errors`."""
     now_ms = int(now * 1000)
     core = _core_jobs(conn)
     found: list[Json] = []
@@ -277,13 +349,21 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
             continue
         schedule = have["schedule"]
         earliest = max(now - window, have["created_ms"] / 1000, float(ledger["since"].get(name) or 0) / 1000)
-        slot = last_slot(str(schedule.get("expr") or ""), schedule.get("tz"), now, earliest)
+        try:
+            slot = last_slot(str(schedule.get("expr") or ""), schedule.get("tz"), now, earliest)
+        except (ValueError, KeyError) as error:  # one odd schedule never stops the others
+            errors[name] = scrub(f"schedule not read: {error}")
+            continue
         if slot is None:
             continue
         slot_ms = int(slot * 1000)
         if int(ledger["done"].get(name) or 0) >= slot_ms:
             continue
-        if _ran_since(conn, have["id"], slot_ms) or _lease_live(conn, have["id"], slot_ms, now_ms):
+        # A run that started (or was queued) at the slot holds it; so does a
+        # live claim on it, and on the job's current next run (a run the core
+        # took after a re-arm moved it on).
+        if (_ran_since(conn, have["id"], slot_ms) or _lease_live(conn, have["id"], slot_ms, now_ms)
+                or _lease_live(conn, have["id"], have["next_ms"], now_ms)):
             continue
         moved_on = name in rearmed or have["next_ms"] > slot_ms
         if not moved_on and now - slot < GRACE_SECS:
@@ -298,12 +378,26 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
 
 
 def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] = (), rearmed: Iterable[str] = (),
-        dry_run: bool = False, state: Path | None = None, by: str = "health") -> Json:
+        dry_run: bool = False, state: Path | None = None, by: str = "health",
+        lock_wait: float = LOCK_WAIT_SECS) -> Json:
     """Catches up at most MAX_PER_RUN missed slot (see the module docs)."""
     now = hand.now()
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
     state = state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
-    with Ledger(state, readonly=dry_run) as ledger:
+    try:
+        ledger_cm = Ledger(state, readonly=dry_run, wait=lock_wait).__enter__()
+    except Busy as busy:
+        out["errors"]["ledger"] = str(busy)
+        return out
+    try:
+        return _run(ledger_cm, out, desired, call, fresh, rearmed, dry_run, now, by)
+    finally:
+        ledger_cm.__exit__(None, None, None)
+
+
+def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str],
+         rearmed: Iterable[str], dry_run: bool, now: float, by: str) -> Json:
+    if True:
         if not dry_run:
             for name in fresh:
                 ledger.data["since"][name] = int(now * 1000)
@@ -314,7 +408,7 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
         try:
             conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
             try:
-                found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed))
+                found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"])
             finally:
                 conn.close()
         except sqlite3.Error as error:
@@ -367,6 +461,9 @@ def _names(text: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if argv == ["live"]:
+        print(json.dumps(live_job_ids()))
+        return 0
     parser = argparse.ArgumentParser(prog="catch_up.py")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--via-oh", action="store_true")
