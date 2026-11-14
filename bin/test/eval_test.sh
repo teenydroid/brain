@@ -300,6 +300,11 @@ check "every pair is a win" test "$(report .wins "$scratch/win")" = "$tasks"
 check "the judge's notes are kept per pair" test "$(report '.pairs[0].notes | length' "$scratch/win")" = 2
 check "without --judge-model the judge runs on the core's model" test "$(report .judge_model "$scratch/win")" = null
 
+rm -f "$FAKE_TURN_COUNT"
+FAKE_FAIL_AGENT=judge FAKE_TURN_FAILS=1 FAKE_JUDGE=prefer:CAND compare "$scratch/judge-retry"
+check "a judge turn that fails is tried again, not read as a tie" test "$(report .wins "$scratch/judge-retry")" = "$tasks"
+rm -f "$FAKE_TURN_COUNT"
+
 # --- a judge model of its own, per run ---------------------------------------------------------
 : >"$FAKE_CALLS"
 FAKE_JUDGE=prefer:CAND compare "$scratch/judged-by" --judge-model judge-9b
