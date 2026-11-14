@@ -320,8 +320,8 @@ class DreamTest(unittest.TestCase):
         self.dream()
         message = self.message()
         self.assertIn("## where the builder stands", message)
-        self.assertIn("build #2 csvstat: shipped, https://github.com/teenydroid/csvstat", message)
-        self.assertIn("build #1 brain: failed", message)
+        self.assertIn("build #1 csvstat: shipped, https://github.com/teenydroid/csvstat", message)
+        self.assertIn("build #2 brain: failed (cannot ship)", message)
 
     def test_it_goes_over_the_learnings_the_core_holds_and_never_conversations(self):
         self.answer({"ops": [], "diary": "d"})
