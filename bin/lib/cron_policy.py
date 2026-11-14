@@ -4,7 +4,7 @@ model.
 
     python3 bin/lib/cron_policy.py CRON_TOML PINNED_TOML [DEFAULT_TZ]
 
-Prints [{name, kind, expr, tz, command, agent, prompt, enabled}] on success
+Prints [{name, kind, expr, tz, command, agent, prompt, enabled, catch_up_secs}] on success
 (kind "shell" with a command, or "agent" with an agent and a prompt); exits
 non-zero with the reason on the first rule a file breaks.
 
@@ -25,7 +25,13 @@ written here, in code it cannot edit:
   sets `scheduled_actions = true` and names its tools explicitly: OpenHuman
   lets such a run act without a person's approval (docs/architecture.md,
   "Scheduled agents"), so only the agents written for it may be scheduled,
-  and at most MAX_AGENT_RUNS_PER_DAY agent runs a day across every job.
+  and at most MAX_AGENT_RUNS_PER_DAY agent runs a day across every job;
+- `catch_up = true` (optionally `catch_up_hours = N`, default
+  CATCH_UP_DEFAULT_HOURS, at most CATCH_UP_MAX_HOURS) lets bin/lib/catch_up.py
+  run a slot that passed without a run once, late, within that window. The
+  window must be shorter than the job's shortest gap between slots, so a
+  catch-up can never stand in for more than one slot or crowd the next one;
+  in practice only jobs that fire a few times a day can have one.
 """
 
 from __future__ import annotations
@@ -45,6 +51,8 @@ BRAIN_COMMANDS = ("bin/heartbeat", "bin/act")
 AGENT_JOB_AGENTS = ("builder", "operator")
 MAX_AGENT_RUNS_PER_DAY = 96
 MAX_PROMPT_CHARS = 4000
+CATCH_UP_DEFAULT_HOURS = 6
+CATCH_UP_MAX_HOURS = 12
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -143,6 +151,25 @@ def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
     return agent, prompt
 
 
+def _catch_up(job: dict, minutes: list[int], where: str) -> int:
+    """The job's catch-up window in seconds, 0 without `catch_up = true`."""
+    catch_up = job.get("catch_up", False)
+    if not isinstance(catch_up, bool):
+        raise PolicyError(f"{where}: catch_up must be true or false")
+    hours = job.get("catch_up_hours")
+    if hours is not None and not catch_up:
+        raise PolicyError(f"{where}: catch_up_hours needs catch_up = true")
+    if not catch_up:
+        return 0
+    hours = CATCH_UP_DEFAULT_HOURS if hours is None else hours
+    if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= CATCH_UP_MAX_HOURS:
+        raise PolicyError(f"{where}: catch_up_hours is a whole number from 1 to {CATCH_UP_MAX_HOURS}")
+    if hours * 60 >= min_gap(minutes):
+        raise PolicyError(f"{where}: a {hours}-hour catch-up window is not shorter than the"
+                          f" {min_gap(minutes)} minutes between its slots")
+    return hours * 3600
+
+
 def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) -> list[dict]:
     brain = brain or path.parent
     with open(path, "rb") as fh:
@@ -156,7 +183,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
         where = f"{path}: jobs.{name}"
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise PolicyError(f"{where}: name must be lowercase letters, digits and dashes")
-        extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled"}
+        extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled", "catch_up", "catch_up_hours"}
         if extra:
             raise PolicyError(f"{where}: unknown keys: {', '.join(sorted(extra))}")
         expr = str(job.get("schedule", "")).strip()
@@ -176,6 +203,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
+        catch_up_secs = _catch_up(job, minutes, where)
         out.append({
             "name": f"teeny.{name}",
             "kind": "shell" if command is not None else "agent",
@@ -185,6 +213,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
             "agent": agent,
             "prompt": prompt,
             "enabled": enabled,
+            "catch_up_secs": catch_up_secs,
             "runs_per_day": len(minutes),
         })
     return out
