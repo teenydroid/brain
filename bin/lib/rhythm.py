@@ -349,9 +349,45 @@ def _hn_look(run_hand: RunHand, name: str, out: Mapping[str, Any]) -> tuple[list
     return lines, {"source": name, "stories": seen}
 
 
+#: An idle Hacker News look also sends the browser to read the best story it
+#: saw (a `browse` task, hands/tasks), unless this many are already waiting.
+BROWSE_WAITING_MAX = 2
+BROWSE_SOURCE = "wander"
+
+
+def _browse_best(run_hand: RunHand, stories: list[Json]) -> Json | None:
+    """Queues one `browse` task on the highest-scored story whose link is a
+    public https page off the deny list. The link comes from Hacker News'
+    own data, so it is a reputed one; the title already passed the guard.
+    Returns what was queued, or None."""
+    code, waiting = run_hand("tasks", ["list", "--status", "pending", "--limit", "50"], None)
+    if code != 0 or not isinstance(waiting, Mapping):
+        return None
+    tasks = waiting.get("tasks") if isinstance(waiting.get("tasks"), list) else []
+    if sum(1 for t in tasks if isinstance(t, Mapping) and t.get("kind") == "browse") >= BROWSE_WAITING_MAX:
+        return None
+    linked = [s for s in stories if isinstance(s.get("url"), str) and s["url"].startswith("https://")]
+    for story in sorted(linked, key=lambda s: -(s.get("score") or 0)):
+        body = {
+            "kind": "browse",
+            "start_url": story["url"],
+            "goal": (f'Hacker News pointed you here ("{story["title"]}"). Read the page and answer: what is it, and '
+                     "what does it mean for AI agents or the people who build them?"),
+            "done_when": ("You can answer in a few lines with the page's own facts and numbers. Follow at most a few "
+                          "links from it, and save a screenshot of what is worth showing."),
+        }
+        code, out = run_hand("tasks", ["add", "--source", BROWSE_SOURCE], body)
+        if code == 0 and isinstance(out, Mapping) and out.get("task_id") is not None:
+            return {"task_id": out["task_id"], "url": story["url"], "title": story["title"]}
+    return None
+
+
 def wander(run_hand: RunHand) -> bool:
     """With nothing to answer, maybe look at the world: one read-only peek,
     added as a `world · idle` stimulus. True when it added one.
+
+    A Hacker News look also queues one `browse` task on the best story it
+    saw (_browse_best), so idle time goes to reading pages, not only titles.
 
     The looks take turns (LOOKS). A Hacker News page that is down, empty,
     or whose every title the guard held is passed over for the next source,
@@ -387,6 +423,11 @@ def wander(run_hand: RunHand) -> bool:
         if found is None:
             return False
         lines, payload = found
+        if hand_name == "hn":
+            sent = _browse_best(run_hand, payload.get("stories") or [])
+            if sent is not None:
+                lines.append(f'You sent the browser to read "{sent["title"]}"; what it finds comes back to you.')
+                payload = {**payload, "browse": sent}
         return stimuli.add("world", "idle", f"{name}:{int(hand.now())}", "\n".join(lines), payload=payload)
     return False
 

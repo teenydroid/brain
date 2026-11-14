@@ -104,7 +104,7 @@ eval "$wallet_env"
 
 # Teeny's own core settings (bin/lib/core_sections/*.py): the cron shell
 # timeout, the autonomy policy and the workbench the scheduled agents' file
-# tools reach, the browser and its allowed websites (deploy/browser-allow.txt),
+# tools reach, the browser, http_request's allowed hosts (deploy/browser-allow.txt),
 # and the linked modules. Read only at boot, so rewritten every boot.
 python3 "$TEENY_ROOT/bin/lib/core_config.py" "$config_dir/config.toml" "$TEENY_ROOT" ||
   die "could not write Teeny's core settings into $config_dir/config.toml"
@@ -152,6 +152,12 @@ export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"
 export OPENHUMAN_ACTION_DIR="$TEENY_ROOT"
 export OPENHUMAN_KEYRING_BACKEND=file
 export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
+# The browser may open any public https page; private and local addresses
+# stay refused by the core, and deploy/browser-deny.txt is what it never
+# opens (hands/tasks, the operator's desk and prompt). `[http_request]
+# allowed_domains` (deploy/browser-allow.txt) still bounds the raw
+# `http_request` tool. OpenHuman takes this switch from the environment only.
+export OPENHUMAN_BROWSER_ALLOW_ALL=1
 OPENHUMAN_CORE_TOKEN="$(tr -d '[:space:]' <"$TEENY_SECRETS/core.token")"
 export OPENHUMAN_CORE_TOKEN
 export OPENHUMAN_CORE_HOST="$host" OPENHUMAN_CORE_PORT="$port"

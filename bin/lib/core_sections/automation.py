@@ -15,9 +15,11 @@ linked module.
                  the tier gates what an agent may do, the hands keep the rules
   [browser]      TinyComputer, headless, a fresh profile per session,
                  downloads under state/browser/, and the actions an
-                 unattended run may take
-  [http_request] allowed_domains: deploy/browser-allow.txt, which the
-                 browser shares
+                 unattended run may take. It opens any public https page
+                 (bin/spine sets OPENHUMAN_BROWSER_ALLOW_ALL=1); what it
+                 never opens is deploy/browser-deny.txt (hands/tasks)
+  [http_request] allowed_domains: deploy/browser-allow.txt, for the raw
+                 http_request tool
   [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
                  every other module, TinyComputer included, from its release
 
@@ -36,7 +38,7 @@ SHELL_TIMEOUT_SECS = 1800
 
 #: What a browser in an unattended (cron) run may do without a person's
 #: approval. `task_step` lets a browser task take a step it marks
-#: irreversible (submitting a form); the allowed websites bound where, and a
+#: irreversible (submitting a form); the deny list bounds where, and a
 #: payment checkpoint still stops it whatever this says.
 UNATTENDED_ACTIONS = ("click", "fill", "type", "press", "select", "check", "task_step")
 

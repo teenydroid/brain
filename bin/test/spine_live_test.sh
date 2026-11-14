@@ -212,9 +212,7 @@ cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
-cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
-# The operator's real browser task below opens example.com (IANA's, always up).
-printf 'example.com\n' >>"$root/deploy/browser-allow.txt"
+cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
 cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/MEMORY.seed.md" "$root/brain/"
 # No live page yet, as on a fresh checkout: the boot starts it from the seed.
@@ -492,9 +490,10 @@ printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # It does a real task in the real browser: the stub model opens the start
 # page and reports its title. On 2026-11-13 the one task on the box failed
 # ("TinyComputer browser unavailable") while every check here passed; a
-# browser that cannot finish a task must fail this test.
+# browser that cannot finish a task must fail this test. example.com (IANA's,
+# always up) is on no reviewed list: the browser opens the public web.
 jq -cn '{goal: "read the title of the page", start_url: "https://example.com/", done_when: "you know the title"}' |
-  "$root/hands/tasks" add --source live-test >"$scratch/task-add.log" 2>&1 || true
+  "$root/hands/tasks" add --source operator >"$scratch/task-add.log" 2>&1 || true
 "$root/bin/tasks-desk" >"$scratch/tasks-desk.log" 2>&1 || true
 operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
 if [ -n "$operator_id" ]; then

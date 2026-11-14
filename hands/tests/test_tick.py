@@ -711,8 +711,15 @@ class TickTest(unittest.TestCase):
         self.assertIn('"do": "open_issue"', message)
         self.assertIn("at most 3 today", message)
 
+    def test_the_mind_may_queue_up_to_twenty_browser_tasks_a_day(self):
+        tick = _tick_module()
+        for given, cap in (("20", 20), ("99", 20), ("7", 7)):
+            with self.subTest(given=given):
+                self.caps(MIND_TASKS_PER_DAY=given)
+                self.assertEqual(tick.mind_cap("queue_task"), cap)
+
     def test_each_new_intent_has_a_daily_cap_that_counts_what_reached_the_hand(self):
-        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 10
+        self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 20
         os.environ["FAKE_EXIT_GH"] = "2"  # a refused issue still counts
         self.answer({"thought": "", "intents": [self.ISSUE, self.ISSUE, self.ISSUE]})
         got = self.tick()
@@ -870,8 +877,8 @@ class TickTest(unittest.TestCase):
 
     def test_the_real_hands_refuse_what_is_outside_their_limits(self):
         """Through the real hands/gh, hands/tasks and hands/mail (DRY_RUN, the
-        guard's judge off): a repository not Teeny's, a website not on the
-        list, and an address that is not a contact are each refused by the
+        guard's judge off): a repository not Teeny's, a link no reputed source
+        showed, and an address that is not a contact are each refused by the
         hand itself; the ones inside the limits are dry runs."""
         os.environ["TEENY_HANDS"] = str(REPO / "hands")
         (self.root / "deploy").symlink_to(REPO / "deploy")
@@ -888,7 +895,7 @@ class TickTest(unittest.TestCase):
         results = got["results"]
         self.assertEqual([r["status"] for r in results], ["refused", "refused", "refused", "done", "done"], results)
         self.assertEqual(results[0]["result"]["rule"], "owner")
-        self.assertEqual(results[1]["result"]["rule"], "website")
+        self.assertEqual(results[1]["result"]["rule"], "reputed")
         self.assertEqual(results[2]["result"]["rule"], "contacts")
         self.assertTrue(results[3]["result"]["dry_run"])
         self.assertEqual(results[4]["result"]["status"], "pending")

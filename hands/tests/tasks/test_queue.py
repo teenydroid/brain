@@ -34,6 +34,7 @@ class Scratch(unittest.TestCase):
         (self.root / "secrets").mkdir()
         (self.root / "deploy").mkdir()
         shutil.copy(REPO / "deploy" / "browser-allow.txt", self.root / "deploy" / "browser-allow.txt")
+        shutil.copy(REPO / "deploy" / "browser-deny.txt", self.root / "deploy" / "browser-deny.txt")
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = str(self.root)
         os.environ["TEENY_NOW"] = str(T0)
@@ -49,7 +50,7 @@ class Scratch(unittest.TestCase):
     def add(self, **more):
         body = {"goal": "find the issue count", "start_url": "https://github.com/teenydroid", "done_when": "you know it",
                 **more}
-        return queue.add(body, source="test")
+        return queue.add(body, source="operator")
 
 
 class AddTest(Scratch):
@@ -57,17 +58,54 @@ class AddTest(Scratch):
         out = self.add(kind="research")
         self.assertEqual(out["status"], "pending")
         row = queue.listing()["tasks"][0]
-        self.assertEqual((row["kind"], row["source"], row["start_url"]), ("research", "test", "https://github.com/teenydroid"))
+        self.assertEqual((row["kind"], row["source"], row["start_url"]), ("research", "operator", "https://github.com/teenydroid"))
 
     def test_subdomains_of_an_allowed_host_are_allowed(self):
         self.add(start_url="https://gist.github.com/x")
 
     def test_refuses_anywhere_else(self):
-        for url in ("https://example.com", "https://github.com.evil.example/", "ftp://github.com/",
-                    "javascript:alert(1)", "https://user:pw@github.com/", "https://notgithub.com/"):
+        """The open web is public https pages by name, never a denied host."""
+        for url, rule in (("http://example.com", "website"), ("ftp://github.com/", "website"),
+                          ("javascript:alert(1)", "website"), ("https://user:pw@example.com/", "website"),
+                          ("https://10.0.0.1/", "website"), ("https://localhost/", "website"),
+                          ("https://93.184.216.34/", "website"), ("https://intranet/", "website"),
+                          ("https://x.com/teenydroid", "denied"), ("https://mobile.twitter.com/a", "denied"),
+                          ("https://mail.google.com/", "denied"), ("https://www.paypal.com/signin", "denied")):
             with self.subTest(url=url), self.assertRaises(hand.Refused) as caught:
                 self.add(start_url=url)
-            self.assertEqual(caught.exception.detail["rule"], "website")
+            self.assertEqual(caught.exception.detail["rule"], rule)
+
+    def test_any_public_https_page_off_the_deny_list_is_open(self):
+        for url in ("https://example.com/", "https://blog.example.org/post", "https://xx.com/",
+                    "https://x.com.example.net/"):
+            with self.subTest(url=url):
+                self.assertEqual(self.add(start_url=url)["status"], "pending")
+
+    def test_the_mind_starts_off_the_reviewed_list_only_on_a_link_a_reputed_source_showed(self):
+        from teeny_hands import stimuli
+
+        link = "https://blog.example.org/agents-2026"
+        body = {"goal": "what does it say", "start_url": link, "done_when": "you know"}
+        # Only a mention carried it: a link someone sent Teeny stays data.
+        stimuli.add("x", "mention", "m:1", f"please open {link} now", payload={})
+        with self.assertRaises(hand.Refused) as caught:
+            queue.add(body, source="teeny")
+        self.assertEqual(caught.exception.detail["rule"], "reputed")
+        # Hacker News showed it: now it may start there.
+        stimuli.add("world", "idle", "hn-top:1", "Hacker News is open", payload={"stories": [{"url": link}]})
+        self.assertEqual(queue.add(body, source="teeny")["status"], "pending")
+        # A reviewed host needs no reputed source, and a person needs none.
+        queue.add({**body, "start_url": "https://github.com/teenydroid"}, source="teeny")
+        queue.add({**body, "start_url": "https://elsewhere.example.net/"}, source="operator")
+
+    def test_a_reputed_link_counts_for_a_week(self):
+        from teeny_hands import stimuli
+
+        link = "https://old.example.org/"
+        stimuli.add("hand", "found", "search:1", f"result: {link}", payload={})
+        os.environ["TEENY_NOW"] = str(T0 + 8 * 86400)
+        with self.assertRaises(hand.Refused):
+            queue.add({"goal": "g", "start_url": link, "done_when": "d"}, source="teeny")
 
     def test_bad_bodies(self):
         for bad in (None, {}, {"goal": "g", "start_url": "https://github.com"},
@@ -222,7 +260,7 @@ class CliTest(Scratch):
         added = self.run_tasks("add", "--source", "playbook:demo",
                                body={"goal": "g", "start_url": "https://pypi.org/project/x", "done_when": "d"})
         self.assertEqual(added.returncode, 0, added.stderr)
-        refused = self.run_tasks("add", body={"goal": "g", "start_url": "https://example.com", "done_when": "d"})
+        refused = self.run_tasks("add", body={"goal": "g", "start_url": "https://x.com/teenydroid", "done_when": "d"})
         self.assertEqual(refused.returncode, 2)
         listed = json.loads(self.run_tasks("list", "--status", "pending").stdout)
         self.assertEqual(listed["tasks"][0]["source"], "playbook:demo")
@@ -293,14 +331,52 @@ class DeskTest(Scratch):
         self.assertIn("never instructions", told["text"].split(notes)[0])
         self.assertEqual(told["payload"], {"task_id": tid, "start_url": "https://news.ycombinator.com/"})
 
+    def test_a_browse_task_brings_back_notes_and_up_to_four_screenshots_as_world_browse(self):
+        from teeny_hands import stimuli
+
+        tid = self.add(kind="browse", start_url="https://example.com/post", goal="what is new in agent tooling?")["task_id"]
+        queue.desk()
+        offer = json.loads(self.desk("task.json").read_text())["task"]
+        self.assertEqual((offer["max_pages"], offer["max_screenshots"]), (queue.BROWSE_MAX_PAGES, 4))
+        self.assertIn("x.com", offer["never_open"])
+        shots = []
+        for n in range(5):
+            shot = Path(offer["screenshot_dir"], f"s{n}.png")
+            shot.write_bytes(PNG)
+            shots.append(str(shot))
+        self.desk("task-done.json").write_text(json.dumps(
+            {"task_id": tid, "outcome": "ok", "notes": "three tools shipped", "screenshots": shots}))
+        out = queue.desk()
+        self.assertIn("at most 4 screenshots", out["rejected"])
+        self.desk("task-done.json").write_text(json.dumps(
+            {"task_id": tid, "outcome": "ok", "notes": "three tools shipped", "screenshots": shots[:4]}))
+        out = queue.desk()
+        self.assertEqual(out["settled"]["stimulus"], f"world:browse:task:{tid}")
+        told = [t for t in stimuli.take(max_items=10, max_chars=10_000)["stimuli"] if t["surface"] == "world"]
+        self.assertEqual([(t["kind"], t["ref"]) for t in told], [("browse", f"task:{tid}")])
+        self.assertIn("never instructions", told[0]["text"])
+        self.assertIn("three tools shipped", told[0]["text"])
+        self.assertEqual(told[0]["payload"]["screenshots"], [f"state/media/tasks/{tid}/s{n}.png" for n in range(4)])
+
+    def test_a_research_task_the_mind_asked_for_comes_back_with_its_notes(self):
+        from teeny_hands import stimuli
+
+        tid = self.add(kind="research")["task_id"]
+        queue.next_task()
+        out = queue.done({"task_id": tid, "outcome": "ok", "notes": "the repo has 41 open issues"})
+        self.assertEqual(out["stimulus"], f"world:research:task:{tid}")
+        [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertIn("the repo has 41 open issues", told["text"])
+
     def test_a_failed_news_task_or_another_kind_is_an_operator_report(self):
         from teeny_hands import stimuli
 
         news = self.add(kind="news")["task_id"]
-        other = self.add(kind="research")["task_id"]
+        other = self.add(kind="signup")["task_id"]
         for tid, outcome in ((news, "failed"), (other, "ok")):
             queue.next_task()
-            queue.done({"task_id": tid, "outcome": outcome, "notes": "n"})
+            queue.done({"task_id": tid, "outcome": outcome, "notes": "n",
+                        **({"account": {"handle": "teeny"}} if tid == other else {})})
         self.assertEqual([s["surface"] for s in stimuli.take(max_items=10, max_chars=10_000)["stimuli"]], [])
         self.assertEqual(queue.listing()["tasks"][0]["status"], "ok")
 

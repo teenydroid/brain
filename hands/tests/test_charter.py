@@ -28,7 +28,7 @@ PAGE = REPO / "docs" / "governance.md"
 #: The fences DIRECTIVE.md lists ("The fences that never move"), by id. Each
 #: must have a row; the page may name more.
 DIRECTIVE_FENCES = {"guard", "x-rules", "wallet-caps", "no-model-pays", "never-sell", "frozen-paths", "watchers",
-                    "browser-allow", "payment-page", "in-doubt", "tool-less", "only-operator-widens"}
+                    "browser-deny", "payment-page", "in-doubt", "tool-less", "only-operator-widens"}
 
 _CODE = re.compile(r"`([^`]+)`")
 
