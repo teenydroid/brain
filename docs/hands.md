@@ -1148,9 +1148,11 @@ The stimulus text says how many screenshots the task saved, and a
 browser tool has no screenshot action, so the core takes them itself
 while its host has a picture sink registered: a picture of the page after
 each `open`, click, key press, select or check, and before `close`. It
-skips a page that shows a password the keychain typed (a revealed password
-field, an echo of it), never pictures a `fill` or `type`, and takes a PNG
-over 5 MB again as a JPEG. The spine's sink (`spine/src/browser_pictures.rs`)
+never pictures a `fill` or `type`, and once a session has typed a keychain
+password it takes no more pictures at all: a sign-up is pictured up to its
+password step, not after. Other sessions skip any page that shows a
+password the keychain typed, or that has a frame it cannot read. A PNG over
+5 MB is taken again as a JPEG. The spine's sink (`spine/src/browser_pictures.rs`)
 writes them into `TEENY_BROWSER_PICTURES`, which `bin/spine` sets to
 `state/browser/screenshots/`, and keeps at most 24. When the desk settles
 a report, `done` takes the pictures taken since the claim: the first page
