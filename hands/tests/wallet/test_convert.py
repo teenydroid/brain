@@ -671,7 +671,7 @@ class PayeeBridgeTest(LifiBase):
         self.assertEqual(
             (paid["purpose"], paid["ref"], paid["status"], paid["to_address"], paid["chain"], paid["asset"], paid["amount_raw"],
              paid["signature"]),
-            ("vendor", "surplus-bridge-1", "paid", PAYEE, "solana", "SOL", "100000000", "5bridgeSig"))
+            ("vendor", "surplus-bridge-1", "paid", PAYEE, "solana", "SOL", 100000000, "5bridgeSig"))
         self.assertEqual(out["payment_id"], paid["id"])
 
     def test_a_quote_that_still_pays_teeny_is_refused(self):
