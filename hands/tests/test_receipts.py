@@ -897,6 +897,24 @@ class MemorySnapshotsTest(ReceiptsCase):
         code, out = self.run_receipts()
         self.assertEqual(out["memory"]["withheld"], [])
 
+    def test_a_snapshot_the_judge_could_not_judge_is_tried_again_next_time(self):
+        # 2026-11-14: the model provider answered 402 for four hours, and the
+        # first snapshot ever published was withheld for good, held only
+        # because the judge could not be reached.
+        bare = self.remote()
+        self.snap("20260913T203000Z", "night", "# MEMORY.md\n\n- [m1] ana builds a cli.\n")
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana shipped the cli.\n")
+        self.live(bare, "MEMORY_PUBLISH=1\nSAFETY_JUDGE=1\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], [])
+        # It stops at the first: a later page never goes out before an earlier one.
+        self.assertEqual(out["memory"]["withheld"], [{"snapshot": "20260913T203000Z-night", "why": "judge_unreachable"}])
+        self.assertFalse((self.root / "state" / "dream" / "withheld.json").exists())
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], ["20260913T203000Z-night", "20260914T083000Z-midday"])
+
     def test_a_snapshot_with_a_secret_is_withheld(self):
         bare = self.remote()
         self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] the key is supersecretvalue123 lol\n")
