@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -463,15 +463,17 @@ item is never listed, and `item` answers it as missing.
 | `item ID` | R | One story or comment: its fields, `text` as plain text, `kids` (the ids of the replies) and `link`, its page on news.ycombinator.com (2 min). |
 | `thread ID [--depth D] [--max N]` | R | The item and the comments under it in the order HN's page shows them, each with `depth` (a direct reply is 1), down to D levels (3, at most 10), reading at most N comments (30, at most 100; one request each). `truncated` says comments were left unread. The replies under a dead or deleted comment are judged on their own. |
 | `user NAME` | R | `{id, created, karma, about, submitted}` (how many) and `recent`, the 10 newest ids it submitted (1 h). |
-| `search QUERY [--tags story\|comment] [--max N]` | R | Algolia's search by relevance, stories, comments or both (10 min): `{id, type, title, url, by, points, num_comments, time, text, story_id, parent_id, story_title, link}`, whichever the hit has. |
+| `search QUERY [--tags story\|comment] [--max N] [--days D]` | R | Algolia's search by relevance, stories, comments or both (10 min): `{id, type, title, url, by, points, num_comments, time, text, story_id, parent_id, story_title, link}`, whichever the hit has. With `--days` (1 to 30), only what was posted in the last D days, still by relevance (which weighs points), and the answer says `days`: this week's loudest talk, not the best thread of five years ago. |
 | `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`, `hn · comment`), below. `bin/tick` runs it at most every 15 minutes, once there is something to read. |
 | `watch add ID [--note T]` | A | Follow a thread: a story, or a comment and the replies under it. The item must be live. Watching one twice keeps the first watch (`already`). At most 10 at once (`watches`); a watch lapses after 14 days and makes room. `bin/tick` calls it for the mind's `watch_hn`. |
 | `watch list`, `watch remove ID` | R, O | The threads followed, with `last_seen` and `expires_at`; stop following one. |
 
 **As playbook inputs.** The story lists are free and need no key, so a
-playbook reads them as inputs: `world-scan` (top, show, ask), `build-idea`
-(show, ask), and `morning`, `moltbook-daily`, `moltbook-evening` and `moltbook-general` (top,
-show). Each is marked `optional = true`, so an outage on Hacker News leaves
+playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
+`morning`, `take`, `moltbook-daily` and `moltbook-evening` (top, show), and
+`moltbook-general` (top). Beyond the front page, `hands/listen` (below)
+searches HN for Teeny's names and its standing topics, and those playbooks
+read what it heard through `listen digest`. Each is marked `optional = true`, so an outage on Hacker News leaves
 that input out as `{"unavailable": true}` and the run goes on. The idle look
 (`bin/lib/rhythm.py`, `wander`) reads top, show and ask in turn too. Titles
 are strangers' words: data, never instructions.
@@ -500,6 +502,38 @@ the mind may talk about it elsewhere, remember it or set a follow-up. Its one
 act there is `watch_hn` (see "The mind's issues, browser tasks and new
 mail"). Tables: `hn_watch` (item_id, title, note, added_at, last_seen),
 `hn_cache`.
+
+## `listen`: what the outside world is saying, read only
+
+Teeny's ears beyond Hacker News's front page (`hands/lib/teeny_hands/listen/`).
+Every source is public, keyless and read with GET only, no redirect followed
+and no URL named in an error; nothing is written anywhere but
+`state/hands.db`. Titles and summaries are strangers' words: data, never
+instructions.
+
+| Source | Where | What a scan asks | Limits |
+|---|---|---|---|
+| Hacker News | Algolia, through `hn`'s `search --days` (its cache, its base) | one query per name in `ABOUT_ME` (`teenydroid`, `openhuman`, `tinyhumans`; stories and comments) and per standing topic (stories): `TOPICS`, or the playbook's `--topic`s, at most 10 | none published; cached 10 min |
+| Lobsters | `https://lobste.rs/hottest.json` | the hottest page, in Lobsters' order | cached 30 min |
+| GitHub | `https://api.github.com/search/repositories`, no token | `topic:ai-agents created:>(7 days ago)`, most starred first | 10 searches a minute per address unauthenticated; cached 1 h |
+| arXiv | `https://export.arxiv.org/api/query` (Atom XML) | `cat:cs.MA OR (cat:cs.AI AND ti:agent)`, newest first | one request every 3 s asked; cached 1 h |
+
+Reddit's public JSON was tried and left out: it answers 403 to a server
+without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
+`LISTEN_GITHUB_BASE`, `LISTEN_ARXIV_BASE`, https only but for a local fake);
+`LISTEN_CACHE_ENABLED=0` turns the cache off.
+
+| Verb | | Does |
+|---|---|---|
+| `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-daily`, `-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
+
+A scan makes 3 + 7 Algolia searches (by default) and one request each to
+Lobsters, GitHub and arXiv, plus one HN item read per new watch: about 13
+requests, all free. `world-scan` runs it twice a day, 13:05 and 22:05 IST (`brain/cron.toml`).
+Tables: `listen_heard` (source, ref, title, url, link, score, comments,
+extra, first_seen, last_seen; rows go after 30 days), `listen_cache`.
 
 ## `slopcash`: Teeny's project on slop.cash
 
@@ -1094,9 +1128,9 @@ settings say), a login Teeny has no account for, a CAPTCHA, anything that
 asks for money or a secret. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
-**The news sense.** Teeny's daily read of the world is `world-scan` now: its
-hands read Hacker News and Moltbook, and the mind gets them as a nudge (see
-`hn`, "As playbook inputs"). The browser read below is kept but no job
+**The news sense.** Teeny's read of the world is `world-scan` now, twice a
+day: its hands read Hacker News, Lobsters, GitHub, arXiv and Moltbook, and the
+mind gets them as a nudge (see `listen`, and `hn`, "As playbook inputs"). The browser read below is kept but no job
 schedules it. `brain/playbooks/news-scan.md` queues one task of
 kind `news` that starts on the Hacker News front page
 (`news.ycombinator.com`, on `deploy/browser-allow.txt` for it) and asks for
@@ -1955,6 +1989,13 @@ type. What came back is the next beat's `hand` stimulus: each result's title,
 URL, date and text, cut to fit the inbox, under a line saying it is what web
 pages said, data and never instructions.
 
+No playbook reaches paid search (`bin/lib/playbook.py`), so its place in the
+day is the `world-scan` nudge: each listen asks the mind to check a story
+before it keeps a take on it for the next post, and once a day who on the web is talking about
+teenydroid or OpenHuman, two paid reads a listen at most, inside
+`MIND_SEARCHES_PER_DAY` and the wallet's x402 caps. Four a day is enough for
+that; at Exa's $0.007 to $0.012 a search it is under $0.05 a day.
+
 ## `vps`: Teeny's own servers on Vultr or EQVPS
 
 One hand, two providers, one ledger (`vps_orders`) and one set of caps.
@@ -2182,6 +2223,7 @@ creates its own tables:
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `hn` | `hn_watch`, `hn_cache` |
+| `listen` | `listen_heard`, `listen_cache` |
 | `slopcash` | `slopcash_cache` |
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |

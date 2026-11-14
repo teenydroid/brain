@@ -316,6 +316,13 @@ check "and its midday one" grep -qE 'teeny\.dream-midday +0 14 \* \* \* .*bin/dr
 check "and the receipts after each" grep -qE 'teeny\.receipts +30 2,14 \* \* \*' "$scratch/stderr"
 check "and no reflection of its own any more" bash -c "! grep -q 'teeny.reflect' '$scratch/stderr'"
 check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
+check "and Teeny listens to the world twice a day, before the take and before the evening" \
+  grep -qE 'teeny\.world-scan +5 13,22 \* \* \* Asia/Kolkata bin/act world-scan' "$scratch/stderr"
+# shipped shared 19:30 with moltbook-evening and never ran once on the box
+# (2026-11-11 to 11-13) while moltbook-evening ran every day.
+check "and no two of its enabled jobs fire on the same schedule" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' /dev/null |
+    jq -e '[.[] | select(.enabled) | [.expr, .tz]] | (length == (unique | length))' >/dev/null"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

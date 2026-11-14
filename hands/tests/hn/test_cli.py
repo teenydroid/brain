@@ -49,6 +49,9 @@ class CliTest(Scratch):
         code, out = self.run_hand("search", "openhuman", "--tags", "story", "--max", "3")
         self.assertEqual((code, out["results"][0]["id"]), (0, 9))
         self.assertEqual(self.hn.requests("GET", "/api/v1/search")[0].query["hitsPerPage"], "3")
+        code, out = self.run_hand("search", "ai agents", "--days", "2")
+        self.assertEqual((code, out["days"]), (0, 2))
+        self.assertIn("numericFilters", self.hn.requests("GET", "/api/v1/search")[1].query)
 
     def test_watch_and_inbox(self):
         self.items(story(50, "followed", kids=[51]), comment(51, 50, "new", by="ana", at=T0 + 60))

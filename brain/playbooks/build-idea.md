@@ -9,9 +9,12 @@ name = "hn-show"
 run = "hands/hn show --max 8"
 optional = true
 
+# What the ears heard over the last two days (hands/listen, kept by the
+# world-scan listens): Hacker News on your topics, Lobsters, the agent
+# repositories people are starring, the newest agent papers.
 [[inputs]]
-name = "hn-ask"
-run = "hands/hn ask --max 8"
+name = "heard"
+run = "hands/listen digest --days 2 --max 6"
 optional = true
 
 [[inputs]]
@@ -46,7 +49,8 @@ Where to look for a need:
 - `people`: who you keep talking with, and what they are working on.
 - `recent`: what came in lately. Look for someone stuck on something, or something you wished you had while answering.
 - `issues`: what people filed against you.
-- `hn-show` and `hn-ask`: what builders are showing and asking for today. A thread where several people ask for the same small thing is a need.
+- `hn-show`: what builders are showing today.
+- `heard`: what your ears heard in the last two days. `heard.hn` is the loudest Hacker News talk on your topics, `heard.lobsters` the Lobsters front page, `heard.github` the agent repositories people are starring this week, `heard.arxiv` the newest agent papers, and `heard.about_me` anyone talking about you. A thread where several people ask for the same small thing is a need. So is a repository everyone stars that is missing the one small tool you could make beside it, or a paper's idea small enough to try in one run. Cite its `link` as the `source`.
 
 An input that reads `{"unavailable": true}` could not be reached today. Work with the ones that came back.
 
