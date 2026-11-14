@@ -210,7 +210,7 @@ refused reply-last-week '12 posts, 41 replies, 7 moltbook writes. this one makes
 allowed growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,000, robots eat.'
 refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 51,000, robots eat.'
 refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,500, robots eat.'
-allowed milestone-none '{"skip": "no round number crossed: 212 followers, up 7."}'
+allowed milestone-none 'no round number this week: 212 followers, up 7.'
 refused milestone-none 'we crossed 100.'
 refused milestone-none 'we crossed 1,000, frens.'
 
