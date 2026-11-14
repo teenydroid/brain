@@ -751,6 +751,52 @@ class Halts(EvolveCase):
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
         self.assertIn("gen", self.run_gen(1, publisher=pub))
 
+    def cut_off(self, gen):
+        """Gen GEN as a restart leaves it: started, its proposals made, no
+        result and nothing archived (2026-11-13: a spine rebuild at 22:44
+        ended gen 5 while its labs measured two gated candidates)."""
+        (evolve.gen_dir(gen) / "result.json").unlink()
+        kept = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("gen") != gen]
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in kept))
+
+    def test_a_generation_a_restart_cut_off_does_not_use_up_the_day_and_its_proposals_are_reused(self):
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
+        self.propose(1, [self.playbook_edit("One.")], title="the cut-off one")
+        pub = FakePublisher()
+        self.assertEqual(self.run_gen(1, publisher=pub)["gen"], 1)
+        self.cut_off(1)
+        (self.props / "cand-1.json").unlink()  # its proposer would have nothing to say now
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out.get("gen"), 2, out)
+        self.assertEqual(out["resumed_from"], 1)
+        [cand] = out["candidates"]
+        self.assertEqual(cand["title"], "the cut-off one")
+        self.assertNotEqual(cand["verdict"], "no-proposal")
+        cut = json.loads((evolve.gen_dir(1) / "result.json").read_text())
+        self.assertTrue(cut["interrupted"])
+        self.assertEqual(cut["resumed_in"], 2)
+        # Gen 2 counts for the day; the cut-off gen 1 does not.
+        self.assertEqual(evolve.generations_today(), 1)
+        self.assertEqual(self.run_gen(1, publisher=pub)["skipped"], "halted: generations")
+
+    def test_a_cut_off_generation_is_resumed_once(self):
+        self.live()
+        self.propose(1, [self.playbook_edit("One.")], title="once")
+        self.run_gen(1)
+        self.cut_off(1)
+        self.assertEqual(self.run_gen(1)["resumed_from"], 1)
+        self.propose(1, [self.playbook_edit("Two.")], title="fresh")
+        out = self.run_gen(1)
+        self.assertNotIn("resumed_from", out)
+        self.assertEqual(out["candidates"][0]["title"], "fresh")
+
+    def test_status_says_whether_a_generation_is_running(self):
+        self.assertFalse(evolve.status()["running"])
+        with evolve.run_lock() as held:
+            self.assertTrue(held)
+            self.assertTrue(evolve.status()["running"])
+
     def test_a_fast_j_rise_stops_the_loop_until_resumed(self):
         self.live()
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_J_RISE=0.5, EVOLVE_J_WINDOW_DAYS=7)
