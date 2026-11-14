@@ -61,6 +61,8 @@ brain/agents/evolver.toml
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# Teeny's site passwords: only code makes and reads them, never Teeny's edits.
+hands/keychain
 # Hacker News intake: what strangers write reaches the mind only through the inbound guard.
 hands/hn
 # The wider intake (Lobsters, GitHub, arXiv, HN on the standing topics): what
@@ -105,6 +107,7 @@ hands/lib/teeny_hands/git_cli.py
 hands/lib/teeny_hands/guard/
 hands/lib/teeny_hands/hand.py
 hands/lib/teeny_hands/hn/
+hands/lib/teeny_hands/keychain/
 hands/lib/teeny_hands/listen/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
