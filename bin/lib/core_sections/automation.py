@@ -13,8 +13,9 @@ linked module.
                  core's config and the core's own files in the brain
                  `full` keeps cron shell jobs (bin/<job>) running as before:
                  the tier gates what an agent may do, the hands keep the rules
-  [browser]      TinyComputer, headless, a fresh profile per session,
-                 downloads under state/browser/, the actions an unattended
+  [browser]      TinyComputer, headless, a persistent profile in
+                 state/browser/profile/ (cookies and sign-ins survive a
+                 restart), downloads under state/browser/, the actions an unattended
                  run may take, and bin/keychain-fill as the password source
                  for the operator's {{keychain:<site>}} placeholder. It
                  opens any public https page (bin/spine sets
@@ -110,8 +111,11 @@ def tables(root: Path) -> dict[str, str]:
 
     workbench = root / "state" / "workbench"
     downloads = root / "state" / "browser" / "downloads"
-    for folder in (workbench, downloads, root / "state" / "media"):
+    profile = root / "state" / "browser" / "profile"
+    for folder in (workbench, downloads, root / "state" / "media", profile):
         folder.mkdir(parents=True, exist_ok=True)
+    # The profile holds cookies, which are sign-ins: the owner's alone.
+    profile.chmod(0o700)
 
     brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
     lab_edit = os.environ.get("SPINE_LAB") == "1" and os.environ.get("SPINE_LAB_EDIT") == "1"
@@ -134,15 +138,17 @@ def tables(root: Path) -> dict[str, str]:
         f'trusted_roots = [{{ path = {_s(str(trusted))}, access = "readwrite" }}]\n'
     )
 
-    # A fresh, disposable profile per session. With TinySecurity's egress
-    # policy on, TinyComputer's enforced launcher refuses a launch that names
-    # a profile folder ("network policy refuses attached or externally
-    # managed browsers"): a profile's own settings could route around the
-    # egress proxy. So `persistent` starts no browser at all.
+    # One persistent profile, so cookies and sign-ins survive a restart. The
+    # core hands it to TinyComputer as the host's own profile
+    # (browser.profile, tinyhumansai/tinycomputer#175), the only folder its
+    # egress-enforced launcher lets a session name, launched with extensions
+    # off so nothing stored in it can route around the egress proxy. When a
+    # second browser runs while the first holds it, that one starts fresh.
     browser = (
         "enabled = true\n"
         "headless = true\n"
-        'profile_mode = "fresh"\n'
+        'profile_mode = "persistent"\n'
+        f"profile_path = {_s(str(profile))}\n"
         f"download_dir = {_s(str(downloads))}\n"
         f"unattended_actions = {_list(UNATTENDED_ACTIONS)}\n"
         # The browser's password source for the operator's {{keychain:<site>}}

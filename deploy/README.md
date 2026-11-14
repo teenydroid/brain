@@ -104,8 +104,9 @@ docker compose -f deploy/compose.yaml logs -f xhook
   `up -d --build`.
 - To change where the browser may go, edit `browser-allow.txt` here (one
   host per line, reviewed by you, never by Teeny), then restart. The operator
-  agent's browser profile and downloads are in `state/browser/`, so a
-  logged-in session survives restarts. Delete that folder to log everything
+  agent's browser profile is in `state/browser/profile/` and its downloads in
+  `state/browser/downloads/`, so a logged-in session survives restarts.
+  Delete `state/browser/profile/` (with the spine stopped) to log everything
   out.
 - The builder's queue is `hands/build jobs` and the operator's is
   `hands/tasks list`. `hands/tasks list --status needs_human` is what the
