@@ -1,7 +1,8 @@
 """bin/health: the pinned check that notices Teeny's model is not answering
 (the 2026-11-11 outage: a revoked provider key, seven hours of failed turns
-and judge holds, and nobody told). It asks the model once through the core
-every run; two failures in a row raise one alarm, as a `health` stimulus
+and judge holds, and nobody told). It asks the model through the core every
+run (again, up to three attempts, after a failure that may pass); two
+failed checks in a row raise one alarm, as a `health` stimulus
 and one issue on teenydroid/brain, and the first answer after that closes
 both. Against a fake core, a fake GitHub and a pinned clock."""
 

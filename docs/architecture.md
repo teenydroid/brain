@@ -843,7 +843,12 @@ Every scheduled job is in one of two files:
     `health · runway` stimulus and the tier that cuts optional spend, off
     until `RUNWAY=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
-    short question through the core. Two failures in a row raise one alarm:
+    short question through the core. A failed attempt that may pass (a cut
+    stream, a timeout) is asked again, up to three attempts 5 s and 20 s
+    apart and 90 s in all, so a stream the provider cut once is not a
+    failed check; `probe_attempts` on its line and in `state/health.json`
+    keeps that visible. Only a check whose every attempt failed counts. Two
+    such failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
     guard holds an outage made (docs/hands.md, "Re-screening"). With
