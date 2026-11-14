@@ -834,7 +834,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         message = self.chats()[0]["message"]
         block = message[message.index("## scoreboard"):]
-        block = block[: block.index("\n\n")]
+        block = block[: block.index("\n\n", len("## scoreboard\n\n"))]
         self.assertIn("Audience: x.followers 330", block)
         self.assertIn("#1 x `take` (result): 0 of 3 posts measured", block)
         self.assertLessEqual(len(block), 1500)
