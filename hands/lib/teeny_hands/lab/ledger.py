@@ -261,7 +261,8 @@ def _brief(row: Mapping[str, Any], live: Mapping[str, Any] | None = None) -> Jso
     item: Json = {"id": row["id"], "surface": row["surface"], "format": row["format"], "metric": row["metric"],
                   "hypothesis": row["hypothesis"], "posts": row["posts"], "status": row["status"],
                   "proposed": _date(row["proposed_at"]), "deadline": _date(row["deadline_at"])}
-    numbers = live or {k: row[k] for k in ("n", "avg", "baseline_n", "baseline_avg")}
+    source = live if live is not None else row
+    numbers = {k: source[k] for k in ("n", "avg", "baseline_n", "baseline_avg")}
     item.update({k: v for k, v in numbers.items() if v is not None})
     if live is not None:
         item["due"] = bool(live["enough"] or live["past_deadline"])
