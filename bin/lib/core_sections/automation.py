@@ -24,6 +24,13 @@ linked module.
                  http_request tool
   [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
                  every other module, TinyComputer included, from its release
+  [computer]     (single keys) the captcha solver: a browser task tries a
+                 captcha or "verify you are human" check with Jev's image
+                 questions, on TypeSafe (TYPESAFE_API_KEY in
+                 secrets/spine.env, which bin/spine stores in the core), a
+                 few times before it stops for a person. In the spine's
+                 environment, TEENY_CAPTCHA_SOLVER=0 turns it off and
+                 TEENY_CAPTCHA_MODEL names another image model
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
@@ -43,6 +50,14 @@ SHELL_TIMEOUT_SECS = 1800
 #: irreversible (submitting a form); the deny list bounds where, and a
 #: payment checkpoint still stops it whatever this says.
 UNATTENDED_ACTIONS = ("click", "fill", "type", "press", "select", "check", "task_step")
+
+#: The image-reading Jev model the captcha solver asks, unless
+#: TEENY_CAPTCHA_MODEL names another.
+CAPTCHA_MODEL = "jev-preview"
+
+#: Image challenges one captcha try may submit before the task stops for a
+#: person (TinyComputer allows 1 to 10).
+CAPTCHA_ATTEMPTS = 3
 
 #: OpenHuman's own default forbidden paths, kept.
 DEFAULT_FORBIDDEN = (
@@ -162,4 +177,19 @@ def tables(root: Path) -> dict[str, str]:
         "[browser]": browser,
         "[http_request]": f"allowed_domains = {_list(websites.load(root))}\n",
         "[modules]": f"overrides = [{overrides}]\n",
+    }
+
+
+def keys(root: Path) -> dict[str, dict[str, str]]:
+    """The captcha solver's keys in `[computer]`, which the core also keeps
+    the decision and rescue models in, so the table is not owned whole."""
+    del root
+    enabled = os.environ.get("TEENY_CAPTCHA_SOLVER", "1").strip().lower() not in ("0", "false", "no", "off")
+    model = os.environ.get("TEENY_CAPTCHA_MODEL", "").strip() or CAPTCHA_MODEL
+    return {
+        "computer": {
+            "captcha_solver": "true" if enabled else "false",
+            "captcha_model": _s(model),
+            "max_captcha_attempts": str(CAPTCHA_ATTEMPTS),
+        }
     }

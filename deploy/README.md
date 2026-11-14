@@ -46,7 +46,7 @@ From the checkout:
 git submodule update --init --recursive vendor/openhuman
 mkdir -p secrets && chmod 700 secrets
 cp deploy/spine.env.example secrets/spine.env && chmod 600 secrets/spine.env
-$EDITOR secrets/spine.env            # LADDER_URL, LADDER_API_KEY, SPINE_MODEL; CortexDB if wanted
+$EDITOR secrets/spine.env            # LADDER_URL, LADDER_API_KEY, SPINE_MODEL; CortexDB and TYPESAFE_API_KEY if wanted
 cp deploy/teeny.env.example secrets/teeny.env && chmod 600 secrets/teeny.env
 $EDITOR secrets/teeny.env            # the hands' keys; DRY_RUN stays 1 until you mean it
 TEENY_UID=$(id -u) TEENY_GID=$(id -g) docker compose -f deploy/compose.yaml --profile web up -d --build
@@ -109,7 +109,8 @@ docker compose -f deploy/compose.yaml logs -f xhook
   out.
 - The builder's queue is `hands/build jobs` and the operator's is
   `hands/tasks list`. `hands/tasks list --status needs_human` is what the
-  browser left for you (a payment, a login, a CAPTCHA). Nothing the builder
+  browser left for you (a payment, a login, a CAPTCHA its own tries did not
+  pass). Nothing the builder
   makes leaves the box while `DRY_RUN=1`.
 - To tell it what to post:
   `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.

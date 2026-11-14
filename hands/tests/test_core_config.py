@@ -29,6 +29,8 @@ class CoreConfigTest(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
+        os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
+        os.environ.pop("TEENY_CAPTCHA_MODEL", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -171,6 +173,25 @@ class CoreConfigTest(unittest.TestCase):
         # A beat logs the whole batch as "the user", so beliefs built from it
         # read "the user energy level 56" and crowd the memory block.
         self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
+
+    def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
+        computer = self.written()["computer"]
+        self.assertTrue(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+        self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
+        doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')
+        self.assertEqual(doc["computer"]["decision_model"], "sage")
+        self.assertEqual(doc["computer"]["max_rescues"], 2)
+        self.assertTrue(doc["computer"]["captcha_solver"])
+
+    def test_the_captcha_solver_can_be_turned_off_or_moved_to_another_model(self):
+        os.environ["TEENY_CAPTCHA_SOLVER"] = "0"
+        os.environ["TEENY_CAPTCHA_MODEL"] = "jev-2"
+        computer = self.written()["computer"]
+        self.assertFalse(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-2")
 
     def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
         text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"
