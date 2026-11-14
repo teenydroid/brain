@@ -130,7 +130,7 @@ class CatchUpTest(unittest.TestCase):
         now = ts("2026-11-14T09:48:38")
         self.assertEqual(catch_up.last_slot("10 15 * * *", "Asia/Kolkata", now, now - 6 * 3600),
                          ts("2026-11-14T09:40"))
-        self.assertEqual(catch_up.last_slot("15 0 * * *", "UTC", now, now - 12 * 3600), None)
+        self.assertEqual(catch_up.last_slot("15 0 * * *", "UTC", now, now - 9 * 3600), None)
         self.assertEqual(catch_up.last_slot("15 0 * * *", "UTC", now, now - 10 * 3600), ts("2026-11-14T00:15"))
         # Weekly: Monday 11:00 India time is 05:30 UTC on 2026-11-16.
         monday = ts("2026-11-16T08:00")
