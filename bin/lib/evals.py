@@ -463,15 +463,52 @@ def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
             "win_rate": wins / decided if decided else 0.0, "regressions": regressions}
 
 
+#: The share of a run's visible samples that may have no draft before the
+#: comparison measures too little to decide (docs/evolve.md, "Inconclusive").
+MAX_MISSING = 0.1
+
+
+def _missing(base: dict, cand: dict) -> dict:
+    """What the two runs could not compare: each side's samples with no
+    draft, and the visible tasks no sample of which both sides drafted."""
+    visible = {k for k in set(base) | set(cand)
+               if not (base.get(k, {}).get("heldout") or cand.get(k, {}).get("heldout"))}
+    out = {side: sorted([list(k) for k in visible if k not in run or no_sample(run[k])])
+           for side, run in (("base", base), ("cand", cand))}
+    measured = {k[0] for k in visible if k in base and k in cand and not no_sample(base[k]) and not no_sample(cand[k])}
+    out["tasks"] = sorted({k[0] for k in visible} - measured)
+    out["samples"] = len(visible)
+    return out
+
+
+def _inconclusive(missing: dict) -> str | None:
+    """Why the comparison measured too little to decide, or None."""
+    total, limit = missing["samples"], int(MAX_MISSING * missing["samples"])
+    why = []
+    for side, name in (("cand", "candidate"), ("base", "baseline")):
+        if len(missing[side]) > limit:
+            why.append(f"{len(missing[side])} of {total} {name} samples have no draft (more than {limit})")
+    if missing["tasks"]:
+        why.append(f"no sample of {', '.join(missing['tasks'])} was drafted on both sides")
+    return "inconclusive: " + "; ".join(why) if why else None
+
+
 def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int) -> dict:
+    """The comparison. A sample either side has no draft for (its turn never
+    answered) is left out: no win, loss or hard failure for anyone. Too
+    many of them, or a task left with none, and the verdict is
+    "inconclusive", never a promotion (docs/evolve.md)."""
     base, cand = _drafts(base_path), _drafts(cand_path)
     judged = {(r["task"], r["sample"]): r for r in _read_jsonl(judged_path)} if judged_path.is_file() else {}
+    missing = _missing(base, cand)
 
     pairs = []
     failures: dict[str, dict[str, int]] = {}
     held_failures: dict[str, dict[str, int]] = {}
     for key in sorted(set(base) & set(cand)):
         b, c = base[key], cand[key]
+        if no_sample(b) or no_sample(c):
+            continue
         record = judged.get(key)
         if record is not None:
             outcome = pair_outcome(record["first"], record["second"])
@@ -505,16 +542,23 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     visible = _tally([p for p in pairs if not p["heldout"]], failures)
     wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
     win_rate, regressions = visible["win_rate"], visible["regressions"]
+    # A regression seen in what was drafted rejects, however much is
+    # missing; too little drafted otherwise decides nothing.
+    unsure = None if regressions else _inconclusive(missing)
     if regressions:
         reason = f"hard-check regression on {', '.join(regressions)}"
+    elif unsure:
+        reason = unsure
     elif decided < min_pairs:
         reason = f"{decided} decided pair(s), needs {min_pairs}"
     elif win_rate < threshold:
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
+    promote = not regressions and not unsure and decided >= min_pairs and win_rate >= threshold
     out = {
-        "promote": not regressions and decided >= min_pairs and win_rate >= threshold,
+        "promote": promote,
+        "verdict": "won" if promote else "inconclusive" if unsure else "lost",
         "reason": reason,
         "wins": wins,
         "losses": losses,
@@ -525,6 +569,8 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         "min_pairs": min_pairs,
         "regressions": regressions,
         "hard_failures": failures,
+        "missing": {"base": missing["base"], "cand": missing["cand"]},
+        "unmeasured_tasks": missing["tasks"],
         "pairs": pairs,
     }
     held = [p for p in pairs if p["heldout"]]

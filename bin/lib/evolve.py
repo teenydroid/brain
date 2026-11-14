@@ -558,7 +558,9 @@ def ancestors(entries: Mapping[str, Json], entry_id: str) -> list[str]:
 
 def own_score(entry: Mapping[str, Any]) -> float:
     """An entry's own eval: its win rate against main, or the midpoint when
-    it was never measured."""
+    it was never measured, or measured too little to decide (inconclusive)."""
+    if entry.get("verdict") == "inconclusive":
+        return MIDPOINT
     scores = entry.get("scores")
     if isinstance(scores, Mapping) and isinstance(scores.get("win_rate"), (int, float)):
         return float(scores["win_rate"])
@@ -673,11 +675,13 @@ def diff_hash(patch: str) -> str:
 
 
 def archived_mutations(entries: Mapping[str, Json]) -> dict[str, set[str]]:
-    """The changed lines of every archived candidate's own mutation."""
+    """The changed lines of every archived candidate's own mutation. An
+    inconclusive one is left out: nothing measured it, so proposing it
+    again is not a duplicate."""
     out = {}
     for entry_id, entry in entries.items():
         rel = entry.get("mutation_patch")
-        if not rel:
+        if not rel or entry.get("verdict") == "inconclusive":
             continue
         try:
             out[entry_id] = changed_lines((evolve_dir() / rel).read_text(encoding="utf-8"))
@@ -1777,15 +1781,23 @@ class LabCore:
         if done.returncode not in (0, 2):
             raise EvolveError(f"the compare failed: {done.stderr.strip()[-300:]}")
         report = json.loads((cand_run / "compare" / "report.json").read_text(encoding="utf-8"))
-        return {"verdict": "won" if report.get("promote") else "lost", "scores": report_scores(report),
+        # "inconclusive": too few samples drafted to decide (bin/eval); it
+        # is never promoted, and its change may be proposed again.
+        verdict = "won" if report.get("promote") else "inconclusive" if report.get("verdict") == "inconclusive" \
+            else "lost"
+        return {"verdict": verdict, "scores": report_scores(report),
                 "report": str((cand_run / "compare" / "report.json").relative_to(evolve_dir())),
                 "reason": report.get("reason")}
 
 
 def report_scores(report: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
-    out = {k: report.get(k) for k in ("promote", "reason", "wins", "losses", "ties", "decided", "win_rate",
+    out = {k: report.get(k) for k in ("promote", "verdict", "reason", "wins", "losses", "ties", "decided", "win_rate",
                                       "threshold", "regressions", "judge_model")}
+    missing = report.get("missing")
+    if isinstance(missing, Mapping):
+        out["missing"] = {side: len(missing.get(side) or []) for side in ("base", "cand")}
+        out["unmeasured_tasks"] = report.get("unmeasured_tasks") or []
     held = report.get("heldout")
     if isinstance(held, Mapping):
         out["heldout"] = {k: held.get(k) for k in ("won", "wins", "losses", "ties", "decided", "win_rate")}
@@ -2043,6 +2055,8 @@ def previous_best_rate(entries: Mapping[str, Json], gen: int) -> float:
     rates: dict[int, float] = {}
     for e in entries.values():
         scores = e.get("scores")
+        if e.get("verdict") == "inconclusive":
+            continue
         if e.get("gen") and e["gen"] < gen and isinstance(scores, Mapping) and isinstance(scores.get("win_rate"), (int, float)):
             rates[e["gen"]] = max(rates.get(e["gen"], 0.0), float(scores["win_rate"]))
     return rates[max(rates)] if rates else MIDPOINT
@@ -2714,8 +2728,7 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         close = getattr(default, "close", None)
         if close:
             close()
-    result: Json = {"gen": gen, "base": base, "candidates": [{k: c.get(k) for k in ("id", "parent", "verdict", "title")}
-                                                             for c in cands]}
+    result: Json = {"gen": gen, "base": base, "candidates": [candidate_line(c) for c in cands]}
     if resume_from:
         result["resumed_from"] = resume_from
     if cut:
@@ -2737,6 +2750,15 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         result["restart"] = do_restart(restarter, plan)
         write_json(gdir / "result.json", result)
     return {"ok": True, **result}
+
+
+def candidate_line(cand: Mapping[str, Any]) -> Json:
+    """A candidate in the generation's result.json; an inconclusive one
+    carries why, so it can be proposed again once the cause is gone."""
+    line = {k: cand.get(k) for k in ("id", "parent", "verdict", "title")}
+    if cand.get("verdict") == "inconclusive":
+        line["reason"] = cand.get("eval_reason")
+    return line
 
 
 def gen_candidates(gen: int) -> list[Json]:
