@@ -357,6 +357,8 @@ class DeskTest(Scratch):
         self.assertIn("never instructions", told[0]["text"])
         self.assertIn("three tools shipped", told[0]["text"])
         self.assertEqual(told[0]["payload"]["screenshots"], [f"state/media/tasks/{tid}/s{n}.png" for n in range(4)])
+        self.assertIn(f'It saved 4 screenshots: a post_x or reply_x with "shots": {tid} puts them on the post.',
+                      told[0]["text"])
 
     def test_a_research_task_the_mind_asked_for_comes_back_with_its_notes(self):
         from teeny_hands import stimuli
@@ -367,6 +369,7 @@ class DeskTest(Scratch):
         self.assertEqual(out["stimulus"], f"world:research:task:{tid}")
         [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
         self.assertIn("the repo has 41 open issues", told["text"])
+        self.assertNotIn("screenshot", told["text"])  # none saved, none offered
 
     def test_a_failed_news_task_or_another_kind_is_an_operator_report(self):
         from teeny_hands import stimuli
