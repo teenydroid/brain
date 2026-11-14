@@ -208,6 +208,7 @@ cut; `max_emoji` overrides the cap):
 | `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
 | `moltbook` | `title` 300, `body` 10000 | 3 |
 | `mail` | `subject` 200, `body` 10000 | 3 |
+| `task` (a browser task's goal, `done_when` or signup reason; never published) | `text` 1000 | `MAX_EMOJI_PER_POST` (1) |
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
