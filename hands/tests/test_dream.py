@@ -210,6 +210,26 @@ class DreamTest(unittest.TestCase):
         self.assertRegex(message, r"the \d+ earliest beats are left out")
         self.assertRegex(message, r"\d+ older ones are left out")
 
+    def test_a_day_of_long_notes_still_fits_the_cores_prompt_screen(self):
+        # 2026-11-14: 61 notes (`remember`) made 39 KB on their own, which no
+        # cut of the beats or the lists could make room for: the night dream
+        # came to 74,514 bytes and was held unanswered.
+        sys.path.insert(0, str(REPO / "bin" / "lib"))
+        import reflect
+
+        for n in range(200):
+            stimuli.note(f"note {n} " + "a long thing i chose to remember about the day " * 14, who="ana")
+        self.answer({"ops": [], "diary": "d"})
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        message = self.message()
+        self.assertLessEqual(len(message.encode("utf-8")), reflect.MAX_PROMPT_BYTES)
+        self.assertIn("- [m1] ana (x): builds a cli for crabs.", message)
+        # The newest note is kept, the oldest go first, and it says so.
+        self.assertIn("note 199 ", message)
+        self.assertNotIn("note 0 ", message)
+        self.assertRegex(message, r"the \d+ earliest notes are left out")
+
     def test_both_dreams_see_the_scoreboard_the_lab_and_what_is_true_now(self):
         from teeny_hands.lab import ledger
 

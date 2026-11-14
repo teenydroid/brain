@@ -32,7 +32,9 @@ road every public word takes, and one step more first:
 - **the guard** (`check_fields`, surface github, the field `body`, the model
   judge included), and what goes out is the guard's text. A hold is the
   guard's (it is in the hold queue); the snapshot is withheld and never
-  retried. Withheld snapshots are kept in state/dream/withheld.json with
+  retried. A hold only because the judge could not be reached (a model
+  outage) is no verdict: that run publishes nothing more, and the next one
+  asks again. Withheld snapshots are kept in state/dream/withheld.json with
   the reason category only, never the text.
 
 What is published is read back from the chain in the repository, so a push
@@ -198,6 +200,8 @@ def _screen(text: str, repo: str) -> Json:
     verdict = check_fields({"body": text}, surface="github", kind="memory", context={"repo": repo, "page": PAGE})
     if verdict.kind == "allow" and isinstance(verdict.fields, dict) and isinstance(verdict.fields.get("body"), str):
         return {"kind": "allow", "text": verdict.fields["body"]}
+    if verdict.kind == "hold" and verdict.judge_failed:
+        return {"kind": "judge_unreachable"}
     if verdict.kind == "hold":
         return {"kind": "held", "category": verdict.category, "hold_id": verdict.hold_id}
     return {"kind": "refused"}
@@ -251,6 +255,11 @@ def add(root: Path, live: bool, check_secrets: Callable[[str], None], repo: str 
             continue
         if live:
             screened = _screen(text, repo)
+            if screened["kind"] == "judge_unreachable":
+                # Not a verdict: the judge could not be asked (a model outage).
+                # Tried again next run, and nothing after it goes first.
+                out["withheld"].append({"snapshot": name, "why": "judge_unreachable"})
+                break
             if screened["kind"] != "allow":
                 why = {"why": screened["kind"], **({"category": screened["category"]} if screened.get("category") else {})}
                 out["withheld"].append({"snapshot": name, **why})

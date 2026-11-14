@@ -116,9 +116,14 @@ MAX_THOUGHT_CHARS = 300
 #: A busy day is cut to fit (`_fit`): the oldest of a dream's extra lists
 #: first, then the earliest beats.
 MAX_PROMPT_BYTES = 60 * 1024
-#: What a cut always leaves: this many items of each extra list, this many beats.
+#: What a cut always leaves: this many items of each extra list, this many
+#: beats, this many notes.
 FIT_KEEP_ITEMS = 10
 FIT_KEEP_BEATS = 20
+FIT_KEEP_NOTES = 10
+#: A note is cut to this when the message is still past the limit with the
+#: lists and beats cut as far as they go (61 notes once came to 39 KB).
+FIT_NOTE_CHARS = 300
 DEFAULT_TZ = "Asia/Kolkata"
 
 #: The shrink check. A day closes a few threads and opens about as many, so
@@ -693,18 +698,21 @@ def _cut_section(section: str, drop: int) -> tuple[str, int]:
     return "\n".join(line for n, line in enumerate(lines) if n not in gone), drop
 
 
-def _fit(compose, beats: list[Json], sections: list[str], limit: int = MAX_PROMPT_BYTES) -> str:
-    """The message from `compose(beats, cut_beats, sections)`, cut until it is
-    at most `limit` bytes: a tenth at a time off the longest of the extra
-    lists (their oldest items), then the earliest beats. Each cut is said in
-    the message. A day that fits is sent whole; one that cannot be cut any
-    further is sent as it is."""
+def _fit(compose, beats: list[Json], sections: list[str], notes: list[str] | None = None,
+         limit: int = MAX_PROMPT_BYTES) -> str:
+    """The message from `compose(beats, cut_beats, sections, notes, cut_notes)`,
+    cut until it is at most `limit` bytes: a tenth at a time off the longest
+    of the extra lists (their oldest items), then the earliest beats, then
+    each note shortened to FIT_NOTE_CHARS, then the earliest notes. Each cut
+    is said in the message. A day that fits is sent whole; one that cannot be
+    cut any further is sent as it is."""
     sections, cut_items, cut_beats = list(sections), [0] * len(sections), 0
+    notes, cut_notes = list(notes or []), 0
 
     def build() -> str:
         noted = [f"{sec.rstrip()}\n- ({cut} older ones are left out: this message has a size limit)" if cut else sec
                  for sec, cut in zip(sections, cut_items)]
-        return compose(beats[cut_beats:], cut_beats, noted)
+        return compose(beats[cut_beats:], cut_beats, noted, notes[cut_notes:], cut_notes)
 
     message = build()
     while len(message.encode("utf-8")) > limit:
@@ -716,9 +724,15 @@ def _fit(compose, beats: list[Json], sections: list[str], limit: int = MAX_PROMP
             cut_items[longest] += went
         if not went:
             more = min(max(1, len(beats) // 10), len(beats) - cut_beats - FIT_KEEP_BEATS)
-            if more <= 0:
-                break
-            cut_beats += more
+            if more > 0:
+                cut_beats += more
+            elif any(len(n) > FIT_NOTE_CHARS for n in notes):
+                notes = [n if len(n) <= FIT_NOTE_CHARS else n[:FIT_NOTE_CHARS - 1].rstrip() + "…" for n in notes]
+            else:
+                more = min(max(1, len(notes) // 10), len(notes) - cut_notes - FIT_KEEP_NOTES)
+                if more <= 0:
+                    break
+                cut_notes += more
         message = build()
     return message
 
@@ -732,7 +746,7 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
     waiting = stimuli.follow_ups()["follow_ups"]
     counted = ledgers(since)
 
-    def compose(beats: list[Json], cut_beats: int, sections: list[str]) -> str:
+    def compose(beats: list[Json], cut_beats: int, sections: list[str], said: list[str], cut_notes: int) -> str:
         if light:
             lines = [f"# midday ({_clock():%A %d %B, %H:%M} your time)", "",
                      "A pause to bring MEMORY.md, the page you carry into every conversation, up to date with the day so far.", ""]
@@ -740,7 +754,9 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
             lines = [f"# end of the day ({_clock():%A %d %B, %H:%M} your time)", "",
                      "Time to look back and bring MEMORY.md, the page you carry into every conversation, up to date with the day.", ""]
         lines += ["## what you chose to remember today", ""]
-        lines += [f"- {'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes] or ["- nothing"]
+        if cut_notes:
+            lines.append(f"- (the {cut_notes} earliest notes are left out: this message has a size limit)")
+        lines += [f"- {n}" for n in said] or ["- nothing"]
         lines += ["", "## what you thought and did, beat by beat", ""]
         if cut_beats:
             lines.append(f"- (the {cut_beats} earliest beats are left out: this message has a size limit)")
@@ -762,7 +778,8 @@ def render(since: float, light: bool = False, page: str = "", extras: Extras | N
                   shape(light, len(page), forget=bool(extras and extras.forgettable), lab=bool(extras and extras.lab))]
         return "\n".join(lines)
 
-    return _fit(compose, _beats(since), list(extras.sections) if extras else [])
+    return _fit(compose, _beats(since), list(extras.sections) if extras else [],
+                [f"{'about ' + n['who'] + ': ' if n.get('who') else ''}{n['note']}" for n in notes])
 
 
 #: Asked once, on the same thread, after an answer that was not usable.

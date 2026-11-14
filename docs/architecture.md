@@ -558,8 +558,10 @@ any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
 stopped a 90,022-character dream. A busy day is cut to fit, a tenth at a
 time: first the oldest items of the longest extra list (what people said,
 the tasks, the learnings, each newest first, never below 10 items), then the
-earliest beats (never below 20). Each cut is said in the message, so Teeny
-knows what it did not see.
+earliest beats (never below 20), then each of the day's notes shortened to
+300 characters, then the earliest notes (never below 10): on 2026-11-14, 61
+notes alone came to 39 KB. Each cut is said in the message, so Teeny knows
+what it did not see.
 
 The page keeps a `what i have shipped` section, and no raw ids or retry
 counts. The dream is the reflection's engine (`bin/lib/reflect.py`, below)
