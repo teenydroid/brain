@@ -38,9 +38,16 @@ Every run:
    of the same kind (a `health · alarm` stimulus, one issue), cleared once
    every job is current again. It is watched whether the model answers or
    not.
+   Then a job whose schedule says `catch_up = true` and whose latest slot
+   passed without a run (stuck just now, or re-armed at boot before any
+   check saw it) has that slot run once now (bin/lib/catch_up.py): on
+   2026-11-14 a deploy cut off moltbook-follow's 11:30 run and this check
+   re-armed it to the next day, and a boot did the same to self-improve on
+   11-13 and 11-14, so the day's run was dropped. The alarm says which
+   stuck job was caught up and which waits for its next slot.
 6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
-   did not run), `stale_crons`, `rearmed` and `cron_alarm`, and
+   did not run), `stale_crons`, `rearmed`, `caught_up` and `cron_alarm`, and
    `moltbook_unverified`: how many of the last day's Moltbook writes are
    still hidden behind an unsolved challenge, when fewer than nine in ten
    of at least three are visible (null otherwise). That one is a count on
@@ -471,14 +478,46 @@ def _stuck(stale: list[Json]) -> str:
     return ", ".join(f"{job['name']} (next run was {job['next_run']})" for job in stale)
 
 
-def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str]) -> str:
-    done = (f"re-armed: {', '.join(rearmed)}; they run again at their next slot." if rearmed
-            else "none was re-armed.")
-    failed = "".join(f" could not re-arm {name}: {why}." for name, why in rearm_errors.items())
-    return done + failed
+def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str], caught: Mapping[str, Any]) -> str:
+    """What became of each stuck job: re-armed, and then caught up now or
+    left for its next slot (or a later check, or the end of the quiet hours)."""
+    line = f"re-armed: {', '.join(rearmed)}." if rearmed else "none was re-armed."
+    done = caught.get("caught_up") or []
+    if done:
+        line += " caught up now: " + ", ".join(f"{c['name']} (its {c['slot']} slot)" for c in done) + "."
+    now = {c["name"] for c in done}
+    for name in rearmed:
+        if name in now:
+            continue
+        if name in (caught.get("pending") or []):
+            line += f" {name} is caught up at a later check."
+        elif name in (caught.get("deferred") or []):
+            line += f" {name} is caught up once the quiet hours end."
+        else:
+            line += f" {name} waits for its next slot."
+    line += "".join(f" could not re-arm {name}: {why}." for name, why in rearm_errors.items())
+    line += "".join(f" could not catch up {name}: {why}." for name, why in (caught.get("errors") or {}).items())
+    return line
 
 
-def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str]) -> Json:
+def _catch_up(rearmed: list[str]) -> Json:
+    """Runs a missed slot of a `catch_up` job once now (bin/lib/catch_up.py),
+    with the schedule files bin/seed-cron seeds from."""
+    import catch_up
+    import cron_policy
+    brain = Path(os.environ["OPENHUMAN_WORKSPACE"]) if os.environ.get("OPENHUMAN_WORKSPACE") else hand.root() / "brain"
+    if not (brain / "cron.toml").is_file():
+        return {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
+    try:
+        desired = cron_policy.load(brain / "cron.toml", hand.root() / "evals" / "cron.pinned.toml",
+                                   os.environ.get("CALENDAR_TZ", ""))
+    except Exception as error:  # noqa: BLE001 - an invalid file is bin/doctor's to report; nothing is caught up
+        return {"caught_up": [], "pending": [], "deferred": [], "errors": {"schedule": scrub(str(error))}}
+    return catch_up.run(desired, hand.core, rearmed=rearmed)
+
+
+def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str],
+                caught: Mapping[str, Any]) -> Json:
     since = min(job["next_run"] for job in stale)
     return {
         "repo": _repo(),
@@ -488,10 +527,13 @@ def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str
             f" {STALE_SECS // 60} minutes in the past with no run holding their slot: the core's scheduler is"
             " not running them.\n\n"
             f"- stuck: {_stuck(stale)}\n"
-            f"- {_rearm_line(rearmed, rearm_errors)}\n\n"
+            f"- {_rearm_line(rearmed, rearm_errors, caught)}\n\n"
             "A job is re-armed by patching its own schedule back through the core (`cron_update`), which moves"
-            " its next run to the next slot; bin/seed-cron does the same at every boot. Look for a claim the"
-            " core never released (a run cut off by a restart) with `bin/crons`.\n\n"
+            " its next run to the next slot; bin/seed-cron does the same at every boot. A job whose schedule"
+            " says `catch_up = true` (brain/cron.toml, evals/cron.pinned.toml) then has the slot it missed run"
+            " once now (`cron_run`, bin/lib/catch_up.py), if that slot is recent enough; any other job waits"
+            " for its next slot. Look for a claim the core never released (a run cut off by a restart) with"
+            " `bin/crons`.\n\n"
             "This issue is closed by the same check once every enabled job is current again."
         ),
     }
@@ -502,24 +544,31 @@ def _watch_crons(state: Json, now: float) -> Json:
     alarm. What goes on the check's line."""
     stale = stale_crons(now)
     rearmed, rearm_errors = rearm(stale)
+    try:
+        caught = _catch_up(rearmed)
+    except Exception as error:  # noqa: BLE001 - a failed catch-up never stops the watch
+        caught = {"caught_up": [], "errors": {"catch-up": scrub(f"{type(error).__name__}: {error}")}}
     out: Json = {"stale_crons": [{"name": job["name"], "next_run": job["next_run"]} for job in stale],
-                 "rearmed": rearmed, "cron_alarm": None}
+                 "rearmed": rearmed, "caught_up": caught.get("caught_up") or [], "cron_alarm": None}
     if rearm_errors:
         out["rearm_errors"] = rearm_errors
+    for key in ("pending", "deferred", "errors"):
+        if caught.get(key):
+            out[f"catch_up_{key}"] = caught[key]
     alarm = state.get("cron_alarm")
     if stale and alarm:
         if not alarm.get("issue"):
-            _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+            _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors, caught))
         out["cron_alarm"] = "open"
     elif stale:
         alarm = {"ref": f"cron:{int(now)}", "opened_at": now, "issue": None}
-        _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+        _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors, caught))
         stimuli.add(
             "health", "alarm", alarm["ref"],
             f"health alarm: these cron jobs stopped running: {_stuck(stale)}."
-            f" {_rearm_line(rearmed, rearm_errors)} {_issue_line(alarm)}",
+            f" {_rearm_line(rearmed, rearm_errors, caught)} {_issue_line(alarm)}",
             payload={"stale_crons": out["stale_crons"], "rearmed": rearmed, "rearm_errors": rearm_errors,
-                     "issue": alarm["issue"]},
+                     "caught_up": out["caught_up"], "issue": alarm["issue"]},
         )
         out["cron_alarm"] = "raised"
     elif alarm:
