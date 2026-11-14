@@ -207,6 +207,84 @@ class DoneTest(Scratch):
                 queue.done(bad)
 
 
+class BrowserPicturesTest(Scratch):
+    """The browser saves a picture of each page it opens or acts on into
+    state/browser/screenshots/ (the core's `[browser] screenshot_dir`); the
+    report takes the ones taken since the claim, whether or not the operator
+    named any."""
+
+    def claimed(self, **more):
+        self.add(**more)
+        return queue.next_task()["task"]
+
+    def picture(self, name, at, data=PNG):
+        folder = self.root / "state" / "browser" / "screenshots"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_bytes(data)
+        os.utime(path, (at, at))
+        return path
+
+    def test_a_task_ends_with_the_browsers_own_pictures(self):
+        task = self.claimed()
+        tid = task["task_id"]
+        self.picture("1789369260000-000001.png", T0 + 60)
+        self.picture("1789369320000-000002.png", T0 + 120)
+        out = queue.done({"task_id": tid, "outcome": "ok", "notes": "signed up"})
+        self.assertEqual(out["screenshots"], [f"state/media/tasks/{tid}/page-1789369260000-000001.png",
+                                              f"state/media/tasks/{tid}/page-1789369320000-000002.png"])
+        self.assertEqual((self.root / out["screenshots"][1]).read_bytes(), PNG)
+        self.assertEqual(queue.listing("ok")["tasks"][0]["screenshots"], out["screenshots"])
+        self.assertEqual(list((self.root / "state" / "browser" / "screenshots").iterdir()), [])
+
+    def test_pictures_from_before_the_claim_are_dropped(self):
+        task = self.claimed()
+        old = self.picture("1789360000000-000001.png", T0 - 600)
+        self.picture("1789369260000-000002.png", T0 + 60)
+        out = queue.done({"task_id": task["task_id"], "outcome": "failed", "notes": "page gone"})
+        self.assertEqual([Path(p).name for p in out["screenshots"]], ["page-1789369260000-000002.png"])
+        self.assertFalse(old.exists())
+
+    def test_at_most_four_the_first_page_and_the_last_three(self):
+        task = self.claimed()
+        for n in range(7):
+            self.picture(f"17893692{n}0000-00000{n}.png", T0 + 10 * (n + 1))
+        out = queue.done({"task_id": task["task_id"], "outcome": "ok", "notes": "n"})
+        self.assertEqual([Path(p).name for p in out["screenshots"]],
+                         [f"page-17893692{n}0000-00000{n}.png" for n in (0, 4, 5, 6)])
+
+    def test_named_screenshots_leave_room_for_fewer(self):
+        task = self.claimed()
+        own = Path(task["screenshot_dir"]) / "own.png"
+        own.write_bytes(PNG)
+        for n in range(5):
+            self.picture(f"17893692{n}0000-00000{n}.png", T0 + 10 * (n + 1))
+        out = queue.done({"task_id": task["task_id"], "outcome": "ok", "notes": "n", "screenshots": [str(own)]})
+        self.assertEqual(len(out["screenshots"]), queue.BROWSE_MAX_SCREENSHOTS)
+        self.assertEqual(Path(out["screenshots"][0]).name, "own.png")
+
+    def test_what_x_would_refuse_is_left_out(self):
+        task = self.claimed()
+        self.picture("1789369260000-000001.png", T0 + 60, b"not an image at all")
+        self.picture("1789369270000-000002.png", T0 + 70, PNG + b"\0" * queue.MAX_SCREENSHOT_BYTES)
+        self.picture("1789369280000-000003.jpeg", T0 + 80, b"\xff\xd8\xff\xe0" + b"\0" * 32)
+        out = queue.done({"task_id": task["task_id"], "outcome": "ok", "notes": "n"})
+        self.assertEqual([Path(p).name for p in out["screenshots"]], ["page-1789369280000-000003.jpeg"])
+
+    def test_a_finished_browse_tells_the_mind_its_pictures_can_go_on_a_post(self):
+        from teeny_hands import stimuli
+
+        task = self.claimed(kind="browse")
+        self.picture("1789369260000-000001.png", T0 + 60)
+        queue.done({"task_id": task["task_id"], "outcome": "ok", "notes": "three tools shipped"})
+        conn = stimuli.db()
+        try:
+            text = conn.execute("SELECT text FROM stimuli WHERE surface = 'world'").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertIn(f'"shots": {task["task_id"]}', text)
+
+
 class AccountsTest(Scratch):
     """A12: a finished signup task writes one accounts row with its reason; only
     the handle is taken, and only from a signup that ended ok."""
