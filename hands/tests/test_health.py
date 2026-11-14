@@ -497,6 +497,85 @@ class HealthTest(unittest.TestCase):
         self.assertFalse(out["healthy"])
         self.assertEqual((out["rearmed"], out["cron_alarm"]), (["teeny.mail-inbound"], "raised"))
 
+    # --- a missed slot is caught up, not dropped (bin/lib/catch_up.py) -------------------
+    # 2026-11-14: a deploy at 11:31 cut off teeny.moltbook-follow's 11:30 run;
+    # the 11:45 check re-armed it and said "they run again at their next
+    # slot": the day's follows were dropped. self-improve's slot was dropped
+    # at boot by bin/seed-cron the same way, twice, and nothing said so.
+
+    def daily(self, jobs, leases=(), catch_up=()):
+        """storage.db with daily jobs `(id, name, "MM HH", next run in seconds
+        from T0)` (UTC), dead claims `(job id, seconds since renewed)` on their
+        next run, and the schedule files giving `catch_up` to the names listed."""
+        storage = self.root / "brain" / "storage.db"
+        storage.parent.mkdir(exist_ok=True)
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        pinned = ""
+        next_ms = {}
+        for job_id, name, at, offset in jobs:
+            expr = f"{at} * * *"
+            next_ms[job_id] = int((T0 + offset) * 1000)
+            body = {"name": name, "enabled": True, "next_run_ms": next_ms[job_id], "expression": expr,
+                    "schedule": {"kind": "cron", "expr": expr, "tz": "UTC"}}
+            db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job_id, json.dumps(body)))
+            short = name.removeprefix("teeny.")
+            pinned += f'[jobs.{short}]\nschedule = "{expr}"\ncommand = "bin/heartbeat"\ntz = "UTC"\n'
+            pinned += "catch_up = true\n\n" if name in catch_up else "\n"
+        for job_id, renewed_ago in leases:
+            renewed = int((T0 - renewed_ago) * 1000)
+            body = {"holder": "token", "epoch": 1, "expires_ms": renewed + 7_200_000}
+            db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                       (f"cron/{job_id}%2F{next_ms[job_id]}", renewed, json.dumps(body)))
+        db.commit()
+        db.close()
+        (self.root / "brain" / "cron.toml").write_text("")
+        (self.root / "evals").mkdir(exist_ok=True)
+        (self.root / "evals" / "cron.pinned.toml").write_text(pinned)
+
+    def cron_runs(self) -> list[dict]:
+        return [c["params"] for c in self.core.calls if c["method"] == "openhuman.cron_run"]
+
+    def test_a_stuck_job_that_catches_up_runs_now_and_the_alarm_says_so(self):
+        # follow's 11:45 run was cut off at 11:46 by a restart; post's 11:40 too.
+        self.daily([("j1", "teeny.follow", "45 11", -900), ("j2", "teeny.post", "40 11", -1200)],
+                   leases=[("j1", 840), ("j2", 840)], catch_up=("teeny.follow",))
+        self.core.replies = [ALIVE, result({"job_id": "j1", "status": "queued"})]
+        out = health.check()
+        self.assertEqual(sorted(out["rearmed"]), ["teeny.follow", "teeny.post"])
+        self.assertEqual(out["caught_up"], [{"name": "teeny.follow", "slot": "2026-11-11T11:45:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.assertEqual(out["cron_alarm"], "raised")
+        (alarm,) = self.inbox()
+        self.assertIn("caught up now: teeny.follow (its 2026-11-11T11:45:00Z slot)", alarm["text"])
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
+        self.assertNotIn("teeny.follow waits", alarm["text"])
+        body = self.gh.requests("POST", ISSUES)[0].json()["body"]
+        self.assertIn("caught up now: teeny.follow", body)
+        self.assertIn("teeny.post waits for its next slot", body)
+
+    def test_a_slot_dropped_at_boot_is_caught_up_by_the_next_check(self):
+        # Boot re-armed it to tomorrow before any check saw it stale, and the
+        # boot's own catch-up did not run (an older spine): not stale, still missed.
+        self.daily([("j1", "teeny.self-improve", "40 11", 86400 - 1200)], catch_up=("teeny.self-improve",))
+        out = health.check()
+        self.assertEqual((out["stale_crons"], out["cron_alarm"]), ([], None))
+        self.assertEqual(out["caught_up"], [{"name": "teeny.self-improve", "slot": "2026-11-11T11:40:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.at(QUARTER)
+        self.assertEqual(health.check()["caught_up"], [])
+        self.assertEqual(len(self.cron_runs()), 1)
+
+    def test_a_job_without_catch_up_still_waits_for_its_next_slot(self):
+        self.daily([("j2", "teeny.post", "40 11", -1200)], leases=[("j2", 840)])
+        out = health.check()
+        self.assertEqual((out["rearmed"], out["caught_up"]), (["teeny.post"], []))
+        self.assertEqual(self.cron_runs(), [])
+        (alarm,) = self.inbox()
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
+
     # --- the re-screen -----------------------------------------------------------------------
 
     def outage_holds(self) -> tuple[int, int]:
