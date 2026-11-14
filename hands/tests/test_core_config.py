@@ -73,14 +73,19 @@ class CoreConfigTest(unittest.TestCase):
         self.assertIs(secrets["unattended_unlock"], True)
         self.assertIs(secrets["encrypt"], False)
 
-    def test_the_browser_starts_on_a_fresh_profile_the_egress_policy_admits(self):
-        # With TinySecurity's egress policy on, TinyComputer's enforced
-        # launcher refuses a launch that names a profile folder: "network
-        # policy refuses attached or externally managed browsers". A
-        # persistent profile is exactly that, so no session could start.
+    def test_the_browser_keeps_its_profile_so_cookies_survive_a_restart(self):
+        # Sign-ins and cookies live in a persistent profile under
+        # state/browser/profile (mounted from the checkout, so a restart keeps
+        # it). TinyComputer's egress-enforced launcher admits it because the
+        # core hands it over as the host's own profile (browser.profile,
+        # tinyhumansai/tinycomputer#175), launched with extensions off.
         browser = self.written()["browser"]
-        self.assertEqual(browser["profile_mode"], "fresh")
-        self.assertNotIn("profile_path", browser)
+        profile = self.root / "state" / "browser" / "profile"
+        self.assertEqual(browser["profile_mode"], "persistent")
+        self.assertEqual(browser["profile_path"], str(profile))
+        self.assertTrue(profile.is_dir())
+        # Cookies are credentials: the folder is the owner's alone.
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
 
     def test_the_browser_fills_keychain_placeholders_from_bin_keychain_fill(self):
         browser = self.written()["browser"]
