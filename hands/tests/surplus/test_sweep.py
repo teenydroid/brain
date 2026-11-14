@@ -121,13 +121,15 @@ class SweepTest(Scratch):
         self.assertEqual(tuple(paid), ("vendor", "base", "paid"))
 
     def test_the_weekly_cap_to_the_surplus_wallet_clamps_then_waits(self):
-        self.configure(WALLET_MAX_PER_RECIPIENT_WEEK_USD="5")
+        self.assertEqual(sweep.sweep()["payout"]["amount"], "12.5")
+        self.usdc["base"] = 200 * 10**6  # $190 over the reserve; $60 a week to one address, $12.50 gone
+        self.at(T0 + 2 * 3600)
         out = sweep.sweep()["payout"]
         self.assertEqual((out["outcome"], out["amount"], out["clamped_by"]),
-                         ("paid", "5", "WALLET_MAX_PER_RECIPIENT_WEEK_USD"))
-        self.at(T0 + 2 * 3600)
+                         ("paid", "47.5", "WALLET_MAX_PER_RECIPIENT_WEEK_USD"))
+        self.at(T0 + 4 * 3600)
         self.assertEqual(sweep.sweep()["payout"]["outcome"], "waiting")
-        self.assertEqual(len(self.core.params("openhuman.wallet_prepare_transfer")), 1)
+        self.assertEqual(len(self.core.params("openhuman.wallet_prepare_transfer")), 2)
         self.at(T0 + 8 * 86400)
         self.assertEqual(sweep.sweep()["payout"]["outcome"], "paid")
 
