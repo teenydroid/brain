@@ -263,6 +263,84 @@ class CatchUpTest(unittest.TestCase):
         self.assertEqual(self.catch_up("2026-11-14T10:05", [SELF_IMPROVE])["caught_up"][0]["name"],
                          "teeny.self-improve")
 
+    def test_a_run_queued_on_its_slot_is_in_flight(self):
+        # The core writes a `queued` placeholder run when it claims a slot.
+        self.job("j1", SELF_IMPROVE, "2026-11-15T09:40")
+        self.run_of("j1", "2026-11-14T09:40:03", status="queued")
+        self.assertEqual(self.catch_up("2026-11-14T10:00", [SELF_IMPROVE])["caught_up"], [])
+        self.assertEqual(self.core.calls, [])
+
+    def test_a_live_claim_is_read_from_its_expiry_as_well(self):
+        # Renewal sets expires_ms to now + 2 h; a store that kept no
+        # updated_ms still shows a run renewed a moment ago.
+        self.job("j1", SELF_IMPROVE, "2026-11-14T09:40")
+        self.lease("j1", "2026-11-14T09:40", "2026-11-14T09:59:40")
+        self.write()
+        db = sqlite3.connect(self.root / "brain" / "storage.db")
+        db.execute("update docs set updated_ms = 0 where coll = 'tsd.leases'")
+        db.commit()
+        db.close()
+        os.environ["TEENY_NOW"] = str(ts("2026-11-14T10:00"))
+        self.assertEqual(catch_up.run([SELF_IMPROVE], self.core)["caught_up"], [])
+        self.assertEqual(catch_up.live_job_ids(), ["j1"])
+
+    def test_a_broken_ledger_is_read_as_empty(self):
+        self.job("j1", SELF_IMPROVE, "2026-11-15T09:40")
+        for text in ("{not json", "[1, 2]", '"x"', '{"done": [1], "since": 3, "log": {}}',
+                     '{"done": {"teeny.self-improve": "soon"}}'):
+            with self.subTest(text=text):
+                self.core.calls.clear()
+                (self.root / "state" / "catch-up.json").write_text(text)
+                out = self.catch_up("2026-11-14T10:00", [SELF_IMPROVE])
+                self.assertEqual([c["name"] for c in out["caught_up"]], ["teeny.self-improve"])
+                self.assertEqual(self.core.methods(), ["cron_run"])
+
+    def test_a_ledger_held_by_someone_else_is_reported_busy(self):
+        import fcntl
+        self.job("j1", SELF_IMPROVE, "2026-11-15T09:40")
+        with open(self.root / "state" / "catch-up.lock", "a+") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            out = self.catch_up("2026-11-14T10:00", [SELF_IMPROVE], lock_wait=0.3)
+        self.assertEqual(out["caught_up"], [])
+        self.assertIn("busy", out["errors"]["ledger"])
+        self.assertEqual(self.core.calls, [])
+
+    def test_a_weekly_job_on_another_weekday_has_no_slot(self):
+        goals = dict(SELF_IMPROVE, name="teeny.goals", expr="0 11 * * 1", command="bin/act goals")
+        # Saturday 2026-11-14: Monday's slot is days away, not missed.
+        self.job("j5", goals, "2026-11-16T05:30")
+        self.assertEqual(self.catch_up("2026-11-14T10:00", [goals])["caught_up"], [])
+        # Monday 2026-11-16, 2.5 hours after 11:00 India time.
+        self.assertEqual(self.catch_up("2026-11-16T08:00", [goals])["caught_up"],
+                         [{"name": "teeny.goals", "slot": "2026-11-16T05:30:00Z"}])
+
+    def test_a_slot_on_the_other_side_of_the_utc_midnight(self):
+        # 05:15 India time is 23:45 UTC the day before.
+        early = dict(SELF_IMPROVE, name="teeny.early", expr="15 5 * * *")
+        self.job("j6", early, "2026-11-15T23:45")
+        self.assertEqual(self.catch_up("2026-11-15T00:10", [early])["caught_up"],
+                         [{"name": "teeny.early", "slot": "2026-11-14T23:45:00Z"}])
+        # A run that started just after the slot, the day before in UTC, held it.
+        self.jobs.clear()
+        self.job("j7", dict(early, name="teeny.early2"), "2026-11-15T23:45")
+        self.run_of("j7", "2026-11-14T23:45:04")
+        self.assertEqual(self.catch_up("2026-11-15T00:20", [dict(early, name="teeny.early2")])["caught_up"], [])
+
+    def test_a_schedule_it_cannot_read_skips_that_job_only(self):
+        odd = dict(FOLLOW, name="teeny.odd", expr="0 9 * * MON")
+        self.job("j8", odd, "2026-11-16T09:00")
+        self.job("j1", SELF_IMPROVE, "2026-11-15T09:40")
+        out = self.catch_up("2026-11-14T10:00", [odd, SELF_IMPROVE])
+        self.assertEqual([c["name"] for c in out["caught_up"]], ["teeny.self-improve"])
+        self.assertIn("teeny.odd", out["errors"])
+
+    def test_both_day_fields_set_is_not_guessed_at(self):
+        both = dict(SELF_IMPROVE, name="teeny.both", expr="10 15 14 * 6")
+        self.job("j9", both, "2026-12-14T09:40")
+        out = self.catch_up("2026-11-14T10:00", [both])
+        self.assertEqual(out["caught_up"], [])
+        self.assertIn("teeny.both", out["errors"])
+
     def test_no_storage_is_nothing_to_do(self):
         os.environ["TEENY_NOW"] = str(ts("2026-11-14T10:00"))
         self.assertEqual(catch_up.run([SELF_IMPROVE], self.core)["caught_up"], [])
