@@ -385,61 +385,60 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
     state = state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
     try:
-        ledger_cm = Ledger(state, readonly=dry_run, wait=lock_wait).__enter__()
+        ledger = Ledger(state, readonly=dry_run, wait=lock_wait).__enter__()
     except Busy as busy:
         out["errors"]["ledger"] = str(busy)
         return out
     try:
-        return _run(ledger_cm, out, desired, call, fresh, rearmed, dry_run, now, by)
+        return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by)
     finally:
-        ledger_cm.__exit__(None, None, None)
+        ledger.__exit__(None, None, None)
 
 
 def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str],
          rearmed: Iterable[str], dry_run: bool, now: float, by: str) -> Json:
-    if True:
-        if not dry_run:
-            for name in fresh:
-                ledger.data["since"][name] = int(now * 1000)
-            ledger.save()
-        path = storage()
-        if not path.is_file():
-            return out
+    if not dry_run:
+        for name in fresh:
+            ledger.data["since"][name] = int(now * 1000)
+        ledger.save()
+    path = storage()
+    if not path.is_file():
+        return out
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
         try:
-            conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
-            try:
-                found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"])
-            finally:
-                conn.close()
-        except sqlite3.Error as error:
-            out["errors"]["storage"] = scrub(str(error))
-            return out
-        out["pending"] = [c["name"] for c in found[MAX_PER_RUN:]]
-        for job in found[:MAX_PER_RUN]:
-            name, slot_ms = job["name"], int(job["slot"] * 1000)
-            entry = {"name": name, "slot": _iso(job["slot"])}
-            if dry_run:
-                out["caught_up"].append(entry)
-                continue
-            before = ledger.data["done"].get(name)
-            # Written before the run is asked for: never the same slot twice.
-            ledger.data["done"][name] = slot_ms
-            ledger.save()
-            try:
-                if job["rearm"]:
-                    call("cron_update", {"job_id": job["id"], "patch": {"schedule": job["schedule"]}})
-                call("cron_run", {"job_id": job["id"]})
-            except Exception as error:  # noqa: BLE001 - refused: give the slot back, try at the next call
-                out["errors"][name] = scrub(str(error) or type(error).__name__)
-                if before is None:
-                    ledger.data["done"].pop(name, None)
-                else:
-                    ledger.data["done"][name] = before
-                ledger.save()
-                continue
-            ledger.data["log"].append({"at": _iso(now), "by": by, **entry})
-            ledger.save()
+            found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"])
+        finally:
+            conn.close()
+    except sqlite3.Error as error:
+        out["errors"]["storage"] = scrub(str(error))
+        return out
+    out["pending"] = [c["name"] for c in found[MAX_PER_RUN:]]
+    for job in found[:MAX_PER_RUN]:
+        name, slot_ms = job["name"], int(job["slot"] * 1000)
+        entry = {"name": name, "slot": _iso(job["slot"])}
+        if dry_run:
             out["caught_up"].append(entry)
+            continue
+        before = ledger.data["done"].get(name)
+        # Written before the run is asked for: never the same slot twice.
+        ledger.data["done"][name] = slot_ms
+        ledger.save()
+        try:
+            if job["rearm"]:
+                call("cron_update", {"job_id": job["id"], "patch": {"schedule": job["schedule"]}})
+            call("cron_run", {"job_id": job["id"]})
+        except Exception as error:  # noqa: BLE001 - refused: give the slot back, try at the next call
+            out["errors"][name] = scrub(str(error) or type(error).__name__)
+            if before is None:
+                ledger.data["done"].pop(name, None)
+            else:
+                ledger.data["done"][name] = before
+            ledger.save()
+            continue
+        ledger.data["log"].append({"at": _iso(now), "by": by, **entry})
+        ledger.save()
+        out["caught_up"].append(entry)
     return out
 
 
