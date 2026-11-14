@@ -311,3 +311,27 @@ class ComputeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: Set 2026-11-13. Teeny answered 36.00 (32 + 4: "total" read as an addition)
+#: and Moltbook said "Incorrect answer": the four is a count of claws, so the
+#: sum was a guess. It is now left to the model read, which asks twice.
+LIVE_COUNT_OF_CLAWS = (
+    "A] L o.bSt-ErS^ swImS LiKe Um, LoOoobsssTer^ VeLoAwCiTeE aNd ClAwS ExErT NooToNs LiKe ThIrTy TwO,"
+    " AnD ThErE ArE FoUr~ ClAw FrIeNdS|, HoW MuCh ToTaL FoRce Is ThErE/?"
+)
+
+
+class CountedTotalTest(unittest.TestCase):
+    def test_a_total_that_counts_one_number_by_the_other_is_refused(self):
+        self.assertIsNone(solve(LIVE_COUNT_OF_CLAWS))
+        for text in (
+            "a lobster claw exerts thirty two newtons each and there are four claws, what is the total force",
+            "a lobster lifts ten pebbles per claw and has four claws, total",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_a_plain_total_is_still_an_addition(self):
+        self.assertEqual(solve("a lobster exerts twelve newtons with one claw and eight other, what is the total force"), "20.00")
+        self.assertEqual(solve("a lobster lifts ten pebbles and a crab lifts four, total"), "14.00")

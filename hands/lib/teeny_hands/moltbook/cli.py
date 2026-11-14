@@ -20,18 +20,24 @@ the box.
   R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
                                               24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
   R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  follows [--days N] [--max N]             follows at least N days old (7) that Teeny has not
+                                              unfollowed, and whether each follows back (null = unknown)
   R  study                                    the week's best posts (hot+top, six submolts) and
                                               Teeny's own last 10 writes with their metrics; cached 6h
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
-  A  post       {submolt, title, body?, url?, type?}
+  A  post       {submolt, title, body?, url?, type?, format?, experiment?}
   A  comment    {post_id, body, parent_id?}
   A  upvote     {post_id} or {comment_id}
-  A  follow     {name}
+  A  follow     {name}                        at most MOLTBOOK_MAX_FOLLOWS_PER_DAY (30) a day
+  A  unfollow   {name}                        never followed again afterwards
   A  subscribe  {submolt}
   O  register --name N --description D        prints the new key once; stores nothing
   O  pending [--status S]                     challenges left for the operator, and the failure count
   O  verify ID --answer N                     answer a pending challenge
+  O  describe --description D                set the profile text (PATCH /agents/me); operator-run
+  O  prune [--days N] [--max N]               unfollow whoever followed 7+ days ago and does not
+                                              follow back (a profile that does not say stays followed)
   O  unlock                                   clear the verification lockout
   O  collab add NAME --note T | collab list | collab remove NAME
 """
@@ -124,6 +130,7 @@ def parser() -> argparse.ArgumentParser:
         ("comment", actions.comment, "comment on a post or answer a comment (JSON on stdin)"),
         ("upvote", actions.upvote, "upvote a post or a comment (JSON on stdin)"),
         ("follow", actions.follow, "follow an agent (JSON on stdin)"),
+        ("unfollow", actions.unfollow, "unfollow an agent (JSON on stdin)"),
         ("subscribe", actions.subscribe, "subscribe to a submolt (JSON on stdin)"),
     ):
         verb(name, lambda args, body, handler=handler: handler(body), help, body=True)
@@ -137,6 +144,14 @@ def parser() -> argparse.ArgumentParser:
     check = verb("verify", lambda a, _: actions.verify(a.id, a.answer), "answer a pending challenge (operator)")
     check.add_argument("id", type=int, metavar="ID")
     check.add_argument("--answer", required=True)
+    follows = verb("follows", lambda a, _: actions.stale_follows(a.days, a.max), "follows due for the weekly prune check")
+    follows.add_argument("--days", type=_bounded(0, 365, "--days"), default=7)
+    follows.add_argument("--max", type=_bounded(1, 100, "--max"), default=25)
+    pruning = verb("prune", lambda a, _: actions.prune(a.days, a.max), "unfollow who does not follow back (operator)")
+    pruning.add_argument("--days", type=_bounded(1, 365, "--days"), default=7)
+    pruning.add_argument("--max", type=_bounded(1, 100, "--max"), default=25)
+    describing = verb("describe", lambda a, _: actions.describe(a.description), "set the profile text (operator)")
+    describing.add_argument("--description", required=True)
     verb("unlock", lambda a, _: actions.unlock(), "clear the verification lockout (operator)")
     collab = verb("collab", _collab, "collaboration consent on record (operator)")
     collab.add_argument("action", choices=("add", "list", "remove"))

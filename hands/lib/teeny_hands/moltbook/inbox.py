@@ -6,7 +6,8 @@ posts Teeny is part of: its own recent posts (every comment on them is said
 to Teeny) and the posts it commented on (only replies under Teeny's own
 comments are). Each one by someone else is screened by the inbound guard and,
 when allowed, added to the stimuli inbox once: `moltbook · comment`, ref the
-comment id, with the post and parent ids `comment_moltbook` needs to answer.
+comment id, with the post and parent ids `comment_moltbook` needs to answer,
+its `depth` in the tree and whether it `can_answer` (Moltbook draws five levels).
 A comment the guard held is kept in `moltbook_held`, as X keeps a held
 mention, and left for the hold's review: the guard's re-screen returns it
 to the inbox (`release_held`) once it finds it clean.
@@ -24,7 +25,7 @@ from typing import Any, Mapping
 from .. import hand, stimuli
 from ..rest import RestApi
 from . import reads, rules
-from .actions import _author, _walk
+from .actions import _author, _depths, _walk
 
 Json = dict[str, Any]
 
@@ -78,7 +79,9 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json
     errors: list[str] = []
     for post_id, own in posts.items():
         try:
-            tree = list(_walk(reads.comments(post_id, "new", 100, api, fresh=True).get("comments")))
+            nodes = reads.comments(post_id, "new", 100, api, fresh=True).get("comments")
+            tree = list(_walk(nodes))
+            depths = _depths(nodes)
         except hand.HandError as exc:
             errors.append(f"{post_id}: {exc}")
             continue
@@ -100,7 +103,10 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None) -> Json
                 _keep_held(conn, str(cid), post_id, verdict.hold_id)
                 held += 1
                 continue
-            payload = {"post_id": post_id, "on_own_post": own}
+            depth = depths.get(str(cid), 1)
+            # Moltbook draws five levels; an answer below the last is never
+            # seen, so a comment at that level is read but cannot be answered.
+            payload = {"post_id": post_id, "on_own_post": own, "depth": depth, "can_answer": depth < rules.MAX_REPLY_DEPTH}
             if parent is not None:
                 payload["parent_id"] = parent
                 payload["answering_teeny"] = parent in mine

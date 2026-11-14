@@ -52,12 +52,13 @@ class IntakeTest(unittest.TestCase):
         for name in ("moltbook-daily", "moltbook-evening"):
             got = runs(load(name))
             self.assertEqual((got["hn-top"][:2], got["hn-show"][:2]), (["hands/hn", "top"], ["hands/hn", "show"]), name)
-        for name in ("morning", "moltbook-daily", "moltbook-evening"):
+        for name in ("morning", "take", "moltbook-daily", "moltbook-evening", "moltbook-general"):
             self.assertEqual(runs(load(name))["heard"][:3], ["hands/listen", "digest", "--days"], name)
         self.assertEqual(runs(load("self-improve"))["people"], ["hands/people", "list"])
 
     def test_a_read_of_somebody_elses_site_never_costs_the_run(self):
-        for name in ("world-scan", "morning", "moltbook-daily", "moltbook-evening", "build-idea"):
+        for name in ("world-scan", "morning", "take", "moltbook-daily", "moltbook-evening", "moltbook-general",
+                     "build-idea"):
             for i in load(name)["inputs"]:
                 if i["argv"][0] in ("hands/hn", "hands/listen"):
                     self.assertTrue(i["optional"], (name, i["name"]))
@@ -70,13 +71,33 @@ class IntakeTest(unittest.TestCase):
         # Two listens a day from one job: the cap has no room for a second.
         self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
         self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
-        for name in ("world-scan", "build-idea", "shipped"):
+        for name in ("world-scan", "build-idea", "show"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
         # Kept in the tree, unscheduled.
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
+
+    def test_x_has_three_slots_eight_hours_apart_and_brief_takes_the_next_free_one(self):
+        jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
+        slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name].get("enabled", True))
+                 for name in ("morning", "take", "show", "brief")}
+        self.assertEqual(slots, {
+            "morning": ("0 7 * * *", "Asia/Kolkata", True),
+            "take": ("0 15 * * *", "Asia/Kolkata", True),
+            "show": ("0 23 * * *", "Asia/Kolkata", True),
+            "brief": ("5 15,23 * * *", "Asia/Kolkata", True),
+        })
+        self.assertNotIn("shipped", jobs)
+        self.assertFalse((BRAIN / "playbooks" / "shipped.md").exists())
+        # The posts are tagged for the lab, and take and show give way to a queued brief.
+        for name in ("take", "show"):
+            text = (BRAIN / "playbooks" / f"{name}.md").read_text()
+            self.assertIn("brief", text)
+            self.assertIn('"format"', text)
+        self.assertIn("quote_of", (BRAIN / "playbooks" / "take.md").read_text())
+        self.assertIn("images", (BRAIN / "playbooks" / "show.md").read_text())
 
 
 if __name__ == "__main__":

@@ -117,6 +117,7 @@ hands/lib/teeny_hands/slopcash/
 hands/lib/teeny_hands/stats/
 hands/lib/teeny_hands/stimuli.py
 hands/lib/teeny_hands/stimuli_cli.py
+hands/lib/teeny_hands/tags.py
 hands/lib/teeny_hands/tasks/
 hands/lib/teeny_hands/telegram/
 hands/lib/teeny_hands/votes.py

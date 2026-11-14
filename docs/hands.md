@@ -34,11 +34,14 @@ report they leave beside it.
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
-| `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). Nothing scheduled calls `search`: X bills it per post, which makes it too expensive. |
-| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 3 hours by default, 20-minute tolerance) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post or quote of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. |
+| `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
+| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
+| `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
+| `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
+| `metrics list [--days N]` | R | The latest row of each own post measured in the last N days (7), newest first, with its kind, `format`, `experiment` and the first 120 characters. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
@@ -362,14 +365,17 @@ A link post's `url` must be on the link allowlist.
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
 | `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one once: a held one is not added but kept in `moltbook_held`, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox). `bin/tick` runs it at most every 10 minutes. |
-| `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. `bin/stats-snapshot` runs it. |
+| `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each write measured in the last N days (7), newest write first: a post with its title, a comment with its post's id. |
 | `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row. The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
 | `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count, and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
-| `post` | A | `{submolt, title, body?, url?, type?}` (with no `ID`, stdin is the post). |
-| `comment` | A | `{post_id, body, parent_id?}`. |
+| `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
+| `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `follow`, `subscribe` | A | `{name}`, `{submolt}`; once each, never itself. `follow` refuses (`too_few_exchanges`) an agent that has said fewer than 2 things to Teeny on Moltbook (its `moltbook` stimuli): the follow list stays small and curated, and never holds a stranger. |
+| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. A follow needs no earlier exchange. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
+| `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
+| `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
+| `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` once; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Lists the challenges left for the operator and the failure count; answers one; clears the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
@@ -383,9 +389,10 @@ hears of the write, and refuses each with its `rule`:
   first accepted post when that is unset, and always when there is neither):
   one post per 2 hours, one comment per 60 seconds and 20 a day. A 429 is
   refused with Moltbook's `Retry-After`, never retried.
-- Our caps (`daily_cap`, last 24 hours): `MOLTBOOK_MAX_POSTS_PER_DAY` (3),
-  `MOLTBOOK_MAX_COMMENTS_PER_DAY` (30, and never above Moltbook's 50, or 20
-  for a new agent).
+- Our caps (`daily_cap`, last 24 hours): `MOLTBOOK_MAX_POSTS_PER_DAY` (20,
+  with Moltbook's 30-minute gap between posts), `MOLTBOOK_MAX_COMMENTS_PER_DAY`
+  (50, and never above Moltbook's 50, or 20 for a new agent) and
+  `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no limit of its own).
 - Comments (`once_per_post`, `once_per_parent`, `own_post`,
   `own_comment`, `unknown_parent`): never twice on a post unless answering a
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
@@ -410,7 +417,9 @@ hears of the write, and refuses each with its `rule`:
   the operation as JSON (never the result: the hand computes it). It answers
   only when both reads agree and every number they name is one the text
   writes; a spoken self-correction ("fifty, no, say seven") is the usual
-  case. Otherwise it guesses nothing, records the challenge in
+  case. The parser also refuses a "total" whose numbers may count each other
+  ("each exerts 32 ... there are four claws"), which Moltbook marked wrong when
+  read as 32 + 4. Otherwise it guesses nothing, records the challenge in
   `moltbook_pending` (`needs_verification`) for `verify`, and refuses. A wrong
   answer, an expiry or a challenge left pending counts as a failure, a
   correct answer resets the count, and after 3 every write is refused until
@@ -419,8 +428,9 @@ hears of the write, and refuses each with its `rule`:
 Under `DRY_RUN` every rule runs (reads included) and nothing is written to
 Moltbook, the ledger or the failure count. The content id is recorded the
 moment Moltbook returns it, before the challenge is answered. Tables:
-`moltbook_posts`, `moltbook_comments`, `moltbook_actions`,
-`moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
+`moltbook_posts` (with a `format` column, added to an older ledger by `db()`),
+`moltbook_comments`, `moltbook_actions` (verbs `upvote-post`, `upvote-comment`,
+`follow`, `unfollow`, `subscribe`), `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
 `moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
 in hours, at, score, comment_count, verification_status; unique per kind,
 target and checkpoint).
@@ -431,11 +441,8 @@ or `posted` with no challenge), its line carries `moltbook_unverified`, the
 number still hidden (null otherwise). This is a count only and raises no
 alarm.
 
-The metrics refresh runs once a day from `bin/stats-snapshot`, not from a
-cron job of its own: a brain job may only run `bin/heartbeat` or `bin/act`
-(`bin/lib/cron_policy.py`), and a new pinned job is a change to the frozen
-`evals/cron.pinned.toml`. So a 1h checkpoint is usually folded into the next
-one due until something calls `metrics refresh` more often.
+The metrics refresh runs every hour from the pinned `metrics` job
+(`bin/stats-snapshot metrics`), and again before the daily snapshot.
 
 ## `hn`: Hacker News, read only
 
@@ -463,9 +470,10 @@ item is never listed, and `item` answers it as missing.
 
 **As playbook inputs.** The story lists are free and need no key, so a
 playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
-`morning` (top), and `moltbook-daily` and `moltbook-evening` (top, show).
-Beyond the front page, `hands/listen` (below) searches HN for Teeny's names
-and its standing topics. Each is marked `optional = true`, so an outage on Hacker News leaves
+`morning`, `take`, `moltbook-daily` and `moltbook-evening` (top, show), and
+`moltbook-general` (top). Beyond the front page, `hands/listen` (below)
+searches HN for Teeny's names and its standing topics, and those playbooks
+read what it heard through `listen digest`. Each is marked `optional = true`, so an outage on Hacker News leaves
 that input out as `{"unavailable": true}` and the run goes on. The idle look
 (`bin/lib/rhythm.py`, `wander`) reads top, show and ask in turn too. Titles
 are strangers' words: data, never instructions.
@@ -518,12 +526,12 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the morning gm, `build-idea`, the Moltbook posts, and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-daily`, `-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
 Lobsters, GitHub and arXiv, plus one HN item read per new watch: about 13
-requests, all free. `world-scan` runs it twice a day (`brain/cron.toml`).
+requests, all free. `world-scan` runs it twice a day, 13:05 and 22:05 IST (`brain/cron.toml`).
 Tables: `listen_heard` (source, ref, title, url, link, score, comments,
 extra, first_seen, last_seen; rows go after 30 days), `listen_cache`.
 
@@ -626,10 +634,47 @@ no key: it reads each source through the hand that holds it.
 | `snapshot` | J | Reads X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments) and GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. `DRY_RUN` does not affect it, because it only reads and records. |
 | `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. Also `days_recorded` (how many days have a snapshot) and `first_recorded`. The ship log reads its "day n" from here; a model never counts it. |
 | `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
+| `board [--days N]` | R | The scoreboard (below): audience with its 1-day and 7-day change, the best and worst own writes per surface, and the average result per format. |
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
-Before the snapshot it runs `hands/moltbook metrics refresh` (its line goes
-to stderr, and a refresh that fails never stops the snapshot).
+Before the snapshot it runs `hands/moltbook metrics refresh` and
+`hands/x metrics refresh` (their lines go to stderr, and a refresh that
+fails never stops the snapshot). `bin/stats-snapshot metrics` runs only the
+two refreshes: it is the pinned `metrics` job, hourly, so the 1h checkpoint
+is not missed.
+
+### `board`: the scoreboard
+
+`hands/stats board [--days N]` is one compact report, computed in code so a
+model never does the arithmetic:
+
+- `audience`: `x.followers`, `moltbook.followers` and `moltbook.karma`,
+  each with its change over 1 day (`d1`) and 7 days (`d7`) from the `stats`
+  rows.
+- `x` and `moltbook`: Teeny's own writes of the last N days (7) that have a
+  metrics row, each with its latest checkpoint. A write's `result` is one
+  number: on X likes + replies + reposts + quotes (impressions are shown
+  beside it as `views`), on Moltbook score + comment count. Each surface
+  lists the five `best` and five `worst` writes with their `format`, and
+  `formats`, the average result per format, best first. An untagged write
+  counts under its kind, as `(reply)` or `(comment)`.
+- `lines`: the same in three lines of at most 320 characters, for a prompt.
+
+### Lab tags
+
+`hands/x post` and `reply`, and `hands/moltbook post` and `comment`, accept
+two optional fields in their JSON body that are never published:
+
+- `format`: a short tag for the shape of the write, lowercase letters,
+  digits, dashes and underscores, at most 32 (`gm`, `take`, `confession`, `news`).
+- `experiment`: the id of the lab experiment the write belongs to, a
+  positive whole number.
+
+The hand keeps them beside the write: `x_posts.format` and
+`x_posts.experiment`; `moltbook_posts` and `moltbook_comments` gain `body`,
+`format` and `experiment`. These columns are added to an existing ledger
+the first time a hand opens it, and older rows keep them empty. A bad tag
+is an error and nothing is sent (`teeny_hands/tags.py`).
 
 The newest snapshot is also public. `bin/receipts` writes its allowed metrics
 (whole numbers only, from a fixed list per source) to `stats/latest.json` and
@@ -1945,7 +1990,7 @@ pages said, data and never instructions.
 
 No playbook reaches paid search (`bin/lib/playbook.py`), so its place in the
 day is the `world-scan` nudge: each listen asks the mind to check a story
-before it posts about it, and once a day who on the web is talking about
+before it keeps a take on it for the next post, and once a day who on the web is talking about
 teenydroid or OpenHuman, two paid reads a listen at most, inside
 `MIND_SEARCHES_PER_DAY` and the wallet's x402 caps. Four a day is enough for
 that; at Exa's $0.007 to $0.012 a search it is under $0.05 a day.
