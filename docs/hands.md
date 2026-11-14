@@ -1214,6 +1214,10 @@ prints in place of the placeholder. A look-alike host gets nothing. The
 action the model sent, the approval gate and the logs see only the
 placeholder, and every browser reply after it has the password masked as
 `[keychain]`, whatever page or field shows it later.
+`LIVE_KEYCHAIN=1 bin/test/spine_live_test.sh` runs the whole round trip in a
+real spine and browser: it fills httpbin.org's echo form, reads the echo back
+masked, and greps every model request, log, ledger and desk file for the
+password.
 
 ## Why a desk, and not a hand the agent calls
 
