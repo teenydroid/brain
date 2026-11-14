@@ -104,7 +104,7 @@ eval "$wallet_env"
 
 # Teeny's own core settings (bin/lib/core_sections/*.py): the cron shell
 # timeout, the autonomy policy and the workbench the scheduled agents' file
-# tools reach, the browser and its allowed websites (deploy/browser-allow.txt),
+# tools reach, the browser, http_request's allowed hosts (deploy/browser-allow.txt),
 # and the linked modules. Read only at boot, so rewritten every boot.
 python3 "$TEENY_ROOT/bin/lib/core_config.py" "$config_dir/config.toml" "$TEENY_ROOT" ||
   die "could not write Teeny's core settings into $config_dir/config.toml"
