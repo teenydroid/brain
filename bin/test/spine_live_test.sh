@@ -124,7 +124,31 @@ class Model(BaseHTTPRequestHandler):
             wrote = any(c.get("function", {}).get("name") == "file_write"
                         for m in messages for c in (m.get("tool_calls") or []))
             call = None
-            if task and not results:
+            if task and task.get("login") and "keychain e2e" in task.get("goal", ""):
+                # The keychain round trip: open, find the form's name field,
+                # type the login's placeholder into it, look again, report
+                # what the second look showed.
+                import re
+                if len(results) == 0:
+                    call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
+                elif len(results) in (1, 3):
+                    call = {"name": "browser", "arguments": json.dumps({"action": "snapshot", "interactive_only": True})}
+                elif len(results) == 2:
+                    seen = json.dumps(results[-1].get("content"))
+                    line = next((l for l in seen.split("\\n") if "Customer name" in l), "")
+                    ref = re.search(r"\b(e\d+)\b", line)
+                    call = {"name": "browser", "arguments": json.dumps(
+                        {"action": "fill", "selector": "@" + (ref.group(1) if ref else "e1"),
+                         "value": task["login"]["password"]})}
+                elif not wrote:
+                    seen = json.dumps(results[-1].get("content"))
+                    report = {"task_id": task["task_id"], "outcome": "ok" if "[keychain]" in seen else "failed",
+                              "notes": "the second look: " + seen[:400]}
+                    call = {"name": "file_write", "arguments": json.dumps(
+                        {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
+                else:
+                    answer = "the task is done and reported"
+            elif task and not results:
                 call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
             elif task and not wrote:
                 seen = json.dumps(results[-1].get("content"))
@@ -511,6 +535,32 @@ if [ "$(jq -r .status <<<"$task_row")" != ok ]; then
   grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
 fi
 check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
+# The keychain, end to end (LIVE_KEYCHAIN=1: it needs httpbin.org, so CI
+# leaves it out): a password made in hands/keychain, typed by the browser in
+# place of the operator's placeholder on that site's page, masked in what the
+# browser showed afterwards, and never in a model's request, a log, a
+# ledger or the desk.
+if [ "${LIVE_KEYCHAIN:-0}" = 1 ] && [ -n "$operator_id" ]; then
+  python3 -c 'import base64, os; print("KEYCHAIN_KEY=" + base64.b64encode(os.urandom(32)).decode())' \
+    >"$root/secrets/keychain.env"
+  "$root/hands/keychain" create --site httpbin.org --handle teeny >"$scratch/keychain.log" 2>&1 || true
+  jq -cn '{goal: "keychain e2e: type the password into the form", start_url: "https://httpbin.org/forms/post",
+           done_when: "the form holds it"}' | "$root/hands/tasks" add --source operator >>"$scratch/task-add.log" 2>&1 || true
+  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+  check "the desk offers the login as a placeholder" \
+    test "$(jq -r '.task.login.password // empty' "$root/state/workbench/desk/task.json")" = "{{keychain:httpbin.org}}"
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 120); do [ -s "$root/state/workbench/desk/task-done.json" ] && break; sleep 1; done
+  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+  kc_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
+  check "the browser typed the keychain's password and showed it masked" test "$(jq -r .status <<<"$kc_row")" = ok
+  [ "$(jq -r .status <<<"$kc_row")" = ok ] || printf '     task: %s\n' "$kc_row" >&2
+  password="$(TEENY_KEYCHAIN_FILL=1 "$root/hands/keychain" secret --host httpbin.org </dev/null)"
+  check "the keychain held a password to type" test -n "$password"
+  check "no model request, log, ledger or desk file holds the password" bash -c '! grep -rqaF -- "$1" "$2"/model-bodies.jsonl "$2"/spine.log "$3"/state/hands.db "$3"/state/workbench' \
+    _ "$password" "$scratch" "$root"
+  unset password
+fi
 check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
 check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"
 check "the operator's turn offers no shell" bash -c "! grep -qx shell <<<\"\$1\"" _ "$(offered operator)"
