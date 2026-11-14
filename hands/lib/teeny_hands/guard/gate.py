@@ -51,7 +51,9 @@ MAX_EMOJI_LIMIT = 10
 
 # The hard length limits, per surface and field, in UTF-16 code units. Over
 # one is refused, never cut: the model rewrites it. A surface not named here
-# has X's 280 on `text`; a long-form surface's `text` is its body.
+# has X's 280 on `text`; a long-form surface's `text` is its body. `task` is a
+# browser task's goal, done_when or signup reason: a private brief for Teeny's
+# own browser agent, never published, so it is not held to a tweet's length.
 LIMITS: dict[str, dict[str, int]] = {
     "x": {"text": MAX_POST_LENGTH},
     "moltbook": {"title": 300, "body": 10000},
@@ -59,6 +61,7 @@ LIMITS: dict[str, dict[str, int]] = {
     "github": {"title": 256, "body": 20000, "description": 350, "message": 5000},
     "mail": {"subject": 200, "body": 10000},
     "telegram": {"text": 4096},
+    "task": {"text": 1000},
 }
 
 # Where a title, a body or a subject is written rather than a post: the emoji
@@ -362,7 +365,7 @@ def check_outbound(
     hold kind itself (`prompt` for a picture). `max_emoji` None is the
     surface's default (`default_max_emoji`). The length limit is the
     surface's on `text` (`field_limit`): 280 on X and every surface that
-    names none."""
+    names none, 1000 on a browser task."""
     hold_context = _context(surface, context)
     if max_emoji is None:
         max_emoji = default_max_emoji(surface)

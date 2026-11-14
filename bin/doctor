@@ -152,16 +152,23 @@ fi
 
 # --- cron: the rules, and every playbook a job runs -------------------------------
 checked=" "
-if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$root/evals/cron.pinned.toml" "${CALENDAR_TZ:-}" 2>&1)"; then
+# Not --strict: a catch-up a playbook edit made unsafe is switched off at
+# boot (a warning here), never a reason to refuse the checkout.
+policy_err="$(mktemp)"
+if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$root/evals/cron.pinned.toml" "${CALENDAR_TZ:-}" 2>"$policy_err")"; then
   note "cron.toml" ok "$(jq length <<<"$jobs") job(s), $(jq '[.[] | select(.enabled)] | length' <<<"$jobs") enabled"
+  if [ -s "$policy_err" ]; then
+    note "cron catch-up" warn "$(tr '\n' ' ' <"$policy_err")"
+  fi
   while IFS= read -r book; do
     checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
   done < <(jq -r '.[] | (.command // "") | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
 else
-  note "cron.toml" fail "$jobs"
+  note "cron.toml" fail "$(cat "$policy_err")"
 fi
+rm -f "$policy_err"
 # A playbook nothing schedules yet still has to parse: the next cron may name it.
 for path in "$brain"/playbooks/*.md; do
   [ -e "$path" ] || continue

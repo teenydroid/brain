@@ -15,7 +15,10 @@ linked module.
                  the tier gates what an agent may do, the hands keep the rules
   [browser]      TinyComputer, headless, a persistent profile in
                  state/browser/profile/ (cookies and sign-ins survive a
-                 restart), downloads under state/browser/, the actions an unattended
+                 restart), downloads under state/browser/, the folder its
+                 pictures of pages go to (state/browser/screenshots/;
+                 bin/spine names it to the spine, which keeps them), the
+                 actions an unattended
                  run may take, and bin/keychain-fill as the password source
                  for the operator's {{keychain:<site>}} placeholder. It
                  opens any public https page (bin/spine sets
@@ -111,8 +114,9 @@ def tables(root: Path) -> dict[str, str]:
 
     workbench = root / "state" / "workbench"
     downloads = root / "state" / "browser" / "downloads"
+    pictures = root / "state" / "browser" / "screenshots"
     profile = root / "state" / "browser" / "profile"
-    for folder in (workbench, downloads, root / "state" / "media", profile):
+    for folder in (workbench, downloads, pictures, root / "state" / "media", profile):
         folder.mkdir(parents=True, exist_ok=True)
     # The profile holds cookies, which are sign-ins: the owner's alone.
     profile.chmod(0o700)

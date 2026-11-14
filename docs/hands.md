@@ -208,6 +208,7 @@ cut; `max_emoji` overrides the cap):
 | `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
 | `moltbook` | `title` 300, `body` 10000 | 3 |
 | `mail` | `subject` 200, `body` 10000 | 3 |
+| `task` (a browser task's goal, `done_when` or signup reason; never published) | `text` 1000 | `MAX_EMOJI_PER_POST` (1) |
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
@@ -224,17 +225,33 @@ key stays in the core's encrypted store. It fails closed: an unreachable core
 or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
 lexicon and the links.
 
-**Asking again.** One text gets up to three asks (`MAX_ASKS`). A call that
+**Asking again.** One text gets up to five asks (`MAX_ASKS`). A call that
 failed for a reason that may pass (a cut provider stream, a timeout, a
-dropped connection, a 5xx) is asked again after 2 s, then after 6 s
-(`RETRY_BACKOFFS`); an unreadable answer is asked again at once; a failure
-that will not pass (no core token, an unknown method, a 401/402/403/404, a
-refused key, no model configured) holds at once. Every ask gets what is left
-of `JUDGE_BUDGET` (120 s), at most `JUDGE_TIMEOUT` (60 s), and one that
-would get under 10 s is not made, so the worst case, every ask timing out,
-is 120 s on the judge for one text: two asks of 60 s and 58 s around the
-2 s wait. A stream cut answers in seconds, so a burst of them is asked all
-three times. The last failure still holds; nothing ever turns into a pass.
+dropped connection, a 5xx) is asked again after 2 s, then 6 s, 15 s and
+30 s (`RETRY_BACKOFFS`, the n-th failed call waiting the n-th): the
+provider cuts streams in windows that last minutes, and on 2026-11-14 asks
+only 2 s and 6 s apart all landed in one window and held dozens of
+messages as "the judge could not be reached". An unreadable answer is the
+model answering: it is asked again at once, and only within the first three
+asks (`UNREADABLE_ASKS`), as before. A failure that will not pass (no core
+token, an unknown method, a 401/402/403/404, a refused key, no model
+configured) holds at once. Every ask gets what is left of `JUDGE_BUDGET`
+(120 s), at most `JUDGE_TIMEOUT` (60 s), and one that would get under 10 s
+is not made, so the worst case, every ask timing out, is still 120 s on the
+judge for one text: two asks of 60 s and 58 s around the 2 s wait. A stream
+cut fails in a second or two, so a window of them is asked five times over
+about a minute (53 s of waits).
+
+The 15 s and 30 s waits come out of one allowance of 45 s per process
+(`LONG_WAITS`), not one per text. A hand the tick or `bin/act` calls judges
+one draft in its own process and gets the whole minute. An inbound scan
+(`hands/x ingest`, `bin/mail`, `bin/gh-inbound` and the like) judges a batch
+in one process inside the 300 s the core gives a cron shell call, so in a
+failure window only its first text (or first few, when an answer comes back
+early) waits them out and the rest get the 2 s and 6 s they had before: a
+batch waits at most 45 s more than it used to. Only the timing changed:
+the verdicts, what holds, and fail-closed are as they were; the last
+failure still holds, and nothing ever turns into a pass.
 
 A hold the judge made only by failing is marked on the verdict:
 `Verdict.judge_failed` and `FieldsVerdict.judge_failed` (`Held.judge_failed`:
@@ -1125,7 +1142,7 @@ outcome (`operator · report`), except for the findings kinds (`news`,
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -1142,6 +1159,24 @@ paths in its payload.
 The stimulus text says how many screenshots the task saved, and a
 `post_x` or `reply_x` with `shots: <task id>` posts them (uploaded from
 `state/media/tasks/<id>/`, screenshots first, four in all).
+
+**Screenshots are the browser's, not the operator's.** The operator's
+browser tool has no screenshot action, so the core takes them itself
+while its host has a picture sink registered: a picture of the page after
+each `open`, click, key press, select or check, and before `close`. It
+never pictures a `fill` or `type`, and once a session has typed a keychain
+password it takes no more pictures at all: a sign-up is pictured up to its
+password step, not after. Other sessions skip any page that shows a
+password the keychain typed, or that has a frame it cannot read. A PNG over
+5 MB is taken again as a JPEG. The spine's sink (`spine/src/browser_pictures.rs`)
+writes them into `TEENY_BROWSER_PICTURES`, which `bin/spine` sets to
+`state/browser/screenshots/`, and keeps at most 24. When the desk settles
+a report, `done` takes the pictures taken since the claim: the first page
+and the last ones, four in all with any the operator named, each a PNG,
+JPEG, WebP or GIF of at most 5 MB (what X takes for a still image), copied
+to `state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder
+is emptied. A `browser` `task` action runs in TinyComputer's own session
+and is not pictured.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
@@ -1376,19 +1411,25 @@ pay is still an attack. Playbooks still reach only the read verbs.
 
 More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
-keeps it off and out of the mind's prompt):
+keeps it off and out of the mind's prompt; `propose_change` is the exception,
+on at 1 a day, since all it makes is a pull request the operator merges or
+closes):
 
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
-| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
+| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`, 1000 characters each, not X's 280) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
+| `propose_change` `{text}` | `build self {text}` | refused before the guard and the hand while a change to itself is in flight (a `self` build request not yet skipped, shipped or failed, or a `self` job not failed, shipped or given up) and over the desk's 2,000 characters; the tick runs the brief past `guard check` (surface `github`, as `self-improve`'s output) and sends the guard's words; the request is picked by `pick-request` and ships as a pull request (docs/evolve.md) | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
+A `propose_change` that lands comes back to the next beat with its build
+request's id and status (`payload.request`), so Teeny can say which request
+it is and that it is waiting for `pick-request`, not being built yet.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
 reply` and `send`), except the web search: `x402 search` and `contents` pay
