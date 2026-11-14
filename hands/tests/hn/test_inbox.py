@@ -6,6 +6,8 @@ bounded in how many items it reads."""
 
 from __future__ import annotations
 
+import json
+
 from .support import DAY, HOUR, ME, MINUTE, T0, Scratch, comment, story
 from teeny_hands import hand, stimuli
 from teeny_hands.guard import holds
