@@ -214,8 +214,14 @@ class InboundTest(RescreenBase):
         context = {"surface": "moltbook", "post_id": "p1", "comment_id": "c1", "author": "nyna"}
         first = holds.record(direction="inbound", kind="message", context=context, category="unknown",
                              reason="the judge could not be reached: x", by="judge", text="love the lobster")
-        again = holds.record(direction="inbound", kind="message", context=context, category="unknown",
-                             reason="the judge answered in an unreadable shape", by="judge", text="love the lobster")
+        # A second outage hold on the same comment, as the log kept them before
+        # a pending one was reused (holds.record): written as it stands on the box.
+        conn = hand.db()
+        with hand.transaction(conn):
+            conn.execute("INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text)"
+                         " SELECT at, direction, kind, context, category, ?, held_by, text FROM guard_holds WHERE id = ?",
+                         ("the judge answered in an unreadable shape", first["id"]))
+            again = holds.get(conn.execute("SELECT max(id) FROM guard_holds").fetchone()[0])
         self.judge_says(CLEAN)
         out = self.run_at(LATER)
         self.assertEqual((out["cleared"], out["released"]), (2, 1))
