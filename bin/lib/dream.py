@@ -13,6 +13,10 @@ night), with more to go on and one more thing it may do:
 - **What the core's memory holds**: the learnings written since the last
   dream (the journal, `remember`, the diary; `memory_items_list`, kind
   `learning`, never a conversation), each with a short alias, `[c3]`.
+- **The scoreboard and the lab** (bin/lib/scoreboard.py): the board, the
+  open experiments scored in code, the lab's lessons and "true right now"
+  (balances and followers, read just now). The night dream may also answer
+  `experiment` and `conclude` operations, carried out through hands/lab.
 - **`forget`**: `{"op": "forget", "item": "c3", "reason": "..."}` takes a
   learning that is false or superseded out of the core's memory, so recall
   stops bringing it back (a journal line that said a send landed when the
@@ -48,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import reflect  # noqa: E402
 import rhythm  # noqa: E402
+import scoreboard  # noqa: E402
 from teeny_hands import hand  # noqa: E402
 
 Json = dict[str, Any]
@@ -243,6 +248,25 @@ def forget(rows: list[Json], slot: str) -> Json:
     return {"forgot": int(got.get("forgotten", len(rows))) if isinstance(got, dict) else len(rows)}
 
 
+def run_lab(ops: list[Json]) -> list[Json]:
+    """The night dream's lab operations, each through hands/lab's own rules
+    (a refusal is reported, never retried)."""
+    from teeny_hands.lab import ledger
+
+    done = []
+    for op in ops:
+        kind = op.get("op")
+        fields = {k: v for k, v in op.items() if k != "op"}
+        try:
+            got = ledger.propose(fields, source="dream") if kind == "experiment" else ledger.conclude(fields)
+            done.append({"op": kind, "ok": True, **{k: v for k, v in got.items() if k in ("proposed", "concluded", "verdict")}})
+        except hand.Refused as exc:
+            done.append({"op": kind, "ok": False, "refused": exc.reason, **exc.detail})
+        except hand.HandError as exc:
+            done.append({"op": kind, "ok": False, "error": str(exc)})
+    return done
+
+
 def snapshot(out: Json, slot: str) -> str:
     """The page as the dream left it, for the public diary."""
     ops = out.get("ops") or {}
@@ -263,12 +287,18 @@ def dream(light: bool = False) -> Json:
     sections += tasks(since)
     held, aliases = learnings(since)
     sections += held
+    # The scoreboard, the lab and what is true right now (bin/lib/scoreboard.py);
+    # only the night carries out lab operations.
+    sections += scoreboard.sections(score=True)
     extras = reflect.Extras(sections=sections, forgettable=aliases,
-                            thread=os.environ.get("TEENY_DREAM_THREAD") or THREAD)
+                            thread=os.environ.get("TEENY_DREAM_THREAD") or THREAD, lab=not light)
     out = reflect.reflect(light, extras)
     if not out.get("ok"):
         return out
     out.update(forget(out.pop("forgets", []), slot))
+    lab_ops = out.pop("lab_ops", [])
+    if lab_ops:
+        out["lab"] = run_lab(lab_ops)
     out["snapshot"] = snapshot(out, slot)
     return out
 

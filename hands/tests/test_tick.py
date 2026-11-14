@@ -108,7 +108,7 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -795,6 +795,49 @@ class TickTest(unittest.TestCase):
         message = self.chats()[0]["message"]
         self.assertIn('"do": "watch_hn"', message)
         self.assertIn("at most 2 today", message)
+
+    def test_the_lab_intents_are_on_by_default_and_go_to_hands_lab(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "propose_experiment", "surface": "moltbook", "hypothesis": "confessions get comments",
+             "format": "confession", "posts": 3, "deadline_days": 7, "extra": "dropped"},
+            {"do": "conclude_experiment", "id": 2, "verdict": "fails", "lesson": "gm posts do nothing here"},
+            {"do": "propose_experiment", "surface": "x", "hypothesis": "b", "format": "take", "posts": 1, "deadline_days": 2},
+            {"do": "propose_experiment", "surface": "x", "hypothesis": "c", "format": "gm", "posts": 1, "deadline_days": 2},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done", "done", "done", "refused"])
+        self.assertIn("today's 2 propose_experiment intent(s) are spent", got["results"][3]["result"]["refused"])
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls[:2], [
+            ("lab", ["propose", "--source", "mind"], {"surface": "moltbook", "hypothesis": "confessions get comments",
+                                                      "format": "confession", "posts": 3, "deadline_days": 7}),
+            ("lab", ["conclude"], {"id": 2, "verdict": "fails", "lesson": "gm posts do nothing here"}),
+        ])
+        message = self.chats()[0]["message"]
+        self.assertIn('"do": "propose_experiment"', message)
+        self.assertIn('"do": "conclude_experiment"', message)
+
+    def test_the_lab_intents_can_be_switched_off(self):
+        self.caps(MIND_EXPERIMENTS_PER_DAY=0)
+        self.answer({"thought": "", "intents": [{"do": "propose_experiment", "surface": "x", "hypothesis": "a",
+                                                 "format": "take", "posts": 1, "deadline_days": 2}]})
+        got = self.tick()
+        self.assertIn("MIND_EXPERIMENTS_PER_DAY", got["results"][0]["result"]["refused"])
+        self.assertNotIn('"do": "propose_experiment"', self.chats()[0]["message"])
+
+    def test_every_beat_shows_the_scoreboard(self):
+        from teeny_hands.lab import ledger
+        from teeny_hands.stats import collect
+
+        collect.db().execute("INSERT INTO stats (date, source, metric, value, at) VALUES ('2026-09-14', 'x', 'followers', 330, 0)")
+        ledger.propose({"surface": "x", "hypothesis": "a take beats a gm", "format": "take", "posts": 3, "deadline_days": 7})
+        self.tick()
+        message = self.chats()[0]["message"]
+        block = message[message.index("## scoreboard"):]
+        block = block[: block.index("\n\n", len("## scoreboard\n\n"))]
+        self.assertIn("Audience: x.followers 330", block)
+        self.assertIn("#1 x `take` (result): 0 of 3 posts measured", block)
+        self.assertLessEqual(len(block), 1500)
 
     def test_a_task_the_guard_holds_never_reaches_the_queue(self):
         self.caps(MIND_TASKS_PER_DAY=3)

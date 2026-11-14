@@ -130,6 +130,11 @@ hands/lib/teeny_hands/xpost.py
 hands/goals
 hands/lib/teeny_hands/goals/
 
+# The lab ledger: how an experiment Teeny proposed is scored, and when a
+# verdict is allowed, is frozen code, like the goal checks.
+hands/lab
+hands/lib/teeny_hands/lab/
+
 # The autonomy ladder's reads and the fence-proposal issue (docs/roadmap.md,
 # G3): how a proposal is built and capped is the operator's; the playbook
 # that writes one is Teeny's.

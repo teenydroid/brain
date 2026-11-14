@@ -201,15 +201,15 @@ schedule = "17 */3 * * *"
 command = "bin/act wallet-receipt"
 enabled = false
 
-# The weekly growth diary (growth.md): W from hands/world and the stats
-# table, what grew and what failed, real numbers only. Sunday evening, after
-# the week's last world-snapshot. Off until it has been watched in rehearsal,
-# like the other new X posts.
-[jobs.growth]
-schedule = "0 19 * * 0"
+# Speculate (speculate.md): once a day the mind gets the scoreboard, the
+# open experiments, the lab's lessons and what wins this week, searches how
+# small accounts grow on the surface that did worst, and proposes one
+# experiment. A nudge, not a draft: only the mind can search. Took the slot
+# of the weekly growth diary (growth.md), which was off.
+[jobs.speculate]
+schedule = "30 11 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act growth"
-enabled = false
+command = "bin/act speculate"
 
 # The weekly cost of keeping Teeny running, real numbers only (cost-of-living.md).
 [jobs.cost-of-living]

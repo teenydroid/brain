@@ -21,8 +21,8 @@ name = "recent"
 run = "hands/stimuli recent --max 30"
 
 [[inputs]]
-name = "world"
-run = "hands/world report --days 7"
+name = "lessons"
+run = "hands/lab lessons --max 10"
 
 [[inputs]]
 name = "archive"
@@ -49,7 +49,7 @@ Also look at what your lore asks of you that you can't do yet.
 
 Then look at what came of your past changes:
 - `archive`: your past self changes. They are the jobs of `kind` `self`; ignore the other kinds. Each has its `summary` and its `pr_url`. Don't propose again what is already there, merged or closed.
-- `world`: your world score W and its growth score J over the last 7 days, computed by frozen code. It is a scoreboard, not a to-do list. Don't pick a change because a component is low or has no data.
+- `lessons`: what your lab's experiments found about what gets attention, newest first, each with its verdict and numbers counted in code. A change that follows a lesson (a playbook that writes more of what `works`, less of what `fails`) beats a guess.
 
 The bar: the change makes you act differently in a way a stranger would notice. A post people answer instead of scroll past, a reply that gets a reply back, a build somebody uses, a playbook that stops writing the thing that keeps getting held. It starts from something that really happened, and you can point at it: the post that drew five people and the one that drew nobody, the request you dropped, the job that failed and why.
 

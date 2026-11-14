@@ -17,8 +17,9 @@ evolution, with N candidates (docs/evolve.md, "The loop").
                nobody, its held drafts, its failing jobs and whose file each
                is, its builds, what it read; then hands/world report (when
                there is one), the recent build jobs, guard hold counts, the
-               archive's summary, and the judge notes of the last compare
-               report. Never a held-out task or a note about one.
+               archive's summary, the judge notes of the last compare
+               report, and the lab's lessons (hands/lab lessons). Never a
+               held-out task or a note about one.
   2 propose    N candidates. Each samples a parent from the archive (DGM:
                weighted by score, penalised by its children; main is the seed)
                and lives in its own git worktree cand-<i> off main, made from
@@ -1333,6 +1334,14 @@ def unread_components(evidence: Mapping[str, Any] | None) -> list[str]:
     return list(world.get("unread") or []) if isinstance(world, Mapping) else []
 
 
+def _lab_lessons() -> Json:
+    """What the lab's concluded experiments found (`hands/lab lessons`),
+    newest first, so a candidate follows what was measured."""
+    got = hand("lab", "lessons", "--max", "10")
+    rows = got.get("lessons") if isinstance(got, Mapping) else None
+    return {"lessons": rows} if isinstance(rows, list) else {"available": False, "why": "no hands/lab lessons"}
+
+
 def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
     """The evidence a generation proposes from, outcomes first: what people
     did with what Teeny made (bin/lib/evolve_evidence.py). What is missing
@@ -1349,6 +1358,7 @@ def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
         "guard_holds": _holds(),
         "archive": summary(entries),
         "judge": _judge_notes({t["id"] for t in held}),
+        "lessons": _lab_lessons(),
     }
     return withhold(evidence, [m for t in held for m in t["markers"]])
 
