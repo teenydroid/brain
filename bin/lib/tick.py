@@ -31,6 +31,9 @@
    cap of their own, 0 (off) unless secrets/teeny.env sets it; `web_search`
    and `read_page` (hands/x402, paid from the wallet) share one,
    MIND_SEARCHES_PER_DAY, and what they found comes back as data.
+   `propose_change` (MIND_BUILDS_PER_DAY, on at 1 a day) files a change to
+   Teeny itself through hands/build self, one at a time: it ships as a pull
+   request the operator merges or closes.
    An answer with no intents (or only `skip`) still acts inward: the tick
    records an automatic `journal` (its thought), without asking again.
 4. What each hand did goes back into the inbox as a `hand` stimulus, so the
