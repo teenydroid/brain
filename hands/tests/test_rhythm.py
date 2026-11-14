@@ -46,6 +46,8 @@ class WanderTest(unittest.TestCase):
             ("hn", "top"): (0, hn("top", "A tiny agent that runs in public")),
             ("hn", "show"): (0, hn("show", "Show HN: a crab simulator")),
             ("hn", "ask"): (0, hn("ask", "Ask HN: who audits your agent?")),
+            ("tasks", "list"): (0, {"tasks": []}),
+            ("tasks", "add"): (0, {"task_id": 9, "status": "pending"}),
         }
         self.held: set[str] = set()
 
@@ -73,7 +75,37 @@ class WanderTest(unittest.TestCase):
         return sorted(got, key=lambda s: s["at"])
 
     def reads(self) -> list[tuple[str, list[str]]]:
-        return [(name, argv) for name, argv, _ in self.calls if name != "guard"]
+        return [(name, argv) for name, argv, _ in self.calls if name not in ("guard", "tasks")]
+
+    def queued(self) -> list[tuple[list[str], object]]:
+        return [(argv, body) for name, argv, body in self.calls if name == "tasks" and argv[0] == "add"]
+
+    def test_a_hacker_news_look_sends_the_browser_to_read_the_best_story(self):
+        self.answers[("hn", "top")] = (0, hn("top", "a small story", "the big story", "no link here"))
+        stories = self.answers[("hn", "top")][1]["stories"]
+        del stories[2]["url"]
+        stories[2]["score"] = 999
+        self.look(0)
+        self.look(1)
+        [(argv, body)] = self.queued()
+        self.assertEqual(argv, ["add", "--source", "wander"])
+        self.assertEqual((body["kind"], body["start_url"]), ("browse", "https://example.com/top/1"))
+        self.assertIn("the big story", body["goal"])
+        look = self.looks()[1]
+        self.assertEqual(look["payload"]["browse"], {"task_id": 9, "url": "https://example.com/top/1",
+                                                     "title": "the big story"})
+        self.assertIn("sent the browser", look["text"])
+
+    def test_no_browse_task_while_two_wait_or_when_the_hand_refuses(self):
+        self.answers[("tasks", "list")] = (0, {"tasks": [{"kind": "browse"}, {"kind": "browse"}]})
+        self.look(0)
+        self.look(1)
+        self.assertEqual(self.queued(), [])
+        self.assertNotIn("browse", self.looks()[1]["payload"])
+        self.answers[("tasks", "list")] = (0, {"tasks": []})
+        self.answers[("tasks", "add")] = (2, {"ok": False, "rule": "denied"})
+        self.assertTrue(self.look(2))
+        self.assertNotIn("browse", self.looks()[2]["payload"])
 
     def test_the_idle_look_takes_turns_between_moltbook_and_hacker_news(self):
         for n in range(5):
