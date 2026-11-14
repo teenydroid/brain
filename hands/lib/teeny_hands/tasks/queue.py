@@ -52,7 +52,7 @@ offer as `never_open`.
 Screenshots end up in state/media/tasks/<id>/, where `hands/x upload` may
 take them from (a post's `shots: <id>`). The browser saves a picture of each
 page it opens or acts on into state/browser/screenshots/ by itself (the
-core's `[browser] screenshot_dir`, bin/lib/core_sections/automation.py;
+spine's picture sink, spine/src/browser_pictures.rs, at the folder bin/spine names;
 never while a page shows a password the keychain typed). The report takes
 the ones taken since the claim, beside any the operator names: at most
 BROWSE_MAX_SCREENSHOTS in all, the first page and the last ones, each a
@@ -90,8 +90,8 @@ SCREENSHOT_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 #: browser's own folders (bin/lib/core_sections/automation.py points its
 #: downloads at state/browser/downloads).
 SCREENSHOT_ROOTS = ("state/media", "state/browser")
-#: Where the browser saves its own pictures (the core's `[browser]
-#: screenshot_dir`), relative to state/.
+#: Where the browser's own pictures land (bin/spine's
+#: TEENY_BROWSER_PICTURES, spine/src/browser_pictures.rs), relative to state/.
 CAPTURES = ("browser", "screenshots")
 _KIND = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _TEXT_CHARS = 2000

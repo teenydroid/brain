@@ -1146,18 +1146,19 @@ The stimulus text says how many screenshots the task saved, and a
 
 **Screenshots are the browser's, not the operator's.** The operator's
 browser tool has no screenshot action, so the core takes them itself
-(`[browser] screenshot_dir`, `bin/lib/core_sections/automation.py`): a
-picture of the page after each `open`, click, key press, select or check,
-and before `close`, into `state/browser/screenshots/`. It skips a page
-that shows a password the keychain typed (a revealed password field, an
-echo of it), never pictures a `fill` or `type`, takes a PNG over 5 MB
-again as a JPEG, and keeps at most 24. When the desk settles a report,
-`done` takes the pictures taken since the claim: the first page and the
-last ones, four in all with any the operator named, each a PNG, JPEG,
-WebP or GIF of at most 5 MB (what X takes for a still image), copied to
-`state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder is
-emptied. A `browser` `task` action runs in TinyComputer's own session and
-is not pictured.
+while its host has a picture sink registered: a picture of the page after
+each `open`, click, key press, select or check, and before `close`. It
+skips a page that shows a password the keychain typed (a revealed password
+field, an echo of it), never pictures a `fill` or `type`, and takes a PNG
+over 5 MB again as a JPEG. The spine's sink (`spine/src/browser_pictures.rs`)
+writes them into `TEENY_BROWSER_PICTURES`, which `bin/spine` sets to
+`state/browser/screenshots/`, and keeps at most 24. When the desk settles
+a report, `done` takes the pictures taken since the claim: the first page
+and the last ones, four in all with any the operator named, each a PNG,
+JPEG, WebP or GIF of at most 5 MB (what X takes for a still image), copied
+to `state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder
+is emptied. A `browser` `task` action runs in TinyComputer's own session
+and is not pictured.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
