@@ -32,8 +32,16 @@
 # middle of three runs; the dead process's claim on their slot outlived it
 # (the core holds a run's claim for two hours), so the scheduler skipped them
 # for over an hour after boot, and a restart did not help. Seeding runs at
-# every boot (bin/spine), so a job stuck that way runs again at its next slot;
-# the slot it missed is dropped, as cron drops any.
+# every boot (bin/spine), so a job stuck that way runs again at its next slot.
+#
+# Re-arming drops the slot it missed. For a job run every few minutes that is
+# right; for a daily one it loses the day: on 2026-11-13 and 11-14 a deploy cut
+# off teeny.self-improve mid-run, and this re-arm moved it to the next day both
+# times, without an alarm (bin/health never saw it stale). So a job whose
+# schedule says `catch_up = true` has its latest missed slot run once now
+# (`cron_run`) when it is recent enough (bin/lib/catch_up.py: one job per
+# boot, never the same slot twice, never a job seeding just added or
+# changed); bin/health does the same every quarter of an hour, for the rest.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -152,6 +160,23 @@ while IFS= read -r stale; do
   oh cron_update "$(jq -c --argjson s "$(schedule "$(jq -c .job <<<"$stale")")" \
     '{job_id: .id, patch: {schedule: $s}}' <<<"$stale")" >/dev/null
 done < <(jq -c '.[]' <<<"$rearm")
+
+# A missed slot of a `catch_up` job, run once now. Never fails the boot: a
+# slot this misses, bin/health catches up at its next check.
+fresh="$(jq -r '[.[] | select(.op == "add" or .op == "update" or .op == "replace") | .job.name] | join(",")' <<<"$plan")"
+catch_args=(--via-oh --state "$TEENY_STATE" --fresh "$fresh" --rearmed "$(jq -r '[.[].name] | join(",")' <<<"$rearm")")
+[ "$dry_run" = 1 ] && catch_args+=(--dry-run)
+if caught="$(python3 "$TEENY_ROOT/bin/lib/catch_up.py" "${catch_args[@]}" <<<"$desired")"; then
+  verb="caught up"
+  [ "$dry_run" = 1 ] && verb="catch up"
+  while IFS= read -r line; do
+    [ -n "$line" ] && log "$line"
+  done < <(jq -r --arg v "$verb" '(.caught_up[] | "\($v) \(.name) (its \(.slot) slot)"),
+    (.pending[] | "catch up \(.) at a later check"), (.deferred[] | "catch up \(.) after the quiet hours"),
+    (.errors | to_entries[] | "could not catch up \(.key): \(.value)")' <<<"$caught")
+else
+  log "catch-up did not run; bin/health tries again at its next check"
+fi
 
 if [ "$dry_run" = 1 ]; then
   log "dry run: $changed change(s) not applied"

@@ -220,13 +220,17 @@ class Ledger:
     seeding last defined it (`since`), plus a short log. Held under a lock
     for the whole call, so a boot and a check never race for one slot."""
 
-    def __init__(self, state: Path):
-        state.mkdir(parents=True, exist_ok=True)
+    def __init__(self, state: Path, readonly: bool = False):
         self.path = state / "catch-up.json"
-        self._lock = open(state / "catch-up.lock", "a+")
+        self.readonly = readonly
+        self._lock = None
+        if not readonly:
+            state.mkdir(parents=True, exist_ok=True)
+            self._lock = open(state / "catch-up.lock", "a+")
 
     def __enter__(self) -> "Ledger":
-        fcntl.flock(self._lock, fcntl.LOCK_EX)
+        if self._lock is not None:
+            fcntl.flock(self._lock, fcntl.LOCK_EX)
         try:
             data = json.loads(self.path.read_text())
         except (OSError, ValueError):
@@ -236,14 +240,17 @@ class Ledger:
         return self
 
     def save(self) -> None:
+        if self.readonly:
+            return
         self.data["log"] = self.data["log"][-LOG_KEEP:]
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, indent=1) + "\n")
         tmp.replace(self.path)
 
     def __exit__(self, *exc: object) -> None:
-        fcntl.flock(self._lock, fcntl.LOCK_UN)
-        self._lock.close()
+        if self._lock is not None:
+            fcntl.flock(self._lock, fcntl.LOCK_UN)
+            self._lock.close()
 
 
 # --- the decision -------------------------------------------------------------------------------
@@ -295,7 +302,8 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
     """Catches up at most MAX_PER_RUN missed slot (see the module docs)."""
     now = hand.now()
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
-    with Ledger(state or hand.state_dir()) as ledger:
+    state = state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
+    with Ledger(state, readonly=dry_run) as ledger:
         if not dry_run:
             for name in fresh:
                 ledger.data["since"][name] = int(now * 1000)
