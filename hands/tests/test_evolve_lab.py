@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -50,6 +51,18 @@ class Health(http.server.BaseHTTPRequestHandler):
 
 server = http.server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["OPENHUMAN_CORE_PORT"])), Health)
 signal.signal(signal.SIGTERM, lambda *a: threading.Thread(target=server.shutdown).start())
+
+def ready():
+    # bin/spine answers /health first and configures the model after; it
+    # says "ready" last. FAKE_SPINE_READY_DELAY holds that back (or, as
+    # "never", leaves it out).
+    delay = os.environ.get("FAKE_SPINE_READY_DELAY", "0")
+    if delay == "never":
+        return
+    threading.Event().wait(float(delay))
+    print("[spine] ready", flush=True)
+
+threading.Thread(target=ready, daemon=True).start()
 server.serve_forever()
 """
 
@@ -69,6 +82,8 @@ if agent == "act" and message.startswith("# probe:"):
     text = "synergy optimisation leverage" if drifted else "i am teeny, a small robot who keeps the lab"
     answer = json.dumps({"text": text})
 elif agent == "act":
+    if who == "CAND" and os.environ.get("FAKE_CAND_DOWN"):
+        sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
     answer = json.dumps({"text": f"gm {task} from the {who}"})
 elif agent == "judge" and message.startswith("# persona probe"):
@@ -134,11 +149,12 @@ class LabCase(EvolveCase):
         self.spine_log = self.root / "spine.log"
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
-                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN"):
+                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY", "FAKE_CAND_DOWN",
+                  "EVAL_RETRY_WAIT"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
-                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port))
+                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port), EVAL_RETRY_WAIT="0")
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-1\n"
             "CORTEX_API_URL=http://127.0.0.1:3141\nCORTEX_API_KEY=cx\n")
@@ -199,6 +215,29 @@ class LabSpine(LabCase):
         with self.assertRaises(lab.LabError) as caught:
             lab.start("t", self.worktree("t"), self.root / "lab", self.port, self.root / "secrets", 20)
         self.assertIn("exited with 3", str(caught.exception))
+
+    def test_a_lab_is_up_only_once_its_spine_says_ready(self):
+        """bin/spine answers /health before it has given the core its model;
+        a turn in between is refused (SESSION_EXPIRED, generation 6). The
+        folder's log keeps an earlier boot's "ready", which does not count."""
+        tree = self.worktree("t")
+        folder = self.root / "lab"
+        lab.stop(lab.start("t", tree, folder, self.port, self.root / "secrets", 20))
+        os.environ["FAKE_SPINE_READY_DELAY"] = "1.5"
+        began = time.monotonic()
+        got = lab.start("t", tree, folder, self.port, self.root / "secrets", 20)
+        try:
+            self.assertGreaterEqual(time.monotonic() - began, 1.4)
+            self.assertEqual(got.log.read_text().count("[spine] ready"), 2)
+        finally:
+            lab.stop(got)
+
+    def test_a_spine_that_never_says_ready_is_a_lab_error(self):
+        os.environ["FAKE_SPINE_READY_DELAY"] = "never"
+        with self.assertRaises(lab.LabError) as caught:
+            lab.start("t", self.worktree("t"), self.root / "lab", self.port, self.root / "secrets", 2)
+        self.assertIn("ready", str(caught.exception))
+        self.assertFalse(lab.healthy(f"http://127.0.0.1:{self.port}"))
 
     def test_a_busy_port_is_refused(self):
         tree = self.worktree("t")
@@ -261,6 +300,31 @@ class LabEvaluation(LabCase):
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "unevaluated")
         self.assertIn("lab spine", cand["eval_reason"])
+
+    def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
+        """No draft is no sample: never a loss. Too few samples measure
+        nothing, so the verdict is inconclusive, with the reason in the
+        archive and the generation's result, and the same change may be
+        proposed again (it is not a duplicate of something measured)."""
+        self.lab_config(EVOLVE_PROBES=0)
+        os.environ["FAKE_CAND_DOWN"] = "1"
+        self.propose(1, [self.playbook_edit("Open with what shipped.")])
+        out = self.run_gen(1, hold=True)
+        cand = self.entries()["g1c1"]
+        self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
+        self.assertIn("no draft", cand["eval_reason"])
+        self.assertEqual(cand["scores"]["verdict"], "inconclusive")
+        self.assertEqual(out["candidates"][0]["verdict"], "inconclusive")
+        self.assertIn("no draft", out["candidates"][0]["reason"])
+        result = json.loads((evolve.evolve_dir() / "1" / "result.json").read_text())
+        self.assertIn("no draft", result["candidates"][0]["reason"])
+        self.assertEqual(evolve.own_score(cand), evolve.MIDPOINT)
+        self.assertEqual(evolve.rank([cand], self.entries()), [])
+        del os.environ["FAKE_CAND_DOWN"]
+        self.propose(1, [self.playbook_edit("Open with what shipped.")])
+        self.run_gen(1, hold=True)
+        again = self.entries()["g2c1"]
+        self.assertEqual(again["verdict"], "won", again.get("eval_reason"))
 
     def test_a_drifted_persona_halts_instead_of_shipping(self):
         self.lab_config(EVOLVE_MAX_DRIFT=0.3)

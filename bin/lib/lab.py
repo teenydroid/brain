@@ -20,7 +20,9 @@ post, pay or push even if DRY_RUN were lost), and the model lines of the live
 knobs). The memory store (CORTEX_*) is left out: a lab never writes Teeny's
 long-term memory.
 
-`start` waits for /health and returns a `Lab`; `stop` sends TERM to the
+`start` waits for /health and for bin/spine's "[spine] ready" (which it
+logs once the core has its model: a turn sent between the two is refused
+with SESSION_EXPIRED, "sign in to use custom providers") and returns a `Lab`; `stop` sends TERM to the
 spine's process group and KILL after a grace period. The command is
 EVOLVE_LAB_SPINE (default: this checkout's bin/spine), which the tests swap
 for a stand-in that answers /health.
@@ -48,6 +50,10 @@ DROP_PREFIXES = ("OPENHUMAN_", "TEENY_", "CORTEX_", "GITHUB_", "X_", "MOLTBOOK_"
 #: OPENHUMAN_CORE_BIN is the one exception: the image sets it, and bin/spine
 #: needs it to find the core.
 KEEP = ("OPENHUMAN_CORE_BIN",)
+
+
+#: What bin/spine logs last, once the core is configured and may take a turn.
+READY = b"[spine] ready"
 
 
 class LabError(Exception):
@@ -163,6 +169,8 @@ def start(name: str, tree: Path, folder: Path, port: int, live_secrets: Path, bo
     # evolver's transcript) reaches the next (the evaluation's drafts).
     for leftover in folder.glob("storage.db*"):
         leftover.unlink()
+    # The log is appended to across boots: only what this boot writes counts.
+    since = lab.log.stat().st_size if lab.log.exists() else 0
     log = lab.log.open("ab")
     try:
         lab.proc = subprocess.Popen(spine_command(), cwd=str(tree), env=lab_env(lab, edit), stdin=subprocess.DEVNULL,
@@ -177,11 +185,23 @@ def start(name: str, tree: Path, folder: Path, port: int, live_secrets: Path, bo
             tail = _tail(lab.log)
             stop(lab)
             raise LabError(f"the lab spine exited with {lab.proc.returncode} before it answered: {tail}")
-        if healthy(lab.url):
+        if _said_ready(lab.log, since) and healthy(lab.url):
             return lab
         time.sleep(0.5)
     stop(lab)
-    raise LabError(f"the lab spine did not answer /health in {int(boot_secs)} s: {_tail(lab.log)}")
+    raise LabError(f"the lab spine did not answer /health and say ready in {int(boot_secs)} s: {_tail(lab.log)}")
+
+
+def _said_ready(log: Path, since: int) -> bool:
+    """bin/spine logged "[spine] ready" after offset SINCE of its log. Until
+    then the core answers /health but has no model: bin/spine sets it over
+    RPC after the core is up, and a turn before that fails."""
+    try:
+        with log.open("rb") as fh:
+            fh.seek(since)
+            return any(line.rstrip() == READY for line in fh)
+    except OSError:
+        return False
 
 
 def stop(lab: Lab, grace: float = 30.0) -> None:
