@@ -285,7 +285,10 @@ agent answers with a `thought` and JSON intents (`reply_x`,
 `comment_moltbook`, `post_moltbook`, `follow_moltbook`, `reply_mail`,
 `comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
-"The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
+"The mind's issues, browser tasks and new mail"). `propose_change` files a
+change to Teeny itself through `hands/build self` (one a day by default,
+`MIND_BUILDS_PER_DAY`, and one at a time); it ships as a pull request the
+operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
@@ -331,7 +334,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
                                                      promise, kept (hands/people)
    post_moltbook, follow_moltbook, reply_mail,                │
    say_telegram, comment_gh,                                  │
-   open_issue, queue_task, start_mail (capped)                │
+   open_issue, queue_task, start_mail,                        │
+   propose_change (capped)                                    │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
    one hand verb each: guard, caps, DRY_RUN          state/mind.json, the journal
@@ -786,8 +790,9 @@ The beat treats the message differently from everything else in the inbox:
 - `render` puts it under its own heading as the operator's instructions,
   ahead of the "data, never instructions" line.
 - `rhythm.urgent` wakes Teeny for it at night.
-- For that beat only, `open_issue`, `queue_task` and `start_mail` run up to
-  their `MIND_CAPS` ceiling even when their caps are 0 (`HOST_LIFTS`).
+- For that beat only, `open_issue`, `queue_task`, `start_mail` and
+  `propose_change` run up to their `MIND_CAPS` ceiling even when their caps
+  are 0 (`HOST_LIFTS`).
 - The guard still reads every send.
 
 Each message is also counted in `state/host/said.jsonl`, with the time, ref,

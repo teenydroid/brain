@@ -81,6 +81,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `TINY_BUY` | `secrets/teeny.env` | the pinned `$TINY` buy | off |
 | `WALLET_MIND_ACTIONS` | `secrets/teeny.env` | the mind's wallet intents | off |
 | `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY` | `secrets/teeny.env` | the mind opening issues, queueing browser tasks, starting mail | `0` |
+| `MIND_BUILDS_PER_DAY` | `secrets/teeny.env` | the mind filing a change to itself (`propose_change`, a pull request the operator merges or closes) | `1` (at most 2) |
 | `GUARD_REVIEW` | `secrets/teeny.env` | the hold reviewer: every hold waits for a person | off |
 | `GH_INBOUND` | `secrets/teeny.env` | GitHub notifications reaching the inbox | off |
 | A wallet key | `secrets/teeny.env` (remove `WALLET_*`) | the wallet entirely | none set |

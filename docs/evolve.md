@@ -91,6 +91,13 @@ like any other, the builder makes it in the clone below at its next run, and
 it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
 
+A beat can file one too, when somebody asks Teeny to build something for
+itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
+`MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
+the same `hands/build self`. It is refused before the hand while a self
+request is still pending or picked, or a self job is unfinished, the same
+one-at-a-time rule the playbook follows.
+
 The whole path, with the cron job that drives each step:
 
 ```
