@@ -16,7 +16,7 @@ pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1" >&2; failures=$((failures + 1)); }
 check() { local name="$1"; shift; if "$@"; then pass "$name"; else fail "$name"; fi; }
 
-# The stand-in: cron_list / cron_add / cron_update / cron_remove over
+# The stand-in: cron_list / cron_add / cron_update / cron_remove / cron_run over
 # $FAKE_JOBS, every call appended to $FAKE_CALLS.
 fake="$scratch/fake-oh"
 cat >"$fake" <<'FAKE'
@@ -29,7 +29,8 @@ case "$method" in
   cron_list) printf '%s\n' "$jobs" ;;
   cron_add)
     id="job-$(( $(jq length <<<"$jobs") + $(wc -l <"$FAKE_CALLS") ))"
-    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true}' <<<"$params")"
+    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true,
+      next_run: (now + 3600 | todate)}' <<<"$params")"
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
@@ -42,6 +43,7 @@ case "$method" in
   cron_remove)
     jq -c --argjson p "$params" 'map(select(.id != $p.job_id))' <<<"$jobs" >"$FAKE_JOBS"
     echo '{}' ;;
+  cron_run) jq -c '{job_id, status: "queued"}' <<<"$params" ;;
   *) echo "unexpected method $method" >&2; exit 1 ;;
 esac
 FAKE
@@ -336,19 +338,20 @@ done
 seed --dry-run
 check "--dry-run reports the catch-up" grep -q 'catch up teeny.daily' "$scratch/stderr"
 check "--dry-run runs nothing" test "$(calls cron_run)" = 0
-# The re-arm moves both to tomorrow (the fake: an hour on); storage follows.
-seed_after_rearm() { seed; }
 storage_from_fake
 seed
 check "re-arms both missed jobs" test "$(calls cron_update)" = 2
-storage_from_fake
-seed
 check "catches up the one with catch_up, at boot" grep -qF 'cron_run {"job_id":"id-teeny.daily"}' "$FAKE_CALLS"
+check "with one run" test "$(calls cron_run)" = 1
 check "and says so" grep -q 'caught up teeny.daily (its .* slot)' "$scratch/stderr"
 check "leaves the other to its next slot" bash -c "! grep -q 'id-teeny.plain\"}' <(grep '^cron_run' '$FAKE_CALLS')"
 : >"$FAKE_CALLS"
 seed
 check "never runs the same slot twice across boots" test "$(calls cron_run)" = 0
+# The re-arm moved both to their next run (the fake: an hour on); storage follows.
+storage_from_fake
+seed
+check "nor once the re-arm has moved it on" test "$(calls cron_run)" = 0
 # A job seeding adds now has no slot of its own to catch up.
 printf '[jobs.fresh]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n' "$slot" >"$toml"
 reset
