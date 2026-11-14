@@ -13,13 +13,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(REPO / "bin" / "lib"))
 
-from guard.support import FakeCore, result  # noqa: E402
+from guard.support import FakeCore, error, result  # noqa: E402
 from x.support import FakeX  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard import holds  # noqa: E402
@@ -30,6 +31,8 @@ QUARTER = 900
 TOKEN = "ghp_FAKEtokenFAKEtokenFAKEtoken0000"
 DEAD = {"jsonrpc": "2.0", "id": 1, "error": {"message": "local-openai returned HTTP 401 (invalid_api_key)"}}
 ALIVE = result({"response": "ok"})
+# What the core said, live, when Surplus dropped the model's stream (2026-11-14).
+CUT = error("model error: local-openai returned: provider stream ended before a completion signal")
 ISSUES = "/repos/teenydroid/brain/issues"
 
 
@@ -56,6 +59,11 @@ class HealthTest(unittest.TestCase):
         # The judge on, as in production: a judged alarm would be held
         # exactly when it is needed.
         self.configure()
+        # The probe waits between its attempts; the fake core needs none.
+        self.slept: list[float] = []
+        sleep = mock.patch.object(health, "_sleep", self.slept.append, create=True)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def tearDown(self):
         os.environ.clear()
@@ -127,6 +135,75 @@ class HealthTest(unittest.TestCase):
         self.at(2 * QUARTER)
         self.assertEqual(health.check()["alarm"], None)
         self.assertEqual(self.inbox(), [])
+
+    # --- asking again within one probe (2026-11-14) ----------------------------------------
+
+    def test_a_probe_cut_once_then_answered_is_no_failure_and_says_it_was_asked_again(self):
+        # Surplus closes a stream now and then in a window of minutes; on
+        # 2026-11-14 two such probes in a row opened outage issue #256, which
+        # closed itself fifteen minutes later.
+        self.core.replies = [CUT, ALIVE]
+        out = health.check()
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (True, 0, None))
+        self.assertEqual(out["probe_attempts"], 2)
+        self.assertIn("provider stream ended", out["probe_retried"])
+        self.assertEqual(len(self.core.calls), 2)
+        self.assertEqual(self.slept, [health.PROBE_BACKOFFS[0]])
+        self.assertEqual(self.state()["probe_attempts"], 2)
+        self.assertEqual(self.state()["failures"], 0)
+
+    def test_a_probe_answered_at_once_says_one_attempt(self):
+        out = health.check()
+        self.assertEqual((out["probe_attempts"], out.get("probe_retried")), (1, None))
+        self.assertEqual(self.state()["probe_attempts"], 1)
+        self.assertEqual(self.slept, [])
+
+    def test_a_probe_cut_at_every_attempt_is_one_failure(self):
+        (out,) = self.outage(1, reply=CUT)
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (False, 1, None))
+        self.assertIn("provider stream ended", out["error"])
+        self.assertEqual(out["probe_attempts"], health.PROBE_ATTEMPTS)
+        self.assertEqual(len(self.core.calls), 3)
+        self.assertEqual(self.slept, list(health.PROBE_BACKOFFS))
+        self.assertEqual(self.state()["probe_attempts"], 3)
+
+    def test_an_outage_that_cuts_every_attempt_still_alarms_at_the_second_check(self):
+        first, second = self.outage(2, reply=CUT)
+        self.assertEqual((first["failures"], first["alarm"]), (1, None))
+        self.assertEqual((second["failures"], second["alarm"], second["issue"]), (2, "raised", 41))
+
+    def test_a_failure_that_will_not_pass_is_not_asked_again(self):
+        (out,) = self.outage(1)  # a refused key (HTTP 401)
+        self.assertEqual((out["failures"], out["probe_attempts"]), (1, 1))
+        self.assertEqual(len(self.core.calls), 1)
+        self.assertEqual(self.slept, [])
+
+    def test_the_attempts_together_never_take_longer_than_the_probe_budget(self):
+        # Every attempt times out, the worst case: each gets what is left of
+        # PROBE_BUDGET (at most PROBE_TIMEOUT), and one that would get less
+        # than MIN_PROBE_SECS is not made, so the check stays well inside the
+        # core's 300 s for a cron shell call.
+        clock = [1000.0]
+        timeouts: list[float] = []
+
+        def timed_out(method, params, timeout):
+            timeouts.append(timeout)
+            clock[0] += timeout
+            raise hand.CoreError("core unreachable: timed out")
+
+        def sleep(seconds):
+            self.slept.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(health, "_sleep", sleep), \
+                mock.patch.object(health.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(health.hand, "core", timed_out):
+            error_, attempts = health.probe_until_answered()
+        self.assertIn("timed out", error_)
+        self.assertEqual(timeouts, [health.PROBE_TIMEOUT, health.PROBE_BUDGET - health.PROBE_TIMEOUT - health.PROBE_BACKOFFS[0]])
+        self.assertEqual(attempts, 2)
+        self.assertLessEqual(clock[0] - 1000.0, health.PROBE_BUDGET)
+        self.assertEqual(health.PROBE_BUDGET, 90.0)
 
     # --- the alarm ------------------------------------------------------------------------
 
