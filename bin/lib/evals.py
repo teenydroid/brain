@@ -8,6 +8,8 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
     python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS -- ASK...
                                                           -> OUT, a checked draft per line
+    python3 bin/lib/evals.py confirm EVALS HANDS_LIB RUN SAMPLES IDS -- ASK...
+                                                          -> RUN/confirm.jsonl, SAMPLES of each
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
     python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT -- ASK...
@@ -790,6 +792,8 @@ def main(argv: list[str]) -> int:
             return 0
         elif cmd == "judge" and len(args) > 6 and args[5] == "--":
             out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:])}
+        elif cmd == "confirm" and len(args) > 6 and args[5] == "--":
+            out = confirm(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), args[4].split(","), args[6:])
         elif cmd == "draft" and len(args) > 6 and args[5] == "--":
             out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), args[4].split(","), args[6:])
         elif cmd == "score" and len(args) == 5:
