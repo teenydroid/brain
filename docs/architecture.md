@@ -724,8 +724,19 @@ How the day's beats become the page every prompt carries:
   shows. The next daily job is made from it (docs/hands.md, `build`, "The
   daily job"). A day with nothing that clears the bar keeps no idea, and the
   builder gets the standing brief.
-- A `post_x` intent may carry an `image` of Teeny, made through the same
-  guard → `hands/image` → `hands/x upload` path `bin/act` uses.
+- A `post_x` or `reply_x` intent may carry pictures of Teeny: `image` (one) or
+  `images` (a list, at most 4), each made through the same guard →
+  `hands/image` → `hands/x upload` path `bin/act` uses. The ids travel as one
+  `media_ids` list (`_pictures` in `bin/lib/tick.py`; a reply deferred by the
+  pacing keeps its ids). Either may carry `gif_id` instead (never both), and a
+  `post_x` may carry `quote_of` (a post id) and a `format` tag.
+- X is three own posts a day, eight hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), as three slots in IST: `morning` 07:00 (a gm that
+  reacts to something read; a habit the mind carries out), `take` 15:00 (a take
+  or a quote of a builder's post) and `show` 23:00 (what was built, with up to
+  four pictures). `brief` runs at 15:05 and 23:05, and `take` and `show` skip
+  when a brief is queued, so a brief takes the next free slot instead of a
+  fourth post. Replies to mentions are not counted.
 
 ## 5. Roster
 
@@ -1021,12 +1032,14 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
    playbook's daily budget (`max_per_day`) and gathers its inputs (none for
    `morning`).
 2. One turn as the tool-less `act` agent on the `teeny:act` thread drafts the
-   post as JSON, optionally with an `"image"` scene.
+   post as JSON, optionally with an `"image"` scene (or up to four in `"images"`),
+   a `"quote_of"` post id and a `"format"` tag.
 3. If there is a scene, `bin/act` runs it past the guard, calls
    `hands/image generate`, and uploads the file with `hands/x upload`. A
    failure there leaves the post text-only.
 4. `hands/x post` runs the guard and checks, takes the posting lock, re-checks
-   the 3-hour gap inside the lock, posts, and records the post. A ledger write
+   the 8-hour gap and the 3-a-day cap inside the lock, posts, and records the
+   post. A ledger write
    that fails after the post is logged and never retried.
 
 ## 8. Deploy

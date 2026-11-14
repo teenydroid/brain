@@ -5,10 +5,12 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
   post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
-  minutes drawing before they post), is refused. Three hours by default:
-  brain/cron.toml spreads the day's own posts at least that far apart. Posts an hour apart are the
-  repetitive-publishing shape the ranker demotes. Replies are never subject
-  to it: they are conversations, not slots.
+  minutes drawing before they post), is refused. Eight hours by default:
+  brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST). Posts an
+  hour apart are the repetitive-publishing shape the ranker demotes. Replies
+  are never subject to it: they are conversations, not slots.
+- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (3 by default).
+  Replies to mentions are not posts and are never counted.
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
   job nor a retry after a crash can answer it twice.
@@ -20,6 +22,8 @@ guard and before DRY_RUN; nothing else in the hand posts.
   $0.015 without (docs.x.com, pricing), so posts and replies with a link are
   capped at `X_LINK_POSTS_MAX_PER_DAY` a UTC day (1 by default; 0 forbids
   them). A bare domain X would turn into a link counts.
+- A near-duplicate of anything Teeny said in the window is refused, replies
+  included (`check_repeat`).
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
@@ -42,6 +46,10 @@ from .model import utf16_length
 
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
+#: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
+#: (POST_MIN_GAP_HOURS): three slots, eight hours apart.
+DEFAULT_POSTS_MAX_PER_DAY = 3
+DEFAULT_POST_MIN_GAP_HOURS = 8.0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
@@ -210,7 +218,7 @@ def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
 def check_gap(conn: sqlite3.Connection) -> None:
     """Whether an own post may go out now. Run under the posting lock, so the
     answer still holds when the post is recorded."""
-    min_gap = number_setting("POST_MIN_GAP_HOURS", 3.0, 0.0, 48.0) * 3600.0
+    min_gap = number_setting("POST_MIN_GAP_HOURS", DEFAULT_POST_MIN_GAP_HOURS, 0.0, 48.0) * 3600.0
     tolerance = number_setting("POST_GAP_TOLERANCE_MINUTES", 20.0, 0.0, 120.0) * 60.0
     last = conn.execute(
         "SELECT id, created_at FROM x_posts WHERE kind IN ('post', 'quote') ORDER BY created_at DESC LIMIT 1"
@@ -230,17 +238,35 @@ def check_gap(conn: sqlite3.Connection) -> None:
         )
 
 
+def check_daily_cap(conn: sqlite3.Connection) -> None:
+    """Own posts and quotes today (UTC), against `X_POSTS_MAX_PER_DAY`. Run
+    under the posting lock with the gap. Replies are not counted."""
+    cap = int(number_setting("X_POSTS_MAX_PER_DAY", DEFAULT_POSTS_MAX_PER_DAY, 0, 24))
+    now = hand.now()
+    day_start = now - (now % 86400.0)
+    sent = conn.execute(
+        "SELECT count(*) FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?", (day_start,)
+    ).fetchone()[0]
+    if sent >= cap:
+        raise hand.Refused(
+            f"{sent} own post(s) went out today (UTC) and the cap is {cap}. Nothing was published; "
+            "the next slot is tomorrow.",
+            rule="daily_cap",
+            sent_today=int(sent),
+            cap=cap,
+        )
+
+
 def check_repeat(conn: sqlite3.Connection, text: str) -> None:
     """Whether an own post says something Teeny has not already said
     (docs/roadmap.md, A2): refused when it is a near-duplicate
-    (teeny_hands.guard.repeats) of an own post or quote of the last
+    (teeny_hands.guard.repeats) of an own post, quote or reply of the last
     REPEAT_WINDOW_DAYS. The refusal is counted (`hands/guard repeats`)."""
     from ..guard import repeats
 
     since = hand.now() - repeats.window_days() * 86400.0
     earlier = conn.execute(
-        "SELECT id, text, created_at FROM x_posts WHERE kind IN ('post', 'quote') AND created_at >= ?"
-        " ORDER BY created_at DESC",
+        "SELECT id, text, created_at FROM x_posts WHERE created_at >= ? ORDER BY created_at DESC",
         (since,),
     ).fetchall()
     hit = repeats.closest(text, ((r["id"], r["text"]) for r in earlier))
