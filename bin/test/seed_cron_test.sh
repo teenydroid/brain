@@ -310,9 +310,10 @@ mkdir -p "$TEENY_STATE"
 # The core's storage as it would be: the jobs the fake knows, by id, no runs.
 storage_from_fake() {
   rm -f "$TEENY_STORAGE"
-  python3 - "$FAKE_JOBS" "$TEENY_STORAGE" <<'PY'
-import datetime as dt, json, sqlite3, sys
+  python3 - "$FAKE_JOBS" "$TEENY_STORAGE" "${LIVE_CLAIMS:-}" <<'PY'
+import datetime as dt, json, sqlite3, sys, time
 jobs = json.load(open(sys.argv[1]))
+live = [i for i in sys.argv[3].split(",") if i]
 db = sqlite3.connect(sys.argv[2])
 db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
            " updated_ms integer default 0, deleted integer default 0, body text)")
@@ -322,6 +323,11 @@ for job in jobs:
     next_ms = int(dt.datetime.fromisoformat(job["next_run"].replace("Z", "+00:00")).timestamp() * 1000)
     body = {"name": job["name"], "enabled": job["enabled"], "next_run_ms": next_ms, "schedule": job["schedule"]}
     db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job["id"], json.dumps(body)))
+    if job["id"] in live:  # a run the core claimed at boot, renewing its claim
+        now_ms = int(time.time() * 1000)
+        lease = {"holder": "t", "epoch": 1, "expires_ms": now_ms + 7_200_000}
+        db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                   (f"cron/{job['id']}%2F{next_ms}", now_ms, json.dumps(lease)))
 db.commit()
 PY
 }
@@ -360,6 +366,20 @@ seed
 storage_from_fake
 seed
 check "a job just added is not caught up" test "$(calls cron_run)" = 0
+# The boot race: the core serves before seeding, polls at once and claims a
+# slot that passed while the box was down. Re-arming it would fence that
+# claim (the run goes on, unrecorded) and catch-up would start a second copy.
+printf '[jobs.snap]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n' "$slot" >"$toml"
+reset
+jq -c --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: "id-teeny.snap", name: "teeny.snap",
+  job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+  enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+LIVE_CLAIMS=id-teeny.snap storage_from_fake
+: >"$FAKE_CALLS"
+seed
+check "a job whose slot a live run holds at boot is not re-armed" test "$(calls cron_update)" = 0
+check "nor caught up" test "$(calls cron_run)" = 0
+check "and seeding says it is running" grep -q 'running teeny.snap' "$scratch/stderr"
 unset TEENY_STATE TEENY_STORAGE TEENY_QUIET_HOURS
 
 refuses "refuses a catch-up window as long as the gap between slots" \
@@ -370,6 +390,20 @@ refuses "refuses catch_up_hours without catch_up" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up_hours = 3'
 refuses "refuses a catch-up window over 12 hours" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 13'
+refuses "refuses a catch-up window that a cut-off catch-up's claim (2 h) could carry into the next slot" \
+  $'[jobs.x]\nschedule = "20 9,15 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 5'
+refuses "refuses catch-up on a schedule with named days" \
+  $'[jobs.x]\nschedule = "0 9 * * MON"\ncommand = "bin/heartbeat"\ncatch_up = true'
+refuses "refuses catch-up when day of month and day of week are both set" \
+  $'[jobs.x]\nschedule = "0 9 1 * 1"\ncommand = "bin/heartbeat"\ncatch_up = true'
+printf '+++\ndescription = "x"\noutput = "hand:moltbook comment"\nsurface = "moltbook"\n+++\nx\n' >"$scratch/playbooks/chatty.md"
+refuses "refuses catch-up on a playbook that posts" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act morning"\ncatch_up = true'
+refuses "refuses catch-up on a playbook that comments" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act chatty"\ncatch_up = true'
+printf '[jobs.bills]\nschedule = "5 1 * * *"\ncommand = "bin/pay-bills"\ncatch_up = true\n' >"$pinned"
+refuses "refuses catch-up on a pinned job that moves money" ''
+: >"$pinned"
 refuses "refuses a non-boolean catch_up" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = "yes"'
 
