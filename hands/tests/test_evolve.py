@@ -920,6 +920,78 @@ class LabLessons(EvolveCase):
         self.assertEqual(got["lessons"][0]["lesson"], "confessions get comments")
 
 
+PAGE = """# MEMORY.md
+
+what i keep in mind.
+
+## people
+
+- [m1] **ana** (x): builds a cli for crabs.
+
+## what i am in the middle of
+
+- [m15] learning to code in public. the first thing i build myself is a $TINY chart renderer. not built yet.
+
+## what i have decided
+
+- [m44] **no likes on X, ever**: X's rules don't allow automated likes.
+- [m57] no dotted tokens in outbound telegram text.
+"""
+
+
+class Decisions(EvolveCase):
+    """2026-11-14: the dream's page listed what Teeny had decided and was in
+    the middle of (a chart renderer, a refusal ledger), and five generations
+    proposed from the score alone: none read the page."""
+
+    def page(self, text=PAGE):
+        brain = self.root / "brain"
+        brain.mkdir(exist_ok=True)
+        (brain / "MEMORY.md").write_text(text)
+
+    def test_what_the_page_says_teeny_decided_is_evidence_and_who_it_knows_is_not(self):
+        self.page()
+        got = evolve.observe(self.entries())["decisions"]
+        self.assertEqual(got["source"], "brain/MEMORY.md")
+        text = json.dumps(got)
+        self.assertIn("[m15] learning to code in public", text)
+        self.assertIn("[m57] no dotted tokens", text)
+        self.assertNotIn("crabs", text)
+
+    def test_no_page_says_so(self):
+        self.assertEqual(evolve.observe(self.entries())["decisions"],
+                         {"available": False, "why": "no brain/MEMORY.md"})
+
+    def test_a_long_page_is_clipped(self):
+        self.page("## what i have decided\n\n" + "".join(f"- [m{n}] {'x' * 900}\n" for n in range(100)))
+        got = evolve.observe(self.entries())["decisions"]
+        self.assertLessEqual(len(json.dumps(got)), evolve.MAX_DECISIONS_CHARS + 500)
+        self.assertTrue(got["clipped"])
+
+    def test_the_first_candidate_of_every_generation_looks_at_the_page_first(self):
+        for gen in range(1, 9):
+            self.assertEqual(evolve.lens(gen, 1), evolve.DECISIONS_LENS)
+            self.assertNotEqual(evolve.lens(gen, 2), evolve.DECISIONS_LENS)
+
+    def test_the_proposer_is_shown_the_page_and_asked_to_carry_a_decision_out(self):
+        self.page()
+        seen = []
+
+        class Capture:
+            name = "capture"
+
+            def propose(self, request):
+                seen.append(evolve.render_request(request))
+                return {"skip": "just looking"}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Capture()):
+            self.run_gen(1)
+        [message] = seen
+        self.assertIn("## your own page", message)
+        self.assertIn("- [m15] learning to code in public", message)
+        self.assertIn(evolve.DECISIONS_LENS, message)
+
+
 class AskProposerTurn(EvolveCase):
     def test_one_tool_less_turn_on_a_thread_of_its_own(self):
         calls = self.root / "oh.log"

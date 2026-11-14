@@ -453,6 +453,16 @@ below).
   fair evidence when the candidate says what it heard and where.
 - `lessons`: what the lab's concluded experiments found (`hands/lab
   lessons`), each with its verdict and numbers.
+- `decisions`: Teeny's own page (`brain/MEMORY.md`, as the last dream left
+  it), only its sections "what i am in the middle of", "what i have decided"
+  and "promises and open threads", item by item with their ids. Each item is
+  cut to 400 characters and the whole to 6,000 (`MAX_DECISIONS_CHARS`). The
+  people section stays out. The message shows these first, as Teeny's own
+  plans. Candidate 1 of every generation looks at them first
+  (`DECISIONS_LENS`): a decision that no playbook, prompt, job or hand
+  carries out yet is the best reason for a change, and the hypothesis names
+  its id. Until 2026-11-14 the page listed a chart renderer and a refusal
+  ledger while five generations proposed from the score alone.
 - `world`: `hands/world report --days 7` cut to J, its reading lines and each
   component's value, with `unread` naming the components never read. The
   formula, weights and parts stay in the hand.
