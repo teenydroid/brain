@@ -45,7 +45,6 @@ Core = Callable[..., Any]
 Json = dict[str, Any]
 
 OFF: Json = {"skipped": "the surplus sweep is off (SURPLUS_SWEEP=1 in secrets/teeny.env turns it on)"}
-BRIDGE_REF = "surplus-sweep"
 #: Bridges are rounded down to this many lamports (0.001 SOL).
 SOL_STEP = 1_000_000
 

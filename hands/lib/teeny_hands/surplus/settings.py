@@ -16,11 +16,11 @@ default: a typo must not lift a limit.
                            pay out the same dollars in a loop
   SURPLUS_MIN_BRIDGE_SOL   no bridge smaller than this (default 0.05, ceiling
                            10): a small Solana bridge loses its rent and fees
+                           (the loss check refuses one under about 0.07)
   SURPLUS_MIN_PAYOUT_USD   no payout smaller than this (default 1, ceiling 100)
   SURPLUS_MIN_GAS_ETH      ETH on Base the payout needs first, for gas
-                           (default 0.00002, ceiling 1)
-  SURPLUS_COOLDOWN_MIN     a bridge toward Base USDC this recent is still in
-                           flight: no second one (default 60, 5..1440)
+                           (default 0.00002, ceiling 1); the bridge, which
+                           pays the surplus wallet directly, needs none
 
 Every dollar moved is still held under the wallet's own caps
 (WALLET_MAX_PER_TX_USD, WALLET_MAX_PER_DAY_USD,
@@ -47,9 +47,8 @@ AMOUNTS = {
     "SURPLUS_MIN_PAYOUT_USD": (MICRO, "1", 100),
     "SURPLUS_MIN_GAS_ETH": (WEI, "0.00002", 1),
 }
-COOLDOWN = ("SURPLUS_COOLDOWN_MIN", 60, 5, 1440)
 #: The keys this file reads (and bin/doctor checks).
-KEYS = ("SURPLUS_SWEEP", "SURPLUS_ADDRESS", *AMOUNTS, COOLDOWN[0])
+KEYS = ("SURPLUS_SWEEP", "SURPLUS_ADDRESS", *AMOUNTS)
 
 _EVM = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
@@ -66,7 +65,6 @@ class Sweep:
     min_bridge_raw: int
     min_payout_micro: int
     min_gas_wei: int
-    cooldown_secs: float
 
 
 def _raw(env: Mapping[str, str], key: str) -> str:
@@ -99,16 +97,6 @@ def _amount(env: Mapping[str, str], key: str) -> int:
     return int(units)
 
 
-def _cooldown(env: Mapping[str, str]) -> int:
-    key, default, low, high = COOLDOWN
-    raw = _raw(env, key)
-    if not raw:
-        return default
-    if not raw.isdigit() or not low <= int(raw) <= high:
-        raise SettingsError(f"{key} is a whole number, {low}..{high}")
-    return int(raw)
-
-
 def _address(env: Mapping[str, str]) -> str:
     address = _raw(env, "SURPLUS_ADDRESS")
     if not address:
@@ -139,7 +127,6 @@ def load(env: Mapping[str, str]) -> Sweep:
         _amount(env, "SURPLUS_MIN_BRIDGE_SOL"),
         _amount(env, "SURPLUS_MIN_PAYOUT_USD"),
         _amount(env, "SURPLUS_MIN_GAS_ETH"),
-        _cooldown(env) * 60.0,
     )
     target = _rail_target(env)
     if target is not None and found.keep_base_micro < target:
@@ -155,7 +142,6 @@ def check(env: Mapping[str, str]) -> str:
     if not on(env):
         for key in AMOUNTS:
             _amount(env, key)
-        _cooldown(env)
         if _raw(env, "SURPLUS_ADDRESS"):
             _address(env)
         return "surplus sweep off"
