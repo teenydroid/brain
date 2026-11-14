@@ -511,9 +511,22 @@ def _account(account: Any, kind: str, outcome: str) -> str | None:
     return handle.strip()
 
 
+def record_account(site: str, handle: str, why: str, task_id: int = 0) -> Json:
+    """One row in `accounts` (unique on site and handle): the site, the
+    handle, why, the task that made it (0 for hands/keychain create), when."""
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            conn.execute("INSERT OR IGNORE INTO accounts (site, handle, why, task_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (site, handle, why, task_id, hand.now()))
+    finally:
+        conn.close()
+    return {"site": site, "handle": handle, "why": why}
+
+
 def _record_account(task_id: int, start_url: str, handle: str) -> Json:
-    """One row in `accounts` for a signup that went through: the site it is
-    on (re-checked against the deny list), the handle, why, when."""
+    """The account a signup that went through names: the site it is on
+    (re-checked against the deny list), the handle, why (the task's goal)."""
     from urllib.parse import urlsplit
 
     site = (urlsplit(start_url).hostname or "").lower()
@@ -522,12 +535,9 @@ def _record_account(task_id: int, start_url: str, handle: str) -> Json:
     conn = db()
     try:
         why = conn.execute("SELECT goal FROM browser_tasks WHERE id = ?", (task_id,)).fetchone()["goal"]
-        with hand.transaction(conn):
-            conn.execute("INSERT OR IGNORE INTO accounts (site, handle, why, task_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                         (site, handle, why, task_id, hand.now()))
     finally:
         conn.close()
-    return {"site": site, "handle": handle, "why": why}
+    return record_account(site, handle, why, task_id)
 
 
 def accounts() -> Json:
