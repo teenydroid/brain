@@ -63,6 +63,8 @@ FAKE
 chmod +x "$fake"
 
 export TEENY_OH="$fake" FAKE_JOBS="$scratch/jobs.json" FAKE_CALLS="$scratch/calls.log"
+# Never this checkout's own state or storage.
+export TEENY_STATE="$scratch/state" TEENY_STORAGE="$scratch/storage.db"
 unset CALENDAR_TZ
 toml="$scratch/cron.toml"
 pinned="$scratch/pinned.toml"
@@ -409,7 +411,8 @@ storage_from_fake
 : >"$FAKE_CALLS"
 seed
 check "nor at the next boot" test "$(calls cron_run)" = 0
-unset TEENY_STATE TEENY_STORAGE TEENY_QUIET_HOURS
+unset TEENY_QUIET_HOURS
+rm -f "$TEENY_STORAGE"
 
 refuses "refuses a catch-up window as long as the gap between slots" \
   $'[jobs.x]\nschedule = "0 9,15 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true'

@@ -509,8 +509,8 @@ def rearm(jobs: Iterable[Mapping[str, Any]], call: Call, dry_run: bool = False, 
     for job in jobs:
         name, job_id = str(job["name"]), str(job["id"])
         try:
-            occurrence_ms = _epoch_ms(str(job["next_run"]))
-        except (KeyError, ValueError):
+            occurrence_ms = int(job["next_ms"]) if job.get("next_ms") else _epoch_ms(str(job["next_run"]))
+        except (KeyError, ValueError, TypeError):
             out["errors"][name] = "no next run to read"
             continue
         try:
