@@ -1,8 +1,11 @@
 """The chains and assets the wallet knows, pinned, and the EVM reads.
 
 One recovery phrase, held by the core, derives every account (bin/wallet-setup
-stores them all): one Solana address and one EVM address, the same on every
-EVM network. The hand pays, swaps and bridges only between the assets below.
+stores them all): one Solana address, one EVM address, the same on every
+EVM network, and one Bitcoin address (native segwit, `bc1q...`). The hand
+pays, swaps and bridges only between the assets below. Bitcoin is not one of
+those chains: Teeny can name its BTC address and read its balance (the core
+reads it from Esplora), and nothing here moves BTC.
 A token that is not pinned here is not one Teeny holds, whatever a body or a
 quote calls it.
 
@@ -35,6 +38,9 @@ from typing import Any
 from .. import hand
 
 SOLANA = "solana"
+#: Named and read only: never in CHAINS, so no payment, swap or bridge takes it.
+BITCOIN = "bitcoin"
+BTC_DECIMALS = 8
 
 
 @dataclass(frozen=True)
@@ -92,6 +98,9 @@ DEBRIDGE_EVM_CONTRACTS = frozenset(
 DECIMALS = {"SOL": 9, "ETH": 18, "USDC": 6}
 
 _EVM_ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}")
+#: A mainnet P2WPKH address: `bc1q`, then 38 bech32 characters (a 20-byte
+#: program and the checksum). The only kind the core derives and signs for.
+_BTC_ADDRESS = re.compile(r"bc1q[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{38}")
 TIMEOUT_SECONDS = 20.0
 
 
@@ -107,6 +116,16 @@ def is_evm_address(text: object) -> bool:
     """0x and 40 hex digits, and not the zero address. Mixed case is taken as
     written: the core checks an EIP-55 checksum when it builds the transfer."""
     return isinstance(text, str) and bool(_EVM_ADDRESS.fullmatch(text)) and int(text, 16) != 0
+
+
+def is_btc_address(text: object) -> bool:
+    """A native segwit (`bc1q...`) mainnet address, lowercase, as the core
+    derives it. The bech32 checksum is the core's to check."""
+    return isinstance(text, str) and bool(_BTC_ADDRESS.fullmatch(text))
+
+
+def btc_explorer_account(address: str) -> str:
+    return f"https://mempool.space/address/{address}"
 
 
 def same_address(chain: str, a: object, b: object) -> bool:

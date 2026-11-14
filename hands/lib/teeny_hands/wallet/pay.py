@@ -195,12 +195,15 @@ def own_address(core: Core = hand.core, chain: str = chains.SOLANA) -> str:
     network), from the core's wallet status."""
     status = core("wallet_status", {})
     accounts = status.get("accounts") if isinstance(status, Mapping) else None
-    family = "evm" if chains.is_evm(chain) else "solana"
-    valid = chains.is_evm_address if family == "evm" else solana.is_address
+    if chains.is_evm(chain):
+        family, valid, name = "evm", chains.is_evm_address, "EVM"
+    elif chain == chains.BITCOIN:
+        family, valid, name = "btc", chains.is_btc_address, "Bitcoin"
+    else:
+        family, valid, name = "solana", solana.is_address, "Solana"
     for account in accounts or []:
         if isinstance(account, Mapping) and account.get("chain") == family and valid(account.get("address")):
             return str(account["address"])
-    name = "EVM" if family == "evm" else "Solana"
     raise NoWallet(f"the core has no {name} wallet; the operator runs bin/wallet-setup once")
 
 
@@ -210,11 +213,12 @@ def native_balance(core: Core = hand.core, chain: str = chains.SOLANA) -> int:
     if isinstance(rows, Mapping):  # the agent tool's {native, tokens} shape
         rows = rows.get("native")
     network = chains.NETWORKS[chain].evm_network if chains.is_evm(chain) else None
-    symbol = chains.assets(chain)[0]
+    family = "btc" if chain == chains.BITCOIN else "solana"
+    symbol = "BTC" if chain == chains.BITCOIN else chains.assets(chain)[0]
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, Mapping):
             continue
-        if network is None and row.get("chain") != "solana":
+        if network is None and row.get("chain") != family:
             continue
         if network is not None and (row.get("chain") != "evm" or row.get("evmNetwork") != network):
             continue

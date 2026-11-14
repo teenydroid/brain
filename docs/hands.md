@@ -208,6 +208,7 @@ cut; `max_emoji` overrides the cap):
 | `github` | `title` 256, `body` 20000, `description` 350, `message` 5000 | 3 |
 | `moltbook` | `title` 300, `body` 10000 | 3 |
 | `mail` | `subject` 200, `body` 10000 | 3 |
+| `task` (a browser task's goal, `done_when` or signup reason; never published) | `text` 1000 | `MAX_EMOJI_PER_POST` (1) |
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
@@ -1249,12 +1250,12 @@ in, but a serve host dropped every configured MCP server's tools when
 TinySecurity was on ([`oh-gaps.md`](oh-gaps.md), G11, fixed in
 openhuman#8654).
 
-## `wallet`: Teeny's own wallet, Solana and EVM from one recovery phrase
+## `wallet`: Teeny's own wallet, Solana, EVM and Bitcoin from one recovery phrase
 
 The keys never leave the core. OpenHuman (the `web3` build) holds the
 encrypted recovery phrase and signs. That one phrase derives a Solana
-address and an EVM address (the same on every EVM network), so one backup
-covers every chain. This hand decides whether a payment, a swap, a bridge or
+address, an EVM address (the same on every EVM network) and a Bitcoin
+address (native segwit, `bc1q...`), so one backup covers every chain. This hand decides whether a payment, a swap, a bridge or
 a paid HTTP request may go out, asks the core to do it, and keeps the ledger.
 Code: `teeny_hands/wallet/` (`caps.py` is shared with
 `bin/lib/wallet_config.py` and `bin/doctor`; `chains.py` pins the chains and
@@ -1270,6 +1271,12 @@ assets).
 | `ethereum` | ETH, USDC | 1 | mainnet only |
 | `optimism` | ETH, USDC | 10 | mainnet only |
 
+Bitcoin is held, not spent: `address` names it and `balance` reads it, and
+no payment, swap or bridge takes it (`chains.BITCOIN` is kept out of
+`CHAINS`). The core derives it at `m/44'/0'/0'/0/0` as a native segwit
+address; that is not the BIP-84 path most wallets assume for `bc1q`, so to
+restore the phrase elsewhere, pick native segwit with that path by hand.
+
 USDC is pinned per chain (mint or contract). Under `WALLET_CLUSTER=devnet`
 every EVM payment, swap and bridge is refused (`cluster`). ETH moves only
 with `WALLET_ETH_USD` set. The core reads native ETH; USDC on an EVM network
@@ -1278,8 +1285,8 @@ the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, and `evm`: the EVM address with its explorer page per network (`usable` only on mainnet). |
-| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`; a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
+| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
 | `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
 | `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
 | `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
@@ -1381,7 +1388,7 @@ keeps it off and out of the mind's prompt):
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
 | `open_issue` `{repo, title, text}` | `gh open-issue {repo, title, body}` | own repositories only, the guard on title and body, DRY_RUN | `MIND_ISSUES_PER_DAY` (5) |
-| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
+| `queue_task` `{goal, start_url, done_when}` | `tasks add --source teeny {goal, done_when, start_url, kind: "research"}` | the allowed websites, the queue's limit; the tick runs `goal` and `done_when` past `guard check` (surface `task`, 1000 characters each, not X's 280) first and sends the guard's words | `MIND_TASKS_PER_DAY` (10) |
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |

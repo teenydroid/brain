@@ -3,7 +3,8 @@
 Nothing here moves funds or asks the core to: the reads are `wallet_status`,
 `wallet_balances`, `wallet_ledger_list`, `cost_report`, `x402_list_payments`,
 Solana RPC token-account reads for USDC and $TINY and, on mainnet, one
-`eth_call` per EVM network for its USDC (chains.py).
+`eth_call` per EVM network for its USDC (chains.py). BTC is read by the core
+(`wallet_balances`), on mainnet only.
 """
 
 from __future__ import annotations
@@ -35,9 +36,17 @@ def _evm_address() -> str | None:
         return None  # a wallet made before EVM accounts were stored
 
 
+def _btc_address() -> str | None:
+    try:
+        return own_address(chain=chains.BITCOIN)
+    except hand.HandError:
+        return None  # a wallet whose stored accounts carry no Bitcoin one
+
+
 def address() -> Json:
-    """Teeny's Solana address (`address`, as before) and its EVM address, the
-    same on every EVM network: both from the one recovery phrase."""
+    """Teeny's Solana address (`address`, as before), its EVM address, the
+    same on every EVM network, and its Bitcoin address: all from the one
+    recovery phrase."""
     cluster = _cluster()
     own = own_address()
     out: Json = {"address": own, "cluster": cluster, "url": solana.explorer_account(own, cluster)}
@@ -48,14 +57,17 @@ def address() -> Json:
             "networks": {key: chains.explorer_account(key, evm, cluster) for key in chains.NETWORKS},
             "usable": cluster == "mainnet",
         }
+    btc = _btc_address()
+    if btc is not None:
+        out["btc"] = {"address": btc, "url": chains.btc_explorer_account(btc)}
     return out
 
 
 def balance() -> Json:
     """SOL and USDC on Solana (`sol`, `usdc`, as before), $TINY (`tiny`) and,
-    on mainnet, ETH and USDC on every EVM network. A network that cannot be
-    read carries `error`, and a failed $TINY read `tiny.error`; neither stops
-    the others."""
+    on mainnet, ETH and USDC on every EVM network, and BTC (`btc`). A network
+    that cannot be read carries `error`, and a failed $TINY read
+    `tiny.error`; neither stops the others."""
     cluster = _cluster()
     own = own_address()
     sol = sol_balance()
@@ -90,6 +102,15 @@ def balance() -> Json:
                 entry["usdc_error"] = str(exc)
             networks[key] = entry
         out["evm"] = {"address": evm, "networks": networks}
+    btc = _btc_address() if cluster == "mainnet" else None
+    if btc is not None:
+        entry = {"address": btc}
+        try:
+            sats = native_balance(chain=chains.BITCOIN)
+            entry["btc"] = {"raw": str(sats), "display": _decimal(sats, chains.BTC_DECIMALS)}
+        except hand.HandError as exc:
+            entry["error"] = str(exc)
+        out["btc"] = entry
     return out
 
 
