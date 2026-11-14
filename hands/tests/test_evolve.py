@@ -708,6 +708,17 @@ class HeldOut(EvolveCase):
         self.assertIn("pending:spam", evidence)
 
 
+class LabLessons(EvolveCase):
+    def test_the_labs_lessons_are_evidence(self):
+        self.assertEqual(evolve.observe(self.entries())["lessons"], {"available": False, "why": "no hands/lab lessons"})
+        lab = Path(os.environ["TEENY_HANDS"]) / "lab"
+        lab.write_text("#!/usr/bin/env python3\nimport json\nprint(json.dumps({'ok': True, 'lessons': "
+                       "[{'id': 1, 'verdict': 'works', 'lesson': 'confessions get comments'}]}))\n")
+        lab.chmod(0o755)
+        got = evolve.observe(self.entries())["lessons"]
+        self.assertEqual(got["lessons"][0]["lesson"], "confessions get comments")
+
+
 class AskProposerTurn(EvolveCase):
     def test_one_tool_less_turn_on_a_thread_of_its_own(self):
         calls = self.root / "oh.log"
