@@ -198,10 +198,10 @@ class HealthTest(unittest.TestCase):
         with mock.patch.object(health, "_sleep", sleep), \
                 mock.patch.object(health.time, "monotonic", lambda: clock[0]), \
                 mock.patch.object(health.hand, "core", timed_out):
-            error_, attempts = health.probe_until_answered()
+            error_, attempts, errors = health.probe_until_answered()
         self.assertIn("timed out", error_)
         self.assertEqual(timeouts, [health.PROBE_TIMEOUT, health.PROBE_BUDGET - health.PROBE_TIMEOUT - health.PROBE_BACKOFFS[0]])
-        self.assertEqual(attempts, 2)
+        self.assertEqual((attempts, len(errors)), (2, 2))
         self.assertLessEqual(clock[0] - 1000.0, health.PROBE_BUDGET)
         self.assertEqual(health.PROBE_BUDGET, 90.0)
 
