@@ -68,7 +68,11 @@ done
 # The file and the pinned jobs, checked against the cron rules
 # (bin/lib/cron_policy.py) and flattened to one JSON array:
 #   [{name, kind, expr, tz, command, agent, prompt, enabled}]
-desired="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$file" "$pinned" "${CALENDAR_TZ:-}")" ||
+# --check is the gate (bin/doctor, the evolve gate): every rule is an error
+# there. A boot only switches off a catch-up a playbook edit made unsafe.
+strict=()
+[ "$check" = 1 ] && strict=(--strict)
+desired="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "${strict[@]}" "$file" "$pinned" "${CALENDAR_TZ:-}")" ||
   die "invalid schedule file"
 if [ "$check" = 1 ]; then
   log "$file is valid: $(jq length <<<"$desired") job(s), the pinned ones included"

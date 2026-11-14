@@ -2,7 +2,7 @@
 bin/seed-cron reconciles. Run by bin/seed-cron and bin/doctor; never by a
 model.
 
-    python3 bin/lib/cron_policy.py CRON_TOML PINNED_TOML [DEFAULT_TZ]
+    python3 bin/lib/cron_policy.py [--strict] CRON_TOML PINNED_TOML [DEFAULT_TZ]
 
 Prints [{name, kind, expr, tz, command, agent, prompt, enabled, catch_up_secs}] on success
 (kind "shell" with a command, or "agent" with an agent and a prompt); exits
@@ -38,7 +38,12 @@ written here, in code it cannot edit:
   playbook that speaks in public (posts, replies, comments, announces:
   POSTING_OUTPUTS, POSTING_VERBS), however the job is named, nor on the
   pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
-  hours late is a different act, not a late one.
+  hours late is a different act, not a late one. That last rule reads the
+  playbook, which Teeny edits apart from this file: under --strict
+  (bin/seed-cron --check: bin/doctor's gate, the evolve gate) a catch-up job
+  whose playbook speaks in public, or cannot be read, is an error; at boot it
+  only switches that job's catch-up off and says so on stderr, because a
+  playbook edit must never stop Teeny from booting.
 """
 
 from __future__ import annotations
@@ -166,11 +171,12 @@ def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
 
 
 def _playbook_output(brain: Path, playbook: str) -> str:
-    """A playbook's `output`, from its +++ front matter ("" when unreadable)."""
+    """A playbook's `output`, from its +++ front matter ("" when unreadable
+    or missing, which counts as speaking)."""
     try:
         text = (brain / "playbooks" / f"{playbook}.md").read_text()
         _, front, _ = text.split("+++", 2)
-        return str(tomllib.loads(front).get("output", "post"))
+        return str(tomllib.loads(front).get("output", ""))
     except (OSError, ValueError, tomllib.TOMLDecodeError):
         return ""
 
@@ -184,7 +190,7 @@ def _speaks(output: str) -> bool:
     return False
 
 
-def _catch_up(job: dict, minutes: list[int], where: str, brain: Path) -> int:
+def _catch_up(job: dict, minutes: list[int], where: str, brain: Path, strict: bool) -> int:
     """The job's catch-up window in seconds, 0 without `catch_up = true`."""
     catch_up = job.get("catch_up", False)
     if not isinstance(catch_up, bool):
@@ -203,8 +209,6 @@ def _catch_up(job: dict, minutes: list[int], where: str, brain: Path) -> int:
     argv = str(job.get("command", "")).split()
     if argv and argv[0] in NO_CATCH_UP_COMMANDS:
         raise PolicyError(f"{where}: {argv[0]} moves money and never catches up a missed slot")
-    if argv[:1] == ["bin/act"] and len(argv) == 2 and _speaks(_playbook_output(brain, argv[1])):
-        raise PolicyError(f"{where}: playbook {argv[1]} speaks in public and never catches up a missed slot")
     hours = CATCH_UP_DEFAULT_HOURS if hours is None else hours
     if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= CATCH_UP_MAX_HOURS:
         raise PolicyError(f"{where}: catch_up_hours is a whole number from 1 to {CATCH_UP_MAX_HOURS}")
@@ -212,10 +216,19 @@ def _catch_up(job: dict, minutes: list[int], where: str, brain: Path) -> int:
         raise PolicyError(f"{where}: a {hours}-hour catch-up window, plus the {CATCH_UP_CLAIM_HOURS} hours a cut-off"
                           f" catch-up's claim can last, is not shorter than the {min_gap(minutes)} minutes"
                           " between its slots")
+    if argv[:1] == ["bin/act"] and len(argv) == 2:
+        output = _playbook_output(brain, argv[1])
+        if _speaks(output):
+            why = (f"playbook {argv[1]} speaks in public ({output})" if output
+                   else f"playbook {argv[1]} names no output it can be judged by")
+            if strict:
+                raise PolicyError(f"{where}: {why} and never catches up a missed slot")
+            print(f"[cron_policy] catch-up off for teeny.{where.rsplit('jobs.', 1)[-1]}: {why}", file=sys.stderr)
+            return 0
     return hours * 3600
 
 
-def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) -> list[dict]:
+def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, strict: bool = False) -> list[dict]:
     brain = brain or path.parent
     with open(path, "rb") as fh:
         doc = tomllib.load(fh)
@@ -248,7 +261,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
-        catch_up_secs = _catch_up(job, minutes, where, brain)
+        catch_up_secs = _catch_up(job, minutes, where, brain, strict)
         out.append({
             "name": f"teeny.{name}",
             "kind": "shell" if command is not None else "agent",
@@ -264,10 +277,10 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
     return out
 
 
-def load(cron_toml: Path, pinned_toml: Path | None, default_tz: str = "") -> list[dict]:
+def load(cron_toml: Path, pinned_toml: Path | None, default_tz: str = "", strict: bool = False) -> list[dict]:
     default_tz = default_tz or "UTC"
-    jobs = _jobs(cron_toml, default_tz, pinned=False)
-    pinned = (_jobs(pinned_toml, default_tz, pinned=True, brain=cron_toml.parent)
+    jobs = _jobs(cron_toml, default_tz, pinned=False, strict=strict)
+    pinned = (_jobs(pinned_toml, default_tz, pinned=True, brain=cron_toml.parent, strict=strict)
               if pinned_toml and pinned_toml.is_file() else [])
     taken = {j["name"] for j in pinned} & {j["name"] for j in jobs}
     if taken:
@@ -291,11 +304,14 @@ def load(cron_toml: Path, pinned_toml: Path | None, default_tz: str = "") -> lis
 
 
 def main(argv: list[str]) -> int:
+    strict = len(argv) > 1 and argv[1] == "--strict"
+    if strict:
+        argv = argv[:1] + argv[2:]
     if len(argv) not in (3, 4):
-        print("usage: cron_policy.py CRON_TOML PINNED_TOML [DEFAULT_TZ]", file=sys.stderr)
+        print("usage: cron_policy.py [--strict] CRON_TOML PINNED_TOML [DEFAULT_TZ]", file=sys.stderr)
         return 2
     try:
-        jobs = load(Path(argv[1]), Path(argv[2]), argv[3] if len(argv) == 4 else "")
+        jobs = load(Path(argv[1]), Path(argv[2]), argv[3] if len(argv) == 4 else "", strict=strict)
     except (PolicyError, OSError, tomllib.TOMLDecodeError) as exc:
         print(exc, file=sys.stderr)
         return 1
