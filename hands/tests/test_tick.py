@@ -959,8 +959,9 @@ class TickTest(unittest.TestCase):
                 self.assertIn("one change to yourself is already in flight", result["result"]["refused"])
                 self.assertIn(held, result["result"]["refused"])
                 self.assertEqual([c for c in self.hand_calls() if c["hand"] == "build"], [])
-                guarded = [c for c in map(json.loads, self.hands_log.read_text().splitlines()) if c["hand"] == "guard"]
-                self.assertEqual(guarded, [])  # refused before the guard, and before the cap counts it
+                logged = self.hands_log.read_text().splitlines() if self.hands_log.exists() else []
+                # Refused before the guard, and before the cap counts it.
+                self.assertEqual([c for c in map(json.loads, logged) if c["hand"] == "guard"], [])
         tick = _tick_module()
         self.assertEqual(tick._caps_today().get("propose_change"), 1)
 
