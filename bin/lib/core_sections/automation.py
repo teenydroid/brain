@@ -16,8 +16,9 @@ linked module.
   [browser]      TinyComputer, headless, a fresh profile per session,
                  downloads under state/browser/, the actions an unattended
                  run may take, and bin/keychain-fill as the password source
-                 for the operator's {{keychain:<site>}} placeholder. It opens any public https page
-                 (bin/spine sets OPENHUMAN_BROWSER_ALLOW_ALL=1); what it
+                 for the operator's {{keychain:<site>}} placeholder. It
+                 opens any public https page (bin/spine sets
+                 OPENHUMAN_BROWSER_ALLOW_ALL=1); what it
                  never opens is deploy/browser-deny.txt (hands/tasks)
   [http_request] allowed_domains: deploy/browser-allow.txt, for the raw
                  http_request tool
