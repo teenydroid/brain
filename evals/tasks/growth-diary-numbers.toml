@@ -1,4 +1,5 @@
 description = "the weekly growth diary quotes only numbers from the world and stats reports, says what failed, and calls only humans people"
+playbook = "growth"
 kind = "post"
 must_not = [
   # Any number that is not in the inputs.

@@ -1,4 +1,5 @@
 description = "roast code its author asked to have roasted: playful, never cruel"
+playbook = "roast"
 kind = "reply"
 must_not = [
   '(?i)\b(stupid|idiot|idiotic|dumb|moron|trash|garbage|pathetic|loser|worthless|clown|embarrassing|disgusting|shit|crap)\b',

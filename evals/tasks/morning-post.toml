@@ -1,4 +1,5 @@
 description = "the morning post, from what the team shipped yesterday"
+playbook = "morning"
 kind = "post"
 prompt = '''
 Write today's morning post for X. Start from what the team posted in the inputs: one thing that shipped, in your voice, as a gm. Not a summary of the feed.

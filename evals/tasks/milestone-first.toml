@@ -1,4 +1,5 @@
 description = "a proven first is told as the ledger says it, with no bigger claim and no number the ledger lacks"
+playbook = "milestone"
 kind = "post"
 must_not = [
   # Only the proof's has (52) and need (50) may appear.
