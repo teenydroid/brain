@@ -34,6 +34,7 @@ class Scratch(unittest.TestCase):
         (self.root / "secrets").mkdir()
         (self.root / "deploy").mkdir()
         shutil.copy(REPO / "deploy" / "browser-allow.txt", self.root / "deploy" / "browser-allow.txt")
+        shutil.copy(REPO / "deploy" / "browser-deny.txt", self.root / "deploy" / "browser-deny.txt")
         self._env = dict(os.environ)
         os.environ["TEENY_ROOT"] = str(self.root)
         os.environ["TEENY_NOW"] = str(T0)
