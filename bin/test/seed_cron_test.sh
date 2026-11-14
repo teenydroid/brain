@@ -392,6 +392,13 @@ check "and no reflection of its own any more" bash -c "! grep -q 'teeny.reflect'
 check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
 check "and Teeny listens to the world twice a day, before the take and before the evening" \
   grep -qE 'teeny\.world-scan +5 13,22 \* \* \* Asia/Kolkata bin/act world-scan' "$scratch/stderr"
+check "and self-improve catches up a slot a restart cut off" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
+check "and no X post job, nor the bill payer, catches up" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
+      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "

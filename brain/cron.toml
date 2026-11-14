@@ -12,6 +12,10 @@
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
 #                          CALENDAR_TZ, else UTC
 #   enabled  = false       optional; keeps the job, does not run it
+#   catch_up = true        optional; a slot missed across a restart is run
+#                          once, late, instead of waiting a day (bin/lib/catch_up.py)
+#   catch_up_hours = N     how late, at most (default 6, at most 12, and
+#                          shorter than the gap between the job's slots)
 #
 # At most 24 jobs in all, and at most 400 runs of bin/act a day.
 #
@@ -27,6 +31,16 @@ command = "bin/heartbeat"
 # Every job below runs a playbook in brain/playbooks/ through bin/act, in
 # India time. DRY_RUN in secrets/teeny.env still decides whether anything
 # reaches X or Moltbook.
+#
+# The box is redeployed several times a day, and a restart that cuts off a run
+# (or comes while a slot passes) used to drop that slot until the next one: on
+# 2026-11-13 and 11-14 self-improve lost both days that way. The daily jobs
+# that only read, propose or tend (self-improve, build-idea, pick-request,
+# goals, speculate, world-scan, moltbook-follow, moltbook-curate) catch up
+# instead. The posts do not: X is three posts a day eight hours apart, and a
+# gm or a take hours late is the wrong post, so morning, take, show and brief
+# (and the Moltbook posts) keep waiting for their next slot. A playbook never
+# catches up in the quiet hours, and bin/act's max_per_day still holds.
 #
 # Teeny posts on X three times a day, eight hours apart (hands/x: X_POSTS_MAX_PER_DAY
 # and POST_MIN_GAP_HOURS): 07:00 the gm (`morning`), 15:00 a take on the day's

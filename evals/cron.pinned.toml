@@ -5,6 +5,10 @@
 # here with it.
 #
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
+# The daily and weekly jobs that only read, record or think (`catch_up = true`)
+# have a slot missed across a restart run once, late (bin/lib/catch_up.py);
+# the jobs every few minutes or hours simply run at their next slot, and
+# pay-bills, which moves money, is never run outside its own.
 
 # Read the mentions and answer the ones the core has drafted (bin/mentions).
 # Operator-owned: the brain shapes the answers through playbooks/mentions.md,
