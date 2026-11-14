@@ -1192,9 +1192,7 @@ task waits for a code twice at most (`rule: code_waits`).
 `hands/keychain` (frozen to Teeny) keeps one password per account Teeny opens
 on a website, in `state/keychain.db` (mode 600), each sealed with AES-256-GCM
 (`python3-cryptography`) under `KEYCHAIN_KEY` from `secrets/keychain.env`: 32
-random bytes, base64, made on the box by the operator (for example
-`python3 -c "import base64,os;print('KEYCHAIN_KEY='+base64.b64encode(os.urandom(32)).decode())"`
-written straight into that file). The key is read from the file only, never
+random bytes, base64. The key is read from that file only, never
 from the environment. The site and the handle are the cipher's associated
 data, so a row moved to another site does not open. Without the key the
 keychain is off: no `login` is offered and a signup that asks for a password
