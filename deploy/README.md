@@ -109,7 +109,8 @@ docker compose -f deploy/compose.yaml logs -f xhook
   out.
 - The builder's queue is `hands/build jobs` and the operator's is
   `hands/tasks list`. `hands/tasks list --status needs_human` is what the
-  browser left for you (a payment, a login, a CAPTCHA). Nothing the builder
+  browser left for you (a payment, a login, a CAPTCHA its own tries did not
+  pass). Nothing the builder
   makes leaves the box while `DRY_RUN=1`.
 - To tell it what to post:
   `docker compose -f deploy/compose.yaml exec -T spine hands/brief add "talk about ..."`.

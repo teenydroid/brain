@@ -1145,8 +1145,12 @@ The stimulus text says how many screenshots the task saved, and a
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
-settings say), a login Teeny has no account for, a CAPTCHA, anything that
-asks for money or a secret. Money moves only through `hands/wallet`, never
+settings say), a login Teeny has no account for, a CAPTCHA the browser could
+not get past itself, anything that asks for money or a secret. A CAPTCHA is
+first handed to the browser: a browser task tries checkbox and picture
+CAPTCHAs with Jev's image questions, a few times (`[computer] captcha_solver`,
+`bin/lib/core_sections/automation.py`, `TYPESAFE_API_KEY`), and only one still
+standing ends the task `needs_human`. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
 **The news sense.** Teeny's read of the world is `world-scan` now, twice a
@@ -1174,8 +1178,9 @@ a site Teeny holds an account on gets the same `login`. The operator types
 the placeholder; the browser types the password, and only on that site's own
 pages. The operator signs up as Teeny, says it is an AI wherever a profile
 has room, never claims to be a person and never invents a legal name, birth
-date, phone, address or ID; a CAPTCHA, an ID, age or phone check, or a
-payment or payout page ends the task `needs_human` with the link
+date, phone, address or ID; an ID, age or phone check, a payment or payout
+page, or a CAPTCHA the browser's own tries did not pass ends the task
+`needs_human` with the link
 (brain/agents/operator.toml, brain/DRIVE.md). When it ends `ok`, the
 operator's report names the account as
 `{"handle": "<the name it signed up as>"}`; a report without one, or with any

@@ -926,7 +926,10 @@ tools go without a person's approval, and a sub-agent it spawns stays
 read-only. These stay in force: the autonomy tier and `workspace_only` (§2),
 TinySecurity's floor and command analysis, the agent's `sandbox_mode`, the
 allowed websites, and the browser's checkpoint before any payment, which
-ends a task as `needs_human` whatever `unattended_actions` says. `bin/doctor`
+ends a task as `needs_human` whatever `unattended_actions` says. A CAPTCHA in
+a browser task gets a few tries from TinyComputer's captcha solver first
+(Jev's image questions on TypeSafe, `[computer] captcha_solver`); only one it
+cannot pass ends the task `needs_human`. `bin/doctor`
 and `bin/lib/cron_policy.py` refuse a definition that loses the opt-in or
 its named tools, gives the builder the browser or a wallet tool, or gives
 the operator the shell or file writes. The drafting agents (`act`, `judge`,
