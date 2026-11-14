@@ -172,6 +172,25 @@ class CoreConfigTest(unittest.TestCase):
         # read "the user energy level 56" and crowd the memory block.
         self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
 
+    def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
+        computer = self.written()["computer"]
+        self.assertTrue(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+        self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
+        doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')
+        self.assertEqual(doc["computer"]["decision_model"], "sage")
+        self.assertEqual(doc["computer"]["max_rescues"], 2)
+        self.assertTrue(doc["computer"]["captcha_solver"])
+
+    def test_the_captcha_solver_can_be_turned_off_or_moved_to_another_model(self):
+        os.environ["TEENY_CAPTCHA_SOLVER"] = "0"
+        os.environ["TEENY_CAPTCHA_MODEL"] = "jev-2"
+        computer = self.written()["computer"]
+        self.assertFalse(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-2")
+
     def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
         text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"
         self.assertEqual(core_config.set_key(text, "a", "x", "3"), "[a]\nx = 3\ny = 2\n\n[a.b]\nx = 9\n")
