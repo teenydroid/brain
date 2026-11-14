@@ -218,8 +218,7 @@ class DreamTest(unittest.TestCase):
         import reflect
 
         for n in range(120):
-            stimuli.note(f"note {n} " + "a long thing i chose to remember about the day " * 14, who="ana",
-                         at=T0 - 7200 + n)
+            stimuli.note(f"note {n} " + "a long thing i chose to remember about the day " * 14, who="ana")
         self.answer({"ops": [], "diary": "d"})
         got = self.dream()
         self.assertTrue(got["ok"], got)
