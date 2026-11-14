@@ -66,13 +66,33 @@ class IntakeTest(unittest.TestCase):
         self.assertLessEqual(len(jobs), cron_policy.MAX_JOBS)
         self.assertEqual(jobs["world-scan"]["command"], "bin/act world-scan")
         self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
-        for name in ("world-scan", "build-idea", "shipped"):
+        for name in ("world-scan", "build-idea", "show"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
         # Kept in the tree, unscheduled.
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
+
+    def test_x_has_three_slots_eight_hours_apart_and_brief_takes_the_next_free_one(self):
+        jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
+        slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name].get("enabled", True))
+                 for name in ("morning", "take", "show", "brief")}
+        self.assertEqual(slots, {
+            "morning": ("0 7 * * *", "Asia/Kolkata", True),
+            "take": ("0 15 * * *", "Asia/Kolkata", True),
+            "show": ("0 23 * * *", "Asia/Kolkata", True),
+            "brief": ("5 15,23 * * *", "Asia/Kolkata", True),
+        })
+        self.assertNotIn("shipped", jobs)
+        self.assertFalse((BRAIN / "playbooks" / "shipped.md").exists())
+        # The posts are tagged for the lab, and take and show give way to a queued brief.
+        for name in ("take", "show"):
+            text = (BRAIN / "playbooks" / f"{name}.md").read_text()
+            self.assertIn("brief", text)
+            self.assertIn('"format"', text)
+        self.assertIn("quote_of", (BRAIN / "playbooks" / "take.md").read_text())
+        self.assertIn("images", (BRAIN / "playbooks" / "show.md").read_text())
 
 
 if __name__ == "__main__":
