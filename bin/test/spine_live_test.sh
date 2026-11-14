@@ -552,8 +552,9 @@ if [ "${LIVE_KEYCHAIN:-0}" = 1 ] && [ -n "$operator_id" ]; then
   [ "$(jq -r .status <<<"$kc_row")" = ok ] || printf '     task: %s\n' "$kc_row" >&2
   password="$(TEENY_KEYCHAIN_FILL=1 "$root/hands/keychain" secret --host httpbin.org </dev/null)"
   check "the keychain held a password to type" test -n "$password"
-  check "no model request, log, ledger or desk file holds the password" bash -c '! grep -rqaF -- "$1" "$2"/model-bodies.jsonl "$2"/spine.log "$3"/state/hands.db "$3"/state/workbench' \
-    _ "$password" "$scratch" "$root"
+  holds_none() { local needle="$1"; shift; ! grep -rqaF -- "$needle" "$@"; }
+  check "no model request, log, ledger or desk file holds the password" holds_none "$password" \
+    "$scratch/model-bodies.jsonl" "$scratch/spine.log" "$root/state/hands.db" "$root/state/workbench"
   unset password
 fi
 check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
