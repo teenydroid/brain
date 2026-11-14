@@ -897,7 +897,7 @@ class TickTest(unittest.TestCase):
         self.assertIn("at most 1 today", message)
         # The next beat hears which request it is and where it stands.
         [done, _] = self.outcomes()
-        self.assertIn("your propose_change: done", done["text"])
+        self.assertIn("your propose_change on elsewhere/x: done", done["text"])
         self.assertIn("build request #7, pending", done["text"])
         self.assertEqual(json.loads(done["payload"])["request"], {"id": 7, "status": "pending"})
 
@@ -942,7 +942,7 @@ class TickTest(unittest.TestCase):
         self.assertEqual(self.tick()["results"][0]["status"], "done")
         for pending in ("request", "job"):
             with self.subTest(pending=pending):
-                self.hands_log.unlink()
+                self.hands_log.unlink(missing_ok=True)
                 if pending == "request":
                     build_requests.record("self", "2", "teenydroid", "add a playbook bullet about gm posts")
                     held = "self request #3 (pending): add a playbook bullet"
