@@ -341,6 +341,64 @@ class CatchUpTest(unittest.TestCase):
         self.assertEqual(out["caught_up"], [])
         self.assertIn("teeny.both", out["errors"])
 
+    # --- the guarded re-arm (bin/seed-cron, bin/health) -------------------------------------
+
+    def stuck(self, job_id, spec, slot):
+        return {"id": job_id, "name": spec["name"], "next_run": slot + ":00Z",
+                "schedule": {"kind": "cron", "expr": spec["expr"], "tz": spec["tz"]}}
+
+    def test_a_rearm_leaves_a_job_a_recent_claim_holds(self):
+        self.job("j1", SELF_IMPROVE, "2026-11-14T09:40")
+        self.lease("j1", "2026-11-14T09:40", "2026-11-14T09:47:50")
+        os.environ["TEENY_NOW"] = str(ts("2026-11-14T09:48:38"))
+        self.write()
+        out = catch_up.rearm([self.stuck("j1", SELF_IMPROVE, "2026-11-14T09:40")], self.core)
+        self.assertEqual((out["rearmed"], out["running"], self.core.calls), ([], ["teeny.self-improve"], []))
+
+    def test_a_rearm_of_a_dead_claim_goes_through(self):
+        self.job("j2", FOLLOW, "2026-11-14T11:30")
+        self.lease("j2", "2026-11-14T11:30", "2026-11-14T11:31:40")
+        os.environ["TEENY_NOW"] = str(ts("2026-11-14T11:45:07"))
+        self.write()
+        out = catch_up.rearm([self.stuck("j2", FOLLOW, "2026-11-14T11:30")], self.core)
+        self.assertEqual((out["rearmed"], out["raced"]), (["teeny.moltbook-follow"], []))
+        self.assertEqual(self.core.methods(), ["cron_update"])
+
+    def test_a_claim_the_core_takes_while_the_job_is_rearmed_is_never_run_again(self):
+        # The core claims the slot between the read and the update; the update
+        # fences that claim, its run goes on unrecorded, and nothing may start
+        # a second copy: not this call's catch-up, not a later check's.
+        self.job("j1", SELF_IMPROVE, "2026-11-14T09:40")
+        os.environ["TEENY_NOW"] = str(ts("2026-11-14T09:50"))
+        self.write()
+        storage = self.root / "brain" / "storage.db"
+        core = self.core
+
+        def claiming(method, params):
+            if method == "cron_update":
+                db = sqlite3.connect(storage)
+                db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                           (f"cron/j1%2F{ms('2026-11-14T09:40')}", ms("2026-11-14T09:50"),
+                            json.dumps({"holder": "now", "epoch": 1, "expires_ms": 0})))
+                db.execute("update docs set body = json_set(body, '$.next_run_ms', ?) where id = 'j1'",
+                           (ms("2026-11-15T09:40"),))
+                db.commit()
+                db.close()
+            return core(method, params)
+
+        out = catch_up.rearm([self.stuck("j1", SELF_IMPROVE, "2026-11-14T09:40")], claiming)
+        self.assertEqual((out["rearmed"], out["raced"]), ([], ["teeny.self-improve"]))
+        for at in ("2026-11-14T09:50", "2026-11-14T10:05"):
+            os.environ["TEENY_NOW"] = str(ts(at))
+            self.assertEqual(catch_up.run([SELF_IMPROVE], core, rearmed=["teeny.self-improve"])["caught_up"], [])
+        self.assertEqual(core.methods(), ["cron_update"])
+
+    def test_a_replaced_ledger_is_noted(self):
+        self.job("j1", SELF_IMPROVE, "2026-11-15T09:40")
+        (self.root / "state" / "catch-up.json").write_text("[1, 2]")
+        out = self.catch_up("2026-11-14T10:00", [SELF_IMPROVE])
+        self.assertIn("started afresh", out["errors"]["ledger"])
+
     def test_no_storage_is_nothing_to_do(self):
         os.environ["TEENY_NOW"] = str(ts("2026-11-14T10:00"))
         self.assertEqual(catch_up.run([SELF_IMPROVE], self.core)["caught_up"], [])

@@ -34,6 +34,19 @@ case "$method" in
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
+    # FAKE_CLAIM_ON_UPDATE=<id>: the core claims that job's slot just before
+    # the update lands, and the update fences the claim (expires_ms 0).
+    if [ -n "${FAKE_CLAIM_ON_UPDATE:-}" ] && [ "$(jq -r .job_id <<<"$params")" = "$FAKE_CLAIM_ON_UPDATE" ]; then
+      python3 - "$TEENY_STORAGE" "$FAKE_CLAIM_ON_UPDATE" <<'PY'
+import json, sqlite3, sys, time
+db = sqlite3.connect(sys.argv[1])
+(body,) = db.execute("select body from docs where coll = 'cron.jobs' and id = ?", (sys.argv[2],)).fetchone()
+lease = f"cron/{sys.argv[2]}%2F{json.loads(body)['next_run_ms']}"
+db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+           (lease, int(time.time() * 1000), json.dumps({"holder": "core-now", "epoch": 1, "expires_ms": 0})))
+db.commit()
+PY
+    fi
     # A patched schedule moves the job's next run to its next slot, as the
     # core's does; here that is simply an hour from now.
     jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch +
@@ -379,7 +392,23 @@ LIVE_CLAIMS=id-teeny.snap storage_from_fake
 seed
 check "a job whose slot a live run holds at boot is not re-armed" test "$(calls cron_update)" = 0
 check "nor caught up" test "$(calls cron_run)" = 0
-check "and seeding says it is running" grep -q 'running teeny.snap' "$scratch/stderr"
+check "and seeding says a recent claim holds it" grep -q 'running teeny.snap (held by a recent claim' "$scratch/stderr"
+# The same race inside the window: the core claims after the live read,
+# before the re-arm lands. The re-arm fences that claim; no second copy.
+reset
+jq -c --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: "id-teeny.snap", name: "teeny.snap",
+  job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+  enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+rm -f "$TEENY_STATE/catch-up.json"
+storage_from_fake
+: >"$FAKE_CALLS"
+FAKE_CLAIM_ON_UPDATE=id-teeny.snap seed
+check "a claim taken while the job is re-armed is never caught up" test "$(calls cron_run)" = 0
+check "and seeding says the core claimed it meanwhile" grep -q 'claimed teeny.snap' "$scratch/stderr"
+storage_from_fake
+: >"$FAKE_CALLS"
+seed
+check "nor at the next boot" test "$(calls cron_run)" = 0
 unset TEENY_STATE TEENY_STORAGE TEENY_QUIET_HOURS
 
 refuses "refuses a catch-up window as long as the gap between slots" \
@@ -397,10 +426,26 @@ refuses "refuses catch-up on a schedule with named days" \
 refuses "refuses catch-up when day of month and day of week are both set" \
   $'[jobs.x]\nschedule = "0 9 1 * 1"\ncommand = "bin/heartbeat"\ncatch_up = true'
 printf '+++\ndescription = "x"\noutput = "hand:moltbook comment"\nsurface = "moltbook"\n+++\nx\n' >"$scratch/playbooks/chatty.md"
-refuses "refuses catch-up on a playbook that posts" \
+refuses_check() {
+  local name="$1" body="$2"
+  printf '%s\n' "$body" >"$toml"
+  if seed --check; then fail "$name"; else pass "$name"; fi
+}
+refuses_check "--check refuses catch-up on a playbook that posts" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act morning"\ncatch_up = true'
-refuses "refuses catch-up on a playbook that comments" \
+refuses_check "--check refuses catch-up on a playbook that comments" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act chatty"\ncatch_up = true'
+printf '+++\ndescription = "x"\n+++\nx\n' >"$scratch/playbooks/vague.md"
+refuses_check "--check refuses catch-up on a playbook that names no output" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act vague"\ncatch_up = true'
+# A playbook edit must never fail a boot: there catch-up is just switched off.
+for book in chatty vague; do
+  reset
+  printf '[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act %s"\ncatch_up = true\n' "$book" >"$toml"
+  if seed; then pass "a boot seeds a $book playbook's job anyway"; else fail "a boot seeds a $book playbook's job anyway"; fi
+  check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
+  check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
+done
 printf '[jobs.bills]\nschedule = "5 1 * * *"\ncommand = "bin/pay-bills"\ncatch_up = true\n' >"$pinned"
 refuses "refuses catch-up on a pinned job that moves money" ''
 : >"$pinned"
