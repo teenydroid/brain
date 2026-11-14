@@ -160,6 +160,17 @@ command = "bin/bounty-pay"
 schedule = "*/15 * * * *"
 command = "bin/gh-inbound"
 
+# The pull-request babysitter (bin/babysit; docs/hands.md, "babysit"): audits
+# every open pull request on teenydroid/brain and teenydroid/diary in code,
+# and logs every prompt-injection attempt it finds (rule and place, never
+# the text). Labels and an audit comment only with BABYSIT=1; a merge only
+# with BABYSIT_MERGE=1, of a pull request a person approved at its exact
+# head (evals/autonomy.toml, merge). Operator-owned: Teeny does not get to
+# switch off the thing that reviews its own pull requests.
+[jobs.babysit]
+schedule = "*/20 * * * *"
+command = "bin/babysit"
+
 # Whether Teeny's model answers at all (bin/health): one tiny question through
 # the core; two failures in a row raise one alarm (a `health` stimulus and one
 # issue on teenydroid/brain), closed again when it answers. Operator-owned:

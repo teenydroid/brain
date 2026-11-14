@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -323,6 +323,71 @@ Under `DRY_RUN`, every acting verb answers `would_*` after every rule ran and
 writes nothing anywhere: not GitHub, git or the ledger. Done actions are
 recorded in `gh_actions` (which also counts the daily cap), reads in
 `gh_cache`.
+
+## `babysit`: reviews, triages and merges pull requests on Teeny's own repositories
+
+The babysitter watches the open pull requests on `BABYSIT_REPOS` (default
+`teenydroid/brain` and `teenydroid/diary`; a repository `GITHUB_USER` does
+not own is never watched). It reads through hands/gh's transport, so the
+token stays hands/gh's, and every word it publishes goes through
+`gh comment` and so through the guard. The pinned `babysit` job
+(`bin/babysit`, every 20 minutes) runs `sweep`. Frozen to Teeny, like
+`gh`: the code that merges Teeny's changes is not Teeny's to edit.
+
+The audit is code, never a model. A pull request is strangers' text, and
+the thing that decides whether it merges must not be something it can talk
+to. It reads the title, body, branch, every commit, every changed file's
+added lines, every comment and review comment, the reviews, the check runs
+and commit statuses, and GitHub's mergeability, and turns them into
+findings `{rule, severity, where, detail?}`. `where` is a field, a path, a
+commit, a comment id or a check name; `detail` is the babysitter's own
+words. A finding never quotes the pull request, and a filename that is not a
+plain path, or that itself talks to a model, is named `path#<digest>`.
+
+| Rule | Severity | When |
+|---|---|---|
+| `injection:<rule>` | block, operator or note | The prompt-injection screen (`babysit/injection.py`) found `override` ("ignore previous instructions"), `role_hijack` ("you are now"), `chat_markup` (`<\|im_start\|>`, `[INST]`, `<system>`, turn markers), `agent_directive` (an AI, bot, reviewer, Teeny or the babysitter told to approve, merge or skip), `exfiltrate` (print your system prompt, `cat secrets/`), `hidden_comment` (an HTML comment written for a model), `encoded_payload` (base64 that decodes to one of these), `invisible_chars`, `bidi_control` (Trojan Source) or `unicode_tags` (ASCII smuggling). The text is NFKC-folded and stripped of invisibles first. In the author's title, body, branch or commits: block for a stranger, operator for anyone else. In the diff: block for a stranger, operator for Teeny, a note for a trusted author (a guard test fixture is legitimate); `bidi_control` and `unicode_tags` block whoever wrote them. In a comment or review by anyone not trusted: operator |
+| `secret`, `secret_path` | block | hands/gh's `secretscan`: a token shape in an added line or a commit message, or a path like `secrets/`, `.env*`, `*.pem` |
+| `frozen` | block or operator | teenydroid/brain only: a path on `evals/frozen.txt`, read from the default branch through `bin/lib/frozen.py`, the check CI runs (this checkout's copy if GitHub cannot be read). Teeny or a stranger: block, since Teeny never sends a diff to a frozen path. Anyone else: an operator signs it off |
+| `prompt_surface` | block | teenydroid/brain: a stranger changing `brain/**`, `evals/**` or `DIRECTIVE.md`, which ride in Teeny's prompts |
+| `sensitive` | operator, or block | `.github/**`, `.gitmodules`, `vendor/**`, dependency manifests and lockfiles, Dockerfiles, the toolchain. A stranger's fork touching `.github/` is blocked |
+| `diary_history` | block | teenydroid/diary: a published receipt, day, closed week or the memory chain edited, removed or renamed (written once; an edit breaks every later hash) |
+| `diary_layout` | block | teenydroid/diary: a file the diary's layout does not have |
+| `diary_data`, `diary_verifier` | operator | teenydroid/diary: data `bin/receipts` writes, or `verify.py` and the workflows that make the receipts checkable |
+| `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
+| `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
+| `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
+| `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
+
+Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
+`senamakel`); a **maintainer** is a login on `BABYSIT_MAINTAINERS` or anyone
+GitHub says can write to the repository; **teeny** is `GITHUB_USER`; anyone
+else, and every `[bot]`, is a **stranger**. Only an operator's or a
+maintainer's words go unscreened.
+
+The verdict is the first that holds: `blocked` (a block finding),
+`failing` (a fail finding), `needs_operator` (an operator finding and no
+operator approved this head), `needs_review` (no operator or maintainer
+other than the author and Teeny approved the exact head commit), `waiting`
+(a wait finding), else `ready`. An approval of an older head never counts.
+
+| Verb | | Does |
+|---|---|---|
+| `queue [--repo OWNER/REPO] [--max N]` | R | Every open pull request on the watched repositories (20 each), audited, worst verdict first, with `counts`. |
+| `audit OWNER/REPO NUMBER` | R | One pull request: `verdict`, `findings`, `tier`, `approved_by`, `head_sha`, `injections` (how many). The `title` is `null` and `title_withheld` true when the title tripped a rule. Records an audit row and each new injection sighting. Writes nothing to GitHub. |
+| `injections [--days N] [--max N]` | R | The injection log, newest first: when, repository, number, head, `who`, `tier`, `rule`, `location` and a 16-hex `digest` of the matched span. Never the span. |
+| `audits [--max N]` | R | The last audits, with their findings. |
+| `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
+| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`. One pull request's refusal or error is listed in `errors`; the rest go on. |
+
+Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
+write nothing to GitHub or the action ledger; the audits are reads and are
+recorded either way. State is `babysit_audits`, `babysit_injections`
+(unique on pull request, who, rule, place and digest, so a payload seen
+twice is logged once) and `babysit_actions` in `state/hands.db`. No row
+holds a pull request's words: the dream and the weekly audit read the
+ledgers, and a payload kept there would reach the model it was written for.
 
 ## `git`: how every git command is set up
 

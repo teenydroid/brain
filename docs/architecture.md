@@ -830,6 +830,11 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
+    babysitter: audits every open pull request on teenydroid/brain and
+    teenydroid/diary in code and logs every prompt-injection attempt;
+    labels and comments only with `BABYSIT=1`, merges a person-approved,
+    green, clean head only with `BABYSIT_MERGE=1` (docs/hands.md, "babysit");
   - `wallet-watch` (`bin/wallet-watch`, every 15 minutes) and
     `wallet-daily` (`bin/wallet-watch daily`, 00:50 UTC), the on-chain
     senses, read only, off until `WALLET_WATCH=1`; `accounts`
