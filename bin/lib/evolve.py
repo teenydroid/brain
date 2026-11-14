@@ -1874,8 +1874,52 @@ def generations_today() -> int:
             started = json.loads(meta.read_text(encoding="utf-8")).get("started_at", "")
         except (OSError, ValueError):
             continue
-        count += str(started).startswith(today)
+        count += str(started).startswith(today) and not _cut_off(meta.parent)
     return count
+
+
+def _cut_off(gdir: Path) -> bool:
+    try:
+        return bool(json.loads((gdir / "result.json").read_text(encoding="utf-8")).get("interrupted"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def unfinished() -> list[int]:
+    """Generations that started and never wrote result.json: a restart
+    ended the container they ran in (2026-11-13: a spine rebuild at 22:44
+    ended gen 5 while its labs measured two gated candidates). Only called
+    under the run lock, so none of them is still running."""
+    return sorted(int(m.parent.name) for m in evolve_dir().glob("*/generation.json")
+                  if m.parent.name.isdigit() and not (m.parent / "result.json").exists())
+
+
+def saved_proposals(gen: int) -> dict[int, Json]:
+    """The proposals gen GEN made before it was cut off, by candidate."""
+    out: dict[int, Json] = {}
+    for path in gen_dir(gen).glob("cand-*.proposal.json"):
+        index = path.name[len("cand-"):-len(".proposal.json")]
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if index.isdigit() and isinstance(saved, dict) and isinstance(saved.get("proposal"), dict):
+            out[int(index)] = saved
+    return out
+
+
+class ResumedProposer:
+    """A cut-off generation's proposals, made again without a model turn;
+    a candidate it never got to goes to the usual proposer."""
+
+    def __init__(self, saved: Mapping[int, Json], fallback: Proposer) -> None:
+        self.saved, self.fallback = saved, fallback
+        self.name = fallback.name
+        self.edits_in_place = getattr(fallback, "edits_in_place", False)
+
+    def propose(self, request: Json) -> Any:
+        saved = self.saved.get(int(request["cand"]))
+        return saved["proposal"] if saved else self.fallback.propose(request)
 
 
 def j_rise(history: list[tuple[float, float]] | None, window_days: int) -> float | None:
@@ -2336,6 +2380,10 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                "frozen": [p for p in frozen_patterns()], "tree": str(tree), "gen_dir": str(gdir)}
     try:
         proposal = check_proposal(proposer.propose(request))
+        if not in_place:
+            # Kept at once: a restart that cuts the generation off later
+            # loses the turn that wrote it, not the proposal (resumable()).
+            write_json(gdir / f"cand-{i}.proposal.json", {"parent": entry["parent"], "proposal": proposal})
         # An editing proposer has written its change already; edits in its
         # answer, if any, are applied on top, by the same rules.
         if not in_place or proposal.get("edits"):
@@ -2532,6 +2580,12 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
                    promoter: Promoter | None = None, restarter: Restarter | None = None) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
+    cut = unfinished()
+    for old in cut:
+        # Before the halts: a cut-off generation does not use up the day.
+        write_json(gen_dir(old) / "result.json", {"gen": old, "interrupted": True, "at": iso(now()),
+                                                  "reason": "it never finished: a restart ended it"})
+    resume_from = cut[-1] if cut and cut[-1] == next_gen() - 1 and saved_proposals(cut[-1]) else None
     if halt_path().exists():
         latched = json.loads(halt_path().read_text(encoding="utf-8"))
         return {"ok": True, "skipped": f"halted ({latched.get('kind')}) until `bin/evolve resume`", "halt": latched}
@@ -2553,13 +2607,25 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
     gdir = gen_dir(gen)
     gdir.mkdir(parents=True)
     write_json(gdir / "generation.json", {"gen": gen, "started_at": iso(now()), "base": base, "source": src.kind,
-                                          "candidates": n, "dry_run": dry_run(), **({"runway": cut} if cut else {})})
+                                          "candidates": n, "dry_run": dry_run(), **({"runway": cut} if cut else {}),
+                                          **({"resumed_from": resume_from} if resume_from else {})})
     entries = archive()
     evidence = observe(entries)
     write_json(gdir / "evidence.json", evidence)
     rng = rng or random.Random(f"{gen}:{base}")
     parents = sample_parents(entries, n, rng)
     proposer = make_proposer(cfg, proposals)
+    if resume_from:
+        saved = saved_proposals(resume_from)
+        say(f"resuming gen {resume_from}: {len(saved)} proposal(s) it made before a restart ended it")
+        proposer = ResumedProposer(saved, proposer)
+        parents = [saved[i]["parent"] if i in saved and saved[i].get("parent") in entries else p
+                   for i, p in enumerate(parents, 1)]
+        old = json.loads((gen_dir(resume_from) / "result.json").read_text(encoding="utf-8"))
+        write_json(gen_dir(resume_from) / "result.json", {**old, "resumed_in": gen})
+        for tree in gen_dir(resume_from).glob("cand-*"):
+            if tree.is_dir():
+                remove_worktree(src, tree)
     mutations = archived_mutations(entries)
     cands, siblings = [], []
     for i, parent_id in enumerate(parents, 1):
@@ -2585,6 +2651,8 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
             close()
     result: Json = {"gen": gen, "base": base, "candidates": [{k: c.get(k) for k in ("id", "parent", "verdict", "title")}
                                                              for c in cands]}
+    if resume_from:
+        result["resumed_from"] = resume_from
     if cut:
         result["runway"] = cut
     if hold:
@@ -2960,7 +3028,7 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
 def status() -> Json:
     entries = archive()
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
-    return {"ok": True, "halt": halt, "generations": next_gen() - 1, "today": generations_today(),
+    return {"ok": True, "halt": halt, "running": running(), "generations": next_gen() - 1, "today": generations_today(),
             "summary": summary(entries), "weights": {k: round(v, 4) for k, v in parent_weights(entries).items()},
             "dry_run": dry_run()}
 
@@ -2984,6 +3052,21 @@ def run_lock(name: str = "evolve"):
             yield True
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def running(name: str = "evolve") -> bool:
+    """Whether a generation holds the run lock now: what to ask before a
+    restart, which ends the container a generation runs in."""
+    path = state_dir() / "locks" / f"{name}.lock"
+    if not path.exists():
+        return False
+    with open(path, "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fh, fcntl.LOCK_UN)
+        return False
 
 
 def _url_map(values: list[str]) -> dict[int, str]:
