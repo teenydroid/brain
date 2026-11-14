@@ -270,17 +270,19 @@ class JudgeTest(support.WithCore):
     def window(self, cut_for: float, ask_secs: float = 1.0):
         """A fake clock and a core that cuts every stream for CUT_FOR seconds
         from the first ask and answers clean after that, each ask taking
-        ASK_SECS: one of Surplus's failure windows. Returns the patches, the
-        clock and the waits made."""
+        ASK_SECS: one of Surplus's failure windows. Returns the clock, the
+        waits made and when each ask was; `self.cut_until` moves the end of
+        the window."""
         self.core(support.verdict("clean"))
         clock = [1000.0]
+        self.cut_until = 1000.0 + cut_for
         slept: list[float] = []
         asks: list[float] = []
 
         def core(method, params, timeout):
             clock[0] += ask_secs
             asks.append(clock[0])
-            if clock[0] - 1000.0 < cut_for:
+            if clock[0] < self.cut_until:
                 raise hand.CoreError(STREAM_CUT)
             return {"response": CLEAN}
 
@@ -336,6 +338,6 @@ class JudgeTest(support.WithCore):
         self.assertEqual(judge("gm", "inbound").verdict, "clean")  # waited 2, 6 and 15
         # Now cut again for good: 30 s of long waits are left, not enough for
         # the 15 s and then the 30 s, so the next text gets 2, 6 and 15.
-        clock[0] = 1000.0
+        self.cut_until = float("inf")
         self.assertEqual(judge("gm", "inbound").category, "unknown")
         self.assertEqual(slept, [2.0, 6.0, 15.0, 2.0, 6.0, 15.0])
