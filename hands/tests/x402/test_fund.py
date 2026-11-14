@@ -165,6 +165,19 @@ class FundTest(Scratch):
         self.at(T0 + 61 * 60)  # past X402_FUND_COOLDOWN_MIN (60): it may have landed short
         self.assertEqual(fund.fund()["kind"], "sent")
 
+    def test_a_bridge_that_paid_a_vendor_is_not_a_top_up_in_flight(self):
+        # hands/surplus bridges straight to the surplus wallet: none of it lands in Teeny's own Base USDC.
+        self.sol_usdc = 1000 * 10**6
+        conn = store.db()
+        try:
+            store.insert_row(conn, "wallet_conversions", kind="bridge", from_chain="solana", from_asset="SOL",
+                             amount_raw="100000000", usd_micro=20_000_000, to_chain="base", to_asset="USDC",
+                             recipient="0x" + "ab" * 20)
+        finally:
+            conn.close()
+        self.at(T0 + 30 * 60)
+        self.assertEqual(fund.fund()["kind"], "sent")
+
     def test_devnet_and_insane_settings_are_refused(self):
         self.configure(WALLET_CLUSTER="devnet")
         self.refused("cluster")

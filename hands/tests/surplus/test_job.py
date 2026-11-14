@@ -67,7 +67,6 @@ class SettingsTest(unittest.TestCase):
     def test_set_but_off_is_still_checked(self):
         self.bad("ceiling", SURPLUS_KEEP_SOL="50")
         self.bad("above zero", SURPLUS_MIN_PAYOUT_USD="0")
-        self.bad("SURPLUS_COOLDOWN_MIN", SURPLUS_COOLDOWN_MIN="1")
         self.bad("is 1 or 0", SURPLUS_SWEEP="sure")
 
 

@@ -17,7 +17,10 @@
                    provider (lifi or debridge) and LI.FI's `tool`: `pending`
                    before the core is asked to execute, then `sent` (with
                    the signature and, for a deBridge bridge, its order id),
-                   `in_doubt`, `failed` or `refused`
+                   `in_doubt`, `failed` or `refused`. `recipient` is NULL
+                   for Teeny's own address; set, the bridge paid an
+                   allowlisted vendor and has its own `wallet_payments` row
+                   (convert.py, "Paying a vendor through a bridge")
   x402_requests    every paid HTTP request (x402) the hand attempted:
                    `pending`, then `paid`, `free` (no 402), `in_doubt`,
                    `failed` or `refused`
@@ -27,7 +30,8 @@ Older checkouts made `wallet_payments` before it had a chain and before ETH,
 and before the `refund` and `bill` purposes (docs/roadmap.md, S3 and S5):
 `db()` rebuilds it once, every old row kept (on `solana` when it had no chain), and gives `vendors` its
 chain column the same way. `wallet_conversions` from before LI.FI gains its
-`provider` and `tool` columns, every old row a deBridge one.
+`provider` and `tool` columns, every old row a deBridge one, and its
+`recipient` column (NULL, Teeny's own address, on every old row).
 
 A `pending`, `in_doubt` or `paid` row counts against every cap, and a
 purpose and ref with such a row is never paid again: an in-doubt payment
@@ -124,6 +128,7 @@ CREATE TABLE IF NOT EXISTS wallet_conversions (
     order_id        TEXT,
     provider        TEXT,
     tool            TEXT,
+    recipient       TEXT,
     status          TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'in_doubt', 'failed', 'refused')),
     error           TEXT
 );
@@ -198,6 +203,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE wallet_conversions ADD COLUMN provider TEXT")
                 conn.execute("ALTER TABLE wallet_conversions ADD COLUMN tool TEXT")
                 conn.execute("UPDATE wallet_conversions SET provider = 'debridge'")
+    if "recipient" not in _columns(conn, "wallet_conversions"):
+        _add_column(conn, "wallet_conversions", "recipient TEXT")
 
 
 def _add_column(conn: sqlite3.Connection, table: str, column: str) -> None:

@@ -1,13 +1,15 @@
 """hands/surplus sweep: USDC on Base above the x402 rail's reserve goes to the
 surplus wallet through wallet.pay (an allowlisted vendor on base, every cap),
-and SOL above its reserve is bridged to Teeny's OWN USDC on Base through
-wallet.convert for the next run to pay on. The core, Solana and the EVM
-networks are faked; nothing is signed."""
+and SOL above its reserve is bridged through LI.FI straight into USDC on Base
+at the surplus wallet (wallet.convert's pay_to), held to the payment caps
+too. The core, Solana and the EVM networks are faked; the LI.FI quote is a
+recorded one (wallet/fixtures/lifi); nothing is signed."""
 
 from __future__ import annotations
 
 from wallet.support import T0, USDC_MAINNET, Scratch, balances, token_accounts
 from wallet.test_evm import evm_quote
+from wallet import test_convert as lifi_fakes
 from x402 import test_fund as fakes
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.surplus import sweep  # noqa: E402
@@ -155,35 +157,7 @@ class SweepTest(Scratch):
         self.assertEqual([r["outcome"] for r in self.runs()], ["in_doubt"])
         self.assertIn("in doubt", self.told()[0]["text"])
 
-    # --- the bridge -----------------------------------------------------------------------
-
-    def test_spare_sol_is_bridged_to_teenys_own_usdc_on_base(self):
-        self.usdc["base"] = 10 * 10**6
-        self.sol = 10 * 10**9  # 9.9 free, half is 5; $50 per tx at $200 a SOL is 0.25
-        out = sweep.sweep()["bridge"]
-        self.assertEqual((out["outcome"], out["amount"], out["clamped_by"]), ("sent", "0.25", "WALLET_MAX_PER_TX_USD"))
-        [params] = self.core.params("openhuman.web3_bridge_quote")
-        self.assertEqual((params["srcChainId"], params["srcChainTokenIn"], params["srcChainTokenInAmount"]),
-                         (chains.DEBRIDGE_SOLANA, chains.SOL_NATIVE, "250000000"))
-        # The bridge lands on Teeny's own address, never the surplus wallet's.
-        self.assertEqual((params["dstChainId"], params["dstChainTokenOutRecipient"]), (8453, fakes.EVM_OWN))
-        self.assertEqual([(r["step"], r["outcome"]) for r in self.runs()], [("bridge", "sent")])
-
-    def test_a_bridge_in_flight_is_not_doubled(self):
-        self.usdc["base"] = 10 * 10**6
-        self.sol = 10 * 10**9
-        sweep.sweep()
-        self.at(T0 + 30 * 60)
-        self.assertEqual(sweep.sweep()["bridge"]["outcome"], "in_flight")
-        self.at(T0 + 61 * 60)
-        self.assertEqual(sweep.sweep()["bridge"]["outcome"], "sent")
-        self.assertEqual(len(self.core.params("openhuman.web3_bridge_quote")), 2)
-
-    def test_the_daily_bridge_cap_clamps_the_bridge(self):
-        self.configure(WALLET_MAX_CONVERT_PER_DAY_USD="30")
-        self.sol = 10 * 10**9
-        out = sweep.sweep()["bridge"]
-        self.assertEqual((out["amount"], out["clamped_by"]), ("0.15", "WALLET_MAX_CONVERT_PER_DAY_USD"))
+    # --- the bridge (no quote) -------------------------------------------------------------
 
     def test_sol_under_the_bridge_minimum_waits(self):
         self.sol = 14 * 10**7  # 0.14: 0.04 above the reserve, under the 0.05 minimum
@@ -192,11 +166,10 @@ class SweepTest(Scratch):
 
     # --- dry run --------------------------------------------------------------------------
 
-    def test_a_dry_run_rehearses_both_steps_and_moves_nothing(self):
+    def test_a_dry_run_rehearses_the_payout_and_moves_nothing(self):
         self.configure(DRY_RUN="1")
-        self.sol = 10 * 10**9
         out = sweep.sweep()
-        self.assertEqual((out["payout"]["outcome"], out["bridge"]["outcome"]), ("would_pay", "would_bridge"))
+        self.assertEqual(out["payout"]["outcome"], "would_pay")
         self.assertEqual(out["payout"]["would_pay"]["to"], SURPLUS)
         self.assertEqual(self.moved(), [])
         self.assertEqual(self.runs(), [])
@@ -207,3 +180,59 @@ class SweepTest(Scratch):
         out = sweep.status()
         self.assertEqual((out["on"], out["to"], out["paid_7d_usd"], out["paid_total_usd"]), (True, SURPLUS, "12.50", "12.50"))
         self.assertEqual(len(out["runs"]), 1)
+
+
+class DirectBridgeTest(lifi_fakes.LifiBase):
+    """The bridge step: spare SOL into USDC on Base at the surplus wallet, in
+    one LI.FI bridge, written as a vendor payment."""
+
+    def setUp(self):
+        super().setUp()
+        # $20 a payment at the test's $200 a SOL: the recorded quote's 0.1 SOL.
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, SURPLUS_SWEEP="1", SURPLUS_ADDRESS=SURPLUS,
+                       WALLET_MAX_PER_TX_USD="20")
+        self.chain.answers["eth_call"] = lifi_fakes.balance_of_call(10 * 10**6)  # Base USDC at the reserve: no payout
+        reads.vendors_add("surplus", SURPLUS, "the surplus wallet", chain="base")
+        self.lifi("bridge", lifi_fakes.paying(lifi_fakes.recorded("sol_to_base_usdc"), SURPLUS))
+        self.simulate(100_000_000 + 146_122)
+
+    def payments(self):
+        conn = store.db()
+        try:
+            return [dict(r) for r in conn.execute("SELECT * FROM wallet_payments ORDER BY id")]
+        finally:
+            conn.close()
+
+    def test_spare_sol_lands_as_usdc_at_the_surplus_wallet_in_one_bridge(self):
+        out = sweep.sweep()
+        self.assertEqual(out["payout"]["outcome"], "nothing")
+        bridge = out["bridge"]
+        self.assertEqual((bridge["outcome"], bridge["amount"], bridge["clamped_by"]), ("sent", "0.1", "WALLET_MAX_PER_TX_USD"))
+        [params] = self.core.params("openhuman.web3_bridge_quote")
+        self.assertEqual((params["dstChainId"], params["dstChainTokenOutRecipient"]), (8453, SURPLUS))
+        self.assertEqual(params["dstChainTokenOutAmount"], "lifi:auto", "LI.FI, whose recipient is checked in the transaction")
+        [paid] = self.payments()
+        self.assertEqual((paid["purpose"], paid["status"], paid["to_address"], paid["ref"]),
+                         ("vendor", "paid", SURPLUS, bridge["ref"]))
+        conn = sweep.db()
+        try:
+            [run] = [dict(r) for r in conn.execute("SELECT * FROM surplus_runs")]
+        finally:
+            conn.close()
+        self.assertEqual((run["step"], run["outcome"], run["payment_id"]), ("bridge", "sent", paid["id"]))
+        self.assertNotIn("openhuman.wallet_prepare_transfer", self.core.methods(), "no transfer on Base, so no gas")
+
+    def test_the_weekly_cap_to_the_surplus_wallet_holds_the_bridge_too(self):
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, SURPLUS_SWEEP="1", SURPLUS_ADDRESS=SURPLUS,
+                       WALLET_MAX_PER_TX_USD="20", WALLET_MAX_PER_RECIPIENT_WEEK_USD="25")
+        self.assertEqual(sweep.sweep()["bridge"]["outcome"], "sent")
+        self.at(T0 + 2 * 3600)
+        out = sweep.sweep()["bridge"]  # $5 left this week: 0.025 SOL, under the 0.05 minimum
+        self.assertEqual((out["outcome"], out["clamped_by"]), ("waiting", "WALLET_MAX_PER_RECIPIENT_WEEK_USD"))
+        self.assertEqual(len(self.core.params("openhuman.web3_bridge_quote")), 1)
+
+    def test_an_address_off_the_vendor_allowlist_gets_no_bridge(self):
+        reads.vendors_remove("surplus")
+        out = sweep.sweep()["bridge"]
+        self.assertEqual((out["outcome"], out["rule"]), ("refused", "vendor"))
+        self.assertEqual(self.core.params("openhuman.web3_bridge_quote"), [])

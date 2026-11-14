@@ -12,16 +12,20 @@ surplus wallet takes only USDC on Base, so each run of the pinned
           being refused. It needs SURPLUS_MIN_GAS_ETH of ETH on Base first
           (an ERC-20 transfer pays gas), and SURPLUS_ADDRESS in the vendors
           allowlist on base, which pay checks again.
-  bridge  SOL above SURPLUS_KEEP_SOL, at most half of it, is bridged to
-          Teeny's OWN USDC on Base through wallet.convert, clamped to
+  bridge  SOL above SURPLUS_KEEP_SOL, at most half of it, is bridged
+          straight into USDC on Base AT THE SURPLUS WALLET, through
+          wallet.convert's one way to pay a vendor (`pay_to`; LI.FI only,
+          the recipient checked inside the signed transaction), ref
+          `surplus-bridge-<time>`. Clamped beforehand to
           WALLET_MAX_PER_TX_USD and what is left of
-          WALLET_MAX_CONVERT_PER_DAY_USD; never while a bridge toward Base
-          USDC from the last SURPLUS_COOLDOWN_MIN minutes may still land,
-          never under SURPLUS_MIN_BRIDGE_SOL. It lands by the next run, whose
-          payout sends it on.
+          WALLET_MAX_CONVERT_PER_DAY_USD, WALLET_MAX_PER_DAY_USD and this
+          address's WALLET_MAX_PER_RECIPIENT_WEEK_USD; never under
+          SURPLUS_MIN_BRIDGE_SOL. It needs no gas on Base and lands in the
+          surplus wallet itself, so nothing waits on it.
 
-The bridge never names the surplus wallet: conversions only ever go to
-Teeny's own address (convert.py). Money leaves only through pay.
+A direct bridge is a payment as much as a conversion: convert writes a
+`wallet_payments` row for it (purpose `vendor`), so every payment cap and
+ledger counts it.
 
 Each step that tried something is one `surplus_runs` row (paid, sent,
 in_doubt, failed, refused), and a payout or bridge that went, or may have
@@ -41,7 +45,6 @@ Core = Callable[..., Any]
 Json = dict[str, Any]
 
 OFF: Json = {"skipped": "the surplus sweep is off (SURPLUS_SWEEP=1 in secrets/teeny.env turns it on)"}
-BRIDGE_REF = "surplus-sweep"
 #: Bridges are rounded down to this many lamports (0.001 SOL).
 SOL_STEP = 1_000_000
 
@@ -209,22 +212,7 @@ def _refused_payout(why: str, rule: str | None, summary: Json) -> Json:
     return {"outcome": "refused", "run_id": run_id, "rule": rule, "why": why, **summary}
 
 
-# --- bridge: SOL above the reserve, to Teeny's own USDC on Base ------------------------
-
-def _in_flight(cooldown: float) -> Any:
-    from ..wallet import store
-
-    conn = store.db()
-    try:
-        marks = ",".join("?" * len(store.CONVERSION_COUNTED))
-        return conn.execute(
-            f"SELECT id, status FROM wallet_conversions WHERE to_chain = 'base' AND to_asset = 'USDC'"
-            f" AND status IN ({marks}) AND created_at > ? ORDER BY id DESC LIMIT 1",
-            (*store.CONVERSION_COUNTED, hand.now() - cooldown),
-        ).fetchone()
-    finally:
-        conn.close()
-
+# --- bridge: SOL above the reserve, straight to the surplus wallet's USDC on Base -------
 
 def _bridge(balance: Mapping[str, Any], found: settings.Sweep, the_caps: Any, core: Core) -> Json:
     from ..wallet import caps, convert, store
@@ -236,9 +224,6 @@ def _bridge(balance: Mapping[str, Any], found: settings.Sweep, the_caps: Any, co
     free = max(0, min(sol - found.keep_sol_raw, sol // 2))
     if free < found.min_bridge_raw:
         return {"outcome": "nothing", **summary}
-    flying = _in_flight(found.cooldown_secs)
-    if flying is not None:
-        return {"outcome": "in_flight", "conversion_id": flying["id"], "status": flying["status"], **summary}
     if the_caps.convert_day_micro is None:
         return _refused_bridge(f"{caps.CONVERT_PER_DAY} is not set, so the wallet bridges nothing", "caps", summary)
     conn = store.db()
@@ -246,8 +231,12 @@ def _bridge(balance: Mapping[str, Any], found: settings.Sweep, the_caps: Any, co
         day_left = the_caps.convert_day_micro - store.converted_since(conn, hand.now() - store.DAY)
     finally:
         conn.close()
+    try:
+        room, bound = _payout_room(found, the_caps)
+    except hand.Refused as exc:
+        return _refused_bridge(exc.reason, exc.detail.get("rule") or "vendor", summary)
     amount, clamped_by = free, None
-    for dollars, name in ((the_caps.per_tx_micro, caps.PER_TX), (day_left, caps.CONVERT_PER_DAY)):
+    for dollars, name in ((day_left, caps.CONVERT_PER_DAY), (room, bound)):
         limit = caps.raw_for_usd("SOL", max(0, dollars), the_caps)
         if limit < amount:
             amount, clamped_by = limit, name
@@ -257,16 +246,18 @@ def _bridge(balance: Mapping[str, Any], found: settings.Sweep, the_caps: Any, co
 
     text = caps.display(amount, "SOL")
     usd = caps.usd_micro("SOL", amount, the_caps)
-    body = {"from_chain": "solana", "from": "SOL", "to_chain": "base", "to": "USDC", "amount": text, "ref": BRIDGE_REF}
-    plan = {**summary, "amount": text, "usd": caps.usd(usd), "clamped_by": clamped_by}
-    fields = {"asset": "SOL", "amount": text, "usd_micro": usd, "ref": BRIDGE_REF}
+    ref = f"surplus-bridge-{int(hand.now())}"
+    body = {"from_chain": "solana", "from": "SOL", "to_chain": "base", "to": "USDC", "amount": text, "ref": ref,
+            "provider": "lifi"}
+    plan = {**summary, "amount": text, "usd": caps.usd(usd), "clamped_by": clamped_by, "to": found.address, "ref": ref}
+    fields = {"asset": "SOL", "amount": text, "usd_micro": usd, "ref": ref, "to_address": found.address}
     conn = store.db()
     try:
         before = int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM wallet_conversions").fetchone()[0])
     finally:
         conn.close()
     try:
-        out = convert.convert("bridge", body, core=core)
+        out = convert.convert("bridge", body, core=core, pay_to=found.address, pay_ref=ref)
     except hand.Refused as exc:
         if hand.dry_run():
             return {"outcome": "refused", "rule": exc.detail.get("rule"), "why": exc.reason, **plan}
@@ -277,16 +268,17 @@ def _bridge(balance: Mapping[str, Any], found: settings.Sweep, the_caps: Any, co
         outcome = "in_doubt" if row is not None and row["status"] in store.CONVERSION_COUNTED else "failed"
         run_id = _record("bridge", outcome, detail=str(exc), conversion_id=row["id"] if row is not None else None, **fields)
         if outcome == "in_doubt":
-            _tell(f"run-{run_id}", f"A bridge of {text} SOL to USDC on Base, on its way to your surplus wallet, is in"
+            _tell(f"run-{run_id}", f"A bridge of {text} SOL into USDC on Base at your surplus wallet is in"
                   f" doubt: {exc} A person checks it; it is never retried.", {"run_id": run_id, "outcome": outcome})
         return {"outcome": outcome, "run_id": run_id, "why": str(exc), **plan}
     if out.get("dry_run"):
         return {"outcome": "would_bridge", "would_convert": out.get("would_convert"), "checks": out.get("checks", []), **plan}
     sent = out["sent"]
-    run_id = _record("bridge", "sent", conversion_id=sent.get("conversion_id"), signature=sent.get("signature"), **fields)
+    run_id = _record("bridge", "sent", conversion_id=sent.get("conversion_id"), payment_id=sent.get("payment_id"),
+                     signature=sent.get("signature"), **fields)
     _tell(f"run-{run_id}",
-          f"You bridged {text} SOL into USDC on Base (about ${plan['usd']} at your fixed SOL price), your spare SOL on"
-          " its way to your surplus wallet. Once it lands, the next sweep pays it on.",
+          f"You bridged {text} SOL (about ${plan['usd']} at your fixed SOL price) straight into USDC on Base at your"
+          f" surplus wallet ({found.address}); at least {sent.get('minimum')} USDC lands there in a few minutes.",
           {"run_id": run_id, "outcome": "sent", "conversion_id": sent.get("conversion_id"), "amount": text})
     return {"outcome": "sent", "run_id": run_id, **plan, "sent": sent}
 
@@ -359,10 +351,9 @@ def status() -> Json:
         out["settings_error"] = str(exc)
     conn = db()
     try:
-        week = conn.execute("SELECT COALESCE(SUM(usd_micro), 0) FROM surplus_runs WHERE step = 'payout'"
-                            " AND outcome IN ('paid', 'in_doubt') AND at > ?", (hand.now() - 7 * 86400.0,)).fetchone()[0]
-        total = conn.execute("SELECT COALESCE(SUM(usd_micro), 0) FROM surplus_runs WHERE step = 'payout'"
-                             " AND outcome = 'paid'").fetchone()[0]
+        week = conn.execute("SELECT COALESCE(SUM(usd_micro), 0) FROM surplus_runs WHERE outcome IN ('paid', 'sent', 'in_doubt')"
+                            " AND at > ?", (hand.now() - 7 * 86400.0,)).fetchone()[0]
+        total = conn.execute("SELECT COALESCE(SUM(usd_micro), 0) FROM surplus_runs WHERE outcome IN ('paid', 'sent')").fetchone()[0]
     finally:
         conn.close()
     out["paid_7d_usd"] = caps.usd(int(week))

@@ -599,3 +599,123 @@ class ProviderTest(LifiBase):
         self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_CONVERT_PROVIDER="jupiter")
         self.refused("swap", self.ETH_SWAP, "caps")
         self.assertEqual([m for m in self.core.methods() if m.endswith("_quote")], [])
+
+
+# --- paying a vendor through a bridge ---------------------------------------------------
+
+PAYEE = "0xb8750da63a6f9e65062e33604356f3dfe620e563"
+
+
+def paying(raw: dict, address: str) -> dict:
+    """The recorded Solana bridge, quoted to `address` instead of Teeny's own
+    Base address: in LI.FI's answer and inside the transaction itself."""
+    own = EVM_OWN.lower()
+
+    def swap(value):
+        if isinstance(value, dict):
+            return {k: swap(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [swap(v) for v in value]
+        return address if isinstance(value, str) and value.lower() == own else value
+
+    raw = swap(copy.deepcopy(raw))
+
+    def rewrite(wire):
+        at = wire.index(bytes.fromhex(own[2:]))
+        wire[at:at + 20] = bytes.fromhex(address[2:])
+
+    return with_tx_bytes(raw, rewrite)
+
+
+class PayeeBridgeTest(LifiBase):
+    """convert(..., pay_to=, pay_ref=): a bridge whose output lands at an
+    allowlisted vendor, never named by a body field, LI.FI only, held to
+    pay's caps and written as a payment too."""
+
+    SOL_TO_BASE = {"from_chain": "solana", "from": "SOL", "to_chain": "base", "to": "USDC", "amount": "0.1"}
+
+    def setUp(self):
+        super().setUp()
+        from teeny_hands.wallet import reads
+
+        reads.vendors_add("surplus", PAYEE, "the surplus wallet", chain="base")
+        self.lifi("bridge", paying(recorded("sol_to_base_usdc"), PAYEE))
+        self.simulate(100_000_000 + 146_122)
+
+    def bridge(self, **kw):
+        return convert.convert("bridge", self.SOL_TO_BASE, pay_to=kw.get("to", PAYEE), pay_ref=kw.get("ref", "surplus-bridge-1"))
+
+    def refused_paying(self, rule, **kw):
+        before = len(self.moved())
+        with self.assertRaises(hand.Refused) as caught:
+            self.bridge(**kw)
+        self.assertEqual(caught.exception.detail.get("rule"), rule, caught.exception.reason)
+        self.assertEqual(len(self.moved()), before, "a refusal must not execute")
+        return caught.exception
+
+    def payments(self):
+        conn = store.db()
+        try:
+            return [dict(r) for r in conn.execute("SELECT * FROM wallet_payments ORDER BY id")]
+        finally:
+            conn.close()
+
+    def test_the_output_lands_at_the_vendor_and_is_a_payment(self):
+        out = self.bridge()["sent"]
+        [params] = self.core.params("openhuman.web3_bridge_quote")
+        self.assertEqual(params["dstChainTokenOutRecipient"], PAYEE)
+        self.assertEqual(params["srcChainOrderAuthorityAddress"], OWN)
+        self.assertEqual((out["recipient"], out["vendor"], out["ref"]), (PAYEE, "surplus", "surplus-bridge-1"))
+        [row] = self.rows()
+        self.assertEqual((row["status"], row["recipient"]), ("sent", PAYEE))
+        [paid] = self.payments()
+        self.assertEqual(
+            (paid["purpose"], paid["ref"], paid["status"], paid["to_address"], paid["chain"], paid["asset"], paid["amount_raw"],
+             paid["signature"]),
+            ("vendor", "surplus-bridge-1", "paid", PAYEE, "solana", "SOL", 100000000, "5bridgeSig"))
+        self.assertEqual(out["payment_id"], paid["id"])
+
+    def test_a_quote_that_still_pays_teeny_is_refused(self):
+        self.lifi("bridge", recorded("sol_to_base_usdc"))
+        self.assertIn("recipient", self.refused_paying("quote").reason)
+        self.assertEqual(self.payments(), [])
+
+    def test_a_vendor_off_the_allowlist_on_that_chain_is_refused(self):
+        self.refused_paying("vendor", to="0x" + "ab" * 20)
+        self.assertEqual(self.payments(), [])
+
+    def test_only_lifi_only_a_bridge_and_never_teeny_itself(self):
+        with self.assertRaises(hand.Refused) as caught:
+            convert.convert("bridge", {**self.SOL_TO_BASE, "provider": "debridge"}, pay_to=PAYEE, pay_ref="r")
+        self.assertEqual(caught.exception.detail["rule"], "payee")
+        with self.assertRaises(hand.Refused) as caught:
+            convert.convert("swap", {"chain": "solana", "from": "SOL", "to": "USDC", "amount": "0.1"}, pay_to=PAYEE, pay_ref="r")
+        self.assertEqual(caught.exception.detail["rule"], "payee")
+        self.refused_paying("payee", to=EVM_OWN)
+        self.refused_paying("payee", ref="")
+        self.assertEqual(self.core.params("openhuman.web3_bridge_quote"), [])
+
+    def test_pays_caps_count_it_and_a_ref_is_paid_once(self):
+        self.bridge()
+        self.refused_paying("duplicate")
+        # $20 at the fixed $200 a SOL went to this address; the week allows $60 (support.CAPS).
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, WALLET_MAX_PER_RECIPIENT_WEEK_USD="50", WALLET_MAX_PER_TX_USD="30")
+        self.bridge(ref="surplus-bridge-2")
+        error = self.refused_paying("per_recipient_week", ref="surplus-bridge-3")
+        self.assertIn("$60.00", error.reason)
+
+    def test_an_execute_that_does_not_come_back_leaves_the_payment_in_doubt(self):
+        from wallet.support import Failure
+
+        self.core.answers["openhuman.web3_bridge_execute"] = Failure("timeout")
+        with self.assertRaises(hand.HandError):
+            self.bridge()
+        [paid] = self.payments()
+        self.assertEqual(paid["status"], "in_doubt")
+        self.assertEqual(self.rows()[0]["status"], "in_doubt")
+
+    def test_a_dry_run_writes_no_payment(self):
+        self.configure(EVM_RPC_URL_BASE=self.chain.url, DRY_RUN="1")
+        out = self.bridge()
+        self.assertEqual(out["would_convert"]["recipient"], PAYEE)
+        self.assertEqual((self.rows(), self.payments(), self.moved()), ([], [], []))
