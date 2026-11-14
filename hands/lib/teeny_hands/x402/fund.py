@@ -16,7 +16,8 @@ adds, under the `x402-fund` lock:
   caps        the X402_FUND_* keys are set and sane (settings.py)
   cluster     the wallet is on mainnet
   funded      Base USDC at or over X402_FUND_FLOOR_USD: nothing to do
-  in_flight   a swap or bridge toward Base USDC is pending, sent or in doubt
+  in_flight   a swap or bridge toward Teeny's own Base USDC (not one that
+              paid a vendor) is pending, sent or in doubt
               from the last X402_FUND_COOLDOWN_MIN minutes: it may still land,
               so nothing more is sent (a bridge takes minutes)
   fund_day    X402_FUND_MAX_PER_DAY_USD is spent for the last 24 hours (a top-up
@@ -164,7 +165,7 @@ def _in_flight(cooldown: float) -> Any:
         marks = ",".join("?" * len(store.CONVERSION_COUNTED))
         return conn.execute(
             f"SELECT id, status, created_at FROM wallet_conversions WHERE to_chain = 'base' AND to_asset = 'USDC'"
-            f" AND status IN ({marks}) AND created_at > ? ORDER BY id DESC LIMIT 1",
+            f" AND recipient IS NULL AND status IN ({marks}) AND created_at > ? ORDER BY id DESC LIMIT 1",
             (*store.CONVERSION_COUNTED, hand.now() - cooldown),
         ).fetchone()
     finally:
