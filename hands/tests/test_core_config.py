@@ -87,6 +87,13 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
         self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
 
+    def test_the_browser_saves_its_own_pictures_where_the_task_desk_collects_them(self):
+        # Without it the operator's tasks ended with no screenshot: its
+        # browser tool has no screenshot action (hands/tasks _captured).
+        browser = self.written()["browser"]
+        self.assertEqual(browser["screenshot_dir"], str(self.root / "state" / "browser" / "screenshots"))
+        self.assertTrue((self.root / "state" / "browser" / "screenshots").is_dir())
+
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
         # gate on browser egress), and TinyBus admits a callback-bound load

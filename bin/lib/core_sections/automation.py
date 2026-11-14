@@ -14,7 +14,9 @@ linked module.
                  `full` keeps cron shell jobs (bin/<job>) running as before:
                  the tier gates what an agent may do, the hands keep the rules
   [browser]      TinyComputer, headless, a fresh profile per session,
-                 downloads under state/browser/, the actions an unattended
+                 downloads under state/browser/, a picture of each page
+                 it opens or acts on in state/browser/screenshots/ (which
+                 hands/tasks hands to the task's report), the actions an unattended
                  run may take, and bin/keychain-fill as the password source
                  for the operator's {{keychain:<site>}} placeholder. It
                  opens any public https page (bin/spine sets
@@ -110,7 +112,8 @@ def tables(root: Path) -> dict[str, str]:
 
     workbench = root / "state" / "workbench"
     downloads = root / "state" / "browser" / "downloads"
-    for folder in (workbench, downloads, root / "state" / "media"):
+    pictures = root / "state" / "browser" / "screenshots"
+    for folder in (workbench, downloads, pictures, root / "state" / "media"):
         folder.mkdir(parents=True, exist_ok=True)
 
     brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
@@ -144,6 +147,7 @@ def tables(root: Path) -> dict[str, str]:
         "headless = true\n"
         'profile_mode = "fresh"\n'
         f"download_dir = {_s(str(downloads))}\n"
+        f"screenshot_dir = {_s(str(pictures))}\n"
         f"unattended_actions = {_list(UNATTENDED_ACTIONS)}\n"
         # The browser's password source for the operator's {{keychain:<site>}}
         # placeholder (hands/keychain): the core runs it only after it checked
