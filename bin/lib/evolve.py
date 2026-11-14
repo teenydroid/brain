@@ -192,6 +192,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_J_WINDOW_DAYS": ("7", int, 1, 90),
     "EVOLVE_DUP_THRESHOLD": ("0.9", float, 0.0, 1.0),
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
+    # Confirming samples per side for a task that flipped (bin/eval, docs/evolve.md).
+    "EVOLVE_CONFIRM_SAMPLES": ("4", int, 0, 10),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
     "EVOLVE_CREDIT_DAYS": ("7", int, 1, 90),
     "EVOLVE_CREDIT_DECAY": ("0.5", float, 0.0, 1.0),
@@ -1749,8 +1751,8 @@ class LabCore:
     is used, with the live core's token."""
 
     def __init__(self, cand_url: str, base_url: str | None, samples: int, cand_env: Mapping[str, str] | None = None,
-                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None) -> None:
-        self.cand_url, self.base_url, self.samples = cand_url, base_url, samples
+                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None, confirm: int = 0) -> None:
+        self.cand_url, self.base_url, self.samples, self.confirm = cand_url, base_url, samples, confirm
         self.cand_env = dict(cand_env or ({"OPENHUMAN_CORE_URL": cand_url} if cand_url else {}))
         self.base_env = dict(base_env or ({"OPENHUMAN_CORE_URL": base_url} if base_url else {}))
         self.judge_model = judge_model
@@ -1781,6 +1783,21 @@ class LabCore:
         if done.returncode not in (0, 2):
             raise EvolveError(f"the compare failed: {done.stderr.strip()[-300:]}")
         report = json.loads((cand_run / "compare" / "report.json").read_text(encoding="utf-8"))
+        suspects = report.get("suspects") or []
+        if suspects and self.confirm:
+            # A task that flipped on two samples is a hypothesis: both sides
+            # draft more of it (the baseline's are kept for the generation),
+            # and the verdict is taken again (docs/evolve.md).
+            only = ",".join(suspects)
+            for env, run in ((self.base_env, base_run), (self.cand_env, cand_run)):
+                done = self._eval(env, "run", "--confirm", "--samples", str(self.confirm), "--only", only, str(run))
+                if done.returncode != 0:
+                    raise EvolveError(f"the confirming run failed: {done.stderr.strip()[-300:]}")
+            done = self._eval(self.base_env, "compare", "--rescore", "--threshold", str(threshold),
+                              "--min-pairs", str(MIN_PAIRS), *held, str(base_run), str(cand_run), str(cand_run / "compare"))
+            if done.returncode not in (0, 2):
+                raise EvolveError(f"the rescore failed: {done.stderr.strip()[-300:]}")
+            report = json.loads((cand_run / "compare" / "report.json").read_text(encoding="utf-8"))
         # "inconclusive": too few samples drafted to decide (bin/eval); it
         # is never promoted, and its change may be proposed again.
         verdict = "won" if report.get("promote") else "inconclusive" if report.get("verdict") == "inconclusive" \
@@ -1793,7 +1810,7 @@ class LabCore:
 def report_scores(report: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
     out = {k: report.get(k) for k in ("promote", "verdict", "reason", "wins", "losses", "ties", "decided", "win_rate",
-                                      "threshold", "regressions", "judge_model")}
+                                      "threshold", "regressions", "suspects", "confirmed", "judge_model")}
     missing = report.get("missing")
     if isinstance(missing, Mapping):
         out["missing"] = {side: len(missing.get(side) or []) for side in ("base", "cand")}
@@ -1843,7 +1860,8 @@ class LabEvaluator:
                          self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
         try:
             got = LabCore(lab.url, base_url, self.cfg["EVOLVE_EVAL_SAMPLES"], cand_env=lab.env(), base_env=base_env,
-                          judge_model=self.cfg.judge_model).evaluate(gen_dir, cand, src)
+                          judge_model=self.cfg.judge_model,
+                          confirm=self.cfg["EVOLVE_CONFIRM_SAMPLES"]).evaluate(gen_dir, cand, src)
             if self.cfg["EVOLVE_PROBES"]:
                 got["probe"] = self._probe(gen_dir, cand, lab.env(), base_env)
         finally:
@@ -2638,7 +2656,8 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
 
 
 def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Config) -> dict[int, Evaluator]:
-    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model)
+    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                       confirm=cfg["EVOLVE_CONFIRM_SAMPLES"])
             for i, url in cand_urls.items()}
 
 
@@ -2770,7 +2789,8 @@ def evaluate_cmd(cfg: Config, gen: int, i: int, url: str, base_url: str | None) 
     cand = cands.get(i)
     if cand is None or not cand.get("gate", {}).get("ok"):
         raise EvolveError(f"generation {gen} has no gated candidate {i}")
-    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model), cand, source())
+    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                         confirm=cfg["EVOLVE_CONFIRM_SAMPLES"]), cand, source())
     record(cand)
     return {"ok": True, "id": cand["id"], "verdict": cand["verdict"], "scores": cand.get("scores")}
 
