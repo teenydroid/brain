@@ -133,7 +133,7 @@ class TickTest(unittest.TestCase):
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
                     "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "FAKE_REFUSALS_MAIL", "FAKE_REFUSALS_TELEGRAM",
-                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN"):
+                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN", "FAKE_UPLOAD_FAIL"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -1972,8 +1972,13 @@ class TickTest(unittest.TestCase):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600)])
         self.answer({"thought": "", "intents": [{"do": "post_x", "text": "later", "shots": 7}]})
         self.tick()
-        kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
+        print(self.runs()[-1]["results"]); kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
         self.assertEqual(kept[0]["media_ids"], ["777"])
+        os.environ.pop("FAKE_REFUSALS_X")
+        self.at(600)
+        self.tick()
+        self.assertEqual(self.sent("post")[-1]["body"], {"text": "later", "media_ids": ["777"]})
+        self.assertEqual(len(self.sent("upload")), 1)  # not uploaded again
 
     def test_a_reply_can_carry_a_picture_or_a_gif(self):
         stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
