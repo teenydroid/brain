@@ -36,6 +36,8 @@ STRANGER = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
 TINY = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
 USDC_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 USDC_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+#: The phrase's Bitcoin account: native segwit, as the core derives it.
+BTC_OWN = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
 
 CAPS = {
     "WALLET_CLUSTER": "devnet",
@@ -138,6 +140,7 @@ def status_with(address: str = OWN) -> dict[str, Any]:
         "accounts": [
             {"chain": "evm", "address": "0x" + "1" * 40, "derivationPath": "m/44'/60'/0'/0/0"},
             {"chain": "solana", "address": address, "derivationPath": "m/44'/501'/0'/0'"},
+            {"chain": "btc", "address": BTC_OWN, "derivationPath": "m/44'/0'/0'/0/0"},
         ],
         "updatedAtMs": 1,
     }
@@ -147,6 +150,7 @@ def balances(sol_raw: int, status: str = "ready") -> list[dict[str, Any]]:
     return [
         {"chain": "evm", "evmNetwork": "ethereum_mainnet", "address": "0x" + "1" * 40, "assetSymbol": "ETH", "decimals": 18, "raw": "0", "formatted": "0", "providerStatus": "ready"},
         {"chain": "solana", "address": OWN, "assetSymbol": "SOL", "decimals": 9, "raw": str(sol_raw), "formatted": "x", "providerStatus": status},
+        {"chain": "btc", "address": BTC_OWN, "assetSymbol": "BTC", "decimals": 8, "raw": "0", "formatted": "0", "providerStatus": "ready"},
     ]
 
 
