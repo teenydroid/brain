@@ -193,3 +193,46 @@ def secret_for(host: str, handle_: str | None = None) -> str:
     if not matching:
         raise hand.Refused(f"no password for {host}", rule="unknown", site=host)
     return _open(matching[0], handle_)[1]
+
+
+#: Second-level labels under which a site is one label deeper (example.co.uk).
+_TWO_LEVEL = ("co", "com", "org", "net", "ac", "gov", "edu", "ne", "or")
+
+
+def site_of(host: str) -> str:
+    """The site a page host belongs to: its registrable name, roughly (the
+    last two labels, three under a country's `co.`/`com.` and the like), so
+    a login page on accounts.example.com fills the example.com password."""
+    labels = host.strip().lower().rstrip(".").split(".")
+    keep = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _TWO_LEVEL else 2
+    return ".".join(labels[-keep:])
+
+
+def ready() -> bool:
+    """Whether the keychain can seal and open: secrets/keychain.env holds a
+    good key and the cipher is installed."""
+    try:
+        _cipher()
+    except hand.HandError:
+        return False
+    return True
+
+
+def account_for(site_: str, create_handle: str | None = None) -> Json | None:
+    """The account the keychain holds on a site (the first by handle), made
+    with `create_handle` when there is none and one is asked for. None when
+    the keychain is not set up, or holds nothing and nothing was asked."""
+    if not ready():
+        return None
+    site_ = site(site_)
+    conn = _db()
+    try:
+        row = conn.execute("SELECT site, handle FROM keychain WHERE site = ? ORDER BY handle LIMIT 1",
+                           (site_,)).fetchone()
+    finally:
+        conn.close()
+    if row is not None:
+        return {"site": row["site"], "handle": row["handle"], "created": False}
+    if create_handle is None:
+        return None
+    return create(site_, create_handle)

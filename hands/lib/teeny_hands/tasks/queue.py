@@ -302,6 +302,9 @@ def _offer(task: Json, resumed: bool = False, mail_codes: list[Json] | None = No
         offered["never_open"] = websites.load_deny()
     except (OSError, websites.BadList):
         offered["never_open"] = []
+    login = _login(task)
+    if login is not None:
+        offered["login"] = login
     email = hand.setting("AGENTMAIL_INBOX")
     if email:
         offered["email"] = email
@@ -309,6 +312,26 @@ def _offer(task: Json, resumed: bool = False, mail_codes: list[Json] | None = No
         offered["mail_codes"] = mail_codes
         offered["resumed"] = True
     return {"task": offered, "rules": RULES}
+
+
+def _login(task: Json) -> Json | None:
+    """The account Teeny holds on the task's site, as the operator types it:
+    the handle, and the password only as `{{keychain:<site>}}`, which the
+    browser swaps for the real one on that site's own pages (hands/keychain,
+    bin/keychain-fill). A signup makes the account first, with Teeny's inbox
+    as its handle. None when the keychain is not set up or holds nothing."""
+    from ..keychain import store as keychain
+
+    site = keychain.site_of(websites.host_of(task["start_url"]))
+    handle = (hand.setting("AGENTMAIL_INBOX") or "").strip() if task["kind"] == SIGNUP else None
+    try:
+        account = keychain.account_for(site, handle or None)
+    except (hand.HandError, hand.Refused, sqlite3.Error):
+        return None
+    if account is None:
+        return None
+    return {"site": account["site"], "handle": account["handle"],
+            "password": "{{keychain:%s}}" % account["site"]}
 
 
 def _code_for(conn: sqlite3.Connection, row: sqlite3.Row) -> list[Json] | None:
