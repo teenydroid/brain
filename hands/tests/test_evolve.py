@@ -935,6 +935,8 @@ class AskProposerTurn(EvolveCase):
         self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
         self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
         self.assertIn("This candidate looks first at", message)
+        self.assertIn("An idea heard outside (outcomes.outside.heard", message)
+        self.assertIn("fair evidence when you say what you heard and where", message)
 
 
 if __name__ == "__main__":
