@@ -1,8 +1,9 @@
 """The verbs of hands/tasks (docs/hands.md, "tasks"). `desk` runs from cron
 (bin/tasks-desk); the operator agent only reads and writes the desk files.
 
-  A  add                       stdin {goal, start_url, done_when, kind?}; the start page
-                               must be on deploy/browser-allow.txt
+  A  add                       stdin {goal, start_url, done_when, kind?}; the start page is
+                               any public https page off deploy/browser-deny.txt; from the
+                               mind or a playbook, off the reviewed list, a reputed link
   A  next                      claim a task: the operator's open one, else the oldest pending
   A  done                      stdin {task_id, outcome: ok|failed|needs_human, notes,
                                screenshots?: [paths], account?: {handle}}; images are copied under

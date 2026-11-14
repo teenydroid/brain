@@ -26,7 +26,7 @@ that stimulus is the operator's report on it.
 A task of kind `signup` is Teeny signing itself up somewhere. When it ends
 ok, the operator's report names the account (`account: {"handle": ...}`)
 and one row lands in `accounts` (docs/roadmap.md, A12): the site (the task's
-start page, on the allowed websites), the handle, why (the task's goal) and
+start page, never on deploy/browser-deny.txt), the handle, why (the task's goal) and
 when. Only the handle is taken: an account object with any other field (a
 password, a key) is refused, so no secret can land in the ledger.
 
