@@ -208,6 +208,69 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
     return {"draft": draft, "checks": checks, "ok": all(c["ok"] for c in checks)}
 
 
+# --- turns that fail ----------------------------------------------------------------
+
+
+#: How often a turn that fails is tried, in all (EVAL_TURN_TRIES).
+TURN_TRIES = 3
+#: Seconds before the first retry; each later one waits three times longer
+#: (EVAL_RETRY_WAIT).
+RETRY_WAIT = 30.0
+#: Seconds one run (a `draft` or a `judge`) may spend waiting to retry, in
+#: all (EVAL_RETRY_BUDGET). The provider drops streams in windows lasting
+#: minutes; a run that would wait longer than this is in an outage, and its
+#: turns are tried once each so the generation still ends on time.
+RETRY_BUDGET = 900.0
+
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, ""))
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+class Retrier:
+    """Runs a turn until it answers, up to EVAL_TURN_TRIES times, waiting
+    EVAL_RETRY_WAIT seconds and three times longer each time, out of a
+    budget of EVAL_RETRY_BUDGET seconds for the whole run. A turn that
+    fails is one whose command exits non-zero: no answer came back (the
+    provider dropped the stream, the core refused the session). An answer
+    that does not parse is the model's, and is never retried."""
+
+    def __init__(self, sleep=None) -> None:
+        import time
+
+        self.tries = max(1, int(_env_number("EVAL_TURN_TRIES", TURN_TRIES)))
+        self.wait = _env_number("EVAL_RETRY_WAIT", RETRY_WAIT)
+        self.budget = _env_number("EVAL_RETRY_BUDGET", RETRY_BUDGET)
+        self.sleep = sleep or time.sleep
+
+    def run(self, argv: list[str], message: str) -> tuple[subprocess.CompletedProcess, int]:
+        """The turn's last result and how many times it was tried."""
+        attempt = 0
+        while True:
+            attempt += 1
+            turn = subprocess.run(fresh(argv), input=message, capture_output=True, text=True)
+            pause = self.wait * 3 ** (attempt - 1)
+            if turn.returncode == 0 or attempt >= self.tries or pause > self.budget:
+                return turn, attempt
+            print(f"[eval] a turn failed ({turn.stderr.strip()[-120:]}); trying again in {pause:.0f}s",
+                  file=sys.stderr)
+            self.budget -= pause
+            self.sleep(pause)
+
+
+def no_sample(record: dict) -> bool:
+    """A draft record whose turn never answered: it measured nothing.
+    Records from before `no_sample` existed carry a failed `turn` check."""
+    if record.get("no_sample"):
+        return True
+    return record.get("draft") is None and any(c.get("check") == "turn" and not c.get("ok")
+                                                for c in record.get("checks", []))
+
+
 def fresh(ask: list[str]) -> list[str]:
     """`ask` on a thread of its own. A turn with no thread resumes the
     agent's newest transcript (the live `teeny:act` thread bin/act drafts
@@ -217,25 +280,31 @@ def fresh(ask: list[str]) -> list[str]:
 
 def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
-    --agent act) and checked."""
+    --agent act) and checked. A turn that never answers, after its retries,
+    is written with `no_sample`: no draft, and nothing it says about the
+    brain (docs/evolve.md, "A sample with no draft")."""
     tasks = [load_task(evals, task_id) for task_id in ids]
-    drafted = passed = 0
+    retrier = Retrier()
+    drafted = passed = missing = 0
     with out.open("w", encoding="utf-8") as fh:
         for task in tasks:
             message = render(task)
             for sample in range(1, samples + 1):
-                turn = subprocess.run(fresh(ask), input=message, capture_output=True, text=True)
+                turn, attempts = retrier.run(ask, message)
+                extra: dict = {"attempts": attempts}
                 if turn.returncode == 0:
                     result = check(task, turn.stdout, hands_lib)
                 else:
                     result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
+                    extra["no_sample"] = True
+                    missing += 1
                 fh.write(json.dumps({"task": task["id"], "sample": sample, "heldout": task["heldout"],
-                                     "answer": turn.stdout[:4000], **result}, ensure_ascii=False) + "\n")
+                                     "answer": turn.stdout[:4000], **result, **extra}, ensure_ascii=False) + "\n")
                 failed = [c["check"] for c in result["checks"] if not c["ok"]]
                 print(f"[eval] {task['id']} #{sample}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
                 drafted += 1
                 passed += result["ok"]
-    return {"drafts": drafted, "ok": passed}
+    return {"drafts": drafted, "ok": passed, "no_sample": missing}
 
 
 # --- invariants ------------------------------------------------------------------------
@@ -350,15 +419,17 @@ def pairs(base_path: Path, cand_path: Path) -> list[dict]:
 
 def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str]) -> int:
     """Every pair, judged twice by `ask` (bin/ask --agent judge): the
-    baseline shown as draft 1, then the candidate. A turn that fails is an
-    unusable answer, so a tie."""
+    baseline shown as draft 1, then the candidate. A turn that fails is
+    tried again (Retrier); one that never answers is an unusable answer, so
+    a tie."""
     count = 0
+    retrier = Retrier()
     with out.open("w", encoding="utf-8") as fh:
         for pair in pairs(base_path, cand_path):
             task = load_task(evals, pair["task"])
             verdicts = []
             for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
-                turn = subprocess.run(fresh(ask), input=judge_message(evals, brain, task, drafts), capture_output=True, text=True)
+                turn, _ = retrier.run(ask, judge_message(evals, brain, task, drafts))
                 verdicts.append(verdict(turn.stdout if turn.returncode == 0 else ""))
                 if turn.returncode != 0:
                     verdicts[-1]["notes"] = f"the judge's turn failed: {turn.stderr.strip()[-300:]}"
