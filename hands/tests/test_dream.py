@@ -50,6 +50,17 @@ else:
     sys.exit(f"unexpected {method}")
 """
 
+FAKE_WALLET = """#!/usr/bin/env python3
+import json
+print(json.dumps({"sol": {"display": "0.42 SOL"}, "usdc": {"display": "12.5 USDC"}, "tiny": {"display": "1000"},
+                  "evm": {"networks": {"base": {"eth": {"display": "0.01 ETH"}, "usdc": {"display": "3 USDC"}}}}}))
+"""
+
+FAKE_X402 = """#!/usr/bin/env python3
+import json
+print(json.dumps({"ok": True, "base_usdc": "3.00"}))
+"""
+
 PAGE = "# MEMORY.md\n\nwhat i keep in mind.\n\n## people\n\n- [m1] ana (x): builds a cli for crabs.\n"
 
 ITEMS = [
@@ -79,6 +90,11 @@ class DreamTest(unittest.TestCase):
         oh = self.scratch / "fake-oh"
         oh.write_text(FAKE_OH)
         oh.chmod(oh.stat().st_mode | stat.S_IEXEC)
+        hands = self.scratch / "hands"
+        hands.mkdir()
+        for name, text in (("wallet", FAKE_WALLET), ("x402", FAKE_X402)):
+            (hands / name).write_text(text)
+            (hands / name).chmod(0o755)
         self.calls = self.scratch / "calls.log"
         self.answer_file = self.scratch / "answer.txt"
         self.items = self.scratch / "items.json"
@@ -88,6 +104,7 @@ class DreamTest(unittest.TestCase):
             TEENY_ROOT=str(self.root),
             OPENHUMAN_WORKSPACE=str(brain),
             TEENY_OH=str(oh),
+            TEENY_HANDS=str(hands),
             OPENHUMAN_CORE_TOKEN="t",
             TEENY_NOW=str(T0),
             FAKE_CALLS=str(self.calls),
@@ -192,6 +209,60 @@ class DreamTest(unittest.TestCase):
         self.assertNotIn("beat 0 ", message)
         self.assertRegex(message, r"the \d+ earliest beats are left out")
         self.assertRegex(message, r"\d+ older ones are left out")
+
+    def test_both_dreams_see_the_scoreboard_the_lab_and_what_is_true_now(self):
+        from teeny_hands.lab import ledger
+
+        ledger.propose({"surface": "x", "hypothesis": "takes beat gm", "format": "take", "posts": 2, "deadline_days": 5})
+        for light in (False, True):
+            self.calls.unlink(missing_ok=True)
+            self.answer({"ops": [], "diary": "d"})
+            self.assertTrue(self.dream(*(["--light"] if light else []))["ok"])
+            message = self.message()
+            for heading in ("## the scoreboard", "## your experiments", "## what the lab has learned", "## true right now"):
+                self.assertIn(heading, message)
+            self.assertIn("#1 x `take` (result): 0 of 2 posts measured", message)
+            self.assertIn("wallet on Solana: SOL 0.42 SOL, USDC 12.5 USDC, TINY 1000", message)
+            self.assertIn("x402 rail (USDC on Base, what paid search spends): 3.00", message)
+            # Only the night may run the lab.
+            self.assertEqual('"op": "experiment"' in message, not light)
+
+    def test_the_night_dream_concludes_and_proposes_through_hands_lab(self):
+        from teeny_hands.lab import ledger
+
+        ledger.propose({"surface": "x", "hypothesis": "gm posts work", "format": "gm", "posts": 2, "deadline_days": 5})
+        self.answer({"ops": [
+            {"op": "conclude", "id": 1, "verdict": "unclear", "lesson": "no gm went out this week"},
+            {"op": "conclude", "id": 1, "verdict": "works", "lesson": "again"},
+            {"op": "experiment", "surface": "moltbook", "hypothesis": "confessions get comments", "format": "confession",
+             "posts": 3, "deadline_days": 7},
+        ], "diary": "d"})
+        got = self.dream()
+        self.assertTrue(got["ok"], got)
+        self.assertEqual([(r["op"], r["ok"]) for r in got["lab"]], [("conclude", True), ("conclude", False), ("experiment", True)])
+        self.assertEqual(got["lab"][1]["rule"], "concluded")
+        self.assertEqual([l["lesson"] for l in ledger.lessons()["lessons"]], ["no gm went out this week"])
+        rows = ledger.listing("open")["experiments"]
+        self.assertEqual([(r["surface"], r["format"]) for r in rows], [("moltbook", "confession")])
+        self.assertEqual(ledger.db().execute("SELECT source FROM experiments WHERE id = 2").fetchone()[0], "dream")
+
+    def test_more_lab_operations_than_a_dream_may_carry_change_nothing(self):
+        from teeny_hands.lab import ledger
+
+        many = [{"op": "experiment", "surface": "x", "hypothesis": "h", "format": f"f{n}", "posts": 1, "deadline_days": 2}
+                for n in range(3)]
+        self.answer({"ops": many, "diary": "d"}, {"ops": many, "diary": "d"})
+        got = self.dream()
+        self.assertFalse(got["ok"])
+        self.assertEqual(ledger.listing(None)["experiments"], [])
+
+    def test_a_midday_dream_cannot_run_the_lab(self):
+        from teeny_hands.lab import ledger
+
+        op = {"op": "experiment", "surface": "x", "hypothesis": "h", "format": "take", "posts": 1, "deadline_days": 2}
+        self.answer({"ops": [op]}, {"ops": [op]})
+        self.assertFalse(self.dream("--light")["ok"])
+        self.assertEqual(ledger.listing(None)["experiments"], [])
 
     def test_a_day_that_fits_is_sent_whole(self):
         stimuli.add("x", "mention", "111", "can you build me a crab cli?", who="ana", at=T0 - 600)
