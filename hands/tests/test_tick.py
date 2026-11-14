@@ -857,8 +857,8 @@ class TickTest(unittest.TestCase):
 
     def test_the_real_hands_refuse_what_is_outside_their_limits(self):
         """Through the real hands/gh, hands/tasks and hands/mail (DRY_RUN, the
-        guard's judge off): a repository not Teeny's, a website not on the
-        list, and an address that is not a contact are each refused by the
+        guard's judge off): a repository not Teeny's, a link no reputed source
+        showed, and an address that is not a contact are each refused by the
         hand itself; the ones inside the limits are dry runs."""
         os.environ["TEENY_HANDS"] = str(REPO / "hands")
         (self.root / "deploy").symlink_to(REPO / "deploy")
@@ -875,7 +875,7 @@ class TickTest(unittest.TestCase):
         results = got["results"]
         self.assertEqual([r["status"] for r in results], ["refused", "refused", "refused", "done", "done"], results)
         self.assertEqual(results[0]["result"]["rule"], "owner")
-        self.assertEqual(results[1]["result"]["rule"], "website")
+        self.assertEqual(results[1]["result"]["rule"], "reputed")
         self.assertEqual(results[2]["result"]["rule"], "contacts")
         self.assertTrue(results[3]["result"]["dry_run"])
         self.assertEqual(results[4]["result"]["status"], "pending")
