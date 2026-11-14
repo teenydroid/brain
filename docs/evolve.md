@@ -391,6 +391,19 @@ credit` at 03:50, and the pinned `evolve-watch` runs `bin/evolve watch
 --detach` at twenty past every hour, with a lock and a log
 (`state/evolve/watch.log`) of its own.
 
+A generation runs inside the spine's container, so a restart ends it. On
+2026-11-13 a spine rebuild at 22:44 ended gen 5 while its labs measured two
+gated candidates, and it left no result. So each proposal is written to
+`state/evolve/<gen>/cand-<i>.proposal.json` the moment it is checked, and the
+next `run` (under the run lock, so nothing else is running) marks every
+generation without a `result.json` as `interrupted`. A cut-off generation
+does not count toward `EVOLVE_GENERATIONS_PER_DAY`. When the newest one saved
+proposals, the new generation makes them again from those files, from the
+same parents, without spending a model turn (`resumed_from` in its result).
+Anything the cut-off generation never got to goes to the usual proposer.
+Before a restart, `bin/evolve status` says `"running": true` while a
+generation holds the lock.
+
 ```
 bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
                [--oh-url-base URL] [--hold] [--detach]
