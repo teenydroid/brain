@@ -101,6 +101,8 @@ from teeny_hands.gh import actions as gh  # noqa: E402
 from teeny_hands.guard import rescreen  # noqa: E402
 from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
+import catch_up  # noqa: E402  (bin/lib: the claims, the re-arm and the catch-up)
+
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
 #: How long the model may take to say one word.
@@ -115,9 +117,6 @@ MAX_ERROR_CHARS = 300
 #: How far behind its schedule an enabled cron job may fall before it counts
 #: as stuck (bin/doctor --live uses the same ten minutes).
 STALE_SECS = 600
-#: A run in flight renews the claim on its slot (the core's occurrence lease)
-#: every 30 s; a claim nobody renewed for this long is a gone process's.
-LEASE_FRESH_SECS = 120
 #: Moltbook hides a write until its challenge is solved: the share of the
 #: last MOLTBOOK_WINDOW_SECS's writes that must be visible, once at least
 #: MOLTBOOK_MIN_WRITES went out.
@@ -247,28 +246,10 @@ def cron_errors(since: float, until: float | None = None) -> dict[str, int]:
     return {str(name): int(count) for name, count in rows}
 
 
-def _lease_id(job_id: str, occurrence_ms: int) -> str:
-    """The id of the core's claim on one occurrence of a job: tinyflows'
-    `Key::of(["cron", Key::of([job_id, occurrence_ms])])`."""
-    def part(text: str) -> str:
-        return text.replace("%", "%25").replace("/", "%2F")
-    return "cron/" + part(part(job_id) + "/" + str(occurrence_ms))
-
-
 def _running(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_ms: int) -> bool:
-    """Whether a live run holds the job's slot: its claim is unreleased,
-    unexpired and was renewed lately."""
-    row = conn.execute("select updated_ms, body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
-                       (_lease_id(job_id, occurrence_ms),)).fetchone()
-    if row is None:
-        return False
-    try:
-        lease = json.loads(row[1])
-    except ValueError:
-        return False
-    return (isinstance(lease, dict) and not lease.get("released")
-            and int(lease.get("expires_ms") or 0) > now_ms
-            and int(row[0] or 0) >= now_ms - LEASE_FRESH_SECS * 1000)
+    """Whether a recent claim holds the job's slot (bin/lib/catch_up.py, the
+    one reading of the core's claims that bin/seed-cron shares)."""
+    return catch_up._lease_live(conn, job_id, occurrence_ms, now_ms)
 
 
 def _iso(ms: int) -> str:
@@ -312,28 +293,29 @@ def stale_crons(now: float) -> list[Json]:
             parsed = json.loads(schedule) if schedule else None
         except ValueError:
             parsed = None
-        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "schedule": parsed})
+        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "next_ms": next_ms,
+                    "schedule": parsed})
     return out
 
 
 def rearm(stale: list[Json]) -> tuple[list[str], dict[str, str]]:
     """Patches each stuck `teeny.*` cron job's own schedule back, which moves
     its next run to the next slot (the core's own jobs are not Teeny's to
-    touch). The names re-armed, and what went wrong with the rest."""
-    rearmed: list[str] = []
-    errors: dict[str, str] = {}
-    for job in stale:
-        schedule = job["schedule"]
-        if not job["name"].startswith("teeny.") or not isinstance(schedule, dict) or schedule.get("kind") != "cron":
-            continue
-        try:
-            hand.core("cron_update", {"job_id": job["id"], "patch": {"schedule": schedule}})
-        except Exception as error:  # noqa: BLE001 - one job the core refused does not stop the rest
-            errors[job["name"]] = scrub(str(error) or type(error).__name__)
-            continue
-        print(f"[health] rearm {job['name']} (next_run was {job['next_run']})", file=sys.stderr)
-        rearmed.append(job["name"])
-    return rearmed, errors
+    touch), through catch_up.rearm: it reads the slot's claim right before
+    and after each update, as bin/seed-cron does. The names re-armed, and
+    what went wrong with the rest."""
+    mine = [job for job in stale if job["name"].startswith("teeny.") and isinstance(job["schedule"], dict)
+            and job["schedule"].get("kind") == "cron"]
+    out = catch_up.rearm(mine, hand.core)
+    errors: dict[str, str] = dict(out["errors"])
+    for name in out["raced"]:
+        errors[name] = "the core claimed its slot as it was re-armed; that run goes on unrecorded, not run twice"
+    for name in out["running"]:
+        errors[name] = "a run renewed its claim a moment ago; left to the core"
+    by_name = {job["name"]: job for job in mine}
+    for name in out["rearmed"]:
+        print(f"[health] rearm {name} (next_run was {by_name[name]['next_run']})", file=sys.stderr)
+    return out["rearmed"], errors
 
 
 # --- state ------------------------------------------------------------------------------------
