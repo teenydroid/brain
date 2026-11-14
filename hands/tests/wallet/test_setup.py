@@ -16,7 +16,7 @@ import warnings
 from pathlib import Path
 from unittest import mock
 
-from wallet.support import OWN, Scratch, status_with
+from wallet.support import BTC_OWN, OWN, Scratch, status_with
 
 SETUP = Path(__file__).resolve().parents[3] / "bin" / "wallet-setup"
 PHRASE = " ".join(f"word{i:02d}x" for i in range(24))
@@ -106,6 +106,7 @@ class SetupTest(Scratch):
         self.assertIn("\x1b[3J\x1b[2J", screen)  # cleared after Enter
         self.assertNotIn("word", stdout)
         self.assertIn(f"Your own wallet (Solana): `{OWN}`", stdout)
+        self.assertIn(f"Your own wallet (Bitcoin): `{BTC_OWN}`", stdout)
         self.assertEqual(self.files_hold("word07x"), [])
         methods = self.core.methods()
         self.assertEqual(methods, ["openhuman.wallet_status", "openhuman.wallet_generate_mnemonic", "openhuman.wallet_derive_recovery_material",

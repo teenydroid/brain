@@ -65,9 +65,9 @@ def address() -> Json:
 
 def balance() -> Json:
     """SOL and USDC on Solana (`sol`, `usdc`, as before), $TINY (`tiny`) and,
-    on mainnet, ETH and USDC on every EVM network and BTC (`btc`). A network that cannot be
-    read carries `error`, and a failed $TINY read `tiny.error`; neither stops
-    the others."""
+    on mainnet, ETH and USDC on every EVM network, and BTC (`btc`). A network
+    that cannot be read carries `error`, and a failed $TINY read
+    `tiny.error`; neither stops the others."""
     cluster = _cluster()
     own = own_address()
     sol = sol_balance()

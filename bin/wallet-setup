@@ -18,8 +18,9 @@ After Enter the screen and its scrollback are cleared. Without a terminal
 this refuses before generating anything.
 
 Then it prints the line to paste into brain/CONTEXT.md, with the addresses.
-The one phrase derives every account the core keeps: the Solana address and
-the EVM address (the same on Base, Arbitrum, Ethereum and Optimism).
+The one phrase derives every account the core keeps: the Solana address, the
+EVM address (the same on Base, Arbitrum, Ethereum and Optimism) and the
+Bitcoin address (native segwit, bc1q...).
 
 Replacing a wallet strands whatever the old one holds unless its phrase was
 kept, so --force asks you to type the first 8 characters of the current
@@ -39,22 +40,25 @@ from teeny_hands.wallet import caps, chains, solana  # noqa: E402
 WORDS = 24
 
 
-def solana_address(status: object) -> str | None:
+def account_address(status: object, chain: str, valid) -> str | None:
     if not isinstance(status, dict):
         return None
     for account in status.get("accounts") or []:
-        if isinstance(account, dict) and account.get("chain") == "solana" and solana.is_address(account.get("address")):
+        if isinstance(account, dict) and account.get("chain") == chain and valid(account.get("address")):
             return account["address"]
     return None
+
+
+def solana_address(status: object) -> str | None:
+    return account_address(status, "solana", solana.is_address)
 
 
 def evm_address(status: object) -> str | None:
-    if not isinstance(status, dict):
-        return None
-    for account in status.get("accounts") or []:
-        if isinstance(account, dict) and account.get("chain") == "evm" and chains.is_evm_address(account.get("address")):
-            return account["address"]
-    return None
+    return account_address(status, "evm", chains.is_evm_address)
+
+
+def btc_address(status: object) -> str | None:
+    return account_address(status, "btc", chains.is_btc_address)
 
 
 def main(argv: list[str]) -> int:
@@ -122,6 +126,7 @@ def main(argv: list[str]) -> int:
         stored = hand.core("wallet_setup", params)
         address = solana_address(stored) or solana_address({"accounts": accounts})
         evm = evm_address(stored) or evm_address({"accounts": accounts})
+        btc = btc_address(stored) or btc_address({"accounts": accounts})
 
         say()
         say("=" * 72)
@@ -152,11 +157,13 @@ def main(argv: list[str]) -> int:
     except caps.CapsError:
         cluster = "devnet"
     print(f"Teeny's wallet is set up: {address} ({cluster}: {solana.explorer_account(address, cluster)})")
-    print("Paste this line into brain/CONTEXT.md, in place of the wallet placeholder:")
+    print("Paste these lines into brain/CONTEXT.md, in place of the wallet placeholder:")
     print()
     print(f"Your own wallet (Solana): `{address}`")
     if evm:
         print(f"Your own wallet (EVM: Base, Arbitrum, Ethereum, Optimism): `{evm}`")
+    if btc:
+        print(f"Your own wallet (Bitcoin): `{btc}`")
     print()
     print("Then set the WALLET_* caps in secrets/teeny.env (deploy/teeny.env.example) and restart the spine.")
     return 0
