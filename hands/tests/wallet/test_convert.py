@@ -646,10 +646,11 @@ class PayeeBridgeTest(LifiBase):
         return convert.convert("bridge", self.SOL_TO_BASE, pay_to=kw.get("to", PAYEE), pay_ref=kw.get("ref", "surplus-bridge-1"))
 
     def refused_paying(self, rule, **kw):
+        before = len(self.moved())
         with self.assertRaises(hand.Refused) as caught:
             self.bridge(**kw)
         self.assertEqual(caught.exception.detail.get("rule"), rule, caught.exception.reason)
-        self.assertEqual(self.moved(), [])
+        self.assertEqual(len(self.moved()), before, "a refusal must not execute")
         return caught.exception
 
     def payments(self):
