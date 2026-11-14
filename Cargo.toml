@@ -66,13 +66,13 @@ tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedriver
 tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
 [patch."https://github.com/tinyhumansai/tinyinference"]
-tinyinference-decisions = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-decisions" }
-tinyinference-core = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-core" }
-tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-embeddings" }
-tinyinference-llm = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-llm" }
-tinyinference-local = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-local" }
-tinyinference-providers = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-providers" }
-tinyinference-voice = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-voice" }
+tinyinference-decisions = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
+tinyinference-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
+tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-embeddings" }
+tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-llm" }
+tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
+tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
+tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 
 [patch.crates-io]
 tinyagents-harness = { path = "vendor/openhuman/vendor/tinyagents/crates/tinyagents-harness" }
@@ -81,12 +81,12 @@ tinytools = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinytools/crates
 tinybus = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus" }
 tinybus-macros = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-macros" }
 tinybus-module = { path = "vendor/openhuman/vendor/tinybus/crates/tinybus-module" }
-tinyinference-core = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-core" }
-tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-embeddings" }
-tinyinference-llm = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-llm" }
-tinyinference-local = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-local" }
-tinyinference-providers = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-providers" }
-tinyinference-voice = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-voice" }
+tinyinference-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
+tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-embeddings" }
+tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-llm" }
+tinyinference-local = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-local" }
+tinyinference-providers = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-providers" }
+tinyinference-voice = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-voice" }
 tinyflows = { path = "vendor/openhuman/vendor/tinyflows/crates/tinyflows" }
 tiny-artifacts = { path = "vendor/openhuman/vendor/tiny-artifacts/crates/tiny-artifacts" }
 
