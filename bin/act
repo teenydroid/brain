@@ -207,7 +207,8 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
    ([(if (.media | index("image")) then "\"image\": \"<what you are doing in the picture, and where>\"" else empty end),
      (if (.media | index("video")) then "\"video\": \"<how you move in a 5-second clip>\" (with \"image\" for its first frame)" else empty end)] | join(" or ")) +
    " to the object. Describe a scene, never text or a real person; leave it out when the post is better without one." +
-   (if (.media | index("image")) then " A post may carry up to 4 pictures: give \"images\": [\"<scene>\", ...] instead of \"image\"." else "" end) + "\n" end) +
+   (if (.media | index("image")) then " A post may carry up to 4 pictures: give \"images\": [\"<scene>\", ...] instead of \"image\"." else "" end) +
+   (if (.media | index("image")) then " Add \"shots\": <a browser task id from the inputs> to use the screenshots that task saved, ahead of any pictures (four in all)." else "" end) + "\n" end) +
 "Skip when nothing is worth doing; a skip costs nothing."' <<<"$book")"
 
 # A draft that is not usable JSON is asked for once more: some models
@@ -284,6 +285,7 @@ attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: o
   local item="$1" prompts prompt body notes='[]'
   media_ids='[]'
   media_note='null'
+  shots_note=null
   if jq -e --argjson k "$media_kinds" '($k | index("video")) and (.video | type) == "string" and .video != ""' <<<"$item" >/dev/null; then
     body="$(jq -c '{prompt: .video} + (if (.image | type) == "string" and .image != "" then {image_prompt: .image} else {} end)' <<<"$item")"
     make_media video "$body"
@@ -292,7 +294,8 @@ attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: o
     return 0
   fi
   jq -e --argjson k "$media_kinds" '$k | index("image") != null' <<<null >/dev/null || return 0
-  prompts="$(jq -c --argjson n "$MEDIA_MAX_IMAGES" '[((.images // []) | if type == "array" then . else [] end) + [.image]
+  attach_shots "$item"
+  prompts="$(jq -c --argjson n "$((MEDIA_MAX_IMAGES - $(jq length <<<"$media_ids")))" '[((.images // []) | if type == "array" then . else [] end) + [.image]
     | .[] | select(type == "string" and . != "")] | .[0:$n]' <<<"$item")"
   while IFS= read -r prompt; do
     [ -n "$prompt" ] || continue
@@ -305,6 +308,37 @@ attach_media() { # ITEM -> sets media_ids (a JSON array) and media_note (JSON: o
     1) media_note="$(jq -c '.[0]' <<<"$notes")" ;;
     *) media_note="$(jq -c '{images: .}' <<<"$notes")" ;;
   esac
+  if [ "$shots_note" != null ]; then
+    media_note="$(jq -c --argjson s "$shots_note" --argjson m "$media_note" '{shots: $s} + (if $m == null then {} else {images: $m} end)' <<<null)"
+  fi
+}
+# "shots": <a browser task id> on a draft puts that task's screenshots on the
+# post: the image files in state/media/tasks/<id>/ (an integer id, never a path
+# from the model), uploaded like any picture, ahead of the pictures made for it.
+# A task without screenshots or a failed upload is left out and said in the note.
+attach_shots() { # ITEM -> adds to media_ids, sets shots_note (JSON or null)
+  local item="$1" id dir f up ids='[]' failed=0
+  shots_note=null
+  id="$(jq -r 'if (.shots | type) == "number" and (.shots | floor) == .shots and .shots > 0 then .shots | tostring
+    elif (.shots | type) == "string" and (.shots | test("^[0-9]+$")) and (.shots | tonumber) > 0 then .shots else "" end' <<<"$item")"
+  if [ -z "$id" ]; then
+    jq -e 'has("shots") and .shots != null and .shots != ""' <<<"$item" >/dev/null &&
+      shots_note='{"skipped": "shots is a task id, a whole number"}'
+    return 0
+  fi
+  dir="$TEENY_ROOT/state/media/tasks/$id"
+  while IFS= read -r f; do
+    [ "$(jq length <<<"$ids")" -lt "$MEDIA_MAX_IMAGES" ] || break
+    if up="$(cd "$TEENY_ROOT" && "$hands/x" upload --file "$f" </dev/null)" && jq -e '.media_id | type == "string"' <<<"$up" >/dev/null 2>&1; then
+      ids="$(jq -c --arg i "$(jq -r '.media_id' <<<"$up")" '. + [$i]' <<<"$ids")"
+    else
+      failed=$((failed + 1))
+    fi
+  done < <([ -d "$dir" ] && find "$dir" -maxdepth 1 -type f ! -type l \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.gif' \) | sort)
+  media_ids="$(jq -c --argjson i "$ids" '. + $i' <<<"$media_ids")"
+  shots_note="$(jq -cn --argjson t "$id" --argjson i "$ids" --argjson f "$failed" '{task_id: $t, media_ids: $i}
+    + (if $f > 0 then {skipped: "upload failed", failed: $f} else {} end)
+    + (if $i == [] and $f == 0 then {skipped: "no screenshots for that task"} else {} end)')"
 }
 
 # --- the actions ---------------------------------------------------------------
@@ -366,7 +400,7 @@ while IFS= read -r item; do
       # A playbook's own hand did not come with the posting rules hands/x
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
-      body="$(jq -c 'del(.action, .image, .images, .video)' <<<"$item")"
+      body="$(jq -c 'del(.action, .image, .images, .video, .shots)' <<<"$item")"
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
