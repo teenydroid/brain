@@ -87,16 +87,21 @@ mod tests {
     use serde_json::{json, Value};
 
     fn swap(slippage: Value) -> WalletBackendCall {
-        WalletBackendCall::SwapTransaction(json!({"chainId": 8453, "tokenIn": "a", "slippage": slippage}))
+        WalletBackendCall::SwapTransaction(
+            json!({"chainId": 8453, "tokenIn": "a", "slippage": slippage}),
+        )
     }
 
     fn bridge(amount: Value) -> WalletBackendCall {
-        WalletBackendCall::BridgeTransaction(json!({"srcChainId": 8453, "dstChainTokenOutAmount": amount}))
+        WalletBackendCall::BridgeTransaction(
+            json!({"srcChainId": 8453, "dstChainTokenOutAmount": amount}),
+        )
     }
 
     fn body(call: &WalletBackendCall) -> &Value {
         match call {
-            WalletBackendCall::SwapTransaction(body) | WalletBackendCall::BridgeTransaction(body) => body,
+            WalletBackendCall::SwapTransaction(body)
+            | WalletBackendCall::BridgeTransaction(body) => body,
             WalletBackendCall::Routes => panic!("no body"),
         }
     }
@@ -129,7 +134,10 @@ mod tests {
             let (provider, routed) = route(call.clone()).unwrap();
             assert_eq!((provider, &routed), (Provider::Debridge, &call));
         }
-        assert_eq!(route(WalletBackendCall::Routes).unwrap().0, Provider::Debridge);
+        assert_eq!(
+            route(WalletBackendCall::Routes).unwrap().0,
+            Provider::Debridge
+        );
     }
 
     #[test]

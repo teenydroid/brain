@@ -74,14 +74,31 @@ pub fn request_for(call: &WalletBackendCall) -> Result<Request, String> {
         }),
         WalletBackendCall::SwapTransaction(body) => Ok(Request {
             path: "/v1.0/chain/transaction",
-            query: query(body, SWAP_FIELDS, &["chainId", "tokenIn", "tokenInAmount", "tokenOut", "tokenOutRecipient"])?,
+            query: query(
+                body,
+                SWAP_FIELDS,
+                &[
+                    "chainId",
+                    "tokenIn",
+                    "tokenInAmount",
+                    "tokenOut",
+                    "tokenOutRecipient",
+                ],
+            )?,
         }),
         WalletBackendCall::BridgeTransaction(body) => Ok(Request {
             path: "/v1.0/dln/order/create-tx",
             query: query(
                 body,
                 BRIDGE_FIELDS,
-                &["srcChainId", "srcChainTokenIn", "srcChainTokenInAmount", "dstChainId", "dstChainTokenOut", "dstChainTokenOutRecipient"],
+                &[
+                    "srcChainId",
+                    "srcChainTokenIn",
+                    "srcChainTokenInAmount",
+                    "dstChainId",
+                    "dstChainTokenOut",
+                    "dstChainTokenOutRecipient",
+                ],
             )?,
         }),
     }
@@ -89,7 +106,11 @@ pub fn request_for(call: &WalletBackendCall) -> Result<Request, String> {
 
 /// The named fields of `body` as query pairs, in the listed order. A string
 /// or a whole number is forwarded as written; anything else is refused.
-fn query(body: &Value, fields: &[&str], required: &[&str]) -> Result<Vec<(String, String)>, String> {
+fn query(
+    body: &Value,
+    fields: &[&str],
+    required: &[&str],
+) -> Result<Vec<(String, String)>, String> {
     let object = body
         .as_object()
         .ok_or_else(|| "deBridge request body is not an object".to_string())?;
@@ -99,7 +120,11 @@ fn query(body: &Value, fields: &[&str], required: &[&str]) -> Result<Vec<(String
             None | Some(Value::Null) => continue,
             Some(Value::String(text)) => text.trim().to_string(),
             Some(Value::Number(number)) if number.is_u64() || number.is_i64() => number.to_string(),
-            Some(_) => return Err(format!("deBridge field {field} is not a string or a whole number")),
+            Some(_) => {
+                return Err(format!(
+                    "deBridge field {field} is not a string or a whole number"
+                ))
+            }
         };
         if text.is_empty() {
             continue;
@@ -145,7 +170,10 @@ fn base_url() -> String {
 
 async fn fetch(request: Request) -> Result<Value, String> {
     let mut query = request.query;
-    if let Some(key) = std::env::var("DEBRIDGE_API_KEY").ok().filter(|key| !key.trim().is_empty()) {
+    if let Some(key) = std::env::var("DEBRIDGE_API_KEY")
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+    {
         query.push(("accesstoken".to_string(), key.trim().to_string()));
     }
     let client = reqwest::Client::builder()
@@ -161,7 +189,16 @@ async fn fetch(request: Request) -> Result<Value, String> {
         .query(&query)
         .send()
         .await
-        .map_err(|error| format!("could not reach deBridge ({})", if error.is_timeout() { "timeout" } else { "connect" }))?;
+        .map_err(|error| {
+            format!(
+                "could not reach deBridge ({})",
+                if error.is_timeout() {
+                    "timeout"
+                } else {
+                    "connect"
+                }
+            )
+        })?;
     let status = response.status().as_u16();
     let text = response
         .text()
@@ -184,7 +221,11 @@ mod tests {
     use serde_json::json;
 
     fn pairs(request: &Request) -> Vec<(&str, &str)> {
-        request.query.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+        request
+            .query
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
     }
 
     #[test]
@@ -248,7 +289,10 @@ mod tests {
     #[test]
     fn errors_carry_debridges_message_not_the_request() {
         assert_eq!(
-            error_message(400, r#"{"errorCode":8,"errorMessage":"insufficient liquidity"}"#),
+            error_message(
+                400,
+                r#"{"errorCode":8,"errorMessage":"insufficient liquidity"}"#
+            ),
             "deBridge answered HTTP 400: insufficient liquidity"
         );
         assert_eq!(error_message(502, "<html>"), "deBridge answered HTTP 502");

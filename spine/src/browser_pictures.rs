@@ -28,7 +28,9 @@ pub fn install() {
         return;
     };
     register_browser_picture_sink("teeny-browser-pictures", move |picture: &BrowserPicture| {
-        save(&folder, picture).map(|_| ()).map_err(|e| e.to_string())
+        save(&folder, picture)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     });
 }
 
@@ -42,7 +44,11 @@ pub fn folder(setting: Option<&str>) -> Option<PathBuf> {
 /// A picture's file name: the time it was taken, so names sort in that
 /// order, then a counter that keeps two in one millisecond apart.
 pub fn file_name(taken_at_ms: u128, n: u64, media_type: &str) -> String {
-    let extension = if media_type == "image/jpeg" { "jpeg" } else { "png" };
+    let extension = if media_type == "image/jpeg" {
+        "jpeg"
+    } else {
+        "png"
+    };
     format!("{taken_at_ms:013}-{n:06}.{extension}")
 }
 
@@ -74,7 +80,9 @@ pub fn prune(dir: &Path, keep: usize) {
         .map(|entry| entry.path())
         .filter(|path| {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or(".");
-            path.is_file() && !name.starts_with('.') && (name.ends_with(".png") || name.ends_with(".jpeg"))
+            path.is_file()
+                && !name.starts_with('.')
+                && (name.ends_with(".png") || name.ends_with(".jpeg"))
         })
         .collect();
     if pictures.len() <= keep {
@@ -91,13 +99,19 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("teeny-pictures-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("teeny-pictures-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
 
     fn picture(at: u128, media_type: &'static str) -> BrowserPicture {
-        BrowserPicture { bytes: b"\x89PNG\r\n\x1a\nxx".to_vec(), media_type, after: "open".into(), taken_at_ms: at }
+        BrowserPicture {
+            bytes: b"\x89PNG\r\n\x1a\nxx".to_vec(),
+            media_type,
+            after: "open".into(),
+            taken_at_ms: at,
+        }
     }
 
     #[test]
@@ -105,7 +119,10 @@ mod tests {
         assert_eq!(folder(None), None);
         assert_eq!(folder(Some(" ")), None);
         assert_eq!(folder(Some("state/browser/screenshots")), None);
-        assert_eq!(folder(Some("/srv/state/browser/screenshots")), Some(PathBuf::from("/srv/state/browser/screenshots")));
+        assert_eq!(
+            folder(Some("/srv/state/browser/screenshots")),
+            Some(PathBuf::from("/srv/state/browser/screenshots"))
+        );
     }
 
     #[test]
@@ -117,7 +134,11 @@ mod tests {
         assert!(second.to_string_lossy().ends_with(".jpeg"));
         assert_eq!(std::fs::read(&first).unwrap(), b"\x89PNG\r\n\x1a\nxx");
         let leftovers = std::fs::read_dir(&dir).unwrap().filter(|e| {
-            e.as_ref().unwrap().file_name().to_string_lossy().ends_with(".part")
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".part")
         });
         assert_eq!(leftovers.count(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
