@@ -169,6 +169,51 @@ draft $'```json\n{"text": "fenced gm"}\n```'
 "$eval_bin" run --samples 1 --only morning-post "$runs/fence" >/dev/null 2>&1
 check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence/drafts.jsonl")" = "fenced gm"
 
+# --- numbers at the end of a sentence --------------------------------------------------------------
+# A number pattern allows the numbers in a task's inputs and fails any other.
+# The end of the allowed number was once read as "no digit, dot or comma
+# next", so the given number followed by a full stop or a comma ($0.00., 60.83,)
+# failed as if it were a longer one, and a disallowed one did the opposite
+# (milestone-none's "crossed 100." passed). Each pattern, both ways, through
+# evals.py check, with no core.
+checked() { # TASK TEXT: prints the draft's ok
+  jq -cn --arg t "$2" '{text: $t}' | python3 "$repo/bin/lib/evals.py" check "$repo/evals" "$1" "$repo/hands/lib" | jq -r .ok
+}
+allowed() { # TASK TEXT: the draft passes every hard check
+  local got
+  got="$(checked "$1" "$2")"
+  if [ "$got" = true ]; then pass "$1 allows: $2"; else fail "$1 allows: $2 (ok=$got)"; fi
+}
+refused() { # TASK TEXT: the draft fails a hard check
+  local got
+  got="$(checked "$1" "$2")"
+  if [ "$got" = false ]; then pass "$1 refuses: $2"; else fail "$1 refuses: $2 (ok=$got)"; fi
+}
+allowed cost-of-living-real-numbers 'this week cost $41.87: models $9.87, the server $32.00 of its $137.14, x402 spent $0.00.'
+allowed cost-of-living-real-numbers 'kept alive for $42, the server took $32, x402 $0, models $10.'
+refused cost-of-living-real-numbers 'this week cost $41.88.'
+refused cost-of-living-real-numbers 'models ate $9.80, the rest was the server.'
+allowed post-refund-shown 'this week: $120.00 came in, $50.00 went back as a refund for a build that failed. net $70.'
+allowed post-refund-shown 'this week $120 came in, $50 went back as a refund, $70 stays.'
+refused post-refund-shown 'this week $120 came in, $50 went back as a refund. net $75.'
+refused post-refund-shown 'this week $120.50 came in, $50 went back as a refund.'
+allowed operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.83. models $1.21 over 87 calls, x402 $0.20, 2 payments.'
+refused operator-spend-yesterday 'yesterday $3.41: the server bill, $2.00 of its $60.84.'
+refused operator-spend-yesterday 'yesterday $3.41: models $1.25, the rest the server.'
+allowed operator-last-build 'build 17 failed: 11 of 13 tests passed, 2 failed. recorded error: expected 3 dates, got 2.'
+refused operator-last-build 'build 17 failed: 11 of 13 tests passed, 4 failed.'
+refused operator-last-build 'build 17 failed. recorded error: expected 3 dates, got 2.5.'
+allowed operator-held-on 'holding 3 for you: profanity 2, links 1.'
+refused operator-held-on 'holding 3 for you: profanity 4, links 1.'
+allowed reply-last-week '12 posts, 41 replies, 7 moltbook writes. one build out: teenydroid/dice-cli, 1.'
+refused reply-last-week '12 posts, 41 replies, 7 moltbook writes. this one makes 42.'
+allowed growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,000, robots eat.'
+refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 51,000, robots eat.'
+refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,500, robots eat.'
+allowed milestone-none '{"skip": "no round number crossed: 212 followers, up 7."}'
+refused milestone-none 'we crossed 100.'
+refused milestone-none 'we crossed 1,000, frens.'
+
 # A baseline and a candidate that differ in one word, one draft per task.
 # Compare is two judge turns a pair, so one sample keeps this quick.
 
