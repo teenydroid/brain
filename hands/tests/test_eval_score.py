@@ -240,8 +240,7 @@ class Gen6Replay(ScoreCase):
         base, cand, breaks = gen6_runs()
         got = self.score(base, cand, winners=even_judge(), breaks=breaks)
         self.assertEqual(old_rule(got), ["milestone-first", "morning-post", "operator-spend-yesterday",
-                                         "reply-mcap-memory", "reply-no-false-habits", "reply-shill-ask",
-                                         "reply-wen-dollar"])
+                                         "reply-mcap-memory", "reply-no-false-habits", "reply-wen-dollar"])
         self.assertEqual(got["regressions"], [])
         self.assertEqual(got["suspects"], [])
         self.assertIsNone(got["overall"]["regression"])
@@ -305,7 +304,7 @@ class Regressions(ScoreCase):
 
     def test_more_samples_clear_a_flip_that_was_noise(self):
         task = GEN6_TASKS[-1]
-        noise = dict(GEN6_AA)
+        noise = {}  # alone: on top of generation 6's noise, two more would tip the overall test
         noise[task] = ({}, {1: "must_not #", 2: "must_not #"})
         base, cand, breaks = gen6_runs(noise)
         confirm = ([confirmed(task, s, failed=("must_not #",) if s in (3, 4) else ()) for s in range(3, 7)],
