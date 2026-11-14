@@ -385,14 +385,11 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
     state = state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
     try:
-        ledger = Ledger(state, readonly=dry_run, wait=lock_wait).__enter__()
-    except Busy as busy:
+        with Ledger(state, readonly=dry_run, wait=lock_wait) as ledger:
+            return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by)
+    except Busy as busy:  # raised only while taking the lock
         out["errors"]["ledger"] = str(busy)
         return out
-    try:
-        return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by)
-    finally:
-        ledger.__exit__(None, None, None)
 
 
 def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str],
