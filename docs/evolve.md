@@ -353,14 +353,17 @@ That switch is off by default.
    │          a latched halt, too many generations today, J rising too fast,
    │          a red doctor report, a last-good boot
    │          ─► stop, and one issue on teenydroid/brain
- 1 Observe    evidence.json: hands/world report, build jobs, guard holds and
-   │          failed cron and act runs (counts), the archive, the last judge notes
+ 1 Observe    evidence.json, outcomes first: which posts and replies drew
+   │          people, held drafts, failing jobs (whose), builds, what was read;
+   │          then hands/world, build jobs, the archive, the last judge notes
  2 Propose    N parents sampled from the archive (DGM), one worktree each,
    │          cand-<i> off main in Teeny's own clone; one proposer turn each
    │          (or the evolver, editing on a lab spine) writes HYPOTHESIS.md
    │          and its edits; a near-duplicate is dropped
  3 Gate       frozen paths, hand entry points, 400 lines, SOUL+CONTEXT 60 lines,
-   │          new hands tested, seed-cron --check, doctor --root, invariants
+   │          new hands tested, what the change is for (four checks),
+   │          then seed-cron --check, doctor --root, invariants, each run
+   │          from the candidate's own frozen code
    ├── any one fails ──────────────────────────────────────────► rejected
  4 Evaluate   a lab spine over main and one over the candidate (DRY_RUN=1):
    │          bin/eval run on each, compare, and the persona probe; a lab
@@ -402,18 +405,47 @@ bin/evolve credit | status | resume
 ### 1. Observe
 
 `state/evolve/<gen>/evidence.json` holds what exists, and says so when a
-source is missing:
+source is missing. It leads with `outcomes`: what people did with what Teeny
+made over 7 days (`bin/lib/evolve_evidence.py`, read-only from
+`state/hands.db`). The score says how much Teeny grew, not what to change; a
+proposer handed only its components moved the components (gens 4 and 5,
+below).
 
-- `hands/world report --days 7` (W and J), when the hand is installed
+- `outcomes.x`: Teeny's own posts, which drew replies (and from how many
+  people) and which drew nobody (a post under 6 hours old is not counted as
+  nobody yet), and its replies, which got an answer back from the person it
+  answered. A few of each, Teeny's own words cut to 160 characters.
+- `outcomes.moltbook`: its posts with their latest score and comment count,
+  and its comments counted by what came of them.
+- `outcomes.followers`: followers and karma, first and last day.
+- `outcomes.held_drafts`: Teeny's own drafts the guard held, grouped by
+  surface, category, who held them and the guard's reason. Never the text.
+- `outcomes.builds`: the build ideas kept and what became of each, the
+  build requests by source and status, and Teeny's own change requests with
+  the note each ended on.
+- `outcomes.failing`: failed cron runs by job (read-only from `storage.db`)
+  and failed `bin/act` runs by playbook (from `state/act/*/runs.jsonl`),
+  worst first, each marked `yours: brain/cron.toml`, `yours:
+  brain/playbooks/<name>.md`, or `frozen: a pinned job`.
+- `outcomes.outside`: the notes of surface `world` by their first line (not
+  the idle feed listings) and the Hacker News stories fetched in the window,
+  by title.
+- `world`: `hands/world report --days 7` cut to J, its reading lines and each
+  component's value, with `unread` naming the components never read. The
+  formula, weights and parts stay in the hand.
 - `hands/build jobs --limit 10`: id, kind, status, and the first line of the
   summary and ship error
-- guard holds as counts by status and category, never their text, which is
-  somebody else's words
-- failed cron runs by job over 7 days, read-only from `storage.db`
-- failed `bin/act` runs by playbook over 7 days, from `state/act/*/runs.jsonl`
+- guard holds as counts by status and category
 - the archive's summary: counts by verdict, the best entries, the latest, and
   what each merged change did to J
 - the judge notes from the newest compare report, visible tasks only
+
+Only Teeny's own words are quoted. Other people's are counted, never quoted:
+a stranger's text in the proposer's message is an injection waiting to
+happen, and the core's screen holds the whole turn for one. Hacker News
+titles are the one exception, cut short. `outcomes` is cut to 16 KiB
+(`MAX_OUTCOMES_BYTES`, longest lists first), so the message stays under the
+core's 64 KiB prompt screen.
 
 ### 2. Propose
 
@@ -454,13 +486,17 @@ do:
 
 - `AskProposer` (`EVOLVE_PROPOSER=ask`, the default) runs one tool-less turn
   on the live core through `bin/ask`, as `EVOLVE_PROPOSER_AGENT` (default
-  `act`), on a thread of its own. The message carries the evidence (marked as
-  data), the parent and its patch, what this generation already proposed, a
-  focus component that rotates per candidate, the paths Teeny may change, and
-  the whole text of the files it may edit (its parent's files first, then
+  `act`), on a thread of its own. The message carries the brief (below), the
+  evidence with its outcomes first (marked as data), the parent and its
+  patch, what this generation already proposed, the paths Teeny may change,
+  and the whole text of the files it may edit (its parent's files first, then
   `cron.toml`, `ARCS.md`, the playbooks, the agent prompts and the skills, up
   to `EVOLVE_CONTEXT_CHARS`). The turn can't read another file, run a test or
-  see its result before it answers.
+  see its result before it answers. An answer that doesn't parse as JSON
+  gets one more turn, on a fresh thread, saying why; a turn that fails
+  outright does not. The parser takes a raw newline inside a string as
+  written and steps over a `{` in a line of prose before the answer; an
+  answer cut off mid-string still fails, with the reason in the archive.
 - `EvolverProposer` (`EVOLVE_PROPOSER=evolver`) edits the worktree itself.
   It boots a lab spine (below) over the candidate's worktree with
   `SPINE_LAB_EDIT=1`, so the agents' file tools are rooted there and may
@@ -479,6 +515,39 @@ do:
   agent's file tools, so the evolver can't edit it; the ask proposer can.
 - `FileProposer` (`--proposals DIR` or `EVOLVE_PROPOSER=file:DIR`) reads
   `DIR/cand-<i>.json`, for the operator's own proposals and for the tests.
+
+**The brief** (`brief` in `bin/lib/evolve.py`, the same for both
+proposers) says what a good change is: one that makes Teeny act differently
+in a way a stranger would notice, starting from something that really
+happened in `outcomes`, named with its numbers. The W component is a label
+for where the change would show up, offered only from the components that
+have a reading, never the goal. Each candidate gets a lens to look at first,
+rotating through `LENSES` (X, Moltbook, held drafts, failing jobs, builds,
+the outside world) so one generation doesn't chase one thing. It used to be
+a W component, which sent one candidate in six at `money` and one at
+`tiny`, neither ever read. The brief lists what is thrown out: a change
+whose only effect is a number, running less to save cost, anything aimed at
+a component never read, buying or moving $TINY or any money, and anything
+that needs a frozen path. That last one comes with the frozen list and
+`frozen.OFTEN_WANTED` (`bin/lib/frozen.py`): where the frozen things a change
+most often reaches for live (the builder's daily brief, the pinned jobs, the
+agent definitions, the scorer, the wallet) and what is Teeny's to change
+instead, so a proposer skips at once and names what the operator should
+change. The self-improve playbook reads the same map through `hands/build
+frozen`.
+
+What gens 4 and 5 on the box (2026-11-13) proposed, and why the brief and
+the purpose checks below exist:
+
+- "new hand hands/notes ... hands_with_tests 21 -> 22, capability 26 -> 27":
+  a hand nobody called, to bump a count;
+- "cut moltbook-threads from 7 runs a day to 4" and "trim moltbook-helpdesk
+  from 8 runs a day to 4": running less to shave the cost term of `money`,
+  which had never had a reading;
+- "daily capped $TINY accumulation job so the tiny component finally gets
+  rows": spending to make a number appear;
+- three skips because the change wanted lived in frozen code the proposer
+  couldn't read, and one answer cut off mid-string.
 
 **Edits.** `bin/evolve` writes them itself. Each `{path, old, new}` replaces
 the one occurrence of `old`, an empty `old` creates a new file, and the whole
@@ -508,9 +577,34 @@ Every check runs, and each is `{check, ok, detail}`. The cheap ones go first:
 | diff size | more than 400 changed lines (added plus removed, against main), none, or a binary file |
 | SOUL+CONTEXT size | more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. The gate doesn't run candidate code outside a sandbox; CI's `scripts` job runs the tests on the pull request |
-| `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with this checkout's pinned jobs |
+| aims at a component with a reading | the proposal names a W component the world report lists in `unread` (never read). Nothing a change does to it can be seen. Passes when there is no world report |
+| does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less: a schedule thinned (fewer runs a week), a job turned off or removed. Turning off or removing a job `outcomes.failing` shows failing passes; thinning never does (a failing job gets fixed, not run less). Anything else in the change (a new job, a job turned on, a command, another file) passes |
+| new hands are called | a new hand that no line the diff adds under `brain/` calls, as `hands/<name>` or `hand:<name>` (a playbook's input or output, a prompt) |
+| does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line: that is the `world` count itself |
+| `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
+
+The four purpose checks are narrow on purpose: a good candidate thrown out
+is worse than a poor one let through to the operator, who closes it. Each
+failure says why in one line, and the archive keeps it.
+
+The last three run the candidate's own frozen code (its `bin/` and
+`evals/`, which the frozen check just proved are main's) with the worktree
+as their root, state and secrets (`tree_env`). They used to run this
+checkout's, which is whatever the box last pulled, while the candidate comes
+from Teeny's clone, which `hands/build self-sync` can have moved ahead: on
+2026-11-13 the box ran 249 commits behind its clone, its older
+`bin/lib/playbook.py` refused the `hand:build upstream` output main's
+`upstream-pick` playbook uses, and every candidate of gen 4 failed `doctor
+--root` on a playbook none of them touched. A candidate that touches a
+frozen path never has its own scripts run; this checkout's give the other
+checks their detail.
+
+A check that fails is detailed by its failing lines (the doctor's `FAIL
+...`), up to 600 characters, not by the last lines of its output: the
+doctor prints a passing line for every check after the one that failed, and
+gen 4's archive said only "ok keyring path ... ok disk ... ok git".
 
 The caps are constants in `bin/lib/evolve.py`, not settings.
 

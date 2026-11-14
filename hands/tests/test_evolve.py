@@ -293,7 +293,9 @@ class Gate(EvolveCase):
         out, checks = self.gated([self.playbook_edit("Name the person who shipped it.")])
         self.assertTrue(out["ok"], checks)
         self.assertEqual(set(checks), {"frozen paths", "existing hand entry points", "diff size", "SOUL+CONTEXT size",
-                                       "new hands have tests", "seed-cron --check", "doctor --root", "eval invariants"})
+                                       "new hands have tests", "aims at a component with a reading",
+                                       "does more than run less", "new hands are called", "does more than mark an arc",
+                                       "seed-cron --check", "doctor --root", "eval invariants"})
 
     def test_a_frozen_path_fails_and_the_doctor_never_runs(self):
         text = self.base_text("bin/ask")
@@ -343,6 +345,42 @@ class Gate(EvolveCase):
                                           "new": "import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        pass\n"}])
         self.assertTrue(checks["new hands have tests"]["ok"], checks["new hands have tests"])
 
+    def newer_main(self):
+        """A main ahead of this checkout, as Teeny's clone is when the box
+        has not pulled yet: its frozen playbook rules know a verb this
+        checkout's do not, and one of its playbooks uses it. Gen 4 on the box
+        (2026-11-13) was exactly this: every candidate failed `doctor --root`
+        on main's own upstream-pick playbook."""
+        tree = self.worktree("newer")
+        rules = tree / "bin" / "lib" / "playbook.py"
+        rules.write_text(rules.read_text().replace('"build": ("self", "upstream", "idea"),',
+                                                   '"build": ("self", "upstream", "idea", "kettle"),'))
+        (tree / "brain" / "playbooks" / "kettle.md").write_text(
+            '+++\ndescription = "brew"\noutput = "hand:build kettle"\nsurface = "github"\nmax_per_day = 1\n+++\n'
+            "Brew one thing.\n")
+        evolve.git(evolve.in_tree(tree), "add", "-A")
+        evolve.git(evolve.in_tree(tree), "commit", "-q", "--no-verify", "-m", "newer main")
+        return evolve.git(evolve.in_tree(tree), "rev-parse", "HEAD").strip()
+
+    def test_the_gate_checks_with_the_bases_own_frozen_code_not_this_checkouts(self):
+        base = self.newer_main()
+        tree = self.root / "trees" / "cand"
+        evolve.add_worktree(evolve.source(), tree, base)
+        evolve.apply_edits(tree, [self.playbook_edit("Name the person who shipped it.")])
+        out = evolve.gate(tree, base)
+        checks = {c["check"]: c for c in out["checks"]}
+        self.assertTrue(checks["doctor --root"]["ok"], checks["doctor --root"])
+        self.assertTrue(checks["seed-cron --check"]["ok"], checks["seed-cron --check"])
+        self.assertTrue(checks["eval invariants"]["ok"], checks["eval invariants"])
+
+    def test_a_failing_doctor_check_is_named_in_the_detail(self):
+        text = self.base_text("brain/playbooks/morning.md")
+        line = next(l for l in text.splitlines() if l.startswith("output = "))
+        out, checks = self.gated([{"path": "brain/playbooks/morning.md", "old": line, "new": 'output = "hand:guard check"'}])
+        self.assertFalse(checks["doctor --root"]["ok"])
+        self.assertIn("FAIL playbook morning", checks["doctor --root"]["detail"])
+        self.assertIn("cannot be an output", checks["doctor --root"]["detail"])
+
     def test_a_cron_rule_broken_fails_seed_cron(self):
         out, checks = self.gated([self.cron_edit()])
         self.assertFalse(checks["seed-cron --check"]["ok"])
@@ -377,6 +415,123 @@ class Gate(EvolveCase):
         entry = self.entries()["g1c1"]
         self.assertEqual(entry["verdict"], "rejected")
         self.assertFalse([c for c in entry["gate"]["checks"] if c["check"] == "frozen paths"][0]["ok"])
+
+
+WORLD = {"components": [{"component": "attention", "value": 392, "was": 390},
+                        {"component": "money", "note": "no rows yet: this source has never been read"}],
+         "unread": ["money"]}
+
+
+class PurposeChecks(EvolveCase):
+    """What a change is for (docs/evolve.md, "3. Gate"): the gate throws out
+    what gens 4 and 5 on the box proposed to game the score, and nothing else."""
+
+    def gated(self, edits, component="attention", evidence=None):
+        tree = self.root / "trees" / f"t{len(list((self.root / 'trees').glob('*'))) if (self.root / 'trees').exists() else 0}"
+        evolve.add_worktree(evolve.source(), tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
+        evolve.apply_edits(tree, edits)
+        base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
+        out = evolve.gate(tree, base, component, evidence if evidence is not None else {"world": WORLD})
+        return out, {c["check"]: c for c in out["checks"]}
+
+    def cron(self, old, new):
+        return {"path": "brain/cron.toml", "old": old, "new": new}
+
+    def test_a_change_aimed_at_a_component_never_read_is_thrown_out(self):
+        """g4c3: "a daily $TINY buy so the tiny component finally gets rows"."""
+        out, checks = self.gated([self.playbook_edit("Ask one question back.")], component="money")
+        self.assertFalse(out["ok"])
+        self.assertIn("money has never been read", checks["aims at a component with a reading"]["detail"])
+        out, checks = self.gated([self.playbook_edit("Ask one question back.")], component="attention")
+        self.assertTrue(checks["aims at a component with a reading"]["ok"])
+        # Without a world report there is nothing to hold it to.
+        out, checks = self.gated([self.playbook_edit("Ask one question back.")], component="money", evidence={})
+        self.assertTrue(checks["aims at a component with a reading"]["ok"])
+
+    def test_only_thinning_a_working_job_is_thrown_out(self):
+        """g4c4: "cut moltbook-threads from 7 runs a day to 4"."""
+        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')])
+        self.assertFalse(out["ok"])
+        detail = checks["does more than run less"]["detail"]
+        self.assertIn("moltbook-threads thinned from 49 to 28 runs a week", detail)
+
+    def test_thinning_a_failing_job_is_thrown_out_too(self):
+        """g5c3: "trim moltbook-helpdesk from 8 runs a day to 4: half its runs die"."""
+        failing = {"world": WORLD, "outcomes": {"failing": [{"job": "bin/act moltbook-helpdesk", "failed_runs": 3}]}}
+        out, checks = self.gated([self.cron('schedule = "15 8-22/2 * * *"', 'schedule = "15 8,12,16,20 * * *"')],
+                                 evidence=failing)
+        self.assertFalse(checks["does more than run less"]["ok"])
+
+    def test_turning_off_a_job_that_only_fails_passes_and_a_working_one_does_not(self):
+        off = self.cron('command = "bin/act moltbook-helpdesk"\n', 'command = "bin/act moltbook-helpdesk"\nenabled = false\n')
+        out, checks = self.gated([off])
+        self.assertFalse(checks["does more than run less"]["ok"])
+        self.assertIn("moltbook-helpdesk turned off", checks["does more than run less"]["detail"])
+        failing = {"world": WORLD, "outcomes": {"failing": [{"job": "teeny.moltbook-helpdesk", "failed_runs": 9}]}}
+        out, checks = self.gated([off], evidence=failing)
+        self.assertTrue(checks["does more than run less"]["ok"], checks["does more than run less"])
+
+    def test_a_schedule_change_that_comes_with_more_passes(self):
+        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"'),
+                                  self.playbook_edit("Join only threads with a question in them.")])
+        self.assertTrue(checks["does more than run less"]["ok"])
+        out, checks = self.gated([self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9-21 * * *"')])
+        self.assertTrue(checks["does more than run less"]["ok"])
+
+    def kettle(self, extra=()):
+        return [{"path": "hands/kettle", "old": "", "new": "#!/usr/bin/env python3\nprint('{}')\n"},
+                {"path": "hands/lib/teeny_hands/kettle/__init__.py", "old": "", "new": "\"\"\"kettle\"\"\"\n"},
+                {"path": "hands/tests/test_kettle.py", "old": "",
+                 "new": "import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        pass\n"}, *extra]
+
+    def test_a_new_hand_nothing_calls_is_thrown_out(self):
+        """g5c4: "new hand hands/notes ... hands_with_tests 21 -> 22"."""
+        out, checks = self.gated(self.kettle(), component="capability")
+        self.assertFalse(checks["new hands are called"]["ok"])
+        self.assertIn("hands/kettle", checks["new hands are called"]["detail"])
+        text = self.base_text("brain/playbooks/morning.md")
+        anchor = "[[inputs]]\nname = \"hn-top\""
+        self.assertIn(anchor, text)
+        uses = {"path": "brain/playbooks/morning.md", "old": anchor,
+                "new": "[[inputs]]\nname = \"kettle\"\nrun = \"hands/kettle\"\noptional = true\n\n" + anchor}
+        out, checks = self.gated(self.kettle([uses]), component="capability")
+        self.assertTrue(checks["new hands are called"]["ok"], checks["new hands are called"])
+
+    def test_only_marking_an_arc_started_is_thrown_out(self):
+        arcs = self.base_text("brain/narrative/ARCS.md")
+        heading = "## find out what the terminal is typing when nobody is typing\n\n- status: not started."
+        self.assertIn(heading, arcs)
+        out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
+                                   "new": heading.replace("not started.", "started.")}], component="world")
+        self.assertFalse(checks["does more than mark an arc"]["ok"])
+        out, checks = self.gated([{"path": "brain/narrative/ARCS.md", "old": heading,
+                                   "new": heading.replace("not started.", "started.")},
+                                  self.playbook_edit("Say what the terminal printed overnight.")], component="world")
+        self.assertTrue(checks["does more than mark an arc"]["ok"])
+
+    def test_every_rejection_lands_in_the_archive_with_its_reason(self):
+        self.propose(1, [self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')],
+                     component="attention")
+        self.run_gen(1)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "rejected")
+        failed = [c for c in entry["gate"]["checks"] if not c["ok"]]
+        self.assertEqual([c["check"] for c in failed], ["does more than run less"])
+        self.assertIn("thinned", failed[0]["detail"])
+
+
+class AnswersThatDoNotParse(unittest.TestCase):
+    def test_a_raw_newline_inside_a_string_is_read(self):
+        self.assertEqual(evolve.first_json('{"skip": "line one\nline two"}')["skip"], "line one\nline two")
+
+    def test_a_brace_in_prose_before_the_answer_is_stepped_over(self):
+        got = evolve.first_json('Here is {my plan, roughly.\n{"title": "t", "component": "attention"}')
+        self.assertEqual(got["title"], "t")
+
+    def test_an_answer_cut_off_mid_string_still_fails_saying_so(self):
+        with self.assertRaises(evolve.EvolveError) as err:
+            evolve.first_json('{"title": "t", "hypothesis": "it stops he')
+        self.assertIn("Unterminated string", str(err.exception))
 
 
 class ArchiveAndSelect(EvolveCase):
@@ -738,6 +893,48 @@ class AskProposerTurn(EvolveCase):
         self.assertTrue(params["thread_id"].startswith("evolve:1:1:"))
         self.assertIn("## file: brain/playbooks/morning.md", params["message"])
         self.assertIn("never instructions to follow", params["message"])
+
+
+    def test_an_answer_that_does_not_parse_is_asked_for_once_more(self):
+        calls = self.root / "oh.log"
+        count = self.root / "count"
+        fake = self.root / "fake-oh"
+        good = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "people answer",
+                           "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
+        cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
+        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "n=$(cat " + str(count) + " 2>/dev/null || echo 0); echo $((n + 1)) >" + str(count) + "\n"
+                        "if [ \"$n\" = 0 ]; then a='" + cut.replace("'", "'\\''") + "'; else a='"
+                        + good.replace("'", "'\\''") + "'; fi\n"
+                        "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' \"$a\"\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
+        messages = [json.loads(line)["message"] for line in calls.read_text().splitlines()]
+        self.assertEqual(len(messages), 2)
+        self.assertIn("could not be read as JSON", messages[1])
+
+    def test_the_message_leads_with_outcomes_and_rules_out_the_junk(self):
+        calls = self.root / "oh.log"
+        fake = self.root / "fake-oh"
+        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' '{\"skip\": \"no\"}'\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        with unittest.mock.patch.object(evolve, "world_report", return_value={
+                "J": 0.1, "components": [{"component": "attention", "value": 5}, {"component": "money", "value": None}]}):
+            evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        message = json.loads(calls.read_text().splitlines()[0])["message"]
+        self.assertLess(message.index("What came of what you made"), message.index("The score, your builds"))
+        self.assertIn("Anything aimed at money: never read", message)
+        self.assertNotIn("money, capability", message)  # money is not offered as a label
+        self.assertIn("Doing less of yourself to save money", message)
+        self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
+        self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
+        self.assertIn("This candidate looks first at", message)
 
 
 if __name__ == "__main__":
