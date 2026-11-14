@@ -91,9 +91,10 @@ def clean_run(samples: int = 2) -> list[dict]:
 
 
 def winning(n: int) -> dict:
-    """The candidate wins the first N pairs."""
+    """The candidate wins the last N pairs (the tests take samples away
+    from the first tasks)."""
     keys = [(t, s) for t in TASKS for s in (1, 2)]
-    return {k: "cand" for k in keys[:n]}
+    return {k: "cand" for k in keys[-n:]}
 
 
 class NoSample(ScoreCase):

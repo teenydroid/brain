@@ -37,6 +37,14 @@ python3 -I - "$2" <<'PY'
 import json, os, re, sys
 params = json.loads(sys.argv[1])
 message, agent = params["message"], params.get("agent_id")
+# FAKE_TURN_FAILS=N: the first N turns of $FAKE_FAIL_AGENT (default act) fail
+# the way a dropped provider stream does, counted in $FAKE_TURN_COUNT.
+if os.environ.get("FAKE_TURN_FAILS") and agent == os.environ.get("FAKE_FAIL_AGENT", "act"):
+    counter = os.environ["FAKE_TURN_COUNT"]
+    seen = int(open(counter).read() or 0) if os.path.exists(counter) else 0
+    open(counter, "w").write(str(seen + 1))
+    if seen < int(os.environ["FAKE_TURN_FAILS"]):
+        sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
 if agent == "act":
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
     answer = open(os.environ["FAKE_DRAFT"]).read().replace("%TASK%", task)
@@ -74,7 +82,11 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 export TEENY_OH="$scratch/fake-oh" FAKE_CALLS="$scratch/calls.log" FAKE_DRAFT="$scratch/draft.txt"
-unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE OPENHUMAN_WORKSPACE TEENY_STATE
+unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE OPENHUMAN_WORKSPACE TEENY_STATE FAKE_TURN_FAILS FAKE_FAIL_AGENT
+export FAKE_TURN_COUNT="$scratch/turns.count"
+# A failed turn is retried after EVAL_RETRY_WAIT seconds (and longer each
+# time); no test here waits.
+export EVAL_RETRY_WAIT=0
 draft() { printf '%s' "$1" >"$FAKE_DRAFT"; }
 tasks="$(find "$repo/evals/tasks" -name '*.toml' | wc -l | tr -d ' ')"
 runs="$scratch/runs"
@@ -168,6 +180,27 @@ check "a skip passes the hard checks" test "$(jq -r .ok "$runs/skip/drafts.jsonl
 draft $'```json\n{"text": "fenced gm"}\n```'
 "$eval_bin" run --samples 1 --only morning-post "$runs/fence" >/dev/null 2>&1
 check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence/drafts.jsonl")" = "fenced gm"
+
+# --- a turn that fails is the infrastructure's, not the brain's ----------------------------------
+# A turn with no answer (the provider dropped the stream, the core was not
+# up) is tried again, up to EVAL_TURN_TRIES times (default 3); one that never
+# answers is "no sample": no draft, and `no_sample` says so.
+draft '{"text": "gm %TASK% after a dropped stream"}'
+rm -f "$FAKE_TURN_COUNT"
+FAKE_TURN_FAILS=2 "$eval_bin" run --samples 1 --only morning-post "$runs/retry" >/dev/null 2>&1
+check "a turn that fails twice is tried a third time" test "$(jq -r '[.ok, .attempts] | map(tostring) | join(" ")' "$runs/retry/drafts.jsonl")" = "true 3"
+check "and is a sample like any other" test "$(jq -r '.no_sample // false' "$runs/retry/drafts.jsonl")" = false
+rm -f "$FAKE_TURN_COUNT"
+FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/down" >/dev/null 2>&1
+check "a turn that never answers is no sample" test "$(jq -r '[.no_sample, .attempts, (.draft == null)] | map(tostring) | join(" ")' "$runs/down/drafts.jsonl" | sort -u)" = "true 3 true"
+check "and says what failed" grep -q 'provider stream ended' "$runs/down/drafts.jsonl"
+rm -f "$FAKE_TURN_COUNT"
+EVAL_TURN_TRIES=1 FAKE_TURN_FAILS=1 "$eval_bin" run --samples 1 --only morning-post "$runs/once" >/dev/null 2>&1
+check "EVAL_TURN_TRIES sets how often a turn is tried" test "$(jq -r '[.no_sample, .attempts] | map(tostring) | join(" ")' "$runs/once/drafts.jsonl")" = "true 1"
+rm -f "$FAKE_TURN_COUNT"
+EVAL_RETRY_BUDGET=0 FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
+check "a run whose retry budget is spent tries each turn once" test "$(jq -r .attempts "$runs/broke/drafts.jsonl")" = 1
+rm -f "$FAKE_TURN_COUNT"
 
 # --- numbers at the end of a sentence --------------------------------------------------------------
 # A number pattern allows the numbers in a task's inputs and fails any other.
