@@ -589,7 +589,7 @@ Answer with one JSON object and nothing else:
 
 Each intent is one of:
 - {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
-- {"do": "post_x", "text": "...", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>"}
+- {"do": "post_x", "text": "...", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
 - {"do": "like_x", "id": "<post id>"}
 - {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
@@ -617,7 +617,7 @@ Your wallet is yours: one recovery phrase, an address on Solana and one on the E
 
 A Moltbook comment shows its `depth` in its details. Moltbook draws a thread five levels down, so a comment with `can_answer` false is not answered: the reply would never be seen.
 
-A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 3 times a day, 8 hours apart; replies are not counted.
+A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. "shots": <a task id> on a post_x or reply_x puts the screenshots that finished browser task saved (its result says how many) on the post, ahead of any pictures of you, four in all. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 3 times a day, 8 hours apart; replies are not counted.
 
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
 
@@ -1002,12 +1002,68 @@ def _picture_prompts(intent: Mapping[str, Any]) -> list[str]:
     return found[:MAX_PICTURES]
 
 
+def _task_id(value: Any) -> int | None:
+    """A browser task id the mind named: an integer (or its digits), else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip()) or None
+    return None
+
+
+def _shots(intent: Mapping[str, Any]) -> tuple[list[str], Json | None]:
+    """A finished browser task's screenshots (`shots: <task id>`), uploaded
+    with hands/x upload, at most MAX_PICTURES: the media ids and what became
+    of them (None when the intent asked for none). Only the images in
+    state/media/tasks/<id>/ for that integer id are ever read, never a path
+    from the model. An unknown task, a task without screenshots or a failed
+    upload leaves the post without them and says why; it never blocks it."""
+    if intent.get("shots") in (None, ""):
+        return [], None
+    if intent.get("gif_id") not in (None, ""):
+        return [], {"skipped": "a GIF takes the place of pictures"}
+    task_id = _task_id(intent.get("shots"))
+    if task_id is None:
+        return [], {"skipped": "shots is a task id, a whole number"}
+    folder = hand.state_dir() / "media" / "tasks" / str(task_id)
+    files = sorted(p for p in folder.glob("*") if p.is_file() and not p.is_symlink()
+                   and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif")) if folder.is_dir() else []
+    if not files:
+        return [], {"task_id": task_id, "skipped": "no screenshots for that task"}
+    ids: list[str] = []
+    failed: list[Json] = []
+    for path in files[:MAX_PICTURES]:
+        code, up = _run_hand("x", ["upload", "--file", str(path)], None)
+        if code == 0 and isinstance(up.get("media_id"), str):
+            ids.append(up["media_id"])
+        else:
+            failed.append({"file": path.name, "result": up})
+    note: Json = {"task_id": task_id, "media_ids": ids}
+    if failed:
+        note["skipped"] = "upload failed" if not ids else "some uploads failed"
+        note["failed"] = failed
+    return ids, note
+
+
+def _media(intent: Mapping[str, Any]) -> tuple[list[str], Json | None]:
+    """The media ids a post or reply carries and the note about them:
+    screenshots first, then pictures of Teeny, MAX_PICTURES in all."""
+    shot_ids, shot_note = _shots(intent)
+    prompts = _picture_prompts(intent)[:MAX_PICTURES - len(shot_ids)]
+    pic_ids, pic_note = _pictures(prompts)
+    if shot_note is None:
+        return pic_ids, pic_note
+    return [*shot_ids, *pic_ids], {"shots": shot_note, **({"images": pic_note} if pic_note else {})}
+
+
 def _pictures(prompts: list[str]) -> tuple[list[str], Json | None]:
     """One media id for each scene that could be made (`_picture`), in order,
     and what became of them: the one note when there is one scene, else
     {"images": [notes]}. A scene that fails is left out with its reason; the
     post never waits on a picture. Another source of ids (a browser task's
-    screenshots) appends to the same list before the post is sent."""
+    screenshots, see `_shots`) goes ahead of it in the same list (`_media`)."""
     ids: list[str] = []
     notes: list[Json] = []
     for prompt in prompts:
@@ -1342,8 +1398,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
                     media_ids: list[str] = []
-                    if do in ("post_x", "reply_x") and _picture_prompts(intent):
-                        media_ids, note = _pictures(_picture_prompts(intent))
+                    if do in ("post_x", "reply_x") and (_picture_prompts(intent) or intent.get("shots") not in (None, "")):
+                        media_ids, note = _media(intent)
                         entry["media"] = note
                         if media_ids:
                             body = {**body, "media_ids": media_ids}
