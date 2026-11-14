@@ -152,6 +152,12 @@ export OPENHUMAN_STORAGE_URL="sqlite:$TEENY_STORAGE"
 export OPENHUMAN_ACTION_DIR="$TEENY_ROOT"
 export OPENHUMAN_KEYRING_BACKEND=file
 export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
+# The browser may open any public https page; private and local addresses
+# stay refused by the core, and deploy/browser-deny.txt is what it never
+# opens (hands/tasks, the operator's desk and prompt). `[http_request]
+# allowed_domains` (deploy/browser-allow.txt) still bounds the raw
+# `http_request` tool. OpenHuman takes this switch from the environment only.
+export OPENHUMAN_BROWSER_ALLOW_ALL=1
 OPENHUMAN_CORE_TOKEN="$(tr -d '[:space:]' <"$TEENY_SECRETS/core.token")"
 export OPENHUMAN_CORE_TOKEN
 export OPENHUMAN_CORE_HOST="$host" OPENHUMAN_CORE_PORT="$port"
