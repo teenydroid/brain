@@ -80,15 +80,7 @@ const BRIDGE: &[Field] = &[
 ];
 
 /// The order the query is sent in.
-const QUERY_ORDER: &[&str] = &[
-    "fromChain",
-    "toChain",
-    "fromToken",
-    "toToken",
-    "fromAmount",
-    "fromAddress",
-    "toAddress",
-];
+const QUERY_ORDER: &[&str] = &["fromChain", "toChain", "fromToken", "toToken", "fromAmount", "fromAddress", "toAddress"];
 
 /// One GET to LI.FI: the path and its query.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,24 +94,15 @@ pub fn request_for(call: &WalletBackendCall) -> Result<Request, String> {
     let (body, fields, swap) = match call {
         WalletBackendCall::SwapTransaction(body) => (body, SWAP, true),
         WalletBackendCall::BridgeTransaction(body) => (body, BRIDGE, false),
-        WalletBackendCall::Routes => {
-            return Err("LI.FI answers swap and bridge quotes only".to_string())
-        }
+        WalletBackendCall::Routes => return Err("LI.FI answers swap and bridge quotes only".to_string()),
     };
-    let object = body
-        .as_object()
-        .ok_or_else(|| "LI.FI request body is not an object".to_string())?;
-    if let Some(unknown) = object
-        .keys()
-        .find(|key| !fields.iter().any(|(name, _)| name == key))
-    {
+    let object = body.as_object().ok_or_else(|| "LI.FI request body is not an object".to_string())?;
+    if let Some(unknown) = object.keys().find(|key| !fields.iter().any(|(name, _)| name == key)) {
         return Err(format!("LI.FI does not take the field {unknown}"));
     }
     let mut named = Map::new();
     for &(field, query) in fields {
-        let Some(text) = scalar(object, field)? else {
-            continue;
-        };
+        let Some(text) = scalar(object, field)? else { continue };
         if let Some(query) = query {
             named.insert(query.to_string(), Value::String(text));
         }
@@ -159,10 +142,7 @@ pub fn request_for(call: &WalletBackendCall) -> Result<Request, String> {
     // the money lands; hands/wallet refuses such a quote. Not asking for it
     // lets LI.FI offer a route the hand can check instead.
     query.push(("denyBridges".to_string(), "near".to_string()));
-    Ok(Request {
-        path: "/v1/quote",
-        query,
-    })
+    Ok(Request { path: "/v1/quote", query })
 }
 
 /// The module's name for a LI.FI query field, for an error.
@@ -179,32 +159,20 @@ fn scalar(object: &Map<String, Value>, field: &str) -> Result<Option<String>, St
         None | Some(Value::Null) => return Ok(None),
         Some(Value::String(text)) => text.trim().to_string(),
         Some(Value::Number(number)) if number.is_u64() => number.to_string(),
-        Some(_) => {
-            return Err(format!(
-                "LI.FI field {field} is not a string or a whole number"
-            ))
-        }
+        Some(_) => return Err(format!("LI.FI field {field} is not a string or a whole number")),
     };
     Ok(if text.is_empty() { None } else { Some(text) })
 }
 
 /// The module's chain id as LI.FI's: Solana's differs, EVM ids are the same.
 fn chain_id(text: &str) -> Result<String, String> {
-    let id: u64 = text
-        .parse()
-        .map_err(|_| format!("chain id {text} is not a number"))?;
+    let id: u64 = text.parse().map_err(|_| format!("chain id {text} is not a number"))?;
     Ok(if id == MODULE_SOLANA { LIFI_SOLANA } else { id }.to_string())
 }
 
 fn lower_if_evm(text: &str) -> String {
-    let is_evm = text.len() == 42
-        && text.starts_with("0x")
-        && text[2..].bytes().all(|b| b.is_ascii_hexdigit());
-    if is_evm {
-        text.to_ascii_lowercase()
-    } else {
-        text.to_string()
-    }
+    let is_evm = text.len() == 42 && text.starts_with("0x") && text[2..].bytes().all(|b| b.is_ascii_hexdigit());
+    if is_evm { text.to_ascii_lowercase() } else { text.to_string() }
 }
 
 /// A slippage percent ("1", "0.5") as LI.FI's fraction ("0.01", "0.005"),
@@ -212,10 +180,7 @@ fn lower_if_evm(text: &str) -> String {
 fn fraction(percent: &str) -> Result<String, String> {
     let bad = || format!("slippage {percent} is not a percent from 0 to 100");
     let (whole, frac) = percent.split_once('.').unwrap_or((percent, ""));
-    if whole.is_empty()
-        || !whole.bytes().all(|b| b.is_ascii_digit())
-        || !frac.bytes().all(|b| b.is_ascii_digit())
-    {
+    if whole.is_empty() || !whole.bytes().all(|b| b.is_ascii_digit()) || !frac.bytes().all(|b| b.is_ascii_digit()) {
         return Err(bad());
     }
     let whole: u32 = whole.parse().map_err(|_| bad())?;
@@ -248,8 +213,7 @@ pub fn translate(answer: Value) -> Result<Value, String> {
     };
     let text = |key: &str| request.get(key).and_then(Value::as_str).map(str::trim);
     let tx = if from_chain == LIFI_SOLANA {
-        let blob =
-            text("data").ok_or_else(|| "LI.FI's Solana transaction has no data".to_string())?;
+        let blob = text("data").ok_or_else(|| "LI.FI's Solana transaction has no data".to_string())?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(blob)
             .map_err(|_| "LI.FI's Solana transaction is not base64".to_string())?;
@@ -289,12 +253,7 @@ fn wei(value: Option<&Value>) -> Result<String, String> {
 pub fn error_message(status: u16, body: &str) -> String {
     let detail = serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|value| {
-            value
-                .get("message")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+        .and_then(|value| value.get("message").and_then(Value::as_str).map(str::to_string))
         .unwrap_or_default();
     let detail: String = detail.chars().take(ERROR_CHARS).collect();
     if detail.is_empty() {
@@ -319,26 +278,15 @@ async fn fetch(request: Request) -> Result<Value, String> {
         .user_agent("teeny-spine")
         .build()
         .map_err(|_| "could not build the LI.FI client".to_string())?;
-    let mut get = client
-        .get(format!("{}{}", base_url(), request.path))
-        .query(&request.query);
-    if let Some(key) = std::env::var("LIFI_API_KEY")
-        .ok()
-        .filter(|key| !key.trim().is_empty())
-    {
+    let mut get = client.get(format!("{}{}", base_url(), request.path)).query(&request.query);
+    if let Some(key) = std::env::var("LIFI_API_KEY").ok().filter(|key| !key.trim().is_empty()) {
         get = get.header("x-lifi-api-key", key.trim());
     }
     log::debug!("[teeny-lifi] GET {}", request.path);
-    let response = get.send().await.map_err(|error| {
-        format!(
-            "could not reach LI.FI ({})",
-            if error.is_timeout() {
-                "timeout"
-            } else {
-                "connect"
-            }
-        )
-    })?;
+    let response = get
+        .send()
+        .await
+        .map_err(|error| format!("could not reach LI.FI ({})", if error.is_timeout() { "timeout" } else { "connect" }))?;
     let status = response.status().as_u16();
     let text = response
         .text()
@@ -366,11 +314,7 @@ mod tests {
     const SOL_USDC: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
     fn pairs(request: &Request) -> Vec<(&str, &str)> {
-        request
-            .query
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect()
+        request.query.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
     }
 
     /// The bridge body the wallet module builds (`quote_bridge`), after the
@@ -425,13 +369,7 @@ mod tests {
     fn a_swap_stays_on_one_chain_with_its_slippage_as_a_fraction() {
         let request = request_for(&WalletBackendCall::SwapTransaction(swap_body())).unwrap();
         let got = pairs(&request);
-        assert_eq!(
-            &got[..2],
-            &[
-                ("fromChain", "1151111081099710"),
-                ("toChain", "1151111081099710")
-            ]
-        );
+        assert_eq!(&got[..2], &[("fromChain", "1151111081099710"), ("toChain", "1151111081099710")]);
         assert!(got.contains(&("toAddress", OWN_SOL)));
         assert!(got.contains(&("slippage", "0.01")), "{got:?}");
     }
@@ -447,10 +385,7 @@ mod tests {
         assert!(pairs(&request).contains(&("slippage", "0.005")));
         for bad in ["-1", "abc", "101", "1e3"] {
             body["slippage"] = json!(bad);
-            assert!(
-                request_for(&WalletBackendCall::SwapTransaction(body.clone())).is_err(),
-                "{bad}"
-            );
+            assert!(request_for(&WalletBackendCall::SwapTransaction(body.clone())).is_err(), "{bad}");
         }
     }
 
@@ -468,9 +403,7 @@ mod tests {
     #[test]
     fn a_missing_recipient_is_refused_not_defaulted() {
         let mut body = bridge_body();
-        body.as_object_mut()
-            .unwrap()
-            .remove("dstChainTokenOutRecipient");
+        body.as_object_mut().unwrap().remove("dstChainTokenOutRecipient");
         let error = request_for(&WalletBackendCall::BridgeTransaction(body)).unwrap_err();
         assert!(error.contains("dstChainTokenOutRecipient"), "{error}");
     }
@@ -497,47 +430,31 @@ mod tests {
 
     #[test]
     fn a_solana_quote_becomes_the_hex_blob_the_module_signs() {
-        let recorded: Value = serde_json::from_str(include_str!(
-            "../../hands/tests/wallet/fixtures/lifi/sol_to_base_usdc.json"
-        ))
-        .unwrap();
-        let base64 = recorded["transactionRequest"]["data"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        let recorded: Value =
+            serde_json::from_str(include_str!("../../hands/tests/wallet/fixtures/lifi/sol_to_base_usdc.json")).unwrap();
+        let base64 = recorded["transactionRequest"]["data"].as_str().unwrap().to_string();
         let envelope = translate(recorded.clone()).unwrap();
         let hex_blob = envelope["tx"]["data"].as_str().unwrap();
         use base64::Engine as _;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&base64)
-            .unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&base64).unwrap();
         assert_eq!(hex_blob, format!("0x{}", hex::encode(bytes)));
         assert!(envelope["tx"].get("to").is_none());
         assert_eq!(envelope["provider"], "lifi");
         assert_eq!(envelope["tool"], recorded["tool"]);
         assert_eq!(envelope["estimate"], recorded["estimate"]);
-        assert!(
-            envelope.get("transactionRequest").is_none(),
-            "one transaction, the one signed"
-        );
+        assert!(envelope.get("transactionRequest").is_none(), "one transaction, the one signed");
     }
 
     #[test]
     fn an_evm_quote_keeps_to_and_data_and_gives_the_value_in_decimal_wei() {
-        let recorded: Value = serde_json::from_str(include_str!(
-            "../../hands/tests/wallet/fixtures/lifi/base_eth_to_usdc_swap.json"
-        ))
-        .unwrap();
+        let recorded: Value =
+            serde_json::from_str(include_str!("../../hands/tests/wallet/fixtures/lifi/base_eth_to_usdc_swap.json")).unwrap();
         let envelope = translate(recorded.clone()).unwrap();
         let tx = &envelope["tx"];
         assert_eq!(tx["to"], recorded["transactionRequest"]["to"]);
         assert_eq!(tx["data"], recorded["transactionRequest"]["data"]);
         assert_eq!(tx["value"], "5000000000000000");
-        assert_eq!(
-            tx.as_object().unwrap().len(),
-            3,
-            "only what the module signs: {tx}"
-        );
+        assert_eq!(tx.as_object().unwrap().len(), 3, "only what the module signs: {tx}");
     }
 
     #[test]
@@ -555,10 +472,7 @@ mod tests {
     #[test]
     fn errors_carry_lifis_message_not_the_request() {
         assert_eq!(
-            error_message(
-                404,
-                r#"{"message":"No available quotes for the requested transfer","code":1002}"#
-            ),
+            error_message(404, r#"{"message":"No available quotes for the requested transfer","code":1002}"#),
             "LI.FI answered HTTP 404: No available quotes for the requested transfer"
         );
         assert_eq!(error_message(502, "<html>"), "LI.FI answered HTTP 502");
