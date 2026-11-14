@@ -411,10 +411,12 @@ made over 7 days (`bin/lib/evolve_evidence.py`, read-only from
 proposer handed only its components moved the components (gens 4 and 5,
 below).
 
-- `outcomes.x`: Teeny's own posts, which drew replies (and from how many
-  people) and which drew nobody (a post under 6 hours old is not counted as
-  nobody yet), and its replies, which got an answer back from the person it
-  answered. A few of each, Teeny's own words cut to 160 characters.
+- `outcomes.x`: Teeny's own posts, which drew people (replies, and from how
+  many people; or likes, reposts or quotes as `hands/x metrics` counted them
+  at the latest checkpoint, shown as `x_counted` with impressions) and which
+  drew nobody (a post under 6 hours old is not counted as nobody yet), and
+  its replies, which got an answer back from the person it answered. A few
+  of each, Teeny's own words cut to 160 characters.
 - `outcomes.moltbook`: its posts with their latest score and comment count,
   and its comments counted by what came of them.
 - `outcomes.followers`: followers and karma, first and last day.
@@ -428,8 +430,16 @@ below).
   worst first, each marked `yours: brain/cron.toml`, `yours:
   brain/playbooks/<name>.md`, or `frozen: a pinned job`.
 - `outcomes.outside`: the notes of surface `world` by their first line (not
-  the idle feed listings) and the Hacker News stories fetched in the window,
-  by title.
+  the idle feed listings); `heard`, what `hands/listen` heard over the last
+  two days (its `listen_heard` ledger, read the way `hands/listen digest
+  --days 2` reads it, the loudest first): only each title, its source and
+  its topic, four per source, and under `about_you` up to four that mention
+  Teeny; and the other Hacker News stories fetched in the window, by title
+  (one the ears heard too is listed once, under `heard`). An idea heard
+  there, a tool people want or an approach that works for other agents, is
+  fair evidence when the candidate says what it heard and where.
+- `lessons`: what the lab's concluded experiments found (`hands/lab
+  lessons`), each with its verdict and numbers.
 - `world`: `hands/world report --days 7` cut to J, its reading lines and each
   component's value, with `unread` naming the components never read. The
   formula, weights and parts stay in the hand.
@@ -443,7 +453,8 @@ below).
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
 happen, and the core's screen holds the whole turn for one. Hacker News
-titles are the one exception, cut short. `outcomes` is cut to 16 KiB
+titles and what the ears heard are the one exception: titles only, cut
+short, never a link, a handle or a summary. `outcomes` is cut to 16 KiB
 (`MAX_OUTCOMES_BYTES`, longest lists first), so the message stays under the
 core's 64 KiB prompt screen.
 

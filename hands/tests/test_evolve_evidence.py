@@ -50,6 +50,13 @@ CREATE TABLE stimuli (id TEXT PRIMARY KEY, surface TEXT NOT NULL, kind TEXT NOT 
                       text TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}', at REAL NOT NULL, status TEXT NOT NULL,
                       tick TEXT, taken_at REAL, updated_at REAL NOT NULL);
 CREATE TABLE hn_cache (key TEXT PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, expires_at REAL NOT NULL);
+CREATE TABLE listen_heard (source TEXT NOT NULL, ref TEXT NOT NULL, title TEXT NOT NULL, url TEXT, link TEXT,
+                           score INTEGER NOT NULL DEFAULT 0, comments INTEGER NOT NULL DEFAULT 0,
+                           extra TEXT NOT NULL DEFAULT '{}', first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+                           PRIMARY KEY (source, ref));
+CREATE TABLE x_post_metrics (id INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT NOT NULL, checkpoint INTEGER NOT NULL,
+                             at REAL NOT NULL, likes INTEGER, replies INTEGER, reposts INTEGER, quotes INTEGER,
+                             impressions INTEGER, bookmarks INTEGER, UNIQUE (post_id, checkpoint));
 """
 
 
@@ -115,6 +122,21 @@ class Outcomes(unittest.TestCase):
            (json.dumps({"title": "Show HN: a kettle that tweets", "score": 300, "descendants": 40, "time": NOW - DAY}), NOW))
         mb("INSERT INTO hn_cache VALUES ('item:2', 'item', ?, ?)",
            (json.dumps({"title": "Old story", "score": 900, "time": NOW - 40 * DAY}), NOW))
+        # The same story the ears heard too: it is listed once, under `heard`.
+        mb("INSERT INTO hn_cache VALUES ('item:77', 'item', ?, ?)",
+           (json.dumps({"id": 77, "title": "Agents that remember", "score": 120, "time": NOW - DAY}), NOW))
+        heard = ("INSERT INTO listen_heard (source, ref, title, url, link, score, comments, extra, first_seen, last_seen) "
+                 "VALUES (?,?,?,?,?,?,?,?,?,?)")
+        mb(heard, ("hn", "77", "Agents that remember", "https://example.com/STRANGER", "https://news.ycombinator.com/item?id=77",
+                   120, 30, json.dumps({"by": "STRANGER_handle", "topic": "agent memory"}), NOW - DAY, NOW - DAY))
+        mb(heard, ("github", "a/b", "a/b: an MCP server for your fridge", None, None, 900, 0,
+                   json.dumps({"topic": "ai-agents", "summary": STRANGER}), NOW - HOUR, NOW - HOUR))
+        mb(heard, ("hn", "88", "Ask HN: has anyone tried Teeny?", None, None, 5, 2,
+                   json.dumps({"about_me": True, "by": "STRANGER_handle"}), NOW - HOUR, NOW - HOUR))
+        mb(heard, ("lobsters", "old1", "heard three days ago", None, None, 50, 0, "{}", NOW - 3 * DAY, NOW - DAY))
+        # p2 drew no replies, but X counts likes on the gm p1 and on the fresh p3.
+        mb("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes, impressions) VALUES "
+           "('p1', 1, ?, 1, 0, 0, 0, 40), ('p1', 24, ?, 6, 3, 1, 0, 900)", (NOW - 2 * DAY, NOW - DAY))
         conn.commit()
         conn.close()
         (self.root / "cron.toml").write_text('[jobs.moltbook-helpdesk]\nschedule = "15 8 * * *"\ncommand = "bin/act moltbook-helpdesk"\n')
@@ -178,7 +200,49 @@ class Outcomes(unittest.TestCase):
     def test_the_outside_world_by_first_line_and_title(self):
         outside = self.outcomes()["outside"]
         self.assertEqual([n["first_line"] for n in outside["world_notes"]], ["From the team: the judge outage is over."])
+        # A story the ears heard is not listed again from the read cache.
         self.assertEqual([s["title"] for s in outside["hacker_news"]], ["Show HN: a kettle that tweets"])
+
+    def test_what_the_ears_heard_is_titles_source_and_topic_of_the_last_two_days(self):
+        heard = self.outcomes()["outside"]["heard"]
+        self.assertEqual(heard["note"], ev.HEARD_NOTE)
+        self.assertEqual(heard["by_source"], {
+            "github": [{"title": "a/b: an MCP server for your fridge", "topic": "ai-agents"}],
+            "hn": [{"title": "Agents that remember", "topic": "agent memory"}],
+        })
+        self.assertEqual(heard["about_you"], [{"source": "hn", "title": "Ask HN: has anyone tried Teeny?"}])
+        self.assertNotIn("three days ago", json.dumps(heard))
+        # Links, handles and summaries stay in the ledger.
+        self.assertNotIn("example.com", json.dumps(heard))
+        self.assertNotIn("handle", json.dumps(heard))
+
+    def test_what_the_ears_heard_is_a_few_per_source_the_loudest_first(self):
+        conn = sqlite3.connect(self.db)
+        for i in range(20):
+            conn.execute("INSERT INTO listen_heard (source, ref, title, score, first_seen, last_seen) "
+                         "VALUES ('arxiv', ?, ?, ?, ?, ?)", (f"x{i}", f"paper {i} " + "z" * 300, i, NOW - HOUR, NOW))
+        conn.commit()
+        conn.close()
+        arxiv = self.outcomes()["outside"]["heard"]["by_source"]["arxiv"]
+        self.assertEqual(len(arxiv), ev.MAX_HEARD_PER_SOURCE)
+        self.assertTrue(arxiv[0]["title"].startswith("paper 19 "))
+        self.assertLessEqual(len(arxiv[0]["title"]), 120)
+
+    def test_x_counts_likes_and_reach_at_the_latest_checkpoint(self):
+        best = self.outcomes()["x"]["posts"]["best"][0]
+        self.assertEqual(best["text"], "gm tiny humans, what are you building today?")
+        self.assertEqual(best["x_counted"], {"likes": 6, "reposts": 1, "quotes": 0, "impressions": 900})
+
+    def test_a_post_liked_but_unanswered_did_not_draw_nobody(self):
+        conn = sqlite3.connect(self.db)
+        conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes, impressions) "
+                     "VALUES ('p2', 72, ?, 4, 0, 0, 0, 300)", (NOW - DAY,))
+        conn.commit()
+        conn.close()
+        posts = self.outcomes()["x"]["posts"]
+        self.assertEqual(posts["drew_nobody"], 0)
+        self.assertEqual(posts["drew_people"], 2)
+        self.assertEqual([p["text"] for p in posts["best"]][1], "a status report about my cron jobs")
 
     def test_strangers_words_are_never_quoted(self):
         self.assertNotIn("STRANGER", json.dumps(self.outcomes()))
