@@ -225,17 +225,33 @@ key stays in the core's encrypted store. It fails closed: an unreachable core
 or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
 lexicon and the links.
 
-**Asking again.** One text gets up to three asks (`MAX_ASKS`). A call that
+**Asking again.** One text gets up to five asks (`MAX_ASKS`). A call that
 failed for a reason that may pass (a cut provider stream, a timeout, a
-dropped connection, a 5xx) is asked again after 2 s, then after 6 s
-(`RETRY_BACKOFFS`); an unreadable answer is asked again at once; a failure
-that will not pass (no core token, an unknown method, a 401/402/403/404, a
-refused key, no model configured) holds at once. Every ask gets what is left
-of `JUDGE_BUDGET` (120 s), at most `JUDGE_TIMEOUT` (60 s), and one that
-would get under 10 s is not made, so the worst case, every ask timing out,
-is 120 s on the judge for one text: two asks of 60 s and 58 s around the
-2 s wait. A stream cut answers in seconds, so a burst of them is asked all
-three times. The last failure still holds; nothing ever turns into a pass.
+dropped connection, a 5xx) is asked again after 2 s, then 6 s, 15 s and
+30 s (`RETRY_BACKOFFS`, the n-th failed call waiting the n-th): the
+provider cuts streams in windows that last minutes, and on 2026-11-14 asks
+only 2 s and 6 s apart all landed in one window and held dozens of
+messages as "the judge could not be reached". An unreadable answer is the
+model answering: it is asked again at once, and only within the first three
+asks (`UNREADABLE_ASKS`), as before. A failure that will not pass (no core
+token, an unknown method, a 401/402/403/404, a refused key, no model
+configured) holds at once. Every ask gets what is left of `JUDGE_BUDGET`
+(120 s), at most `JUDGE_TIMEOUT` (60 s), and one that would get under 10 s
+is not made, so the worst case, every ask timing out, is still 120 s on the
+judge for one text: two asks of 60 s and 58 s around the 2 s wait. A stream
+cut fails in a second or two, so a window of them is asked five times over
+about a minute (53 s of waits).
+
+The 15 s and 30 s waits come out of one allowance of 45 s per process
+(`LONG_WAITS`), not one per text. A hand the tick or `bin/act` calls judges
+one draft in its own process and gets the whole minute. An inbound scan
+(`hands/x ingest`, `bin/mail`, `bin/gh-inbound` and the like) judges a batch
+in one process inside the 300 s the core gives a cron shell call, so in a
+failure window only its first text (or first few, when an answer comes back
+early) waits them out and the rest get the 2 s and 6 s they had before: a
+batch waits at most 45 s more than it used to. Only the timing changed:
+the verdicts, what holds, and fail-closed are as they were; the last
+failure still holds, and nothing ever turns into a pass.
 
 A hold the judge made only by failing is marked on the verdict:
 `Verdict.judge_failed` and `FieldsVerdict.judge_failed` (`Held.judge_failed`:
@@ -1395,7 +1411,9 @@ pay is still an attack. Playbooks still reach only the read verbs.
 
 More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
-keeps it off and out of the mind's prompt):
+keeps it off and out of the mind's prompt; `propose_change` is the exception,
+on at 1 a day, since all it makes is a pull request the operator merges or
+closes):
 
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
@@ -1404,10 +1422,14 @@ keeps it off and out of the mind's prompt):
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
+| `propose_change` `{text}` | `build self {text}` | refused before the guard and the hand while a change to itself is in flight (a `self` build request not yet skipped, shipped or failed, or a `self` job not failed, shipped or given up) and over the desk's 2,000 characters; the tick runs the brief past `guard check` (surface `github`, as `self-improve`'s output) and sends the guard's words; the request is picked by `pick-request` and ships as a pull request (docs/evolve.md) | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
+A `propose_change` that lands comes back to the next beat with its build
+request's id and status (`payload.request`), so Teeny can say which request
+it is and that it is waiting for `pick-request`, not being built yet.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
 reply` and `send`), except the web search: `x402 search` and `contents` pay

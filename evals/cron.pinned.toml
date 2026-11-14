@@ -5,6 +5,21 @@
 # here with it.
 #
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
+# The daily and weekly jobs that only read, record or think (`catch_up = true`)
+# have a slot missed across a restart run once, late (bin/lib/catch_up.py);
+# the jobs every few minutes or hours simply run at their next slot, and the
+# jobs that move money never catch up (bin/lib/cron_policy.py refuses it).
+#
+# Nor do the jobs whose order matters: a catch-up runs late, so it can land
+# after the job meant to follow it. evolve (03:30) is followed by
+# evolve-credit (03:50), each dream by its receipts (02:00 -> 02:30, 14:00 ->
+# 14:30), which publish the dream's snapshot of MEMORY.md; a late dream would
+# miss its receipts, a late generation its credit. They wait for their next
+# slot. The day's snapshots (stats-snapshot 00:15, world-snapshot 00:30,
+# health-daily 00:40) do catch up: when several are missed the oldest slot
+# goes first, so they keep their order, and when only stats-snapshot is
+# missed, catching it up after world-snapshot leaves W no worse than not
+# catching it up (world-snapshot upserts the day's rows at its next run).
 
 # Read the mentions and answer the ones the core has drafted (bin/mentions).
 # Operator-owned: the brain shapes the answers through playbooks/mentions.md,
@@ -74,6 +89,7 @@ command = "bin/receipts"
 [jobs.stats-snapshot]
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
+catch_up = true
 
 # How Teeny's own posts and replies landed, every hour (bin/stats-snapshot
 # metrics): `hands/moltbook metrics refresh` and `hands/x metrics refresh`
@@ -94,6 +110,7 @@ command = "bin/stats-snapshot metrics"
 [jobs.world-snapshot]
 schedule = "30 0 * * *"
 command = "bin/world-snapshot"
+catch_up = true
 
 # The builder (brain/agents/builder.toml), an agent job: it reads one job
 # from its desk (state/workbench/desk/build.json: the oldest picked build
@@ -159,6 +176,7 @@ command = "bin/health"
 [jobs.health-daily]
 schedule = "40 0 * * *"
 command = "bin/health daily"
+catch_up = true
 
 # The weekly audit Teeny can't write (bin/audit; docs/roadmap.md, G6): last
 # week's holds, spend against the caps, halts, generations, drift and every
@@ -169,6 +187,7 @@ command = "bin/health daily"
 [jobs.audit]
 schedule = "50 0 * * 1"
 command = "bin/audit"
+catch_up = true
 
 # A model change drops the autonomy levels that run on it (docs/roadmap.md,
 # G8): bin/doctor records the change at boot and prepares an issue listing
@@ -270,6 +289,7 @@ enabled = false
 schedule = "20 0 * * 1"
 tz = "UTC"
 command = "bin/accounts"
+catch_up = true
 
 # Teeny's on-chain senses (bin/wallet-watch; docs/roadmap.md, A5): every
 # deposit to the wallet into the inflow ledger and the mind's inbox, one
@@ -287,6 +307,7 @@ command = "bin/wallet-watch"
 schedule = "50 0 * * *"
 tz = "UTC"
 command = "bin/wallet-watch daily"
+catch_up = true
 
 # Keep the x402 rail funded (bin/x402-fund; docs/hands.md, "x402"): when USDC
 # on Base, what paid search and twitr.sh are paid from, is under
@@ -320,6 +341,7 @@ command = "bin/surplus-sweep"
 schedule = "45 0 * * *"
 tz = "UTC"
 command = "bin/health runway"
+catch_up = true
 
 # Paid build requests (bin/paid-requests; docs/roadmap.md, S3): deposits whose
 # memo names a request, at the frozen price (evals/prices.toml), put that
@@ -350,3 +372,4 @@ command = "bin/pay-bills"
 schedule = "30 17 * * 6"
 tz = "Asia/Kolkata"
 command = "bin/moltbook-prune"
+catch_up = true

@@ -16,7 +16,7 @@ pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1" >&2; failures=$((failures + 1)); }
 check() { local name="$1"; shift; if "$@"; then pass "$name"; else fail "$name"; fi; }
 
-# The stand-in: cron_list / cron_add / cron_update / cron_remove over
+# The stand-in: cron_list / cron_add / cron_update / cron_remove / cron_run over
 # $FAKE_JOBS, every call appended to $FAKE_CALLS.
 fake="$scratch/fake-oh"
 cat >"$fake" <<'FAKE'
@@ -29,10 +29,24 @@ case "$method" in
   cron_list) printf '%s\n' "$jobs" ;;
   cron_add)
     id="job-$(( $(jq length <<<"$jobs") + $(wc -l <"$FAKE_CALLS") ))"
-    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true}' <<<"$params")"
+    job="$(jq -c --arg id "$id" '{id: $id, name, job_type, command, prompt, agent_id, session_target, schedule, enabled: true,
+      next_run: (now + 3600 | todate)}' <<<"$params")"
     jq -c --argjson j "$job" '. + [$j]' <<<"$jobs" >"$FAKE_JOBS"
     printf '%s\n' "$job" ;;
   cron_update)
+    # FAKE_CLAIM_ON_UPDATE=<id>: the core claims that job's slot just before
+    # the update lands, and the update fences the claim (expires_ms 0).
+    if [ -n "${FAKE_CLAIM_ON_UPDATE:-}" ] && [ "$(jq -r .job_id <<<"$params")" = "$FAKE_CLAIM_ON_UPDATE" ]; then
+      python3 - "$TEENY_STORAGE" "$FAKE_CLAIM_ON_UPDATE" <<'PY'
+import json, sqlite3, sys, time
+db = sqlite3.connect(sys.argv[1])
+(body,) = db.execute("select body from docs where coll = 'cron.jobs' and id = ?", (sys.argv[2],)).fetchone()
+lease = f"cron/{sys.argv[2]}%2F{json.loads(body)['next_run_ms']}"
+db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+           (lease, int(time.time() * 1000), json.dumps({"holder": "core-now", "epoch": 1, "expires_ms": 0})))
+db.commit()
+PY
+    fi
     # A patched schedule moves the job's next run to its next slot, as the
     # core's does; here that is simply an hour from now.
     jq -c --argjson p "$params" 'map(if .id == $p.job_id then . + $p.patch +
@@ -42,12 +56,15 @@ case "$method" in
   cron_remove)
     jq -c --argjson p "$params" 'map(select(.id != $p.job_id))' <<<"$jobs" >"$FAKE_JOBS"
     echo '{}' ;;
+  cron_run) jq -c '{job_id, status: "queued"}' <<<"$params" ;;
   *) echo "unexpected method $method" >&2; exit 1 ;;
 esac
 FAKE
 chmod +x "$fake"
 
 export TEENY_OH="$fake" FAKE_JOBS="$scratch/jobs.json" FAKE_CALLS="$scratch/calls.log"
+# Never this checkout's own state or storage.
+export TEENY_STATE="$scratch/state" TEENY_STORAGE="$scratch/storage.db"
 unset CALENDAR_TZ
 toml="$scratch/cron.toml"
 pinned="$scratch/pinned.toml"
@@ -299,6 +316,145 @@ seed
 check "an updated job is not re-armed on top" test "$(calls cron_update)" = 1
 check "and is updated" grep -q '^\[seed-cron\] update  teeny.heartbeat' "$scratch/stderr"
 
+# --- a daily slot missed across a restart is caught up, once -----------------------
+# 2026-11-13 and 11-14: a deploy restarted the spine while teeny.self-improve
+# was running; this boot's re-arm moved it to tomorrow and the day's run was
+# lost. A job with `catch_up = true` is run once now instead (bin/lib/catch_up.py).
+export TEENY_STATE="$scratch/state" TEENY_STORAGE="$scratch/storage.db" TEENY_QUIET_HOURS=off
+mkdir -p "$TEENY_STATE"
+# The core's storage as it would be: the jobs the fake knows, by id, no runs.
+storage_from_fake() {
+  rm -f "$TEENY_STORAGE"
+  python3 - "$FAKE_JOBS" "$TEENY_STORAGE" "${LIVE_CLAIMS:-}" <<'PY'
+import datetime as dt, json, sqlite3, sys, time
+jobs = json.load(open(sys.argv[1]))
+live = [i for i in sys.argv[3].split(",") if i]
+db = sqlite3.connect(sys.argv[2])
+db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+           " updated_ms integer default 0, deleted integer default 0, body text)")
+for job in jobs:
+    if not job.get("next_run"):
+        continue
+    next_ms = int(dt.datetime.fromisoformat(job["next_run"].replace("Z", "+00:00")).timestamp() * 1000)
+    body = {"name": job["name"], "enabled": job["enabled"], "next_run_ms": next_ms, "schedule": job["schedule"]}
+    db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job["id"], json.dumps(body)))
+    if job["id"] in live:  # a run the core claimed at boot, renewing its claim
+        now_ms = int(time.time() * 1000)
+        lease = {"holder": "t", "epoch": 1, "expires_ms": now_ms + 7_200_000}
+        db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                   (f"cron/{job['id']}%2F{next_ms}", now_ms, json.dumps(lease)))
+db.commit()
+PY
+}
+# A daily job at the minute eight minutes ago (UTC), next run still on it.
+slot="$(date -u -d '-8 minutes' '+%M %H')"
+printf '[jobs.daily]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n[jobs.plain]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\n' "$slot" "$slot" >"$toml"
+reset
+for n in daily plain; do
+  jq -c --arg n "teeny.$n" --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: ("id-" + $n), name: $n,
+    job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+    enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+done
+: >"$FAKE_CALLS"
+storage_from_fake
+seed --dry-run
+check "--dry-run reports the catch-up" grep -q 'catch up teeny.daily' "$scratch/stderr"
+check "--dry-run runs nothing" test "$(calls cron_run)" = 0
+seed
+check "re-arms both missed jobs" test "$(calls cron_update)" = 2
+check "catches up the one with catch_up, at boot" grep -qF 'cron_run {"job_id":"id-teeny.daily"}' "$FAKE_CALLS"
+check "with one run" test "$(calls cron_run)" = 1
+check "and says so" grep -q 'caught up teeny.daily (its .* slot)' "$scratch/stderr"
+check "leaves the other to its next slot" bash -c "! grep -q 'id-teeny.plain\"}' <(grep '^cron_run' '$FAKE_CALLS')"
+: >"$FAKE_CALLS"
+seed
+check "never runs the same slot twice across boots" test "$(calls cron_run)" = 0
+# The re-arm moved both to their next run (the fake: an hour on); storage follows.
+storage_from_fake
+seed
+check "nor once the re-arm has moved it on" test "$(calls cron_run)" = 0
+# A job seeding adds now has no slot of its own to catch up.
+printf '[jobs.fresh]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n' "$slot" >"$toml"
+reset
+storage_from_fake
+seed
+storage_from_fake
+seed
+check "a job just added is not caught up" test "$(calls cron_run)" = 0
+# The boot race: the core serves before seeding, polls at once and claims a
+# slot that passed while the box was down. Re-arming it would fence that
+# claim (the run goes on, unrecorded) and catch-up would start a second copy.
+printf '[jobs.snap]\nschedule = "%s * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\n' "$slot" >"$toml"
+reset
+jq -c --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: "id-teeny.snap", name: "teeny.snap",
+  job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+  enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+LIVE_CLAIMS=id-teeny.snap storage_from_fake
+: >"$FAKE_CALLS"
+seed
+check "a job whose slot a live run holds at boot is not re-armed" test "$(calls cron_update)" = 0
+check "nor caught up" test "$(calls cron_run)" = 0
+check "and seeding says a recent claim holds it" grep -q 'running teeny.snap (held by a recent claim' "$scratch/stderr"
+# The same race inside the window: the core claims after the live read,
+# before the re-arm lands. The re-arm fences that claim; no second copy.
+reset
+jq -c --arg t "$(ago 480)" --arg e "$slot * * *" '. + [{id: "id-teeny.snap", name: "teeny.snap",
+  job_type: "shell", command: "bin/heartbeat", schedule: {kind: "cron", expr: $e, tz: "UTC"},
+  enabled: true, next_run: $t}]' "$FAKE_JOBS" >"$scratch/j" && mv "$scratch/j" "$FAKE_JOBS"
+rm -f "$TEENY_STATE/catch-up.json"
+storage_from_fake
+: >"$FAKE_CALLS"
+FAKE_CLAIM_ON_UPDATE=id-teeny.snap seed
+check "a claim taken while the job is re-armed is never caught up" test "$(calls cron_run)" = 0
+check "and seeding says the core claimed it meanwhile" grep -q 'claimed teeny.snap' "$scratch/stderr"
+storage_from_fake
+: >"$FAKE_CALLS"
+seed
+check "nor at the next boot" test "$(calls cron_run)" = 0
+unset TEENY_QUIET_HOURS
+rm -f "$TEENY_STORAGE"
+
+refuses "refuses a catch-up window as long as the gap between slots" \
+  $'[jobs.x]\nschedule = "0 9,15 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true'
+refuses "refuses a catch-up window on a job every hour" \
+  $'[jobs.x]\nschedule = "0 * * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 1'
+refuses "refuses catch_up_hours without catch_up" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up_hours = 3'
+refuses "refuses a catch-up window over 12 hours" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 13'
+refuses "refuses a catch-up window that a cut-off catch-up's claim (2 h) could carry into the next slot" \
+  $'[jobs.x]\nschedule = "20 9,15 * * *"\ncommand = "bin/heartbeat"\ncatch_up = true\ncatch_up_hours = 5'
+refuses "refuses catch-up on a schedule with named days" \
+  $'[jobs.x]\nschedule = "0 9 * * MON"\ncommand = "bin/heartbeat"\ncatch_up = true'
+refuses "refuses catch-up when day of month and day of week are both set" \
+  $'[jobs.x]\nschedule = "0 9 1 * 1"\ncommand = "bin/heartbeat"\ncatch_up = true'
+printf '+++\ndescription = "x"\noutput = "hand:moltbook comment"\nsurface = "moltbook"\n+++\nx\n' >"$scratch/playbooks/chatty.md"
+refuses_check() {
+  local name="$1" body="$2"
+  printf '%s\n' "$body" >"$toml"
+  if seed --check; then fail "$name"; else pass "$name"; fi
+}
+refuses_check "--check refuses catch-up on a playbook that posts" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act morning"\ncatch_up = true'
+refuses_check "--check refuses catch-up on a playbook that comments" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act chatty"\ncatch_up = true'
+printf '+++\ndescription = "x"\n+++\nx\n' >"$scratch/playbooks/vague.md"
+refuses_check "--check refuses catch-up on a playbook that names no output" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act vague"\ncatch_up = true'
+# A playbook edit must never fail a boot: there catch-up is just switched off.
+for book in chatty vague; do
+  reset
+  printf '[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act %s"\ncatch_up = true\n' "$book" >"$toml"
+  if seed; then pass "a boot seeds a $book playbook's job anyway"; else fail "a boot seeds a $book playbook's job anyway"; fi
+  check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
+  check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
+done
+printf '[jobs.bills]\nschedule = "5 1 * * *"\ncommand = "bin/pay-bills"\ncatch_up = true\n' >"$pinned"
+refuses "refuses catch-up on a pinned job that moves money" ''
+: >"$pinned"
+refuses "refuses a non-boolean catch_up" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\ncatch_up = "yes"'
+
 # --- --check validates without asking the core anything --------------------------
 reset
 printf '[jobs.heartbeat]\nschedule = "*/5 * * * *"\ncommand = "bin/heartbeat"\n' >"$toml"
@@ -318,6 +474,17 @@ check "and no reflection of its own any more" bash -c "! grep -q 'teeny.reflect'
 check "and the health check, every 15 minutes" grep -qE 'teeny\.health +\*/15 \* \* \* \* .* bin/health' "$scratch/stderr"
 check "and Teeny listens to the world twice a day, before the take and before the evening" \
   grep -qE 'teeny\.world-scan +5 13,22 \* \* \* Asia/Kolkata bin/act world-scan' "$scratch/stderr"
+check "and self-improve catches up a slot a restart cut off" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
+check "and no X post job, nor the bill payer, catches up" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
+      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
+check "and no job that must follow another, or be followed, catches up out of order" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
+      \"teeny.dream-midday\", \"teeny.receipts\")) | .catch_up_secs] | length == 5 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "

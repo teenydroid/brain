@@ -170,7 +170,7 @@ class ScreenedWhereTheCoreIsTest(Scratch):
         self.at(T0)
         me(self.x, "1000")
         os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
-        backoff = mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0))
+        backoff = mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0, 0.0, 0.0))
         backoff.start()
         self.addCleanup(backoff.stop)
         self.x.route("GET", MENTIONS, {"meta": {"result_count": 0}})
