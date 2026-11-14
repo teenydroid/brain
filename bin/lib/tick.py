@@ -181,12 +181,25 @@ def _id(intent: Mapping[str, Any], key: str) -> str:
 
 
 # do -> (hand, argv after the hand, the body it reads from stdin or None)
+def _gif(i):
+    """A Giphy id the mind named, for the hand to check (letters and digits, never a URL)."""
+    return {"gif_id": _id(i, "gif_id")} if i.get("gif_id") not in (None, "") else {}
+
+
 def _reply_x(i):
-    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i)}
+    return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i)}
 
 
 def _post_x(i):
-    return "x", ["post"], {"text": _text(i)}
+    """An own post. `quote_of` (a post id) makes it a quote; `format` tags it for
+    the lab. Pictures are made in carry_out and added as `media_ids`."""
+    body = {"text": _text(i), **_gif(i)}
+    if i.get("quote_of") not in (None, ""):
+        body["quote_of"] = _id(i, "quote_of")
+    for key in ("format", "experiment"):
+        if i.get(key) not in (None, ""):
+            body[key] = i[key]
+    return "x", ["post"], body
 
 
 def _like_x(i):
@@ -531,8 +544,8 @@ Answer with one JSON object and nothing else:
 {"thought": "<a line or two, for you>", "intents": [ ... at most %d ... ]}
 
 Each intent is one of:
-- {"do": "reply_x", "to": "<post id>", "text": "..."}
-- {"do": "post_x", "text": "..."}
+- {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
+- {"do": "post_x", "text": "...", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>"}
 - {"do": "like_x", "id": "<post id>"}
 - {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
@@ -560,7 +573,7 @@ Your wallet is yours: one recovery phrase, an address on Solana and one on the E
 
 A Moltbook comment shows its `depth` in its details. Moltbook draws a thread five levels down, so a comment with `can_answer` false is not answered: the reply would never be seen.
 
-A post_x may carry a picture of you: add "image": "<what you are doing in it, and where>". Describe a scene, never text or a real person.
+A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 3 times a day, 8 hours apart; replies are not counted.
 
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
 
@@ -887,6 +900,40 @@ def _remember(intent: Mapping[str, Any], tick: str) -> Json:
     return {"ok": True, "noted": stored["id"], "learned": learned}
 
 
+#: The most pictures one post or reply carries (what X takes).
+MAX_PICTURES = 4
+
+
+def _picture_prompts(intent: Mapping[str, Any]) -> list[str]:
+    """The scenes an intent asks for: "images" (a list) and "image" (one), at
+    most MAX_PICTURES. A GIF takes the place of pictures (the hand refuses both)."""
+    if intent.get("gif_id") not in (None, ""):
+        return []
+    found: list[str] = []
+    images = intent.get("images")
+    for value in [*(images if isinstance(images, list) else []), intent.get("image")]:
+        if isinstance(value, str) and value.strip():
+            found.append(value.strip())
+    return found[:MAX_PICTURES]
+
+
+def _pictures(prompts: list[str]) -> tuple[list[str], Json | None]:
+    """One media id for each scene that could be made (`_picture`), in order,
+    and what became of them: the one note when there is one scene, else
+    {"images": [notes]}. A scene that fails is left out with its reason; the
+    post never waits on a picture. Another source of ids (a browser task's
+    screenshots) appends to the same list before the post is sent."""
+    ids: list[str] = []
+    notes: list[Json] = []
+    for prompt in prompts:
+        got, note = _picture(prompt)
+        ids += got
+        notes.append(note)
+    if not notes:
+        return [], None
+    return ids, notes[0] if len(notes) == 1 else {"images": notes}
+
+
 def _picture(prompt: str) -> tuple[list[str], Json]:
     """A picture of Teeny for a post: the description past the guard, made
     from the character sheet by hands/image under its own caps, uploaded by
@@ -1154,6 +1201,8 @@ def resume(deadline: float) -> list[Json]:
                 results.append(entry)
                 continue
             name, argv, body = ROUTES[do](intent)
+            if item.get("media_ids"):  # made and uploaded before it was deferred
+                body = {**body, "media_ids": item["media_ids"]}
             code, out, paced = _send(do, name, argv, body, deadline)
             entry["paced"] = {**(paced or {}), "resumed": True, "deferred_at": item.get("deferred_at"),
                               "held_by": item.get("rule") or PACED.get(do)}
@@ -1208,8 +1257,9 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
                     media_ids: list[str] = []
-                    if do == "post_x" and isinstance(intent.get("image"), str) and intent["image"].strip():
-                        media_ids, entry["media"] = _picture(intent["image"].strip())
+                    if do in ("post_x", "reply_x") and _picture_prompts(intent):
+                        media_ids, note = _pictures(_picture_prompts(intent))
+                        entry["media"] = note
                         if media_ids:
                             body = {**body, "media_ids": media_ids}
                     code, out, paced = _send(do, name, argv, body, deadline)
@@ -1232,7 +1282,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                         # first (resume), so nothing is reported or marked yet.
                         entry.update(status="deferred", result=out)
                         _defer({"tick": tick, "n": n, "do": do, "intent": dict(intent), "deferred_at": hand.now(),
-                                "rule": paced["rule"], "wait_seconds": paced.get("wait_seconds")})
+                                "rule": paced["rule"], "wait_seconds": paced.get("wait_seconds"),
+                                **({"media_ids": media_ids} if media_ids else {})})
                     else:
                         _landed(entry, do, intent, code, out, parked, set_now)
             else:

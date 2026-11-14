@@ -1803,6 +1803,35 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual(self.hand_calls(), [])
 
+    def test_a_post_can_carry_up_to_four_pictures_a_quote_and_a_format(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{
+            "do": "post_x", "text": "diff, terminal, page", "quote_of": "4242", "format": "proof",
+            "images": ["a diff on a screen", "a terminal", "a live page", "a graph", "a fifth scene"], "image": "a sixth"}]})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        self.assertEqual(len([c for c in log if (c["hand"], c["argv"][0]) == ("image", "generate")]), 4)
+        self.assertEqual(len([c for c in log if (c["hand"], c["argv"][0]) == ("x", "upload")]), 4)
+        self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"],
+                         {"text": "diff, terminal, page", "quote_of": "4242", "format": "proof", "media_ids": ["777"] * 4})
+        entry = self.runs()[-1]["results"][0]
+        self.assertEqual(len(entry["media"]["images"]), 4)
+
+    def test_a_reply_can_carry_a_picture_or_a_gif(self):
+        stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "55", "text": "gm", "image": "teeny waving"}]},
+                    {"thought": "", "intents": []})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        replies = [c for c in log if c["argv"][:1] == ["reply"]]
+        self.assertEqual(replies[0]["body"], {"text": "gm", "media_ids": ["777"]})
+        stimuli.add("x", "mention", "56", "gm again", who="ana")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "56", "text": "gm", "gif_id": "abc123", "image": "ignored"}]})
+        self.tick()
+        log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
+        replies = [c for c in log if c["argv"][:1] == ["reply"]]
+        self.assertEqual(replies[-1]["body"], {"text": "gm", "gif_id": "abc123"})
+
     def test_every_beat_is_logged(self):
         stimuli.add("x", "mention", "111", "gm")
         self.answer({"thought": "hello world", "intents": []})
