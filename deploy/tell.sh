@@ -9,8 +9,8 @@
 # (hands/stimuli add, inside the spine container), then one beat is started
 # at once (bin/tick --detach) instead of waiting for the 5-minute cron. The
 # beat reads it as the operator's instruction, not as data, wakes for it at
-# night, and may use open_issue, queue_task and start_mail for that beat even
-# while their caps are 0 (bin/lib/tick.py, HOST_LIFTS). The guard still reads
+# night, and may use open_issue, queue_task, start_mail and propose_change for
+# that beat even while their caps are 0 (bin/lib/tick.py, HOST_LIFTS). The guard still reads
 # everything that goes out.
 #
 # Unless --no-wait, it then follows state/tick/runs.jsonl until the beat that

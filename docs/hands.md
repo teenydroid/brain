@@ -1370,7 +1370,9 @@ pay is still an attack. Playbooks still reach only the read verbs.
 
 More intents reach a hand from the mind (docs/roadmap.md, A3; the web search, "x402" below), each
 with a daily cap the operator sets in `secrets/teeny.env` (0, the default,
-keeps it off and out of the mind's prompt):
+keeps it off and out of the mind's prompt; `propose_change` is the exception,
+on at 1 a day, since all it makes is a pull request the operator merges or
+closes):
 
 | Intent | Hand verb | The hand's own limits | Cap (ceiling) |
 |---|---|---|---|
@@ -1379,10 +1381,14 @@ keeps it off and out of the mind's prompt):
 | `start_mail` `{to, subject, text}` | `mail send {to, subject, body}` | contacts only, the guard, the mail cap, DRY_RUN | `MIND_MAILS_PER_DAY` (5) |
 | `web_search` `{query, n?}`, `read_page` `{url}` | `x402 search`, `x402 contents` | the x402 hosts allowlist and caps, the cache, DRY_RUN ("x402" below) | `MIND_SEARCHES_PER_DAY` (50), both together |
 | `watch_hn` `{id, note?}` | `hn watch add ID --note T` | a live item only, 10 watches at once, each for 14 days | `MIND_HN_WATCH_PER_DAY` (10) |
+| `propose_change` `{text}` | `build self {text}` | refused before the guard and the hand while a change to itself is in flight (a `self` build request not yet skipped, shipped or failed, or a `self` job not failed, shipped or given up) and over the desk's 2,000 characters; the tick runs the brief past `guard check` (surface `github`, as `self-improve`'s output) and sends the guard's words; the request is picked by `pick-request` and ships as a pull request (docs/evolve.md) | `MIND_BUILDS_PER_DAY` (2), on at 1 unless set |
 
 Only the fields each verb takes are forwarded. Every call that reaches the
 hand counts against the day (UTC), whatever the hand answers, so a refused
 issue is not tried over and over; the count is in `state/tick/caps.json`.
+A `propose_change` that lands comes back to the next beat with its build
+request's id and status (`payload.request`), so Teeny can say which request
+it is and that it is waiting for `pick-request`, not being built yet.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
 reply` and `send`), except the web search: `x402 search` and `contents` pay
