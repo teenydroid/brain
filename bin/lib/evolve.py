@@ -2580,12 +2580,13 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
                    promoter: Promoter | None = None, restarter: Restarter | None = None) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
-    cut = unfinished()
-    for old in cut:
+    cut_off_gens = unfinished()
+    for old in cut_off_gens:
         # Before the halts: a cut-off generation does not use up the day.
         write_json(gen_dir(old) / "result.json", {"gen": old, "interrupted": True, "at": iso(now()),
                                                   "reason": "it never finished: a restart ended it"})
-    resume_from = cut[-1] if cut and cut[-1] == next_gen() - 1 and saved_proposals(cut[-1]) else None
+    resume_from = (cut_off_gens[-1] if cut_off_gens and cut_off_gens[-1] == next_gen() - 1
+                   and saved_proposals(cut_off_gens[-1]) else None)
     if halt_path().exists():
         latched = json.loads(halt_path().read_text(encoding="utf-8"))
         return {"ok": True, "skipped": f"halted ({latched.get('kind')}) until `bin/evolve resume`", "halt": latched}
