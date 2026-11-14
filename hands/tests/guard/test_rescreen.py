@@ -221,7 +221,8 @@ class InboundTest(RescreenBase):
             conn.execute("INSERT INTO guard_holds (at, direction, kind, context, category, reason, held_by, text)"
                          " SELECT at, direction, kind, context, category, ?, held_by, text FROM guard_holds WHERE id = ?",
                          ("the judge answered in an unreadable shape", first["id"]))
-            again = holds.get(conn.execute("SELECT max(id) FROM guard_holds").fetchone()[0])
+        again = holds.get(conn.execute("SELECT max(id) FROM guard_holds").fetchone()[0])
+        conn.close()
         self.judge_says(CLEAN)
         out = self.run_at(LATER)
         self.assertEqual((out["cleared"], out["released"]), (2, 1))
