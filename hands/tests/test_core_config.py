@@ -97,7 +97,9 @@ class CoreConfigTest(unittest.TestCase):
         self.assertTrue(folder.is_dir())
         self.assertIn('export TEENY_BROWSER_PICTURES="$TEENY_STATE/browser/screenshots"',
                       (REPO / "bin" / "spine").read_text())
-        self.assertEqual(Path("state", *queue_captures()), Path("state/browser/screenshots"))
+        from teeny_hands.tasks import queue
+
+        self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
 
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
