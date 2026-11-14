@@ -531,6 +531,16 @@ refuses "refuses a bounty job verb as an input" $'+++\ndescription = "x"\noutput
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:bounty pick"\n[[inputs]]\nrun = "hands/wallet costs --days 7"\n[[inputs]]\nrun = "hands/bounty announcements"\n+++\ngo' >"$brain/playbooks/money.md"
 check "allows a bounty pick output and the money hands' reads as inputs" bash -c "'$act' --check money >/dev/null"
 rm -f "$brain/playbooks/money.md"
+# The keychain: no playbook pulls a password into a prompt (only `list` as an
+# input) or makes one (never an output).
+[ -e "$scratch/hands/keychain" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/keychain"
+chmod +x "$scratch/hands/keychain"
+refuses "refuses the keychain's secret as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain secret --host example.com"\n+++\ngo'
+refuses "refuses the keychain's reveal as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain reveal --site example.com"\n+++\ngo'
+refuses "refuses the keychain as an output" $'+++\ndescription = "x"\noutput = "hand:keychain create"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain list"\n+++\ngo' >"$brain/playbooks/keys.md"
+check "allows the keychain's list as an input" bash -c "'$act' --check keys >/dev/null"
+rm -f "$brain/playbooks/keys.md"
 # The builder's queue: a draft may only propose a change to Teeny itself
 # (`build self`, a pending request the operator still gates). The queue verbs
 # stay the builder's and bin/build-ship's.
