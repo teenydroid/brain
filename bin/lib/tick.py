@@ -98,6 +98,7 @@ from teeny_hands.guard.style import post_length  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import outcomes  # noqa: E402
 import rhythm  # noqa: E402
+import scoreboard  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
 MAX_INTENTS = 8
@@ -310,7 +311,12 @@ MIND_CAPS = {
     "web_search": ("MIND_SEARCHES_PER_DAY", 50),
     "read_page": ("MIND_SEARCHES_PER_DAY", 50),
     "watch_hn": ("MIND_HN_WATCH_PER_DAY", 10),
+    "propose_experiment": ("MIND_EXPERIMENTS_PER_DAY", 5),
+    "conclude_experiment": ("MIND_CONCLUSIONS_PER_DAY", 10),
 }
+#: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
+#: nothing and touches only Teeny's own ledger.
+CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5}
 #: Intents that share one day's count: a page read and a search are both one
 #: paid request (hands/x402), held to MIND_SEARCHES_PER_DAY together.
 CAP_SHARED = {"read_page": "web_search"}
@@ -333,7 +339,7 @@ def mind_cap(do: str) -> int:
     name, high = MIND_CAPS[do]
     if _lifted and do in HOST_LIFTS:
         return high
-    return hand.number(name, 0, 0, high)
+    return hand.number(name, CAP_DEFAULTS.get(do, 0), 0, high)
 
 
 def _caps_path() -> Path:
@@ -487,6 +493,20 @@ def _watch_hn(i):
     return "hn", argv, None
 
 
+# --- the lab (hands/lab): Teeny's experiments on what gets attention ------------------------
+
+
+def _propose_experiment(i):
+    _within_cap("propose_experiment")
+    keys = ("surface", "hypothesis", "format", "metric", "posts", "deadline_days", "deadline")
+    return "lab", ["propose", "--source", "mind"], _pick(i, keys)
+
+
+def _conclude_experiment(i):
+    _within_cap("conclude_experiment")
+    return "lab", ["conclude"], {"id": i.get("id"), "verdict": i.get("verdict"), "lesson": _text(i, "lesson")}
+
+
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "reply_x": _reply_x,
     "post_x": _post_x,
@@ -509,6 +529,8 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "web_search": _web_search,
     "read_page": _read_page,
     "watch_hn": _watch_hn,
+    "propose_experiment": _propose_experiment,
+    "conclude_experiment": _conclude_experiment,
     "promise": _promise,
     "kept": _kept,
 }
@@ -579,6 +601,11 @@ CAPPED_SHAPES = {
                  "$0.001); back next beat; counts against the same %d a day as web_search",
     "watch_hn": '- {"do": "watch_hn", "id": "<a Hacker News story or comment id>", "note": "<why, optional>"}: '
                 "its new comments come to you for two weeks; at most %d today",
+    "propose_experiment": '- {"do": "propose_experiment", "surface": "x|moltbook", "hypothesis": "<your guess, one line>", '
+                          '"format": "<the tag its posts carry>", "posts": <1 to 20>, "deadline_days": <1 to 30>}: '
+                          "an experiment for the lab, scored in code; then tag those posts with that format; at most %d today",
+    "conclude_experiment": '- {"do": "conclude_experiment", "id": <experiment #>, "verdict": "works|fails|unclear", '
+                           '"lesson": "<one line you will act on>"}: when the scoreboard says it is due; at most %d today",
 }
 
 
@@ -638,6 +665,8 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
         *([age] if age else []),
         *rhythm.header(woke),
         *_waiting(),
+        "",
+        *scoreboard.block(),
         "",
     ]
     ordered = [s for s in batch if s["surface"] == "host"]
