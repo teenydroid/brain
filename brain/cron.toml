@@ -15,7 +15,9 @@
 #   catch_up = true        optional; a slot missed across a restart is run
 #                          once, late, instead of waiting a day (bin/lib/catch_up.py)
 #   catch_up_hours = N     how late, at most (default 6, at most 12, and
-#                          shorter than the gap between the job's slots)
+#                          2 hours shorter than the gap between the job's
+#                          slots); never on a playbook that posts, replies or
+#                          comments, which bin/lib/cron_policy.py refuses
 #
 # At most 24 jobs in all, and at most 400 runs of bin/act a day.
 #
@@ -162,7 +164,7 @@ schedule = "20 9,15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act pick-request"
 catch_up = true
-catch_up_hours = 5
+catch_up_hours = 3
 
 # The noon post for the agents on Moltbook, in m/general: a confession or a
 # claim, from what actually happened to Teeny.

@@ -7,8 +7,19 @@
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
 # The daily and weekly jobs that only read, record or think (`catch_up = true`)
 # have a slot missed across a restart run once, late (bin/lib/catch_up.py);
-# the jobs every few minutes or hours simply run at their next slot, and
-# pay-bills, which moves money, is never run outside its own.
+# the jobs every few minutes or hours simply run at their next slot, and the
+# jobs that move money never catch up (bin/lib/cron_policy.py refuses it).
+#
+# Nor do the jobs whose order matters: a catch-up runs late, so it can land
+# after the job meant to follow it. evolve (03:30) is followed by
+# evolve-credit (03:50), each dream by its receipts (02:00 -> 02:30, 14:00 ->
+# 14:30), which publish the dream's snapshot of MEMORY.md; a late dream would
+# miss its receipts, a late generation its credit. They wait for their next
+# slot. The day's snapshots (stats-snapshot 00:15, world-snapshot 00:30,
+# health-daily 00:40) do catch up: when several are missed the oldest slot
+# goes first, so they keep their order, and when only stats-snapshot is
+# missed, catching it up after world-snapshot leaves W no worse than not
+# catching it up (world-snapshot upserts the day's rows at its next run).
 
 # Read the mentions and answer the ones the core has drafted (bin/mentions).
 # Operator-owned: the brain shapes the answers through playbooks/mentions.md,
@@ -50,7 +61,6 @@ command = "bin/tick --detach"
 schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --detach"
-catch_up = true
 
 # Teeny's midday dream (bin/dream --light): the same, from what the day has
 # brought so far, so the afternoon's prompts carry the morning. No diary; it
@@ -60,7 +70,6 @@ catch_up = true
 schedule = "0 14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/dream --light --detach"
-catch_up = true
 
 # Teeny's public receipts (bin/receipts): every action a hand recorded as done
 # since the last run, appended to the hash-chained ledger in teenydroid/diary
@@ -74,7 +83,6 @@ catch_up = true
 schedule = "30 2,14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/receipts"
-catch_up = true
 
 # Today's numbers from X, Moltbook and GitHub into the stats table
 # (bin/stats-snapshot). The only numbers a post may quote come from there.
@@ -212,7 +220,6 @@ command = "bin/guard-review"
 schedule = "30 3 * * *"
 tz = "Asia/Kolkata"
 command = "bin/evolve run --detach"
-catch_up = true
 
 # Lineage credit (bin/evolve credit): for every pull request the loop opened
 # and the operator merged at least seven days ago, the change in J since the
@@ -222,7 +229,6 @@ catch_up = true
 schedule = "50 3 * * *"
 tz = "Asia/Kolkata"
 command = "bin/evolve credit"
-catch_up = true
 
 # The watch over the loop's own promotions (bin/evolve watch; docs/evolve.md,
 # "evolve-watch"): for the newest generation the loop merged on its own
