@@ -299,6 +299,18 @@ command = "bin/wallet-watch daily"
 schedule = "13-59/30 * * * *"
 command = "bin/x402-fund"
 
+# Sweep the spare SOL to the surplus wallet (bin/surplus-sweep; docs/hands.md,
+# "surplus"), which takes only USDC on Base: pay the USDC on Base above
+# SURPLUS_KEEP_BASE_USD (the x402 rail's reserve) to SURPLUS_ADDRESS, an
+# allowlisted vendor on base, then bridge the SOL above SURPLUS_KEEP_SOL to
+# Teeny's own USDC on Base for the next run to pay on. Only through
+# hands/wallet's pay and bridge (every rule and cap they keep). OFF unless
+# SURPLUS_SWEEP=1 in secrets/teeny.env. Operator-owned: money moves here,
+# never from a playbook.
+[jobs.surplus-sweep]
+schedule = "41 */2 * * *"
+command = "bin/surplus-sweep"
+
 # Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
 # wallet holds over what running Teeny cost a day this week, as one
 # `health · runway` stimulus, and the tier from evals/runway.toml that cuts
