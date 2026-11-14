@@ -54,6 +54,8 @@ if sys.argv[1:2] == ["mark"]:
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
 if (name, verb) == ("guard", "check") and os.environ.get("FAKE_GUARD_HOLD"):
     print(json.dumps({"ok": False, "refused": "held", "category": "profanity"})); sys.exit(2)
+if (name, verb) == ("x", "upload") and os.environ.get("FAKE_UPLOAD_FAIL"):
+    print(json.dumps({"ok": False, "error": "X answered 500"})); sys.exit(1)
 canned = {
     ("moltbook", "feed"): os.environ.get("FAKE_FEED"),
     ("guard", "check"): json.dumps({"ok": True, "text": (json.loads(body) if body.strip() else {}).get("text", "") + " [g]"}),
@@ -1967,7 +1969,7 @@ class TickTest(unittest.TestCase):
     def test_a_deferred_post_keeps_its_screenshot_ids(self):
         self.shots(7, ("a.png",))
         stimuli.add("x", "mention", "1", "gm")
-        os.environ["FAKE_PACE_X"] = "1"
+        os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600)])
         self.answer({"thought": "", "intents": [{"do": "post_x", "text": "later", "shots": 7}]})
         self.tick()
         kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
