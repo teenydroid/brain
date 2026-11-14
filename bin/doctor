@@ -301,6 +301,24 @@ except settings.SettingsError as exc:
     sys.exit(f"x402 keys are set but not usable: {exc}")
 ' "$root/hands/lib" "$secrets/teeny.env"
 
+# --- the surplus hand: its sweep to the surplus wallet is sane ----------------------
+# SURPLUS_* (the pinned surplus-sweep job), checked by the hand's own code
+# (teeny_hands/surplus/settings.py): a sweep switched on without its address,
+# any value over its ceiling, or a Base reserve under the x402 rail's target,
+# never boots.
+run "surplus settings" python3 -I -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from teeny_hands.hand import _parse_env_file
+from teeny_hands.surplus import settings
+env = Path(sys.argv[2])
+try:
+    print(settings.check(_parse_env_file(env.read_text()) if env.is_file() else {}))
+except settings.SettingsError as exc:
+    sys.exit(f"surplus keys are set but not usable: {exc}")
+' "$root/hands/lib" "$secrets/teeny.env"
+
 # --- secrets and storage ------------------------------------------------------------
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 if [ -e "$storage" ]; then
