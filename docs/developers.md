@@ -209,13 +209,15 @@ environment forces a rehearsal.
 | `GUARD_REVIEW`, `GUARD_REVIEW_MODEL` | Off unless `1`: the hold reviewer (`hands/guard review`) may release held drafts in the categories `evals/guard-review.toml` allows. The model must not be the drafter's or the judge's. |
 | `AUDIT_PUBLISH` | Off unless `1`: the weekly audit (`bin/audit`) also goes out beside the receipts. It is always written to `state/audit/`. |
 
-### `deploy/browser-allow.txt`
+### `deploy/browser-allow.txt` and `deploy/browser-deny.txt`
 
-The websites the browser may open, one host per line, subdomains included.
-OpenHuman's `http_request` shares the list. It sits outside the brain Teeny
-edits, and the operator reviews it. `bin/spine` writes it
-into the core's config at every boot, and `hands/tasks add` refuses a task that
-starts anywhere else.
+Two operator-owned lists, one host per line, subdomains included, outside the
+brain Teeny edits. `browser-allow.txt` is what OpenHuman's raw `http_request`
+tool may reach; `bin/spine` writes it into the core's config at every boot.
+The browser opens any public https page (`bin/spine` sets
+`OPENHUMAN_BROWSER_ALLOW_ALL=1`) except a host on `browser-deny.txt`:
+`hands/tasks add` refuses a task that starts there, and the operator agent is
+told never to open one. The doctor fails a boot without the deny list.
 
 ### The core's config
 
@@ -255,7 +257,7 @@ bin/                 spine, doctor, act, tick, reflect, mentions, mail, x-webhoo
 hands/               x, guard, gh, moltbook, hn, mail, stimuli, brief, image, video, stats, requests, build, tasks, wallet, bounty, slopcash: Python 3.11 stdlib; hands/lib/teeny_hands, hands/tests/
 brain/               SOUL.md, CONTEXT.md, MEMORY.seed.md (MEMORY.md, the live page, is gitignored), skills/, playbooks/, agents/, narrative/, assets/, calendar.json, cron.toml
 evals/               frozen: what Teeny cannot edit about itself (tasks/, judge.md, invariants.md, cron.pinned.toml, frozen.txt: every frozen path, checked by bin/frozen-check)
-deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, the nginx vhost
+deploy/              compose.yaml, spine.env.example, teeny.env.example, browser-allow.txt, browser-deny.txt, the nginx vhost
 web/                 the landing page (Next.js), its own image
 docs/                architecture, hands, evolve, upstream gaps
 ```
