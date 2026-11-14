@@ -1,8 +1,9 @@
-# The websites Teeny's browser may open, one host per line. bin/spine writes
-# this list into the core's config at every boot as
-# `[http_request] allowed_domains`, which the browser and OpenHuman's own
-# `http_request` tool share, and hands/tasks refuses a task whose start_url
-# is not on it.
+# The hosts OpenHuman's raw `http_request` tool may reach, one per line.
+# bin/spine writes this list into the core's config at every boot as
+# `[http_request] allowed_domains`. It no longer bounds the browser, which
+# opens any public https page except deploy/browser-deny.txt. A task the mind
+# or a playbook starts on one of these hosts needs no reputed link first
+# (hands/tasks).
 #
 # Reviewed by the operator, never by Teeny: it lives in deploy/, outside the
 # brain Teeny edits. A host matches itself and its subdomains. No wildcards
