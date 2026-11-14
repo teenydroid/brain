@@ -1966,19 +1966,20 @@ class TickTest(unittest.TestCase):
         self.assertEqual(self.sent("post")[0]["body"], {"text": "t"})
         self.assertEqual(self.runs()[-1]["results"][0]["media"]["shots"]["skipped"], "upload failed")
 
-    def test_a_deferred_post_keeps_its_screenshot_ids(self):
+    def test_a_deferred_reply_keeps_its_screenshot_ids(self):
         self.shots(7, ("a.png",))
-        stimuli.add("x", "mention", "1", "gm")
+        stimuli.add("x", "mention", "111", "gm", who="ana")
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600)])
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "later", "shots": 7}]})
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "later", "shots": 7}]},
+                    {"thought": "", "intents": []})
         self.tick()
-        print(self.runs()[-1]["results"]); kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
+        kept = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
         self.assertEqual(kept[0]["media_ids"], ["777"])
         os.environ.pop("FAKE_REFUSALS_X")
         self.at(600)
         self.tick()
-        self.assertEqual(self.sent("post")[-1]["body"], {"text": "later", "media_ids": ["777"]})
-        self.assertEqual(len(self.sent("upload")), 1)  # not uploaded again
+        self.assertEqual(self.sent("reply")[-1]["body"], {"text": "later", "media_ids": ["777"]})
+        self.assertEqual(len([c for c in self.sent("upload") if c["hand"] == "x"]), 1)  # not uploaded again
 
     def test_a_reply_can_carry_a_picture_or_a_gif(self):
         stimuli.add("x", "mention", "55", "gm @teenydroid", who="ana")
