@@ -28,7 +28,9 @@ class SurfacesTest(support.Scratch):
         self.assertEqual(field_limit("x", "text"), 280)
         # Telegram's own message limit; a surface with none named has X's.
         self.assertEqual(field_limit("telegram", "text"), 4096)
-        self.assertEqual(field_limit("task", "text"), 280)
+        # A browser task's goal is a private brief for the browser agent, not a post.
+        self.assertEqual(field_limit("task", "text"), 1000)
+        self.assertEqual(field_limit("calendar", "text"), 280)
         self.assertEqual((field_limit("moltbook", "title"), field_limit("moltbook", "body")), (300, 10000))
         self.assertEqual((field_limit("github", "title"), field_limit("github", "body")), (256, 20000))
         self.assertEqual((field_limit("mail", "subject"), field_limit("mail", "body")), (200, 10000))
@@ -54,6 +56,25 @@ class SingleTextTest(support.Scratch):
         self.assertEqual(check_outbound("a" * 281).kind, "refuse")
         self.assertIn("over the 280 limit", check_outbound("a" * 281).reason)
         self.assertEqual(check_outbound("gm 🚀 🔥").kind, "refuse")
+
+    # The goal the beat queued on 2026-11-14 and the guard refused at X's 280.
+    DRIPS_GOAL = ("map how Drips works for funding a GitHub repo: what creating an account requires (wallet connect, "
+                  "email, custodial login), which network it runs on, whether creating a project listing needs an "
+                  "on-chain transaction or signature, how supporters stream funds to a repo, and whether an API or CLI "
+                  "exists for automation")
+
+    def test_a_browser_tasks_goal_may_run_past_a_tweet(self):
+        self.assertEqual(len(self.DRIPS_GOAL), 314)
+        verdict = check_outbound(self.DRIPS_GOAL, surface="task", kind="task")
+        self.assertEqual(verdict.kind, "allow", verdict.reason)
+        self.assertEqual(check_outbound("a" * 1000, surface="task", kind="task").kind, "allow")
+
+    def test_a_browser_tasks_goal_over_its_limit_is_still_refused(self):
+        verdict = check_outbound("a" * 1001, surface="task", kind="task")
+        self.assertEqual(verdict.kind, "refuse")
+        self.assertIn("over the 1000 limit", verdict.reason)
+        # X's limit is untouched by it.
+        self.assertIn("over the 280 limit", check_outbound(self.DRIPS_GOAL).reason)
 
     def test_a_long_form_surface_takes_its_body_limit_and_a_few_emoji(self):
         verdict = check_outbound("word " * 100, surface="github")
