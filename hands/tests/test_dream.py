@@ -301,6 +301,28 @@ class DreamTest(unittest.TestCase):
         self.assertIn("## tasks", message)
         self.assertIn("asked by ana on x, pending: a crab cli please", message)
 
+    def test_the_builders_latest_jobs_are_listed_even_when_they_moved_before_the_last_dream(self):
+        # 2026-11-13: build 4 shipped between two runs of the switch from
+        # reflect to dream, so no dream's window held it and the page kept
+        # saying "build 3 failed" a day after build 5 shipped too.
+        from teeny_hands.build import jobs
+
+        conn = hand.open_db(jobs.SCHEMA)
+        conn.execute("INSERT INTO build_jobs (kind, slug, repo, text, workdir, status, claimed_at, finished_at,"
+                     " summary, repo_url) VALUES ('daily', 'd4', 'csvstat', 't', 'w', 'shipped', ?, ?,"
+                     " 'csvstat: a stdlib-only CSV stats CLI', 'https://github.com/teenydroid/csvstat')",
+                     (T0 - 40 * 86400, T0 - 40 * 86400))
+        conn.execute("INSERT INTO build_jobs (kind, slug, repo, text, workdir, status, claimed_at, finished_at,"
+                     " summary) VALUES ('self', 's3', 'brain', 't', 'w', 'failed', ?, ?, 'cannot ship')",
+                     (T0 - 41 * 86400, T0 - 41 * 86400))
+        conn.close()
+        self.answer({"ops": [], "diary": "d"})
+        self.dream()
+        message = self.message()
+        self.assertIn("## where the builder stands", message)
+        self.assertIn("build #2 csvstat: shipped, https://github.com/teenydroid/csvstat", message)
+        self.assertIn("build #1 brain: failed", message)
+
     def test_it_goes_over_the_learnings_the_core_holds_and_never_conversations(self):
         self.answer({"ops": [], "diary": "d"})
         self.dream()
