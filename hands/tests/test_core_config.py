@@ -29,6 +29,8 @@ class CoreConfigTest(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
+        os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
+        os.environ.pop("TEENY_CAPTCHA_MODEL", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
