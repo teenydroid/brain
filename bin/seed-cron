@@ -99,14 +99,25 @@ plan="$(jq -cn --argjson want "$desired" --argjson have "$current" '
       | if ([$want[].name] | index($g[0].name)) == null then $g[] | {op: "remove", id, job: .}
         else $g[1:][] | {op: "remove", id, job: .} end ]')"
 
+# The jobs a live run holds: the core serves before this runs and may already
+# have claimed, on its first poll, a slot that passed while the box was down.
+# Re-arming one would fence that claim (the run goes on, unrecorded) and let
+# a catch-up start a second copy beside it; the claim is the core's to finish.
+# Read-only, from storage.db (bin/lib/catch_up.py); none when it cannot tell.
+running="$(python3 "$TEENY_ROOT/bin/lib/catch_up.py" live 2>/dev/null)" || running='[]'
+jq -e 'type == "array"' <<<"$running" >/dev/null 2>&1 || running='[]'
+
 # The kept jobs whose next run is long past (an add or an update sets the
-# schedule, and with it next_run, anyway): [{id, name, next_run, job}].
-rearm="$(jq -cn --argjson plan "$plan" --argjson have "$current" --argjson grace "$REARM_GRACE_SECS" '
+# schedule, and with it next_run, anyway), and no live run holds:
+# [{id, name, next_run, job}].
+rearm="$(jq -cn --argjson plan "$plan" --argjson have "$current" --argjson grace "$REARM_GRACE_SECS" \
+  --argjson running "$running" '
   def epoch: try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) catch null;
   [$plan[] | select(.op == "keep") | .job] as $kept
   | [ $have | group_by(.name)[] | .[0] as $h
       | ($kept[] | select(.name == $h.name)) as $w
       | select($h.enabled and $h.next_run != null)
+      | select(($running | index($h.id)) == null)
       | select(($h.next_run | epoch) as $t | $t != null and $t < now - $grace)
       | {id: $h.id, name: $h.name, next_run: $h.next_run, job: $w} ]')"
 
@@ -153,6 +164,10 @@ while IFS= read -r step; do
       ;;
   esac
 done < <(jq -c '.[]' <<<"$plan")
+
+while IFS= read -r busy; do
+  log "running $busy (a live run holds its slot; not re-armed)"
+done < <(jq -r --argjson running "$running" '.[] | select(.id as $i | $running | index($i)) | .name' <<<"$current")
 
 while IFS= read -r stale; do
   log "rearm $(jq -r .name <<<"$stale") (next_run was $(jq -r .next_run <<<"$stale"))"
