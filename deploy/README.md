@@ -46,7 +46,7 @@ From the checkout:
 git submodule update --init --recursive vendor/openhuman
 mkdir -p secrets && chmod 700 secrets
 cp deploy/spine.env.example secrets/spine.env && chmod 600 secrets/spine.env
-$EDITOR secrets/spine.env            # LADDER_URL, LADDER_API_KEY, SPINE_MODEL; CortexDB if wanted
+$EDITOR secrets/spine.env            # LADDER_URL, LADDER_API_KEY, SPINE_MODEL; CortexDB and TYPESAFE_API_KEY if wanted
 cp deploy/teeny.env.example secrets/teeny.env && chmod 600 secrets/teeny.env
 $EDITOR secrets/teeny.env            # the hands' keys; DRY_RUN stays 1 until you mean it
 TEENY_UID=$(id -u) TEENY_GID=$(id -g) docker compose -f deploy/compose.yaml --profile web up -d --build

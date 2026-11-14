@@ -26,9 +26,11 @@ linked module.
                  every other module, TinyComputer included, from its release
   [computer]     (single keys) the captcha solver: a browser task tries a
                  captcha or "verify you are human" check with Jev's image
-                 questions, on TypeSafe with TYPESAFE_API_KEY, a few times
-                 before it stops for a person. TEENY_CAPTCHA_SOLVER=0 turns
-                 it off; TEENY_CAPTCHA_MODEL names another image model
+                 questions, on TypeSafe (TYPESAFE_API_KEY in
+                 secrets/spine.env, which bin/spine stores in the core), a
+                 few times before it stops for a person. In the spine's
+                 environment, TEENY_CAPTCHA_SOLVER=0 turns it off and
+                 TEENY_CAPTCHA_MODEL names another image model
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
