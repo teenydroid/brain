@@ -49,8 +49,15 @@ The operator (a person) and the idle look (rhythm.wander, which picks a
 Hacker News link itself) are not held to it. The deny list rides on every
 offer as `never_open`.
 
-Screenshots the operator names are copied under state/media/tasks/<id>/,
-where `hands/x upload` may take them from.
+Screenshots end up in state/media/tasks/<id>/, where `hands/x upload` may
+take them from (a post's `shots: <id>`). The browser saves a picture of each
+page it opens or acts on into state/browser/screenshots/ by itself (the
+spine's picture sink, spine/src/browser_pictures.rs, at the folder bin/spine names;
+never while a page shows a password the keychain typed). The report takes
+the ones taken since the claim, beside any the operator names: at most
+BROWSE_MAX_SCREENSHOTS in all, the first page and the last ones, each a
+PNG, JPEG, WebP or GIF of at most MAX_SCREENSHOT_BYTES (what X takes for a
+still image). The rest of that folder is emptied.
 """
 
 from __future__ import annotations
@@ -76,12 +83,16 @@ _DOMAIN = re.compile(r"^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+
 STALE_CLAIM_SECONDS = 2 * 3600
 MAX_PENDING = 50
 MAX_SCREENSHOTS = 10
-MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
+#: X takes a still image up to 5 MB.
+MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 SCREENSHOT_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 #: Where a screenshot may come from: the media folder itself, or the
 #: browser's own folders (bin/lib/core_sections/automation.py points its
 #: downloads at state/browser/downloads).
 SCREENSHOT_ROOTS = ("state/media", "state/browser")
+#: Where the browser's own pictures land (bin/spine's
+#: TEENY_BROWSER_PICTURES, spine/src/browser_pictures.rs), relative to state/.
+CAPTURES = ("browser", "screenshots")
 _KIND = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _TEXT_CHARS = 2000
 
@@ -442,11 +453,64 @@ def _screenshots(task_id: int, value: Any) -> list[str]:
         if not resolved.is_file():
             raise hand.HandError(f"no file {raw!r}")
         if resolved.stat().st_size > MAX_SCREENSHOT_BYTES:
-            raise hand.Refused("a screenshot is over 10 MB", rule="screenshot_size", path=raw)
+            raise hand.Refused("a screenshot is over 5 MB", rule="screenshot_size", path=raw)
         dest = resolved if resolved.parent == target.resolve() else target / resolved.name
         if dest != resolved:
             shutil.copyfile(resolved, dest)
         kept.append(str(dest.relative_to(root)))
+    return kept
+
+
+def _image_type(data: bytes) -> str | None:
+    """The extension for an image X takes, from its first bytes."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return ".jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _captured(task_id: int, since: float, room: int) -> list[str]:
+    """The pictures the browser took itself since `since` (the claim), at
+    most `room` of them (the first page and the last ones), copied under
+    state/media/tasks/<id>/ as page-<name>. Anything else in the browser's
+    folder is from an older run and goes. Never fails a report."""
+    import sys
+
+    folder = hand.state_dir().joinpath(*CAPTURES)
+    if not folder.is_dir():
+        return []
+    taken: list[tuple[str, Path, bytes, str]] = []
+    for path in sorted(folder.iterdir()):
+        try:
+            if path.is_symlink() or not path.is_file() or path.name.startswith("."):
+                continue
+            fresh = path.stat().st_mtime >= since
+            size = path.stat().st_size
+            data = path.read_bytes() if fresh and 0 < size <= MAX_SCREENSHOT_BYTES else b""
+            path.unlink()
+        except OSError as exc:
+            print(f"tasks: skipped a browser picture {path.name}: {exc}", file=sys.stderr)
+            continue
+        kind = _image_type(data) if data else None
+        if kind is not None:
+            taken.append((path.name, path, data, kind))
+    if room <= 0 or not taken:
+        return []
+    if len(taken) > room:
+        taken = taken[:1] + taken[len(taken) - room + 1:] if room > 1 else taken[-1:]
+    root = hand.root().resolve()
+    target = screenshot_dir(task_id)
+    target.mkdir(parents=True, exist_ok=True)
+    kept: list[str] = []
+    for name, _, data, kind in taken:
+        dest = target / f"page-{Path(name).stem}{kind}"
+        dest.write_bytes(data)
+        kept.append(str(dest.resolve().relative_to(root)))
     return kept
 
 
@@ -469,7 +533,7 @@ def done(body: Any) -> Json:
     account = body.get("account")
     conn = db()
     try:
-        row = conn.execute("SELECT status, code_waits, kind, start_url FROM browser_tasks WHERE id = ?",
+        row = conn.execute("SELECT status, code_waits, kind, start_url, claimed_at FROM browser_tasks WHERE id = ?",
                            (task_id,)).fetchone()
     finally:
         conn.close()
@@ -485,6 +549,7 @@ def done(body: Any) -> Json:
             and len(body["screenshots"]) > BROWSE_MAX_SCREENSHOTS:
         raise hand.HandError(f"a browse task brings back at most {BROWSE_MAX_SCREENSHOTS} screenshots")
     shots = _screenshots(task_id, body.get("screenshots"))
+    shots += _captured(task_id, float(row["claimed_at"] or 0), BROWSE_MAX_SCREENSHOTS - len(shots))
     if outcome == "needs_code":
         conn = db()
         try:
@@ -613,7 +678,6 @@ def _tell_findings(kind: str, task_id: int, start_url: str, notes: str, shots: l
 REPORT_SHAPE = (
     '{"task_id": <the task_id above>, "outcome": "ok", "failed", "needs_human" or "needs_code", '
     '"notes": "<what happened>", "code_from": "<with needs_code only: the domain the mail comes from>", '
-    '"screenshots": ["<path of an image you saved in screenshot_dir>", ...], '
     '"account": {"handle": "<with a signup task that ended ok only: the user name or address you signed up as; '
     'never a password>"}}'
 )
