@@ -285,7 +285,7 @@ def fresh(ask: list[str]) -> list[str]:
 
 
 def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str],
-          first: dict[str, int] | None = None, confirm: bool = False) -> dict:
+          plan: dict[str, range] | None = None) -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
     --agent act) and checked. A turn that never answers, after its retries,
     is written with `no_sample`: no draft, and nothing it says about the
@@ -293,12 +293,11 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
     tasks = [load_task(evals, task_id) for task_id in ids]
     retrier = Retrier()
     drafted = passed = missing = 0
+    confirm = plan is not None
     with out.open("a" if confirm else "w", encoding="utf-8") as fh:
         for task in tasks:
             message = render(task)
-            start = (first or {}).get(task["id"], 1)
-            count = samples if not confirm else samples - (start - 1 - (first or {}).get(f"{task['id']}:drafted", 0))
-            for sample in range(start, start + max(0, count)):
+            for sample in (plan or {}).get(task["id"], range(0)) if confirm else range(1, samples + 1):
                 turn, attempts = retrier.run(ask, message)
                 extra: dict = {"attempts": attempts, **({"confirm": True} if confirm else {})}
                 if turn.returncode == 0:
@@ -315,6 +314,23 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
                 drafted += 1
                 passed += result["ok"]
     return {"drafts": drafted, "ok": passed, "no_sample": missing}
+
+
+def confirm(evals: Path, hands_lib: Path, run: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
+    """More samples of the tasks in `ids`, into RUN/confirm.jsonl, so it
+    holds `samples` of each (those already there count): what a task that
+    flipped is decided again on ("Hard-check regressions" in docs/evolve.md).
+    They are numbered after every sample RUN already has, checked like any
+    draft and marked `confirm`; the judge never reads them."""
+    out = run / "confirm.jsonl"
+    seen = [r for path in (run / "drafts.jsonl", out) if path.is_file() for r in _read_jsonl(path)]
+    plan = {}
+    for task_id in ids:
+        have = [r["sample"] for r in seen if r["task"] == task_id]
+        already = sum(1 for r in seen if r["task"] == task_id and r.get("confirm"))
+        start = max(have, default=0) + 1
+        plan[task_id] = range(start, start + max(0, samples - already))
+    return draft(evals, hands_lib, out, samples, ids, ask, plan=plan)
 
 
 # --- invariants ------------------------------------------------------------------------
