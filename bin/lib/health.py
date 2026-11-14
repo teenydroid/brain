@@ -864,16 +864,16 @@ def check() -> Json:
     with hand.lock("health"):
         now = hand.now()
         state = load()
-        error, attempts, errors = probe_until_answered()
+        error, attempts, failed = probe_until_answered()
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
                      "alarm": None, "issue": None, "rescreen": None, "probe_attempts": attempts,
                      "moltbook_unverified": moltbook_unverified(now - MOLTBOOK_WINDOW_SECS)}
         state["probe_attempts"] = attempts
-        if error is None and errors:
-            out["probe_retried"] = errors[0]
-            state.update(last_retried_at=now, last_retried_error=errors[0])
+        if error is None and failed:
+            out["probe_retried"] = failed[0]
+            state.update(last_retried_at=now, last_retried_error=failed[0])
         alarm = state.get("alarm")
         if error is None:
             if alarm:
