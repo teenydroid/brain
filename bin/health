@@ -2,14 +2,13 @@
 # Whether Teeny's model answers (evals/cron.pinned.toml, health): ask it one
 # short question through the core (up to three attempts when one fails for a
 # reason that may pass, a cut stream or a timeout), and after two failed
-# checks in a row raise
-# one alarm, a `health` stimulus and one issue on teenydroid/brain, closed
-# again when it answers (bin/lib/health.py). Pinned, so the brain cannot
-# switch off its own watcher. `bin/health daily` (the pinned health-daily job)
-# files yesterday's counts as one `health · daily` stimulus instead, and
-# `bin/health runway` (the pinned runway job) the runway (docs/roadmap.md,
-# S2) as one `health · runway` stimulus. Prints
-# one JSON line.
+# checks in a row raise one alarm, a `health` stimulus and one issue on
+# teenydroid/brain, closed again when it answers (bin/lib/health.py). Pinned,
+# so the brain cannot switch off its own watcher. `bin/health daily` (the
+# pinned health-daily job) files yesterday's counts as one `health · daily`
+# stimulus instead, and `bin/health runway` (the pinned runway job) the
+# runway (docs/roadmap.md, S2) as one `health · runway` stimulus. Prints one
+# JSON line.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
