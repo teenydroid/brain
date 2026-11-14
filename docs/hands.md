@@ -1072,21 +1072,35 @@ write on it reaches only the tool-less mind (`gh ingest`), never the builder.
 ## `tasks`: the browser operator's queue
 
 The browser operator (`brain/agents/operator.toml`, the pinned `operator`
-agent job, hourly) does one task at a time in OpenHuman's browser. It reads
+agent job, every 20 minutes) does one task at a time in OpenHuman's browser,
+on the open web: any public https page except the operator's
+`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1`;
+`deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
 Nothing else turns a task into words for the mind: the desk tells it only the
-outcome (`operator · report`), except for the news.
+outcome (`operator · report`), except for the findings kinds (`news`,
+`browse`, `research`), whose notes come back framed as data (below).
 
 | Verb | | Does |
 |---|---|---|
-| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused (`rule: website`) unless `start_url` is http(s), carries no credentials, and its host is on `deploy/browser-allow.txt` or under one of its hosts. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, email?, mail_codes?}, rules}`, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
 | `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
+
+**Browsing** (`kind: browse`). Teeny reading the open web: a start link, the
+question it wants answered as the goal, at most 8 pages (`max_pages`) and 4
+screenshots (`max_screenshots`; more is refused). The idle look
+(`rhythm.wander`) queues one, `--source wander`, on the best-scored Hacker
+News story it just read, unless two already wait. A `browse` or `research`
+task (the mind's `queue_task`, `MIND_TASKS_PER_DAY`, at most 20) that ends
+`ok` comes back like the news: one `world · browse` or `world · research`
+stimulus with the notes framed as what pages said, and the screenshots'
+paths in its payload.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
@@ -1099,7 +1113,7 @@ hands read Hacker News and Moltbook, and the mind gets them as a nudge (see
 `hn`, "As playbook inputs"). The browser read below is kept but no job
 schedules it. `brain/playbooks/news-scan.md` queues one task of
 kind `news` that starts on the Hacker News front page
-(`news.ycombinator.com`, on `deploy/browser-allow.txt` for it) and asks for
+(`news.ycombinator.com`) and asks for
 the top AI and agent stories in its notes. When that task ends `ok`, `done`
 writes its notes to the mind's inbox as one `world · news` stimulus (ref
 `task:<id>`, payload `{task_id, start_url}`), and the desk sends no separate
