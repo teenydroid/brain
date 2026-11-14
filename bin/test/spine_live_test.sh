@@ -125,25 +125,20 @@ class Model(BaseHTTPRequestHandler):
                         for m in messages for c in (m.get("tool_calls") or []))
             call = None
             if task and task.get("login") and "keychain e2e" in task.get("goal", ""):
-                # The keychain round trip: open, find the form's name field,
-                # type the login's placeholder into it, look again, report
-                # what the second look showed.
-                import re
-                if len(results) == 0:
-                    call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
-                elif len(results) in (1, 3):
-                    call = {"name": "browser", "arguments": json.dumps({"action": "snapshot", "interactive_only": True})}
-                elif len(results) == 2:
-                    seen = json.dumps(results[-1].get("content"))
-                    line = next((l for l in seen.split("\\n") if "Customer name" in l), "")
-                    ref = re.search(r"\b(e\d+)\b", line)
-                    call = {"name": "browser", "arguments": json.dumps(
-                        {"action": "fill", "selector": "@" + (ref.group(1) if ref else "e1"),
-                         "value": task["login"]["password"]})}
+                # The keychain round trip on httpbin's echo form: open it,
+                # type the login's placeholder into the name field, submit,
+                # and read the page httpbin answers with, which echoes what
+                # the field held. Report what that read showed.
+                steps = [{"action": "open", "url": task["start_url"]},
+                         {"action": "fill", "selector": "input[name=custname]", "value": task["login"]["password"]},
+                         {"action": "click", "selector": "button"},
+                         {"action": "read_page"}]
+                if len(results) < len(steps):
+                    call = {"name": "browser", "arguments": json.dumps(steps[len(results)])}
                 elif not wrote:
                     seen = json.dumps(results[-1].get("content"))
                     report = {"task_id": task["task_id"], "outcome": "ok" if "[keychain]" in seen else "failed",
-                              "notes": "the second look: " + seen[:400]}
+                              "notes": "the echo: " + seen[:400]}
                     call = {"name": "file_write", "arguments": json.dumps(
                         {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
                 else:
@@ -537,9 +532,9 @@ fi
 check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
 # The keychain, end to end (LIVE_KEYCHAIN=1: it needs httpbin.org, so CI
 # leaves it out): a password made in hands/keychain, typed by the browser in
-# place of the operator's placeholder on that site's page, masked in what the
-# browser showed afterwards, and never in a model's request, a log, a
-# ledger or the desk.
+# place of the operator's placeholder on that site's page (httpbin echoes the
+# submitted form back), masked in what the browser read afterwards, and never
+# in a model's request, a log, a ledger or the desk.
 if [ "${LIVE_KEYCHAIN:-0}" = 1 ] && [ -n "$operator_id" ]; then
   python3 -c 'import base64, os; print("KEYCHAIN_KEY=" + base64.b64encode(os.urandom(32)).decode())' \
     >"$root/secrets/keychain.env"
