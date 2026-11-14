@@ -181,6 +181,40 @@ def _select(conn: sqlite3.Connection, hold_id: int) -> dict[str, Any] | None:
     return _hold(conn.execute("SELECT * FROM guard_holds WHERE id = ?", (hold_id,)).fetchone())
 
 
+# The context keys that name the item a message is (a mention's post, a
+# comment, a mail, a Telegram chat and message, a GitHub thread, a deposit, a
+# bounty entry). Everything else in a context describes it and may read
+# differently on another scan (an HN comment's story, found or not within
+# the run's read budget).
+ITEM_KEYS = ("post_id", "comment_id", "message_id", "chat_id", "repo", "number", "signature", "source_id")
+
+
+def _judge_failed(reason: str) -> bool:
+    from .judge import failed
+
+    return failed(reason)
+
+
+def _pending_outage(conn: sqlite3.Connection, kind: str, context: dict[str, Any], text: str) -> sqlite3.Row | None:
+    """The pending hold the judge made because it could not answer, on the
+    same inbound message: the same surface, the same item (ITEM_KEYS; with
+    none, the same surface is the item) and the same words. The judge's
+    error is not compared: it carries the provider's request id, new on
+    every ask (2026-11-14: an HN comment re-read every scan through a 402
+    outage was held anew each time, 597 pending holds for 72 texts)."""
+    item = {key: context.get(key) for key in ITEM_KEYS}
+    rows = conn.execute(
+        f"SELECT id, context FROM guard_holds WHERE status = 'pending' AND direction = 'inbound' AND kind = ?"
+        f" AND text = ? AND {_INFRA} AND json_extract(context, '$.surface') = ? ORDER BY id",
+        (kind, text, *_infra_params(), context.get("surface")),
+    )
+    for row in rows:
+        held = json.loads(row["context"])
+        if {key: held.get(key) for key in ITEM_KEYS} == item:
+            return row
+    return None
+
+
 def record(
     *,
     direction: str,
@@ -196,9 +230,11 @@ def record(
     message held again, for the same reason by the same check, while that
     first hold is still pending (the same context, so the same item, and the
     same words) is that hold, returned as it is: an intake that sees the item
-    again must not pile up copies for the operator. Another finding on the
-    item (the judge failing, then a verdict) is a hold of its own, and a
-    draft of the account's own is a new hold each time."""
+    again must not pile up copies for the operator. So is the judge failing
+    on it again while a hold from its last failure is pending, whatever the
+    error said (`_pending_outage`). Another finding on the item (the judge
+    failing, then a verdict) is a hold of its own, and a draft of the
+    account's own is a new hold each time."""
     _one_of("direction", direction, DIRECTIONS)
     _one_of("kind", kind, KINDS)
     _one_of("by", by, BY)
@@ -211,6 +247,8 @@ def record(
                 " AND text = ? AND category = ? AND reason = ? AND held_by = ? ORDER BY id LIMIT 1",
                 (direction, kind, serialized, text, category, reason, by),
             ).fetchone()
+            if same is None and by == "judge" and category == "unknown" and _judge_failed(reason):
+                same = _pending_outage(conn, kind, context, text)
             if same is not None:
                 return _select(conn, same["id"])  # type: ignore[return-value]
         cursor = conn.execute(

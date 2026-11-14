@@ -6,6 +6,8 @@ bounded in how many items it reads."""
 
 from __future__ import annotations
 
+import json
+
 from .support import DAY, HOUR, ME, MINUTE, T0, Scratch, comment, story
 from teeny_hands import hand, stimuli
 from teeny_hands.guard import holds
@@ -92,6 +94,67 @@ class SaidToTeenyTest(Inbox):
         with self.assertRaises(hand.HandError) as caught:
             inbox.scan()
         self.assertIn("HN_USERNAME", str(caught.exception))
+
+
+class JudgeUnreachableTest(Inbox):
+    """Live on 2026-11-14: the model provider answered HTTP 402 from 05:30
+    UTC, so the judge could not be reached. HN has no notifications: every
+    scan reads the same replies to Teeny again and screens each, and each
+    failure held the comment anew (the error carries a fresh request id), 597
+    pending holds for 72 texts by 09:00. A comment the judge cannot read is
+    held once, however many scans see it, and is still screened, and let in,
+    once the judge answers again."""
+
+    settings = {"HN_USERNAME": ME, "SAFETY_JUDGE": "1"}
+
+    def setUp(self):
+        super().setUp()
+        import os
+
+        from guard.support import FakeCore
+
+        self.core = FakeCore(self.down("01A"))
+        self.addCleanup(self.core.close)
+        os.environ["OPENHUMAN_CORE_URL"] = self.core.url
+        os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
+        self.user(ME, [20])
+        self.items(
+            story(20, "Show HN: Teeny", by=ME, kids=[21, 22]),
+            comment(21, 20, "how does it remember things?", by="bo"),
+            comment(22, 20, "what does it run on?", by="cy"),
+        )
+
+    @staticmethod
+    def down(request_id: str) -> dict:
+        return {"jsonrpc": "2.0", "id": 1, "error": {"message": (
+            "model error: local-openai returned HTTP 402 (insufficient_allowance): Your wallet's spending approval"
+            f" does not cover this request. Email support with request id {request_id}")}}
+
+    def holds_for(self, cid: str) -> list[dict]:
+        return [h for h in holds.list_holds() if h["context"].get("comment_id") == cid]
+
+    def test_a_comment_the_judge_cannot_read_is_held_once_across_scans(self):
+        for n, request_id in enumerate(("01A", "01B", "01C", "01D")):
+            self.core.replies = [self.down(request_id)]
+            out = inbox.scan()
+            self.assertEqual((out["seen"], out["added"], out["held"]), (2, 0, 2), f"scan {n}")
+        for cid in ("21", "22"):
+            [held] = self.holds_for(cid)
+            self.assertEqual((held["status"], held["by"], held["category"]), ("pending", "judge", "unknown"))
+            self.assertIn("request id 01A", held["reason"])
+        self.assertEqual(self.batch(), {}, "a held comment never reaches the mind")
+
+    def test_once_the_judge_answers_the_comment_is_screened_and_let_in(self):
+        inbox.scan()
+        self.core.replies = [{"jsonrpc": "2.0", "id": 1, "result": {"response": json.dumps(
+            {"verdict": "clean", "category": "none", "reason": "a question"})}}]
+        out = inbox.scan()
+        self.assertEqual((out["added"], out["held"]), (2, 0))
+        self.assertEqual(sorted(self.batch()), ["21", "22"])
+        # The scan only lets the comment in: the outage's hold is left for the
+        # operator, never released or decided here.
+        for cid in ("21", "22"):
+            self.assertEqual([h["status"] for h in self.holds_for(cid)], ["pending"])
 
 
 class WatchedThreadTest(Inbox):

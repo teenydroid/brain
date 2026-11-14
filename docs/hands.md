@@ -489,7 +489,11 @@ uniqueness keeps a second pass from filing anything twice). It needs
 `HN_USERNAME` or a live watch, and is an error with neither. Each comment by
 someone other than Teeny, neither dead nor deleted, is screened by the
 inbound guard (surface `hn`); a held one is recorded for review and not
-added. The rest are added once, ref the comment id, `who` its author, with
+added. HN keeps no list of held comments, so every run screens a held one
+again: a comment held only because the judge could not answer is held once
+however many runs see it (the guard keeps one pending outage hold per item,
+whatever the error said), and goes in on the first run the judge reads it
+clean. That run lets it in and leaves the hold for the operator. The rest are added once, ref the comment id, `who` its author, with
 `{story_id, parent_id, url, to_teeny}` (and `watched`, the watch's item,
 when it came from one). One run reads at most 100 items, one request each,
 whatever the threads hold; `truncated` says it stopped there. Everything
