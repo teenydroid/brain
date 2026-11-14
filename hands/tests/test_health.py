@@ -542,7 +542,7 @@ class HealthTest(unittest.TestCase):
         # follow's 11:45 run was cut off at 11:46 by a restart; post's 11:40 too.
         self.daily([("j1", "teeny.follow", "45 11", -900), ("j2", "teeny.post", "40 11", -1200)],
                    leases=[("j1", 840), ("j2", 840)], catch_up=("teeny.follow",))
-        self.core.replies = [ALIVE, result({}), result({}), result({}), result({"job_id": "j1", "status": "queued"})]
+        self.core.replies = [ALIVE, result({"job_id": "j1", "status": "queued"})]
         out = health.check()
         self.assertEqual(sorted(out["rearmed"]), ["teeny.follow", "teeny.post"])
         self.assertEqual(out["caught_up"], [{"name": "teeny.follow", "slot": "2026-11-11T11:45:00Z"}])
