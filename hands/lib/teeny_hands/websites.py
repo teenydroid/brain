@@ -1,13 +1,13 @@
 """Teeny's two reviewed lists of websites, both in deploy/ and owned by the
 operator:
 
-  deploy/browser-allow.txt  the hosts OpenHuman's raw  tool may
+  deploy/browser-allow.txt  the hosts OpenHuman's raw `http_request` tool may
                             reach, which bin/lib/core_sections/automation.py
                             writes into the core's config. It no longer
                             bounds the browser.
   deploy/browser-deny.txt   the hosts the browser never opens. The browser
-                            may start on any public https page ()
-                            that is not on it (); hands/tasks refuses
+                            may start on any public https page (`open_web`)
+                            that is not on it (`denied`); hands/tasks refuses
                             any other start, and the desk hands the list to
                             the operator with every task.
 
