@@ -1157,13 +1157,25 @@ capped like every stimulus. `bin/tick`'s header says the same of the whole
 batch. A news task that fails is an ordinary operator report.
 
 **The accounts ledger** (docs/roadmap.md, A12). A task of kind `signup` is
-Teeny signing itself up for a service it decided it needs, on the allowed
-websites only. When it ends `ok`, the operator's report names the account as
+Teeny signing itself up for a service it decided it needs, never on a denied
+site. The mind asks for one with `queue_signup` (`MIND_SIGNUPS_PER_DAY`, at
+most 2, off by default), held to the reputed-link rule. When the desk offers
+a signup and the keychain is set up, it first makes the account's password
+(`hands/keychain`, below) with Teeny's inbox as the handle, and offers
+`login: {site, handle, password: "{{keychain:<site>}}"}`. Any later task on
+a site Teeny holds an account on gets the same `login`. The operator types
+the placeholder; the browser types the password, and only on that site's own
+pages. The operator signs up as Teeny, says it is an AI wherever a profile
+has room, never claims to be a person and never invents a legal name, birth
+date, phone, address or ID; a CAPTCHA, an ID, age or phone check, or a
+payment or payout page ends the task `needs_human` with the link
+(brain/agents/operator.toml, brain/DRIVE.md). When it ends `ok`, the
+operator's report names the account as
 `{"handle": "<the name it signed up as>"}`; a report without one, or with any
 other field (a password, a key), is refused, so no secret reaches the
 ledger. `done` then writes one row to `accounts` (unique on site and
-handle): the site (the task's start page, checked again against the allowed
-websites), the handle, why (the task's goal) and when. `bin/proofs` counts
+handle): the site (the task's start page, checked again against the deny
+list), the handle, why (the task's goal) and when. `bin/proofs` counts
 the rows as `L3.signup`.
 
 `needs_code` is for a site that mails Teeny a one-time code or a verification
@@ -1174,6 +1186,38 @@ and, once something has come, offers the task again, resumed, with
 link allowlist passes them). Until then the task waits. After 15 minutes
 without a code, or when the inbox cannot be read, it ends `needs_human`. A
 task waits for a code twice at most (`rule: code_waits`).
+
+## `keychain`: Teeny's site passwords, sealed
+
+`hands/keychain` (frozen to Teeny) keeps one password per account Teeny opens
+on a website, in `state/keychain.db` (mode 600), each sealed with AES-256-GCM
+(`python3-cryptography`) under `KEYCHAIN_KEY` from `secrets/keychain.env`: 32
+random bytes, base64. The key is read from that file only, never
+from the environment. The site and the handle are the cipher's associated
+data, so a row moved to another site does not open. Without the key the
+keychain is off: no `login` is offered and a signup that asks for a password
+ends `needs_human`.
+
+| Verb | | Does |
+|---|---|---|
+| `create --site S --handle H [--why W]` | A | A new 24-character password for that account, sealed; refused on a denied site, and when the account already has one (it is kept, never reset). The account lands in `accounts` (`task_id` 0). Answers the site and the handle only. |
+| `list` | R | Sites and handles, never a password. The only verb a playbook input may run (`bin/lib/playbook.py`); the keychain is never a playbook's output. |
+| `secret --host H [--handle H]` | J | The password of the site the page host is on, on stdout. Only for the browser's fill: refused unless `bin/keychain-fill` set `TEENY_KEYCHAIN_FILL`, and on a terminal. |
+| `reveal --site S [--handle H]` | O | The password, on a terminal only, so the operator can take an account over. |
+
+How a password reaches a page and no model: the desk offers the operator
+agent the placeholder `{{keychain:<site>}}`. The operator types it into the
+password field. OpenHuman's browser tool (`[browser] keychain_command`,
+tinyhumansai/openhuman#8708) checks that the page is an https page on that
+site or under it, runs `bin/keychain-fill <page host>`, and types what it
+prints in place of the placeholder. A look-alike host gets nothing. The
+action the model sent, the approval gate and the logs see only the
+placeholder, and every browser reply after it has the password masked as
+`[keychain]`, whatever page or field shows it later.
+`LIVE_KEYCHAIN=1 bin/test/spine_live_test.sh` runs the whole round trip in a
+real spine and browser: it fills httpbin.org's echo form, reads the echo back
+masked, and greps every model request, log, ledger and desk file for the
+password.
 
 ## Why a desk, and not a hand the agent calls
 

@@ -82,6 +82,11 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(browser["profile_mode"], "fresh")
         self.assertNotIn("profile_path", browser)
 
+    def test_the_browser_fills_keychain_placeholders_from_bin_keychain_fill(self):
+        browser = self.written()["browser"]
+        self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
+        self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
+
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
         # gate on browser egress), and TinyBus admits a callback-bound load

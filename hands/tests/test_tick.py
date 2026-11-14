@@ -718,6 +718,21 @@ class TickTest(unittest.TestCase):
                 self.caps(MIND_TASKS_PER_DAY=given)
                 self.assertEqual(tick.mind_cap("queue_task"), cap)
 
+    def test_the_mind_queues_at_most_two_signups_a_day_as_signup_tasks(self):
+        tick = _tick_module()
+        self.caps(MIND_SIGNUPS_PER_DAY=9, SAFETY_JUDGE=0)
+        self.assertEqual(tick.mind_cap("queue_signup"), 2)
+        signup = {"do": "queue_signup", "start_url": "https://github.com/signup", "why": "to keep my code"}
+        self.answer({"thought": "", "intents": [signup, signup, signup]})
+        stimuli.add("x", "mention", "s1", "hi")
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done", "done", "refused"], got["results"])
+        self.assertIn("today's 2 queue_signup intent(s) are spent", got["results"][2]["result"]["refused"])
+        calls = [c for c in self.hand_calls() if c["hand"] == "tasks"]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["body"]["kind"], "signup")
+        self.assertIn("to keep my code", calls[0]["body"]["goal"])
+
     def test_each_new_intent_has_a_daily_cap_that_counts_what_reached_the_hand(self):
         self.caps(MIND_ISSUES_PER_DAY=2, MIND_TASKS_PER_DAY=99)  # 99 is clamped to 20
         os.environ["FAKE_EXIT_GH"] = "2"  # a refused issue still counts

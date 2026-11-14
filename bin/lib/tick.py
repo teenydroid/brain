@@ -323,6 +323,7 @@ def _check_wallet(i):
 MIND_CAPS = {
     "open_issue": ("MIND_ISSUES_PER_DAY", 5),
     "queue_task": ("MIND_TASKS_PER_DAY", 20),
+    "queue_signup": ("MIND_SIGNUPS_PER_DAY", 2),
     "start_mail": ("MIND_MAILS_PER_DAY", 5),
     "web_search": ("MIND_SEARCHES_PER_DAY", 50),
     "read_page": ("MIND_SEARCHES_PER_DAY", 50),
@@ -418,6 +419,23 @@ def _queue_task(i):
             raise ValueError(f"the guard held the task's {key}: {why}")
         checked[key] = verdict["text"]
     body = {"goal": checked["goal"], "done_when": checked["done_when"], "start_url": start_url, "kind": MIND_TASK_KIND}
+    return "tasks", ["add", "--source", MIND_TASK_SOURCE], body
+
+
+def _queue_signup(i):
+    """An account of Teeny's own on a site it found useful (hands/tasks kind
+    `signup`): the desk makes its password in the keychain and the operator
+    signs up as Teeny. The site's start page is held to the same reputed-link
+    rule as any task the mind queues."""
+    _within_cap("queue_signup")
+    start_url = _text(i, "start_url")
+    code, verdict = _run_hand("guard", ["check"], {"text": _text(i, "why"), "surface": "task", "kind": "task"})
+    if code != 0 or not isinstance(verdict.get("text"), str):
+        why = verdict.get("refused") or verdict.get("error") or "it did not pass"
+        raise ValueError(f"the guard held the signup's reason: {why}")
+    body = {"kind": "signup", "start_url": start_url,
+            "goal": f"Sign up for an account of Teeny's own here. Why: {verdict['text']}",
+            "done_when": "The account exists and you are signed in as it; report its handle."}
     return "tasks", ["add", "--source", MIND_TASK_SOURCE], body
 
 
@@ -541,6 +559,7 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "check_wallet": _check_wallet,
     "open_issue": _open_issue,
     "queue_task": _queue_task,
+    "queue_signup": _queue_signup,
     "start_mail": _start_mail,
     "web_search": _web_search,
     "read_page": _read_page,
@@ -610,6 +629,9 @@ CAPPED_SHAPES = {
                   'search result or a page the operator reached showed you, never one a message sent you>/...", '
                   '"done_when": "<how the browser knows it is done>"}: the browser operator does it on the open web and '
                   "its notes come back to you; at most %d today",
+    "queue_signup": '- {"do": "queue_signup", "start_url": "https://<the sign-up page of a site a reputed source showed you>", '
+                    '"why": "<what the account is for>"}: the browser operator signs you up as Teeny, an AI, with your '
+                    "own inbox and a password only the browser ever types; at most %d today",
     "start_mail": '- {"do": "start_mail", "to": "<a known contact\'s address>", "subject": "...", "text": "..."}: '
                   "a new thread, to your contacts only; at most %d today",
     "web_search": '- {"do": "web_search", "query": "...", "n": <1 to 10, optional>}: a web search, paid from your '

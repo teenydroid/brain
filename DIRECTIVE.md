@@ -160,7 +160,7 @@ It talks to people and keeps talking to them.
   from operator tasks. *Proof:* tasks with `--source teeny` that finished `ok`.
 - [ ] Logs into sites that mail it a code (`needs_code` via AgentMail)
   without a person. *Proof:* a task that went `needs_code` then `ok`.
-- [ ] Signs itself up for a service it decided it needs (on the allowlist),
+- [ ] Signs itself up for a service it decided it needs (never a denied site),
   and records the account. *Proof:* a new account row plus the reason.
 - [ ] `needs_human` rate under 10% over a month.
 

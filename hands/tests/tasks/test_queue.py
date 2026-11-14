@@ -524,3 +524,58 @@ class CodeTest(Scratch):
         conn.close()
         cols = {r[1] for r in queue.db().execute("PRAGMA table_info(browser_tasks)")}
         self.assertTrue({"code_from", "code_asked_at", "code_waits"} <= cols)
+
+
+class KeychainLoginTest(Scratch):
+    """The desk offers Teeny's own account on a task's site, its password
+    only as the browser's placeholder; a signup makes the account first."""
+
+    def setUp(self):
+        super().setUp()
+        import base64
+
+        (self.root / "secrets" / "keychain.env").write_text(
+            "KEYCHAIN_KEY=" + base64.b64encode(os.urandom(32)).decode() + "\n")
+        (self.root / "secrets" / "teeny.env").write_text("AGENTMAIL_INBOX=teeny@agentmail.to\n")
+        hand._ENV_CACHE = None
+
+    def offer(self):
+        queue.desk()
+        return json.loads((self.root / "state" / "workbench" / "desk" / "task.json").read_text())
+
+    def test_a_signup_makes_the_account_and_offers_only_the_placeholder(self):
+        from teeny_hands.keychain import store
+
+        tid = self.add(kind="signup", start_url="https://www.example.com/join")["task_id"]
+        offer = self.offer()
+        self.assertEqual(offer["task"]["task_id"], tid)
+        self.assertEqual(offer["task"]["login"], {"site": "example.com", "handle": "teeny@agentmail.to",
+                                                  "password": "{{keychain:example.com}}"})
+        word = store._open("example.com", None)[1]  # noqa: SLF001
+        desk = self.root / "state" / "workbench" / "desk"
+        for path in desk.iterdir():
+            self.assertNotIn(word, path.read_text(), path.name)
+        self.assertNotIn(word.encode(), (self.root / "state" / "hands.db").read_bytes())
+
+    def test_a_later_task_on_that_site_gets_the_login_and_others_get_none(self):
+        from teeny_hands.keychain import store
+
+        store.create("example.com", "teeny@agentmail.to")
+        self.add(start_url="https://accounts.example.com/login")
+        self.assertEqual(self.offer()["task"]["login"]["password"], "{{keychain:example.com}}")
+        queue.done({"task_id": 1, "outcome": "ok", "notes": "logged in"})
+        self.add(start_url="https://elsewhere.example.net/")
+        self.assertNotIn("login", self.offer()["task"])
+
+    def test_without_a_keychain_key_nothing_is_offered_or_made(self):
+        (self.root / "secrets" / "keychain.env").unlink()
+        self.add(kind="signup", start_url="https://example.com/join")
+        self.assertNotIn("login", self.offer()["task"])
+        self.assertFalse((self.root / "state" / "keychain.db").exists())
+
+    def test_the_site_of_a_page_host(self):
+        from teeny_hands.keychain import store
+
+        for host, site in (("www.example.com", "example.com"), ("accounts.example.com", "example.com"),
+                           ("shop.example.co.uk", "example.co.uk"), ("example.com", "example.com")):
+            self.assertEqual(store.site_of(host), site)
