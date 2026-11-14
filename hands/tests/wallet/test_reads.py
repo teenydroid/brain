@@ -19,6 +19,7 @@ class ReadsTest(Scratch):
         address = reads.address()
         self.assertEqual(address["evm"]["address"], "0x" + "1" * 40)  # the same phrase's EVM account
         del address["evm"]
+        self.assertTrue(address.pop("btc")["address"].startswith("bc1q"))  # and its Bitcoin account
         self.assertEqual(address, {"address": OWN, "cluster": "devnet", "url": f"https://solscan.io/account/{OWN}?cluster=devnet"})
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(12_345_678)
         out = reads.balance()

@@ -1,7 +1,7 @@
 """The verbs of hands/wallet (docs/hands.md, "wallet").
 
-  R  address                       Teeny's Solana and EVM addresses (one recovery phrase)
-  R  balance                       SOL, USDC and $TINY on Solana; ETH and USDC on each EVM network (mainnet)
+  R  address                       Teeny's Solana, EVM and Bitcoin addresses (one recovery phrase)
+  R  balance                       SOL, USDC and $TINY on Solana; ETH and USDC on each EVM network, and BTC (mainnet)
   R  tiny                          Teeny's $TINY: {mint, owner, raw, decimals, amount}, read only
   R  ledger [--max N]              this hand's payments and the core's spend ledger
   R  costs [--days N]              what keeping Teeny running cost: models, x402, bills
@@ -55,7 +55,7 @@ def _bounded(low: int, high: int, what: str):
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="hands/wallet", description="Teeny's own wallet (Solana and EVM, one recovery phrase), under hard caps.")
+    root = argparse.ArgumentParser(prog="hands/wallet", description="Teeny's own wallet (Solana, EVM and Bitcoin, one recovery phrase), under hard caps.")
     verbs = root.add_subparsers(dest="verb")
 
     def verb(name: str, handler: Any, help: str, body: bool = False, under: Any = None) -> argparse.ArgumentParser:
@@ -63,8 +63,8 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    verb("address", lambda a, _: reads.address(), "Teeny's Solana and EVM addresses")
-    verb("balance", lambda a, _: reads.balance(), "balances on Solana and the EVM networks")
+    verb("address", lambda a, _: reads.address(), "Teeny's Solana, EVM and Bitcoin addresses")
+    verb("balance", lambda a, _: reads.balance(), "balances on Solana, the EVM networks and Bitcoin")
     verb("tiny", lambda a, _: reads.tiny(), "Teeny's $TINY balance, in tokens")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)

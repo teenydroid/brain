@@ -1243,12 +1243,12 @@ in, but a serve host dropped every configured MCP server's tools when
 TinySecurity was on ([`oh-gaps.md`](oh-gaps.md), G11, fixed in
 openhuman#8654).
 
-## `wallet`: Teeny's own wallet, Solana and EVM from one recovery phrase
+## `wallet`: Teeny's own wallet, Solana, EVM and Bitcoin from one recovery phrase
 
 The keys never leave the core. OpenHuman (the `web3` build) holds the
 encrypted recovery phrase and signs. That one phrase derives a Solana
-address and an EVM address (the same on every EVM network), so one backup
-covers every chain. This hand decides whether a payment, a swap, a bridge or
+address, an EVM address (the same on every EVM network) and a Bitcoin
+address (native segwit, `bc1q...`), so one backup covers every chain. This hand decides whether a payment, a swap, a bridge or
 a paid HTTP request may go out, asks the core to do it, and keeps the ledger.
 Code: `teeny_hands/wallet/` (`caps.py` is shared with
 `bin/lib/wallet_config.py` and `bin/doctor`; `chains.py` pins the chains and
@@ -1264,6 +1264,12 @@ assets).
 | `ethereum` | ETH, USDC | 1 | mainnet only |
 | `optimism` | ETH, USDC | 10 | mainnet only |
 
+Bitcoin is held, not spent: `address` names it and `balance` reads it, and
+no payment, swap or bridge takes it (`chains.BITCOIN` is kept out of
+`CHAINS`). The core derives it at `m/44'/0'/0'/0/0` as a native segwit
+address; that is not the BIP-84 path most wallets assume for `bc1q`, so to
+restore the phrase elsewhere, pick native segwit with that path by hand.
+
 USDC is pinned per chain (mint or contract). Under `WALLET_CLUSTER=devnet`
 every EVM payment, swap and bridge is refused (`cluster`). ETH moves only
 with `WALLET_ETH_USD` set. The core reads native ETH; USDC on an EVM network
@@ -1272,8 +1278,8 @@ the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, and `evm`: the EVM address with its explorer page per network (`usable` only on mainnet). |
-| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`; a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
+| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
 | `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
 | `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
 | `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
