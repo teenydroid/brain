@@ -54,6 +54,15 @@ class IntakeTest(unittest.TestCase):
             self.assertEqual((got["hn-top"][:2], got["hn-show"][:2]), (["hands/hn", "top"], ["hands/hn", "show"]), name)
         self.assertEqual(runs(load("self-improve"))["people"], ["hands/people", "list"])
 
+    def test_self_improve_reads_the_frozen_list_before_it_proposes(self):
+        book = load("self-improve")
+        got = runs(book)
+        self.assertLessEqual(len(got), playbook.MAX_INPUTS)
+        self.assertEqual(got["frozen"], ["hands/build", "frozen"])
+        frozen_input = next(i for i in book["inputs"] if i["name"] == "frozen")
+        self.assertTrue(frozen_input["optional"])
+        self.assertIn("hands/lib/teeny_hands/build/jobs.py", book["prompt"])
+
     def test_a_read_of_somebody_elses_site_never_costs_the_run(self):
         for name in ("morning", "moltbook-daily", "moltbook-evening", "build-idea"):
             for i in load(name)["inputs"]:

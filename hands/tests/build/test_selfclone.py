@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import unittest
 from pathlib import Path
 
 from gh.support import T0, Scratch, git
@@ -484,3 +485,24 @@ class BabysitTest(SelfJobScratch):
         self.assertEqual(len(jobs.babysit()["fixes"]), 1)
         out = jobs.babysit()
         self.assertEqual(out["fixes"], [])
+
+
+class FrozenListingTest(unittest.TestCase):
+    """`hands/build frozen`: what the self-improve playbook reads so a change
+    to frozen code is skipped up front. On 2026-11-13 a self change asked to
+    reword the builder's daily brief, frozen code, and the builder spent three
+    hours finding that out."""
+
+    def test_it_lists_the_frozen_paths_and_where_the_often_wanted_ones_live(self):
+        got = selfclone.frozen_listing()
+        self.assertIn("bin/**", got["patterns"])
+        self.assertIn("hands/lib/teeny_hands/build/", got["patterns"])
+        brief = next(w for w in got["often_wanted"] if "daily brief" in w["what"])
+        self.assertIn("hands/lib/teeny_hands/build/jobs.py", brief["frozen_in"])
+        self.assertIn("brain/playbooks/build-idea.md", brief["yours_instead"])
+
+    def test_the_cli_prints_it(self):
+        done = subprocess.run([str(HANDS / "build"), "frozen"], capture_output=True, text=True,
+                              env={**os.environ, "DRY_RUN": "1"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("often_wanted", json.loads(done.stdout))

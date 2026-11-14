@@ -17,6 +17,8 @@ desk files.
                               a build request (source upstream) built in a fork and opened as
                               one disclosed pull request; off unless BUILD_UPSTREAM=1
   R  gaps                     the gaps of docs/oh-gaps.md, each with whether it can be proposed
+  R  frozen                   the frozen paths (evals/frozen.txt) and where the frozen things a self
+                              change most often wants live, with what is Teeny's to change instead
   A  idea                     stdin {title, who, source, pitch}: the one build idea Teeny keeps a UTC
                               day; the next daily job builds it. A second one the same day is refused
   R  ideas [--limit N]        today's idea (or none), and the ideas kept, newest first
@@ -63,6 +65,7 @@ def parser() -> argparse.ArgumentParser:
     verb("upstream", lambda a, body: upstream.propose(body),
          "propose closing one OpenHuman gap upstream (JSON on stdin)", body=True)
     verb("gaps", lambda a, _: upstream.listing(), "the OpenHuman gaps, and which can be proposed")
+    verb("frozen", lambda a, _: selfclone.frozen_listing(), "the frozen paths, and where the often-wanted ones live")
     verb("idea", lambda a, body: ideas.keep(body), "keep today's build idea (JSON on stdin)", body=True)
     kept = verb("ideas", lambda a, _: ideas.listing(a.limit), "today's idea, and the ideas kept")
     kept.add_argument("--limit", type=_limit, default=30)
