@@ -12,7 +12,15 @@ Every run:
 
 1. Asks the model one tiny question through the core
    (`inference_agent_chat_simple`, as the guard's judge does). An error or
-   an empty answer is a failure.
+   an empty answer is a failed attempt. One that may pass (a cut provider
+   stream, a timeout, a 5xx) is asked again, up to PROBE_ATTEMPTS times in
+   all, after PROBE_BACKOFFS, inside PROBE_BUDGET; one that will not (a
+   refused key, no model configured) is not. Only when every attempt fails
+   is the check a failure. On 2026-11-14 Surplus cut streams in windows of
+   minutes, and two single probes cut in a row opened an outage issue that
+   closed itself fifteen minutes later. `probe_attempts` (and, when an
+   attempt failed before the answer, `probe_retried`, its error) on the
+   line and in state/health.json keep that flakiness visible.
 2. Counts what else the last hour shows: guard holds whose judge could not
    be reached (state/hands.db) and failed cron runs (the core's
    storage.db, read-only, as bin/crons reads it).
@@ -90,6 +98,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -99,6 +108,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.gh import actions as gh  # noqa: E402
 from teeny_hands.guard import rescreen  # noqa: E402
+from teeny_hands.guard.judge import permanent  # noqa: E402
 from teeny_hands.scrub import scrub as _scrub  # noqa: E402
 
 import catch_up  # noqa: E402  (bin/lib: the claims, the re-arm and the catch-up)
@@ -108,6 +118,17 @@ FAILURES_TO_ALARM = 2
 #: How long the model may take to say one word.
 PROBE_TIMEOUT = 60.0
 PROBE = "Health check: reply with the one word ok."
+#: Attempts at the probe in one check, the waits before the second and the
+#: third, and how long they may take together, waits included: an attempt
+#: gets what is left (at most PROBE_TIMEOUT), and one that would get less
+#: than MIN_PROBE_SECS is not made. Every attempt timing out is 60 s + 5 s +
+#: 25 s = 90 s; a cut stream fails in a second or two, so three cut attempts
+#: take about half a minute. With the fallback's two probes (60 s each) the
+#: run stays well inside the 300 s the core gives a cron shell call.
+PROBE_ATTEMPTS = 3
+PROBE_BACKOFFS = (5.0, 20.0)
+PROBE_BUDGET = 90.0
+MIN_PROBE_SECS = 10.0
 #: How far back the holds and cron runs are counted.
 WINDOW_SECS = 3600
 DEFAULT_REPO = "teenydroid/brain"
@@ -146,16 +167,43 @@ def _words(reply: Any) -> str:
     return reply if isinstance(reply, str) else ""
 
 
-def probe(model: str | None = None) -> str | None:
+def probe(model: str | None = None, timeout: float = PROBE_TIMEOUT) -> str | None:
     """None when the model answered; what went wrong when it did not. With
     MODEL, that model on the core's endpoint (`model_override`), not the
-    one the core is set to."""
+    one the core is set to. One attempt."""
     params: Json = {"message": PROBE, **({"model_override": model} if model else {})}
     try:
-        reply = hand.core("inference_agent_chat_simple", params, timeout=PROBE_TIMEOUT)
+        reply = hand.core("inference_agent_chat_simple", params, timeout=timeout)
     except Exception as error:  # noqa: BLE001 - any failure to answer is the thing watched for
         return scrub(str(error) or type(error).__name__)
     return None if _words(reply).strip() else "the model answered with nothing"
+
+
+def _sleep(secs: float) -> None:
+    time.sleep(secs)
+
+
+def probe_until_answered() -> tuple[str | None, int, list[str]]:
+    """The probe of the model the core is on, asked again after a failure
+    that may pass (PROBE_ATTEMPTS, PROBE_BACKOFFS, PROBE_BUDGET): (None when
+    an attempt answered, else the last attempt's error; how many attempts
+    were made; the errors of the attempts that failed)."""
+    errors: list[str] = []
+    started = time.monotonic()
+    for attempt in range(PROBE_ATTEMPTS):
+        if attempt:
+            wait = PROBE_BACKOFFS[min(attempt, len(PROBE_BACKOFFS)) - 1]
+            if PROBE_BUDGET - (time.monotonic() - started) - wait < MIN_PROBE_SECS:
+                break
+            _sleep(wait)
+        left = PROBE_BUDGET - (time.monotonic() - started)
+        error = probe(timeout=min(PROBE_TIMEOUT, left))
+        if error is None:
+            return None, attempt + 1, errors
+        errors.append(error)
+        if permanent(error):
+            break
+    return errors[-1], len(errors), errors
 
 
 def judge_holds(since: float) -> int:
@@ -816,12 +864,16 @@ def check() -> Json:
     with hand.lock("health"):
         now = hand.now()
         state = load()
-        error = probe()
+        error, attempts, failed = probe_until_answered()
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
-                     "alarm": None, "issue": None, "rescreen": None,
+                     "alarm": None, "issue": None, "rescreen": None, "probe_attempts": attempts,
                      "moltbook_unverified": moltbook_unverified(now - MOLTBOOK_WINDOW_SECS)}
+        state["probe_attempts"] = attempts
+        if error is None and failed:
+            out["probe_retried"] = failed[0]
+            state.update(last_retried_at=now, last_retried_error=failed[0])
         alarm = state.get("alarm")
         if error is None:
             if alarm:
