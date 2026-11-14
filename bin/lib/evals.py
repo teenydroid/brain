@@ -21,6 +21,8 @@ canned, so both brains answer the same thing:
     kind = "reply"             # post | reply | episode: sets max_length
     max_length = 280           # optional; UTF-16 units, as X counts them
     must_not = ["(?i)\\bnfa\\b"]   # optional; patterns no draft may match
+    fence = ["\\b7xKX"]          # optional; the same, for a pattern that guards a
+                               # fence: one match on one sample rejects (below)
     prompt = '''what to draft'''
     [inputs]                   # anything; given to the model as JSON data
     mention = {id = "1", author = "fren", text = "wen $1?"}
@@ -97,7 +99,7 @@ def load_task(evals: Path, task_id: str) -> dict:
         raise EvalError(f"{path}: {exc.strerror}") from None
     except tomllib.TOMLDecodeError as exc:
         raise EvalError(f"{path}: {exc}") from None
-    extra = set(meta) - {"description", "kind", "max_length", "must_not", "prompt", "inputs"}
+    extra = set(meta) - {"description", "kind", "max_length", "must_not", "fence", "prompt", "inputs"}
     if extra:
         raise EvalError(f"{path}: unknown keys: {', '.join(sorted(extra))}")
     for key in ("description", "prompt"):
@@ -109,14 +111,16 @@ def load_task(evals: Path, task_id: str) -> dict:
     max_length = meta.get("max_length", KINDS[kind])
     if not isinstance(max_length, int) or isinstance(max_length, bool) or max_length < 1:
         raise EvalError(f"{path}: max_length is a positive whole number")
-    must_not = meta.get("must_not", [])
-    if not isinstance(must_not, list) or not all(isinstance(p, str) for p in must_not):
-        raise EvalError(f"{path}: must_not is a list of patterns")
-    for pattern in must_not:
-        try:
-            re.compile(pattern)
-        except re.error as exc:
-            raise EvalError(f"{path}: must_not {pattern!r}: {exc}") from None
+    patterns = {}
+    for key in ("must_not", "fence"):
+        patterns[key] = meta.get(key, [])
+        if not isinstance(patterns[key], list) or not all(isinstance(p, str) for p in patterns[key]):
+            raise EvalError(f"{path}: {key} is a list of patterns")
+        for pattern in patterns[key]:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise EvalError(f"{path}: {key} {pattern!r}: {exc}") from None
     inputs = meta.get("inputs", {})
     if not isinstance(inputs, dict):
         raise EvalError(f"{path}: inputs is a table")
@@ -125,7 +129,8 @@ def load_task(evals: Path, task_id: str) -> dict:
         "description": meta["description"].strip(),
         "kind": kind,
         "max_length": max_length,
-        "must_not": must_not,
+        "must_not": patterns["must_not"],
+        "fence": patterns["fence"],
         "prompt": meta["prompt"].strip(),
         "inputs": inputs,
         "heldout": heldout,
@@ -202,9 +207,10 @@ def check(task: dict, answer: str, hands_lib: Path) -> dict:
         note("length", length <= task["max_length"], f"{length}/{task['max_length']}")
         emoji, limit = count_emoji(text), max_emoji_per_post()
         note("emoji", emoji <= limit, f"{emoji}/{limit}")
-        for pattern in task["must_not"]:
-            hit = re.search(pattern, text, re.IGNORECASE)
-            note(f"must_not {pattern}", hit is None, f"matched {hit.group(0)!r}" if hit else "")
+        for key in ("must_not", "fence"):
+            for pattern in task.get(key, []):
+                hit = re.search(pattern, text, re.IGNORECASE)
+                note(f"{key} {pattern}", hit is None, f"matched {hit.group(0)!r}" if hit else "")
     return {"draft": draft, "checks": checks, "ok": all(c["ok"] for c in checks)}
 
 
@@ -278,7 +284,8 @@ def fresh(ask: list[str]) -> list[str]:
     return [*ask, "--thread", f"eval:{uuid.uuid4().hex}"]
 
 
-def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
+def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str],
+          first: dict[str, int] | None = None, confirm: bool = False) -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
     --agent act) and checked. A turn that never answers, after its retries,
     is written with `no_sample`: no draft, and nothing it says about the
@@ -286,12 +293,14 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
     tasks = [load_task(evals, task_id) for task_id in ids]
     retrier = Retrier()
     drafted = passed = missing = 0
-    with out.open("w", encoding="utf-8") as fh:
+    with out.open("a" if confirm else "w", encoding="utf-8") as fh:
         for task in tasks:
             message = render(task)
-            for sample in range(1, samples + 1):
+            start = (first or {}).get(task["id"], 1)
+            count = samples if not confirm else samples - (start - 1 - (first or {}).get(f"{task['id']}:drafted", 0))
+            for sample in range(start, start + max(0, count)):
                 turn, attempts = retrier.run(ask, message)
-                extra: dict = {"attempts": attempts}
+                extra: dict = {"attempts": attempts, **({"confirm": True} if confirm else {})}
                 if turn.returncode == 0:
                     result = check(task, turn.stdout, hands_lib)
                 else:
@@ -300,6 +309,7 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
                     missing += 1
                 fh.write(json.dumps({"task": task["id"], "sample": sample, "heldout": task["heldout"],
                                      "answer": turn.stdout[:4000], **result, **extra}, ensure_ascii=False) + "\n")
+                fh.flush()
                 failed = [c["check"] for c in result["checks"] if not c["ok"]]
                 print(f"[eval] {task['id']} #{sample}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
                 drafted += 1
