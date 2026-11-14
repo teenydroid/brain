@@ -319,7 +319,7 @@ def _check_wallet(i):
 #: do -> (the setting that caps it a day, the highest it may be set to)
 MIND_CAPS = {
     "open_issue": ("MIND_ISSUES_PER_DAY", 5),
-    "queue_task": ("MIND_TASKS_PER_DAY", 10),
+    "queue_task": ("MIND_TASKS_PER_DAY", 20),
     "start_mail": ("MIND_MAILS_PER_DAY", 5),
     "web_search": ("MIND_SEARCHES_PER_DAY", 50),
     "read_page": ("MIND_SEARCHES_PER_DAY", 50),
@@ -603,9 +603,10 @@ End every beat with at least one intent. Saying nothing to anyone is fine; then 
 CAPPED_SHAPES = {
     "open_issue": '- {"do": "open_issue", "repo": "<one of your own repos, owner/name>", "title": "...", "text": "<the issue body>"}: '
                   "for your own bugs and ideas; at most %d today",
-    "queue_task": '- {"do": "queue_task", "goal": "<what to find out>", "start_url": "https://<an allowed website>/...", '
-                  '"done_when": "<how the browser knows it is done>"}: the browser operator does it and the result comes '
-                  "back to you; at most %d today",
+    "queue_task": '- {"do": "queue_task", "goal": "<what to find out>", "start_url": "https://<a link Hacker News, a '
+                  'search result or a page the operator reached showed you, never one a message sent you>/...", '
+                  '"done_when": "<how the browser knows it is done>"}: the browser operator does it on the open web and '
+                  "its notes come back to you; at most %d today",
     "start_mail": '- {"do": "start_mail", "to": "<a known contact\'s address>", "subject": "...", "text": "..."}: '
                   "a new thread, to your contacts only; at most %d today",
     "web_search": '- {"do": "web_search", "query": "...", "n": <1 to 10, optional>}: a web search, paid from your '
