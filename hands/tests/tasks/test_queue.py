@@ -209,7 +209,7 @@ class DoneTest(Scratch):
 
 class BrowserPicturesTest(Scratch):
     """The browser saves a picture of each page it opens or acts on into
-    state/browser/screenshots/ (the core's `[browser] screenshot_dir`); the
+    state/browser/screenshots/ (the spine's picture sink, TEENY_BROWSER_PICTURES); the
     report takes the ones taken since the claim, whether or not the operator
     named any."""
 
