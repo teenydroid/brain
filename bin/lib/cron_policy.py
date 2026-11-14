@@ -43,7 +43,7 @@ BRAIN_COMMANDS = ("bin/heartbeat", "bin/act")
 #: The agents a cron job may run. Each acts unattended, so each is written
 #: for it (brain/agents/<id>.toml) and reviewed; a new one is added here.
 AGENT_JOB_AGENTS = ("builder", "operator")
-MAX_AGENT_RUNS_PER_DAY = 48
+MAX_AGENT_RUNS_PER_DAY = 96
 MAX_PROMPT_CHARS = 4000
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 

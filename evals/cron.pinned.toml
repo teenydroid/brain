@@ -113,9 +113,10 @@ command = "bin/build-ship"
 
 # The browser operator (brain/agents/operator.toml), an agent job: the one
 # task on its desk (state/workbench/desk/task.json), done in the browser,
-# reported on the desk.
+# reported on the desk. Every 20 minutes: browsing is where Teeny spends its
+# idle time. A run with nothing on the desk ends at once.
 [jobs.operator]
-schedule = "40 * * * *"
+schedule = "*/20 * * * *"
 agent = "operator"
 prompt = "Do the browser task on your desk, following your instructions."
 
