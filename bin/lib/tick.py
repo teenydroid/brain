@@ -712,13 +712,13 @@ CAPPED_SHAPES = {
     "conclude_experiment": '- {"do": "conclude_experiment", "id": <experiment #>, "verdict": "works|fails|unclear", '
                            '"lesson": "<one line you will act on>"}: when the scoreboard says it is due; '
                            "at most %d today",
-    "propose_change": '- {"do": "propose_change", "text": "<the brief>"}: how a change to yourself (a new hand, a playbook, '
-                      "a prompt) gets built: the builder makes it in your clone and it opens as a pull request for the "
-                      "operator. The brief says what to change and in which files, why and who asked, and how you will "
-                      "know it worked. The builder has no network: put every outside fact it needs (endpoints, formats) "
-                      "in the brief, read first with web_search or read_page. It can't change frozen paths; name those "
-                      "for the operator instead. It is picked at the next pick-request and built at the builder's next "
-                      "run, not now; one at a time; at most %d today",
+    "propose_change": '- {"do": "propose_change", "text": "<the brief: what to change and in which files, why and '
+                      'who asked, how you will know it worked>"}: how a change to yourself (a new hand, a playbook, a '
+                      "prompt) gets built; the builder makes it in your clone and it opens as a pull request for the "
+                      "operator. The builder has no network: the brief carries every outside fact it needs (endpoints, "
+                      "formats), read first with web_search or read_page. Frozen paths it can't change; name those for "
+                      "the operator. Picked at the next pick-request and built at the builder's next run, so never "
+                      '"building now"; one at a time; at most %d today',
 }
 
 
