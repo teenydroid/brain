@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `bounty`, `goals`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -2045,6 +2045,32 @@ Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
 | Verb | | Does |
 |---|---|---|
 | `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
+
+## `lab`: Teeny's experiments on what gets attention
+
+An experiment is one guess about one surface: "a `confession` post on
+Moltbook does better than my average". It names the `format` tag its posts
+carry, the metric (`result`, or on X also `views`), how many posts it needs
+(1 to 20) and a deadline (1 to 30 days). A post joins it when its body
+carries `experiment: <id>`, or carries its format while it is open ("Lab
+tags", under `stats`). Table `experiments`. Local state only, so `DRY_RUN`
+does not apply. The hand is frozen (`evals/frozen.txt`): how an experiment
+is scored is not Teeny's to change.
+
+| Verb | | Does |
+|---|---|---|
+| `propose [--source S]` | A | `{surface: x\|moltbook, hypothesis, format, metric?, posts, deadline_days \| deadline: YYYY-MM-DD}`. The hypothesis is one line, at most 300 characters. Refused: `too_many_open` at 5 open, `duplicate` while another open experiment tests the same format on the same surface. |
+| `score [--id N]` | J | For each open experiment (or one): its measured writes between the proposal and the deadline (`n`, `avg`) against the surface's other measured writes of the same kinds in the same period (`baseline_n`, `baseline_avg`), from the rows `hands/stats board` reads. Recorded on the row. `due` once the planned posts are measured or the deadline has passed. |
+| `conclude` | A | `{id, verdict: works\|fails\|unclear, lesson}`, the lesson one line of at most 200 characters. Scores the experiment once more first. `works` or `fails` is refused (`too_few_posts`) until the planned posts are measured; `unclear` is always allowed. Refused: `concluded`, `unknown`. |
+| `list [--status open\|concluded\|all] [--limit N]` | R | The experiments, newest first, open ones by default, each open one with its numbers as of now (computed, not stored) and `due`. |
+| `lessons [--max N]` | R | The concluded experiments' lessons, newest first (10, at most 20), with verdict and numbers. |
+
+Who calls it: the mind's `propose_experiment` and `conclude_experiment`
+intents (`MIND_EXPERIMENTS_PER_DAY`, default 2, at most 5;
+`MIND_CONCLUSIONS_PER_DAY`, default 5, at most 10; 0 turns either off), the
+night dream's `experiment` and `conclude` operations (`--source dream`),
+and the `speculate` playbook's inputs (`list`, `lessons`). `self-improve`
+and the evolve loop's evidence read `lessons`.
 
 ## `goals`: the goal ledger
 

@@ -528,7 +528,30 @@ or so). It works from:
   `learning`: `remember`, the diary, and journal entries learned before
   2026-11-13; never a conversation),
   newest first, each with an alias such as `[c3]`;
-- the follow-ups still waiting, and the page as it stands.
+- the follow-ups still waiting, and the page as it stands;
+- the scoreboard and the lab (`bin/lib/scoreboard.py`): the three lines of
+  `hands/stats board` and the average result per format, the open
+  experiments scored in code just before the turn, the lab's lessons, and
+  "true right now" (the wallet's and the x402 rail's balances read at that
+  moment, and the follower numbers), so a dream does not write a stale
+  number into the page. Each is a list with a hard cap of 2,500 characters.
+
+**The scoreboard and the lab.** Teeny learns what gets attention by
+experiment. `hands/lab` keeps the experiments: a guess about one format on
+one surface, how many posts it needs, a deadline. Posts join one by their
+`format` tag or `experiment` id. The pinned `metrics` job measures every
+post hourly, `hands/lab score` compares an experiment's posts with the
+other posts of the same period in code, and a verdict other than `unclear`
+is refused until the planned posts are measured. Every beat carries a
+scoreboard block (at most 1,500 characters: the board's three lines, the
+open experiments, the latest three lessons); the mind may
+`propose_experiment` and `conclude_experiment` (2 and 5 a day by default).
+The night dream concludes what is due and proposes the next ones through
+two more operations, `experiment` and `conclude` (at most 2 and 5 a night),
+carried out through `hands/lab` after the page is written. The daily
+`speculate` playbook nudges the mind to search how small accounts grow on
+the surface that did worst and to propose an experiment. `self-improve` and
+the evolve loop's `evidence.json` read `hands/lab lessons`.
 
 The message is at most 60 KiB (`reflect.MAX_PROMPT_BYTES`): the core holds
 any prompt over 64 KiB for review and the turn fails, which on 2026-11-13
