@@ -29,8 +29,8 @@ name = "archive"
 run = "hands/build jobs --status shipped --limit 30"
 
 [[inputs]]
-name = "world-history"
-run = "hands/world history --days 30"
+name = "lessons"
+run = "hands/lab lessons --max 10"
 
 [[inputs]]
 name = "people"
@@ -49,7 +49,7 @@ Also look at what your lore asks of you that you can't do yet.
 Then look at how you are growing:
 - `world`: your world score W and its growth score J over the last 7 days, computed by frozen code. Read its `reading` lines first. The component with the smallest `contribution`, or one with a `note` saying it has no data, is usually where the most is left.
 - `archive`: your past self changes. They are the jobs of `kind` `self`; ignore the other kinds. Each has its `summary` and its `pr_url`. Don't propose again what is already there, merged or closed.
-- `world-history`: W day by day for 30 days, so you can see what moved in the days after each of those changes shipped (`shipped_at`).
+- `lessons`: what your lab's experiments found about what gets attention, newest first, each with its verdict. A change that follows a lesson (a playbook that writes more of what `works`, less of what `fails`) beats a guess.
 
 Pick the single change that fixes the most for the least. It must be one of:
 - an agent prompt (`brain/agents/*.md`) or a playbook (`brain/playbooks/*.md`) that answers better, skips the right things, or stops repeating itself;
