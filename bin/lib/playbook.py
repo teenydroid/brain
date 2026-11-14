@@ -102,6 +102,9 @@ MONEY_READS = {
 #: `web_search` and `read_page` intents (bin/lib/tick.py).
 NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due"),
                  "x402": ("search", "contents", "crawl", "fund")}
+#: Hands that hold secrets: an input runs only these verbs of theirs, so no
+#: playbook (which Teeny writes) can pull a password into a model's prompt.
+SECRET_READS = {"keychain": ("list",)}
 MAX_INPUTS = 8
 
 
@@ -144,7 +147,7 @@ def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
         raise PlaybookError(f"{where}: an input runs a hand (hands/<name> ...), got {run!r}")
     if hands_dir is not None and not (hands_dir / argv[0].split("/", 1)[1]).is_file():
         raise PlaybookError(f"{where}: no hand {argv[0]!r}")
-    reads = MONEY_READS.get(argv[0].split("/", 1)[1])
+    reads = MONEY_READS.get(argv[0].split("/", 1)[1]) or SECRET_READS.get(argv[0].split("/", 1)[1])
     if reads is not None and (len(argv) < 2 or argv[1] not in reads):
         raise PlaybookError(f"{where}: an input runs only a read verb of {argv[0]} ({', '.join(reads)})")
     return argv

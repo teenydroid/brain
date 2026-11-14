@@ -5,9 +5,10 @@
                                   Answers the site and the handle, never the password
   R  list                         sites and handles, never a password
   J  secret --host H [--handle H] the password for the site H is on, on stdout, for the
-                                  browser's fill only (bin/keychain-fill, which the core
-                                  runs after it checked the page's host). Refused on a
-                                  terminal: a person uses `reveal`
+                                  browser's fill only: bin/keychain-fill, which the core
+                                  runs after it checked the page's host, sets FILL_FLAG.
+                                  Refused without it and on a terminal (a person uses
+                                  `reveal`)
   O  reveal --site S [--handle H] the password, on a terminal only, so the operator can
                                   take an account over
 """
@@ -43,9 +44,16 @@ def _tty(stream: Any) -> bool:
         return False
 
 
+#: Set only by bin/keychain-fill, the command the core runs for the browser's
+#: fill. A playbook input runs `hands/<name> ...` with no environment of its
+#: own (and bin/lib/playbook.py lets it run only `list` here), so it cannot.
+FILL_FLAG = "TEENY_KEYCHAIN_FILL"
+
+
 def _secret(args: argparse.Namespace) -> int:
-    if _tty(sys.stdout):
-        print("keychain: `secret` is for the browser's fill; a person uses `reveal`", file=sys.stderr)
+    if os.environ.get(FILL_FLAG) != "1" or _tty(sys.stdout):
+        print("keychain: `secret` is for the browser's fill (bin/keychain-fill); a person uses `reveal`",
+              file=sys.stderr)
         return 2
     try:
         word = store.secret_for(args.host, args.handle)
