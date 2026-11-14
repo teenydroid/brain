@@ -198,8 +198,8 @@ rm -f "$FAKE_TURN_COUNT"
 EVAL_TURN_TRIES=1 FAKE_TURN_FAILS=1 "$eval_bin" run --samples 1 --only morning-post "$runs/once" >/dev/null 2>&1
 check "EVAL_TURN_TRIES sets how often a turn is tried" test "$(jq -r '[.no_sample, .attempts] | map(tostring) | join(" ")' "$runs/once/drafts.jsonl")" = "true 1"
 rm -f "$FAKE_TURN_COUNT"
-EVAL_RETRY_BUDGET=0 FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
-check "a run whose retry budget is spent tries each turn once" test "$(jq -r .attempts "$runs/broke/drafts.jsonl")" = 1
+EVAL_RETRY_WAIT=5 EVAL_RETRY_BUDGET=4 FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
+check "a run whose retry budget would be overspent tries each turn once" test "$(jq -r .attempts "$runs/broke/drafts.jsonl")" = 1
 rm -f "$FAKE_TURN_COUNT"
 
 # --- numbers at the end of a sentence --------------------------------------------------------------
