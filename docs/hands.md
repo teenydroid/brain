@@ -1125,7 +1125,7 @@ outcome (`operator · report`), except for the findings kinds (`news`,
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -1142,6 +1142,21 @@ paths in its payload.
 The stimulus text says how many screenshots the task saved, and a
 `post_x` or `reply_x` with `shots: <task id>` posts them (uploaded from
 `state/media/tasks/<id>/`, screenshots first, four in all).
+
+**Screenshots are the browser's, not the operator's.** The operator's
+browser tool has no screenshot action, so the core takes them itself
+(`[browser] screenshot_dir`, `bin/lib/core_sections/automation.py`): a
+picture of the page after each `open`, click, key press, select or check,
+and before `close`, into `state/browser/screenshots/`. It skips a page
+that shows a password the keychain typed (a revealed password field, an
+echo of it), never pictures a `fill` or `type`, takes a PNG over 5 MB
+again as a JPEG, and keeps at most 24. When the desk settles a report,
+`done` takes the pictures taken since the claim: the first page and the
+last ones, four in all with any the operator named, each a PNG, JPEG,
+WebP or GIF of at most 5 MB (what X takes for a still image), copied to
+`state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder is
+emptied. A `browser` `task` action runs in TinyComputer's own session and
+is not pictured.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
