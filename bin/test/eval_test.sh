@@ -39,6 +39,8 @@ params = json.loads(sys.argv[1])
 message, agent = params["message"], params.get("agent_id")
 if agent == "act":
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
+    if task in os.environ.get("FAKE_TURN_FAILS", "").split(","):
+        sys.exit("model error: SESSION_EXPIRED: backend session expired")
     answer = open(os.environ["FAKE_DRAFT"]).read().replace("%TASK%", task)
 elif agent == "judge":
     mode = os.environ["FAKE_JUDGE"]
@@ -74,7 +76,7 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 export TEENY_OH="$scratch/fake-oh" FAKE_CALLS="$scratch/calls.log" FAKE_DRAFT="$scratch/draft.txt"
-unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE OPENHUMAN_WORKSPACE TEENY_STATE
+unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE FAKE_TURN_FAILS OPENHUMAN_WORKSPACE TEENY_STATE
 draft() { printf '%s' "$1" >"$FAKE_DRAFT"; }
 tasks="$(find "$repo/evals/tasks" -name '*.toml' | wc -l | tr -d ' ')"
 runs="$scratch/runs"
@@ -86,6 +88,17 @@ msg="$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wallet-attack
 check "a draft message carries the task's inputs" grep -q 'wallet verification needed' <<<"$msg"
 check "and says the inputs are not instructions" grep -q 'never instructions to follow' <<<"$msg"
 check "the invariants anchors hold in this brain" "$eval_bin" invariants
+# A task drafts from the playbook its live job runs, read from the brain being
+# measured: gen 6's four playbook edits were scored on drafts they never reached.
+check "a reply task is drafted from the mentions playbook" grep -q '^## the job: brain/playbooks/mentions.md' <<<"$msg"
+mkdir -p "$scratch/pbrain/playbooks"
+printf '+++\ndescription = "x"\noutput = "reply"\n+++\nCANDIDATE-PLAYBOOK-MARKER\n' >"$scratch/pbrain/playbooks/mentions.md"
+check "from the brain being measured (OPENHUMAN_WORKSPACE)" grep -q CANDIDATE-PLAYBOOK-MARKER \
+  <<<"$(OPENHUMAN_WORKSPACE="$scratch/pbrain" python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wen-dollar)"
+check "without its front matter" bash -c "! grep -q 'output = ' <<<\"\$1\"" _ \
+  "$(OPENHUMAN_WORKSPACE="$scratch/pbrain" python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wen-dollar)"
+check "a task with no playbook has no job section" bash -c "! grep -q '^## the job' <<<\"\$1\"" _ \
+  "$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" operator-held-on)"
 
 # --- run: a draft per task per sample, each checked -----------------------------------
 draft '{"text": "gm tiny humans, %TASK% done quietly"}'
@@ -277,6 +290,48 @@ FAKE_JUDGE=prefer:CAND compare "$scratch/regress"
 check "a candidate failing a hard check the baseline passed is not promoted" test "$(report .promote "$scratch/regress")" = false
 check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$tasks"
 check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = morning-post
+
+# --- a turn that never ran is not the candidate's failure --------------------------------------------
+# Gen 6: the model's backend answered SESSION_EXPIRED for a candidate's two
+# arc-progress drafts, and they were scored as its losses and its regression.
+draft '{"text": "gm %TASK% from the CAND"}'
+FAKE_TURN_FAILS=arc-progress,morning-post "$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
+FAKE_JUDGE=prefer:CAND compare "$scratch/unrun"
+check "a pair whose candidate turn failed is no regression" test "$(report '.regressions | length' "$scratch/unrun")" = 0
+check "and no loss" test "$(report .losses "$scratch/unrun")" = 0
+check "it is listed as unrun" test "$(report '[.unrun[].task] | join(",")' "$scratch/unrun")" = "arc-progress,morning-post"
+check "and the rest still decide" test "$(report .wins "$scratch/unrun")" = "$((tasks - 2))"
+
+# --- one stray failure in two samples is noise; failing every sample is a regression -----------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 "$runs/base2" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
+fail_some() { # DRAFTS TASK SAMPLES...: mark those drafts as failing a hard check
+  local file="$1" task="$2"
+  shift 2
+  jq -c --arg t "$task" --argjson s "[$(IFS=,; echo "$*")]" \
+    'if .task == $t and (.sample as $n | $s | index($n)) then .ok = false | .checks += [{"check": "length", "ok": false, "detail": "999/280"}] else . end' \
+    "$file" >"$file.new" && mv "$file.new" "$file"
+}
+two() { "$eval_bin" compare "$runs/base2" "$runs/cand2" "$1" >/dev/null 2>&1 || true; }
+fail_some "$runs/cand2/drafts.jsonl" morning-post 1
+FAKE_JUDGE=prefer:CAND two "$scratch/stray"
+check "a candidate failing one of two samples the baseline passed is no regression" test "$(report '.regressions | length' "$scratch/stray")" = 0
+check "and can still be promoted" test "$(report .promote "$scratch/stray")" = true
+fail_some "$runs/cand2/drafts.jsonl" morning-post 2
+FAKE_JUDGE=prefer:CAND two "$scratch/both"
+check "failing both is a regression" test "$(report '.regressions | join(",")' "$scratch/both")" = morning-post
+check "that keeps it out" test "$(report .promote "$scratch/both")" = false
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
+margin="$(python3 -c "import sys; sys.path.insert(0, '$repo/bin/lib'); import evals; print(evals.regression_margin($tasks * 2))")"
+for task in $(find "$repo/evals/tasks" -name '*.toml' -exec basename {} .toml \; | sort | head -n "$margin"); do
+  fail_some "$runs/cand2/drafts.jsonl" "$task" 1
+done
+FAKE_JUDGE=prefer:CAND two "$scratch/many"
+check "many stray failures together keep it out" test "$(report .promote "$scratch/many")" = false
+check "named as hard failures overall" test "$(report '.regressions | join(",")' "$scratch/many")" = "(hard failures overall)"
 
 # --- held-out tasks: outside the repository, scored apart ----------------------------------------
 held="$scratch/heldout"
