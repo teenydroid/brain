@@ -22,6 +22,9 @@ bin/**
 spine/**
 vendor/**
 deploy/**
+# The browser's deny list, named although deploy/** covers it: the one fence
+# on the open web, never Teeny's to edit.
+deploy/browser-deny.txt
 Cargo.*
 .github/
 secrets/

@@ -48,8 +48,9 @@ this file loosens them.
 - `evals/**`, `bin/**`, `spine/**`, `deploy/**` and `hands/guard`/`hands/x`
   stay frozen to Teeny. The judge, the invariants and the pinned cron jobs
   watch it, and it can't switch off its watchers.
-- The browser stays on `deploy/browser-allow.txt`, and stops at any payment
-  page.
+- The browser opens public https pages only, never a host on
+  `deploy/browser-deny.txt`; the mind starts it only on a link a reputed
+  source showed. It stops at any payment page.
 - An `in_doubt` payment is never retried. A person reads it.
 - Every turn that reads strangers' text stays tool-less. Models draft; hands
   act.
@@ -151,8 +152,8 @@ It talks to people and keeps talking to them.
 
 ### Browser
 
-- [x] The browser operator: headless Chromium, one task at a time, allowed
-  websites only, payment pages end the task (`hands/tasks`).
+- [x] The browser operator: headless Chromium, one task at a time, the
+  public web minus a deny list, payment pages end the task (`hands/tasks`).
 - [ ] Headless browsing proven on the box (gap G7, openhuman#7000). *Proof:*
   a week of `ok` tasks in `hands/tasks list`.
 - [ ] Teeny writes its own browser tasks from what it wants to know, not only
