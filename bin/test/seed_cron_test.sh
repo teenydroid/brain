@@ -433,6 +433,10 @@ check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
       \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
+check "and no job that must follow another, or be followed, catches up out of order" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
+      \"teeny.dream-midday\", \"teeny.receipts\")) | .catch_up_secs] | length == 5 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "
