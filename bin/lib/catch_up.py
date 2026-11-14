@@ -2,7 +2,8 @@
 
     python3 bin/lib/catch_up.py [--dry-run] [--via-oh] [--state DIR]
                                 [--fresh NAME,...] [--rearmed NAME,...] < DESIRED_JSON
-    python3 bin/lib/catch_up.py live      ids of jobs a live run holds (JSON)
+    python3 bin/lib/catch_up.py live      ids of jobs a recent claim holds (JSON)
+    python3 bin/lib/catch_up.py rearm [--dry-run] [--via-oh] [--state DIR] < STUCK_JSON
 
 DESIRED_JSON is bin/lib/cron_policy.py's output. bin/seed-cron runs this at
 every boot (`--via-oh`: through bin/oh, like the rest of seeding), and
@@ -48,11 +49,23 @@ catch-up is the same command the slot would have run.
 A job whose next run still sits on the slot is re-armed first
 (`cron_update` with its own schedule: the claim the dead run holds would
 refuse a run for two hours), unless the caller just did that (`--rearmed`).
-A job whose slot a live run holds is never re-armed or caught up: the core
-serves before bin/seed-cron runs and may claim a slot that passed while the
-box was down on its first poll; an edit would fence that claim (the run goes
-on, unrecorded) and a catch-up would start a second copy beside it.
-`catch_up.py live` prints the ids of such jobs, for bin/seed-cron's re-arm.
+A job a recent claim holds is never re-armed or caught up: the core serves
+before bin/seed-cron runs and may claim, on its first poll, a slot that
+passed while the box was down; an edit would fence that claim (the run goes
+on, unrecorded, its queued record deleted) and a catch-up would start a
+second copy beside it. "Recent" means renewed in the last LEASE_FRESH_SECS,
+so a claim of a process killed seconds before this boot also counts, and
+that job waits for bin/health's next check. The core's scheduler owner id
+would tell the two apart, but it is a random id the core keeps in memory and
+writes nowhere we can read at boot.
+
+The re-arm itself (rearm(): bin/seed-cron's `catch_up.py rearm`, and
+bin/health) reads the slot's claim right before each `cron_update` and again
+right after. The core can still claim the slot in between (a window of one
+RPC); then the claim's holder and epoch have changed, the slot goes in the
+ledger as done ("raced") and is never caught up: the core's run carries on
+unrecorded rather than run twice. What is left is a run that is not
+recorded, never a run that happens twice.
 
 What it does not cover: a catch-up is a manual run, and the core keys a
 manual run's claim on the job's *next* occurrence (`claim_job_now`) and holds
@@ -210,6 +223,20 @@ def _lease_live(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_m
     return expires_ms > now_ms and renewed_ms >= now_ms - LEASE_FRESH_SECS * 1000
 
 
+def _lease_identity(conn: sqlite3.Connection, job_id: str, occurrence_ms: int) -> tuple[Any, Any] | None:
+    """Who holds the claim on one occurrence (holder, epoch): a fence keeps
+    both, a new acquisition changes both."""
+    row = conn.execute("select body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
+                       (_lease_id(job_id, occurrence_ms),)).fetchone()
+    if row is None:
+        return None
+    try:
+        lease = json.loads(row[0])
+    except ValueError:
+        return None
+    return (lease.get("holder"), lease.get("epoch")) if isinstance(lease, dict) else None
+
+
 def live_job_ids() -> list[str]:
     """The jobs whose next run a live run holds right now (read-only)."""
     path = storage()
@@ -293,12 +320,15 @@ class Ledger:
                         self._lock = None
                         raise Busy("the catch-up ledger is busy (another boot or check holds it)") from None
                     time.sleep(0.1)
+        self.note = ""
         try:
             data = json.loads(self.path.read_text())
+        except FileNotFoundError:
+            data = {}
         except (OSError, ValueError):
-            data = {}
+            data, self.note = {}, "unreadable"
         if not isinstance(data, dict):
-            data = {}
+            data, self.note = {}, "not an object"
 
         def stamps(value: Any) -> dict[str, int]:
             if not isinstance(value, dict):
@@ -309,6 +339,11 @@ class Ledger:
         log = data.get("log")
         self.data = {"done": stamps(data.get("done")), "since": stamps(data.get("since")),
                      "log": [e for e in log if isinstance(e, dict)] if isinstance(log, list) else []}
+        kept = sum(len(self.data[k]) for k in ("done", "since", "log"))
+        given = sum(len(v) for k in ("done", "since", "log") if isinstance(v := data.get(k), (dict, list)))
+        if not self.note and (kept != given or any(k in data and not isinstance(data[k], (dict, list))
+                                                   for k in ("done", "since", "log"))):
+            self.note = "had entries of the wrong type"
         return self
 
     def save(self) -> None:
@@ -383,9 +418,11 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
     """Catches up at most MAX_PER_RUN missed slot (see the module docs)."""
     now = hand.now()
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
-    state = state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
+    state = _state_dir(state)
     try:
         with Ledger(state, readonly=dry_run, wait=lock_wait) as ledger:
+            if ledger.note:
+                out["errors"]["ledger"] = f"state/catch-up.json {ledger.note}; started afresh without the bad part"
             return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by)
     except Busy as busy:  # raised only while taking the lock
         out["errors"]["ledger"] = str(busy)
@@ -439,6 +476,78 @@ def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: 
     return out
 
 
+# --- the guarded re-arm (bin/seed-cron at boot, bin/health) -----------------------------------
+
+
+def _state_dir(state: Path | None) -> Path:
+    return state or (Path(os.environ["TEENY_STATE"]) if os.environ.get("TEENY_STATE") else hand.root() / "state")
+
+
+def _epoch_ms(iso: str) -> int:
+    return int(dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() * 1000)
+
+
+def rearm(jobs: Iterable[Mapping[str, Any]], call: Call, dry_run: bool = False, state: Path | None = None) -> Json:
+    """Patches each stuck job's own schedule back (`cron_update`), which moves
+    its next run to the next slot, unless a recent claim holds its slot.
+    `jobs`: [{id, name, next_run (ISO), schedule}]. Returns {rearmed, running,
+    raced, errors}; a job the core claimed during its update is `raced`,
+    and its slot is put in the ledger so no catch-up runs it again."""
+    out: Json = {"rearmed": [], "running": [], "raced": [], "errors": {}}
+    path = storage()
+
+    def claim(job_id: str, occurrence_ms: int) -> tuple[tuple[Any, Any] | None, bool]:
+        if not path.is_file():
+            return None, False
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            return (_lease_identity(conn, job_id, occurrence_ms),
+                    _lease_live(conn, job_id, occurrence_ms, int(hand.now() * 1000)))
+        finally:
+            conn.close()
+
+    for job in jobs:
+        name, job_id = str(job["name"]), str(job["id"])
+        try:
+            occurrence_ms = _epoch_ms(str(job["next_run"]))
+        except (KeyError, ValueError):
+            out["errors"][name] = "no next run to read"
+            continue
+        try:
+            before, live = claim(job_id, occurrence_ms)
+        except sqlite3.Error as error:
+            before, live = None, False
+            out["errors"]["claims"] = scrub(f"could not read the claims, re-armed without checking: {error}")
+        if live:
+            out["running"].append(name)
+            continue
+        if dry_run:
+            out["rearmed"].append(name)
+            continue
+        try:
+            call("cron_update", {"job_id": job_id, "patch": {"schedule": job["schedule"]}})
+        except Exception as error:  # noqa: BLE001 - one job the core refused does not stop the rest
+            out["errors"][name] = scrub(str(error) or type(error).__name__)
+            continue
+        try:
+            after, _ = claim(job_id, occurrence_ms)
+        except sqlite3.Error:
+            after = before
+        if after != before:
+            out["raced"].append(name)
+            try:
+                with Ledger(_state_dir(state)) as ledger:
+                    ledger.data["done"][name] = max(occurrence_ms, int(ledger.data["done"].get(name) or 0))
+                    ledger.data["log"].append({"at": _iso(hand.now()), "by": "raced", "name": name,
+                                               "slot": _iso(occurrence_ms / 1000)})
+                    ledger.save()
+            except Busy as busy:
+                out["errors"][name] = f"claimed while re-armed, and not recorded: {busy}"
+            continue
+        out["rearmed"].append(name)
+    return out
+
+
 # --- the command (bin/seed-cron) ------------------------------------------------------------------
 
 
@@ -459,6 +568,16 @@ def _names(text: str) -> list[str]:
 def main(argv: list[str]) -> int:
     if argv == ["live"]:
         print(json.dumps(live_job_ids()))
+        return 0
+    if argv[:1] == ["rearm"]:
+        sub = argparse.ArgumentParser(prog="catch_up.py rearm")
+        sub.add_argument("--dry-run", action="store_true")
+        sub.add_argument("--via-oh", action="store_true")
+        sub.add_argument("--state")
+        args = sub.parse_args(argv[1:])
+        out = rearm(json.load(sys.stdin), via_oh if args.via_oh else hand.core, dry_run=args.dry_run,
+                    state=Path(args.state) if args.state else None)
+        print(json.dumps(out))
         return 0
     parser = argparse.ArgumentParser(prog="catch_up.py")
     parser.add_argument("--dry-run", action="store_true")
