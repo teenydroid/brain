@@ -7,7 +7,7 @@
 #
 # Reviewed by the operator, never by Teeny: it lives in deploy/, outside the
 # brain Teeny edits. A host matches itself and its subdomains. No wildcards
-# ("*" would let the browser go anywhere; OpenHuman strips it anyway).
+# ("*" would let http_request go anywhere; OpenHuman strips it anyway).
 
 # Teeny's own accounts and the work it does there
 github.com
