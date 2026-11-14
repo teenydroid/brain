@@ -326,7 +326,29 @@ position decides nothing, and an answer it can't read is a tie.
 B wins when it fails no task's hard checks more often than A, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
-for the verdict.
+for the verdict, which is `won`, `lost` or `inconclusive` (below).
+
+**A sample with no draft.** A turn that comes back with no answer (the
+provider dropped the stream, the core refused the session) says nothing
+about the brain. `bin/eval` tries it again, up to `EVAL_TURN_TRIES` (3)
+times in all, `EVAL_RETRY_WAIT` (30) seconds after the first failure and
+three times longer after each next one, out of `EVAL_RETRY_BUDGET` (900)
+seconds of waiting per run, so an outage costs a run at most a quarter of an
+hour. A judge turn is retried the same way. A draft turn that never answers
+is written with `no_sample: true` (and `attempts`). Compare leaves that task
+and sample out on both sides: it is no win, no loss and no hard failure for
+either brain. An answer that does come back but doesn't parse is the brain's,
+and still loses its pair.
+
+**Inconclusive.** When more than a tenth of either side's visible samples
+have no draft, or a task has no sample drafted on both sides (so its checks
+never ran), the comparison measured too little to decide. The verdict is
+`inconclusive`, with the counts in the reason, and it is never a promotion. A
+hard-check regression seen in what was drafted still rejects (`lost`). In
+`bin/evolve` an inconclusive candidate is archived with its reason and listed
+with it in the generation's `result.json`. It counts as unmeasured for
+parent sampling, and its change isn't a near-duplicate of anything, so it
+can be proposed again once the cause is gone.
 
 The judge inherits the core's model. Two ways give it another:
 
@@ -685,8 +707,14 @@ and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
 `SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
 left out, so a lab never writes Teeny's long-term memory. None of the live
 box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
-`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`,
-sends TERM to the lab's process group when it is done, and KILL 30 s later.
+`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`
+and for `bin/spine` to log `[spine] ready` in this boot, sends TERM to the
+lab's process group when it is done, and KILL 30 s later. The core answers
+`/health` before `bin/spine` has given it its model over RPC, and a turn in
+that gap is refused with `SESSION_EXPIRED: backend session not active`. In
+generation 6 the first three draft turns of candidates 2 to 4 hit it, the
+fourth went out before the context window was set (`HTTP 400`), and all of
+those counted against the candidates.
 A core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree; what git ignores (the core's config, its
 prompts) is never committed.
@@ -756,8 +784,8 @@ Each candidate records:
   removed); `patch` (against main), `mutation_patch` (against its parent) and
   `hypothesis`, all beside it in `state/evolve/<gen>/`
 - `gate` (every check), `scores` (the compare report's numbers) and `verdict`:
-  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost` or
-  `flagged`
+  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost`,
+  `inconclusive` (with `eval_reason`) or `flagged`
 - `selected`, `branch`, `pr_url` and `pr_number`
 - later: `merged_at`, `delta_j` and `credit`
 
