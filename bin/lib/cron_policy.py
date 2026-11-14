@@ -29,9 +29,16 @@ written here, in code it cannot edit:
 - `catch_up = true` (optionally `catch_up_hours = N`, default
   CATCH_UP_DEFAULT_HOURS, at most CATCH_UP_MAX_HOURS) lets bin/lib/catch_up.py
   run a slot that passed without a run once, late, within that window. The
-  window must be shorter than the job's shortest gap between slots, so a
-  catch-up can never stand in for more than one slot or crowd the next one;
-  in practice only jobs that fire a few times a day can have one.
+  window plus CATCH_UP_CLAIM_HOURS (how long the core's claim of a cut-off
+  catch-up run, keyed on the next slot, can outlive it) must be shorter
+  than the job's shortest gap between slots, so a catch-up never stands in
+  for two slots or blocks the next one; in practice only jobs that fire a
+  few times a day can have one. Its day fields must be numbers, and not
+  both set (cron implementations read that differently). Never on a
+  playbook that speaks in public (posts, replies, comments, announces:
+  POSTING_OUTPUTS, POSTING_VERBS), however the job is named, nor on the
+  pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
+  hours late is a different act, not a late one.
 """
 
 from __future__ import annotations
@@ -53,6 +60,13 @@ MAX_AGENT_RUNS_PER_DAY = 96
 MAX_PROMPT_CHARS = 4000
 CATCH_UP_DEFAULT_HOURS = 6
 CATCH_UP_MAX_HOURS = 12
+CATCH_UP_CLAIM_HOURS = 2
+#: Playbook outputs that put words in public, which never catch up.
+POSTING_OUTPUTS = ("post", "reply", "like")
+POSTING_VERBS = ("post", "reply", "comment", "announce", "quote")
+#: Scripts that move money, which never catch up.
+NO_CATCH_UP_COMMANDS = ("bin/pay-bills", "bin/bounty-pay", "bin/tiny-buy", "bin/x402-fund", "bin/surplus-sweep",
+                        "bin/paid-requests")
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -151,7 +165,26 @@ def _agent_job(job: dict, brain: Path, where: str) -> tuple[str, str]:
     return agent, prompt
 
 
-def _catch_up(job: dict, minutes: list[int], where: str) -> int:
+def _playbook_output(brain: Path, playbook: str) -> str:
+    """A playbook's `output`, from its +++ front matter ("" when unreadable)."""
+    try:
+        text = (brain / "playbooks" / f"{playbook}.md").read_text()
+        _, front, _ = text.split("+++", 2)
+        return str(tomllib.loads(front).get("output", "post"))
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return ""
+
+
+def _speaks(output: str) -> bool:
+    if output in POSTING_OUTPUTS or not output:
+        return True
+    if output.startswith("hand:"):
+        words = output.split()
+        return len(words) > 1 and words[1].split("-")[0] in POSTING_VERBS
+    return False
+
+
+def _catch_up(job: dict, minutes: list[int], where: str, brain: Path) -> int:
     """The job's catch-up window in seconds, 0 without `catch_up = true`."""
     catch_up = job.get("catch_up", False)
     if not isinstance(catch_up, bool):
@@ -161,12 +194,24 @@ def _catch_up(job: dict, minutes: list[int], where: str) -> int:
         raise PolicyError(f"{where}: catch_up_hours needs catch_up = true")
     if not catch_up:
         return 0
+    expr = str(job.get("schedule", "")).split()
+    for spec, low, high, field in ((expr[2], 1, 31, "day of month"), (expr[3], 1, 12, "month"),
+                                   (expr[4], 0, 7, "day of week")):
+        _field(spec, low, high, f"{where}: catch-up needs a numeric {field}")
+    if expr[2] != "*" and expr[4] != "*":
+        raise PolicyError(f"{where}: catch-up on a schedule that sets both day of month and day of week")
+    argv = str(job.get("command", "")).split()
+    if argv and argv[0] in NO_CATCH_UP_COMMANDS:
+        raise PolicyError(f"{where}: {argv[0]} moves money and never catches up a missed slot")
+    if argv[:1] == ["bin/act"] and len(argv) == 2 and _speaks(_playbook_output(brain, argv[1])):
+        raise PolicyError(f"{where}: playbook {argv[1]} speaks in public and never catches up a missed slot")
     hours = CATCH_UP_DEFAULT_HOURS if hours is None else hours
     if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= CATCH_UP_MAX_HOURS:
         raise PolicyError(f"{where}: catch_up_hours is a whole number from 1 to {CATCH_UP_MAX_HOURS}")
-    if hours * 60 >= min_gap(minutes):
-        raise PolicyError(f"{where}: a {hours}-hour catch-up window is not shorter than the"
-                          f" {min_gap(minutes)} minutes between its slots")
+    if (hours + CATCH_UP_CLAIM_HOURS) * 60 >= min_gap(minutes):
+        raise PolicyError(f"{where}: a {hours}-hour catch-up window, plus the {CATCH_UP_CLAIM_HOURS} hours a cut-off"
+                          f" catch-up's claim can last, is not shorter than the {min_gap(minutes)} minutes"
+                          " between its slots")
     return hours * 3600
 
 
@@ -203,7 +248,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None) 
         enabled = job.get("enabled", True)
         if not isinstance(enabled, bool):
             raise PolicyError(f"{where}: enabled must be true or false")
-        catch_up_secs = _catch_up(job, minutes, where)
+        catch_up_secs = _catch_up(job, minutes, where, brain)
         out.append({
             "name": f"teeny.{name}",
             "kind": "shell" if command is not None else "agent",
