@@ -435,6 +435,26 @@ class TickTest(unittest.TestCase):
         message = self.chats()[0]["message"]
         self.assertIn("You have worn these out in your replies: desk. Say the next thing without any of them.", message)
 
+    def test_someone_answered_three_times_today_gets_a_fourth_only_for_a_real_question(self):
+        # 2026-11-13: ~20 replies in a day, nearly all to the same few $TINY
+        # holders tagging Teeny over and over, each one the same bit again.
+        conn = self.x_ledgers()
+        for n in range(3):
+            self.x_said(conn, f"4{n}", "ana", f"tag {n}", T0 - (n + 1) * 3600, reply=f"bit {n}")
+        self.x_said(conn, "30", "bo", "old", T0 - 2 * 86400, reply="once")
+        self.x_said(conn, "31", "bo", "older", T0 - 3 * 86400, reply="twice")
+        self.x_said(conn, "32", "bo", "oldest", T0 - 4 * 86400, reply="thrice")
+        conn.close()
+        stimuli.add("x", "mention", "51", "gm teeny!!", who="ana", at=T0 - 60)
+        stimuli.add("x", "mention", "52", "gm", who="bo", at=T0 - 50)
+        self.answer({"thought": "", "intents": [{"do": "feel", "mood": "ok"}]})
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("You have answered @ana 3 times in the last 24 h. Another reply only for a real question "
+                      "you have not answered yet; a tag, a gm or a cheer from them can go unanswered now.", message)
+        self.assertLess(message.index("You have answered @ana 3 times"), message.index('Now @ana says: "gm teeny!!"'))
+        self.assertNotIn("You have answered @bo", message)  # three replies, but not today
+
     def test_a_mood_is_told_to_show_and_tired_means_fewer_answers_not_flatter_ones(self):
         likes = [{"do": "like_x", "id": str(n)} for n in range(8)]
         self.answer({"thought": "", "intents": [{"do": "feel", "mood": "smug about the build"}, *likes]},

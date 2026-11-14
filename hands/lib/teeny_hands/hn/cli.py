@@ -9,8 +9,9 @@ Teeny follows in state/hands.db: `bin/tick` adds one for the mind's
   R  thread ID [--depth D] [--max N]          the comments under an item, in page order,
                                               at most N read
   R  user NAME                                a user: karma, about, what they submitted
-  R  search QUERY [--tags story|comment] [--max N]
-                                              Algolia's search over HN
+  R  search QUERY [--tags story|comment] [--max N] [--days D]
+                                              Algolia's search over HN, by relevance;
+                                              with --days, over the last D days only
   R  inbox [--days N] [--max N]               comments said to Teeny (direct replies to its
                                               own items) and new ones on watched threads,
                                               screened, into its mind's inbox
@@ -66,10 +67,11 @@ def parser() -> argparse.ArgumentParser:
     thread.add_argument("--depth", type=_bounded(1, 10, "--depth"), default=3)
     thread.add_argument("--max", type=_bounded(1, 100, "--max"), default=30)
     verb("user", lambda a, _: reads.user(a.name), "a user").add_argument("name", metavar="NAME")
-    search = verb("search", lambda a, _: reads.search(a.query, a.tags, a.max), "search through Algolia")
+    search = verb("search", lambda a, _: reads.search(a.query, a.tags, a.max, days=a.days), "search through Algolia")
     search.add_argument("query", metavar="QUERY")
     search.add_argument("--tags", default=None, choices=reads.SEARCH_TAGS)
     search.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
+    search.add_argument("--days", type=_bounded(1, reads.SEARCH_MAX_DAYS, "--days"), default=None)
     scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)

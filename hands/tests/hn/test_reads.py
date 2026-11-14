@@ -157,3 +157,21 @@ class UserAndSearchTest(Scratch):
             reads.search(" ", None, 5)
         with self.assertRaises(hand.HandError):
             reads.search("x", "poll", 5)
+
+    def test_a_search_over_the_last_days_reads_nothing_older(self):
+        # Relevance alone ranks a five-year-old thread first; listening wants
+        # what people said this week, the loudest of it first.
+        self.hn.route("GET", "/api/v1/search", {"hits": [
+            {"objectID": "21", "_tags": ["story"], "title": "agents again", "author": "cy", "points": 40,
+             "num_comments": 12, "created_at_i": int(T0 - HOUR)},
+        ]})
+        got = reads.search("ai agents", "story", 5, days=2)
+        query = self.hn.requests("GET", "/api/v1/search")[0].query
+        self.assertEqual(query, {"query": "ai agents", "hitsPerPage": "5", "tags": "story",
+                                 "numericFilters": f"created_at_i>{int(T0 - 2 * 86400)}"})
+        self.assertEqual([r["id"] for r in got["results"]], [21])
+        self.assertEqual(got["days"], 2)
+        with self.assertRaises(hand.HandError):
+            reads.search("x", None, 5, days=0)
+        with self.assertRaises(hand.HandError):
+            reads.search("x", None, 5, days=31)

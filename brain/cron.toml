@@ -33,7 +33,7 @@ command = "bin/heartbeat"
 # story or a quote of a builder's post (`take`), and 23:00 what it built or did
 # today, with pictures (`show`). The team's `brief` takes the next free slot
 # instead of a fourth: it runs five minutes after `take` and `show`, which skip
-# when a brief is queued.
+# when a brief is queued. Every other X post job is
 # kept here but off (`enabled = false`); turn one back on to bring it back.
 # Replies to mentions are not posts and keep running. Moltbook is its own
 # audience and is where Teeny grows: a noon post and an evening post, a post
@@ -89,21 +89,26 @@ command = "bin/act take"
 
 # Choose what the builder makes next when nobody has a request waiting
 # (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
-# the need shows, kept with hands/build idea. The daily job is made at the
-# first desk run after UTC midnight (05:30 here), so the idea is drafted the
-# evening before, when Hacker News is busiest. It took the slot of the roast
-# job, which was off; brain/playbooks/roast.md is still in the tree.
+# the need shows (people's asks, and what the ears heard: hands/listen
+# digest), kept with hands/build idea. The daily job is made at the first desk
+# run after UTC midnight (05:30 here), so the idea is drafted the evening
+# before, when Hacker News is busiest. It took the slot of the roast job, which
+# was off; brain/playbooks/roast.md is still in the tree. 22:50, not 23:00:
+# `show` owns that minute, and two jobs on one schedule have lost one
+# (`shipped` beside `moltbook-evening` at 19:30 never ran on the box,
+# 11-11 to 11-13, while moltbook-evening ran every day).
 [jobs.build-idea]
-schedule = "0 23 * * *"
+schedule = "50 22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act build-idea"
 
 # Propose one change to myself (a prompt, a playbook, a skill or a new hand),
 # once a day. It goes in as a build request from myself; pick-request picks it
 # like any other, the builder makes it in my own clone, and it ships as a pull
-# request the operator merges or closes (docs/evolve.md).
+# request the operator merges or closes (docs/evolve.md). Ten past, off the
+# 15:00 `take`'s minute (see build-idea), and still before pick-request's 15:20.
 [jobs.self-improve]
-schedule = "0 15 * * *"
+schedule = "10 15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act self-improve"
 
@@ -116,13 +121,18 @@ schedule = "0 11 * * 1"
 tz = "Asia/Kolkata"
 command = "bin/act goals"
 
-# The world sense: once a day my hands read Hacker News (top, show, ask) and
-# Moltbook's hot page, and I get them as a nudge (brain/playbooks/world-scan.md):
-# up to three things I have a take on, and what I do with each. It took the
-# place of news-scan, which queued a browser task to read the same front page;
-# that playbook is still in the tree, unscheduled.
+# The world sense: twice a day my ears listen (hands/listen scan: who is
+# talking about me, Hacker News on my topics, Lobsters, the agent repositories
+# people star on GitHub, the newest agent papers on arXiv; only what is new),
+# with the HN front page and Moltbook's hot page, and I get it as a nudge
+# (brain/playbooks/world-scan.md). It feeds the posts, never takes an X slot:
+# 13:05 lands before the 15:00 `take`, 22:05 (the US working day, when Hacker
+# News is busiest) before `build-idea` and the 23:00 `show`, which read what
+# was heard (hands/listen digest), as do the gm and the Moltbook posts. It
+# took the place of news-scan, which queued a browser task to read the HN
+# front page; that playbook is still in the tree, unscheduled.
 [jobs.world-scan]
-schedule = "5 8 * * *"
+schedule = "5 13,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act world-scan"
 
