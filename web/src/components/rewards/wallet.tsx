@@ -12,9 +12,10 @@ import { rpcFor } from "@/lib/solana-rpc"
  * adapter list of our own, no server: the key never leaves the wallet.
  */
 export function WalletShell({ children }: { children: ReactNode }) {
+  const wallets = useMemo(() => [], [])
   return (
     <ConnectionProvider endpoint={rpcFor("mainnet")}>
-      <WalletProvider wallets={useMemo(() => [], [])} autoConnect={false}>
+      <WalletProvider wallets={wallets} autoConnect={false}>
         {children}
       </WalletProvider>
     </ConnectionProvider>
