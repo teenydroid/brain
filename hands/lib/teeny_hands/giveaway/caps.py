@@ -174,6 +174,24 @@ def mint(cluster: str, env: Mapping[str, str]) -> str:
     return value
 
 
+def round_mint(cluster: str) -> str:
+    """The mint a round file names: `mint` from secrets/teeny.env, or, on a
+    devnet whose GIVEAWAY_DEVNET_MINT is not set (nothing can be settled
+    there then), $TINY's."""
+    try:
+        return mint(cluster, hand.secrets())
+    except CapsError:
+        return TINY_MINT
+
+
+def current_mint(cluster: str) -> str:
+    """`mint`, refused (rule `caps`) when it cannot be named."""
+    try:
+        return mint(cluster, hand.secrets())
+    except CapsError as exc:
+        raise hand.Refused(f"the giveaway caps are not usable: {exc}", rule="caps") from None
+
+
 def policy_account(env: Mapping[str, str], core_cluster: str) -> dict | None:
     """The core's `[wallet_policy.accounts.solana_1]`, or None when the switch
     is off. CapsError when it is on but the caps are not usable, or name

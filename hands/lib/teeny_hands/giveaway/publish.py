@@ -80,7 +80,7 @@ def round_json(conn: sqlite3.Connection, row: sqlite3.Row) -> Json:
         "post_id": row["post_id"],
         "post_url": f"https://x.com/{own_handle()}/status/{row['post_id']}",
         "cluster": row["cluster"],
-        "mint": caps.TINY_MINT,
+        "mint": caps.round_mint(row["cluster"]),
         "decimals": caps.TINY_DECIMALS,
         "token_program": caps.TOKEN_2022,
         "program_id": caps.REWARDS_PROGRAM,
