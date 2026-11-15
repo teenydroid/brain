@@ -41,6 +41,7 @@ puts a held-out task, draft or judge note in what the proposer reads.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -425,8 +426,9 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
         return got
 
     count = 0
-    results = _in_flight(one, jobs)
-    with out.open("w", encoding="utf-8") as fh:
+    # closing(): a raise while writing closes the queue at once, cancelling the
+    # turns not yet started, rather than when the traceback is let go.
+    with contextlib.closing(_in_flight(one, jobs)) as results, out.open("w", encoding="utf-8") as fh:
         for pair, _ in jobs[::2]:
             first, second = next(results), next(results)
             fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": first, "second": second}, ensure_ascii=False) + "\n")
