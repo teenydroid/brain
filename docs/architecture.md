@@ -864,7 +864,18 @@ Every scheduled job is in one of two files:
     `SPINE_FALLBACK_MODEL` in `secrets/spine.env`, the same two failures,
     and a fallback model that answers, move the running core to that model.
     The main model answering again moves it back. Each move is a note on the
-    night's diary page (docs/roadmap.md, A18).
+    night's diary page (docs/roadmap.md, A18). It also reads the playbook
+    run logs: `bin/act` marks a draft the model provider failed
+    (`failure: "provider"`, with its kind: payment, auth, rate_limit,
+    server, timeout, connection) apart from a failure of the playbook, and
+    does not let cron retry one that cannot clear in seconds (402, 401).
+    Three such runs in a row, or two half an hour apart, while the probe
+    still answers, raise a third alarm (`act_alarm` in `state/health.json`,
+    one issue), cleared by the next answered draft (`ACT_ALARM_RUNS`,
+    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). Once drafts are answered
+    again, a slot they lost is made up once within its window: a
+    `make_up_hours` job (the Moltbook evening audit) or a
+    `catch_up` playbook (`bin/lib/catch_up.py`).
   - `health-daily` (`bin/health daily`, 00:40 UTC), which tells Teeny how
     the day before went as one `health · daily` stimulus: cost, failed cron
     and playbook runs, failed beats, the doctor's checks that are not ok and

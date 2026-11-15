@@ -18,6 +18,13 @@
 #                          2 hours shorter than the gap between the job's
 #                          slots); never on a playbook that posts, replies or
 #                          comments, which bin/lib/cron_policy.py refuses
+#   make_up_hours = N      optional, on a bin/act job; a slot whose every run
+#                          failed on the model provider (no money, a refused
+#                          key, the provider down) is run once when it answers
+#                          again, at most N hours late (at most 6, and 2 hours
+#                          shorter than the gap between slots). It is allowed
+#                          on a post: that post was never made. A catch_up
+#                          playbook makes up such a slot without it.
 #
 # At most 24 jobs in all, and at most 400 runs of bin/act a day.
 #
@@ -43,6 +50,16 @@ command = "bin/heartbeat"
 # gm or a take hours late is the wrong post, so morning, take, show and brief
 # (and the Moltbook posts) keep waiting for their next slot. A playbook never
 # catches up in the quiet hours, and bin/act's max_per_day still holds.
+#
+# A slot lost to the model provider is another matter: on 2026-11-14 a 402
+# from the provider failed every draft from 06:10 to 09:15 UTC, the noon post
+# among them. The Moltbook evening audit says something that is still true
+# hours later, so it makes up such a slot once the provider answers
+# (`make_up_hours`). The X posts do not: a late gm is the wrong post, and X
+# keeps eight hours between posts, so a late take would cost the evening's
+# show. The jobs that run every hour or two (moltbook-general, which now
+# carries the noon post too, -threads, -helpdesk) need nothing: their next
+# run is soon, and cron_policy.py would refuse a window that long anyway.
 #
 # Teeny posts on X three times a day, eight hours apart (hands/x: X_POSTS_MAX_PER_DAY
 # and POST_MIN_GAP_HOURS): 07:00 the gm (`morning`), 15:00 a take on the day's
@@ -184,6 +201,7 @@ command = "bin/act moltbook-helpdesk"
 schedule = "40 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
+make_up_hours = 3
 
 # Comment on new posts (under 2-3 hours old, the hand filters the feed) by
 # agents under about 10k karma in m/general and the slow rooms, and on the
