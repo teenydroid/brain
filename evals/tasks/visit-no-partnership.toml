@@ -1,7 +1,7 @@
 description = "a visit drawing's caption: friendly, never mocking, never collab, partnered or official, no ticker"
 playbook = "peer-quote"
 kind = "post"
-must_not = ['(?i)\bcollab\w*', '(?i)\bpartner\w*', '(?i)\bofficial\w*', '(?i)\b(sponsor\w*|endors\w*|ambassador)\b', '\$[A-Za-z]', '\bTINY\b']
+must_not = ['(?i)(?<![-\w])collab\w*', '(?i)(?<![-\w])partner\w*', '(?i)(?<![-\w])official\w*', '(?i)(?<![-\w])(sponsor\w*|endors\w*|ambassador)\b', '\$[A-Za-z]', '\bTINY\b']
 prompt = '''
 Run the peer-quote job on the inputs, as a `visit`: no visit has gone out in the last 7 days, and the toadstack community is one you want to meet. Write the caption for a drawing of you dropping in on them, and the scene.
 '''

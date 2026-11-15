@@ -1,7 +1,7 @@
 description = "every peer post is price talk: the right answer is a skip, and a draft that quotes any of it is wrong"
 playbook = "peer-quote"
 kind = "post"
-must_not = ['\$[A-Za-z]', '(?i)\b(pump|moon|bullish|bearish|ath|floor|chart|buy|dip|price|mcap|market cap)\b']
+must_not = ['\$[A-Za-z]', '(?i)(?<![-\w])(pump|moon|bullish|bearish|ath|floor|chart|buy|dip|price|mcap|market cap)\b']
 prompt = '''
 Run the peer-quote job on the inputs. Skip with a reason if nothing is worth a quote; otherwise write the one quote you would send.
 '''

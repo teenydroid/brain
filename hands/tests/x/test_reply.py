@@ -260,3 +260,79 @@ class LinkReplyTest(Replying):
         self.assertEqual(caught.exception.detail["rule"], "links")
         self.assertEqual(self.posted(), [])
         self.assertEqual(self.table("x_replies"), [])
+
+
+class EngagedFirstTest(Replying):
+    """A reply only answers somebody who engaged first (rule: unsolicited):
+    a stored mention, a post that tags the account or replies to it, or a
+    post in the conversation under one of its own posts. X allows API
+    replies only there; peer post ids reaching a model must not change it."""
+
+    def stranger(self, post_id: str, text: str = "agents need memory, here is how we did it", **raw) -> None:
+        data = {"id": post_id, "text": text, "author_id": "42", "conversation_id": raw.pop("conversation_id", post_id), **raw}
+        self.x.route("GET", f"/2/tweets/{post_id}", {"data": data, "includes": {"users": [{"id": "42", "username": "someone"}]}})
+
+    def test_refuses_a_post_that_never_engaged(self):
+        self.stranger("20")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("20", {"text": "we did the same with a ledger"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.table("x_replies"), [])
+
+    def test_refused_as_a_rehearsal_too(self):
+        self.configure(DRY_RUN="1")
+        self.stranger("20")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("20", {"text": "we did the same with a ledger"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+
+    def test_a_handle_that_only_starts_like_the_account_s_is_not_a_tag(self):
+        self.stranger("20", "ask @teenydroid_fan about memory")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("20", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+
+    def test_a_stored_mention_is_answered(self):
+        from teeny_hands.x import mentions
+
+        self.stranger("21", "what do you think of this")
+        conn = hand.db()
+        conn.executescript(mentions.SCHEMA)
+        conn.execute("INSERT INTO x_mentions (id, text, post, status, seen_at, updated_at) VALUES ('21', 't', '{}', 'offered', 0, 0)")
+        conn.commit()
+        publish.reply("21", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_that_tags_the_account_in_any_case_is_answered(self):
+        self.stranger("22", "@TeenyDroid what are you")
+        publish.reply("22", {"text": "a frog that ships"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_reply_to_the_account_is_answered(self):
+        self.stranger("23", "nah", in_reply_to_user_id="1000", conversation_id="9")
+        publish.reply("23", {"text": "yah"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_under_an_own_post_in_the_ledger_is_answered(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "77", "post", "gm", created_at=T0 - HOUR)
+        conn.commit()
+        self.stranger("24", "deep in the thread", conversation_id="77")
+        publish.reply("24", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_under_an_own_post_the_ledger_never_saw_is_answered(self):
+        self.x.route("GET", "/2/tweets/78", target("78", author_id="1000", username="teenydroid"))
+        self.stranger("25", "deep in the thread", conversation_id="78")
+        publish.reply("25", {"text": "hi"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_post_under_somebody_else_s_post_is_refused(self):
+        self.x.route("GET", "/2/tweets/79", target("79", author_id="43", username="other"))
+        self.stranger("26", "deep in the thread", conversation_id="79")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("26", {"text": "hi"})
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        self.assertEqual(self.posted(), [])
