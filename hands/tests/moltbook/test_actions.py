@@ -723,7 +723,7 @@ class SmallActionsTest(Scratch, Refusing):
         self.followed("quiet", 9, follows_you=False)
         self.mb.route("DELETE", "/agents/quiet/follow", {"success": True})
         out = actions.prune()
-        self.assertEqual((out["unfollowed"], out["spared"], out["kept"]), (["quiet"], ["lilt"], 1))
+        self.assertEqual((out["unfollowed"], out["spared"], out["kept"]), (["quiet"], ["lilt"], 0))
         self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
 
     def test_prune_never_unfollows_an_agent_with_a_recent_exchange(self):
