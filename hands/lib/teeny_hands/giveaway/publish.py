@@ -133,6 +133,23 @@ def _receipts() -> Any:
     return receipts
 
 
+#: Settings whose values the round file publishes on purpose: the giveaway
+#: wallet's address and the account's handle. The secret gate would read them
+#: as secrets (they are in secrets/teeny.env), so they are the one exception.
+PUBLIC_SETTINGS = ("GIVEAWAY_AUTHORITY", "X_BOT_USERNAME")
+
+
+def check_secrets(receipts: Any, diff: str) -> None:
+    """receipts.check_secrets, less the values PUBLIC_SETTINGS publishes."""
+    public = {hand.setting(name) for name in PUBLIC_SETTINGS} - {None}
+    added = "\n".join(line[1:] for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
+    if receipts.KEY_SHAPES.search(added):
+        raise hand.Refused("something shaped like a key")
+    for value in receipts.secret_values():
+        if value not in public and value in added:
+            raise hand.Refused("a value from secrets/")
+
+
 def _push(round_id: int, round_text: str, index_text: str) -> bool:
     """Commits and pushes the two files; False when they are already there."""
     receipts = _receipts()
@@ -147,7 +164,7 @@ def _push(round_id: int, round_text: str, index_text: str) -> bool:
         if not receipts._git(repo, "diff", "--cached", "--name-only").strip():
             return False
         try:
-            receipts.check_secrets(receipts._git(repo, "diff", "--cached", "--unified=0"))
+            check_secrets(receipts, receipts._git(repo, "diff", "--cached", "--unified=0"))
         except hand.Refused as why:
             receipts._git(repo, "reset", "-q", "--hard", f"origin/{branch}")
             raise hand.Refused("the round file carries a secret, nothing committed", why=why.reason) from None

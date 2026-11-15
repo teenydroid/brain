@@ -417,7 +417,7 @@ def judge(body: Any) -> Json:
             _, reasons_by_id, _ = screen(conn, row)
             why = reasons_by_id.get(entry_id)
             if why:
-                raise hand.Refused(f"that entry is not eligible: {why}", rule="ineligible", reason=why)
+                raise hand.Refused(f"that entry is not eligible: {why}", rule="ineligible", why=why)
             from ..x import publish as x_publish
 
             posted = x_publish.follow_up(thread_tip(conn, row["post_id"]), {"text": text})
