@@ -1263,18 +1263,28 @@ class HeldOut(EvolveCase):
         report = evolve.evolve_dir() / "0" / "eval" / "cand-1" / "compare" / "report.json"
         report.parent.mkdir(parents=True)
         report.write_text(json.dumps({"win_rate": 0.6, "reason": "fine", "pairs": [
-            {"task": "morning-post", "heldout": False, "winner": "cand", "notes": ["visible note: warmer"]},
+            {"task": "morning-post", "heldout": False, "winner": "base", "notes": ["visible note: warmer"]},
             {"task": SECRET_ID, "heldout": True, "winner": "base", "notes": ["held note: the keeper wanted tides"]},
             {"task": SECRET_ID, "winner": "base", "notes": ["unmarked held note"]},
             {"task": "reply-fud", "heldout": False, "winner": "tie",
              "notes": [f"compared it to {SECRET_ID}, which went better"]},
         ]}))
+        # An earlier candidate on the newest learning lost those pairs: its
+        # judge notes reach that learning's next try, and only those.
+        learning = next(x for x in evolve.read_learnings() if x.id == ORDER[0])
+        evolve.record({"id": "g0c1", "gen": 0, "cand": 1, "verdict": "regressed",
+                       "report": "0/eval/cand-1/compare/report.json", "learning": learning.ref()})
 
     def test_held_out_tasks_never_reach_the_evidence(self):
         evidence = json.dumps(evolve.observe(self.entries()))
-        self.assertIn("visible note: warmer", evidence)
+        self.assertNotIn("visible note: warmer", evidence)  # judge notes are no longer generation-wide
         for leak in (SECRET_ID, SECRET_PROMPT, "held note", "unmarked held note", "lighthouse"):
             self.assertNotIn(leak, evidence)
+        learning = next(x for x in evolve.read_learnings() if x.id == ORDER[0])
+        tried = json.dumps(evolve.tried_before(self.entries(), learning.ref(), heldout_ids={SECRET_ID}))
+        self.assertIn("visible note: warmer", tried)
+        for leak in (SECRET_ID, SECRET_PROMPT, "held note", "unmarked held note", "lighthouse"):
+            self.assertNotIn(leak, tried)
 
     def test_nor_the_proposers_message(self):
         seen = []
