@@ -150,6 +150,11 @@ hands/lib/teeny_hands/lab/
 # that writes one is Teeny's.
 hands/ladder
 hands/lib/teeny_hands/ladder/
+# The pull-request babysitter: what it audits, who it trusts and when it
+# merges are the operator's, or Teeny could rewrite the rules that merge
+# Teeny's own changes.
+hands/babysit
+hands/lib/teeny_hands/babysit/
 # OpenHuman releases against the pin and the gaps (docs/roadmap.md, G9).
 hands/upstream
 hands/lib/teeny_hands/upstream/
