@@ -37,8 +37,10 @@
 # main), never the candidate's.
 #
 # A candidate wins when it fails no hard check more often than the baseline
-# on any task, at least --min-pairs pairs (default 12) were decided, and it
-# won at least --threshold of them (default 0.6). Nothing here posts, holds
+# on any task, fails no fence check (the guard screen, a task's `fence`
+# patterns, a fence invariant) on any sample, at least --min-pairs pairs
+# (default 12) were decided, and it won at least --threshold of them
+# (default 0.6). Nothing here posts, holds
 # or writes to a core.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh

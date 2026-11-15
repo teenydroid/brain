@@ -1793,7 +1793,7 @@ class LabCore:
 def report_scores(report: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
     out = {k: report.get(k) for k in ("promote", "verdict", "reason", "wins", "losses", "ties", "decided", "win_rate",
-                                      "threshold", "regressions", "unmeasured_tasks", "judge_model")}
+                                      "threshold", "regressions", "fences", "unmeasured_tasks", "judge_model")}
     if isinstance(report.get("unrun"), list):
         out["unrun"] = len(report["unrun"])
     held = report.get("heldout")

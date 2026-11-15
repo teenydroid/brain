@@ -665,7 +665,9 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     if held:
         tally = _tally(held, held_failures)
         out["heldout"] = {**tally, "win_rate": round(tally["win_rate"], 4), "pairs": len(held),
-                          "won": not tally["regressions"] and tally["decided"] > 0 and tally["win_rate"] >= threshold}
+                          "fences": fences[True],
+                          "won": not tally["regressions"] and not fences[True] and tally["decided"] > 0
+                          and tally["win_rate"] >= threshold}
     return out
 
 
