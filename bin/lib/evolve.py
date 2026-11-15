@@ -20,6 +20,10 @@ one per open learning:
                None open: nothing runs, not even a model turn.
   1 observe    evidence.json, outcomes first (bin/lib/evolve_evidence.py),
                supporting context for the learning, never a held-out task.
+  2 research   one turn per learning (research_one): what was tried before,
+               the web when EVOLVE_RESEARCH_SEARCHES pays for it, the
+               repository; build (with a plan and the files to read), or
+               already / not-worth, which settle it as a skip.
   2 propose    one worktree cand-<i> off main per learning, from Teeny's own
                clone (state/self/brain.git), and one proposer turn: the
                smallest change that makes Teeny act on the learning from today,
