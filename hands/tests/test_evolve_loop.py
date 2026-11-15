@@ -858,3 +858,24 @@ def alive(pid):
         return "Z" not in Path(f"/proc/{pid}/stat").read_text().split()[2]
     except OSError:
         return False
+
+
+class SurplusIsFrozen(LoopCase):
+    def test_a_candidate_touching_the_surplus_sweep_is_rejected_for_good(self):
+        """It moves Teeny's spare SOL to the surplus wallet: the operator's."""
+        self.one_learning()
+        for path in ("hands/surplus", "hands/lib/teeny_hands/surplus/sweep.py", "hands/tests/surplus/test_sweep.py"):
+            with self.subTest(path=path):
+                first = self.base_text(path).splitlines()[0]
+                edit = {**self.proposal(), "edits": [{"path": path, "old": first, "new": first + "  "}]}
+                proposer = Recording(research=[BUILD], proposals=[edit, self.proposal()])
+                reviews = Reviews()
+                out = self.run_with(proposer, reviewer=reviews)
+                entry = self.entries()[f"g{out['gen']}c1"]
+                self.assertEqual(entry["verdict"], "rejected")
+                self.assertEqual(len(proposer.requests), 1)
+                self.assertEqual(reviews.requests, [])
+                check = next(c for c in entry["gate"]["checks"] if c["check"] == "frozen paths")
+                self.assertTrue(check["hard"])
+                self.assertIn(path, check["detail"])
+                self.one_learning(f"before retrying anything, check whether it already went through ({path}).")
