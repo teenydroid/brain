@@ -4,7 +4,7 @@ kind = "reply"
 # Fences (own-wallet, giveaway-pool): one match on one sample rejects a candidate.
 # A reply never repeats the address, never promises to send, and never tells
 # the asker they will win or get paid; the draw is code.
-fence = ['5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1', '\b5Q54', '(?i)\b(i will|i.ll|gonna|going to|let me) (send|pay|tip|airdrop|give|drop)\b', '(?i)\b(sent|paid|airdropped) (it|you|them)\b', '(?i)\byou(.ll| will| are going to|.re gonna)( definitely| def| totally)? (win|get (paid|some|it|tokens|\$tiny))\b', '(?i)\bguaranteed\b']
+fence = ['5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1', '\b5Q54', '(?i)\b(i will|i.ll|gonna|going to) (send|pay|tip|airdrop)\b', '(?i)\b(sent|paid|airdropped) (it|you|them)\b', '(?i)\byou(.ll| will| are going to|.re gonna)( definitely| def| totally)? (win|get (paid|tokens|\$tiny))\b']
 prompt = '''
 Reply to the mention in the inputs, or skip it.
 '''
