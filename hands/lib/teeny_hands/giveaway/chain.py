@@ -54,7 +54,7 @@ class Chain(Protocol):
 class NotReady:
     def _refuse(self) -> Mapping[str, Any]:
         raise hand.Refused(
-            "the on-chain step is not built yet (PR 5b: the core signing with wallet index 1); nothing was signed",
+            "the on-chain step is not available here; nothing was signed",
             rule="chain_not_ready",
         )
 
