@@ -502,30 +502,32 @@ def draw_round(round_id: int, x: Any = None) -> Json:
                 best_skipped = f"the best reply is no longer eligible: {reasons[best_id]}"
                 best_id = None
             lookups = int(row["lookups_used"])
+            looked: set[int] = set()
 
             def verify(handles: list[str]) -> None:
+                """One batched lookup for the candidates the webhook told
+                us too little about, while the round's lookups last."""
                 nonlocal lookups
-                pending = [by_handle[h] for h in handles if facts[by_handle[h]["id"]].needs_lookup()]
-                if not pending:
-                    return
-                if lookups >= the_caps.x_lookups:
+                pending = [by_handle[h] for h in handles
+                           if facts[by_handle[h]["id"]].needs_lookup() and by_handle[h]["id"] not in looked]
+                if not pending or lookups >= the_caps.x_lookups:
                     return
                 lookups += 1
                 conn.execute("UPDATE giveaway_rounds SET lookups_used = ? WHERE id = ?", (lookups, round_id))
                 found = _lookup([e["user_id"] for e in pending], x)
                 for entry in pending:
+                    looked.add(entry["id"])
                     user = found.get(entry["user_id"])
                     if user is None:
                         facts[entry["id"]].found = False
                     else:
                         facts[entry["id"]].merge(user.get("createdAt"), user.get("followers"), user.get("followsMe"))
 
-            def final_reason(entry: sqlite3.Row) -> str | None:
+            def final_reason(handle: str) -> str | None:
+                entry = by_handle[handle]
                 f = facts[entry["id"]]
-                if f.needs_lookup() and f.found:
-                    if f.created_at is None or f.followers is None or f.follows is None:
-                        early = eligibility.account_reason(f, row["deadline"], final=False)
-                        return early or eligibility.UNVERIFIABLE
+                if f.needs_lookup() and entry["id"] not in looked:
+                    return eligibility.account_reason(f, row["deadline"], final=False) or eligibility.UNVERIFIABLE
                 return eligibility.account_reason(f, row["deadline"], final=True)
 
             eligible = [e["handle"] for e in entries_rows if reasons[e["id"]] is None]
@@ -533,29 +535,30 @@ def draw_round(round_id: int, x: Any = None) -> Json:
             chosen: list[str] = []
             failed: dict[str, str] = {}
             best_handle = by_id[best_id]["handle"] if best_id is not None else None
-            best_ok: bool | None = None if best_handle else False
+            need_best = best_handle is not None and outcome is None
             at = 0
-            if outcome is None:
-                while len(chosen) < row["winners"] and at < len(order) or best_ok is None:
-                    batch = order[at:at + row["winners"] - len(chosen)]
-                    at += len(batch)
-                    check = batch + ([best_handle] if best_ok is None and best_handle not in batch else [])
-                    verify(check)
-                    for handle in batch:
-                        why = final_reason(by_handle[handle])
-                        if why:
-                            failed[handle] = why
-                        else:
-                            chosen.append(handle)
-                    if best_ok is None:
-                        why = final_reason(by_handle[best_handle])
-                        best_ok = why is None
-                        if why:
-                            failed[best_handle] = why
-                            best_skipped = f"the best reply is no longer eligible: {why}"
-                            best_id, best_handle = None, None
-                    if not batch and best_ok is not None:
-                        break
+            while outcome is None:
+                want = int(row["winners"]) - len(chosen)
+                batch = order[at:at + want] if want > 0 else []
+                at += len(batch)
+                check = batch + ([best_handle] if need_best and best_handle not in batch else [])
+                if not check:
+                    break
+                verify(check)
+                for handle in batch:
+                    why = failed.get(handle) or final_reason(handle)
+                    if why:
+                        failed[handle] = why
+                    else:
+                        chosen.append(handle)
+                if need_best:
+                    need_best = False
+                    why = failed.get(best_handle) or final_reason(best_handle)
+                    if why:
+                        failed[best_handle] = why
+                        best_skipped = f"the best reply is no longer eligible: {why}"
+                        best_id, best_handle = None, None
+            best_ok = best_handle is not None and outcome is None
 
             final_order = [h for h in order if h not in failed]
             each = _split(row)
@@ -563,7 +566,7 @@ def draw_round(round_id: int, x: Any = None) -> Json:
             if outcome is None:
                 for handle in chosen:
                     prizes.setdefault(handle, []).append(("random", each))
-                if best_handle and best_ok:
+                if best_ok:
                     prizes.setdefault(best_handle, []).append(("best_reply", int(row["best_reply_raw"])))
             if outcome is None and not prizes:
                 outcome = "nobody eligible"
@@ -590,8 +593,8 @@ def draw_round(round_id: int, x: Any = None) -> Json:
                 " seed_sha256 = ?, best_entry_id = ?, best_skipped = ? WHERE id = ?",
                 (status, outcome, hand.now(), seed["slot"], seed["blockhash"], seed_sha, best_id, best_skipped, round_id),
             )
-            out: Json = {"round": _public(_round(conn, round_id)), "winners": chosen,
-                         "best_reply": best_handle if best_ok else None,
+            out: Json = {"round": _public(_round(conn, round_id)), "winners": chosen if not outcome else [],
+                         "best_reply": best_handle if best_ok and not outcome else None,
                          "lookups_used": lookups}
             out["publish"] = _sync_quietly(conn, round_id)
             return out
@@ -656,18 +659,19 @@ def settle_round(round_id: int) -> Json:
             authority = _authority()
             clawback_at = row["clawback_at"] or hand.now() + the_caps.clawback_days * store.DAY
             if hand.dry_run():
-                overlay = {"merkle_root": root, "clawback_at": publish.iso(clawback_at), "authority": authority}
-                preview = publish.round_json(conn, row)
                 by_entry = {leaf["entry_id"]: leaf for leaf in leaves}
                 draws = conn.execute("SELECT entry_id, handle, kind, address, amount_raw FROM giveaway_draws"
                                      " WHERE round_id = ? AND kind IS NOT NULL", (round_id,)).fetchall()
-                overlay["claims"] = sorted(
-                    ({"index": by_entry[d["entry_id"]]["index"], "handle": d["handle"], "kind": d["kind"],
-                      "address": d["address"], "amount_atomic": str(int(d["amount_raw"])),
-                      "proof": by_entry[d["entry_id"]]["proof"]} for d in draws), key=lambda c: c["index"])
-                del preview
-                return {"dry_run": True, "would_settle": {"round_id": round_id, "merkle_root": root, "total_tiny": caps.display(total),
-                                                          "leaves": len(leaves)},
+                overlay = {
+                    "merkle_root": root, "clawback_at": publish.iso(clawback_at), "authority": authority,
+                    "claims": sorted(({"index": by_entry[d["entry_id"]]["index"], "handle": d["handle"], "kind": d["kind"],
+                                       "address": d["address"], "amount_atomic": str(int(d["amount_raw"])),
+                                       "proof": by_entry[d["entry_id"]]["proof"]} for d in draws),
+                                     key=lambda c: c["index"]),
+                }
+                return {"dry_run": True,
+                        "would_settle": {"round_id": round_id, "merkle_root": root, "total_tiny": caps.display(total),
+                                         "leaves": len(leaves)},
                         "publish": publish.sync(conn, round_id, overlay)}
             if row["merkle_root"] is None:
                 with hand.transaction(conn):
