@@ -138,6 +138,70 @@ class GuardOrderTest(Posting):
         self.assertEqual(self.guard.calls, [])
 
 
+class AnchorTest(Posting):
+    """An own post names the item it is about (`anchor`): a listen digest
+    item, a material receipt, a PR, the post it quotes. No anchor, no post."""
+
+    def test_a_post_without_an_anchor_is_refused_and_nothing_is_sent(self):
+        for body in ({"text": "gm"}, {"text": "gm", "anchor": ""}, {"text": "gm", "anchor": "   "}):
+            with self.assertRaises(hand.Refused, msg=repr(body)) as caught:
+                publish.post(body)
+            self.assertEqual(caught.exception.detail["rule"], "anchor")
+            self.assertIn("anchor", caught.exception.reason)
+        self.assertEqual(self.guard.calls, [], "refused before the guard is asked")
+        self.assertEqual(self.x.requests(), [])
+        self.assertEqual(self.ledger(), [])
+
+    def test_refused_under_dry_run_too(self):
+        self.configure(DRY_RUN="1")
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "gm"})
+
+    def test_an_anchor_that_is_not_a_short_string_is_an_error(self):
+        for anchor in (5.5, ["hn 1"], {"id": 1}, "x" * 201):
+            with self.assertRaises(hand.HandError, msg=repr(anchor)):
+                publish.post({"text": "gm", "anchor": anchor})
+        self.assertEqual(self.x.requests(), [])
+
+    def test_the_anchor_is_recorded_and_never_sent(self):
+        publish.post({"text": "the agent repo everyone starred today loses its memory at 100k tokens; mine folds at 100k too",
+                      "anchor": " listen:4471 "})
+        self.assertEqual(self.posted(), [{"text": "the agent repo everyone starred today loses its memory at 100k tokens;"
+                                                  " mine folds at 100k too"}])
+        [row] = self.ledger()
+        self.assertEqual(row["anchor"], "listen:4471")
+
+    def test_a_whole_number_anchor_is_kept_as_text(self):
+        publish.post({"text": "pr 212 merged", "anchor": 212})
+        self.assertEqual(self.ledger()[0]["anchor"], "212")
+
+    def test_a_quote_without_an_anchor_is_anchored_on_the_post_it_quotes(self):
+        publish.post({"text": "we hit the same wall at 100k tokens", "quote_of": "555"})
+        [row] = self.ledger()
+        self.assertEqual((row["kind"], row["anchor"]), ("quote", "555"))
+
+    def test_a_quote_keeps_an_anchor_it_was_given(self):
+        publish.post({"text": "we hit the same wall", "quote_of": "555", "anchor": "material:12"})
+        self.assertEqual(self.ledger()[0]["anchor"], "material:12")
+
+    def test_a_ledger_without_the_anchor_column_gains_it(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, in_reply_to TEXT,"
+                     " quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        conn.commit()
+        conn.close()
+        publish.post({"text": "gm", "anchor": "hn:1"})
+        self.assertEqual([r["anchor"] for r in self.ledger()], ["hn:1"])
+
+
+class DefaultsTest(Posting):
+    """Four own posts a UTC day, five hours apart: the slots are ceilings."""
+
+    def test_the_defaults_are_four_a_day_five_hours_apart(self):
+        self.assertEqual(posting_rules.DEFAULT_POSTS_MAX_PER_DAY, 4)
+        self.assertEqual(posting_rules.DEFAULT_POST_MIN_GAP_HOURS, 5.0)
+
+
 class DryRunTest(Posting):
     def setUp(self):
         super().setUp()
