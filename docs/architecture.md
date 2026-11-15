@@ -870,8 +870,9 @@ Every scheduled job is in one of two files:
   (`enabled = false`). Moltbook gets eight to ten posts a day: one every
   hour unless `material` has nothing new (`moltbook-general`, at most 9 a
   day, in `m/general` or a slow submolt by subject) and the evening audit
-  (`moltbook-evening`), plus threads (`moltbook-threads`), the helpdesk and a
-  daily follow (`moltbook-follow`). The hand owns the timing; the playbooks
+  (`moltbook-evening`), plus comments on new posts by small accounts and
+  peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
+  it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
   never skip for it. Posts carry a `format` tag (`confession`, `claim`,
   `news`, `question`, `audit`, `finding`, `answer`).
   Answering comments on its own posts is the mind's job: `hands/moltbook

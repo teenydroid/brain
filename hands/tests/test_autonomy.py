@@ -142,6 +142,36 @@ class DoctorCheckTest(Scratch):
         self.assertEqual(out["status"], "ok", out["detail"])
         self.assertIn("6 switch(es) on", out["detail"])
 
+    def test_self_merge_is_its_own_rung_granted_l5_and_babysit_self_merge_passes(self):
+        # The operator's decision of 2026-11-15: Teeny's evolve PRs merge under
+        # the babysitter's audit without a person's approval.
+        caps = autonomy.load(self.root / "evals")
+        self.assertEqual((caps["self-merge"]["level"], caps["self-merge"]["confirmed"].isoformat()),
+                         (5, "2026-11-15"))
+        self.env("teeny.env", BABYSIT_MERGE="1", BABYSIT_SELF_MERGE="1")
+        self.assertEqual(self.check()["status"], "ok", self.check()["detail"])
+
+    def test_babysit_self_merge_needs_self_merge_at_l5(self):
+        text = (self.root / "evals" / "autonomy.toml").read_text()
+        head, _, tail = text.partition("[capability.self-merge]")
+        tail = tail.replace("level = 5", "level = 4\nnext = { level = 5, also = [\"x\"] }", 1)
+        (self.root / "evals" / "autonomy.toml").write_text(head + "[capability.self-merge]" + tail)
+        self.env("teeny.env", BABYSIT_SELF_MERGE="1")
+        out = self.check()
+        self.assertEqual(out["status"], "fail")
+        self.assertIn("BABYSIT_SELF_MERGE=1", out["detail"])
+        self.assertIn("self-merge at L5", out["detail"])
+
+    def test_granting_self_merge_leaves_auto_promote_refused(self):
+        # The self-merge rung is not merge's: EVOLVE_AUTO_PROMOTE (the loop
+        # merging with no audit) still needs merge at L5, and merge is at L4.
+        self.env("teeny.env", BABYSIT_SELF_MERGE="1")
+        self.env("evolve.env", EVOLVE_AUTO_PROMOTE="1")
+        out = self.check()
+        self.assertEqual(out["status"], "fail")
+        self.assertIn("EVOLVE_AUTO_PROMOTE=1", out["detail"])
+        self.assertNotIn("BABYSIT_SELF_MERGE", out["detail"])
+
     def test_tiny_buy_needs_spend_at_l4(self):
         self.env("teeny.env", TINY_BUY="1")
         out = self.check()

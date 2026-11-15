@@ -81,7 +81,6 @@ import os
 import random
 import re
 import shutil
-import signal
 import sqlite3
 import subprocess
 import sys
@@ -102,6 +101,7 @@ import evolve_evidence  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import last_good  # noqa: E402
+import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
 
 Json = dict[str, Any]
@@ -2263,34 +2263,22 @@ class LiveRestarter:
         self.checkout = checkout
 
     def _git(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", str(self.checkout), "-c", "core.hooksPath=/dev/null", *args],
-                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        return live_checkout.git(self.checkout, *args)
 
     def restart(self, sha: str, gen: int, record_last_good: bool = True) -> Json:
-        head = self._git("rev-parse", "HEAD").stdout.strip()
-        if self._git("status", "--porcelain", "--untracked-files=no").stdout.strip():
-            return {"restarted": False, "error": "the live checkout has tracked edits; restart it by hand"}
-        if self._git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
-            fetched = self._git("fetch", "-q", "origin")
-            if fetched.returncode != 0:
-                return {"restarted": False, "error": f"git fetch failed: {fetched.stderr.strip()[-200:]}"}
-        if self._git("merge-base", "--is-ancestor", head, sha).returncode != 0:
-            return {"restarted": False, "error": f"the live checkout ({head[:12]}) cannot fast-forward to {sha[:12]}"}
-        if self._git("symbolic-ref", "-q", "HEAD").returncode != 0:
-            # A last-good boot left it detached: back onto main first.
-            if self._git("checkout", "-q", "main").returncode != 0:
-                return {"restarted": False, "error": "the live checkout is detached and main cannot be checked out"}
-            head = self._git("rev-parse", "HEAD").stdout.strip()
+        # The steps and their order are bin/lib/live_checkout.py's, shared
+        # with hands/babysit's deploy.
+        head, error = live_checkout.prepare(self.checkout, sha)
+        if error:
+            return {"restarted": False, "error": error}
         if record_last_good:
             last_good.record(self.checkout, state_dir(), head, f"gen-{gen}")
-        merged = self._git("merge", "-q", "--ff-only", sha)
-        if merged.returncode != 0:
-            return {"restarted": False, "error": f"git merge --ff-only failed: {merged.stderr.strip()[-200:]}"}
-        try:
-            pid = int((state_dir() / "spine.pid").read_text(encoding="utf-8").strip())
-            os.kill(pid, signal.SIGTERM)
-        except (OSError, ValueError) as exc:
-            return {"restarted": False, "checkout": sha, "error": f"no spine to TERM (state/spine.pid): {exc}"}
+        error = live_checkout.fast_forward(self.checkout, sha)
+        if error:
+            return {"restarted": False, "error": error}
+        error = live_checkout.term_spine(state_dir())
+        if error:
+            return {"restarted": False, "checkout": sha, "error": error}
         return {"restarted": True, "from": head, "to": sha}
 
 
@@ -3154,16 +3142,7 @@ def run_lock(name: str = "evolve"):
 def running(name: str = "evolve") -> bool:
     """Whether a generation holds the run lock now: what to ask before a
     restart, which ends the container a generation runs in."""
-    path = state_dir() / "locks" / f"{name}.lock"
-    if not path.exists():
-        return False
-    with open(path, "a+") as fh:
-        try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        fcntl.flock(fh, fcntl.LOCK_UN)
-        return False
+    return live_checkout.lock_held(state_dir(), name)
 
 
 def _url_map(values: list[str]) -> dict[int, str]:
