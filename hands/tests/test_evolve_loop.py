@@ -56,12 +56,30 @@ class Recording:
         return answer(request) if callable(answer) else answer
 
 
+class Reviews:
+    """A reviewer that answers from a script (approve when it runs out),
+    and keeps every request it was handed."""
+
+    name = "reviews"
+
+    def __init__(self, answers=None):
+        self.answers, self.requests = list(answers or []), []
+
+    def review(self, request):
+        self.requests.append(request)
+        answer = self.answers.pop(0) if self.answers else {"verdict": "approve", "findings": []}
+        if isinstance(answer, Exception):
+            raise answer
+        return answer(request) if callable(answer) else answer
+
+
 class LoopCase(EvolveCase):
     def proposal(self, line="Check first.", path="brain/playbooks/moltbook-daily.md", title="check first"):
         return {"title": title, "component": "attention", "expected_move": "+1% in a week",
                 "hypothesis": "what is weak, the change, the effect", "edits": [self.playbook_edit(line, path)]}
 
     def run_with(self, proposer, n=1, **kw):
+        kw.setdefault("reviewer", Reviews())
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=proposer):
             return evolve.run_generation(evolve.load_config(), n, None, publisher=kw.pop("publisher", FakePublisher()),
                                          **kw)
@@ -147,7 +165,8 @@ class Research(LoopCase):
         self.assertEqual(saved["research"]["plan"], BUILD["plan"])
         # Cut off after the research, before any proposal was kept.
         (evolve.gen_dir(1) / "result.json").unlink()
-        (evolve.gen_dir(1) / "cand-1.proposal.json").unlink()
+        for name in ("cand-1.proposal.json", "cand-1.rounds.json"):
+            (evolve.gen_dir(1) / name).unlink(missing_ok=True)
         rows = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("gen") != 1]
         evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
         for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
