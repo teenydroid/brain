@@ -160,10 +160,6 @@ export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
 # (deploy/browser-allow.txt) still bounds the raw `http_request` tool.
 # OpenHuman takes these switches from the environment only.
 export OPENHUMAN_BROWSER_ALLOW_ALL=1
-# The core refuses every navigation to a host on the deny list itself
-# (vendor/openhuman modules/browser_never_open.rs), whatever ALLOW_ALL says;
-# a list it cannot read refuses every page.
-export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"
 export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"
 # Where the browser's own pictures of the pages it reaches go
 # (spine/src/browser_pictures.rs); hands/tasks moves a task's into
