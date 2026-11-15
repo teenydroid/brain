@@ -47,6 +47,13 @@ class BoardTest(unittest.TestCase):
         conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes, impressions)"
                      " VALUES (?, 24, ?, ?, 1, 0, 0, ?)", (post_id, at + DAY, likes, impressions))
 
+    def test_a_thread_continuation_is_its_own_bucket_not_a_post_or_a_reply(self):
+        self.x_post("1", 4, kind="post")
+        self.x_post("2", 2, kind="thread")
+        self.x_post("3", 6, kind="reply")
+        groups = {g["format"]: g["n"] for g in board.board()["x"]["formats"]}
+        self.assertEqual(groups, {"(post)": 1, "(thread)": 1, "(reply)": 1})
+
     def test_an_empty_ledger_says_so(self):
         out = board.board()
         self.assertEqual(out["audience"], [])

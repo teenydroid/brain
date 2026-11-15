@@ -57,6 +57,24 @@ class SecretsTest(Scratch):
             hand.require("X_BEARER_TOKEN")
 
 
+class ErrorDetailTest(Scratch):
+    def test_an_error_carries_its_detail_into_the_json_and_exits_1(self):
+        import argparse
+        import contextlib
+        import io
+
+        def verb(args, body):
+            raise hand.HandError("stopped part way", sent=2, ids=["1", "2"])
+
+        parser = argparse.ArgumentParser()
+        parser.add_subparsers(dest="verb").add_parser("go").set_defaults(handler=verb, takes_body=False)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = hand.run("t", parser, ["go"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out.getvalue()), {"ok": False, "error": "stopped part way", "sent": 2, "ids": ["1", "2"]})
+
+
 class DryRunTest(Scratch):
     def test_on_by_default(self):
         self.assertTrue(hand.dry_run())

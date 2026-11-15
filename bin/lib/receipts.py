@@ -255,7 +255,7 @@ def _key(kind: str, ref: Json) -> str | None:
     """The dedupe key a public receipt carries in itself, so a receipt that
     reached the remote is never issued twice even if hands.db lost its row."""
     pick = {
-        "x.post": "id", "x.reply": "id", "x.quote": "id", "x.like": "id",
+        "x.post": "id", "x.reply": "id", "x.quote": "id", "x.thread": "id", "x.like": "id",
         "moltbook.post": "id", "moltbook.comment": "id",
         "moltbook.follow": "agent", "moltbook.subscribe": "submolt",
         "wallet.paid": "signature", "wallet.bought": "signature", "bounty.opened": "id", "bounty.picked": "id",
@@ -291,7 +291,7 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
         actions.append(Action(key or _key(kind, ref) or "", kind, when, ref, dict(row)))
 
     for r in _rows(conn, "SELECT * FROM x_posts ORDER BY created_at, id"):
-        kind = {"post": "x.post", "reply": "x.reply", "quote": "x.quote"}.get(r["kind"], "x.other")
+        kind = {"post": "x.post", "reply": "x.reply", "quote": "x.quote", "thread": "x.thread"}.get(r["kind"], "x.other")
 
         def x_ref(r: sqlite3.Row = r, kind: str = kind) -> Json:
             ref: Json = {"id": _match(X_ID, r["id"])}
@@ -299,7 +299,7 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
                 ref["in_reply_to"] = _match(X_ID, r["in_reply_to"])
             elif kind == "x.quote":
                 ref["quote_of"] = _match(X_ID, r["quote_of"])
-            elif kind != "x.post":
+            elif kind not in ("x.post", "x.thread"):
                 raise Withheld
             return ref
 
