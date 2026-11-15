@@ -106,7 +106,7 @@ class CliTest(Scratch):
         code, out = self.run_hand("feed", "--submolt", "general", "--submolt", "memory", "--sort", "new", "--brief",
                                   "--max-age-hours", "3", "--max-author-karma", "10000", "--max-comments", "5", "--skip-mine")
         self.assertEqual((code, sorted(p["id"] for p in out["posts"])), (0, ["g1", "m1"]))
-        self.assertEqual(self.run_hand("feed", "--max-age-hours", "0")[0], 2)
+        self.assertEqual(self.run_hand("feed", "--max-age-hours", "0")[0], 1)  # a usage error
         (self.root / "brain").mkdir()
         (self.root / "brain" / "moltbook-peers.txt").write_text("lilt\n")
         self.mb.route("GET", "/posts", {"success": True, "posts": [
