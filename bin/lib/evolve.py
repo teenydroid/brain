@@ -1217,10 +1217,12 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         learning_text(request["learning"]),
         "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
         f"schedule or a new hand that makes you act on it from today, {how}. One learning, one change, one pull "
-        "request: bin/evolve gates it in code (frozen paths, at most "
-        f"{MAX_DIFF_LINES} changed lines, at most {MAX_SOUL_CONTEXT_LINES} in SOUL.md and CONTEXT.md together, "
-        "tests for every new hand, the cron rules, the doctor, the invariants, and the checks below), measures "
-        "the tasks it reaches against main, and opens it as its own pull request when nothing got worse.",
+        "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
+        f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
+        "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
+        "invariants, and the checks below) and a reviewer send it back to you with findings to fix, up to "
+        f"{request.get('rounds') or 3} rounds; then it measures the tasks it reaches against main, and opens it "
+        "as its own pull request when nothing got worse.",
         "## or skip it\n\n"
         "Skip when no change is worth making, and say which:\n"
         "- `already`: something you run already carries it out; `where` names the file.\n"
