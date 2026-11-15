@@ -8,6 +8,7 @@ and DRY_RUN itself.
   R  issues OWNER/REPO [--label L] [--max N]   open issues (not pull requests)
   R  pr OWNER/REPO NUMBER                one pull request
   R  contributing OWNER/REPO             whether its policy forbids AI contributions
+  R  checks OWNER/REPO NUMBER            a pull request's state and its red, pending and green checks
   R  activity [--days N]                 Teeny's own PRs, merged PRs and commits
   A  create-repo   {name, description?, private?}       under GITHUB_USER only
   A  push          {workdir, repo, branch, message}     from state/workbench/, to an own repo
@@ -16,6 +17,9 @@ and DRY_RUN itself.
   A  fork          {repo}
   A  open-issue    {repo, title, body}                  on an own repo only
   A  close-issue   {repo, number, comment?}             on an own repo only
+     ingest                              notifications and new stars into the mind's inbox,
+                                         screened by the inbound guard (off unless GH_INBOUND=1)
+  R  notifications [--max N]             what ingest read, and what became of each
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, reads
+from . import actions, notifications, reads
 from .client import split_repo
 
 
@@ -81,11 +85,18 @@ def parser() -> argparse.ArgumentParser:
     one = verb("pr", _pr, "one pull request")
     one.add_argument("repo", metavar="OWNER/REPO")
     one.add_argument("number", type=_bounded(1, 10**9, "NUMBER"))
+    checked = verb("checks", lambda a, _: reads.checks(a.repo, a.number), "a pull request's checks")
+    checked.add_argument("repo", metavar="OWNER/REPO")
+    checked.add_argument("number", type=_bounded(1, 10**9, "NUMBER"))
     verb("contributing", _contributing, "whether a repo's policy forbids AI contributions").add_argument(
         "repo", metavar="OWNER/REPO"
     )
     verb("activity", _activity, "Teeny's own recent GitHub activity").add_argument(
         "--days", type=_bounded(1, 90, "--days"), default=7
+    )
+    verb("ingest", lambda args, _: notifications.ingest(), "read notifications and new stars into the inbox")
+    verb("notifications", lambda args, _: notifications.recent(args.max), "what ingest read").add_argument(
+        "--max", type=_bounded(1, 200, "--max"), default=20
     )
     for name, handler, help in (
         ("create-repo", actions.create_repo, "a new repository under GITHUB_USER (JSON on stdin)"),

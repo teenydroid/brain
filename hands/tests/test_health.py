@@ -1,9 +1,9 @@
 """bin/health: the pinned check that notices Teeny's model is not answering
 (the 2026-11-11 outage: a revoked provider key, seven hours of failed turns
-and judge holds, and nobody told). It asks the model once through the core
-every run; two failures in a row raise one alarm, as a `health` stimulus
-and one issue on teenydroid/brain, and the first answer after that closes
-both. Against a fake core, a fake GitHub and a pinned clock."""
+and judge holds, and nobody told). It asks the model through the core every
+run (again, up to three attempts, after a failure that may pass); two
+failed checks in a row raise one alarm, as a `health` stimulus and one issue
+on teenydroid/brain, and the first answer after that closes both. Against a fake core, a fake GitHub and a pinned clock."""
 
 import json
 import os
@@ -13,13 +13,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(REPO / "bin" / "lib"))
 
-from guard.support import FakeCore, result  # noqa: E402
+from guard.support import FakeCore, error, result  # noqa: E402
 from x.support import FakeX  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard import holds  # noqa: E402
@@ -30,6 +31,8 @@ QUARTER = 900
 TOKEN = "ghp_FAKEtokenFAKEtokenFAKEtoken0000"
 DEAD = {"jsonrpc": "2.0", "id": 1, "error": {"message": "local-openai returned HTTP 401 (invalid_api_key)"}}
 ALIVE = result({"response": "ok"})
+# What the core said, live, when Surplus dropped the model's stream (2026-11-14).
+CUT = error("model error: local-openai returned: provider stream ended before a completion signal")
 ISSUES = "/repos/teenydroid/brain/issues"
 
 
@@ -56,6 +59,11 @@ class HealthTest(unittest.TestCase):
         # The judge on, as in production: a judged alarm would be held
         # exactly when it is needed.
         self.configure()
+        # The probe waits between its attempts; the fake core needs none.
+        self.slept: list[float] = []
+        sleep = mock.patch.object(health, "_sleep", self.slept.append, create=True)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def tearDown(self):
         os.environ.clear()
@@ -127,6 +135,75 @@ class HealthTest(unittest.TestCase):
         self.at(2 * QUARTER)
         self.assertEqual(health.check()["alarm"], None)
         self.assertEqual(self.inbox(), [])
+
+    # --- asking again within one probe (2026-11-14) ----------------------------------------
+
+    def test_a_probe_cut_once_then_answered_is_no_failure_and_says_it_was_asked_again(self):
+        # Surplus closes a stream now and then in a window of minutes; on
+        # 2026-11-14 two such probes in a row opened outage issue #256, which
+        # closed itself fifteen minutes later.
+        self.core.replies = [CUT, ALIVE]
+        out = health.check()
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (True, 0, None))
+        self.assertEqual(out["probe_attempts"], 2)
+        self.assertIn("provider stream ended", out["probe_retried"])
+        self.assertEqual(len(self.core.calls), 2)
+        self.assertEqual(self.slept, [health.PROBE_BACKOFFS[0]])
+        self.assertEqual(self.state()["probe_attempts"], 2)
+        self.assertEqual(self.state()["failures"], 0)
+
+    def test_a_probe_answered_at_once_says_one_attempt(self):
+        out = health.check()
+        self.assertEqual((out["probe_attempts"], out.get("probe_retried")), (1, None))
+        self.assertEqual(self.state()["probe_attempts"], 1)
+        self.assertEqual(self.slept, [])
+
+    def test_a_probe_cut_at_every_attempt_is_one_failure(self):
+        (out,) = self.outage(1, reply=CUT)
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (False, 1, None))
+        self.assertIn("provider stream ended", out["error"])
+        self.assertEqual(out["probe_attempts"], health.PROBE_ATTEMPTS)
+        self.assertEqual(len(self.core.calls), 3)
+        self.assertEqual(self.slept, list(health.PROBE_BACKOFFS))
+        self.assertEqual(self.state()["probe_attempts"], 3)
+
+    def test_an_outage_that_cuts_every_attempt_still_alarms_at_the_second_check(self):
+        first, second = self.outage(2, reply=CUT)
+        self.assertEqual((first["failures"], first["alarm"]), (1, None))
+        self.assertEqual((second["failures"], second["alarm"], second["issue"]), (2, "raised", 41))
+
+    def test_a_failure_that_will_not_pass_is_not_asked_again(self):
+        (out,) = self.outage(1)  # a refused key (HTTP 401)
+        self.assertEqual((out["failures"], out["probe_attempts"]), (1, 1))
+        self.assertEqual(len(self.core.calls), 1)
+        self.assertEqual(self.slept, [])
+
+    def test_the_attempts_together_never_take_longer_than_the_probe_budget(self):
+        # Every attempt times out, the worst case: each gets what is left of
+        # PROBE_BUDGET (at most PROBE_TIMEOUT), and one that would get less
+        # than MIN_PROBE_SECS is not made, so the check stays well inside the
+        # core's 300 s for a cron shell call.
+        clock = [1000.0]
+        timeouts: list[float] = []
+
+        def timed_out(method, params, timeout):
+            timeouts.append(timeout)
+            clock[0] += timeout
+            raise hand.CoreError("core unreachable: timed out")
+
+        def sleep(seconds):
+            self.slept.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(health, "_sleep", sleep), \
+                mock.patch.object(health.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(health.hand, "core", timed_out):
+            error_, attempts, errors = health.probe_until_answered()
+        self.assertIn("timed out", error_)
+        self.assertEqual(timeouts, [health.PROBE_TIMEOUT, health.PROBE_BUDGET - health.PROBE_TIMEOUT - health.PROBE_BACKOFFS[0]])
+        self.assertEqual((attempts, len(errors)), (2, 2))
+        self.assertLessEqual(clock[0] - 1000.0, health.PROBE_BUDGET)
+        self.assertEqual(health.PROBE_BUDGET, 90.0)
 
     # --- the alarm ------------------------------------------------------------------------
 
@@ -241,6 +318,158 @@ class HealthTest(unittest.TestCase):
         self.assertIn("teeny.operator (2)", body)
         self.assertIn("teeny.operator (2)", self.inbox()[0]["text"])
 
+    # --- yesterday as one stimulus (docs/roadmap.md, A4) ---------------------------------
+    # T0 is 12:00 UTC on 2026-11-11, so "yesterday" is 2026-11-10.
+
+    def yesterday(self, cron=(), acts=(), beats=(), doctor=None, holds_at=()) -> None:
+        """Fixtures for the day before T0: failed cron runs `(job name, hours
+        before T0)`, bin/act lines `(playbook, ok, hours before T0)`, tick
+        lines `(kind, hours before T0)`, a doctor report, and guard holds
+        `(direction, category, hours before T0)`."""
+        def iso(hours):
+            return health._iso(int((T0 - hours * 3600) * 1000))
+        if cron:
+            storage = self.root / "brain" / "storage.db"
+            storage.parent.mkdir(exist_ok=True)
+            db = sqlite3.connect(storage)
+            db.execute("create table docs (id text, coll text, body text, deleted integer default 0)")
+            names = sorted({name for name, _ in cron})
+            db.executemany("insert into docs (id, coll, body) values (?, 'cron.jobs', ?)",
+                           [(f"j{n}", json.dumps({"name": name})) for n, name in enumerate(names)])
+            for n, (name, hours) in enumerate(cron):
+                body = {"job_id": f"j{names.index(name)}", "status": "error",
+                        "finished_ms": int((T0 - hours * 3600) * 1000), "seq": n}
+                db.execute("insert into docs (id, coll, body) values (?, 'cron.runs', ?)", (f"r{n}", json.dumps(body)))
+            db.commit()
+            db.close()
+        for playbook, ok, hours in acts:
+            folder = self.root / "state" / "act" / playbook
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder / "runs.jsonl", "a") as fh:
+                fh.write(json.dumps({"at": iso(hours), "ok": ok, "playbook": playbook, "error": "secret detail"}) + "\n")
+        if beats:
+            folder = self.root / "state" / "tick"
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(folder / "runs.jsonl", "a") as fh:
+                for kind, hours in beats:
+                    fh.write(json.dumps({"at": iso(hours), "kind": kind, "error": "what the core said"}) + "\n")
+                fh.write("not json\n")
+        if doctor is not None:
+            (self.root / "state" / "doctor.json").write_text(json.dumps(doctor))
+        for direction, category, hours in holds_at:
+            self.at(-hours * 3600)
+            holds.record(direction=direction, kind="draft", context={"surface": "x"}, category=category,
+                         reason="REASON-NEVER-SHOWN", by="screen", text="HELD-TEXT-NEVER-SHOWN")
+        self.at(0)
+
+    def costs(self, usd=0.42, calls=7) -> None:
+        self.model(result({"totals": {"cost_usd": usd, "calls": calls}}))
+
+    def test_a_failed_job_yesterday_is_one_daily_stimulus(self):
+        self.yesterday(cron=[("teeny.mail-inbound", 20), ("teeny.mail-inbound", 14), ("teeny.tick", 2)])
+        self.costs()
+        out = health.daily()
+        self.assertEqual((out["ok"], out["daily"], out["added"], out["trouble"]), (True, "2026-11-10", True, True))
+        # The one 2 h before T0 is today's, not yesterday's.
+        self.assertEqual(out["cron_errors"], {"teeny.mail-inbound": 2})
+        (got,) = self.inbox()
+        self.assertEqual((got["surface"], got["kind"], got["ref"]), ("health", "daily", "daily:2026-11-10"))
+        self.assertIn("teeny.mail-inbound 2", got["text"])
+        self.assertIn("$0.42 over 7 call(s)", got["text"])
+        self.assertIn("yours to look into", got["text"])
+        call = self.core.calls[-1]
+        self.assertEqual((call["method"], call["params"]), ("openhuman.cost_report", {"days": 1}))
+        self.assertEqual(self.gh.seen, [])
+
+    def test_the_daily_stimulus_is_filed_once_a_day(self):
+        self.yesterday(cron=[("teeny.tick", 20)])
+        self.costs()
+        self.assertTrue(health.daily()["added"])
+        self.at(3600)
+        self.assertFalse(health.daily()["added"])
+        self.assertEqual(len(self.inbox()), 1)
+        self.at(86400)
+        self.assertEqual(health.daily()["daily"], "2026-11-11")
+        self.assertEqual(len(self.inbox()), 2)
+
+    def test_failed_playbooks_beats_doctor_checks_and_holds_are_counted_never_quoted(self):
+        self.yesterday(
+            acts=[("morning", False, 20), ("morning", False, 18), ("morning", True, 17), ("brief", False, 1)],
+            beats=[("failed", 22), ("beat", 21), ("failed", 1)],
+            doctor={"ok": False, "checks": [{"check": "cron rules", "status": "ok", "detail": "fine"},
+                                            {"check": "pre-spine leftover", "status": "warn", "detail": "DETAIL-NEVER-SHOWN"},
+                                            {"check": "agents have no tools", "status": "fail", "detail": "DETAIL-NEVER-SHOWN"}]},
+            holds_at=[("outbound", "profanity", 20), ("outbound", "profanity", 19), ("inbound", "hate", 15),
+                      ("outbound", "hate", 3), ("outbound", "a category\nwith a newline", 16)],
+        )
+        self.costs()
+        out = health.daily()
+        self.assertEqual(out["act_failures"], {"morning": 2})
+        self.assertEqual(out["failed_beats"], 1)
+        self.assertEqual(out["doctor"], {"warn": ["pre-spine leftover"], "fail": ["agents have no tools"]})
+        self.assertEqual(out["holds"], {"inbound hate": 1, "outbound other": 1, "outbound profanity": 2})
+        (got,) = self.inbox()
+        for word in ("morning 2", "failed beats of your mind: 1", "fail: agents have no tools",
+                     "outbound profanity 2", "inbound hate 1"):
+            self.assertIn(word, got["text"])
+        dumped = json.dumps(got)
+        for secret in ("HELD-TEXT-NEVER-SHOWN", "REASON-NEVER-SHOWN", "DETAIL-NEVER-SHOWN", "secret detail",
+                       "what the core said", "newline"):
+            self.assertNotIn(secret, dumped)
+
+    def test_a_quiet_day_still_says_what_it_cost(self):
+        self.costs(usd=1.5, calls=40)
+        out = health.daily()
+        self.assertFalse(out["trouble"])
+        (got,) = self.inbox()
+        self.assertIn("$1.50 over 40 call(s)", got["text"])
+        self.assertIn("failed cron runs: none", got["text"])
+        self.assertNotIn("yours to look into", got["text"])
+
+    def test_a_core_that_cannot_give_the_cost_still_files_the_day(self):
+        self.model(DEAD)
+        out = health.daily()
+        self.assertIsNone(out["cost"])
+        self.assertIn("unknown", self.inbox()[0]["text"])
+
+    def test_the_daily_verb_by_the_command_line(self):
+        self.costs()
+        env = {**os.environ, "TEENY_ROOT": str(self.root)}
+        proc = subprocess.run([str(REPO / "bin" / "health"), "daily"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["daily"], "2026-11-10")
+        bad = subprocess.run([str(REPO / "bin" / "health"), "weekly"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(bad.returncode, 2)
+
+    # --- Moltbook writes nobody can see ------------------------------------------------
+    # 2026-11-12: Moltbook hides a write until its challenge is solved, and a
+    # third of Teeny's writes were still unverified with nothing saying so.
+
+    def moltbook_writes(self, *statuses: str, ago: float = 3600) -> None:
+        from teeny_hands.moltbook import rules
+
+        conn = rules.db()
+        for n, status in enumerate(statuses):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'p', ?, ?)",
+                         (f"c{n}-{ago}", T0 - ago, status))
+        conn.close()
+
+    def test_unverified_moltbook_writes_of_the_last_day_are_counted_without_an_alarm(self):
+        self.moltbook_writes("verified", "posted", "needs_verification", "verification_failed")
+        self.moltbook_writes("needs_verification", "needs_verification", ago=2 * 86400)
+        self.moltbook_writes("refused")
+        out = health.check()
+        self.assertEqual((out["moltbook_unverified"], out["healthy"], out["alarm"]), (2, True, None))
+        self.assertEqual(self.inbox(), [])
+        self.assertEqual(self.gh.seen, [])
+
+    def test_moltbook_writes_at_least_nine_in_ten_verified_or_too_few_are_no_count(self):
+        self.assertIsNone(health.check()["moltbook_unverified"])
+        self.moltbook_writes("needs_verification", "verified")
+        self.assertIsNone(health.check()["moltbook_unverified"])
+        self.moltbook_writes(*["verified"] * 8, ago=60)
+        self.assertIsNone(health.check()["moltbook_unverified"])
+
     def test_no_storage_yet_is_no_cron_errors(self):
         self.assertEqual(health.check()["cron_errors"], {})
 
@@ -345,6 +574,220 @@ class HealthTest(unittest.TestCase):
         self.assertFalse(out["healthy"])
         self.assertEqual((out["rearmed"], out["cron_alarm"]), (["teeny.mail-inbound"], "raised"))
 
+    # --- a missed slot is caught up, not dropped (bin/lib/catch_up.py) -------------------
+    # 2026-11-14: a deploy at 11:31 cut off teeny.moltbook-follow's 11:30 run;
+    # the 11:45 check re-armed it and said "they run again at their next
+    # slot": the day's follows were dropped. self-improve's slot was dropped
+    # at boot by bin/seed-cron the same way, twice, and nothing said so.
+
+    def daily(self, jobs, leases=(), catch_up=()):
+        """storage.db with daily jobs `(id, name, "MM HH", next run in seconds
+        from T0)` (UTC), dead claims `(job id, seconds since renewed)` on their
+        next run, and the schedule files giving `catch_up` to the names listed."""
+        storage = self.root / "brain" / "storage.db"
+        storage.parent.mkdir(exist_ok=True)
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        pinned = ""
+        next_ms = {}
+        for job_id, name, at, offset in jobs:
+            expr = f"{at} * * *"
+            next_ms[job_id] = int((T0 + offset) * 1000)
+            body = {"name": name, "enabled": True, "next_run_ms": next_ms[job_id], "expression": expr,
+                    "schedule": {"kind": "cron", "expr": expr, "tz": "UTC"}}
+            db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job_id, json.dumps(body)))
+            short = name.removeprefix("teeny.")
+            pinned += f'[jobs.{short}]\nschedule = "{expr}"\ncommand = "bin/heartbeat"\ntz = "UTC"\n'
+            pinned += "catch_up = true\n\n" if name in catch_up else "\n"
+        for job_id, renewed_ago in leases:
+            renewed = int((T0 - renewed_ago) * 1000)
+            body = {"holder": "token", "epoch": 1, "expires_ms": renewed + 7_200_000}
+            db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                       (f"cron/{job_id}%2F{next_ms[job_id]}", renewed, json.dumps(body)))
+        db.commit()
+        db.close()
+        (self.root / "brain" / "cron.toml").write_text("")
+        (self.root / "evals").mkdir(exist_ok=True)
+        (self.root / "evals" / "cron.pinned.toml").write_text(pinned)
+
+    def cron_runs(self) -> list[dict]:
+        return [c["params"] for c in self.core.calls if c["method"] == "openhuman.cron_run"]
+
+    def test_a_stuck_job_that_catches_up_runs_now_and_the_alarm_says_so(self):
+        # follow's 11:45 run was cut off at 11:46 by a restart; post's 11:40 too.
+        self.daily([("j1", "teeny.follow", "45 11", -900), ("j2", "teeny.post", "40 11", -1200)],
+                   leases=[("j1", 840), ("j2", 840)], catch_up=("teeny.follow",))
+        self.core.replies = [ALIVE, result({"job_id": "j1", "status": "queued"})]
+        out = health.check()
+        self.assertEqual(sorted(out["rearmed"]), ["teeny.follow", "teeny.post"])
+        self.assertEqual(out["caught_up"], [{"name": "teeny.follow", "slot": "2026-11-11T11:45:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.assertEqual(out["cron_alarm"], "raised")
+        (alarm,) = self.inbox()
+        self.assertIn("caught up now: teeny.follow (its 2026-11-11T11:45:00Z slot)", alarm["text"])
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
+        self.assertNotIn("teeny.follow waits", alarm["text"])
+        body = self.gh.requests("POST", ISSUES)[0].json()["body"]
+        self.assertIn("caught up now: teeny.follow", body)
+        self.assertIn("teeny.post waits for its next slot", body)
+
+    def test_a_slot_dropped_at_boot_is_caught_up_by_the_next_check(self):
+        # Boot re-armed it to tomorrow before any check saw it stale, and the
+        # boot's own catch-up did not run (an older spine): not stale, still missed.
+        self.daily([("j1", "teeny.self-improve", "40 11", 86400 - 1200)], catch_up=("teeny.self-improve",))
+        out = health.check()
+        self.assertEqual((out["stale_crons"], out["cron_alarm"]), ([], None))
+        self.assertEqual(out["caught_up"], [{"name": "teeny.self-improve", "slot": "2026-11-11T11:40:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.at(QUARTER)
+        self.assertEqual(health.check()["caught_up"], [])
+        self.assertEqual(len(self.cron_runs()), 1)
+
+    def test_a_job_without_catch_up_still_waits_for_its_next_slot(self):
+        self.daily([("j2", "teeny.post", "40 11", -1200)], leases=[("j2", 840)])
+        out = health.check()
+        self.assertEqual((out["rearmed"], out["caught_up"]), (["teeny.post"], []))
+        self.assertEqual(self.cron_runs(), [])
+        (alarm,) = self.inbox()
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
+
+    # --- playbook drafts the model provider failed (bin/act's run logs) ----------------------
+    # 2026-11-14, 06:10 to 09:15 UTC: every draft failed with HTTP 402
+    # (insufficient_allowance), 27 failed lines across four Moltbook
+    # playbooks, about nine runs lost, and the noon post never made up.
+
+    LOST = {"ok": False, "error": "the draft turn failed", "failure": "provider", "provider": "payment",
+            "stderr": "[oh] model error: local-openai returned HTTP 402 (insufficient_allowance): see"
+                      " https://surplus.example/pay?key=sk-live-123"}
+    ANSWERED = {"ok": True, "actions": [{"action": "skip", "reason": "nothing new"}], "left_today": 1}
+
+    def act_runs(self, playbook, *runs):
+        """Lines in state/act/<playbook>/runs.jsonl: `(seconds from T0, line)`."""
+        path = self.root / "state" / "act" / playbook / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            for offset, line in runs:
+                at = health._iso(int((T0 + offset) * 1000))
+                fh.write(json.dumps({"at": at, "playbook": playbook, **line}) + "\n")
+
+    def act_alarms(self) -> list[dict]:
+        return [s for s in self.inbox() if s["kind"] == "alarm" and s["ref"].startswith("act:")]
+
+    def test_two_drafts_the_provider_failed_are_not_an_alarm(self):
+        self.act_runs("moltbook-general", (-1200, self.LOST))
+        self.act_runs("moltbook-threads", (-300, self.LOST))
+        out = health.check()
+        self.assertEqual((out["act_outage"]["runs"], out["act_alarm"]), (2, None))
+        self.assertEqual((self.act_alarms(), self.gh.seen), ([], []))
+
+    def test_one_runs_quick_retries_count_once(self):
+        # The core's cron ran each failed run three times in twenty seconds.
+        self.act_runs("moltbook-daily", (-600, self.LOST), (-594, self.LOST), (-588, self.LOST))
+        out = health.check()
+        self.assertEqual((out["act_outage"]["runs"], out["act_alarm"]), (1, None))
+
+    def test_three_drafts_in_a_row_the_provider_failed_raise_one_alarm_while_the_probe_answers(self):
+        self.act_runs("moltbook-general", (-3000, self.ANSWERED), (-1800, self.LOST))
+        self.act_runs("moltbook-threads", (-1500, self.LOST))
+        self.act_runs("moltbook-helpdesk", (-600, self.LOST))
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual(out["act_outage"], {"runs": 3, "since": "2026-11-11T11:30:00Z", "provider": "payment",
+                                             "by": {"moltbook-general": 1, "moltbook-threads": 1,
+                                                    "moltbook-helpdesk": 1}})
+        self.assertEqual((out["act_alarm"], out["act_issue"]), ("raised", 41))
+        self.assertEqual(self.state()["act_alarm"]["issue"], 41)
+        (alarm,) = self.act_alarms()
+        self.assertIn("failed the draft of your last 3 playbook run(s) in a row", alarm["text"])
+        (opened,) = self.gh.requests("POST", ISSUES)
+        sent = opened.json()
+        self.assertIn("playbook drafts fail on the model provider", sent["title"])
+        self.assertIn("moltbook-helpdesk 1", sent["body"])
+        self.assertNotIn("sk-live-123", sent["body"])
+        self.assertNotIn("https://surplus", sent["body"])
+        # The next check files nothing more.
+        self.at(QUARTER)
+        self.assertEqual(health.check()["act_alarm"], "open")
+        self.assertEqual((len(self.gh.requests("POST", ISSUES)), len(self.act_alarms())), (1, 1))
+
+    def test_two_failed_drafts_half_an_hour_apart_raise_it_too(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-300, self.LOST))
+        self.assertEqual(health.check()["act_alarm"], "raised")
+
+    def test_the_thresholds_are_settings(self):
+        self.configure(ACT_ALARM_RUNS="5", ACT_ALARM_MINUTES="90")
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        self.assertEqual(health.check()["act_alarm"], None)
+
+    def test_an_answered_draft_clears_the_alarm_and_closes_its_issue(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        health.check()
+        self.act_runs("moltbook-general", (QUARTER - 60, self.ANSWERED))
+        self.at(QUARTER)
+        out = health.check()
+        self.assertEqual((out["act_alarm"], out["act_outage"]), ("cleared", None))
+        self.assertIsNone(self.state()["act_alarm"])
+        self.assertEqual(self.gh.requests("PATCH", f"{ISSUES}/41")[0].json()["state"], "closed")
+        self.assertIn("answered again", self.inbox()[-1]["text"])
+
+    def test_a_playbooks_own_failures_are_no_provider_outage(self):
+        own = {"ok": False, "error": "input feed failed", "failure": "playbook"}
+        self.act_runs("moltbook-general", (-2400, own), (-1200, own), (-300, own))
+        out = health.check()
+        self.assertEqual((out["act_outage"], out["act_alarm"]), (None, None))
+
+    def test_while_the_model_alarm_is_open_the_same_outage_files_one_issue(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        first, second = self.outage(2)
+        self.assertEqual((second["alarm"], second["act_alarm"]), ("raised", None))
+        self.assertEqual(second["act_outage"]["runs"], 3)
+        self.assertEqual(len(self.gh.requests("POST", ISSUES)), 1)
+
+    def noon(self, lost_at=-19800):
+        """A noon post (06:30 UTC) with `make_up_hours = 6` whose run at
+        `lost_at` from T0 the provider failed."""
+        brain = self.root / "brain"
+        (brain / "playbooks").mkdir(parents=True, exist_ok=True)
+        (brain / "playbooks" / "noon.md").write_text('+++\ndescription = "x"\noutput = "post"\n+++\npost\n')
+        storage = brain / "storage.db"
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        body = {"name": "teeny.noon", "enabled": True, "next_run_ms": int((T0 + 66600) * 1000),
+                "schedule": {"kind": "cron", "expr": "30 6 * * *", "tz": "UTC"}}
+        db.execute("insert into docs (coll, id, body) values ('cron.jobs', 'j9', ?)", (json.dumps(body),))
+        run = {"job_id": "j9", "started_ms": int((T0 + lost_at) * 1000), "finished_ms": int((T0 + lost_at + 9) * 1000),
+               "status": "ok"}
+        db.execute("insert into docs (coll, id, body) values ('cron.runs', 'r1', ?)", (json.dumps(run),))
+        db.commit()
+        db.close()
+        (brain / "cron.toml").write_text('[jobs.noon]\nschedule = "30 6 * * *"\ntz = "UTC"\ncommand = "bin/act noon"\n'
+                                         "make_up_hours = 6\n")
+        (self.root / "evals").mkdir(exist_ok=True)
+        (self.root / "evals" / "cron.pinned.toml").write_text("")
+        self.act_runs("noon", (lost_at + 10, self.LOST))
+
+    def test_a_post_the_provider_lost_is_made_up_once_a_draft_is_answered_again(self):
+        os.environ["TEENY_QUIET_HOURS"] = "off"
+        self.noon()
+        self.act_runs("moltbook-general", (-600, self.ANSWERED))
+        self.core.replies = [ALIVE, result({"job_id": "j9", "status": "queued"})]
+        out = health.check()
+        self.assertEqual(out["caught_up"], [{"name": "teeny.noon", "slot": "2026-11-11T06:30:00Z",
+                                             "lost": "provider"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j9"}])
+
+    def test_a_lost_post_waits_while_the_drafts_still_fail(self):
+        os.environ["TEENY_QUIET_HOURS"] = "off"
+        self.noon()
+        self.act_runs("moltbook-general", (-600, self.LOST))
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual((out["caught_up"], self.cron_runs()), ([], []))
+
     # --- the re-screen -----------------------------------------------------------------------
 
     def outage_holds(self) -> tuple[int, int]:
@@ -399,3 +842,156 @@ class HealthTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoutingCore:
+    """A core whose model answers by name: `alive` is the set of models that
+    answer. `inference_agent_chat_simple` runs on `model_override`, else on
+    the model the core is set to; `config_update_model_settings` sets it.
+    `inference_agent_chat` (a beat of the mind) runs on the set model."""
+
+    def __init__(self, configured: str, alive: set[str]) -> None:
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+
+        self.configured, self.alive, self.calls = configured, set(alive), []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                fake.calls.append(body)
+                data = json.dumps(fake.answer(body["method"].split(".", 1)[-1], body.get("params") or {})).encode()
+                self.send_response(200)
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+
+    def answer(self, method, params):
+        if method == "config_update_model_settings":
+            self.configured = params["default_model"]
+            return result({"ok": True})
+        if method == "inference_update_model_settings":
+            return result({"ok": True})
+        if method in ("inference_agent_chat_simple", "inference_agent_chat"):
+            model = params.get("model_override") or self.configured
+            if model in self.alive:
+                return result({"response": f"ok from {model}"})
+            return {"jsonrpc": "2.0", "id": 1, "error": {"message": f"{model}: HTTP 503"}}
+        return result({})
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_port}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class FallbackRouteTest(unittest.TestCase):
+    """docs/roadmap.md, A18: two failed checks in a row and a fallback model
+    that answers move the core to it, with a diary note; the main model
+    answering again moves it back. HealthTest's scratch and helpers, not its
+    tests."""
+
+    tearDown = HealthTest.tearDown
+    configure = HealthTest.configure
+    at = HealthTest.at
+    inbox = HealthTest.inbox
+
+    def setUp(self):
+        HealthTest.setUp(self)
+        self.core.close()
+        self.core = RoutingCore("main-model", {"backup-model"})
+        self.addCleanup(self.core.close)
+        (self.root / "state" / "core.url").write_text(self.core.url + "\n")
+        (self.root / "secrets" / "spine.env").write_text(
+            "LADDER_URL=http://ladder/v1\nSPINE_MODEL=main-model\nSPINE_FALLBACK_MODEL=backup-model\n"
+            "SPINE_FALLBACK_CONTEXT_WINDOW=128000\n")
+        self.configure(DRY_RUN="1")
+
+    def check_at(self, n):
+        self.at(n * QUARTER)
+        return health.check()
+
+    def beat(self):
+        """What a beat of the mind gets: a turn on the model the core is set to."""
+        return hand.core("inference_agent_chat", {"message": "a beat", "agent_id": "teeny"}, timeout=5)
+
+    def notes(self):
+        path = self.root / "state" / "diary-notes.jsonl"
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def test_with_the_main_route_down_the_next_beat_runs_on_the_fallback(self):
+        first = self.check_at(0)
+        self.assertEqual((first["healthy"], first["route"]), (False, "main"))
+        self.assertEqual(self.core.configured, "main-model")  # one failure is not two
+        second = self.check_at(1)
+        self.assertEqual(second["route"], "fallback", second)
+        self.assertEqual(self.core.configured, "backup-model")
+        self.assertEqual(self.beat()["response"], "ok from backup-model")
+        settings = [c["params"] for c in self.core.calls if c["method"].endswith("config_update_model_settings")]
+        self.assertEqual(settings[-1]["chat_provider"], "local-openai:backup-model")
+        self.assertEqual(settings[-1]["agentic_provider"], "local-openai:backup-model")
+        windows = [c["params"] for c in self.core.calls if c["method"].endswith("inference_update_model_settings")]
+        self.assertEqual(windows[-1]["model_registry"][0]["context_window"], 128000)
+        [note] = self.notes()
+        self.assertIn("fallback model, backup-model", note["text"])
+        self.assertEqual([s["kind"] for s in self.inbox() if s["surface"] == "health"][-1], "route")
+        # The next check runs on the fallback and is healthy; main is asked
+        # too, and while it is down nothing moves.
+        third = self.check_at(2)
+        self.assertEqual((third["healthy"], third["route"]), (True, "fallback"))
+        self.assertEqual(len(self.notes()), 1)
+
+    def test_back_on_main_once_it_answers_with_a_note(self):
+        self.check_at(0)
+        self.check_at(1)
+        self.core.alive.add("main-model")
+        out = self.check_at(2)
+        self.assertEqual(out["route"], "main", out)
+        self.assertEqual(self.core.configured, "main-model")
+        self.assertEqual(self.beat()["response"], "ok from main-model")
+        self.assertIn("answers again", self.notes()[-1]["text"])
+
+    def test_no_fallback_model_no_switch(self):
+        (self.root / "secrets" / "spine.env").write_text("SPINE_MODEL=main-model\n")
+        self.check_at(0)
+        out = self.check_at(1)
+        self.assertNotIn("route", out)
+        self.assertEqual(self.core.configured, "main-model")
+        self.assertEqual(self.notes(), [])
+
+    def test_a_fallback_that_is_down_too_is_not_switched_to(self):
+        self.core.alive.clear()
+        self.check_at(0)
+        out = self.check_at(1)
+        self.assertEqual(out["route"], "main")
+        self.assertIn("did not answer either", out["route_error"])
+        self.assertEqual(self.core.configured, "main-model")
+
+    def test_after_a_reboot_back_on_main_the_failures_move_it_again(self):
+        self.check_at(0)
+        self.check_at(1)
+        self.core.configured = "main-model"  # bin/spine boots on the main model
+        self.check_at(2)
+        out = self.check_at(3)
+        self.assertEqual((out["route"], self.core.configured), ("fallback", "backup-model"))
+        self.assertEqual(len(self.notes()), 1)  # already on the fallback: no second note
+
+    def test_the_night_puts_the_notes_on_the_diary_page(self):
+        import reflect
+
+        self.check_at(0)
+        self.check_at(1)
+        text = reflect.diary_notes(T0 - 3600, T0 + 3600)
+        self.assertTrue(text.startswith("## notes\n"))
+        self.assertIn("backup-model", text)
+        self.assertIsNone(reflect.diary_notes(T0 + 3600, T0 + 7200))

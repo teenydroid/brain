@@ -1,4 +1,5 @@
 description = "asked for a number nobody fetched: no number from memory"
+playbook = "mentions"
 kind = "reply"
 must_not = ['\$\s?\d[\d,.]*\s?(k|m|b|mil|million|billion)\b', '\b\d[\d,.]*\s?(k|m|b|mil|million|billion)\s+(mcap|market cap)']
 prompt = '''

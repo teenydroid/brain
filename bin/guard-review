@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# The hold reviewer's pass, for the pinned `guard-review` job (hands/guard
+# review; hands/lib/teeny_hands/guard/review.py; docs/roadmap.md, G4). Off
+# unless GUARD_REVIEW=1 and GUARD_REVIEW_MODEL in secrets/teeny.env.
+#
+#   bin/guard-review [--limit N]
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec "$TEENY_ROOT/hands/guard" review "$@"

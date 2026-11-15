@@ -263,6 +263,15 @@ def _check_external(gh: GitHubApi, owner: str, name: str) -> None:
         )
 
 
+def check_external(gh: GitHubApi, owner: str, name: str) -> None:
+    """The external rules, for a caller that must know before it pushes
+    (an upstream build job, teeny_hands.build.upstream). Reads GitHub only;
+    `open_pr` applies them again under its lock."""
+    if is_own(owner):
+        raise hand.Refused(f"{owner}/{name} is Teeny's own, not another project", rule="owner")
+    _check_external(gh, owner, name)
+
+
 def open_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo", "head", "base", "title", "body"))
     owner, name = split_repo(body["repo"])
@@ -305,12 +314,71 @@ def open_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"opened": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": external}
 
 
+#: The commit statuses Teeny sets, and on what: only its own repositories,
+#: only a `teeny/...` context (bin/evolve's `teeny/eval`).
+STATUS_STATES = ("success", "failure", "pending", "error")
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def set_status(body: Any, gh: GitHubApi | None = None) -> Json:
+    """A commit status on SHA of an own repository: bin/evolve's `teeny/eval`
+    on a candidate's head, which the babysitter reads before it merges.
+    In-process only (no verb sets one): the description is fixed text of
+    an operator script, so the guard has nothing of a model's to read."""
+    body = _body(body, ("repo", "sha", "state", "context", "description"))
+    owner, name, repo = _own_repo(body["repo"], "sets commit statuses")
+    sha = _string(body, "sha").lower()
+    if not _SHA.match(sha):
+        raise hand.HandError("a commit status needs a full 40-character sha")
+    state = _string(body, "state")
+    if state not in STATUS_STATES:
+        raise hand.HandError(f"a commit status is one of {', '.join(STATUS_STATES)}, not {state!r}")
+    context = _string(body, "context")
+    if not context.startswith(PR_BRANCH_PREFIX):
+        raise hand.Refused(f"Teeny sets only its own {PR_BRANCH_PREFIX}... statuses, not {context}", rule="context")
+    description = _string(body, "description")[:140]
+    if hand.dry_run():
+        return {"dry_run": True, "would_set_status": repo, "sha": sha, "state": state, "context": context,
+                "description": description}
+    gh = gh or GitHubApi.from_settings()
+    # The babysitter counts a teeny/eval status only from GITHUB_USER.
+    _own_identity(gh)
+    got = gh.set_status(owner, name, sha, state, context, description)
+    _record("set-status", repo, False, sha, state=state, context=context)
+    return {"status": repo, "sha": sha, "state": state, "context": context, "id": got.get("id")}
+
+
+def rejection(owner: str, name: str, number: int, gh: GitHubApi) -> Json | None:
+    """When `number` on someone else's repository is a pull request of
+    Teeny's that was closed without being merged, the guard context that
+    says so (`{"people": [...]}`: the repository's owner); else None. A
+    comment there that names anybody is then held for a person
+    (teeny_hands.guard.gate, category `rejection`; evals/invariants.md,
+    no-reprisal)."""
+    if is_own(owner):
+        return None
+    pr = gh.pr(owner, name, number)
+    if pr is None or not isinstance(pr.get("user"), str) or not is_own(pr["user"]):
+        return None
+    if pr.get("state") != "closed" or pr.get("merged"):
+        return None
+    return {"people": [owner]}
+
+
 def comment(body: Any, gh: GitHubApi | None = None) -> Json:
     body = _body(body, ("repo", "number", "body"))
     owner, name = split_repo(body["repo"])
     repo = f"{owner}/{name}"
     number = _number(body, "number")
-    text = guarded({"body": _string(body, "body")}, "comment", {"repo": repo, "number": number})["body"]
+    context: Json = {"repo": repo, "number": number}
+    if not is_own(owner) and not hand.dry_run():
+        # A rehearsal asks GitHub nothing, so it cannot tell a rejection;
+        # a live comment always can.
+        gh = gh or GitHubApi.from_settings()
+        rejected = rejection(owner, name, number, gh)
+        if rejected is not None:
+            context["rejection"] = rejected
+    text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
     if hand.dry_run():
         return {"dry_run": True, "would_comment": repo, "number": number, "body": text}
     gh = gh or GitHubApi.from_settings()

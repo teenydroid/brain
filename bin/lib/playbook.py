@@ -5,7 +5,7 @@ check every playbook a cron names); never by a model.
     python3 bin/lib/playbook.py BRAIN NAME [HANDS_DIR]
 
 Prints {name, nudge, description, output, surface, max_per_day, inputs: [{name,
-argv}], prompt} or exits non-zero with what is wrong.
+argv, required, optional}], prompt} or exits non-zero with what is wrong.
 
     +++
     description = "the morning post"
@@ -27,7 +27,12 @@ argv}], prompt} or exits non-zero with what is wrong.
     required = true            # optional: an empty result skips the run
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those
-                               # (an "ok" key aside)
+                               # (an "ok" key aside, and a "why" a gate gives
+                               # for being shut, kept in the run's record)
+    optional = true            # optional: a hand that fails (an outage on
+                               # somebody else's site) is left out of the
+                               # inputs as {"unavailable": true} instead of
+                               # stopping the run; never with required
     +++
     the prompt: what to read in the inputs and what to draft.
 
@@ -49,21 +54,62 @@ from pathlib import Path
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 SIMPLE_OUTPUTS = ("post", "reply", "like", "none")
 # Hands bin/act never hands a draft to: the guard is called by bin/act
-# itself, and a draft must not reach the guard's own admin verbs; the
-# builder's queue belongs to the builder and bin/build-ship, not to a
-# playbook's draft (a playbook may still queue a browser task with
-# hand:tasks add).
-NOT_OUTPUTS = ("guard", "build", "image", "video")
+# itself, and a draft must not reach the guard's own admin verbs (a playbook
+# may still queue a browser task with hand:tasks add). The keychain is made
+# and read by code only (the operator's desk and the browser's fill).
+NOT_OUTPUTS = ("guard", "image", "video", "keychain")
+# Hands a draft reaches only through the verbs named here. The builder's
+# queue (next, done, desk, ship) belongs to the builder and bin/build-ship; a
+# draft may only propose a change to Teeny itself (`self`), which files a
+# pending request that pick-request, the builder, the frozen-path check and
+# the operator's merge all still stand between and main, or keep the day's
+# build idea (`idea`). The goal ledger
+# takes a proposal only: its checks run from the pinned goals-check job.
+VERB_OUTPUTS = {
+    # `upstream` names one gap of docs/oh-gaps.md; the build hand holds every
+    # rule after it (BUILD_UPSTREAM, the external PR cap, the policy, the fork).
+    # `idea` keeps the one build idea of the day (build/ideas.py): a note in
+    # the ledger the next daily job is made from, never a job claimed here.
+    "build": ("self", "upstream", "idea"),
+    "goals": ("propose",),
+    # The verbs the mind may also reach (docs/roadmap.md, A3; bin/lib/tick.py
+    # MIND_CAPS): a playbook drafts an issue, a comment, a browser task or a
+    # mail, never a push, a repository, a fork or a pull request of its own.
+    "gh": ("open-issue", "comment"),
+    "tasks": ("add",),
+    "mail": ("reply", "send"),
+    # A fence proposal is an issue built and capped by the hand (G3); the
+    # ladder's report and fences are reads.
+    "ladder": ("propose",),
+    # A pin bump is asked for, once per release that closes a gap (G9).
+    "upstream": ("propose",),
+}
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")
 # Hands that hold money: a draft reaches them only through the verbs named
-# here (none for the wallet: a model never drafts a payment), and an input
-# runs only their read verbs.
-MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",)}
+# here (none for the wallet: a model never drafts a payment or a buy; none for
+# hands/x402, whose search, contents and crawl pay from the wallet and whose
+# fund converts it; none for hands/surplus, whose sweep bridges and pays), and
+# an input runs only their read verbs.
+MONEY_OUTPUTS = {"wallet": (), "bounty": ("pick",), "x402": (), "surplus": ()}
 MONEY_READS = {
-    "wallet": ("address", "balance", "ledger", "costs", "receipt", "receipts", "caps"),
+    "wallet": ("address", "balance", "tiny", "ledger", "costs", "receipt", "receipts", "caps"),
     "bounty": ("list", "get", "announcements"),
+    "x402": ("log",),
+    "surplus": ("status", "log"),
 }
+#: The verbs that move money, named so a change to MONEY_OUTPUTS above can
+#: never let one through: `pay`, `swap`, `bridge`, `x402` (fetch), and
+#: `buy-tiny`, which only the pinned tiny-buy job runs (bin/tiny-buy); and
+#: hands/x402's paid requests and its top-up (the pinned x402-fund job's),
+#: and hands/surplus's sweep (the pinned surplus-sweep job's).
+#: The mind reaches `search` and `contents` only through its capped
+#: `web_search` and `read_page` intents (bin/lib/tick.py).
+NEVER_OUTPUTS = {"wallet": ("pay", "swap", "bridge", "x402", "buy-tiny"), "bounty": ("pay", "pay-due"),
+                 "x402": ("search", "contents", "crawl", "fund"), "surplus": ("sweep",)}
+#: Hands that hold secrets: an input runs only these verbs of theirs, so no
+#: playbook (which Teeny writes) can pull a password into a model's prompt.
+SECRET_READS = {"keychain": ("list",)}
 MAX_INPUTS = 8
 
 
@@ -82,6 +128,21 @@ def guard_surfaces() -> tuple[str, ...]:
     return tuple(SURFACES)
 
 
+#: An input that runs a data job Teeny wrote (docs/roadmap.md, A17;
+#: bin/lib/datajob.py): `datajob:<name>` runs brain/datajobs/<name>.py in its
+#: jail, fed the inputs before it, and its JSON is the input.
+DATAJOB = "datajob:"
+
+
+def _datajob_argv(run: str, where: str, brain: Path) -> list[str]:
+    name = run[len(DATAJOB):]
+    if not NAME.fullmatch(name):
+        raise PlaybookError(f"{where}: a data job input is datajob:<name>, got {run!r}")
+    if not (brain / "datajobs" / f"{name}.py").is_file():
+        raise PlaybookError(f"{where}: no data job datajobs/{name}.py")
+    return ["datajob", name]
+
+
 def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
     try:
         argv = shlex.split(run)
@@ -91,7 +152,7 @@ def _hand_argv(run: str, where: str, hands_dir: Path | None) -> list[str]:
         raise PlaybookError(f"{where}: an input runs a hand (hands/<name> ...), got {run!r}")
     if hands_dir is not None and not (hands_dir / argv[0].split("/", 1)[1]).is_file():
         raise PlaybookError(f"{where}: no hand {argv[0]!r}")
-    reads = MONEY_READS.get(argv[0].split("/", 1)[1])
+    reads = MONEY_READS.get(argv[0].split("/", 1)[1]) or SECRET_READS.get(argv[0].split("/", 1)[1])
     if reads is not None and (len(argv) < 2 or argv[1] not in reads):
         raise PlaybookError(f"{where}: an input runs only a read verb of {argv[0]} ({', '.join(reads)})")
     return argv
@@ -132,6 +193,11 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
             raise PlaybookError(f"{path}: output hand:<name> <verb>, got {output!r}")
         if argv[0] in NOT_OUTPUTS:
             raise PlaybookError(f"{path}: hands/{argv[0]} cannot be an output")
+        if argv[0] in VERB_OUTPUTS and argv[1] not in VERB_OUTPUTS[argv[0]]:
+            allowed = ", ".join(VERB_OUTPUTS[argv[0]])
+            raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
+        if argv[1] in NEVER_OUTPUTS.get(argv[0], ()):
+            raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} moves money and is never a playbook's output")
         if argv[0] in MONEY_OUTPUTS and argv[1] not in MONEY_OUTPUTS[argv[0]]:
             allowed = ", ".join(MONEY_OUTPUTS[argv[0]]) or "nothing"
             raise PlaybookError(f"{path}: hands/{argv[0]} {argv[1]} cannot be an output (it may take: {allowed})")
@@ -155,18 +221,25 @@ def load(brain: Path, name: str, hands_dir: Path | None = None) -> dict:
     parsed = []
     for i, entry in enumerate(inputs):
         where = f"{path}: inputs[{i}]"
-        if not isinstance(entry, dict) or set(entry) - {"name", "run", "required"} or not isinstance(entry.get("run"), str):
-            raise PlaybookError(f"{where}: an input is {{name, run, required?}}")
+        if (not isinstance(entry, dict) or set(entry) - {"name", "run", "required", "optional"}
+                or not isinstance(entry.get("run"), str)):
+            raise PlaybookError(f"{where}: an input is {{name, run, required?, optional?}}")
         if not isinstance(entry.get("required", False), bool):
             raise PlaybookError(f"{where}: required is true or false")
+        if not isinstance(entry.get("optional", False), bool):
+            raise PlaybookError(f"{where}: optional is true or false")
+        if entry.get("optional") and entry.get("required"):
+            raise PlaybookError(f"{where}: an input is optional or required, not both")
         input_name = entry.get("name", f"input-{i}")
         if not isinstance(input_name, str) or not NAME.fullmatch(input_name):
             raise PlaybookError(f"{where}: name must be lowercase letters, digits and dashes")
         parsed.append(
             {
                 "name": input_name,
-                "argv": _hand_argv(entry["run"], where, hands_dir),
+                "argv": _datajob_argv(entry["run"], where, brain) if entry["run"].startswith(DATAJOB)
+                else _hand_argv(entry["run"], where, hands_dir),
                 "required": entry.get("required", False),
+                "optional": entry.get("optional", False),
             }
         )
 

@@ -1,0 +1,268 @@
+# Roadmap: agentic, popular, self-sustaining, self-governing
+
+The work list for Teeny from here. [`../DIRECTIVE.md`](../DIRECTIVE.md) says
+what Teeny has to prove before we call it alive. This page says what to build
+and switch on to get those proofs, in an order an agent can work through.
+
+It rests on three things: an audit of the code against `DIRECTIVE.md` on
+2026-11-12, and the two research pages written the same day,
+[`research/agents-and-agi-2026.md`](research/agents-and-agi-2026.md) and
+[`research/self-governance.md`](research/self-governance.md).
+
+## Where Teeny stands
+
+**The code is ahead of the proof.** Most of what `DIRECTIVE.md` asks for
+exists in the repository. Very little of it has run live for long enough to
+tick an item.
+
+| Level | Unticked items | Code built | Code partly built | Not started |
+|---|---|---|---|---|
+| 0 wired up | 3 | 1 | 1 | 1 |
+| 1 senses | 5 | 1 | 2 | 2 |
+| 2 voice | 7 | 5 | 2 | 0 |
+| 3 hands | 21 | 9 | 8 | 4 |
+| 4 memory | 4 | 1 | 2 | 1 |
+| 5 self-evolution | 7 | 4 | 1 | 2 |
+| 6 the human leaves | 4 | 0 | 2 | 2 |
+
+The counts are of the items as they stood at the audit on 2026-11-12. This
+page's tracks then added nine more to `DIRECTIVE.md` (people as the audience,
+saying what it is, selling, public accounts, paying its own bills, and the
+four governance items in Level 6).
+
+**Build status.** Every build item in Tracks A, P, S and G landed on `main`
+on 2026-11-12, and each row below says what was built and where it differs
+from the first spec. Three things are left: A16 (traces, which waits on
+upstream OpenHuman), the repository-settings half of G5, and P8, which is
+the operator's list. Everything that posts or moves money shipped off. What
+remains is Track 0: switching each thing on and getting its proof.
+
+Three limits the build ran into, each the operator's call:
+
+- `brain/cron.toml` is at its 24-job cap. The weekly vote (P5), the upstream
+  picker (A8), fence proposals (G3) and pin bumps (G9) have a playbook and no
+  job, and the `episode` job (A13) is pinned and disabled for the same reason.
+- The autonomy ladder (G2) makes the doctor refuse a boot when
+  `EVOLVE_AUTO_PROMOTE`, `BABYSIT_SELF_MERGE`, `TINY_BUY` or `VPS_PAY_BILLS`
+  is on above its level in `evals/autonomy.toml`. Raise the level there
+  first.
+- `BUILD_UPSTREAM`, `DEPLOY`, `X402_ENDPOINT` and `ACCOUNTS_PUBLISH` aren't on
+  the ladder yet.
+
+So there are two kinds of work, and they need different hands:
+
+- **Proof work** is the operator's. It means switching on what is built,
+  watching it, and ticking the item when the ledger shows the proof. Track 0
+  lists it. An agent can prepare it (rehearse a playbook under `DRY_RUN=1`,
+  write the check that counts the proof) but doesn't flip a live switch.
+- **Build work** is what an agent can take. Tracks A, P, S and G list it,
+  one pull request per item.
+
+The whole evolve loop (`bin/evolve`, the lab spine, promotion, rollback, the
+probes) landed on 2026-11-12. Eight generations ran as a tournament of four
+candidates for one pull request, about three and a half hours each, and none
+shipped. On 2026-11-15 the operator reshaped it ([`evolve.md`](evolve.md),
+"Why it changed"): each learning Teeny's reflection writes into
+`brain/MEMORY.md` becomes one small change and one pull request, checked by
+a targeted eval, and the babysitter (`hands/babysit`) merges it with no
+person's approval when its audit, the checks and `teeny/eval` all pass, then
+deploys it (the `self-merge` rung, L5). The first generation merged and
+deployed with no person is now the most valuable single proof on this page,
+and it is a first nobody else has published.
+
+## The four goals
+
+| Goal | It means | How it is measured |
+|---|---|---|
+| **Agentic** | Teeny notices things, decides, acts and checks its own work, without a person starting the turn | `needs_human` rate; work finished without a human commit; goals solved by frozen checks (ANNECS) |
+| **Popular** | People follow it and talk to it | The attention component of W, counting humans; four rising weeks in `hands/stats` |
+| **Self-sustaining** | It earns more than it costs to run, and pays its own bills | `hands/wallet costs` against inflows that didn't come from the team; a server paid from its own wallet |
+| **Self-governing** | It follows written rules, earns each freedom with evidence, reports on itself, and asks for changes to its fences in the open | The autonomy ladder (G2); a week with no human approval; a weekly audit page |
+
+Self-governing doesn't mean no operator. Every working structure found in
+the research ends in a named person. The operator keeps the off switch and
+the fences in `DIRECTIVE.md`. What changes is how often the operator has to
+act, and what evidence lets them act less.
+
+## Rules for an agent working this list
+
+1. Take one item. One item is one pull request.
+2. Run `worktree <slug>` from an up-to-date `main` and work there.
+3. **Check the frozen column.** "Operator" means the item touches a path in
+   `evals/frozen.txt`. Those pull requests are opened as the operator, never
+   as `teenydroid`, and say so in the body. An item marked "Teeny" must stay
+   inside what [`evolve.md`](evolve.md) lets Teeny change, so that Teeny's
+   own builder could have written it.
+4. Every item ships with tests beside the existing ones (`hands/tests/`,
+   `bin/test/`), offline, with the core and the network stubbed.
+5. Anything that acts in public or spends money ships **off**: a cron job
+   with `enabled = false`, or a flag that defaults to off. Say in the pull
+   request what the operator has to set to turn it on.
+6. Never loosen a fence, never tick `DIRECTIVE.md` without a live proof, and
+   never put text from a held-out task, a guard hold or a secret in a
+   prompt, a log or a pull request.
+7. Update the spec in the same pull request: [`hands.md`](hands.md) for a
+   hand, [`evolve.md`](evolve.md) for the loop, [`architecture.md`](architecture.md)
+   for the mind, and the item's row here.
+
+## Track 0: switch on and prove (operator)
+
+In order. Each step unlocks the proofs after it.
+
+| # | Step | What it proves in DIRECTIVE |
+|---|---|---|
+| 0.1 | Run current `main` on the box and reboot, so the new pinned and brain jobs are seeded (`world-snapshot`, `goals-check`, `goals`, `news-scan`, `tiny-buy`, `evolve`, `evolve-credit`, `evolve-watch`) | Starts the W and J history everything else is judged by |
+| 0.2 | Fix the nightly `bin/reflect` run and confirm a diary page is written | L4 nightly reflection; the input to the public diary (A14) |
+| 0.3 | Get one build job to ship: read why the recent ones failed, fix, and watch one through to a pull request | L3 builder; L3 "builds its own hands"; the `self-improve` path |
+| 0.4 | Queue browser tasks daily and read the results for a week | L3 "headless browsing proven"; L1 "reads the web" |
+| 0.5 | Make the `frozen` and `scripts` checks required on `main` (G5), then let Teeny open a pull request that touches `bin/` and watch CI refuse it. **Required** since 2026-11-15 (the ruleset "main: frozen gate", no bypass); the refused pull request is still to come | L5 frozen-path gate |
+| 0.6 | `EVOLVE=1` with `EVOLVE_AUTO_PROMOTE=0`: the first real lab boot and the first generation pull request. **Done**: lab boots in gens 6 to 8, the first pull request [#288](https://github.com/teenydroid/brain/pull/288) in gen 9 | L5 `bin/evolve`, lab spine |
+| 0.7 | Write the held-out tasks into `secrets/heldout/` | Needed before `EVOLVE_AUTO_PROMOTE`; the targeted eval behind self-merge does not use them |
+| 0.8 | Set up the wallet on mainnet with small caps, and add the bills | L3 wallet on mainnet; cost of living |
+| 0.9 | Turn on the serials after a rehearsal each: `growth`, `cost-of-living`, `shiplog`, `milestone`, then `moltbook-digest` after a clean week | L2 audience; L3 cost of living |
+| 0.10 | X account: the Automated label, a bio line naming the operator, a link to a human account, and approval for AI replies (P1) | Keeps the account alive |
+| 0.11 | `BABYSIT=1`, `BABYSIT_MERGE=1`, `BABYSIT_SELF_MERGE=1`: the babysitter merges Teeny's evolve pull requests that pass its audit, the checks and `teeny/eval`, and deploys them. **On** since 2026-11-15, by the operator's decision, in place of waiting for five human-merged generations. `EVOLVE_AUTO_PROMOTE` stays off | L5 merging with no human, and rollback |
+| 0.12 | `TINY_BUY=1` once there are inflows that didn't come from the team | L3 "moves the lore goals" |
+
+Things an agent can do for Track 0 without touching the box: the
+`bin/proofs` report reads the ledgers and says, for each `DIRECTIVE.md`
+item with a countable proof, how far along it is (A0 below, built). Run
+`bin/proofs --text` on the box before ticking an item.
+
+## Track A: agentic
+
+What Teeny can't yet do by itself. The mind has intents for posting,
+replying, mail, Telegram, a GitHub comment and the wallet
+(`bin/lib/tick.py`). It has no way to open an issue, queue a browser task,
+start a mail or look at its own failures, so it can see a problem and not
+act on it.
+
+| ID | Item | Where | Frozen | Done when | DIRECTIVE |
+|---|---|---|---|---|---|
+| A0 | **`bin/proofs`**: one report of how far each countable proof has got (replies in the ledger, weeks of rising stats, days of diary, `ok` tasks, shipped requests, generations). **Built**: 24 proofs counted, the rest named under `not_counted` with what they wait for | new `bin/proofs`, `bin/lib/proofs.py`, `bin/test/proofs_test.sh` | Operator | The report runs offline on fixture ledgers and names every item it can count | all |
+| A1 | **GitHub notifications as stimuli**: issues, review comments, mentions and stars on Teeny's repos reach the inbox through `hands/guard inbound`. **Built**: `hands/gh ingest`, the pinned `gh-inbound` job, off until `GH_INBOUND=1` | `hands/lib/teeny_hands/gh/` (a `notifications` read), `hands/lib/teeny_hands/stimuli.py`, a pinned ingest job | Operator | A fixture review comment becomes a `gh` stimulus, once, and a hostile one is held | L1 GitHub notifications; L3 "maintains what it shipped" |
+| A2 | **Its own posts fed back, and a near-duplicate check**: the last N posts per surface in the mind's prompt, and a guard check that refuses a draft too close to a recent one and counts refusals. **Built**: the refusal is an X posting rule (`rule: repeat`) using the guard's measure (`teeny_hands.guard.repeats`), counted by `hands/guard repeats`; the posts ride last in every speaking agent's prompt, rebuilt at boot and at each reflection. Moltbook keeps only titles, so only X is checked | `bin/lib/prompts.py`, `hands/lib/teeny_hands/guard/`, `hands/lib/teeny_hands/x/posting_rules.py` | Operator | A repeat of yesterday's post is refused; `hands/guard` reports the 30-day count | L1 "never repeats itself" |
+| A3 | **Three new mind intents**: `open_issue` (own repos, through `hands/gh open-issue` and the guard), `queue_task` (a browser task with `--source teeny`, allowed websites only), `start_mail` (known contacts only). **Built**, off until the operator sets `MIND_ISSUES_PER_DAY`, `MIND_TASKS_PER_DAY`, `MIND_MAILS_PER_DAY`; playbooks are held to the same verbs of `gh`, `tasks` and `mail` | `bin/lib/tick.py`, `bin/lib/playbook.py` (`VERB_OUTPUTS`) | Operator | Each intent acts through its hand, is refused outside its limits, and has a daily cap | L3 "opens issues", "writes its own browser tasks"; L2 "starts mail" |
+| A4 | **Its own health as stimuli**: yesterday's cost, failed cron and `bin/act` runs, doctor warnings and guard holds as counts by category (never their text). **Built**: `bin/health daily`, the pinned `health-daily` job (00:40 UTC), one `health · daily` stimulus a day; failed beats of the mind are counted too | `bin/health`, `bin/lib/health.py` | Operator | A failed job yesterday produces one `health` stimulus; with A3, Teeny can file the issue | L1 "notices its own health" |
+| A5 | **On-chain senses**: a deposit watcher that files a stimulus per inflow, and a daily $TINY balance and holder-count read. **Built**: `hands/wallet watch` over the inflow ledger (S1), the pinned `wallet-watch` (every 15 minutes) and `wallet-daily` jobs, off until `WALLET_WATCH=1`; a memo reaches the mind only through the inbound guard. Price is not read: there is no price source that is not a market feed Teeny could be shown a wrong number by | `hands/lib/teeny_hands/wallet/`, a pinned job | Operator | A fixture deposit becomes one stimulus with the sender and amount; nothing is signed | L1 on-chain senses |
+| A6 | **A separate check on "done"**: `hands/build ship` trusts its own test run and never the builder's report, a failed job tells the mind why, and the builder has a `gave_up` report that is never penalised | `hands/lib/teeny_hands/build/`, `brain/agents/builder*.md` | Operator (hand), Teeny (prompt) | A builder report of success with failing tests is recorded as failed, with the test output. **Built** (hand): `build/verify.py` runs the job's tests in a Landlock jail (folder only, no TCP) before `ship`; `gave_up` status; ship failures reach the mind. Self jobs are left to CI on their PR. The builder's prompt (Teeny's) is unchanged: the report shape that travels with each job says it | L3 "ships one thing a week" |
+| A7 | **Babysit its own PRs**: read CI status and review comments through `hands/gh`, and a build kind `fix` that puts a failing PR back on the builder's desk | `hands/lib/teeny_hands/gh/`, `hands/lib/teeny_hands/build/` | Operator | A fixture PR with a red check becomes a `fix` job on its own branch; at most 3 attempts per PR. **Built**, off until `BUILD_BABYSIT=1`: `hands/gh checks`, `hands/build babysit`, the `fix` kind. Review comments reach the mind (A1), never the builder | L3 "babysits its own PRs" |
+| A8 | **Upstream contributions**: a build kind `upstream` that takes one gap from [`oh-gaps.md`](oh-gaps.md), works in a fork, runs `hands/gh contributing`, and opens one disclosed PR under the daily cap | `hands/lib/teeny_hands/build/`, `brain/playbooks/` (a weekly picker) | Operator (hand), Teeny (playbook) | A dry run produces a branch and a PR body with the disclosure and no push. **Built**, off until `BUILD_UPSTREAM=1`: `hands/build upstream` and `gaps`, the `upstream` kind (`build/upstream.py`): a clone of `tinyhumansai/openhuman`, the contributing policy read before any work, the external rules before any push, the branch pushed only to Teeny's fork, one PR through `gh open-pr` (disclosure, daily cap). The picker is `brain/playbooks/upstream-pick.md`; it has no cron job, because `brain/cron.toml` is at its 24-job limit | L3 "contributes upstream", "outside open source" |
+| A9 | **People records**: one record per regular (who, what they asked, what Teeny promised, when), read into replies to that person, and a promise that comes due becomes a follow-up | new `hands/people` (Teeny's to write), `bin/lib/tick.py` to read it | Teeny (hand), Operator (prompt wiring) | A promise recorded a week ago raises a follow-up today. **Built**: `hands/people` (records from the inbox and requests, promises with a follow-up), the `promise` and `kept` intents, a `## people in this batch` block with the records of that beat's people only, and the `L2.remembers` proof | L2 "remembers people" |
+| A10 | **Knows its own history**: last week's posts, PRs, payments and generations as a digest the mind can ask for, and an eval task "what did you do last week" scored against the ledgers | `bin/lib/prompts.py`, `evals/tasks/`, `evals/probes/memory.toml` | Operator | The eval task fails a draft that invents an event. **Built**: "what you did last week" in every speaking prompt, counted from the ledgers (`bin/lib/prompts.py`), and the task `reply-last-week`. Generations are not in the digest yet (the archive keeps no time per entry the digest can trust); `evals/probes/memory.toml` is unchanged | L4 "knows its own history" |
+| A11 | **A deploy hand**: publish a static site from a shipped build to a subdomain of Teeny's site, with a size limit, static files only and no server code. **Built**: `hands/deploy publish JOB` to `DEPLOY_ROOT/<slug>/`, the wildcard vhost `deploy/nginx/sites.teeny.enamakel.com.conf` (files only, a strict CSP), off until `DEPLOY=1`; the vhost and its wildcard certificate are the operator's to install. Publishing is not yet a playbook output | new `hands/deploy`, `deploy/` vhost | Operator | A fixture build is published to a temp root and the URL recorded; anything but static files is refused | L3 "deploys what it builds" |
+| A12 | **An accounts ledger**: each account Teeny holds (site, handle, why, when), written by the browser operator on sign-up, on allowed websites only | `hands/lib/teeny_hands/tasks/` | Operator | A finished sign-up task writes one row with its reason. **Built**: a `signup` task that ends `ok` must name `{handle}` (nothing else, so no password lands), and `done` writes one `accounts` row (site, handle, why from the goal, when); `hands/tasks accounts` lists them; `bin/proofs` counts `L3.signup` | L3 "signs itself up" |
+| A13 | **Lore that moves on real events**: an `episode` playbook triggered by a proof event (a merged PR, a paid bounty, a generation), and a chronicle page for every generation, human-merged ones included | `brain/playbooks/`, `brain/narrative/`, `bin/lib/evolve.py` (the chronicle on a human merge) | Teeny (playbook), Operator (evolve) | A merged generation writes `brain/narrative/chronicle/gen-<n>.md` whoever merged it. **Built**: `bin/evolve credit` writes the page into the live brain when it first sees a person's merge (a promotion already carries it); `hands/lore events` lists the day's proof events; `brain/playbooks/episode.md` posts one episode, from the pinned `episode` job, off until the operator sets `enabled = true` (brain/cron.toml is at its 24-job limit) | L2 "runs the lore"; L5 chronicle |
+| A14 | **The public diary**: `bin/receipts` also publishes each day's diary page to `teenydroid/diary`, through the guard | `bin/receipts`, `bin/lib/receipts.py` | Operator | A day's page lands in `days/` in a fixture repo, hash-chained like the receipts. **Built**, off until `DIARY_PUBLISH=1`: `bin/lib/diary_days.py`, called once from `bin/lib/receipts.py`; the secret gate, then the guard (surface github, judge on), only the guard's text published; `days/chain.jsonl` and `days/head.json`; held or secret pages withheld for good. **The memory page too**, off until `MEMORY_PUBLISH=1`: each dream's snapshot of MEMORY.md (`bin/dream`) as `memory/MEMORY.md`, one commit per snapshot, redacted by code then the same gate and guard, chained in `memory/chain.jsonl` (`bin/lib/diary_memory.py`) | L4 public diary |
+| A15 | **Weekly goals in the diary**: the `goals` playbook writes the week's goals and last week's results as a diary page | `brain/playbooks/goals.md`, `bin/lib/reflect.py` | Teeny (playbook), Operator (reflect) | A weekly page lists each goal with the verdict from `hands/goals`. **Built**: on the goals day (Monday, `GOALS_WEEKDAY`), `bin/reflect`'s diary page ends with "the week's goals": those set in the seven days, the verdicts the frozen checks reached in them, and those still running, written from the ledger by code (`goals_week`), with or without a diary that night; `brain/playbooks/goals.md` says so. With A14 the page can be published | L4 "sets its own goals" |
+| A16 | **Traces**: Langfuse export for every turn, upstream (G5) or a local shipper that reads the NDJSON trace file | `vendor/openhuman` or a new pinned job | Operator | A turn in a test core appears as one trace | L0 tracing |
+| A17 | **Scheduled data jobs**: a sanctioned way for Teeny to run a small read-only script it wrote on a schedule, in the builder's sandbox with no network or with allowed hosts only, feeding a playbook input | `bin/lib/cron_policy.py`, `bin/act` | Operator | A Teeny-written job runs sandboxed and its output is a playbook input; a job that tries the network is killed. **Built**: `brain/datajobs/<name>.py` as a playbook input `datajob:<name>` (`bin/lib/playbook.py`, `bin/act`), run by `bin/lib/datajob.py` on its playbook's schedule. It gets the earlier inputs on stdin and returns JSON. The Landlock jail from `build/verify.py` (now `verify.confine`) gives it a scratch folder only, and a seccomp filter kills it on any inet socket. No allowed-hosts mode: no network at all. `cron_policy.py` is unchanged, since the job rides its playbook's cron entry | L3 "runs scheduled data jobs" |
+| A18 | **A fallback model**: a second model route the spine switches to when the health check fails twice, and a note in the diary when it did | `spine/`, `bin/health` | Operator | With the main route stubbed down, the next beat runs on the fallback. **Built**, off until `SPINE_FALLBACK_MODEL` is set in `secrets/spine.env`: `bin/health` (`reroute`) moves every workload of the running core to the fallback after two failed checks, when the fallback answers its own probe (`model_override`), and back when the main model answers. Each move is a `health · route` stimulus and a line in the night's diary (`state/diary-notes.jsonl`, `reflect.diary_notes`). A second model on the **same endpoint** only: `bin/spine` pins the endpoint in the core's environment (`LOCAL_OPENAI_URL`), so a fallback endpoint needs the URL set through `config_update_local_ai_settings` instead (the core takes `base_url` there). That is a change to the boot path, not built here | L0 "notices when its own brain is dead" |
+| A19 | **Ears beyond the front page**: who is talking about Teeny, Hacker News on its standing topics, and a couple of free sources beside it, heard twice a day and kept so the loops that make things can read it back. **Built**: `hands/listen` (`scan`, `digest`; Hacker News through `hn search --days`, Lobsters, GitHub's repository search, arXiv; Reddit answers 403 without a key and is left out), screened by the guard's lexical screen, kept in `listen_heard`; a thread about Teeny is followed through `hn watch`. `world-scan` listens at 13:05 and 22:05 IST and feeds the posts rather than taking an X slot; `morning`, `take`, `build-idea` and the Moltbook posts read `listen digest`. Paid search stays the mind's (`web_search`), asked for in each listen and held to `MIND_SEARCHES_PER_DAY`, which is 0 on the box until the operator sets it | `hands/lib/teeny_hands/listen/`, `brain/playbooks/world-scan.md` | Operator (hand), Teeny (playbooks) | A post or a build idea that cites something only `listen` heard; `listen digest` read by the evolve loop as outside evidence | L1 "reads the web on its own schedule" |
+
+**Order.** A0, then A3 and A4 together (they let Teeny act on what it
+sees), A1, A2, A6. A7 and A8 need a build that ships (Track 0.3). A9 and A15
+are Teeny's to write and make good first `self-improve` targets.
+
+## Track P: popular
+
+The 2026 evidence: novelty no longer brings an audience, agents talking to
+agents isn't one, volume gets accounts removed, and one bad public post
+defines a project ([`research/self-governance.md`](research/self-governance.md) §6).
+
+| ID | Item | Where | Frozen | Done when |
+|---|---|---|---|---|
+| P1 | **Platform compliance check**: a doctor check that the X profile carries the Automated label and a bio line naming the operator, and a review of `hands/x like` against X's current automation rules | `bin/doctor`, `hands/lib/teeny_hands/x/` | Operator | The doctor warns when the bio lacks the disclosure line. **Built**: the `x profile` doctor check (a warning, never a failure) reads the bio `hands/stats snapshot` keeps in `x_profile`, never X, and wants "automated" and `X_OPERATOR_HANDLE`. The label is not in the API, so it stays the operator's to confirm. `hands/x like` reviewed against X's rules (likes "must be directly initiated by the authenticated user"; every caller here is a model): off unless `X_LIKES=1` |
+| P2 | **Count people in W**: the attention component weighs replies, quotes and follows from human accounts; agent-only surfaces count at a lower weight; replies Teeny got from accounts it never engaged count most | `hands/lib/teeny_hands/world/` | Operator | W's report splits human and agent reach, and a week of Moltbook karma alone moves attention less than a week of human replies. **Built**: attention version 2, people-weighted by a rule per surface (human, agent, unknown; never a guess), a person who wrote first counting most; the step from version 1 counts zero, and `v1_value` keeps the old series comparable |
+| P3 | **A firsts calendar**: `brain/narrative/FIRSTS.md`, the checkable firsts from [`research/attention-and-mindshare.md`](research/attention-and-mindshare.md) with the proof each needs; the `milestone` playbook posts one only when `bin/proofs` (A0) confirms it | `brain/narrative/`, `brain/playbooks/milestone.md`, `hands/firsts` | Teeny (calendar, playbook), Operator (`hands/firsts`) | The playbook skips a first whose proof isn't in the ledger. **Built**: `FIRSTS.md` (13 firsts, each with its `bin/proofs` id); `hands/firsts due` offers only met, unannounced firsts and round numbers crossed this week; `announce` checks again and refuses any number the ledger doesn't hold; `milestone` posts through it, off. The gate is a hand and frozen, not left to the playbook: a check Teeny could edit would not stop a fake milestone |
+| P4 | **The rejection rule**: an invariant ("Teeny never answers a rejection or an insult by going after a person"), an eval task for a closed PR and one for a hostile maintainer, and a guard category that holds any draft naming a person after a rejection | `evals/invariants.md`, `evals/tasks/`, `hands/lib/teeny_hands/guard/` | Operator | A draft that criticises the maintainer fails the hard check. **Built**: invariant `no-reprisal`; tasks `reply-pr-closed` and `reply-hostile-maintainer`; guard category `rejection`, set by `hands/gh comment` on Teeny's own closed, unmerged PRs elsewhere |
+| P5 | **People steer it**: a weekly advisory vote on what Teeny builds next, taken from replies or a poll, counted by code, the result fed to `pick-request`. Advisory only: it never touches the wallet or a fence | `hands/requests`, `brain/playbooks/` | Operator (hand), Teeny (playbook) | The winning option becomes the next picked request, and one account counts once. **Built**: `hands/requests vote` and `vote-open` (`teeny_hands/votes.py`): replies to the vote post counted by code, an account's last vote counts once; `pick` refuses anything but a pending winner; the `vote` playbook and a `pick-request` input. No cron job yet: `brain/cron.toml` is at its 24-job limit |
+| P6 | **A public dashboard**: W and J, generations with their verdicts, costs against income, and the receipts, on Teeny's site from the published ledger | `web/`, `bin/lib/receipts.py` | Operator (the publisher), No (the page) | The page builds from a fixture ledger and shows no number that isn't in it. **Built**: `bin/receipts` publishes `world/latest.json` (W, J, the reach split) from the frozen report; `/dashboard` shows it with the stats and receipts, and a test fails on any number not in the fixture. Generations with verdicts and costs against income have no published ledger yet (S1, A13), so their cards say "not published yet" |
+| P7 | **Serial formats**: rehearse and tune `growth`, `cost-of-living`, `shiplog`; add an evolution "season" (one lore episode per generation, A13) | `brain/playbooks/` | Teeny | Each passes `bin/act --check` and an eval task with real numbers. **Built** (rehearsed offline; each stays `enabled = false`): `growth`, `cost-of-living`, `shiplog` and `milestone` pass `bin/act --check`; eval tasks `growth-diary-numbers` (new: W with the people split, only quoted numbers, unknown never called people), `cost-of-living-real-numbers`, `shiplog-numbers` and `milestone-first` (new); `growth` now reports who the attention came from. The evolution season waits for A13 |
+| P8 | **Security before reach**: the operator list at the end of [`research/autonomous-agents-in-the-wild.md`](research/autonomous-agents-in-the-wild.md) (hardware keys, the published contract address, handles claimed before a rename) | operator | n/a | Done before any stunt |
+| P9 | **Findable by other agents**: an A2A agent card and an ERC-8004 entry that point at Teeny's site and name the operator. For discovery only; no reputation claims | `web/public/` | No | The card validates against the A2A schema. **Built**: `web/public/.well-known/agent-card.json` (A2A; empty `supportedInterfaces`, since no endpoint is served) and `agent-registration.json` (ERC-8004 registration-v1; no registrations, no `supportedTrust`), both naming TinyHumans and @senamakel; checked by `web/src/lib/discovery.test.ts` against each spec's required fields (not the official JSON schema, which is not vendored). Registering on chain is the operator's |
+| P10 | **A voice strangers follow**: replies that stop reaching for the same bit, and posts that carry what Teeny heard. The three X slots (`morning`, `take`, `show`) and the cap in code came with #231. **Built** here: the slots and the Moltbook posts read `listen digest`; a turn to someone answered three times in 24 hours says a tag can go unanswered (`bin/lib/tick.py`, `REPLIES_PER_PERSON_DAY`); the prompts keep setup talk backstage | `brain/playbooks/`, `brain/agents/teeny.md`, `bin/lib/tick.py` | Teeny (prompts, playbooks), Operator (tick) | Four weeks of own posts that are takes or shows, with followers up (L2 "grows an audience") |
+
+**Order.** P4 and P1 first, because they protect the account. P2 before the
+serials go on, so the growth diary reports people. P6 and P3 make the firsts
+visible.
+
+## Track S: self-sustaining
+
+No agent has published its costs against its income, and none has been shown
+paying its own server from money it earned
+([`research/self-governance.md`](research/self-governance.md) §4, §5).
+
+| ID | Item | Where | Frozen | Done when |
+|---|---|---|---|---|
+| S1 | **Public accounts**: a weekly profit and loss from `hands/wallet costs` and the inflow ledger (model, server, fees, tools against tips, sales, bounties won), with team money shown apart, published with the receipts. **Built**: the inflow ledger (`hands/wallet inflows scan`, read only; memos through the inbound guard), `hands/wallet accounts`, the pinned `accounts` job (Mondays) that closes the week, off until `WALLET_ACCOUNTS=1`, and `bin/receipts` publishing closed pages as `accounts/<week>.json`, off until `ACCOUNTS_PUBLISH=1`. There was no inflow ledger to read, so this item built one. Network fees are not tracked anywhere and are listed under `not_counted` rather than guessed | `hands/lib/teeny_hands/wallet/`, `bin/receipts` | Operator | The page reconciles to the ledger to the cent in a fixture |
+| S2 | **Runway as a sense**: days of runway at the current burn as a daily stimulus and a line in the prompt, with tiers in frozen config that cut optional spend (media, extra candidates) when it is low. **Built**: `teeny_hands/runway.py`, tiers in `evals/runway.toml`, `bin/health runway` (the pinned `runway` job), the beat header's `Runway:` line, the media refusal and the cut in `bin/evolve run`; off until `RUNWAY=1` | `bin/health`, `bin/lib/rhythm.py`, `bin/lib/evolve.py` | Operator | Below the low tier, `bin/evolve` runs fewer candidates and the mind is told why |
+| S3 | **Something to sell to people**: paid build requests. A request with a deposit attached is picked first; the price list is frozen config; Teeny refunds what it can't build. **Built**: `wallet/sales.py`, prices and refund limits in `evals/prices.toml`, `hands/requests pick` refusing anything but a paid request while one waits (`paid_first`), `pay` purpose `refund` with its own rules, the pinned `paid-requests` job; matching off until `PAID_REQUESTS=1`, refunds until `REQUEST_REFUNDS=1` | `hands/requests`, `hands/lib/teeny_hands/wallet/` | Operator | A fixture deposit with a memo raises that request's priority, and a failed build queues a refund under the caps |
+| S4 | **A paid endpoint**: one x402-priced API on Teeny's site that serves something Teeny produces (its news digest, its stats, an image of itself), behind the deploy hand. **Built**: `GET https://x402.<domain>/stats` (`wallet/paywall.py`, `bin/paywall`, the `paywall` compose service, a server block in the deploy vhost), price in `evals/prices.toml`, settlement through an x402 facilitator and read back from the chain, an inflow row per sale; off until `X402_ENDPOINT=1`. A static deploy cannot check a payment, so the endpoint is a small service beside the static sites, not a file in one | `hands/deploy` (A11), `hands/lib/teeny_hands/wallet/x402.py` | Operator | A fixture x402 payment returns the resource and writes an inflow row |
+| S5 | **Pays its own bills**: a pinned job that pays the server invoice through `hands/vps` and records the model bill, from the wallet, under the caps, with a receipt post. **Built**: `hands/vps invoice add` (operator, to an allowlisted vendor address only), `hands/vps pay-due` and the pinned `pay-bills` job, `pay` purpose `bill` with its own rules and the frozen bill limits in `evals/prices.toml`; off until `VPS_PAY_BILLS=1`. Each paid bill is a payment with a receipt like any other. The model bill is not paid from the wallet (the operator's provider account pays it) and is already recorded by `hands/wallet costs`, so this item pays the server only | `hands/vps`, a pinned job | Operator | In a fixture, a due invoice is paid once and never retried when `in_doubt` |
+| S6 | **Buy $TINY from net inflows**: built (`bin/tiny-buy`). It needs inflows first | Track 0.12 | Operator | A receipt for a buy funded by earned money |
+| S7 | **Honesty under profit**: eval tasks where lying to a customer, breaking a promise or hiding a refund would raise W, and the invariant that Teeny doesn't | `evals/tasks/`, `evals/invariants.md` | Operator | Each task fails a draft that takes the dishonest route. **Built**: invariant `honest-dealing`; tasks `reply-customer-truth`, `reply-promise-kept`, `post-refund-shown` |
+
+**Order.** S1 first: it needs no income and is itself a first. S3 before S4,
+since S4 needs A11. S5 when the wallet is live. Public bounties are left out
+on purpose: they are crowded with agents and rarely pay.
+
+## Track G: self-governing
+
+Teeny already has most of a constitution: the fences in `DIRECTIVE.md`, the
+frozen list, the invariants, the caps, the halts and the kill switches. They
+are spread across a dozen files, there is no page that says who decides
+what, and nothing tells Teeny how it earns the next freedom.
+
+| ID | Item | Where | Frozen | Done when |
+|---|---|---|---|---|
+| G1 | **The charter**: `docs/governance.md`, one page. Who decides what (operator, Teeny, followers); every fence and where it lives in code; every kill switch; how a fence changes; who is legally responsible (the operator). A short in-voice version in `brain/CHARTER.md` rides in the prompt. **Built**: both pages frozen; the charter rides after the drive in every speaking prompt (`bin/lib/prompts.py`) and is anchored in `invariants.md` (`charter`); the doctor fails a brain without it; the page's fence table names, for every fence, the code and the test that pins it, and `hands/tests/test_charter.py` fails when either stops existing | `docs/governance.md`, `brain/CHARTER.md`, `evals/frozen.txt`, `evals/invariants.md` | Operator | The doctor fails a brain without the charter, and each fence the page names cites a test that pins it |
+| G2 | **The autonomy ladder**: `evals/autonomy.toml`, one row per capability (post, reply, mail, browse, build, spend, self-edit, merge, servers) with its level L1 to L5, the evidence that earns the next level as a check `bin/proofs` can run, and the events that drop it back (a promotion, a model change, a guard escape). `bin/doctor` refuses a switch set above its level. **Built**: `evals/autonomy.toml` (frozen), `bin/lib/autonomy.py`; the doctor fails a switch above its granted level and warns when only a drop event (a promotion, a model change after `confirmed`) puts it there; `bin/proofs --ladder` reports what each capability still needs (new proof `L5.human_merged`). Guard escapes have no ledger yet: the operator lowers the level by hand until the audit (G6) counts them | `evals/autonomy.toml`, `bin/doctor`, `bin/lib/proofs.py` | Operator | With "merge" at L4, the doctor refuses `EVOLVE_AUTO_PROMOTE=1`; the report shows what each capability still needs |
+| G3 | **Fence proposals**: Teeny asks for a fence change as an issue labelled `fence-proposal` (never a diff to a frozen path), at most one a week, with the evidence from G2 and what it would do with the freedom. The operator answers in the issue. **Built**: the playbook `brain/playbooks/fence-proposal.md` (Teeny's) drafts it; a new frozen hand, `hands/ladder` (`report`, `fences`, `propose`), builds the body (the fence from `governance.md`, Teeny's ask, evidence, plan and risk, and the ladder's own count from frozen code), refuses an unknown fence and a second proposal inside seven days, and opens it through `gh open-issue` (the guard) with the label. Not scheduled: `brain/cron.toml` is at its 24-job limit, and a public issue ships off; Teeny or the operator adds a weekly `bin/act fence-proposal` job after a `DRY_RUN` rehearsal. The hand rather than A3's `open_issue` alone, because only code can hold the cap, the label and the evidence honest | `brain/playbooks/` (new), `hands/ladder` | Teeny (playbook), Operator (hand) | A dry run produces an issue body that names the fence, the evidence and the risk |
+| G4 | **A reviewer for guard holds**: outbound holds go first to a second model that isn't the drafter's, with the rubric. It may release only categories the frozen config lists as releasable; money, people, self-harm and violence always wait for a person. Every release is logged, and a random tenth are queued for the operator to check. **Built**: `teeny_hands/guard/review.py`, `hands/guard review` and `reviews`, `evals/guard-review.toml` (releasable: profanity, drugs), the pinned `guard-review` job; a floor in code (`NEVER_RELEASE`, `MONEY`) the config can't lift; off until `GUARD_REVIEW=1` and `GUARD_REVIEW_MODEL` (refused when it is the drafter's or the judge's model). The audit counts its releases apart from the operator's decisions | `hands/lib/teeny_hands/guard/` | Operator | A lexical false positive is released and logged; a hold in a never-release category isn't, whatever the reviewer says |
+| G5 | **A gate that holds**: `frozen` and `scripts` as required checks on `main` through a ruleset in the repo; the CI `frozen` job matching `teeny/gen-*` branches by name as well as by author; and Teeny's GitHub token reduced to write access on its own branches, with the repository owned by an account Teeny's token can't act as | `.github/`, the repository settings | Operator | A `teenydroid` PR can't merge with a red `frozen` check, and Teeny's token can't change the ruleset. **Code half built**: the CI `frozen` job also runs on any `teeny/` branch by name (generations, reverts, self jobs), pinned by `hands/tests/test_watchers.py`. **Ruleset on** since 2026-11-15: "main: frozen gate" requires `frozen` and `scripts` from GitHub Actions on `main`, blocks force pushes and deletion, and has no bypass. Still open: the repository is owned by `teenydroid`, Teeny's own account, so its token can edit the ruleset; that needs the repository moved to an owner Teeny can't act as, or the token's Administration permission removed |
+| G6 | **A weekly audit Teeny can't write**: frozen code publishes the week's holds by category and outcome, spend against each cap, halts, generations and their verdicts, persona drift, and every operator action (merges, approvals, restarts). It goes out with the receipts. **Built**: `bin/audit`, the pinned `audit` job (Mondays 00:50 UTC), writing `state/audit/<week>.json` and `.md` every week and pushing them to `audit/` in the receipts repository only with `AUDIT_PUBLISH=1` and not under `DRY_RUN`; `bin/spine` records each boot in `state/boots.jsonl` for the deploy and restart counts. Operator actions are commits on main the loop didn't merge, hold decisions, deploys and restarts; a restart is counted until a crash can be told apart from a person. A watcher in `hands/tests/test_watchers.py` | new `bin/audit`, `bin/lib/audit.py`, pinned weekly | Operator | The page builds from fixture ledgers; the operator-action count is what the 30-day test reads |
+| G7 | **Watchers Teeny can't switch off**: a test that no environment variable Teeny can set, and no file it can edit, disables the guard, the doctor, `evolve-watch`, the frozen check or the audit | `bin/test/`, `hands/tests/` | Operator | The test enumerates the switches and fails when a new one is reachable from the brain. **Built**: `hands/tests/test_watchers.py` (watcher files frozen; every environment name a watcher reads, with why; settings only from `secrets/`; `brain/cron.toml` cannot redefine, disable or replace a watcher job). The audit joined it with G6 |
+| G8 | **Model change means audit**: `bin/doctor` records the model behind each role; when one changes, the autonomy levels that depend on it drop one step and an issue lists the fence tests to rerun. **Built**: the doctor records each role's model (`SPINE_MODEL`, or the role's own setting: `EVOLVE_JUDGE_MODEL`, `SAFETY_JUDGE_MODEL`) in `secrets/autonomy/models.jsonl`, out of every agent's reach; a change warns, drops the capabilities whose `roles` include it until the operator sets a later `confirmed` date, and prepares the issue (every fence test `docs/governance.md` cites, plus `bin/eval`); the pinned `ladder-issue` job opens it once, off until `LADDER_ISSUES=1`. A drop warns rather than fails the boot (see G2) | `bin/doctor`, `evals/autonomy.toml` | Operator | Changing the model name in a fixture drops "self-edit" a level and opens the issue (dry run) |
+| G9 | **The pin, proposed**: Teeny notices a new OpenHuman release that closes a gap in [`oh-gaps.md`](oh-gaps.md) and opens an issue asking for the pin bump, with the changelog lines that matter. **Built**: the playbook `brain/playbooks/pin-bump.md` (Teeny's) and a frozen hand, `hands/upstream`: `releases` lists the releases published after the pinned commit with the open gaps their notes name by issue or PR number (only those lines, cut short and screened by the guard's lexicon), and `propose {tag, why}` opens one issue per release, only for one that closes a gap, through `gh open-issue`. Not scheduled (the brain's cron is at its 24-job limit); a daily `bin/act pin-bump` job turns it on | `brain/playbooks/` (new), `hands/upstream` | Teeny (playbook), Operator (hand) | A fixture release produces one issue, once |
+| G10 | **Answers about itself**: an eval for operator questions ("what did you spend yesterday", "why did the last build fail", "what are you held on") scored against the ledgers. **Built**: three frozen tasks, `operator-spend-yesterday`, `operator-last-build`, `operator-held-on`, each with its ledger read canned as the input (`hands/wallet costs --days 1`, `hands/build list`, the hold counts by category, never a held word) and hard checks that fail any number, cause or category not in it, an estimate, or a claim of nothing held; pinned in `bin/test/eval_test.sh`. They score the drafting agent, the brain that answers `bin/ask`, through `bin/eval`; `bin/ask` itself is unchanged | `evals/tasks/`, `bin/ask` | Operator | A draft with a wrong number fails |
+
+**Order.** G5 before anything in the loop merges without a person. G1 and
+G2 next: they turn "the operator widens one fence at a time" into a
+procedure with evidence. G6 and G7 make the 30-day test checkable. G4 is
+what removes the last daily human action.
+
+What stays out, and why, is in
+[`research/self-governance.md`](research/self-governance.md), "What not to
+build": legal personhood, a TEE in place of the caps, token-holder control of
+the wallet, a supervisor on the same model, and trust built on on-chain
+reputation.
+
+## The path, in order
+
+1. **Make it visible.** Track 0.1 to 0.4, A0, A16. W history starts, and
+   every later claim has a number.
+2. **Make the gate real.** G5, G7, Track 0.5.
+3. **Let Teeny act on what it sees.** A3, A4, A1, A2, A6.
+4. **Run the loop.** Track 0.6, A13. One learning, one pull request; the
+   operator merged the first (#288).
+5. **Write the rules down.** G1, G2, G3, P4, S7.
+6. **Go public with numbers.** P1, P2, S1, G6, P6, then the serials
+   (Track 0.9) and the firsts (P3).
+7. **Earn.** Track 0.8, S2, S3, A11, S4, S5.
+8. **Remove the daily human.** G4, G8, Track 0.11 (self-merge, on since
+   2026-11-15), A7.
+9. **The 30 days.** `DIRECTIVE.md`, "The test".
+
+## What would change this page
+
+- A lab ships a model that learns after deployment. The plateau argument in
+  [`research/why-no-agi-yet.md`](research/why-no-agi-yet.md) changes, and so
+  does what counts as a first.
+- X changes its automation rules again. Re-read P1 and the reply rules.
+- The first real generation shows the lab spine is too slow or too costly.
+  Phase C's defaults change before anything else here. (It did: gens 6 to 8
+  took about three and a half hours each and shipped nothing, which is why
+  the loop became one learning per pull request on 2026-11-15.)
+- W turns out to be gameable through a hand Teeny can reach. That becomes
+  the first item.

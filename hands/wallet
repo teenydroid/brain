@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-"""hands/wallet: Teeny's own Solana wallet, under hard caps (docs/hands.md)."""
+"""hands/wallet: Teeny's own wallet (Solana and EVM, one recovery phrase), under hard caps (docs/hands.md)."""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
 from teeny_hands.wallet.cli import main

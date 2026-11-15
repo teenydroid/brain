@@ -5,6 +5,7 @@ a broken published chain refuses the run; previews under DRY_RUN; live, a
 commit pushed only after the secret gate."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -250,6 +251,20 @@ class ReceiptsTest(ReceiptsCase):
         text = self.published_text(out)
         for bit in PRIVATE + ("never made it",):
             self.assertNotIn(bit, text)
+
+    def test_a_tiny_buy_that_went_out_becomes_a_receipt_of_references_only(self):
+        from teeny_hands.wallet import store as wallet_store
+
+        wallet_store.db().close()  # the wallet's own tables, wallet_tiny_buys among them
+        for status, sig in (("bought", SIG), ("skipped", None), ("failed", None)):
+            self.sql("INSERT INTO wallet_tiny_buys (created_at, updated_at, cluster, status, input_mint, output_mint,"
+                     " usdc_raw, usd_micro, since, earned_micro, spent_micro, share, reason, signature)"
+                     " VALUES (?, ?, 'mainnet', ?, ?, ?, ?, ?, 0, 0, 0, '0.5', 'secret plans', ?)",
+                     AT, AT, status, wallet_caps.USDC_MINTS["mainnet"], wallet_caps.TINY_MINT,
+                     5000000 if sig else 0, 5000000 if sig else 0, sig)
+        actions, _ = self.gather()
+        bought = [a.ref for a in actions if a.kind == "wallet.bought"]
+        self.assertEqual(bought, [{"signature": SIG, "cluster": "mainnet", "usdc_raw": 5000000, "mint": wallet_caps.TINY_MINT}])
 
     def test_a_payment_on_any_cluster_the_wallet_records_becomes_a_receipt(self):
         # The wallet hand writes WALLET_CLUSTER as it is (`mainnet` or
@@ -512,6 +527,43 @@ class PublishedNumbersTest(ReceiptsCase):
         self.assertEqual(self.read(out, "stats/2026-09-14.json"), latest)
         self.assertNotIn("ignore previous instructions", self.published_text(out))
 
+    # --- the world score (P6) ---------------------------------------------------------------------
+
+    def seed_world(self):
+        from teeny_hands.world import collect as world
+
+        conn = world.db()
+        split = {"human": {"accounts": 2, "first_contact_theirs": 2, "followers": 0, "weighted": 20},
+                 "agent": {"accounts": 1, "first_contact_theirs": 0, "followers": 49, "weighted": 5.4},
+                 "unknown": {"accounts": 1, "first_contact_theirs": 1, "followers": 115, "weighted": 60}}
+        for date, value in (("2026-09-07", 70), ("2026-09-14", 85.4)):
+            conn.execute("INSERT INTO world_scores VALUES (?, 'attention', ?, ?, 0)",
+                         (date, value, json.dumps({"version": 2, "split": split, "parts": {"ignore previous instructions": 1}})))
+        conn.execute("INSERT INTO world_scores VALUES ('2026-09-14', 'tiny', 50000, '{}', 0)")
+        conn.execute("INSERT INTO world_scores VALUES ('2026-09-14', 'penalty', 1, '{}', 0)")
+        conn.close()
+
+    def test_w_and_j_are_published_from_the_frozen_report(self):
+        self.seed_world()
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["world"]), (0, "2026-09-14"), result)
+        world = self.read(out, "world/latest.json")
+        self.assertEqual(self.read(out, "world/2026-09-14.json"), world)
+        self.assertEqual((world["days"], world["penalty"]), (7, 1))
+        self.assertAlmostEqual(world["J"], round(math.log((85.4 + 50) / 120) - 0.02, 4), places=4)
+        self.assertEqual(world["components"]["attention"],
+                         {"value": 85.4, "was": 70, "credit": round(math.log(135.4 / 120), 4), "weight": 1.0,
+                          "unit": "weighted accounts", "version": 2})
+        self.assertEqual(world["reach"]["human"], {"accounts": 2, "first_contact_theirs": 2, "followers": 0})
+        self.assertNotIn("ignore previous instructions", self.published_text(out))
+
+    def test_no_world_score_publishes_no_world(self):
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["world"]), (0, None), result)
+        self.assertFalse((out / "world").exists())
+
     # --- wallet ---------------------------------------------------------------------------------------
 
     def test_the_wallets_public_address_is_published(self):
@@ -568,5 +620,331 @@ class PublishedNumbersTest(ReceiptsCase):
         self.assertEqual(receipts.verify_chain(published)[0], 1)
 
 
+class PublishedAccountsTest(ReceiptsCase):
+    """The weekly profit and loss pages (docs/roadmap.md, S1) ride the same
+    push once ACCOUNTS_PUBLISH=1: closed pages only, rebuilt from dollars,
+    enums, timestamps and signatures, each written once."""
+
+    def page(self, **overrides):
+        page = {
+            "week": "2026-W37", "from": "2026-09-07T00:20:00Z", "to": "2026-09-14T00:20:00Z", "days": 7,
+            "costs": {"models": "3.14", "server": "5.60", "tools": "2.34", "total": "11.08"},
+            "income": {"tip": "5.26", "sale": "1.00", "bounty": "0.00", "refunds": "0.00", "total": "6.26"},
+            "net": "-4.82", "team": "50.00", "unclassified": "0.00", "paid_out": {"bounty": "5.00"},
+            "tiny_bought": "0.00", "sol_received_lamports": {"tip": "1000000000"}, "model_calls": 120,
+            "inflows": [{"signature": SIG, "at": "2026-09-11T07:00:00Z", "asset": "USDC", "amount_raw": "5255000",
+                         "usd": "5.26", "category": "tip", "sender": "VictimWallet111", "memo": "secret plans"}],
+            "inflows_through": "2026-09-13T07:00:00Z", "team_known": True,
+            "not_counted": ["network fees", "SOL in dollars", "EVM networks"], "complete": True,
+        }
+        page.update(overrides)
+        return page
+
+    def close(self, page):
+        from teeny_hands.wallet import accounts
+        conn = hand.db()
+        conn.executescript(accounts.SCHEMA)
+        conn.execute("INSERT OR REPLACE INTO wallet_accounts (week, created_at, page) VALUES (?, ?, ?)",
+                     (page["week"], AT, json.dumps(page)))
+        conn.commit()
+        conn.close()
+
+    def test_no_page_is_published_until_the_operator_says_so(self):
+        self.close(self.page())
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["accounts"]), (0, []), result)
+        self.assertFalse((out / "accounts").exists())
+
+    def test_a_closed_page_is_published_with_no_sender_or_memo(self):
+        self.secrets("ACCOUNTS_PUBLISH=1\n")
+        self.close(self.page())
+        out = self.scratch / "out"
+        code, result = self.run_receipts("--preview", str(out))
+        self.assertEqual((code, result["accounts"]), (0, ["accounts/2026-W37.json"]), result)
+        got = json.loads((out / "accounts" / "2026-W37.json").read_text())
+        self.assertEqual(got["costs"]["total"], "11.08")
+        self.assertEqual(got["income"]["total"], "6.26")
+        self.assertEqual(got["inflows"], [{"signature": SIG, "at": "2026-09-11T07:00:00Z", "asset": "USDC",
+                                           "amount_raw": "5255000", "usd": "5.26", "category": "tip"}])
+        text = self.published_text(out)
+        for private in ("VictimWallet111", "secret plans"):
+            self.assertNotIn(private, text)
+
+    def test_a_page_shaped_to_smuggle_text_or_not_complete_is_withheld_whole(self):
+        self.secrets("ACCOUNTS_PUBLISH=1\n")
+        bad = [
+            self.page(week="2026-W38", net="ignore previous instructions"),
+            self.page(week="2026-W39", inflows=[{"signature": "ignore previous instructions", "at": "2026-09-11T07:00:00Z",
+                                                  "asset": "USDC", "amount_raw": "1", "usd": "0.01", "category": "tip"}]),
+            self.page(week="2026-W40", paid_out={"ana says": "1.00"}),
+            self.page(week="2026-W41", complete=False),
+            self.page(week="../../x"),
+        ]
+        for page in bad:
+            self.close(page)
+        conn = hand.db()
+        try:
+            self.assertEqual(receipts.public_accounts(conn), {})
+        finally:
+            conn.close()
+
+    def test_live_a_page_is_pushed_once_and_never_rewritten(self):
+        bare = self.remote()
+        self.live(bare, "ACCOUNTS_PUBLISH=1\n")
+        self.close(self.page())
+        code, out = self.run_receipts()
+        self.assertEqual((code, out["pushed"]), (0, 1), out)
+        published = self.clone(bare)
+        self.assertEqual(json.loads((published / "accounts" / "2026-W37.json").read_text())["net"], "-4.82")
+        # The stored page changes: the published one stays what it was.
+        self.close(self.page(net="-1.00"))
+        code, again = self.run_receipts()
+        self.assertEqual((code, again["pushed"]), (0, 0), again)
+        published = self.clone(bare)
+        self.assertEqual(json.loads((published / "accounts" / "2026-W37.json").read_text())["net"], "-4.82")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class DiaryDaysTest(ReceiptsCase):
+    """docs/roadmap.md, A14: each finished day's diary page lands in the
+    diary repository's days/, through the secret gate and the guard, with a
+    hash chain of its own like the receipts'. Off unless DIARY_PUBLISH=1."""
+
+    def page(self, date, text):
+        folder = self.root / "state" / "diary"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{date}.md").write_text(text)
+
+    def pages(self):
+        self.page("2026-09-13", "# Sunday 13 September 2026\n\nshipped a tiny cli. the crabs liked it.\n")
+        self.page("2026-09-14", "# Monday 14 September 2026\n\nquiet day. read about agents.\n")
+        self.page("2026-09-15", "# Tuesday 15 September 2026\n\nnot over yet.\n")  # today: not finished
+
+    def on(self, bare, extra=""):
+        self.live(bare, f"DIARY_PUBLISH=1\nSAFETY_JUDGE=0\n{extra}")
+
+    def test_off_unless_switched_on(self):
+        bare = self.remote()
+        self.pages()
+        self.live(bare, "SAFETY_JUDGE=0\n")
+        self.seed()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("off", out["days"]["skipped"])
+        self.assertFalse((self.clone(bare) / "days").exists())
+
+    def test_finished_days_land_in_days_hash_chained(self):
+        bare = self.remote()
+        self.pages()
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["days"]["published"], ["2026-09-13", "2026-09-14"])
+        self.assertEqual(out["pushed"], 1)  # the days alone are worth a push
+        clone = self.clone(bare)
+        self.assertIn("shipped a tiny cli", (clone / "days" / "2026-09-13.md").read_text())
+        self.assertFalse((clone / "days" / "2026-09-15.md").exists())
+        seq, prev, dates = receipts.diary_days.verify(clone)
+        self.assertEqual((seq, dates), (2, {"2026-09-13", "2026-09-14"}))
+        lines = [json.loads(l) for l in (clone / "days" / "chain.jsonl").read_text().splitlines()]
+        self.assertEqual(lines[0]["prev"], receipts.diary_days.GENESIS)
+        self.assertEqual(lines[1]["prev"], receipts.diary_days.line_hash(
+            (clone / "days" / "chain.jsonl").read_text().splitlines()[0]))
+        # The next run adds the next day, once.
+        os.environ["TEENY_NOW"] = str(NOW + 86400)
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], ["2026-09-15"])
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], [])
+        self.assertEqual(receipts.diary_days.verify(self.clone(bare))[0], 3)
+
+    def test_a_page_the_guard_holds_is_withheld_and_never_retried(self):
+        bare = self.remote()
+        self.page("2026-09-14", "# Monday\n\nthis is fucking great.\n")
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["published"], [])
+        self.assertEqual(out["days"]["withheld"][0]["date"], "2026-09-14")
+        self.assertEqual(out["days"]["withheld"][0]["why"], "held")
+        self.assertNotIn("fucking", json.dumps(out))
+        self.assertFalse((self.clone(bare) / "days" / "2026-09-14.md").exists())
+        withheld = json.loads((self.root / "state" / "diary-days.json").read_text())
+        self.assertNotIn("fucking", json.dumps(withheld))
+        code, out = self.run_receipts()
+        self.assertEqual(out["days"]["withheld"], [])  # not asked again
+
+    def test_a_page_with_a_secret_is_withheld(self):
+        bare = self.remote()
+        self.page("2026-09-14", "# Monday\n\nthe key is supersecretvalue123 lol\n")
+        self.on(bare, "SOME_KEY=supersecretvalue123\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["days"]["withheld"], [{"date": "2026-09-14", "why": "secret"}])
+        self.assertNotIn("supersecretvalue123", self.published_text(self.clone(bare)))
+
+    def test_an_edited_page_breaks_the_chain_and_the_receipts_still_go_out(self):
+        bare = self.remote()
+        self.pages()
+        self.on(bare)
+        self.run_receipts()
+        clone = self.clone(bare)
+        (clone / "days" / "2026-09-13.md").write_text("rewritten\n")
+        git = lambda *a: subprocess.run(["git", *a], cwd=clone, check=True, capture_output=True)
+        git("-c", "user.name=t", "-c", "user.email=t@e", "commit", "-qam", "edit")
+        git("push", "-q", "origin", "main")
+        self.seed()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("does not verify", out["days"]["refused"])
+        self.assertGreater(out["issued"], 0)
+
+    def test_the_preview_writes_the_pages_unscreened_and_asks_no_guard(self):
+        self.pages()
+        self.secrets("DIARY_PUBLISH=1\n")
+        preview = self.scratch / "preview"
+        code, out = self.run_receipts("--preview", str(preview))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["days"]["would_screen"])
+        self.assertEqual(out["days"]["published"], ["2026-09-13", "2026-09-14"])
+        self.assertTrue((preview / "days" / "2026-09-14.md").is_file())
+        self.assertFalse((self.root / "state" / "diary-days.json").exists())
+
+
+class MemorySnapshotsTest(ReceiptsCase):
+    """Each dream's snapshot of MEMORY.md lands in the diary repository as
+    memory/MEMORY.md, one commit per snapshot so its history shows the page
+    evolve: redacted by code, then the secret gate and the guard, hash-chained
+    in memory/chain.jsonl. Off unless MEMORY_PUBLISH=1."""
+
+    MINT = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
+
+    def snap(self, stamp, slot, page, **counts):
+        folder = self.root / "state" / "dream" / "snapshots"
+        folder.mkdir(parents=True, exist_ok=True)
+        meta = {"at": NOW, "slot": slot, "add": 0, "edit": 0, "retire": 0, "forget": 0, **counts}
+        (folder / f"{stamp}-{slot}.md").write_text(f"---\n{json.dumps(meta, sort_keys=True)}\n---\n{page}")
+
+    def on(self, bare, extra=""):
+        self.live(bare, f"MEMORY_PUBLISH=1\nSAFETY_JUDGE=0\n{extra}")
+
+    def log(self, clone):
+        out = subprocess.run(["git", "log", "--format=%s", "--", "memory/MEMORY.md"], cwd=clone,
+                             check=True, capture_output=True, text=True).stdout
+        return out.splitlines()
+
+    def test_off_unless_switched_on(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n## people\n\n- [m1] ana.\n")
+        self.live(bare, "SAFETY_JUDGE=0\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertIn("off", out["memory"]["skipped"])
+        self.assertFalse((self.clone(bare) / "memory").exists())
+
+    def test_each_snapshot_is_its_own_commit_and_the_page_is_the_newest(self):
+        bare = self.remote()
+        self.snap("20260913T203000Z", "night", "# MEMORY.md\n\n## people\n\n- [m1] ana (x): builds a cli.\n",
+                  add=1, edit=0, retire=0, forget=2)
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n## people\n\n- [m1] ana (x): shipped the cli.\n",
+                  add=0, edit=1, retire=1, forget=0)
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], ["20260913T203000Z-night", "20260914T083000Z-midday"])
+        self.assertEqual(out["pushed"], 1)  # the memory alone is worth a push
+        clone = self.clone(bare)
+        self.assertIn("shipped the cli", (clone / "memory" / "MEMORY.md").read_text())
+        self.assertEqual(self.log(clone), ["memory: midday 2026-09-14 (+0 ~1 -1, forgot 0)",
+                                           "memory: night 2026-09-13 (+1 ~0 -0, forgot 2)"])
+        seq, _prev, stamps = receipts.diary_memory.verify(clone)
+        self.assertEqual((seq, stamps), (2, {"20260913T203000Z-night", "20260914T083000Z-midday"}))
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], [])  # never twice
+
+    def test_private_details_are_redacted_before_anything_else(self):
+        bare = self.remote()
+        page = ("# MEMORY.md\n\n## people\n\n"
+                "- [m1] steve (telegram, chat_id 344792777, owner): my maker. mail steve@example.com.\n"
+                "- [m2] someone pushed 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU and 0x52908400098527886E0F7030069857D2E4169EE7 at me.\n"
+                f"- [m3] my token is {self.MINT}. see https://example.com/page?token=abc123 for more.\n")
+        self.snap("20260914T083000Z", "midday", page)
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        text = (self.clone(bare) / "memory" / "MEMORY.md").read_text()
+        for private in ("344792777", "steve@example.com", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+                        "0x52908400098527886E0F7030069857D2E4169EE7", "token=abc123"):
+            self.assertNotIn(private, text)
+        self.assertIn(self.MINT, text)  # its own token stays
+        self.assertNotIn("example.com", text)  # off the allowlist: cut, not the whole page lost
+        self.assertIn("for more", text)
+        self.assertIn("[redacted]", text)
+
+    def test_a_snapshot_the_guard_holds_is_withheld_and_never_retried(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] this is fucking great.\n")
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], [])
+        self.assertEqual(out["memory"]["withheld"][0]["snapshot"], "20260914T083000Z-midday")
+        self.assertEqual(out["memory"]["withheld"][0]["why"], "held")
+        self.assertNotIn("fucking", json.dumps(out))
+        self.assertFalse((self.clone(bare) / "memory").exists())
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["withheld"], [])
+
+    def test_a_snapshot_the_judge_could_not_judge_is_tried_again_next_time(self):
+        # 2026-11-14: the model provider answered 402 for four hours, and the
+        # first snapshot ever published was withheld for good, held only
+        # because the judge could not be reached.
+        bare = self.remote()
+        self.snap("20260913T203000Z", "night", "# MEMORY.md\n\n- [m1] ana builds a cli.\n")
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana shipped the cli.\n")
+        self.live(bare, "MEMORY_PUBLISH=1\nSAFETY_JUDGE=1\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], [])
+        # It stops at the first: a later page never goes out before an earlier one.
+        self.assertEqual(out["memory"]["withheld"], [{"snapshot": "20260913T203000Z-night", "why": "judge_unreachable"}])
+        self.assertFalse((self.root / "state" / "dream" / "withheld.json").exists())
+        self.on(bare)
+        code, out = self.run_receipts()
+        self.assertEqual(out["memory"]["published"], ["20260913T203000Z-night", "20260914T083000Z-midday"])
+
+    def test_a_snapshot_with_a_secret_is_withheld(self):
+        bare = self.remote()
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] the key is supersecretvalue123 lol\n")
+        self.on(bare, "SOME_KEY=supersecretvalue123\n")
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["withheld"], [{"snapshot": "20260914T083000Z-midday", "why": "secret"}])
+        self.assertNotIn("supersecretvalue123", self.published_text(self.clone(bare)))
+
+    def test_a_push_that_fails_publishes_the_snapshot_next_time(self):
+        bare = self.remote()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana.\n")
+        self.on(bare)
+        code, _out = self.run_receipts()
+        self.assertNotEqual(code, 0)
+        hook.unlink()
+        code, out = self.run_receipts()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["memory"]["published"], ["20260914T083000Z-midday"])
+
+    def test_the_preview_writes_the_page_unscreened(self):
+        self.snap("20260914T083000Z", "midday", "# MEMORY.md\n\n- [m1] ana, chat_id 344792777.\n")
+        self.secrets("MEMORY_PUBLISH=1\n")
+        preview = self.scratch / "preview"
+        code, out = self.run_receipts("--preview", str(preview))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["memory"]["would_screen"])
+        text = (preview / "memory" / "MEMORY.md").read_text()
+        self.assertIn("ana", text)
+        self.assertNotIn("344792777", text)  # redaction is code, the preview shows it

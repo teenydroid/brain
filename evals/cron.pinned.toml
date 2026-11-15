@@ -5,6 +5,20 @@
 # here with it.
 #
 # Same format as brain/cron.toml; a pinned job may run any script under bin/.
+# The daily and weekly jobs that only read, record or think (`catch_up = true`)
+# have a slot missed across a restart run once, late (bin/lib/catch_up.py);
+# the jobs every few minutes or hours simply run at their next slot, and the
+# jobs that move money never catch up (bin/lib/cron_policy.py refuses it).
+#
+# Nor do the jobs whose order matters: a catch-up runs late, so it can land
+# after the job meant to follow it. Each dream is followed by its receipts
+# (02:00 -> 02:30, 14:00 -> 14:30), which publish the dream's snapshot of
+# MEMORY.md, and by evolve (02:40, 14:40), which acts on what the dream just
+# wrote there; a late dream would miss both. They wait for their next slot. The day's snapshots (stats-snapshot 00:15, world-snapshot 00:30,
+# health-daily 00:40) do catch up: when several are missed the oldest slot
+# goes first, so they keep their order, and when only stats-snapshot is
+# missed, catching it up after world-snapshot leaves W no worse than not
+# catching it up (world-snapshot upserts the day's rows at its next run).
 
 # Read the mentions and answer the ones the core has drafted (bin/mentions).
 # Operator-owned: the brain shapes the answers through playbooks/mentions.md,
@@ -20,7 +34,8 @@ schedule = "*/5 * * * *"
 command = "bin/mail"
 
 # One beat of Teeny's mind (bin/tick): it browses Moltbook for what was said
-# back to it (at most every 10 minutes), then takes everything the inbound
+# back to it (every beat, at most every 4 minutes, so a comment on its own
+# post is read within about five minutes and answered in that beat), then takes everything the inbound
 # jobs above gathered as one batch on the one teeny:mind thread and carries
 # out the intents it answers with through the hands. Two minutes after each
 # ingest. Every awake beat thinks (an empty inbox is a quiet moment); a beat
@@ -33,35 +48,39 @@ command = "bin/mail"
 schedule = "2-59/5 * * * *"
 command = "bin/tick --detach"
 
-# Teeny's end of day (bin/reflect): on the teeny:mind thread, with the day
-# still in context, it rewrites MEMORY.md (the page in every prompt) from
-# what it chose to remember and what it did, and keeps a diary entry. After
+# Teeny dreams (bin/dream): on a thread of its own, teeny:dream, it updates
+# MEMORY.md (the page in every prompt) item by item from everything since the
+# last dream: what it chose to remember, what it did, what people said, the
+# tasks, the ledgers and the learnings its memory holds; it forgets the
+# learnings that are false or superseded (archived first, capped), keeps a
+# diary entry, and leaves a snapshot of the page for the public diary. After
 # the quiet hours start, before the morning. Detached like tick: one long
 # model turn can outlast the core's 300 s; its result is in
-# state/reflect/reflect.log.
-[jobs.reflect]
+# state/dream/dream.log.
+[jobs.dream]
 schedule = "0 2 * * *"
 tz = "Asia/Kolkata"
-command = "bin/reflect --detach"
+command = "bin/dream --detach"
 
-# Teeny's midday pause (bin/reflect --light): the same rewrite of MEMORY.md
-# from what the day has brought so far, so the afternoon's prompts carry the
-# morning. No diary; it keeps its own stamp, so the night's reflection still
-# looks back on the whole day. Detached, like the night.
-[jobs.reflect-midday]
+# Teeny's midday dream (bin/dream --light): the same, from what the day has
+# brought so far, so the afternoon's prompts carry the morning. No diary; it
+# keeps its own stamp, so the night's dream still looks back on the whole
+# day. Detached, like the night.
+[jobs.dream-midday]
 schedule = "0 14 * * *"
 tz = "Asia/Kolkata"
-command = "bin/reflect --light --detach"
+command = "bin/dream --light --detach"
 
 # Teeny's public receipts (bin/receipts): every action a hand recorded as done
 # since the last run, appended to the hash-chained ledger in teenydroid/diary
 # as checkable references and salted commitments (no logs, no text). Half an
-# hour after reflect. Needs RECEIPTS_GITHUB_TOKEN (or DIARY_GITHUB_TOKEN, or
+# hour after each dream, so the dream's snapshot of MEMORY.md goes out with it
+# (memory/, when MEMORY_PUBLISH=1). Needs RECEIPTS_GITHUB_TOKEN (or DIARY_GITHUB_TOKEN, or
 # GITHUB_TOKEN) with push to that repository; under DRY_RUN it only previews.
 # The same push carries the newest stats snapshot (stats/latest.json) and the
 # wallet's public address (wallet.json), for the website.
 [jobs.receipts]
-schedule = "30 2 * * *"
+schedule = "30 2,14 * * *"
 tz = "Asia/Kolkata"
 command = "bin/receipts"
 
@@ -70,6 +89,28 @@ command = "bin/receipts"
 [jobs.stats-snapshot]
 schedule = "15 0 * * *"
 command = "bin/stats-snapshot"
+catch_up = true
+
+# How Teeny's own posts and replies landed, every hour (bin/stats-snapshot
+# metrics): `hands/moltbook metrics refresh` and `hands/x metrics refresh`
+# record each write about 1h, 24h and 72h after it went out. Reads only;
+# X bills each post read as an owned read ($0.001), at most 30 a run.
+# Operator-owned, like the snapshot: the scoreboard and the lab score from
+# these rows.
+[jobs.metrics]
+schedule = "25 * * * *"
+command = "bin/stats-snapshot metrics"
+
+# Today's world score W into state/hands.db (bin/world-snapshot): attention,
+# $TINY held, money, capability, shipped, the lore arcs, and the penalty for
+# side effects, one row each per UTC day, read from the other hands' data by
+# the frozen hands/world. After stats-snapshot, so attention reads today's
+# stats rows. Operator-owned: Teeny does not get to decide when, or whether,
+# it is scored.
+[jobs.world-snapshot]
+schedule = "30 0 * * *"
+command = "bin/world-snapshot"
+catch_up = true
 
 # The builder (brain/agents/builder.toml), an agent job: it reads one job
 # from its desk (state/workbench/desk/build.json: the oldest picked build
@@ -89,9 +130,10 @@ command = "bin/build-ship"
 
 # The browser operator (brain/agents/operator.toml), an agent job: the one
 # task on its desk (state/workbench/desk/task.json), done in the browser,
-# reported on the desk.
+# reported on the desk. Every 20 minutes: browsing is where Teeny spends its
+# idle time. A run with nothing on the desk ends at once.
 [jobs.operator]
-schedule = "40 * * * *"
+schedule = "*/20 * * * *"
 agent = "operator"
 prompt = "Do the browser task on your desk, following your instructions."
 
@@ -108,6 +150,30 @@ command = "bin/tasks-desk"
 schedule = "23 * * * *"
 command = "bin/bounty-pay"
 
+# GitHub into the mind's inbox (bin/gh-inbound; docs/roadmap.md, A1): issues,
+# pull requests, comments, review comments and mentions from the token's
+# notifications, and new stars on Teeny's repositories, each screened by the
+# inbound guard and offered once. Off unless secrets/teeny.env sets
+# GH_INBOUND=1 (the token must be able to read notifications); it writes
+# nothing to GitHub.
+[jobs.gh-inbound]
+schedule = "*/15 * * * *"
+command = "bin/gh-inbound"
+
+# The pull-request babysitter (bin/babysit; docs/hands.md, "babysit"): audits
+# every open pull request on teenydroid/brain and teenydroid/diary in code,
+# and logs every prompt-injection attempt it finds (rule and place, never
+# the text). Labels and an audit comment only with BABYSIT=1; a merge only
+# with BABYSIT_MERGE=1, of a pull request a person approved at its exact
+# head (evals/autonomy.toml, merge), or, with BABYSIT_SELF_MERGE=1 too, of
+# Teeny's own teeny/gen-* pull request whose teeny/eval passed at its head,
+# deployed to the live checkout after (evals/autonomy.toml, self-merge; a
+# deploy waits while a generation or an eval runs). Operator-owned: Teeny does not get to
+# switch off the thing that reviews its own pull requests.
+[jobs.babysit]
+schedule = "*/20 * * * *"
+command = "bin/babysit"
+
 # Whether Teeny's model answers at all (bin/health): one tiny question through
 # the core; two failures in a row raise one alarm (a `health` stimulus and one
 # issue on teenydroid/brain), closed again when it answers. Operator-owned:
@@ -116,3 +182,223 @@ command = "bin/bounty-pay"
 [jobs.health]
 schedule = "*/15 * * * *"
 command = "bin/health"
+
+# Yesterday's health as one stimulus (bin/health daily; docs/roadmap.md, A4):
+# what the model cost, failed cron and playbook runs, failed beats, the
+# doctor's checks that are not ok, and guard holds by category, as counts and
+# names only. After the day's snapshots. Pinned with the watcher it belongs to.
+[jobs.health-daily]
+schedule = "40 0 * * *"
+command = "bin/health daily"
+catch_up = true
+
+# The weekly audit Teeny can't write (bin/audit; docs/roadmap.md, G6): last
+# week's holds, spend against the caps, halts, generations, drift and every
+# operator action, from the ledgers, by frozen code. Monday, after the week
+# closes. Always written to state/audit/; published beside the receipts only
+# with AUDIT_PUBLISH=1 in secrets/teeny.env (off by default) and not under
+# DRY_RUN.
+[jobs.audit]
+schedule = "50 0 * * 1"
+command = "bin/audit"
+catch_up = true
+
+# A model change drops the autonomy levels that run on it (docs/roadmap.md,
+# G8): bin/doctor records the change at boot and prepares an issue listing
+# the fence tests to rerun; this opens it on teenydroid/brain, once. Off
+# unless LADDER_ISSUES=1 in secrets/teeny.env; a rehearsal under DRY_RUN.
+[jobs.ladder-issue]
+schedule = "55 * * * *"
+command = "bin/autonomy issue"
+
+# The hold reviewer (hands/guard review; docs/roadmap.md, G4): a second model,
+# never the drafter's, reads Teeny's own held drafts in the categories
+# evals/guard-review.toml allows and may only release them; everything else,
+# and anything touching money, people, self-harm or violence, waits for a
+# person. Every review is logged and a tenth of the releases sampled for the
+# operator. Off unless GUARD_REVIEW=1 and GUARD_REVIEW_MODEL in
+# secrets/teeny.env.
+[jobs.guard-review]
+schedule = "7-59/15 * * * *"
+command = "bin/guard-review"
+
+# The re-screen (hands/guard rescreen; guard/rescreen.py): the holds the
+# guard's judge made only because it could not answer, asked about again
+# once it answers. A held comment reaches Teeny's inbox, a held Moltbook draft
+# goes out or stays held on its merits. bin/health does the same after its
+# probe every 15 minutes; this keeps the wait to minutes. Nothing is released
+# without a fresh `clean` from the judge. Operator-owned with the guard.
+[jobs.guard-rescreen]
+schedule = "3-59/5 * * * *"
+command = "bin/guard-rescreen"
+
+# Teeny acting on what it learned (bin/evolve; docs/evolve.md, "The loop"):
+# each open learning on its page (brain/MEMORY.md: what it decided, promised
+# and is in the middle of) becomes one small change in a worktree off main,
+# gated in code, measured on the eval tasks it reaches, and its own ready pull
+# request, which the babysitter merges once its audit and CI pass. Forty
+# minutes after each dream (02:00 and 14:00), so what the dream wrote down is
+# acted on the same day; with no open learning a run does nothing. Off unless
+# secrets/evolve.env sets EVOLVE=1, so seeding this job changes nothing until
+# the operator turns the loop on; EVOLVE=0 is the kill switch, and its halt
+# thresholds live in the same file. Detached: a generation outlasts the 300 s
+# a cron shell call gets (docs/oh-gaps.md, G12); it logs to
+# state/evolve/evolve.log.
+[jobs.evolve]
+schedule = "40 2,14 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve run --detach"
+
+# Lineage credit (bin/evolve credit): which evolve pull requests merged
+# (whoever merged them), each merged generation's chronicle page, and for
+# every one merged at least seven days ago the change in J since the merge
+# (hands/world history), credited to its ancestors. Reads only; with nothing
+# merged it does nothing.
+[jobs.evolve-credit]
+schedule = "50 3 * * *"
+tz = "Asia/Kolkata"
+command = "bin/evolve credit"
+
+# The watch over what the loop's pull requests changed (bin/evolve watch;
+# docs/evolve.md, "evolve-watch"): for the newest merged one, a last-good
+# boot, a spike in guard holds or failed cron runs against the week before,
+# the persona and memory probes against gen-0, and J over 72 hours. Any one
+# opens a revert pull request for a person and stops the loop. Its reasons are
+# written under secrets/evolve-watch/ only, never where Teeny reads. With
+# nothing merged it does nothing. Detached: the probes are many turns.
+[jobs.evolve-watch]
+schedule = "20 * * * *"
+command = "bin/evolve watch --detach"
+
+# The goal ledger's checks (bin/goals-check): every open goal Teeny proposed
+# (brain/playbooks/goals.md) is evaluated against its check, one of the kinds
+# in frozen code, and moved to solved or, past its deadline, failed. Hourly,
+# after the stats snapshot's minute. Operator-owned: a goal Teeny proposes
+# cannot redefine how its success is checked, and the brain does not get to
+# switch the checker off.
+[jobs.goals-check]
+schedule = "35 * * * *"
+command = "bin/goals-check"
+
+# A lore episode when something real happened (docs/roadmap.md, A13): once a
+# day, `bin/act episode` reads the day's proof events (hands/lore events: a
+# generation merged, a pull request merged elsewhere, a bounty paid) and,
+# only when there is one, drafts one post through hands/x and the guard. A day
+# with no event skips before any model turn. Pinned because brain/cron.toml
+# is at its 24-job limit; the playbook (brain/playbooks/episode.md) stays
+# Teeny's. OFF: it posts in public. The operator sets `enabled = true` after
+# a rehearsal (DRY_RUN=1 bin/act episode).
+[jobs.episode]
+schedule = "50 17 * * *"
+command = "bin/act episode"
+enabled = false
+
+# Buy $TINY with a share of what Teeny earned (bin/tiny-buy): once a day,
+# TINY_BUY_SHARE of the USDC that reached the wallet since the last buy from
+# anyone but the team, less what running Teeny cost, under the wallet's caps
+# and TINY_BUY_MAX_USDC_PER_DAY. Buy only, never a sell. OFF unless TINY_BUY=1
+# and TINY_BUY_SHARE > 0 in secrets/teeny.env: until then each run is a
+# refusal or a recorded skip and moves nothing. Operator-owned: no model ever
+# calls buy-tiny (bin/lib/playbook.py refuses it as a playbook's output).
+# Not scheduled for now (operator, 2026-11-12). To bring it back, restore:
+#   [jobs.tiny-buy]
+#   schedule = "41 3 * * *"
+#   command = "bin/tiny-buy"
+
+# Teeny's weekly accounts (bin/accounts; docs/roadmap.md, S1): every deposit
+# since the last scan into the inflow ledger (read only, nothing signed), then
+# last week's profit and loss, costs against what it earned with the team's
+# money shown apart, frozen into state/hands.db once. Mondays, 00:20 UTC, so
+# the seven days it covers are the ISO week it is named for. The receipts job
+# publishes closed pages when ACCOUNTS_PUBLISH=1. OFF unless WALLET_ACCOUNTS=1
+# in secrets/teeny.env (each run skipped until then). Operator-owned: Teeny
+# does not get to decide whether its books are kept.
+[jobs.accounts]
+schedule = "20 0 * * 1"
+tz = "UTC"
+command = "bin/accounts"
+catch_up = true
+
+# Teeny's on-chain senses (bin/wallet-watch; docs/roadmap.md, A5): every
+# deposit to the wallet into the inflow ledger and the mind's inbox, one
+# `wallet · deposit` stimulus each, so it can thank a sender within the hour;
+# a stranger's memo only through the inbound guard. Read only: nothing is
+# signed or paid. OFF unless WALLET_WATCH=1 in secrets/teeny.env; skipped
+# (exit 0) while no wallet exists yet (bin/wallet-setup has not run).
+[jobs.wallet-watch]
+schedule = "7-59/15 * * * *"
+command = "bin/wallet-watch"
+
+# Once a day, Teeny's $TINY balance and how many accounts hold $TINY, as one
+# `wallet · tiny` stimulus (bin/wallet-watch daily). Same switch.
+[jobs.wallet-daily]
+schedule = "50 0 * * *"
+tz = "UTC"
+command = "bin/wallet-watch daily"
+catch_up = true
+
+# Keep the x402 rail funded (bin/x402-fund; docs/hands.md, "x402"): when USDC
+# on Base, what paid search and twitr.sh are paid from, is under
+# X402_FUND_FLOOR_USD, top it up toward X402_FUND_TARGET_USD from the wallet's
+# own pinned SOL, ETH and USDC, only through hands/wallet's swap and bridge
+# (every rule and cap they keep), at most X402_FUND_MAX_PER_DAY_USD a day and
+# never while a top-up is in flight. OFF unless X402_FUND=1 in
+# secrets/teeny.env. Operator-owned: money moves here, never from a playbook.
+[jobs.x402-fund]
+schedule = "13-59/30 * * * *"
+command = "bin/x402-fund"
+
+# Sweep the spare SOL to the surplus wallet (bin/surplus-sweep; docs/hands.md,
+# "surplus"), which takes only USDC on Base: pay the USDC on Base above
+# SURPLUS_KEEP_BASE_USD (the x402 rail's reserve) to SURPLUS_ADDRESS, an
+# allowlisted vendor on base, then bridge the SOL above SURPLUS_KEEP_SOL to
+# Teeny's own USDC on Base for the next run to pay on. Only through
+# hands/wallet's pay and bridge (every rule and cap they keep). OFF unless
+# SURPLUS_SWEEP=1 in secrets/teeny.env. Operator-owned: money moves here,
+# never from a playbook.
+[jobs.surplus-sweep]
+schedule = "41 */2 * * *"
+command = "bin/surplus-sweep"
+
+# Runway as a sense (bin/health runway; docs/roadmap.md, S2): the USDC the
+# wallet holds over what running Teeny cost a day this week, as one
+# `health · runway` stimulus, and the tier from evals/runway.toml that cuts
+# optional spend (pictures and clips, evolve candidates) while it is low.
+# OFF unless RUNWAY=1 in secrets/teeny.env; reads only.
+[jobs.runway]
+schedule = "45 0 * * *"
+tz = "UTC"
+command = "bin/health runway"
+catch_up = true
+
+# Paid build requests (bin/paid-requests; docs/roadmap.md, S3): deposits whose
+# memo names a request, at the frozen price (evals/prices.toml), put that
+# request first; a paid request Teeny did not build is refunded to its sender
+# under the wallet's caps and the refund limits, once, never retried in
+# doubt. OFF unless PAID_REQUESTS=1 (matching) and REQUEST_REFUNDS=1
+# (refunds) in secrets/teeny.env. Operator-owned: money moves only here.
+[jobs.paid-requests]
+schedule = "11-59/15 * * * *"
+command = "bin/paid-requests"
+
+# Teeny pays its own server (bin/pay-bills; docs/roadmap.md, S5): each
+# recorded server invoice due within three days, paid once from the wallet to
+# the allowlisted address on it, under the four caps and the bill limits in
+# evals/prices.toml, with a receipt like any payment. In doubt is never
+# retried. OFF unless VPS_PAY_BILLS=1 in secrets/teeny.env. Operator-owned:
+# no model ever pays a bill.
+[jobs.pay-bills]
+schedule = "5 1 * * *"
+tz = "UTC"
+command = "bin/pay-bills"
+
+# The weekly Moltbook unfollow (bin/moltbook-prune): whoever Teeny followed 7 or
+# more days ago that does not follow back is taken off its follow list (peers and
+# agents with a real exchange in the last 14 days stay), so the
+# daily follow job (brain/cron.toml, moltbook-follow) is never a follow-for-follow.
+# Pinned so the brain cannot drop it; it does not use one of the brain's 24 slots.
+[jobs.moltbook-prune]
+schedule = "30 17 * * 6"
+tz = "Asia/Kolkata"
+command = "bin/moltbook-prune"
+catch_up = true

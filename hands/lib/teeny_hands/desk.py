@@ -20,7 +20,9 @@ put on the next offer and never told to the mind.
 
 Either way the outcome goes into Teeny's mind's inbox (teeny_hands.stimuli)
 as a `builder` or `operator` report: the mind asked for the work, so it
-hears how it went.
+hears how it went. A settled report that already wrote its own stimulus
+(`stimulus` in what `done` answered, as a finished news task does) is not
+told twice.
 """
 
 from __future__ import annotations
@@ -55,10 +57,14 @@ def _write(path: Path, payload: Mapping[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[], Mapping[str, Any]],
-        shape: str) -> dict[str, Any]:
-    """Settles `<name>-done.json` with `settle`, then writes `claim()` to
-    `<name>.json`, telling the agent where and how to report."""
+def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[bool], Mapping[str, Any]],
+        shape: str, present: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Settles `<name>-done.json` with `settle`, then writes `claim(turned_away)`
+    to `<name>.json`, telling the agent where and how to report. `turned_away`
+    is True when this pass refused the report the run left: that run did
+    report, so its claim is still the agent's to resume. `present`, when
+    given, rewrites the offer into what the agent is shown (the builder gets
+    its paths relative to its own root)."""
     desk = folder()
     offer_path, report_path = desk / f"{name}.json", desk / f"{name}-done.json"
     rejected_path = desk / f"{name}-done.rejected.json"
@@ -79,14 +85,17 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             os.replace(report_path, rejected_path)
             _write(desk / f"{name}-done.rejected.reason.json", {"reason": rejected})
     _tell_the_mind(name, settled, rejected)
-    offer = dict(claim())
+    offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
-    # The same file, absolute: an agent rooted elsewhere (the builder works
-    # from state/workbench/) resolves no checkout-relative path.
+    # The same file, absolute, for an agent rooted at the checkout. A
+    # `present` that roots the agent elsewhere (the builder, at
+    # state/workbench/) drops it, so the agent has one path and no second form.
     offer["report_to_path"] = str(report_path.resolve())
     offer["report_shape"] = shape
     if rejected:
         offer["last_report_rejected"] = rejected
+    if present is not None:
+        offer = present(offer)
     _write(offer_path, offer)
     return {"settled": settled, "rejected": rejected, "discarded": discarded, "offer": _relative(offer_path),
             "offered": offer.get("job", offer.get("task"))}
@@ -112,7 +121,7 @@ def _nothing_to_report(name: str, offer_path: Path, report_path: Path) -> bool:
 def _tell_the_mind(name: str, settled: Mapping[str, Any] | None, rejected: str | None) -> None:
     """A report that landed (or was turned away) becomes one stimulus. The
     inbox is a side channel: failing to write it never fails the desk."""
-    if settled is None and rejected is None:
+    if (settled is None and rejected is None) or (settled is not None and settled.get("stimulus")):
         return
     from . import stimuli
 

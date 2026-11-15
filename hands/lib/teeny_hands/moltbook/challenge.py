@@ -18,19 +18,36 @@ How it reads one:
    letter in the noise and a real one compare equal.
 3. Re-join a word the noise split with a space ("tw enty") when the joined
    form is a number word or an operation word and the pieces are not both
-   words already.
+   words already. When the noise also moved a letter or two of the word
+   before onto it ("gAiN sE i. gGhT" is "gains eight"), the letters go back
+   only when both words then come out known.
 4. Read the numbers: digits, or number words with the usual grammar
    ("thirty two", "one hundred and five", "three point five"). Two numbers
    written next to each other ("five twenty") are not one number: that is
-   ambiguous, so no answer.
+   ambiguous, so no answer. So is a long number word with two letters
+   swapped or one letter too many ("tihrty", "tiwelve"): skipping it
+   answered 10 for "tihrty five * two" on 2026-11-15.
 5. Find the operation from its words (plus, gains ... / minus, slows,
    loses ... / times, multiplied ... / divided, split, shared ...). A
    comparison ("how much faster than") is the difference, as a positive
-   number. "Total", "sum", "combined" often only name the result ("multiplied
-   by two, what is the total force?"), so they mean addition only when no
-   other operation is named. "Doubles", "triples", "halves" carry the second
-   number themselves. A "*" is noise, never an operation: Moltbook scatters
-   it between words like any other symbol.
+   number. "Total", "sum", "combined", "altogether" often only name the
+   result ("multiplied by two, what is the total force?"), so they mean
+   addition only when no other operation is named; they are the only words
+   that add without an operation word. Two numbers and no operation is no
+   answer: "another claw applies eight" names a second force, not a sum.
+   "Doubles", "triples", "halves" carry the second number themselves.
+   A "*" glued to letters ("Is*", "NiNeTy* SiX") is noise: Moltbook
+   scatters it through words like any other symbol. A "*" standing alone
+   (spaces on both sides, or between two digits: "6*7") is a multiplication
+   when it sits between two quantities: a number, at most one unit word
+   ("twenty three newtons * seven"), the star, a number. A lone "x" there
+   reads the same way. Where the two sides could also be one number with
+   the star as noise inside it ("twenty * three"), no answer. Anywhere else
+   a standalone star is noise.
+   "Net" ("what is the net force?") is the first number minus the second,
+   and only when the second is set against the first ("but another claw
+   applies eight", "against", "opposite", "resists", "pushes back"); "net"
+   without one of those is no answer.
 
 6. Two readings that look like three numbers: "with one claw and nine
    (with the) other" drops the "one", which picks out a claw; "increases by
@@ -38,6 +55,14 @@ How it reads one:
    and addition is the only operation.
 7. A spoken self-correction after the first number ("fifty, no, say seven",
    "wait", "i mean", "actually") makes the number meant a guess: no answer.
+
+   "Total" with no operation word is an addition only when nothing in the
+   text says one number counts the other ("each exerts thirty two ... and
+   there are four claw friends, how much total force": 32 x 4, not 36, which
+   Moltbook marked wrong on 2026-11-12). "Each", "per", "every", "apiece" or
+   "there are" before a number make that sum a guess: no answer. So does an
+   addition where the second number counts creatures ("two lobsters") and
+   the first does not ("twenty five newtons").
 
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
@@ -72,7 +97,7 @@ POINT = "point"
 _OPS_RAW = {
     "+": (
         "plus add adds added adding gain gains gained increase increases increased accelerates accelerated"
-        " another extra grows grew rises rose receives collects"
+        " extra grows grew rises rose receives collects"
         " joins faster more"
     ),
     "-": (
@@ -86,7 +111,17 @@ _OPS_RAW = {
 OPS = {op: {collapse(w) for w in words.split()} for op, words in _OPS_RAW.items()}
 #: Words that name the result ("what is the total force?") as often as they
 #: ask for an addition: an addition only when no other operation is named.
-RESULT_WORDS = {collapse(w) for w in "total sum combined together altogether".split()}
+#: The only words that add without an operation word; "net" is not one.
+RESULT_WORDS = {collapse(w) for w in "total sum combined altogether".split()}
+#: "What is the net force?" is a difference only when the second force opposes
+#: the first; otherwise which way the forces point is a guess.
+NET = collapse("net")
+#: Words that set a force against the first one.
+OPPOSING = {collapse(w) for w in "against opposite opposing opposes oppose resists resist resisting".split()}
+#: "pushes back", "pulls back": the verb and then "back".
+_PUSH_PULL = {collapse(w) for w in "push pushes pushed pushing pull pulls pulled pulling".split()}
+#: "but another claw applies eight": "but" and then the second force.
+_ANOTHER = {collapse(w) for w in "another other".split()}
 #: One number and a word that carries the second: "it doubles" is times two.
 _IMPLICIT_RAW = {
     "doubles doubled": ("*", 2), "triples tripled": ("*", 3), "halves halved": ("/", 2),
@@ -100,10 +135,18 @@ _COMPARATIVES = {collapse(w) for w in "faster slower more less fewer greater big
 CORRECTIONS = {collapse(w) for w in "no wait actually sorry correction scratch".split()}
 #: "with one claw and nine other": "one" picks out a claw.
 OTHER = collapse("other")
+#: Words that say one number counts the other: "each exerts 32 ... four claws".
+COUNT_WORDS = {collapse(w) for w in "each per every apiece".split()}
 #: "*" is not here: Moltbook scatters it through the noise ("Is* ToTaL").
+#: Only a standalone one becomes a STAR token (see _times).
 _SYMBOLS = {"+": "+", "×": "*", "÷": "/"}
+STAR = "*"
+#: A star that is not glued to letters: spaces on both sides, or two digits.
+_STANDALONE_STAR = re.compile(r"(?:(?<=\s)|(?<=^))\*(?=\s|$)|(?<=\d)\*(?=\d)")
+#: Tokens that multiply when they stand between two quantities.
+_TIMES_TOKENS = {STAR, "x"}
 
-_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON
+_VOCABULARY = set(UNITS) | set(TENS) | set(SCALES) | {POINT} | set().union(*OPS.values()) | RESULT_WORDS | set(IMPLICIT) | COMPARISON | {NET} | OPPOSING
 
 
 def _is_number_word(word: str) -> bool:
@@ -124,10 +167,13 @@ def _tokens(text: str) -> list[str]:
     text = text.lower()
     # A decimal point survives only between digits.
     text = re.sub(r"(?<=\d)\.(?=\d)", "\x00", text)
+    text = _STANDALONE_STAR.sub("\x01", text)
     kept = []
     for ch in text:
         if ch == "\x00":
             kept.append(".")
+        elif ch == "\x01":
+            kept.append(f" {STAR} ")
         elif ch in _SYMBOLS:
             kept.append(f" {ch} ")
         elif ch.isascii() and (ch.isalnum() or ch.isspace()):
@@ -150,19 +196,69 @@ def _rejoin(words: list[str]) -> list[str]:
             if i + span > len(words):
                 continue
             parts = words[i : i + span]
-            if any(p in _SYMBOLS or any(c.isdigit() for c in p) for p in parts):
+            if any(p in _SYMBOLS or p == STAR or any(c.isdigit() for c in p) for p in parts):
                 continue
             candidate = collapse("".join(parts))
             if _known(candidate) and not all(_known(p) for p in parts):
                 joined = (candidate, span)
                 break
+        shifted = None if joined else _shifted(out, words, i)
         if joined:
             out.append(joined[0])
             i += joined[1]
+        elif shifted:
+            out[-1] = shifted[0]
+            out.append(shifted[1])
+            i += shifted[2]
         else:
             out.append(words[i])
             i += 1
     return out
+
+
+#: How many letters of a word the noise may move onto the next one.
+_SHIFT_MAX = 2
+
+
+def _shifted(out: list[str], words: list[str], i: int) -> tuple[str, str, int] | None:
+    """"gAiN sE i. gGhT": the noise moved the last letter of "gains" onto
+    "eight", then split "eight". When 1 to 3 words from `i` joined are a
+    letter or two and then a number word, and that letter or two put back
+    on the word before makes a word this reader knows, the two words come
+    back as (word before, number word, words used). Both must come out
+    known, so a guess never makes a number."""
+    if not out or not out[-1].isalpha():
+        return None
+    for span in (3, 2, 1):
+        if i + span > len(words):
+            continue
+        parts = words[i : i + span]
+        if not all(p.isalpha() for p in parts) or all(_known(p) for p in parts):
+            continue
+        joined = collapse("".join(parts))
+        for cut in range(1, _SHIFT_MAX + 1):
+            before, rest = collapse(out[-1] + joined[:cut]), joined[cut:]
+            if _is_number_word(rest) and _known(before):
+                return before, rest, span
+    return None
+
+
+def _near_miss(word: str) -> bool:
+    """A long number word with two letters swapped ("tihrty") or one letter
+    too many ("tiwelve"): which number it is, if any, is a guess."""
+    if len(word) < 5 or not word.isalpha() or _known(word):
+        return False
+    for number in (*UNITS, *TENS, *SCALES):
+        if len(number) < 5:
+            continue
+        if len(word) == len(number):
+            diff = [k for k in range(len(word)) if word[k] != number[k]]
+            if len(diff) == 2 and diff[1] == diff[0] + 1 and word[diff[0]] == number[diff[1]] and word[diff[1]] == number[diff[0]]:
+                return True
+        elif len(word) == len(number) + 1:
+            if any(word[:k] + word[k + 1 :] == number for k in range(len(word))):
+                return True
+    return False
 
 
 class _Ambiguous(Exception):
@@ -240,6 +336,8 @@ def _numbers(words: list[str]) -> list[tuple[int, int, Decimal]]:
     i = 0
     while i < len(words):
         word = words[i]
+        if _near_miss(word):
+            raise _Ambiguous
         if re.fullmatch(r"\d+(?:\.\d+)?", word):
             flush(i)
             numbers.append((i, i + 1, Decimal(word)))
@@ -289,6 +387,69 @@ def _added_pair(words: list[str], numbers: list[tuple[int, int, Decimal]]) -> bo
     return bool(before) and before[-1] in OPS["+"]
 
 
+def _opposed(words: list[str], after: int) -> bool:
+    """Whether the words after the first number set a second force against
+    it: "against", "opposite", "resists", "pushes back", "but another"."""
+    later = words[after:]
+    if set(later) & OPPOSING:
+        return True
+    for i, word in enumerate(later):
+        if word in _PUSH_PULL and later[i + 1 : i + 2] == ["back"]:
+            return True
+        if word == "but" and set(later[i + 1 : i + 3]) & _ANOTHER:
+            return True
+    return False
+
+
+def _times(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool | None:
+    """Whether a standalone "*" (or a lone "x") multiplies: it sits between
+    two quantities, "6 * 7" or "twenty three newtons * seven". None when it
+    does but the two sides could also be one number with the star as noise
+    inside it ("twenty * three")."""
+    ends = {end: (start, end) for start, end, _ in spans}
+    starts = {start: (start, end) for start, end, _ in spans}
+    times = False
+    for i, word in enumerate(words):
+        if word not in _TIMES_TOKENS or i + 1 not in starts:
+            continue
+        left = ends.get(i)
+        if left is None and i >= 1 and words[i - 1] not in _TIMES_TOKENS | {"and"} and not _known(words[i - 1]):
+            left = ends.get(i - 1)  # a unit word between: "newtons *"
+        if left is None:
+            continue
+        right = starts[i + 1]
+        if left[1] == i:
+            joined = [w for w in words[left[0] : left[1]] + words[right[0] : right[1]] if w != "and"]
+            if all(_is_number_word(w) or w == POINT for w in joined):
+                try:
+                    _number_run(joined)
+                    return None
+                except _Ambiguous:
+                    pass
+        times = True
+    return times
+
+
+#: Nouns that make a number a head count rather than a quantity.
+CREATURES = {collapse(w) for w in "lobster lobsters crab crabs claw claws friend friends shrimp".split()}
+
+
+def _counts_creatures(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
+    """"twenty five newtons ... joins with two lobsters, how much total": the
+    second number counts lobsters, the first is a force, so adding them is a
+    guess (Moltbook marked 27 wrong on 2026-11-15). Only when the two numbers
+    are not followed by the same noun ("20 claws and gains 5" still adds)."""
+    if len(spans) != 2:
+        return False
+    after = [words[end] if end < len(words) else None for _, end, _ in spans]
+    return after[1] in CREATURES and after[0] != after[1]
+
+
+def _there_are_count(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
+    """"... and there are four claw friends": a count, whatever it counts."""
+    return any(words[max(0, start - 2) : start] == ["there", "are"] for start, _, _ in spans)
+
+
 def solve(challenge: str) -> str | None:
     """The answer with two decimals ("15.00"), or None when the challenge
     cannot be read with confidence."""
@@ -300,6 +461,9 @@ def solve(challenge: str) -> str | None:
     except _Ambiguous:
         return None
     if spans and _corrected(words, spans[0][0]):
+        return None
+    times = _times(words, spans)
+    if times is None:
         return None
     spans = _one_and_the_other(words, spans)
     added_pair = _added_pair(words, spans)
@@ -324,7 +488,18 @@ def solve(challenge: str) -> str | None:
             ops.add(op)
     ops |= {_SYMBOLS[w] for w in present if w in _SYMBOLS}
     ops |= {op for op, _ in implicit}
+    if times:
+        ops.add("*")
+    if NET in present:
+        # A net force is the difference of two opposing forces; anything else
+        # with "net" in it is a guess.
+        if comparison or implicit or added_pair or ops - {"-"} or not _opposed(words, spans[0][1]):
+            return None
+        a, b = numbers
+        return compute(a, "-", b)
     if not ops and not comparison and present & RESULT_WORDS:
+        if present & COUNT_WORDS or _there_are_count(words, spans):
+            return None
         ops.add("+")
     if comparison:
         if ops - {"-"} or added_pair:
@@ -333,8 +508,15 @@ def solve(challenge: str) -> str | None:
         return _format(abs(a - b))
     if len(ops) != 1 or (added_pair and ops != {"+"}):
         return None
-    op = ops.pop()
+    if ops == {"+"} and not added_pair and _counts_creatures(words, spans):
+        return None
     a, b = numbers
+    return compute(a, ops.pop(), b)
+
+
+def compute(a: Decimal, op: str, b: Decimal) -> str | None:
+    """`a op b` with two decimals, or None for an unknown operation or a
+    division by zero."""
     try:
         if op == "+":
             result = a + b
@@ -342,13 +524,25 @@ def solve(challenge: str) -> str | None:
             result = a - b
         elif op == "*":
             result = a * b
-        else:
-            if b == 0:
-                return None
+        elif op == "/" and b != 0:
             result = a / b
+        else:
+            return None
     except InvalidOperation:  # pragma: no cover - Decimal of two finite numbers
         return None
     return _format(result)
+
+
+def numbers_in(challenge: str) -> set[Decimal] | None:
+    """Every number the challenge writes, read as `solve` reads them, or None
+    when they cannot be told apart ("five twenty"). The model read
+    (model_read.py) may only use numbers from this set."""
+    if not isinstance(challenge, str) or len(challenge) > 2000:
+        return None
+    try:
+        return {value for _, _, value in _numbers(_tokens(challenge))}
+    except _Ambiguous:
+        return None
 
 
 def _format(value: Decimal) -> str:

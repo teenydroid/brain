@@ -85,6 +85,15 @@ class GuardOrderTest(Posting):
         self.assertEqual(caught.exception.detail, {"category": "politics", "hold_id": 12})
         self.assertEqual(self.x.writes(), [])
 
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        # bin/lib/tick.py sends such a reply again next beat; a real hold never.
+        self.use_guard(Guard(kind="hold", reason="held", category="unknown", hold_id=13, judge_failed=True))
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "gm"})
+        self.assertEqual(caught.exception.reason, "held")
+        self.assertEqual(caught.exception.detail, {"category": "unknown", "hold_id": 13, "judge_failed": True})
+        self.assertEqual(self.x.writes(), [])
+
     def test_an_answer_the_hand_does_not_know_fails_closed(self):
         self.use_guard(Guard(kind="maybe"))
         with self.assertRaises(hand.HandError):
@@ -185,14 +194,15 @@ class GapTest(Posting):
         publish.post({"text": "chart"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_the_default_gap_is_three_hours_less_twenty_minutes(self):
+    def test_the_default_gap_is_eight_hours_less_twenty_minutes(self):
         self.configure(POST_MIN_GAP_HOURS=None)
         publish.post({"text": "gm"})
-        self.at(T0 + 3 * HOUR - 21 * MINUTE)
+        self.at(T0 + 8 * HOUR - 21 * MINUTE)
         with self.assertRaises(hand.Refused):
             publish.post({"text": "chart"})
-        self.at(T0 + 3 * HOUR - 19 * MINUTE)
+        self.at(T0 + 8 * HOUR - 19 * MINUTE)
         publish.post({"text": "chart"})
+
 
     def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
         publish.post({"text": "look", "quote_of": "555"})
@@ -246,6 +256,72 @@ class GapTest(Posting):
         self.assertEqual(result["id"], "100")
         self.assertIn("published 100 but could not record it", stderr.getvalue())
         self.assertEqual(len(self.posted()), 1, "never retried")
+
+
+class DailyCapTest(Posting):
+    """Three own posts a UTC day by default (X_POSTS_MAX_PER_DAY); replies are
+    never counted."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi")
+
+    def earlier(self, kinds=("post", "post", "post"), at=T0 - 6 * HOUR) -> None:
+        """Own posts already in the ledger (the fake X answers every post with
+        id 100, so a test seeds the earlier ones)."""
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        for n, (kind, text) in enumerate(zip(kinds, self.TEXTS)):
+            posting_rules.record_post(conn, f"8{n}", kind, text, created_at=at + n * 60, quote_of="5" if kind == "quote" else None)
+
+    def test_a_fourth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
+        self.earlier()
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
+                         ("daily_cap", 3, 3))
+        self.assertEqual(self.posted(), [])
+        self.configure(DRY_RUN="1")
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "a fourth thing about lighthouses and moss"})
+
+    def test_the_next_utc_day_starts_again(self):
+        self.earlier()
+        self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
+        publish.post({"text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_replies_do_not_count_and_a_quote_does(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        for n in range(5):
+            posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
+        self.earlier(kinds=("post", "quote", "post"))
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "one more about lighthouses and moss"})
+        self.assertEqual(caught.exception.detail["rule"], "daily_cap")
+
+    def test_the_cap_is_a_setting(self):
+        self.configure(X_POSTS_MAX_PER_DAY="1")
+        self.earlier(kinds=("post",))
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "a different thing about lighthouses"})
+
+    def test_a_format_tag_is_kept_and_a_bad_one_is_an_error(self):
+        publish.post({"text": self.TEXTS[0], "format": "Proof", "experiment": 4})
+        self.assertEqual([r["format"] for r in self.ledger()], ["proof"])
+        with self.assertRaises(hand.HandError):
+            publish.post({"text": self.TEXTS[1], "format": "not a tag!"})
+        with self.assertRaises(hand.HandError):
+            publish.reply("5", {"text": "hi", "format": "gm"})
+
+    def test_a_ledger_without_the_format_column_gains_it(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, in_reply_to TEXT,"
+                     " quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        conn.commit()
+        conn.close()
+        publish.post({"text": self.TEXTS[0], "format": "gm"})
+        self.assertEqual([r["format"] for r in self.ledger()], ["gm"])
 
 
 class AttachmentsTest(Posting):
@@ -339,8 +415,86 @@ class LinkBudgetTest(Posting):
             publish.post({"text": "look: github.com/teenydroid"})
         self.assertEqual(self.posted(), [])
 
+    def test_the_budget_read_matches_what_the_cap_refuses(self):
+        self.assertEqual(publish.link_budget()["left"], 1)
+        self.record_link_post("101", T0)
+        budget = publish.link_budget()
+        self.assertEqual((budget["sent_today"], budget["left"]), (1, 0))
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "the exchange: https://www.moltbook.com/post/abc"})
+        # Written without the link, as the show playbook does once `left` is
+        # 0, the same post goes out.
+        publish.post({"text": "an agent on moltbook said my cache was the wrong fix, and it was right"})
+        self.assertEqual(len(self.posted()), 1)
+
     def test_a_link_reply_counts_against_the_same_cap(self):
         self.record_link_post("101", T0, kind="reply")
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": "www.example.com"})
         self.assertEqual(caught.exception.detail["rule"], "links")
+
+
+class RepeatTest(Posting):
+    """docs/roadmap.md, A2: an own post that says what a recent one said is
+    refused, whatever the gap, and the refusal is counted by the guard."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+    YESTERDAY = "shipped a tiny crab tracker today, it counts crabs on the beach and posts the total"
+
+    def test_a_repeat_of_yesterdays_post_is_refused_and_counted(self):
+        from teeny_hands.guard import repeats
+
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 24 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "Shipped a tiny crab tracker today! It counts crabs on the beach and posts the total."})
+        refused = caught.exception
+        self.assertTrue(refused.reason.startswith("repeat: this says what post 100"), refused.reason)
+        self.assertEqual((refused.detail["rule"], refused.detail["similar_to"]), ("repeat", "100"))
+        self.assertGreaterEqual(refused.detail["score"], repeats.NEAR_DUPLICATE)
+        self.assertEqual(len(self.posted()), 1)
+        got = repeats.count(30)
+        self.assertEqual((got["repeats"], got["by_surface"]), (1, {"x": 1}))
+        # The count holds no text.
+        conn = hand.db()
+        self.assertEqual([tuple(r)[2:] for r in conn.execute("SELECT * FROM guard_repeats")], [("x", refused.detail["score"], "100")])
+
+    def test_something_new_goes_out(self):
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 24 * HOUR)
+        publish.post({"text": "the crab tracker found a hermit crab living in a bottle cap, which is the best news this week"})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_post_older_than_the_window_may_be_said_again(self):
+        self.configure(REPEAT_WINDOW_DAYS="7")
+        publish.post({"text": self.YESTERDAY})
+        self.at(T0 + 8 * 24 * HOUR)
+        publish.post({"text": self.YESTERDAY})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_short_posts_repeat_only_when_they_are_the_same(self):
+        publish.post({"text": "gm"})
+        self.at(T0 + 24 * HOUR)
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "GM"})
+        publish.post({"text": "gn"})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_a_reply_counts_as_something_already_said(self):
+        # Teeny's replies are most of what it writes: an own post may not
+        # repeat one either.
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "reply", self.YESTERDAY, in_reply_to="5", created_at=T0 - HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": self.YESTERDAY})
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["similar_to"]), ("repeat", "90"))
+        self.assertEqual(self.posted(), [])
+
+    def test_a_rehearsal_is_refused_the_same(self):
+        publish.post({"text": self.YESTERDAY})
+        self.configure(DRY_RUN="1")
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": self.YESTERDAY})
+        self.assertEqual(caught.exception.detail["rule"], "repeat")

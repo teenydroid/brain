@@ -235,6 +235,23 @@ class CheckOutboundJudgedTest(support.WithCore):
         self.assertEqual((verdict.kind, verdict.category), ("hold", "unknown"))
         self.assertIn("no model", holds.get(verdict.hold_id)["reason"])
 
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        # The tick sends such a draft again next beat (bin/lib/tick.py); a
+        # draft the judge read and held it never does.
+        self.core(support.error("model error: local-openai returned: provider stream ended before a completion signal"))
+        self.assertTrue(check_outbound("gm frens").judge_failed)
+        self.core(support.result({"response": 'eeting", "verdict": "clean"}'}))
+        self.assertTrue(check_outbound("gm frens").judge_failed)
+
+    def test_a_hold_from_a_real_verdict_is_not_a_judge_failure(self):
+        self.core(support.verdict("prohibited", "violence", "a threat"))
+        self.assertFalse(check_outbound("gm frens").judge_failed)
+        self.core(support.verdict("prohibited"))  # no category: "unknown", but the judge did read it
+        verdict = check_outbound("gm frens")
+        self.assertEqual((verdict.kind, verdict.category, verdict.judge_failed), ("hold", "unknown", False))
+        self.assertFalse(check_outbound("this is fucking great").judge_failed)
+        self.assertFalse(check_outbound("gm frens with an allowed link github.com/tinyhumansai").judge_failed)
+
     def test_can_be_turned_off_to_the_lexicon_and_links_alone(self):
         core = self.core(support.verdict("prohibited", "sexual", "no"))
         for off in ("0", "false", "off", "no"):

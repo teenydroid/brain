@@ -23,6 +23,8 @@ cat >"$scratch/fake-oh" <<'FAKE'
 set -euo pipefail
 printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
+# $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
+[ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
 # $FAKE_FIRST, when the file is there, answers the first call only.
 if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
   jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
@@ -39,6 +41,7 @@ in="$(cat)"
 printf 'x %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   search) echo '{"ok": true, "posts": [{"id": "111", "text": "gm @teenydroid, what are you building?"}]}' ;;
+  links) printf '%s\n' "${FAKE_X_LINKS:-{\"ok\": true, \"cap\": 1, \"sent_today\": 0, \"left\": 1\}}" ;;
   upload) [ -n "${FAKE_UPLOAD_FAIL:-}" ] && { echo '{"ok": false, "error": "X answered 500"}'; exit 1; }
     echo '{"ok": true, "media_id": "1234567890"}' ;;
   *) echo '{"ok": true, "dry_run": true}'; exit "${FAKE_X_EXIT:-0}" ;;
@@ -64,6 +67,7 @@ cat >"$scratch/hands/lab" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'lab %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+printf 'lab-writer %s\n' "${TEENY_WRITER:-}" >>"$FAKE_HANDS"
 echo '{"ok": true}'
 FAKE
 # The media hands: log what they were asked and answer an asset (or a dry
@@ -123,6 +127,29 @@ check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"t
 check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY_RUN=1' '$FAKE_HANDS'"
 check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
+
+# --- a data job (A17): Teeny's script, jailed, fed the inputs before it --------------
+if python3 -c "import sys; sys.path[:0] = ['$here/../lib', '$here/../../hands/lib']; import datajob
+from teeny_hands.build import verify; sys.exit(0 if verify.landlock_abi() >= 1 and datajob.seccomp_supported() else 1)"; then
+  reset
+  mkdir -p "$brain/datajobs"
+  printf '%s\n' 'import json, sys' 'd = json.load(sys.stdin)' 'print(json.dumps({"inputs_seen": sorted(d), "marker": "datajob-ran"}))' \
+    >"$brain/datajobs/count.py"
+  printf '+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nname = "feed"\nrun = "hands/x search q"\n[[inputs]]\nname = "count"\nrun = "datajob:count"\n+++\ngo\n' \
+    >"$brain/playbooks/withjob.md"
+  answer '{"action": "skip", "reason": "test"}'
+  out="$(run withjob)"
+  check "a data job's JSON is a playbook input, fed the inputs before it" grep -q '"inputs_seen":\["feed"\],"marker":"datajob-ran"' <<<"$(jq -r .message "$FAKE_CALLS")"
+  check "and its run is recorded" test "$(jq -r .ok "$scratch/state/datajobs/runs.jsonl")" = true
+  printf '%s\n' 'import socket' 'socket.socket().connect(("1.1.1.1", 443))' >"$brain/datajobs/count.py"
+  reset
+  out="$(run withjob)" || true
+  check "a data job that tries the network is killed and the playbook drafts nothing" test ! -s "$FAKE_CALLS"
+  check "and the run says so" test "$(jq -r .killed "$scratch/state/datajobs/runs.jsonl")" = true
+  rm -rf "$brain/datajobs" "$brain/playbooks/withjob.md"
+else
+  echo "skip: no Landlock or seccomp here, so no data job runs"
+fi
 
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
@@ -210,9 +237,78 @@ for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "
   FAKE_QUEUE="$empty" run told >/dev/null
   check "treats $empty as empty" test ! -s "$FAKE_CALLS"
 done
+# A gate (hands/moltbook post-slot) answers only its reason when it is shut:
+# that is empty too, and the skip records the reason.
+reset
+out="$(FAKE_QUEUE='{"ok": true, "why": "rate_limit: one post per 30 min; wait 329s"}' run told)"
+check "treats an answer of only a why as empty" test ! -s "$FAKE_CALLS"
+check "and records the why with the skip" test "$(jq -r .why <<<"$out")" = "rate_limit: one post per 30 min; wait 329s"
+check "and in runs.jsonl" test "$(tail -n 1 "$scratch/state/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
+reset
+FAKE_QUEUE='{"ok": true, "open": true}' run told >/dev/null
+check "drafts when the gate is open" test -s "$FAKE_CALLS"
 printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
+
+# --- a draft turn the model provider failed -------------------------------------------
+# On 2026-11-14 every draft failed for three hours with HTTP 402, and cron
+# ran each failed run three times in twenty seconds. The line says it was the
+# provider, and which kind; a failure a retry cannot clear exits 0 (recorded
+# once, so cron does not retry it), and one that may clear still exits 1.
+reset
+book chatty post 1
+answer '{"action": "post", "text": "gm"}'
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 402 (insufficient_allowance): no allowance' run chatty)" && status=0 || status=$?
+line="$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")"
+check "a 402 draft failure is recorded as the provider's, class payment" \
+  jq -e '.ok == false and .failure == "provider" and .provider == "payment"' <<<"$line"
+check "and exits 0, so cron does not retry it at once" test "$status" = 0
+check "and spends nothing of the day" test ! -s "$scratch/state/act/chatty/$(date -u +%Y-%m-%d)"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 401 (invalid_api_key)' run chatty)" && status=0 || status=$?
+check "a refused key is class auth, and is not retried either" \
+  bash -c "[ '$status' = 0 ] && jq -e '.provider == \"auth\"' <<<'$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")' >/dev/null"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned: provider stream ended before a completion signal' run chatty)" && status=0 || status=$?
+check "a cut stream is class server" jq -e '.failure == "provider" and .provider == "server"' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1, keeping cron's retry" test "$status" = 1
+reset
+out="$(FAKE_ASK_ERROR='invalid params: message too long' run chatty)" && status=0 || status=$?
+check "a turn failure that is not the provider's is the playbook's" \
+  jq -e '.failure == "playbook" and (has("provider") | not)' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1" test "$status" = 1
+rm -f "$brain/playbooks/chatty.md"
+
+# --- an optional input that fails is left out; any other failure stops the run -------
+# A playbook that reads the outside world (Hacker News) must not lose its
+# post to somebody else's outage.
+cat >"$scratch/hands/down" <<'FAKE'
+#!/usr/bin/env bash
+printf 'down %s\n' "$*" >>"$FAKE_HANDS"
+echo '{"ok": false, "error": "no network"}'
+exit 1
+FAKE
+chmod +x "$scratch/hands/down"
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+answer '{"action": "post", "text": "gm anyway"}'
+out="$(run outage)" && status=0 || status=$?
+check "an input that fails stops the run" test "$status" = 1
+check "and says which" test "$(jq -r .error <<<"$out")" = "input world failed"
+check "and that it is the playbook's failure, not the provider's" test "$(jq -r .failure <<<"$out")" = playbook
+check "before any draft" test ! -s "$FAKE_CALLS"
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\noptional = true\n[[inputs]]\nname = "feed"\nrun = "hands/x search gm"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+out="$(run outage)"
+check "an optional input that fails does not stop the run" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "the model is told it could not be read" test "$(jq -r .message "$FAKE_CALLS" | grep -c '"world":{"unavailable":true}')" = 1
+check "and still gets the inputs that worked" grep -q 'what are you building' <<<"$(jq -r .message "$FAKE_CALLS")"
+printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/down read"\noptional = "yes"\n+++\npost it\n' >"$brain/playbooks/outage.md"
+check "refuses an optional that is not true or false" bash -c "! '$act' --check outage >/dev/null 2>&1"
+printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/down read"\noptional = true\nrequired = true\n+++\npost it\n' >"$brain/playbooks/outage.md"
+check "refuses an input that is both optional and required" bash -c "! '$act' --check outage >/dev/null 2>&1"
+rm -f "$brain/playbooks/outage.md" "$scratch/hands/down"
 
 # --- media: a picture of Teeny on a post ---------------------------------------------
 reset
@@ -252,6 +348,60 @@ answer '{"action": "post", "text": "gm", "image": "waking up"}'
 run plain >/dev/null
 check "a playbook without media never makes a picture" test "$(hand_calls image)" = 0
 check "and never tells the model it may" bash -c "! grep -q 'character sheet' <<<\"\$(jq -r .message '$FAKE_CALLS')\""
+reset
+# Up to four pictures on one post, a quote, a format tag.
+reset
+printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
+answer '{"action": "post", "text": "proof", "images": ["a diff", "a terminal", "a live page", "a graph", "a fifth one"]}'
+out="$(run pic)"
+check "tells the model it may give several pictures" grep -q '"images"' <<<"$(jq -r .message "$FAKE_CALLS")"
+check "makes four pictures at most" test "$(hand_calls image)" = 4
+check "uploads each" test "$(hand_calls x)" = 5
+check "posts with a list of four media ids" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "says what it attached" test "$(jq -r '.actions[0].media.images | length' <<<"$out")" = 4
+reset
+answer '{"action": "post", "text": "proof", "images": ["a diff", "a BAD scene"], "image": "a terminal"}'
+out="$(run pic)"
+check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\]}' "$FAKE_HANDS"
+reset
+reset
+# A browser task's screenshots on a post: `shots: <task id>`.
+reset
+mkdir -p "$scratch/state/media/tasks/5" "$scratch/state/media/tasks/6"
+for n in a b c; do : >"$scratch/state/media/tasks/5/$n.png"; done
+: >"$scratch/state/media/tasks/5/notes.txt"
+: >"$scratch/state/media/tasks/6/x.png"
+answer '{"action": "post", "text": "seen", "shots": 5, "images": ["a diff", "a terminal"]}'
+out="$(run pic)"
+check "tells the model it may name a task's screenshots" grep -q '"shots"' <<<"$(jq -r .message "$FAKE_CALLS")"
+check "uploads that task's image files only" test "$(grep -c "^x upload --file $scratch/state/media/tasks/5/[abc].png " "$FAKE_HANDS")" = 3
+check "makes only the one picture that still fits" test "$(hand_calls image)" = 1
+check "posts the screenshots first, four ids in all" grep -q '^x post DRY_RUN= stdin={"text":"seen","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "says what it attached" test "$(jq -r '.actions[0].media.shots.media_ids | length' <<<"$out")" = 3
+reset
+answer '{"action": "post", "text": "seen", "shots": 99}'
+out="$(run pic)"
+check "a task without screenshots leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "and says why" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "no screenshots for that task"
+reset
+answer '{"action": "post", "text": "seen", "shots": "../../secrets"}'
+out="$(run pic)"
+check "a task id that is not a number reads no path" test "$(hand_calls x)" = 1
+check "and the post still goes out" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+reset
+mkdir -p "$scratch/state/media/tasks/6"
+: >"$scratch/state/media/tasks/6/x.png"
+FAKE_UPLOAD_FAIL=1 answer '{"action": "post", "text": "seen", "shots": 6}'
+out="$(FAKE_UPLOAD_FAIL=1 run pic)"
+check "a failed upload leaves the post going without it" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "and says the upload failed" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "upload failed"
+answer '{"action": "post", "text": "look at this", "quote_of": "12345", "format": "quote"}'
+out="$(run pic)"
+check "a quote carries the post it quotes and its format" grep -q '^x post DRY_RUN= stdin={"text":"look at this","quote_of":"12345","format":"quote"}' "$FAKE_HANDS"
+reset
+answer '{"action": "post", "text": "plain"}'
+out="$(run pic)"
+check "a plain post sends neither" grep -q '^x post DRY_RUN= stdin={"text":"plain"}' "$FAKE_HANDS"
 reset
 printf '+++\ndescription = "test"\noutput = "hand:lab post"\nmedia = ["image", "video"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
 answer '{"action": "hand", "text": "gm", "video": "waves", "image": "at the desk"}'
@@ -347,6 +497,7 @@ answer '{"action": "hand", "post_id": "p-1", "body": "try a smaller batch"}'
 run molt >/dev/null
 check "a moltbook comment's body is screened" grep -q '^guard check --fields body stdin={"body":"try a smaller batch","surface":"moltbook"}' "$FAKE_HANDS"
 check "and the hand gets the post id and the guard's body" grep -q '^lab comment stdin={"post_id":"p-1","body":"try a smaller batch\[g\]"}$' "$FAKE_HANDS"
+check "and is told which playbook asked, to tag the comment with" grep -q '^lab-writer molt$' "$FAKE_HANDS"
 reset
 printf '+++\ndescription = "test"\noutput = "hand:lab pick"\n+++\npick one\n' >"$brain/playbooks/pick.md"
 answer '{"action": "hand", "id": 4, "reason": "small and useful"}'
@@ -369,11 +520,59 @@ run morning >/dev/null
 check "reads a draft inside a code fence" grep -q '"text":"fenced gm"' "$FAKE_HANDS"
 
 # --- one run at a time ---------------------------------------------------------------
+# A lock names its owner: bin/act's pid, the host (in the spine, the
+# container) it ran on, and the pid's start time where /proc has one. A
+# container recreated mid-run leaves its lock behind; the next run must not
+# wait an hour for it.
+lock="$scratch/state/locks/act-morning"
+start_of() { # PID -> its start time from /proc/PID/stat, or nothing
+  local stat fields
+  [ -r "/proc/$1/stat" ] || return 0
+  stat="$(cat "/proc/$1/stat")"
+  read -ra fields <<<"${stat##*) }"
+  printf '%s' "${fields[19]}"
+}
+own() { # PID HOST [START]: leave a lock owned by PID on HOST
+  mkdir -p "$lock"
+  printf '%s %s %s\n' "$1" "$2" "${3-$(start_of "$1")}" >"$lock/owner"
+}
+ran() { jq -e 'has("skipped") | not' <<<"$1" >/dev/null; }
 reset
-mkdir -p "$scratch/state/locks/act-morning"
+mkdir -p "$lock"
 out="$(run morning)"
-check "skips while another run of the playbook holds the lock" test "$(jq -r .skipped <<<"$out")" = "already running"
-rmdir "$scratch/state/locks/act-morning"
+check "skips while a fresh lock without an owner is held" test "$(jq -r .skipped <<<"$out")" = "already running"
+reset
+mkdir -p "$lock"
+touch -t 202001010000 "$lock"
+out="$(run morning)"
+check "takes over a lock without an owner after an hour" ran "$out"
+reset
+sleep 300 &
+live=$!
+own "$live" "$HOSTNAME"
+out="$(run morning)"
+check "skips while the lock's owner is alive" test "$(jq -r .skipped <<<"$out")" = "already running"
+check "and leaves that owner's lock alone" test -s "$lock/owner"
+reset
+own "$live" "another-container"
+out="$(run morning)"
+check "takes over a lock left by another host (a recreated container)" ran "$out"
+if [ -r /proc/self/stat ]; then
+  reset
+  own "$live" "$HOSTNAME" 1
+  out="$(run morning)"
+  check "takes over a lock whose pid now belongs to a newer process" ran "$out"
+fi
+kill "$live" 2>/dev/null || true
+wait "$live" 2>/dev/null || true
+reset
+sleep 0 &
+dead=$!
+wait "$dead"
+own "$dead" "$HOSTNAME"
+out="$(run morning)"
+check "takes over a lock whose owner died" ran "$out"
+check "and releases the lock when it is done" test ! -e "$lock"
 
 # --- what a playbook may name ---------------------------------------------------------
 refuses() {
@@ -398,6 +597,8 @@ for money in wallet bounty; do
 done
 refuses "refuses the wallet's pay as an output" $'+++\ndescription = "x"\noutput = "hand:wallet pay"\n+++\ngo'
 refuses "refuses any wallet verb as an output" $'+++\ndescription = "x"\noutput = "hand:wallet vendors"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an output" $'+++\ndescription = "x"\noutput = "hand:wallet buy-tiny"\n+++\ngo'
+refuses "refuses the wallet's buy-tiny as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet buy-tiny"\n+++\ngo'
 refuses "refuses the bounty's pay as an output" $'+++\ndescription = "x"\noutput = "hand:bounty pay"\n+++\ngo'
 refuses "refuses opening a bounty as an output" $'+++\ndescription = "x"\noutput = "hand:bounty open"\n+++\ngo'
 refuses "refuses the wallet's pay as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/wallet pay"\n+++\ngo'
@@ -405,6 +606,42 @@ refuses "refuses a bounty job verb as an input" $'+++\ndescription = "x"\noutput
 printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:bounty pick"\n[[inputs]]\nrun = "hands/wallet costs --days 7"\n[[inputs]]\nrun = "hands/bounty announcements"\n+++\ngo' >"$brain/playbooks/money.md"
 check "allows a bounty pick output and the money hands' reads as inputs" bash -c "'$act' --check money >/dev/null"
 rm -f "$brain/playbooks/money.md"
+# The keychain: no playbook pulls a password into a prompt (only `list` as an
+# input) or makes one (never an output).
+[ -e "$scratch/hands/keychain" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/keychain"
+chmod +x "$scratch/hands/keychain"
+refuses "refuses the keychain's secret as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain secret --host example.com"\n+++\ngo'
+refuses "refuses the keychain's reveal as an input" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain reveal --site example.com"\n+++\ngo'
+refuses "refuses the keychain as an output" $'+++\ndescription = "x"\noutput = "hand:keychain create"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/keychain list"\n+++\ngo' >"$brain/playbooks/keys.md"
+check "allows the keychain's list as an input" bash -c "'$act' --check keys >/dev/null"
+rm -f "$brain/playbooks/keys.md"
+# The builder's queue: a draft may only propose a change to Teeny itself
+# (`build self`, a pending request the operator still gates). The queue verbs
+# stay the builder's and bin/build-ship's.
+[ -e "$scratch/hands/build" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/build"
+chmod +x "$scratch/hands/build"
+refuses "refuses the builder's done as an output" $'+++\ndescription = "x"\noutput = "hand:build done"\n+++\ngo'
+refuses "refuses the builder's ship as an output" $'+++\ndescription = "x"\noutput = "hand:build ship"\n+++\ngo'
+refuses "refuses claiming a build job as an output" $'+++\ndescription = "x"\noutput = "hand:build next"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build self"\n+++\ngo' >"$brain/playbooks/selfprop.md"
+check "allows proposing a change to itself (build self) as an output" bash -c "'$act' --check selfprop >/dev/null"
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build idea"\nsurface = "github"\n+++\ngo' >"$brain/playbooks/ideaprop.md"
+check "allows keeping the day's build idea (build idea) as an output" bash -c "'$act' --check ideaprop >/dev/null"
+rm -f "$brain/playbooks/selfprop.md"
+# An upstream contribution (docs/roadmap.md, A8): a draft names one gap; the
+# hand gates the rest (BUILD_UPSTREAM, the gap list, the external PR rules).
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:build upstream"\n+++\ngo' >"$brain/playbooks/upprop.md"
+check "allows proposing an upstream contribution (build upstream) as an output" bash -c "'$act' --check upprop >/dev/null"
+rm -f "$brain/playbooks/upprop.md"
+# The goal ledger: a draft may only propose a goal. Its checks are the
+# pinned goals-check job's.
+[ -e "$scratch/hands/goals" ] || printf '#!/usr/bin/env bash\necho "{}"\n' >"$scratch/hands/goals"
+chmod +x "$scratch/hands/goals"
+refuses "refuses running the goal checks as an output" $'+++\ndescription = "x"\noutput = "hand:goals check"\n+++\ngo'
+printf '%s\n' $'+++\ndescription = "x"\noutput = "hand:goals propose"\n+++\ngo' >"$brain/playbooks/goalprop.md"
+check "allows proposing a goal (goals propose) as an output" bash -c "'$act' --check goalprop >/dev/null"
+rm -f "$brain/playbooks/goalprop.md"
 
 # --- bin/ask: a long message is asked, not stalled --------------------------------------
 # Inputs are capped at 20k characters each and a playbook may have 8; bin/eval's
@@ -424,6 +661,35 @@ else
 fi
 check "bin/ask still refuses a message that is only whitespace" bash -c "! printf '  \n\t ' | '$here/../ask' --agent act 2>/dev/null"
 
+# --- show: the day's one X link already spent -------------------------------------------
+# X refuses a second link post a day (hands/x, X_LINK_POSTS_MAX_PER_DAY). The
+# real show playbook reads `hands/x links` first and is told to write the
+# Moltbook exchange without its url when none is left, rather than lose the
+# 23:00 slot to a refusal.
+for h in gh stats moltbook brief; do
+  cat >"$scratch/hands/$h" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$FAKE_HANDS"
+case "$(basename "$0") $1" in
+  "moltbook highlight") echo '{"ok": true, "highlight": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
+  "brief next") echo '{"ok": true, "brief": null}' ;;
+  *) echo '{"ok": true}' ;;
+esac
+FAKE
+  chmod +x "$scratch/hands/$h"
+done
+cp "$here/../../brain/playbooks/show.md" "$brain/playbooks/show.md"
+reset
+answer '{"action": "post", "text": "an agent named Ava told me \"your cache hides the bug\". it did.", "format": "moltbook"}'
+out="$(FAKE_X_LINKS='{"ok": true, "cap": 1, "sent_today": 1, "left": 0}' run show)"
+message="$(jq -r .message "$FAKE_CALLS")"
+check "show reads today's X link budget before it drafts" grep -q '^x links DRY_RUN=1 ' "$FAKE_HANDS"
+check "and gives the model the spent link as data" grep -q '"x-links":{"ok":true,"cap":1,"sent_today":1,"left":0}' <<<"$message"
+check "and tells it to leave the exchange's url out when none is left" grep -q "only when \`x-links\` says \`left\` is 1 or more; otherwise leave the url out" <<<"$message"
+check "the link-free show post goes out instead of being refused" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "with no link in it" bash -c "grep '^x post ' '$FAKE_HANDS' | grep -q 'Ava' && ! grep '^x post ' '$FAKE_HANDS' | grep -q 'moltbook.com'"
+rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$scratch/hands/moltbook" "$scratch/hands/brief"
+
 # --- the repository's own playbooks parse ------------------------------------------------
 for path in "$here/../../brain/playbooks"/*.md; do
   name="$(basename "$path" .md)"
@@ -432,6 +698,16 @@ for path in "$here/../../brain/playbooks"/*.md; do
   else
     fail "brain/playbooks/$name.md parses"
   fi
+done
+
+# The world sense reads what the ears heard (hands/listen), and the loops that
+# make things from it read the same ledger back.
+listens() { OPENHUMAN_WORKSPACE="$here/../../brain" TEENY_HANDS="$here/../../hands" "$act" --check "$1"; }
+check "world-scan listens through hands/listen, twice a day" \
+  bash -c "$(declare -f listens); act='$act' here='$here' listens world-scan | jq -e '.inputs[0] == \"heard\" and .max_per_day == 2' >/dev/null"
+for name in morning take build-idea moltbook-daily moltbook-evening moltbook-general; do
+  check "$name reads what was heard" \
+    bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
 done
 
 if [ "$failures" -gt 0 ]; then

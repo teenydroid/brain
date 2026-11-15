@@ -1,0 +1,63 @@
+# The websites Teeny's browser never opens, one host per line. Owned by the
+# operator, never by Teeny: it lives in deploy/, outside the brain Teeny
+# edits, and evals/frozen.txt freezes it.
+#
+# The browser may open any public https page (bin/spine turns OpenHuman's
+# browser allow-all on); this list is what it may not. A host matches itself
+# and every subdomain, so `x.com` also covers `www.x.com` and
+# `mobile.x.com`. hands/tasks refuses a task whose start_url is on it, the
+# desk hands the list to the operator with every task, and the operator's
+# prompt says to stop when a page sends it here. No wildcards: write the
+# registrable domain itself.
+#
+# deploy/browser-allow.txt is a different list: the hosts OpenHuman's raw
+# `http_request` tool may reach. It no longer bounds the browser.
+
+# X. Teeny posts there through hands/x and its API keys only; browser
+# automation on x.com risks the account those keys belong to.
+x.com
+twitter.com
+t.co
+
+# Webmail. Teeny's mail goes through hands/mail (AgentMail) only.
+mail.google.com
+outlook.live.com
+outlook.office.com
+mail.yahoo.com
+mail.proton.me
+mail.aol.com
+mail.zoho.com
+icloud.com
+
+# Bank, card and payment logins. Money moves only through hands/wallet.
+paypal.com
+dashboard.stripe.com
+wise.com
+revolut.com
+chase.com
+bankofamerica.com
+wellsfargo.com
+citi.com
+capitalone.com
+americanexpress.com
+hsbc.com
+barclays.co.uk
+monzo.com
+coinbase.com
+binance.com
+kraken.com
+
+# Adult, gore and shock sites. A short list of the largest; the operator adds
+# to it.
+pornhub.com
+xvideos.com
+xnxx.com
+xhamster.com
+onlyfans.com
+chaturbate.com
+rule34.xxx
+e621.net
+bestgore.fun
+theync.com
+kaotic.com
+liveleak.com

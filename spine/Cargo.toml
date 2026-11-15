@@ -48,16 +48,31 @@ openhuman-rpc = { path = "../vendor/openhuman/crates/openhuman-rpc", default-fea
     "storage-sqlite",
     "inbound-queues",
 ] }
-# The two modules the spine serves from its own executable instead of a
-# downloaded release: TinyComputer (the `browser` tool) and tinywallet (the
-# `web3` domain). Linked, each is the exact `vendor/openhuman` gitlink the core
-# was built against (no contract mismatch, no download at boot), and
-# tinywallet's confidential calls reach it attested as host code.
-# `bin/lib/core_config.py` sets `[modules] overrides` to `source = "linked"`
-# for exactly these two; every other module still loads from its pinned,
-# digest-checked release.
+# The modules compiled into the spine's own executable: TinyComputer (the
+# `browser` tool) and tinywallet (the `web3` domain). Linked, a module is the
+# exact `vendor/openhuman` gitlink the core was built against (no contract
+# mismatch, no download at boot), and tinywallet's confidential calls reach it
+# attested as host code. Only tinywallet is served linked:
+# `bin/lib/core_sections/automation.py` sets `[modules] overrides` to
+# `source = "linked"` for it alone. TinyComputer stays compiled in but loads
+# from its pinned release, because the browser binds a host callback to it and
+# TinyBus refuses a callback-bound load from a linked source ("callback source
+# cannot preserve admitted identity"). Every other module loads from its
+# pinned, digest-checked release.
 openhuman-modules-linked = { path = "../vendor/openhuman/crates/openhuman-modules-linked", default-features = false, features = [
     "tinycomputer",
     "tinywallet",
 ] }
 libc = "0.2"
+# `wallet_backend.rs`, `lifi.rs`, `debridge.rs`: the wallet-backend hook (`__host::wallet_backend`, behind
+# embed's `web3`) and the HTTP client for LI.FI's and deBridge's public APIs. Every feature
+# named is one the core already turns on, so neither adds a crate.
+# `browser_pictures.rs`: the browser-pictures hook (`__host::browser_pictures`, behind embed's `modules`).
+openhuman-embed = { path = "../vendor/openhuman/crates/openhuman-embed", default-features = false, features = ["web3", "modules"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+log = "0.4"
+# `lifi.rs`: a LI.FI Solana transaction comes as base64 and the wallet module
+# signs hex. Both crates are already in the core's graph.
+base64 = "0.22"
+hex = "0.4"

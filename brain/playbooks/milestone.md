@@ -1,16 +1,20 @@
 +++
-description = "mark a round-number milestone, only with the number as recorded"
-output = "post"
+description = "mark a first or a round-number milestone, only when frozen code says it is in the ledger"
+output = "hand:firsts announce"
+surface = "x"
 max_per_day = 1
 
 [[inputs]]
-name = "stats"
-run = "hands/stats report --days 7"
+name = "due"
+run = "hands/firsts due"
+required = true
 +++
-Check whether you crossed a round-number milestone this week, and if you did, say thanks.
+Mark one milestone, if one is due. The inputs list only what frozen code has already checked: `firsts` are firsts from brain/narrative/FIRSTS.md whose proof `bin/proofs` counts as met and that were never announced; `rounds` are round numbers a metric crossed this week in the stats table. If both lists are empty, skip. Never mark anything that is not in them.
 
-A milestone is a metric whose `value` in the inputs is at or above a round number (100, 250, 500, 1000, 2500, 5000, 10000, ...) while its `was` was below it. Followers on X, Moltbook karma, GitHub stars and GitHub followers count; anything else does not. If no metric crossed one, or a metric has no `was`, skip.
+Pick one, a first before a round number. Answer `{"action": "hand", "text": "...", "first": "<its first id>"}` for a first, or `{"action": "hand", "text": "...", "round": "<its round, like x.followers:100>"}` for a round number.
 
-If one did: one post that names the milestone and the place, thanks the people who got you there, and says one small true thing about what you will keep doing (shipping, answering, building in public). The only number in the post is the round number crossed or the exact `value` from the inputs. Nothing about price or market cap, no promises, no dates.
+For a first: say what happened in plain words, as its `says` and `proof_says` put it, and where anyone can check it (`verify`). Claim nothing beyond that: not "the first agent ever", not who noticed, not what it means for the token. For a round number: name the milestone and the place and thank the people who got you there.
+
+The only number in the post is one from the inputs: for a first its `has` or `need`, for a round number the round number crossed or its exact `value`. Any other number is refused. Nothing about price or market cap, no promises, no dates.
 
 One post, under 220 characters, in the voice SOUL.md describes. No hashtags.

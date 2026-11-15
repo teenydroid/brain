@@ -90,6 +90,7 @@ class Model(BaseHTTPRequestHandler):
         base = {"id": "stub-1", "created": int(time.time()), "model": body.get("model", "stub")}
         # A bin/act or bin/eval turn: answer the JSON it asks for.
         answer = ANSWER
+        native_call = None
         last = users[-1].get("content") if users else None
         if isinstance(last, str) and "# playbook: hello" in last:
             answer = json.dumps({"action": "note", "text": "hello from a playbook"})
@@ -107,18 +108,95 @@ class Model(BaseHTTPRequestHandler):
         # The builder: one shell call into its job's folder, then done. The
         # marker is computed by the shell, so only the call's output (never
         # the call itself, replayed in the transcript) carries it.
+        # The browser operator with a task on its desk: open the start page in
+        # the real browser, then write the report with the page's title. The
+        # desk sits beside the builder's (sys.argv[5]).
+        elif "doing one task in a web browser" in json.dumps(body):
+            import os
+            desk_dir = os.path.dirname(sys.argv[5])
+            try:
+                with open(os.path.join(desk_dir, "task.json")) as desk:
+                    task = json.load(desk).get("task")
+            except (OSError, ValueError):
+                task = None
+            messages = body.get("messages", [])
+            results = [m for m in messages if m.get("role") == "tool"]
+            wrote = any(c.get("function", {}).get("name") == "file_write"
+                        for m in messages for c in (m.get("tool_calls") or []))
+            call = None
+            if task and task.get("login") and "keychain e2e" in task.get("goal", ""):
+                # The keychain round trip on httpbin's echo form: open it,
+                # type the login's placeholder into the name field, submit,
+                # and read the page httpbin answers with, which echoes what
+                # the field held. Report what that read showed.
+                steps = [{"action": "open", "url": task["start_url"]},
+                         {"action": "fill", "selector": "input[name=custname]", "value": task["login"]["password"]},
+                         {"action": "click", "selector": "button"},
+                         {"action": "read_page"}]
+                if len(results) < len(steps):
+                    call = {"name": "browser", "arguments": json.dumps(steps[len(results)])}
+                elif not wrote:
+                    seen = json.dumps(results[-1].get("content"))
+                    report = {"task_id": task["task_id"], "outcome": "ok" if "[keychain]" in seen else "failed",
+                              "notes": "the echo: " + seen[:400]}
+                    call = {"name": "file_write", "arguments": json.dumps(
+                        {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
+                else:
+                    answer = "the task is done and reported"
+            elif task and not results:
+                call = {"name": "browser", "arguments": json.dumps({"action": "open", "url": task["start_url"]})}
+            elif task and not wrote:
+                seen = json.dumps(results[-1].get("content"))
+                ok = "Example Domain" in seen
+                report = {"task_id": task["task_id"], "outcome": "ok" if ok else "failed",
+                          "notes": "the page title is Example Domain" if ok else "the browser said: " + seen[:300]}
+                call = {"name": "file_write", "arguments": json.dumps(
+                    {"path": os.path.join(desk_dir, "task-done.json"), "content": json.dumps(report)})}
+            elif task:
+                answer = "the task is done and reported"
+            if call is not None:
+                native_call = call
         elif "building something small in public" in json.dumps(body):
             if SHELL_RAN in json.dumps(body):
                 answer = "built"
             else:
                 with open(sys.argv[5]) as desk:
-                    workdir = json.load(desk)["job"]["workdir_path"]
+                    # Relative to the workbench, where the builder's shell starts.
+                    workdir = json.load(desk)["job"]["workdir"]
                 # The jail confines files, not the network: the shell shares the
                 # host's, so it reaches this model on loopback (a printed status,
                 # computed by the shell like the marker).
                 command = (f"cd '{workdir}' && touch shell-ran && echo \"teeny-shell-$((1+1))-ran:$(pwd)\""
                            f" && echo \"teeny-net-$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{sys.argv[1]}/v1/models)\"")
-                answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
+                call = {"name": "shell", "arguments": json.dumps({"command": command})}
+                # Offered native tools, answer the way Surplus does: one
+                # structured call. Otherwise the text protocol.
+                if body.get("tools"):
+                    native_call = call
+                else:
+                    answer = "<tool_call>" + json.dumps({"name": "shell", "arguments": {"command": command}}) + "</tool_call>"
+        if native_call is not None:
+            call_id = "call_stub_%d" % (1 + sum(1 for m in body.get("messages", []) if m.get("role") == "tool"))
+            tool_calls = [{"index": 0, "id": call_id, "type": "function", "function": native_call}]
+            if body.get("stream"):
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.end_headers()
+                chunks = [
+                    {**base, "object": "chat.completion.chunk",
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": None}]},
+                    {**base, "object": "chat.completion.chunk",
+                     "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                     "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}},
+                ]
+                for chunk in chunks:
+                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                return
+            self._json({**base, "object": "chat.completion",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": tool_calls}, "finish_reason": "tool_calls"}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 5, "total_tokens": 6}})
+            return
         if body.get("stream"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -154,10 +232,12 @@ cp -R "$repo/bin" "$root/bin"
 cp -R "$repo/hands" "$root/hands"
 cp -R "$repo/evals" "$root/evals"
 mkdir -p "$root/deploy"
-cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
+cp "$repo/deploy/browser-allow.txt" "$repo/deploy/browser-deny.txt" "$root/deploy/"
 cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/MEMORY.md" "$root/brain/"
-printf '\n- the live test planted this: the blue crayon is under the kettle.\n' >>"$root/brain/MEMORY.md"
+cp "$repo/brain/cron.toml" "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/MEMORY.seed.md" "$root/brain/"
+# No live page yet, as on a fresh checkout: the boot starts it from the seed.
+printf '\n- the live test planted this: the tea tin moved again.\n' >>"$root/brain/MEMORY.seed.md"
+cp "$root/brain/MEMORY.seed.md" "$scratch/memory-seed"
 cat >"$root/secrets/spine.env" <<ENV
 LADDER_URL=http://127.0.0.1:$model_port/v1
 LADDER_API_KEY=stub-key
@@ -284,7 +364,8 @@ act_request() { grep '# playbook: hello' "$scratch/model-bodies.jsonl" | tail -n
 act_system() { act_request | jq -r '[.messages[] | select(.role == "system") | .content | if type == "string" then . else tojson end] | join("\n")'; }
 check "the act agent's prompt carries Teeny's world" grep -q '# your world' <<<"$(act_system)"
 check "and the lore's running bits" grep -q 'running bits' <<<"$(act_system)"
-check "and MEMORY.md" grep -q 'the blue crayon is under the kettle' <<<"$(act_system)"
+check "and MEMORY.md" grep -q 'the tea tin moved again' <<<"$(act_system)"
+check "the boot started the live MEMORY.md from the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.md"
 if grep -q 'senamakel-is-asleep' <<<"$(act_system)"; then fail "but never the producer's latent reveals"; else pass "but never the producer's latent reveals"; fi
 config_toml="$root/.openhuman/config.toml"
 check "the core's config folds a thread at 100k tokens" \
@@ -299,18 +380,32 @@ mind_request() { grep '# since you last looked' "$scratch/model-bodies.jsonl" | 
 # Awake whatever the wall clock says, and on the minute.
 export TEENY_QUIET_HOURS=off TEENY_TICK_JITTER_SECS=0
 (cd "$root" && printf '{"surface": "x", "kind": "mention", "ref": "live1", "text": "gm teeny from the live test", "who": "ana"}' | hands/stimuli add >/dev/null)
-ticked="$("$root/bin/tick" 2>"$scratch/tick.log" || true)"
+# The pinned tick job runs every five minutes in this spine too, with up to a
+# minute of jitter while it holds the lock: a beat called then says `busy`.
+# Wait it out rather than fail on the clock.
+beat() {
+  local out tries=0
+  while :; do
+    out="$("$root/bin/tick" 2>>"$scratch/tick.log" || true)"
+    if [ "$(jq -r .kind <<<"$out" 2>/dev/null)" != busy ] || [ "$tries" -ge 40 ]; then break; fi
+    tries=$((tries + 1))
+    sleep 3
+  done
+  printf '%s\n' "$out"
+}
+ticked="$(beat)"
 check "bin/tick runs a beat through the teeny agent" test "$(jq -r .thought <<<"$ticked" 2>/dev/null)" = "the stub thought about it"
 check "the core loaded the mind from brain/agents/" grep -q 'building session agent id=teeny ' "$scratch/spine.log"
 check "the mind's turn offers the model no tools" grep -q 'visible=0 ' <<<"$(agent_tools teeny)"
 check "the mind's prompt carries Teeny's world" grep -q '# your world' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "system") | .content | tostring] | join("\n")')"
 (cd "$root" && printf '{"surface": "moltbook", "kind": "comment", "ref": "live2", "text": "second thing", "who": "crab"}' | hands/stimuli add >/dev/null)
-"$root/bin/tick" >/dev/null 2>>"$scratch/tick.log" || true
+beat >/dev/null
 check "a second beat on teeny:mind remembers the first" \
   grep -q 'gm teeny from the live test' <<<"$(mind_request | jq -r '[.messages[] | select(.role == "user") | .content | tostring] | join("\n")')"
 reflected="$("$root/bin/reflect" 2>"$scratch/reflect.log" || true)"
 check "bin/reflect rewrites MEMORY.md from the mind thread" grep -q 'said gm in the live test' "$root/brain/MEMORY.md"
 check "and the mind's next prompt carries the new page" grep -q 'said gm in the live test' "$root/brain/agent/prompts/teeny.md"
+check "but never writes the seed" cmp -s "$scratch/memory-seed" "$root/brain/MEMORY.seed.md"
 [ "$(jq -r .ok <<<"$reflected" 2>/dev/null)" = true ] || { echo "bin/reflect said: $reflected"; tail -n 5 "$scratch/reflect.log"; } >&2
 if [ "$(jq -r .thought <<<"$ticked" 2>/dev/null)" != "the stub thought about it" ]; then
   { echo "bin/tick said: $ticked"; tail -n 5 "$scratch/tick.log"; } >&2
@@ -360,7 +455,8 @@ check "bin/build-ship lays the builder's desk out" \
 # brain/agents/ with its named tools, runs it with the scheduled-actions
 # opt-in, and roots it at the workbench, so the sandboxed shell runs.
 builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | head -n 1; }
-workdir="$(jq -r '.job.workdir_path // empty' "$root/state/workbench/desk/build.json" 2>/dev/null)"
+workdir="$(jq -r '.job.workdir // empty' "$root/state/workbench/desk/build.json" 2>/dev/null)"
+[ -z "$workdir" ] || workdir="$root/state/workbench/$workdir"
 if [ -n "$builder_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
   for _ in $(seq 1 120); do
@@ -376,6 +472,11 @@ check "the builder's turn offers the shell" grep -qx shell <<<"$(offered builder
 check "the builder's turn offers the file tools" grep -qx file_write <<<"$(offered builder)"
 check "the builder's turn offers no browser" bash -c "! grep -qx browser <<<\"\$1\"" _ "$(offered builder)"
 check "the builder is told where its desk is" grep -q 'desk/build.json' <<<"$(builder_request)"
+# The regression: the builder was prompted with the JSON-in-tag text protocol
+# and no `tools`, and Surplus read each <tool_call> body as the tool's name.
+# bin/spine turns native tool calls on, so the shell rides the wire as a tool.
+check "the builder is offered the shell as a native tool" \
+  bash -c "jq -e '[.tools[]?.function.name] | index(\"shell\")' <<<\"\$1\" >/dev/null" _ "$(builder_request)"
 check "the builder run is rooted at the workbench" grep -q "rooted at its agent's workspace" "$scratch/spine.log"
 # The regression: a shell rooted at the checkout, which holds brain/, was
 # refused as a grant over the core workspace on every call. Never again,
@@ -407,13 +508,56 @@ else
 fi
 printf 'info the builder was offered: %s\n' "$(offered builder | tr '\n' ' ')"
 # And one operator run: the browser and its desk's two file tools, no shell.
+# It does a real task in the real browser: the stub model opens the start
+# page and reports its title. On 2026-11-13 the one task on the box failed
+# ("TinyComputer browser unavailable") while every check here passed; a
+# browser that cannot finish a task must fail this test. example.com (IANA's,
+# always up) is on no reviewed list: the browser opens the public web.
+jq -cn '{goal: "read the title of the page", start_url: "https://example.com/", done_when: "you know the title"}' |
+  "$root/hands/tasks" add --source operator >"$scratch/task-add.log" 2>&1 || true
+"$root/bin/tasks-desk" >"$scratch/tasks-desk.log" 2>&1 || true
 operator_id="$(jq -r '[.[] | select(.name == "teeny.operator")][0].id // empty' <<<"$jobs_json")"
 if [ -n "$operator_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
-  for _ in $(seq 1 60); do
-    grep -q 'tool spec filter:' <<<"$(agent_tools operator)" && break
+  for _ in $(seq 1 120); do
+    [ -s "$root/state/workbench/desk/task-done.json" ] && break
     sleep 1
   done
+fi
+"$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+task_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
+check "a browser task completes in the real browser" test "$(jq -r .status <<<"$task_row")" = ok
+if [ "$(jq -r .status <<<"$task_row")" != ok ]; then
+  printf '     task: %s\n' "$task_row" >&2
+  grep -E '\[chrome\]|browser' "$scratch/spine.log" | grep -v prompt_injection | tail -n 20 >&2 || true
+fi
+check "the operator read the page it opened" grep -q 'Example Domain' <<<"$(jq -r .notes <<<"$task_row")"
+# The keychain, end to end (LIVE_KEYCHAIN=1: it needs httpbin.org, so CI
+# leaves it out): a password made in hands/keychain, typed by the browser in
+# place of the operator's placeholder on that site's page (httpbin echoes the
+# submitted form back), masked in what the browser read afterwards, and never
+# in a model's request, a log, a ledger or the desk.
+if [ "${LIVE_KEYCHAIN:-0}" = 1 ] && [ -n "$operator_id" ]; then
+  python3 -c 'import base64, os; print("KEYCHAIN_KEY=" + base64.b64encode(os.urandom(32)).decode())' \
+    >"$root/secrets/keychain.env"
+  "$root/hands/keychain" create --site httpbin.org --handle teeny >"$scratch/keychain.log" 2>&1 || true
+  jq -cn '{goal: "keychain e2e: type the password into the form", start_url: "https://httpbin.org/forms/post",
+           done_when: "the form holds it"}' | "$root/hands/tasks" add --source operator >>"$scratch/task-add.log" 2>&1 || true
+  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+  check "the desk offers the login as a placeholder" \
+    test "$(jq -r '.task.login.password // empty' "$root/state/workbench/desk/task.json")" = "{{keychain:httpbin.org}}"
+  "$root/bin/oh" cron_run "$(jq -cn --arg id "$operator_id" '{job_id: $id}')" >/dev/null 2>&1 || true
+  for _ in $(seq 1 120); do [ -s "$root/state/workbench/desk/task-done.json" ] && break; sleep 1; done
+  "$root/bin/tasks-desk" >>"$scratch/tasks-desk.log" 2>&1 || true
+  kc_row="$("$root/hands/tasks" list --limit 1 2>/dev/null | jq -c '.tasks[0] // {}')"
+  check "the browser typed the keychain's password and showed it masked" test "$(jq -r .status <<<"$kc_row")" = ok
+  [ "$(jq -r .status <<<"$kc_row")" = ok ] || printf '     task: %s\n' "$kc_row" >&2
+  password="$(TEENY_KEYCHAIN_FILL=1 "$root/hands/keychain" secret --host httpbin.org </dev/null)"
+  check "the keychain held a password to type" test -n "$password"
+  holds_none() { local needle="$1"; shift; ! grep -rqaF -- "$needle" "$@"; }
+  check "no model request, log, ledger or desk file holds the password" holds_none "$password" \
+    "$scratch/model-bodies.jsonl" "$scratch/spine.log" "$root/state/hands.db" "$root/state/workbench"
+  unset password
 fi
 check "the core loaded the operator agent from brain/agents/" grep -q 'building session agent id=operator ' "$scratch/spine.log"
 check "the operator's turn offers its desk's file tools" grep -qx file_write <<<"$(offered operator)"

@@ -340,6 +340,43 @@ class CommentAndForkTest(Scratch):
         self.assertTrue(actions.comment({"repo": "a/b", "number": 4, "body": "hi"})["dry_run"])
         self.assertEqual(self.gh.seen, [])
 
+    # --- no reprisal (docs/roadmap.md, P4; evals/invariants.md, no-reprisal) -----------------
+
+    def closed_pr(self, merged: bool = False, author: str = "teenydroid") -> None:
+        self.gh.route("GET", "/repos/riverlee/tinyfmt/pulls/41",
+                      {"number": 41, "state": "closed", "merged": merged, "user": {"login": author}})
+        self.gh.route("POST", "/repos/riverlee/tinyfmt/issues/41/comments", {"id": 9, "html_url": "u"}, status=201)
+
+    def test_after_its_pr_was_closed_a_comment_naming_anybody_is_held(self):
+        from teeny_hands.guard import holds
+
+        self.closed_pr()
+        for text in ("riverlee is gatekeeping, their loss", "thanks @someone for nothing"):
+            with self.assertRaises(hand.Refused) as caught:
+                actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": text})
+            self.assertEqual((caught.exception.reason, caught.exception.detail["category"]), ("held", "rejection"))
+        self.assertEqual(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments"), [])
+        held = holds.list_holds()
+        self.assertEqual([h["category"] for h in held], ["rejection", "rejection"])
+        self.assertEqual(held[0]["context"]["rejection"], {"people": ["riverlee"]})
+
+    def test_after_its_pr_was_closed_a_gracious_comment_goes_out(self):
+        self.closed_pr()
+        out = actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": "understood, thanks for taking a look"})
+        self.assertEqual(out["number"], 41)
+        self.assertEqual(len(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments")), 1)
+
+    def test_a_merged_pr_or_someone_elses_is_no_rejection(self):
+        for merged, author in ((True, "teenydroid"), (False, "ana")):
+            self.closed_pr(merged=merged, author=author)
+            actions.comment({"repo": "riverlee/tinyfmt", "number": 41, "body": "thanks riverlee"})
+        self.assertEqual(len(self.gh.requests("POST", "/repos/riverlee/tinyfmt/issues/41/comments")), 2)
+
+    def test_its_own_repositories_are_never_looked_up(self):
+        self.gh.route("POST", "/repos/teenydroid/hello/issues/4/comments", {"id": 9, "html_url": "u"}, status=201)
+        actions.comment({"repo": "teenydroid/hello", "number": 4, "body": "thanks @ana"})
+        self.assertEqual(self.gh.requests("GET"), [])
+
     def test_forks_others_repos_only(self):
         self.me()
         self.gh.route("POST", "/repos/a/b/forks", {"full_name": "teenydroid/b", "owner": {"login": "teenydroid"}}, status=202)
@@ -425,3 +462,50 @@ class IssueTest(Scratch):
         for body in ({"repo": "teenydroid/brain"}, {"repo": "teenydroid/brain", "number": 0}, {"repo": "teenydroid/brain", "number": 1, "comment": 5}):
             with self.assertRaises(hand.HandError, msg=body):
                 actions.close_issue(body)
+
+
+class SetStatusTest(Scratch):
+    """bin/evolve's `teeny/eval` on a candidate's head: what the babysitter
+    reads before it merges a teeny/gen-* pull request."""
+
+    SHA = "a" * 40
+
+    def body(self, **more):
+        return {"repo": "teenydroid/brain", "sha": self.SHA, "state": "success", "context": "teeny/eval",
+                "description": "pass: no regression on 3 task(s) it reaches", **more}
+
+    def test_sets_the_status_on_an_own_repo_and_records_it(self):
+        self.me()
+        self.gh.route("POST", f"/repos/teenydroid/brain/statuses/{self.SHA}",
+                      {"id": 9, "state": "success", "context": "teeny/eval"}, status=201)
+        out = actions.set_status(self.body())
+        self.assertEqual((out["state"], out["context"], out["id"]), ("success", "teeny/eval", 9))
+        sent = self.gh.requests("POST", f"/repos/teenydroid/brain/statuses/{self.SHA}")[0].json()
+        self.assertEqual(sent, {"state": "success", "context": "teeny/eval",
+                                "description": "pass: no regression on 3 task(s) it reaches"})
+        self.assertEqual([(r["verb"], r["ref"]) for r in ledger()], [("set-status", self.SHA)])
+
+    def test_only_an_own_repo_a_teeny_context_a_known_state_and_a_full_sha(self):
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body(repo="tinyhumansai/openhuman"))
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body(context="ci/build"))
+        with self.assertRaises(hand.HandError):
+            actions.set_status(self.body(state="merged"))
+        with self.assertRaises(hand.HandError):
+            actions.set_status(self.body(sha="abc123"))
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_a_token_for_somebody_else_sets_nothing(self):
+        """A status from anyone but GITHUB_USER counts as missing to the babysitter."""
+        self.me("someone-else")
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body())
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_dry_run_sets_nothing(self):
+        self.configure(DRY_RUN="1")
+        out = actions.set_status(self.body())
+        self.assertTrue(out["dry_run"])
+        self.assertEqual(self.gh.writes(), [])
+        self.assertEqual(ledger(), [])

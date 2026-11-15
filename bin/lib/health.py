@@ -12,7 +12,15 @@ Every run:
 
 1. Asks the model one tiny question through the core
    (`inference_agent_chat_simple`, as the guard's judge does). An error or
-   an empty answer is a failure.
+   an empty answer is a failed attempt. One that may pass (a cut provider
+   stream, a timeout, a 5xx) is asked again, up to PROBE_ATTEMPTS times in
+   all, after PROBE_BACKOFFS, inside PROBE_BUDGET; one that will not (a
+   refused key, no model configured) is not. Only when every attempt fails
+   is the check a failure. On 2026-11-14 Surplus cut streams in windows of
+   minutes, and two single probes cut in a row opened an outage issue that
+   closed itself fifteen minutes later. `probe_attempts` (and, when an
+   attempt failed before the answer, `probe_retried`, its error) on the
+   line and in state/health.json keep that flakiness visible.
 2. Counts what else the last hour shows: guard holds whose judge could not
    be reached (state/hands.db) and failed cron runs (the core's
    storage.db, read-only, as bin/crons reads it).
@@ -26,8 +34,11 @@ Every run:
 4. When the model answered, re-screens the guard holds an outage made
    (teeny_hands.guard.rescreen): at most ten, oldest first, none younger
    than two minutes. A held message the judge now finds clean goes back to
-   its queue; a real verdict stays held; a held draft of Teeny's own expires
-   and is never sent. A failed probe skips it: the judge is that model.
+   its queue; a real verdict stays held; a held Moltbook draft of Teeny's
+   own under an hour old is sent again through hands/moltbook, any other
+   draft expires and is never sent. A failed probe skips it: the judge is
+   that model. The pinned guard-rescreen job runs the same pass every five
+   minutes.
 5. Looks for cron jobs stuck behind their schedule (`stale_crons`): enabled,
    a next run more than STALE_SECS in the past, and no run holding that
    slot. On 2026-11-11 the box rebooted mid-run, the dead runs' claims held
@@ -38,9 +49,56 @@ Every run:
    of the same kind (a `health · alarm` stimulus, one issue), cleared once
    every job is current again. It is watched whether the model answers or
    not.
-6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
+   Then a job whose schedule says `catch_up = true` and whose latest slot
+   passed without a run (stuck just now, or re-armed at boot before any
+   check saw it) has that slot run once now (bin/lib/catch_up.py): on
+   2026-11-14 a deploy cut off moltbook-follow's 11:30 run and this check
+   re-armed it to the next day, and a boot did the same to self-improve on
+   11-13 and 11-14, so the day's run was dropped. The alarm says which
+   stuck job was caught up and which waits for its next slot.
+6. Watches the playbook runs (bin/act's state/act/*/runs.jsonl) for drafts
+   the model provider failed (`failure: "provider"`): ACT_ALARM_RUNS such
+   runs in a row across the playbooks, with no draft answered between them,
+   or two or more spread over ACT_ALARM_MINUTES, raise a third alarm of the
+   same kind (`act_alarm`: a `health · alarm` stimulus and one issue). The
+   core's quick retries of one run count once. It is cleared by the first
+   draft that is answered again. The probe above asks a one-word question;
+   a draft is a long turn as the `act` agent, which can fail while the probe
+   answers (a spending allowance that covers the small call and not the big
+   one). It is raised only while the probe answers: when the probe fails
+   too, the model alarm above is the one, and one outage files one issue.
+   With the probe answering and no provider failure since the last answered
+   draft, a slot such a failure lost is made up (bin/lib/catch_up.py,
+   `provider_back`).
+7. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
-   did not run), and `stale_crons`, `rearmed` and `cron_alarm`.
+   did not run), `stale_crons`, `rearmed`, `caught_up`, `cron_alarm`,
+   `act_outage` (the provider failures in a row, or null) and `act_alarm`, and
+   `moltbook_unverified`: how many of the last day's Moltbook writes are
+   still hidden behind an unsolved challenge, when fewer than nine in ten
+   of at least three are visible (null otherwise). That one is a count on
+   the line only; it raises no alarm.
+
+Once a day (`python3 bin/lib/health.py daily`, the pinned `health-daily`
+job; docs/roadmap.md, A4) it also tells Teeny how yesterday (the UTC day
+before this one) went, as one `health · daily` stimulus: what the model
+cost, failed cron runs by job, failed playbook runs (bin/act) by playbook,
+failed beats of the mind, the doctor's checks that are not ok, and guard
+holds by direction and category. Counts and names Teeny's own code chose
+(job, playbook, check and category names), never the text of a hold, an
+error or anything a stranger wrote. A second run the same day adds nothing.
+
+The fallback route (docs/roadmap.md, A18; `reroute`): with
+SPINE_FALLBACK_MODEL in secrets/spine.env (a second model on the same
+endpoint), FAILURES_TO_FALLBACK failed probes in a row and a fallback that
+answers its own probe (`model_override`) move every workload of the running
+core to it (`config_update_model_settings`, as bin/spine does at boot), so
+the next beat runs on it. While on the fallback each run also asks the main
+model, and the first answer moves the core back. Each move leaves a line in
+state/diary-notes.jsonl, which the night's reflection puts on the diary page
+(bin/lib/reflect.py, `diary_notes`), and a `health · route` stimulus. A
+reboot starts on the main model again. The alarm still follows the probe of
+whatever model the core is on.
 
 The stimuli wait for a mind that cannot think until the model is back; the
 issue is the alarm a person sees meanwhile. So it is filed without the
@@ -58,6 +116,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -67,12 +126,27 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.gh import actions as gh  # noqa: E402
 from teeny_hands.guard import rescreen  # noqa: E402
+from teeny_hands.guard.judge import permanent  # noqa: E402
+from teeny_hands.scrub import scrub as _scrub  # noqa: E402
+
+import catch_up  # noqa: E402  (bin/lib: the claims, the re-arm and the catch-up)
 
 #: Failed probes in a row that raise the alarm.
 FAILURES_TO_ALARM = 2
 #: How long the model may take to say one word.
 PROBE_TIMEOUT = 60.0
 PROBE = "Health check: reply with the one word ok."
+#: Attempts at the probe in one check, the waits before the second and the
+#: third, and how long they may take together, waits included: an attempt
+#: gets what is left (at most PROBE_TIMEOUT), and one that would get less
+#: than MIN_PROBE_SECS is not made. Every attempt timing out is 60 s + 5 s +
+#: 25 s = 90 s; a cut stream fails in a second or two, so three cut attempts
+#: take about half a minute. With the fallback's two probes (60 s each) the
+#: run stays well inside the 300 s the core gives a cron shell call.
+PROBE_ATTEMPTS = 3
+PROBE_BACKOFFS = (5.0, 20.0)
+PROBE_BUDGET = 90.0
+MIN_PROBE_SECS = 10.0
 #: How far back the holds and cron runs are counted.
 WINDOW_SECS = 3600
 DEFAULT_REPO = "teenydroid/brain"
@@ -82,28 +156,31 @@ MAX_ERROR_CHARS = 300
 #: How far behind its schedule an enabled cron job may fall before it counts
 #: as stuck (bin/doctor --live uses the same ten minutes).
 STALE_SECS = 600
-#: A run in flight renews the claim on its slot (the core's occurrence lease)
-#: every 30 s; a claim nobody renewed for this long is a gone process's.
-LEASE_FRESH_SECS = 120
+#: Moltbook hides a write until its challenge is solved: the share of the
+#: last MOLTBOOK_WINDOW_SECS's writes that must be visible, once at least
+#: MOLTBOOK_MIN_WRITES went out.
+MOLTBOOK_VERIFIED_SHARE = 0.9
+MOLTBOOK_MIN_WRITES = 3
+MOLTBOOK_WINDOW_SECS = 86400
+#: Playbook runs in a row the model provider failed before the act alarm
+#: opens (secrets/teeny.env ACT_ALARM_RUNS), or the minutes from the first
+#: such failure to the last (ACT_ALARM_MINUTES) when there are two or more.
+ACT_ALARM_RUNS = 3
+ACT_ALARM_MINUTES = 30
+#: Failures of one playbook this close together are one run: the core's
+#: cron retries a failed shell job at once.
+ACT_RETRY_SECS = 120
+#: How far back the playbook logs are read.
+ACT_LOOKBACK_SECS = 86400
 
 Json = dict[str, Any]
-
-_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
-_HOST = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
-_KEYISH = re.compile(r"\b(?:sk|pk|ghp|gho|github_pat|xox[a-z]?|AKIA)[-_A-Za-z0-9]{6,}|[A-Za-z0-9_-]{32,}")
-
 
 # --- the probe and the signals --------------------------------------------------------
 
 
 def scrub(error: str) -> str:
-    """One line of an error, safe to keep and to publish: no URL, no
-    address, nothing that looks like a key, and not too long."""
-    line = " ".join(str(error).split())
-    line = _URL.sub("[url]", line)
-    line = _HOST.sub("[host]", line)
-    line = _KEYISH.sub("[redacted]", line)
-    return line if len(line) <= MAX_ERROR_CHARS else line[:MAX_ERROR_CHARS].rstrip() + "..."
+    """One line of an error, safe to keep and to publish (teeny_hands.scrub)."""
+    return _scrub(error, MAX_ERROR_CHARS)
 
 
 def _words(reply: Any) -> str:
@@ -118,13 +195,43 @@ def _words(reply: Any) -> str:
     return reply if isinstance(reply, str) else ""
 
 
-def probe() -> str | None:
-    """None when the model answered; what went wrong when it did not."""
+def probe(model: str | None = None, timeout: float = PROBE_TIMEOUT) -> str | None:
+    """None when the model answered; what went wrong when it did not. With
+    MODEL, that model on the core's endpoint (`model_override`), not the
+    one the core is set to. One attempt."""
+    params: Json = {"message": PROBE, **({"model_override": model} if model else {})}
     try:
-        reply = hand.core("inference_agent_chat_simple", {"message": PROBE}, timeout=PROBE_TIMEOUT)
+        reply = hand.core("inference_agent_chat_simple", params, timeout=timeout)
     except Exception as error:  # noqa: BLE001 - any failure to answer is the thing watched for
         return scrub(str(error) or type(error).__name__)
     return None if _words(reply).strip() else "the model answered with nothing"
+
+
+def _sleep(secs: float) -> None:
+    time.sleep(secs)
+
+
+def probe_until_answered() -> tuple[str | None, int, list[str]]:
+    """The probe of the model the core is on, asked again after a failure
+    that may pass (PROBE_ATTEMPTS, PROBE_BACKOFFS, PROBE_BUDGET): (None when
+    an attempt answered, else the last attempt's error; how many attempts
+    were made; the errors of the attempts that failed)."""
+    errors: list[str] = []
+    started = time.monotonic()
+    for attempt in range(PROBE_ATTEMPTS):
+        if attempt:
+            wait = PROBE_BACKOFFS[min(attempt, len(PROBE_BACKOFFS)) - 1]
+            if PROBE_BUDGET - (time.monotonic() - started) - wait < MIN_PROBE_SECS:
+                break
+            _sleep(wait)
+        left = PROBE_BUDGET - (time.monotonic() - started)
+        error = probe(timeout=min(PROBE_TIMEOUT, left))
+        if error is None:
+            return None, attempt + 1, errors
+        errors.append(error)
+        if permanent(error):
+            break
+    return errors[-1], len(errors), errors
 
 
 def judge_holds(since: float) -> int:
@@ -143,6 +250,36 @@ def judge_holds(since: float) -> int:
     return int(row[0])
 
 
+def moltbook_unverified(since: float) -> int | None:
+    """Teeny's Moltbook writes since `since` that nobody can see yet (any
+    accepted status but `verified` or `posted`), when at least
+    MOLTBOOK_MIN_WRITES went out and fewer than MOLTBOOK_VERIFIED_SHARE of
+    them are visible; None otherwise. A count on the line, never an alarm:
+    the model is fine, and the issue is filed by nothing."""
+    from teeny_hands.moltbook import rules as moltbook
+
+    counted = ",".join("?" * len(moltbook.COUNTED))
+    visible = ",".join("?" * len(moltbook.ACCEPTED))
+    try:
+        conn = hand.db()
+        try:
+            total, seen = 0, 0
+            for table in ("moltbook_posts", "moltbook_comments"):
+                row = conn.execute(
+                    f"SELECT count(*), coalesce(sum(status IN ({visible})), 0) FROM {table}"
+                    f" WHERE at >= ? AND status IN ({counted})",
+                    (*moltbook.ACCEPTED, since, *moltbook.COUNTED),
+                ).fetchone()
+                total, seen = total + int(row[0]), seen + int(row[1])
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:  # Moltbook never written to
+        return None
+    if total < MOLTBOOK_MIN_WRITES or seen >= MOLTBOOK_VERIFIED_SHARE * total:
+        return None
+    return total - seen
+
+
 def _storage() -> Path:
     """The core's storage.db, found as bin/lib/teeny.sh finds it."""
     if os.environ.get("TEENY_STORAGE"):
@@ -151,9 +288,10 @@ def _storage() -> Path:
     return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
 
 
-def cron_errors(since: float) -> dict[str, int]:
-    """Failed cron runs since `since`, by job name. Read-only; bin/crons'
-    query, narrowed to valid JSON in the cron collections first."""
+def cron_errors(since: float, until: float | None = None) -> dict[str, int]:
+    """Failed cron runs since `since` (and before `until`), by job name.
+    Read-only; bin/crons' query, narrowed to valid JSON in the cron
+    collections first."""
     path = _storage()
     if not path.is_file():
         return {}
@@ -172,9 +310,10 @@ def cron_errors(since: float) -> dict[str, int]:
                 from runs join jobs on jobs.id = json_extract(runs.body, '$.job_id')
                 where json_extract(runs.body, '$.status') = 'error'
                   and json_extract(runs.body, '$.finished_ms') >= ?
+                  and json_extract(runs.body, '$.finished_ms') < ?
                 group by name order by name
                 """,
-                (int(since * 1000),),
+                (int(since * 1000), int((until if until is not None else 1e12) * 1000)),
             ).fetchall()
         finally:
             conn.close()
@@ -183,28 +322,10 @@ def cron_errors(since: float) -> dict[str, int]:
     return {str(name): int(count) for name, count in rows}
 
 
-def _lease_id(job_id: str, occurrence_ms: int) -> str:
-    """The id of the core's claim on one occurrence of a job: tinyflows'
-    `Key::of(["cron", Key::of([job_id, occurrence_ms])])`."""
-    def part(text: str) -> str:
-        return text.replace("%", "%25").replace("/", "%2F")
-    return "cron/" + part(part(job_id) + "/" + str(occurrence_ms))
-
-
 def _running(conn: sqlite3.Connection, job_id: str, occurrence_ms: int, now_ms: int) -> bool:
-    """Whether a live run holds the job's slot: its claim is unreleased,
-    unexpired and was renewed lately."""
-    row = conn.execute("select updated_ms, body from docs where coll = 'tsd.leases' and id = ? and deleted = 0",
-                       (_lease_id(job_id, occurrence_ms),)).fetchone()
-    if row is None:
-        return False
-    try:
-        lease = json.loads(row[1])
-    except ValueError:
-        return False
-    return (isinstance(lease, dict) and not lease.get("released")
-            and int(lease.get("expires_ms") or 0) > now_ms
-            and int(row[0] or 0) >= now_ms - LEASE_FRESH_SECS * 1000)
+    """Whether a recent claim holds the job's slot (bin/lib/catch_up.py, the
+    one reading of the core's claims that bin/seed-cron shares)."""
+    return catch_up._lease_live(conn, job_id, occurrence_ms, now_ms)
 
 
 def _iso(ms: int) -> str:
@@ -248,34 +369,35 @@ def stale_crons(now: float) -> list[Json]:
             parsed = json.loads(schedule) if schedule else None
         except ValueError:
             parsed = None
-        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "schedule": parsed})
+        out.append({"id": str(job_id), "name": str(name), "next_run": _iso(next_ms), "next_ms": next_ms,
+                    "schedule": parsed})
     return out
 
 
 def rearm(stale: list[Json]) -> tuple[list[str], dict[str, str]]:
     """Patches each stuck `teeny.*` cron job's own schedule back, which moves
     its next run to the next slot (the core's own jobs are not Teeny's to
-    touch). The names re-armed, and what went wrong with the rest."""
-    rearmed: list[str] = []
-    errors: dict[str, str] = {}
-    for job in stale:
-        schedule = job["schedule"]
-        if not job["name"].startswith("teeny.") or not isinstance(schedule, dict) or schedule.get("kind") != "cron":
-            continue
-        try:
-            hand.core("cron_update", {"job_id": job["id"], "patch": {"schedule": schedule}})
-        except Exception as error:  # noqa: BLE001 - one job the core refused does not stop the rest
-            errors[job["name"]] = scrub(str(error) or type(error).__name__)
-            continue
-        print(f"[health] rearm {job['name']} (next_run was {job['next_run']})", file=sys.stderr)
-        rearmed.append(job["name"])
-    return rearmed, errors
+    touch), through catch_up.rearm: it reads the slot's claim right before
+    and after each update, as bin/seed-cron does. The names re-armed, and
+    what went wrong with the rest."""
+    mine = [job for job in stale if job["name"].startswith("teeny.") and isinstance(job["schedule"], dict)
+            and job["schedule"].get("kind") == "cron"]
+    out = catch_up.rearm(mine, hand.core)
+    errors: dict[str, str] = dict(out["errors"])
+    for name in out["raced"]:
+        errors[name] = "the core claimed its slot as it was re-armed; that run goes on unrecorded, not run twice"
+    for name in out["running"]:
+        errors[name] = "a run renewed its claim a moment ago; left to the core"
+    by_name = {job["name"]: job for job in mine}
+    for name in out["rearmed"]:
+        print(f"[health] rearm {name} (next_run was {by_name[name]['next_run']})", file=sys.stderr)
+    return out["rearmed"], errors
 
 
 # --- state ------------------------------------------------------------------------------------
 
 FRESH: Json = {"failures": 0, "first_failed_at": None, "last_failed_at": None, "last_ok_at": None,
-               "last_error": None, "alarm": None, "cron_alarm": None}
+               "last_error": None, "alarm": None, "cron_alarm": None, "act_alarm": None}
 
 
 def _path() -> Path:
@@ -414,14 +536,46 @@ def _stuck(stale: list[Json]) -> str:
     return ", ".join(f"{job['name']} (next run was {job['next_run']})" for job in stale)
 
 
-def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str]) -> str:
-    done = (f"re-armed: {', '.join(rearmed)}; they run again at their next slot." if rearmed
-            else "none was re-armed.")
-    failed = "".join(f" could not re-arm {name}: {why}." for name, why in rearm_errors.items())
-    return done + failed
+def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str], caught: Mapping[str, Any]) -> str:
+    """What became of each stuck job: re-armed, and then caught up now or
+    left for its next slot (or a later check, or the end of the quiet hours)."""
+    line = f"re-armed: {', '.join(rearmed)}." if rearmed else "none was re-armed."
+    done = caught.get("caught_up") or []
+    if done:
+        line += " caught up now: " + ", ".join(f"{c['name']} (its {c['slot']} slot)" for c in done) + "."
+    now = {c["name"] for c in done}
+    for name in rearmed:
+        if name in now:
+            continue
+        if name in (caught.get("pending") or []):
+            line += f" {name} is caught up at a later check."
+        elif name in (caught.get("deferred") or []):
+            line += f" {name} is caught up once the quiet hours end."
+        else:
+            line += f" {name} waits for its next slot."
+    line += "".join(f" could not re-arm {name}: {why}." for name, why in rearm_errors.items())
+    line += "".join(f" could not catch up {name}: {why}." for name, why in (caught.get("errors") or {}).items())
+    return line
 
 
-def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str]) -> Json:
+def _catch_up(rearmed: list[str], provider_back: bool = False) -> Json:
+    """Runs a missed slot of a `catch_up` job once now (bin/lib/catch_up.py),
+    with the schedule files bin/seed-cron seeds from."""
+    import catch_up
+    import cron_policy
+    brain = Path(os.environ["OPENHUMAN_WORKSPACE"]) if os.environ.get("OPENHUMAN_WORKSPACE") else hand.root() / "brain"
+    if not (brain / "cron.toml").is_file():
+        return {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
+    try:
+        desired = cron_policy.load(brain / "cron.toml", hand.root() / "evals" / "cron.pinned.toml",
+                                   os.environ.get("CALENDAR_TZ", ""))
+    except Exception as error:  # noqa: BLE001 - an invalid file is bin/doctor's to report; nothing is caught up
+        return {"caught_up": [], "pending": [], "deferred": [], "errors": {"schedule": scrub(str(error))}}
+    return catch_up.run(desired, hand.core, rearmed=rearmed, provider_back=provider_back)
+
+
+def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str],
+                caught: Mapping[str, Any]) -> Json:
     since = min(job["next_run"] for job in stale)
     return {
         "repo": _repo(),
@@ -431,38 +585,48 @@ def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str
             f" {STALE_SECS // 60} minutes in the past with no run holding their slot: the core's scheduler is"
             " not running them.\n\n"
             f"- stuck: {_stuck(stale)}\n"
-            f"- {_rearm_line(rearmed, rearm_errors)}\n\n"
+            f"- {_rearm_line(rearmed, rearm_errors, caught)}\n\n"
             "A job is re-armed by patching its own schedule back through the core (`cron_update`), which moves"
-            " its next run to the next slot; bin/seed-cron does the same at every boot. Look for a claim the"
-            " core never released (a run cut off by a restart) with `bin/crons`.\n\n"
+            " its next run to the next slot; bin/seed-cron does the same at every boot. A job whose schedule"
+            " says `catch_up = true` (brain/cron.toml, evals/cron.pinned.toml) then has the slot it missed run"
+            " once now (`cron_run`, bin/lib/catch_up.py), if that slot is recent enough; any other job waits"
+            " for its next slot. Look for a claim the core never released (a run cut off by a restart) with"
+            " `bin/crons`.\n\n"
             "This issue is closed by the same check once every enabled job is current again."
         ),
     }
 
 
-def _watch_crons(state: Json, now: float) -> Json:
+def _watch_crons(state: Json, now: float, provider_back: bool = False) -> Json:
     """Finds and re-arms stuck cron jobs, and raises, keeps or clears their
     alarm. What goes on the check's line."""
     stale = stale_crons(now)
     rearmed, rearm_errors = rearm(stale)
+    try:
+        caught = _catch_up(rearmed, provider_back)
+    except Exception as error:  # noqa: BLE001 - a failed catch-up never stops the watch
+        caught = {"caught_up": [], "errors": {"catch-up": scrub(f"{type(error).__name__}: {error}")}}
     out: Json = {"stale_crons": [{"name": job["name"], "next_run": job["next_run"]} for job in stale],
-                 "rearmed": rearmed, "cron_alarm": None}
+                 "rearmed": rearmed, "caught_up": caught.get("caught_up") or [], "cron_alarm": None}
     if rearm_errors:
         out["rearm_errors"] = rearm_errors
+    for key in ("pending", "deferred", "errors"):
+        if caught.get(key):
+            out[f"catch_up_{key}"] = caught[key]
     alarm = state.get("cron_alarm")
     if stale and alarm:
         if not alarm.get("issue"):
-            _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+            _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors, caught))
         out["cron_alarm"] = "open"
     elif stale:
         alarm = {"ref": f"cron:{int(now)}", "opened_at": now, "issue": None}
-        _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors))
+        _open_issue(alarm, _cron_issue(stale, rearmed, rearm_errors, caught))
         stimuli.add(
             "health", "alarm", alarm["ref"],
             f"health alarm: these cron jobs stopped running: {_stuck(stale)}."
-            f" {_rearm_line(rearmed, rearm_errors)} {_issue_line(alarm)}",
+            f" {_rearm_line(rearmed, rearm_errors, caught)} {_issue_line(alarm)}",
             payload={"stale_crons": out["stale_crons"], "rearmed": rearmed, "rearm_errors": rearm_errors,
-                     "issue": alarm["issue"]},
+                     "caught_up": out["caught_up"], "issue": alarm["issue"]},
         )
         out["cron_alarm"] = "raised"
     elif alarm:
@@ -478,6 +642,271 @@ def _watch_crons(state: Json, now: float) -> Json:
     return out
 
 
+# --- playbook drafts the model provider failed ------------------------------------------------
+
+
+def _at(line: Mapping[str, Any]) -> float | None:
+    try:
+        when = dt.datetime.fromisoformat(str(line["at"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return None
+    return (when if when.tzinfo else when.replace(tzinfo=dt.timezone.utc)).timestamp()
+
+
+def _answered(line: Mapping[str, Any]) -> bool:
+    """Whether a run's line shows the model answered its draft."""
+    return (line.get("ok") is True and "actions" in line) or str(line.get("error") or "").startswith(
+        "the draft is not usable JSON")
+
+
+def act_outage(now: float) -> Json:
+    """The playbook runs the model provider failed since a draft was last
+    answered, across every playbook: `runs` (one run's quick retries count
+    once), `since` and `last` (when the first and the last failed), `by` (per
+    playbook), `provider` and `error` (the last one's class and scrubbed
+    error), and `answered_at` (the last answered draft, or None)."""
+    events: list[tuple[float, str, Json]] = []
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        for line in _lines(path)[-500:]:
+            at = _at(line)
+            if at is not None and at >= now - ACT_LOOKBACK_SECS and (
+                    line.get("failure") == "provider" or _answered(line)):
+                events.append((at, path.parent.name, line))
+    events.sort(key=lambda e: e[0])
+    answered_at = next((at for at, _, line in reversed(events) if _answered(line)), None)
+    lost = [(at, name, line) for at, name, line in events if answered_at is None or at > answered_at]
+    runs, by, seen = 0, {}, {}
+    for at, name, _ in lost:
+        if name not in seen or at - seen[name] >= ACT_RETRY_SECS:
+            runs += 1
+            by[_named(name)] = by.get(_named(name), 0) + 1
+        seen[name] = at
+    out: Json = {"runs": runs, "answered_at": answered_at}
+    if lost:
+        last = lost[-1][2]
+        out.update(since=lost[0][0], last=lost[-1][0], by=by, provider=_named(last.get("provider")),
+                   error=scrub(str(last.get("stderr") or last.get("error") or "")))
+    return out
+
+
+def _setting_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(hand.setting(name, str(default)) or default))
+    except ValueError:
+        return default
+
+
+def _act_issue(outage: Mapping[str, Any]) -> Json:
+    return {
+        "repo": _repo(),
+        "title": f"Teeny's playbook drafts fail on the model provider (since {_when(outage['since'])})",
+        "body": (
+            "The pinned health check (bin/health) reads the playbook runs (bin/act). The model provider failed"
+            f" the draft of the last {outage['runs']} run(s) in a row, and no draft was answered between them.\n\n"
+            f"- failing since: {_when(outage['since'])}\n"
+            f"- by playbook: {_counts(outage['by'])}\n"
+            f"- kind: {outage['provider']}\n"
+            f"- last error: {outage['error']}\n\n"
+            "Each of those runs lost its slot: no post, comment or note was made. Check the model provider's"
+            " balance and key (bin/spine). The health probe's one-word question may still be answered: a draft"
+            " is a much larger turn. Once a draft is answered again, a Moltbook post that lost its slot is made"
+            " up once, within its window (`make_up_hours`, brain/cron.toml).\n\n"
+            "This issue is closed by the same check when a draft is answered again."
+        ),
+    }
+
+
+def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
+    """Raises, keeps or clears the alarm on playbook drafts the model
+    provider failed. What goes on the check's line, and the outage."""
+    outage = act_outage(now)
+    alarm = state.get("act_alarm")
+    runs = outage["runs"]
+    due = runs >= _setting_int("ACT_ALARM_RUNS", ACT_ALARM_RUNS) or (
+        runs >= 2 and outage["last"] - outage["since"] >= 60 * _setting_int("ACT_ALARM_MINUTES", ACT_ALARM_MINUTES))
+    out: Json = {"act_outage": None, "act_alarm": None}
+    if runs:
+        out["act_outage"] = {"runs": runs, "since": _iso(int(outage["since"] * 1000)), "by": outage["by"],
+                             "provider": outage["provider"]}
+    if alarm and runs == 0 and outage["answered_at"] is not None:
+        down = f"from {_when(alarm['since'])} to {_when(outage['answered_at'])}"
+        closed = _close_issue(alarm, f"A playbook draft was answered again. The drafts failed {down}. Closing.")
+        out.update(closed)
+        stimuli.add("health", "recovered", alarm["ref"],
+                    f"health: your playbook drafts are answered again. the model provider failed them {down}.",
+                    payload={"since": alarm["since"], "recovered_at": now, "issue": alarm.get("issue")})
+        out["act_alarm"] = "cleared"
+        alarm = None
+    elif alarm:
+        if not alarm.get("issue") and runs:
+            _open_issue(alarm, _act_issue(outage))
+        out["act_alarm"] = "open"
+    elif due and not state.get("failures"):
+        alarm = {"ref": f"act:{int(outage['since'])}", "opened_at": now, "since": outage["since"], "issue": None}
+        _open_issue(alarm, _act_issue(outage))
+        stimuli.add(
+            "health", "alarm", alarm["ref"],
+            f"health alarm: the model provider failed the draft of your last {runs} playbook run(s) in a row,"
+            f" since {_when(outage['since'])} ({_counts(outage['by'])}; {outage['provider']}). those slots made"
+            f" nothing. last error: {outage['error']}. {_issue_line(alarm)}",
+            payload={"runs": runs, "since": outage["since"], "by": outage["by"], "provider": outage["provider"],
+                     "issue": alarm["issue"]},
+        )
+        out["act_alarm"] = "raised"
+    state["act_alarm"] = alarm
+    if alarm:
+        out.update(act_issue=alarm.get("issue"), act_issue_error=alarm.get("issue_error"))
+    return out, outage
+
+
+# --- yesterday, as one stimulus (docs/roadmap.md, A4) ------------------------------------------
+
+#: A name that may go into the stimulus as it is: a job, playbook, check or
+#: category name Teeny's own code chose. Anything else is counted as "other".
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:/()=,-]{0,79}")
+
+
+def _named(name: Any) -> str:
+    return name if isinstance(name, str) and _NAME.fullmatch(name) else "other"
+
+
+def _stamp(at: float) -> str:
+    return dt.datetime.fromtimestamp(at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _in(line: Mapping[str, Any], since: float, until: float) -> bool:
+    """Whether a runs.jsonl line's `at` (ISO, UTC) falls in [since, until)."""
+    at = line.get("at")
+    if not isinstance(at, str):
+        return False
+    try:
+        when = dt.datetime.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return since <= when.timestamp() < until
+
+
+def _lines(path: Path) -> list[Json]:
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in raw:
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            out.append(value)
+    return out
+
+
+def act_failures(since: float, until: float) -> dict[str, int]:
+    """Playbook runs (state/act/<name>/runs.jsonl, bin/act) that failed in
+    [since, until), by playbook."""
+    out: dict[str, int] = {}
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        n = sum(1 for line in _lines(path) if line.get("ok") is False and _in(line, since, until))
+        if n:
+            out[_named(path.parent.name)] = out.get(_named(path.parent.name), 0) + n
+    return out
+
+
+def failed_beats(since: float, until: float) -> int:
+    """Beats of the mind (state/tick/runs.jsonl) that failed in [since, until)."""
+    return sum(1 for line in _lines(hand.state_dir() / "tick" / "runs.jsonl")
+               if line.get("kind") == "failed" and _in(line, since, until))
+
+
+def doctor_checks() -> dict[str, list[str]]:
+    """The last doctor report's checks that are not ok, by status (`fail`,
+    `warn`): their names only, never their detail."""
+    try:
+        report = json.loads((hand.state_dir() / "doctor.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for c in report.get("checks", []) if isinstance(report, dict) else []:
+        if isinstance(c, dict) and c.get("status") not in ("ok", None):
+            out.setdefault(_named(c.get("status")), []).append(_named(c.get("check")))
+    return out
+
+
+def holds_by_category(since: float, until: float) -> dict[str, int]:
+    """Guard holds made in [since, until), as `<direction> <category>`: never
+    their text or reason."""
+    try:
+        conn = hand.db()
+        try:
+            rows = conn.execute(
+                "SELECT direction, category, count(*) FROM guard_holds WHERE at >= ? AND at < ?"
+                " GROUP BY direction, category ORDER BY direction, category",
+                (_stamp(since), _stamp(until)),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:  # no holds table yet
+        return {}
+    out: dict[str, int] = {}
+    for direction, category, n in rows:
+        key = f"{_named(direction)} {_named(category)}"
+        out[key] = out.get(key, 0) + int(n)
+    return out
+
+
+def model_cost() -> Json | None:
+    """What the model cost over the last day, from the core's cost report
+    (as hands/wallet costs reads it); None when the core could not say."""
+    try:
+        report = hand.core("cost_report", {"days": 1}, timeout=PROBE_TIMEOUT)
+    except Exception:  # noqa: BLE001 - a cost the core cannot give is left out, not fatal
+        return None
+    totals = report.get("totals") if isinstance(report, Mapping) else None
+    if not isinstance(totals, Mapping):
+        return None
+    try:
+        return {"usd": round(float(totals.get("cost_usd") or 0.0), 4), "calls": int(totals.get("calls") or 0)}
+    except (TypeError, ValueError):
+        return None
+
+
+def _counts(counts: Mapping[str, int]) -> str:
+    return ", ".join(f"{name} {n}" for name, n in counts.items()) or "none"
+
+
+def daily() -> Json:
+    """Yesterday (UTC) as one `health · daily` stimulus, once per day."""
+    with hand.lock("health"):
+        until = hand.day_start()
+        since = until - 86400
+        day = dt.datetime.fromtimestamp(since, dt.timezone.utc).strftime("%Y-%m-%d")
+        cost = model_cost()
+        crons = cron_errors(since, until)
+        acts = act_failures(since, until)
+        beats = failed_beats(since, until)
+        doctor = doctor_checks()
+        holds = holds_by_category(since, until)
+        trouble = bool(crons or acts or beats or doctor.get("fail") or holds)
+        spent = (f"the model cost ${cost['usd']:.2f} over {cost['calls']} call(s)" if cost
+                 else "what the model cost is unknown (the core did not say)")
+        doctor_line = "; ".join(f"{status}: {', '.join(names)}" for status, names in doctor.items()) or "all ok"
+        text = (
+            f"health, yesterday ({day} UTC): {spent}. failed cron runs: {_counts(crons)}."
+            f" failed playbook runs: {_counts(acts)}. failed beats of your mind: {beats}."
+            f" the doctor: {doctor_line}. guard holds: {_counts(holds)}."
+            " these are counts and names only, never what was held or said."
+        )
+        if trouble:
+            text += " if one of these is yours to look into, it is in your own logs and ledgers."
+        payload = {"day": day, "cost": cost, "cron_errors": crons, "act_failures": acts, "failed_beats": beats,
+                   "doctor": doctor, "holds": holds, "trouble": trouble}
+        added = stimuli.add("health", "daily", f"daily:{day}", text, payload=payload)
+        return {"ok": True, "daily": day, "added": added, **payload}
+
+
 # --- the check ------------------------------------------------------------------------------------
 
 
@@ -490,15 +919,106 @@ def _rescreen() -> Json:
         return {"rescreen": None, "rescreen_error": scrub(f"{type(error).__name__}: {error}")}
 
 
+# --- the fallback route (docs/roadmap.md, A18) ----------------------------------------------
+
+#: Failed probes in a row after which the core is switched to the fallback model.
+FAILURES_TO_FALLBACK = 2
+#: Where a switch is noted for the night's diary page (bin/lib/reflect.py).
+NOTES = "diary-notes.jsonl"
+#: The workloads bin/spine points at the model, every one of them.
+_PROVIDERS = ("chat_provider", "reasoning_provider", "agentic_provider", "coding_provider", "vision_provider",
+              "memory_provider")
+
+
+def routes() -> tuple[str | None, str | None, str | None]:
+    """(the main model, the fallback model, the fallback's context window),
+    from secrets/spine.env as bin/spine reads it: SPINE_MODEL, and
+    SPINE_FALLBACK_MODEL, a second model on the same endpoint. No fallback
+    (or one equal to the main) is no fallback."""
+    try:
+        env = hand._parse_env_file((hand.secrets_dir() / "spine.env").read_text(encoding="utf-8"))
+    except OSError:
+        return None, None, None
+    main = (env.get("SPINE_MODEL") or "").strip() or None
+    fallback = (env.get("SPINE_FALLBACK_MODEL") or "").strip() or None
+    window = (env.get("SPINE_FALLBACK_CONTEXT_WINDOW") or "").strip() or None
+    return main, (fallback if fallback != main else None), window
+
+
+def use_model(model: str, window: str | None = None) -> None:
+    """Points every workload of the running core at MODEL on its endpoint,
+    as bin/spine does at boot. The next turn (a beat, a judge call) runs on
+    it."""
+    provider = f"local-openai:{model}"
+    hand.core("config_update_model_settings", {"default_model": model, **{p: provider for p in _PROVIDERS}},
+              timeout=PROBE_TIMEOUT)
+    if window and window.isdigit() and int(window) > 0:
+        hand.core("inference_update_model_settings",
+                  {"model_registry": [{"id": model, "provider": "local-openai", "context_window": int(window)}]},
+                  timeout=PROBE_TIMEOUT)
+
+
+def note(text: str, now: float) -> None:
+    """One line for the night's diary page (state/diary-notes.jsonl; the
+    reflection adds the notes since the last one), written by this script,
+    never by a model."""
+    with (hand.state_dir() / NOTES).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": now, "text": text}, ensure_ascii=False) + "\n")
+
+
+def _switch(state: Json, model: str, route: str, now: float, window: str | None, why: str) -> None:
+    use_model(model, window)
+    if state.get("route", "main") != route:
+        text = (f"my model stopped answering, so the spine moved me to the fallback model, {model}. {why}"
+                if route == "fallback" else f"my main model, {model}, answers again; the spine moved me back to it.")
+        note(text, now)
+        stimuli.add("health", "route", f"route:{route}:{int(now)}", text,
+                    payload={"route": route, "model": model})
+    state.update(route=route, route_model=model, route_since=now)
+
+
+def reroute(state: Json, error: str | None, now: float) -> Json:
+    """After the probe: FAILURES_TO_FALLBACK failures in a row and a
+    fallback that answers move the core to it; on the fallback, a main
+    model that answers moves it back. Each move is a diary note and a
+    `health · route` stimulus. Nothing without SPINE_FALLBACK_MODEL. A
+    reboot puts the core back on the main model (bin/spine); the next
+    failures move it again."""
+    main, fallback, window = routes()
+    if not main or not fallback:
+        return {}
+    route = state.get("route", "main")
+    out: Json = {"route": route}
+    try:
+        if error is not None and int(state.get("failures") or 0) >= FAILURES_TO_FALLBACK:
+            if probe(fallback) is None:
+                _switch(state, fallback, "fallback", now, window, f"the main one said: {error}")
+            elif route == "fallback" and probe(main) is None:
+                _switch(state, main, "main", now, None, "")
+            else:
+                out["route_error"] = "the fallback model did not answer either"
+        elif error is None and route == "fallback" and probe(main) is None:
+            _switch(state, main, "main", now, None, "")
+    except Exception as exc:  # noqa: BLE001 - a failed switch is reported, never raised
+        out["route_error"] = scrub(f"the switch failed: {exc}")
+    out["route"] = state.get("route", "main")
+    return out
+
+
 def check() -> Json:
     with hand.lock("health"):
         now = hand.now()
         state = load()
-        error = probe()
+        error, attempts, failed = probe_until_answered()
         holds = judge_holds(now - WINDOW_SECS)
         errors = cron_errors(now - WINDOW_SECS)
         out: Json = {"ok": True, "healthy": error is None, "judge_holds": holds, "cron_errors": errors,
-                     "alarm": None, "issue": None, "rescreen": None}
+                     "alarm": None, "issue": None, "rescreen": None, "probe_attempts": attempts,
+                     "moltbook_unverified": moltbook_unverified(now - MOLTBOOK_WINDOW_SECS)}
+        state["probe_attempts"] = attempts
+        if error is None and failed:
+            out["probe_retried"] = failed[0]
+            state.update(last_retried_at=now, last_retried_error=failed[0])
         alarm = state.get("alarm")
         if error is None:
             if alarm:
@@ -522,14 +1042,34 @@ def check() -> Json:
                 out.update(issue=alarm.get("issue"), issue_error=alarm.get("issue_error"),
                            issue_dry_run=alarm.get("issue_dry_run"))
         out["failures"] = state["failures"]
-        out.update(_watch_crons(state, now))
+        out.update(reroute(state, error, now))
+        watched, outage = _watch_act(state, now)
+        out.update(watched)
+        out.update(_watch_crons(state, now, provider_back=error is None and outage["runs"] == 0))
         save(state)
         return out
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv not in ([], ["daily"], ["runway"]):
+        hand.emit({"ok": False, "error": "usage: bin/health [daily|runway]"})
+        return 2
+    if argv == ["runway"]:
+        # Runway as a sense (docs/roadmap.md, S2): teeny_hands/runway.py.
+        from teeny_hands import runway
+        try:
+            out = runway.daily()
+        except hand.Refused as refused:
+            hand.emit({"ok": False, "refused": refused.reason, **refused.detail})
+            return 2
+        except Exception as error:  # noqa: BLE001 - one JSON line, whatever happened
+            hand.emit({"ok": False, "error": scrub(f"{type(error).__name__}: {error}")})
+            return 1
+        hand.emit({"ok": True, **out})
+        return 0
     try:
-        out = check()
+        out = daily() if argv == ["daily"] else check()
     except Exception as error:  # noqa: BLE001 - one JSON line, whatever happened
         hand.emit({"ok": False, "error": scrub(f"{type(error).__name__}: {error}")})
         return 1

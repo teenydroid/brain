@@ -13,13 +13,19 @@ What this does with a delivery:
   answers `sha256=` + base64(HMAC-SHA256(X_API_SECRET, token)).
 - POST: refused unless `x-twitter-webhooks-signature` is that HMAC of the raw
   body. Then each post event about the account by somebody else becomes a row
-  in `x_mentions`, screened like any mention (mentions._store), and the next
-  `bin/mentions` run offers it to the core and the reply flow answers it as
-  it answers the timeline's mentions. A post already in the queue (the
-  timeline saw it too) is left alone, so nothing is answered twice.
+  in `x_mentions`, `unscreened`, and the next `bin/mentions` run (in the
+  spine) screens it with the inbound guard, offers it, and the reply flow
+  answers it as it answers the timeline's mentions. A post already in the
+  queue (the timeline saw it too) is left alone, so nothing is answered
+  twice.
 
-It answers X at once and does the screening on a worker thread: X retries a
-delivery it does not see acknowledged quickly.
+It screens nothing itself: it runs in the `xhook` container, which has its
+own network namespace, and the core (and so the safety judge) listens only in
+the spine's. Asking from here held every mention as "the judge could not be
+reached" (2026-11-11 to 13) until the guard's re-screen released it.
+
+It answers X at once and queues on a worker thread: X retries a delivery it
+does not see acknowledged quickly.
 """
 
 from __future__ import annotations
@@ -119,23 +125,28 @@ def _identity() -> Mapping[str, Any]:
 
 
 def queue_posts(posts: list[Json], me: Mapping[str, Any]) -> dict[str, int]:
-    """Each post into `x_mentions` as the timeline's mentions go (screened,
-    or skipped as own or answered), once; the next ingest offers them."""
+    """Each post into `x_mentions`, once: `unscreened` (or skipped as own or
+    answered). Nothing is screened here: this runs in the xhook container,
+    where the core, and so the safety judge, is out of reach. The next
+    ingest, in the spine, screens and offers them.
+
+    It takes no lock: a row is one INSERT OR IGNORE on the post id, so it
+    cannot race the ingest into a second row, and an ingest judging under
+    its lock must not make X's delivery wait (and be dropped)."""
     counts = {status: 0 for status in mentions.STATUSES}
     cache.remember(posts)
-    with hand.lock("x-ingest", timeout=60):
-        conn = mentions._db()
-        try:
-            now = hand.now()
-            for post in sorted(posts, key=lambda p: int(p["id"])):
-                mentions._store(conn, me, post, counts, now)
-        finally:
-            conn.close()
+    conn = mentions._db()
+    try:
+        now = hand.now()
+        for post in sorted(posts, key=lambda p: int(p["id"])):
+            mentions._store(conn, me, post, counts, now, screen=False)
+    finally:
+        conn.close()
     return {k: v for k, v in counts.items() if v}
 
 
 class Receiver:
-    """The HTTP side and the worker that screens what arrives."""
+    """The HTTP side and the worker that queues what arrives."""
 
     def __init__(self, secret: str, me: Mapping[str, Any]) -> None:
         self.secret = secret

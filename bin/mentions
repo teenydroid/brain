@@ -2,7 +2,8 @@
 # The mentions loop, one cron run of it (evals/cron.pinned.toml):
 #
 #   1. `hands/x ingest`: new mentions from X into the queue, screened by the
-#      inbound guard, the rest offered to the core (source x:mentions);
+#      inbound guard (with the ones X's webhook queued unscreened), the rest
+#      offered (source x:mentions);
 #   2. `hands/x requests`: the stored mentions that ask Teeny to build
 #      something, into build_requests (no second call to X; one row each);
 #   3. `bin/inbound-consume`: the answers the core has drafted since, each

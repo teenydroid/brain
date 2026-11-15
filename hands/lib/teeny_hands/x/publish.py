@@ -19,8 +19,8 @@ import random
 import sys
 from typing import Any, Mapping
 
-from .. import hand
-from . import open_db
+from .. import hand, tags
+from . import open_db, twitr
 from . import cache, media
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
@@ -60,7 +60,10 @@ def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapp
     if verdict.kind == "allow" and isinstance(verdict.text, str) and verdict.text.strip():
         return verdict.text
     if verdict.kind == "hold":
-        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id)
+        # judge_failed: the judge could not judge it, so the tick sends it again
+        # next beat (bin/lib/tick.py, RETRIED); a hold it read is never sent again.
+        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id,
+                           **({"judge_failed": True} if verdict.judge_failed else {}))
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True)
     # An answer this hand does not understand is not an "allow".
@@ -101,11 +104,18 @@ def _db():
     return open_db(rules.SCHEMA)
 
 
+def link_budget() -> Json:
+    """Today's link posts against the cap (`rules.link_budget`). A read of
+    the ledger: it writes nothing and calls no one."""
+    return rules.link_budget(_db())
+
+
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: guard, 280, attachments, then the gap under
     the process-wide posting lock, so two jobs firing in the same minute
     cannot both read the ledger before either is recorded. `approved`: a
     released hold, which skips the guard only."""
+    body, tagged = tags.split(body)
     text, media_ids, gif_id, quote_of = _draft(body, quote=True)
     kind = "quote" if quote_of else "post"
     if not approved:
@@ -116,10 +126,12 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
         rules.check_gap(conn)
+        rules.check_daily_cap(conn)
+        rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
             return _dry(text, kind)
-        x = x or XApi.from_settings()
+        x = x or twitr.client()
         # Only a real post fetches and uploads its GIF: a refused or
         # rehearsed one uploads nothing.
         if gif_id:
@@ -128,7 +140,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
-            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids)
+            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, **tagged)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
@@ -147,8 +159,9 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     it, before the ledger or anything else that can fail."""
     if not rules.is_x_id(to):
         raise hand.HandError("--to must be a numeric X post id")
+    body, tagged = tags.split(body)
     text, media_ids, gif_id, _ = _draft(body, quote=False)
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     reads = cache.reads(x)
     target = reads.get_post(to)
     if target is None:
@@ -196,7 +209,7 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
         for step, record in (
             ("reply id", lambda: rules.record_reply_id(conn, to, reply_id)),
             ("pacing", lambda: rules.advance_pacing(conn, random.random())),
-            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids)),
+            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids, **tagged)),
         ):
             try:
                 record()
@@ -205,15 +218,31 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
 
 
+#: The switch for `like`, off unless set. X's developer guidelines
+#: (https://docs.x.com/developer-guidelines, reviewed 2026-11-12): "Likes must
+#: be directly initiated by the authenticated user"; automated liking "by
+#: keyword, hashtag, user, or schedule" is prohibited. Every caller of this
+#: verb is a model (bin/act's `like` output, the mind's `like` intent), so
+#: none of its likes is user-initiated (docs/roadmap.md, P1).
+LIKES_FLAG = "X_LIKES"
+
+
 def like(post_id: str, x: XApi | None = None) -> Json:
-    """Likes a post as the account. Nothing is said, so there is no guard;
-    under DRY_RUN nothing reaches X, not even "who am I". A like that went
-    out is written to `x_likes`."""
+    """Likes a post as the account. Refused (`likes_off`) unless X_LIKES is
+    on, under DRY_RUN too, so a rehearsal shows what the live run would do.
+    Nothing is said, so there is no guard; under DRY_RUN nothing reaches X,
+    not even "who am I". A like that went out is written to `x_likes`."""
     if not rules.is_x_id(post_id):
         raise hand.HandError("the post to like must be a numeric X post id")
+    if not hand.flag(LIKES_FLAG, False):
+        raise hand.Refused(
+            "likes are off: X's developer guidelines prohibit automated likes (a like must be initiated by the "
+            "person who owns the account), and every like here is chosen by a model; nothing was liked",
+            rule="likes_off",
+        )
     if hand.dry_run():
         return {"dry_run": True, "would_like": post_id}
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     x.like_post(post_id, user_id=cache.reads(x).identity()["id"])
     # The like is out: a ledger that cannot record it is logged, not raised.
     try:
@@ -228,7 +257,7 @@ def unsay(post_id: str, confirm: bool, x: XApi | None = None) -> Json:
     shows what would go, so a deletion is always a second, deliberate call."""
     if not rules.is_x_id(post_id):
         raise hand.HandError("the post to unsay must be a numeric X post id")
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     reads = cache.reads(x)
     post = reads.get_post(post_id)
     if post is None:

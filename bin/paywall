@@ -1,0 +1,20 @@
+#!/usr/bin/env -S python3 -I
+"""Teeny's paid endpoint (hands/lib/teeny_hands/wallet/paywall.py;
+docs/roadmap.md, S4): one x402-priced resource, Teeny's latest public stats.
+
+    bin/paywall [--host 0.0.0.0] [--port 3130]
+
+Runs as the `paywall` service in deploy/compose.yaml (profile `paywall`),
+published on 127.0.0.1:3130, where the deploy vhost routes
+https://x402.teeny.enamakel.com/. Answers 404 until X402_ENDPOINT=1 in
+secrets/teeny.env. It sells; it never pays: Teeny's wallet signs nothing here.
+"""
+import argparse, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "hands", "lib"))
+from teeny_hands.wallet import paywall
+
+parser = argparse.ArgumentParser(prog="bin/paywall")
+parser.add_argument("--host", default="0.0.0.0")
+parser.add_argument("--port", type=int, default=3130)
+args = parser.parse_args()
+paywall.serve(args.host, args.port)

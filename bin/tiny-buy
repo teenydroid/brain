@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Buy $TINY with a share of what Teeny earned (evals/cron.pinned.toml,
+# tiny-buy, daily): `hands/wallet buy-tiny` reads the USDC that reached the
+# wallet since the last buy from anyone but the team, takes off what running
+# Teeny cost, and buys TINY_BUY_SHARE of the rest, under the wallet's caps
+# and the buy's own. Buy only: there is no sell path. Off unless TINY_BUY=1
+# and TINY_BUY_SHARE > 0 in secrets/teeny.env (a refusal, exit 2, when off).
+# DRY_RUN applies; a buy in doubt is never retried.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/wallet" buy-tiny </dev/null

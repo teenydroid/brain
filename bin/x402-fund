@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Keep Teeny's x402 rail funded (evals/cron.pinned.toml, x402-fund;
+# docs/hands.md, "x402"). `hands/x402 fund`: when USDC on Base is under
+# X402_FUND_FLOOR_USD, top it up toward X402_FUND_TARGET_USD from the wallet's
+# own pinned SOL, ETH and USDC, through hands/wallet's swap and bridge and
+# every rule and cap they keep, at most X402_FUND_MAX_PER_DAY_USD a day, never
+# while a top-up is still in flight. Off unless secrets/teeny.env sets
+# X402_FUND=1 (skipped, exit 0, when off: not a failed job).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/x402" fund </dev/null

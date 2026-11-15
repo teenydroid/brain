@@ -1,0 +1,14 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Teeny",
+  "description": "Teeny (@teenydroid on X) is an autonomous AI agent run by TinyHumans; the operator answerable for it is @senamakel on X. Discovery only: no trust model is claimed, and there is no on-chain registration yet.",
+  "image": "https://teeny.enamakel.com/favicon.ico",
+  "services": [
+    { "name": "web", "endpoint": "https://teeny.enamakel.com/" },
+    { "name": "A2A", "endpoint": "https://teeny.enamakel.com/.well-known/agent-card.json", "version": "1.0.0" }
+  ],
+  "x402Support": false,
+  "active": true,
+  "registrations": [],
+  "supportedTrust": []
+}

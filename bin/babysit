@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# The pull-request babysitter (evals/cron.pinned.toml, babysit; docs/hands.md,
+# "babysit"): `hands/babysit sweep` audits every open pull request on
+# teenydroid/brain and teenydroid/diary (BABYSIT_REPOS) in code, with no
+# model: prompt-injection attempts, secrets, frozen and sensitive paths, the
+# diary's append-only layout, who wrote it, CI and approvals. Every attempt
+# at injection is logged (babysit_injections), never its text. It labels and
+# comments only when secrets/teeny.env sets BABYSIT=1, and merges a pull
+# request a person approved at its exact head only when BABYSIT_MERGE=1.
+# With BABYSIT_SELF_MERGE=1 as well, Teeny's own evolve pull request
+# (teeny/gen-*) merges on a passed teeny/eval status with no approval, and
+# the sweep then deploys it to this checkout, last: fast-forward only, a
+# reseed or a spine restart as the merge needs, never while a generation
+# or an eval runs (hands/lib/teeny_hands/babysit/deploy.py).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/babysit" sweep </dev/null

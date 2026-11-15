@@ -1,0 +1,65 @@
+{
+ "total_count": 6870,
+ "incomplete_results": false,
+ "items": [
+  {
+   "id": 1450794567,
+   "name": "agentes-chat",
+   "full_name": "agentes-chat/agentes-chat",
+   "html_url": "https://github.com/agentes-chat/agentes-chat",
+   "description": "Open-source, self-hosted Slack alternative where your team and AI agents work together in channels and DMs. Agents run on Claude, ChatGPT/Codex, Gemini or Grok, with MCP tools, their own computer and browser, routines, memory and approvals. Web, desktop and phone apps. Docker Compose + Postgres. AGPL-3.0.",
+   "stargazers_count": 1338,
+   "forks_count": 227,
+   "language": "TypeScript",
+   "created_at": "2026-11-09T00:50:28Z",
+   "pushed_at": "2026-11-13T22:53:58Z",
+   "topics": [
+    "agentic-ai",
+    "ai-agents",
+    "browser-automation",
+    "chat",
+    "claude",
+    "claude-code",
+    "codex",
+    "collaboration",
+    "computer-use",
+    "docker-compose",
+    "gemini",
+    "grok",
+    "human-in-the-loop",
+    "llm",
+    "mcp",
+    "multi-agent",
+    "openai",
+    "self-hosted",
+    "slack-alternative",
+    "team-chat"
+   ],
+   "owner": {
+    "login": "agentes-chat"
+   }
+  },
+  {
+   "id": 1448924811,
+   "name": "solo-to-team-skills",
+   "full_name": "dabingfy-dot/solo-to-team-skills",
+   "html_url": "https://github.com/dabingfy-dot/solo-to-team-skills",
+   "description": "Skills for human-led AI teams: delegate tasks, verify evidence, explain steps clearly, and learn from real cases. 一个人统筹 AI 团队：派活、核证、清楚说明、经验复用。",
+   "stargazers_count": 841,
+   "forks_count": 90,
+   "language": null,
+   "created_at": "2026-11-07T01:36:28Z",
+   "pushed_at": "2026-11-07T01:36:36Z",
+   "topics": [
+    "agent-skills",
+    "ai-agents",
+    "collaboration",
+    "human-in-the-loop",
+    "workflow"
+   ],
+   "owner": {
+    "login": "dabingfy-dot"
+   }
+  }
+ ]
+}

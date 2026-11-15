@@ -17,6 +17,8 @@ needs; exits non-zero with the reason otherwise:
 - each scheduled agent's prompt says how a run with nothing queued ends:
   no report, and its NOTHING_TO_DO line as the final message (an empty
   final message is a failed run to the harness, every time the cron fires);
+- the evolver (EDITORS) names its tools, only file tools, and never acts
+  on a schedule: it runs on bin/evolve's lab spine over a worktree;
 - the builder's runs are rooted at the workbench (`scheduled_workspace`),
   so its sandboxed shell is granted that folder and never the checkout
   that holds brain/ and secrets/; no other agent picks a root;
@@ -47,6 +49,10 @@ SCHEDULED = {
     "builder": (("shell", "file_read", "file_write"), ("browser", *NEVER)),
     "operator": (("browser", "file_read", "file_write"), ("shell", "edit", "apply_patch", *NEVER)),
 }
+
+#: agent -> the only tools it may have. The evolver edits a lab worktree
+#: and answers JSON; bin/evolve gates what it wrote.
+EDITORS = {"evolver": ("file_read", "file_write", "edit", "glob", "grep", "list")}
 
 #: agent -> the root its cron runs work in (OpenHuman's `scheduled_workspace`,
 #: relative to the checkout). Unlisted agents must not set one.
@@ -87,6 +93,15 @@ def check(path: Path) -> str:
         if doc.get("max_iterations") != NO_TOOLS_MAX_ITERATIONS:
             raise SystemExit(f"the {agent} agent must set max_iterations = {NO_TOOLS_MAX_ITERATIONS} "
                              "(1 trips the harness's cap pause on every turn; more is a loop it has no tools for)")
+        return agent
+    if agent in EDITORS:
+        if scheduled:
+            raise SystemExit(f"the {agent} agent must not set scheduled_actions")
+        if not isinstance(named, list) or not named or "*" in named:
+            raise SystemExit(f"the {agent} agent must name its tools explicitly ([tools] named = [...], no wildcard)")
+        extra = [t for t in named if t not in EDITORS[agent]]
+        if extra:
+            raise SystemExit(f"the {agent} agent may have only {', '.join(EDITORS[agent])}, not {', '.join(extra)}")
         return agent
     if agent not in SCHEDULED:
         if scheduled:

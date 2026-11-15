@@ -166,6 +166,13 @@ class GitHubApi:
             raise
         return to_pr(got)
 
+    def check_runs(self, owner: str, name: str, ref: str) -> list[Json]:
+        """The check runs on a commit: `{name, status, conclusion}` each."""
+        got = self.call("GET", self._path("repos", owner, name, "commits", ref, "check-runs"), [("per_page", "100")])
+        runs = got.get("check_runs") if isinstance(got, Mapping) else None
+        return [{"name": r.get("name"), "status": r.get("status"), "conclusion": r.get("conclusion")}
+                for r in (runs if isinstance(runs, list) else []) if isinstance(r, Mapping)]
+
     def file(self, owner: str, name: str, path: str) -> str | None:
         """A file's text from the default branch; None when there is none."""
         quoted = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
@@ -214,6 +221,11 @@ class GitHubApi:
     def open_issue(self, owner: str, name: str, title: str, body: str) -> Json:
         got = self.call("POST", self._path("repos", owner, name, "issues"), body={"title": title, "body": body})
         return {"number": got.get("number"), "html_url": got.get("html_url")}
+
+    def set_status(self, owner: str, name: str, sha: str, state: str, context: str, description: str) -> Json:
+        got = self.call("POST", self._path("repos", owner, name, "statuses", sha),
+                        body={"state": state, "context": context, "description": description})
+        return {"id": got.get("id"), "state": got.get("state"), "context": got.get("context")}
 
     def close_issue(self, owner: str, name: str, number: int) -> Json:
         got = self.call(
@@ -281,8 +293,13 @@ def to_pr(got: Any) -> Json:
         "state": got.get("state"),
         "draft": got.get("draft"),
         "merged": got.get("merged"),
+        "merged_at": got.get("merged_at"),
+        "merge_sha": got.get("merge_commit_sha") if got.get("merged") else None,
+        "merged_by": _login(got.get("merged_by")),
         "user": _login(got.get("user")),
         "head": head.get("label"),
+        "head_ref": head.get("ref"),
+        "head_sha": head.get("sha"),
         "base": base.get("ref"),
         "comments": got.get("comments"),
         "review_comments": got.get("review_comments"),

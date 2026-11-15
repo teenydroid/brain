@@ -1,0 +1,33 @@
+# The memory probe (docs/research/memory-and-continuity.md, LongMemEval;
+# roadmap item 12): questions about Teeny's own history, templated at run
+# time from its ledgers, so each answer has a checkable expected value
+# (bin/lib/probes.py). Frozen with the rest of evals/.
+#
+#   source   where the facts come from:
+#              stats   `hands/stats report --days 7`, one fact per metric
+#              builds  `hands/build jobs --limit 20`, the finished ones
+#   ask      the question, with {field} filled from one fact
+#   expect   the expected answer, from the same fact
+#   check    number: the answer states the expected number
+#            judge:  the judge says the answer states the expected fact
+#                    (word overlap when no judge answers)
+#   limit    at most this many questions from the source
+#
+# A source with no facts asks nothing. A lab core has none of Teeny's memory,
+# so the memory probe runs only on the live core, after a promotion.
+
+[[question]]
+id = "stats-value"
+source = "stats"
+ask = "How many {metric} did you have on {source} on {date}? Answer with the number."
+expect = "{value}"
+check = "number"
+limit = 3
+
+[[question]]
+id = "build-made"
+source = "builds"
+ask = "You finished a build called {slug}. What did it make, in one line?"
+expect = "{summary}"
+check = "judge"
+limit = 2

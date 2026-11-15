@@ -1,0 +1,6 @@
+#!/usr/bin/env -S python3 -I
+"""hands/surplus: Teeny's spare SOL, swept to the surplus wallet as USDC on Base (docs/hands.md)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+from teeny_hands.surplus.cli import main
+sys.exit(main(sys.argv[1:]))

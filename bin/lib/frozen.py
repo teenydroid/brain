@@ -34,6 +34,44 @@ from typing import Iterable, NamedTuple
 
 LIST_PATH = "evals/frozen.txt"
 
+#: The frozen things a self change most often reaches for, where each lives,
+#: and what is Teeny's to change instead. A proposer that wants one of these
+#: should know before it spends a turn finding out: on 2026-11-13 a self
+#: change asked to reword the builder's daily brief, and the builder spent
+#: three hours learning it is frozen code. Shown by bin/evolve in every
+#: proposer's message and by `hands/build frozen` (the self-improve playbook).
+OFTEN_WANTED = (
+    ("the builder's daily brief and the rules every build gets",
+     "hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF, DAILY_RULES, IDEA_RULES)",
+     "brain/playbooks/build-idea.md picks the idea a daily build makes; brain/agents/builder-self.md guides a self "
+     "change"),
+    ("when the builder, the operator, the mind's tick, dream, the wallet jobs and this loop run",
+     "evals/cron.pinned.toml", "brain/cron.toml: every job that is not pinned"),
+    ("an agent's tools, model or limits", "brain/agents/*.toml", "the agent prompts, brain/agents/*.md"),
+    ("how posts and replies reach X, and their pacing", "hands/x, hands/lib/teeny_hands/x/",
+     "the playbooks that draft them, and SOUL.md for the voice"),
+    ("what the guard holds, and why", "hands/guard, hands/lib/teeny_hands/guard/",
+     "the playbook or prompt whose drafts get held"),
+    ("what the Moltbook hand reads, posts and caps", "hands/lib/teeny_hands/moltbook/",
+     "the moltbook-* playbooks that call it"),
+    ("how W and J are counted", "hands/world, hands/lib/teeny_hands/world/", "nothing: change what you do, not the count"),
+    ("the wallet, $TINY buys, paid search", "hands/wallet, hands/x402, hands/lib/teeny_hands/wallet/", "nothing"),
+    ("bin/act, the doctor, the cron rules, this loop", "bin/", "nothing"),
+)
+
+
+def listing(root: str | Path | None = None) -> dict:
+    """The frozen list of ROOT (this checkout by default) and OFTEN_WANTED,
+    as JSON for a model to read before it proposes a change."""
+    where = Path(root) if root else Path(__file__).resolve().parents[2]
+    return {
+        "patterns": _read_list(str(where / LIST_PATH)),
+        "often_wanted": [{"what": what, "frozen_in": frozen_in, "yours_instead": instead}
+                         for what, frozen_in, instead in OFTEN_WANTED],
+        "rule": "A change that touches a frozen path is refused whole. If the fix is in one, skip and say what the "
+                "operator should change.",
+    }
+
 
 class FrozenError(Exception):
     """The check could not run (a bad ref, no list): treat it as a refusal."""

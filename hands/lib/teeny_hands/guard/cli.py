@@ -12,6 +12,10 @@
   holds list [--status S] [--limit N] | approve ID [--note T] | reject ID [--note T]
   holds release ID [--note T]
   links list | approve HOST[/PATH]
+  repeats [--days N] -> {"repeats", "by_surface"}: near-duplicate posts the
+            posting rules refused over the last N days (default 30)
+  rescreen  -> the re-screen's counts: the holds a judge outage made, asked
+            about again (rescreen.py; the pinned guard-rescreen job)
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -190,6 +194,26 @@ def holds_release(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"hold": reviewed}
 
 
+def review_run(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    """The hold reviewer's pass (review.py; docs/roadmap.md, G4)."""
+    from . import review
+
+    return review.run(args.limit)
+
+
+def rescreen_run(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    """The re-screen's pass (rescreen.py): what came of each outage hold."""
+    from . import rescreen
+
+    return {"rescreen": rescreen.run()}
+
+
+def reviews_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    from . import review
+
+    return {"reviews": review.listing(args.sampled, args.limit)}
+
+
 def links_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return {"links": holds.approved_link_rows()}
 
@@ -202,6 +226,19 @@ def links_approve(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     holds.allow_link(entry, None)
     gate.refresh_approved_links()
     return {"entry": entry}
+
+
+def repeats_count(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    from . import repeats
+
+    return repeats.count(args.days)
+
+
+def _days(value: str) -> int:
+    days = int(value)
+    if not 1 <= days <= 365:
+        raise argparse.ArgumentTypeError("--days is 1..365")
+    return days
 
 
 def parser() -> argparse.ArgumentParser:
@@ -229,11 +266,24 @@ def parser() -> argparse.ArgumentParser:
     release.add_argument("--note")
     release.set_defaults(handler=holds_release)
 
+    review_p = verbs.add_parser("review")
+    review_p.add_argument("--limit", type=int, default=10)
+    review_p.set_defaults(handler=review_run)
+    reviews_p = verbs.add_parser("reviews")
+    reviews_p.add_argument("--sampled", action="store_true", help="only the releases queued for the operator to read")
+    reviews_p.add_argument("--limit", type=int, default=100)
+    reviews_p.set_defaults(handler=reviews_list)
+    verbs.add_parser("rescreen").set_defaults(handler=rescreen_run)
+
     links_p = verbs.add_parser("links").add_subparsers(dest="action")
     links_p.add_parser("list").set_defaults(handler=links_list)
     approve = links_p.add_parser("approve")
     approve.add_argument("entry", metavar="HOST[/PATH]")
     approve.set_defaults(handler=links_approve)
+
+    counted = verbs.add_parser("repeats")
+    counted.add_argument("--days", type=_days, default=30)
+    counted.set_defaults(handler=repeats_count)
     return p
 
 

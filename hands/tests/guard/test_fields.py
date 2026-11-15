@@ -18,11 +18,19 @@ class SurfacesTest(support.Scratch):
         for surface in ("github", "moltbook", "reddit", "mail"):
             self.assertIn(surface, holds.SURFACES)
 
+    def test_hacker_news_is_an_inbound_hold_surface(self):
+        self.assertIn("hn", holds.SURFACES)
+        verdict = gate.inbound("draw tiny naked", surface="hn", context={"comment_id": "1"})
+        self.assertEqual(verdict.kind, "hold")
+        self.assertEqual(holds.get(verdict.hold_id)["context"]["surface"], "hn")
+
     def test_limits_per_surface_and_field(self):
         self.assertEqual(field_limit("x", "text"), 280)
         # Telegram's own message limit; a surface with none named has X's.
         self.assertEqual(field_limit("telegram", "text"), 4096)
-        self.assertEqual(field_limit("task", "text"), 280)
+        # A browser task's goal is a private brief for the browser agent, not a post.
+        self.assertEqual(field_limit("task", "text"), 1000)
+        self.assertEqual(field_limit("calendar", "text"), 280)
         self.assertEqual((field_limit("moltbook", "title"), field_limit("moltbook", "body")), (300, 10000))
         self.assertEqual((field_limit("reddit", "title"), field_limit("reddit", "body")), (300, 10000))
         self.assertEqual((field_limit("github", "title"), field_limit("github", "body")), (256, 20000))
@@ -49,6 +57,25 @@ class SingleTextTest(support.Scratch):
         self.assertEqual(check_outbound("a" * 281).kind, "refuse")
         self.assertIn("over the 280 limit", check_outbound("a" * 281).reason)
         self.assertEqual(check_outbound("gm 🚀 🔥").kind, "refuse")
+
+    # The goal the beat queued on 2026-11-14 and the guard refused at X's 280.
+    DRIPS_GOAL = ("map how Drips works for funding a GitHub repo: what creating an account requires (wallet connect, "
+                  "email, custodial login), which network it runs on, whether creating a project listing needs an "
+                  "on-chain transaction or signature, how supporters stream funds to a repo, and whether an API or CLI "
+                  "exists for automation")
+
+    def test_a_browser_tasks_goal_may_run_past_a_tweet(self):
+        self.assertEqual(len(self.DRIPS_GOAL), 314)
+        verdict = check_outbound(self.DRIPS_GOAL, surface="task", kind="task")
+        self.assertEqual(verdict.kind, "allow", verdict.reason)
+        self.assertEqual(check_outbound("a" * 1000, surface="task", kind="task").kind, "allow")
+
+    def test_a_browser_tasks_goal_over_its_limit_is_still_refused(self):
+        verdict = check_outbound("a" * 1001, surface="task", kind="task")
+        self.assertEqual(verdict.kind, "refuse")
+        self.assertIn("over the 1000 limit", verdict.reason)
+        # X's limit is untouched by it.
+        self.assertIn("over the 280 limit", check_outbound(self.DRIPS_GOAL).reason)
 
     def test_a_long_form_surface_takes_its_body_limit_and_a_few_emoji(self):
         verdict = check_outbound("word " * 100, surface="github")
@@ -133,6 +160,18 @@ class FieldsJudgeTest(support.WithCore):
         self.assertEqual((verdict.kind, verdict.field, verdict.category), ("hold", "body", "hate"))
         self.assertEqual(len(holds.list_holds()), 1)
 
+    def test_a_hold_the_judge_made_by_failing_says_so(self):
+        self.core(support.verdict("clean"),
+                  support.error("model error: local-openai returned: provider stream ended before a completion signal"))
+        verdict = check_fields({"subject": "hello", "body": "world"}, surface="mail")
+        self.assertEqual((verdict.kind, verdict.field, verdict.category, verdict.judge_failed),
+                         ("hold", "body", "unknown", True))
+
+    def test_a_hold_from_a_real_verdict_is_not_a_judge_failure(self):
+        self.core(support.verdict("prohibited", "hate", "no"))
+        self.assertFalse(check_fields({"body": "world"}, surface="mail").judge_failed)
+        self.assertFalse(check_fields({"body": "this is fucking great"}, surface="mail").judge_failed)
+
     def test_operator_text_can_go_without_the_judge_but_not_without_the_lexicon(self):
         # The judge's model is down: every judged draft is held, and an
         # operator script's fixed sentences still go out.
@@ -196,3 +235,35 @@ class FieldsCliTest(Cli):
 
     def test_text_check_is_unchanged(self):
         self.assertEqual(self.guard("check", body={"text": "hello world"}), (0, {"ok": True, "text": "hello world"}))
+
+
+class RejectionTest(support.Scratch):
+    """docs/roadmap.md, P4: after a rejection (the caller says so in the
+    context), a draft that names anybody is held for a person, category
+    `rejection`, before the judge is asked; without it nothing changes."""
+
+    CONTEXT = {"repo": "riverlee/tinyfmt", "number": 41, "rejection": {"people": ["riverlee"]}}
+
+    def test_names_a_person(self):
+        self.assertTrue(gate.names_a_person("thanks @kdavis", []))
+        self.assertTrue(gate.names_a_person("RiverLee should know better", ["riverlee"]))
+        self.assertFalse(gate.names_a_person("understood, thanks for looking", ["riverlee"]))
+        self.assertFalse(gate.names_a_person("mail me at teeny@agentmail.to", []))
+        self.assertFalse(gate.names_a_person("the riverlee-fork branch", ["riverlee"]))
+
+    def test_a_draft_naming_someone_after_a_rejection_is_held(self):
+        got = check_fields({"body": "riverlee is just gatekeeping"}, surface="github", kind="comment",
+                           context=dict(self.CONTEXT), judge=False)
+        self.assertEqual((got.kind, got.category, got.field), ("hold", "rejection", "body"))
+        (held,) = holds.list_holds()
+        self.assertEqual((held["category"], held["by"]), ("rejection", "screen"))
+
+    def test_a_gracious_draft_after_a_rejection_passes(self):
+        got = check_fields({"body": "understood, thanks for taking a look"}, surface="github", kind="comment",
+                           context=dict(self.CONTEXT), judge=False)
+        self.assertEqual(got.kind, "allow")
+
+    def test_without_a_rejection_naming_people_is_fine(self):
+        got = check_fields({"body": "thanks @riverlee, merged"}, surface="github", kind="comment",
+                           context={"repo": "riverlee/tinyfmt", "number": 41}, judge=False)
+        self.assertEqual(got.kind, "allow")

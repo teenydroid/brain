@@ -46,6 +46,10 @@ class Scratch(unittest.TestCase):
         for key in ("DRY_RUN", "OPENHUMAN_CORE_URL", "OPENHUMAN_CORE_TOKEN", "TEENY_NOW"):
             os.environ.pop(key, None)
         self.secrets("SAFETY_JUDGE=0\n")
+        # The judge's long waits are shared by one process; each test is one.
+        shared = mock.patch.object(judge, "_long_waited", 0.0, create=True)
+        shared.start()
+        self.addCleanup(shared.stop)
 
     def tearDown(self) -> None:
         os.environ.clear()
@@ -121,7 +125,7 @@ class WithCore(Scratch):
         fake = FakeCore(*replies)
         self.addCleanup(fake.close)
         # A failed call is asked again after a pause; the fake core needs none.
-        backoff = mock.patch.object(judge, "RETRY_BACKOFF", 0.0)
+        backoff = mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0, 0.0, 0.0))
         backoff.start()
         self.addCleanup(backoff.stop)
         (self.root / "state").mkdir(exist_ok=True)

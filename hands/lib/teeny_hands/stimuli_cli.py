@@ -6,7 +6,8 @@ Teeny's mind reads (teeny_hands.stimuli).
   A  settle TICK                                      the tick read its batch
   A  release TICK                                     the tick failed; put it back
   R  counts                                           how many in each status
-  R  recent [--max N]                                 the newest, any status
+  R  recent [--max N] [--chars N]                     the newest, any status; --chars cuts each
+                                                      text to N and leaves the payload out
   A  follow-up {about, in_hours | due_at, ref?}       a reminder to itself
   A  drop-follow-up {id | ref}                        clear a waiting follow-up
   A  due                                              raise the follow-ups now due
@@ -88,8 +89,9 @@ def parser() -> argparse.ArgumentParser:
     verb("settle", lambda a, _: {"settled": stimuli.settle(a.tick)}, "the tick read its batch").add_argument("tick")
     verb("release", lambda a, _: {"released": stimuli.release(a.tick)}, "put a failed tick's batch back").add_argument("tick")
     verb("counts", lambda a, _: stimuli.counts(), "how many in each status")
-    recent = verb("recent", lambda a, _: stimuli.recent(a.max), "the newest, any status")
+    recent = verb("recent", lambda a, _: stimuli.recent(a.max, a.chars), "the newest, any status")
     recent.add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
+    recent.add_argument("--chars", type=_bounded(50, 16_000, "--chars"), default=None)
     verb("follow-up", _follow_up, "a reminder to itself (JSON on stdin)", body=True)
     verb("drop-follow-up", _drop_follow_up, "clear a waiting follow-up by id or ref (JSON on stdin)", body=True)
     verb("due", lambda a, _: {"raised": stimuli.raise_due()}, "raise the follow-ups now due")

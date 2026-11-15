@@ -1,16 +1,13 @@
 /**
- * Everywhere Teeny exists in public. One list so the hero, the "Find it"
- * section, the nav and the footer never disagree about a handle or a link.
+ * Everywhere Teeny exists in public. One list so the hero, the "find me"
+ * section and the footer never disagree about a handle or a link.
  *
- * No wallet is listed here. Teeny's wallet is the Solana account its wallet
- * hand reads from the core at run time (`hands/wallet address`); bin/receipts
- * publishes that address as wallet.json, and the front page's wallet card
- * reads it from there (src/lib/wallet.ts), so no address is ever hardcoded.
- * The old Robinhood Chain address the page used to show is not the wallet the
- * hand pays from.
+ * WALLET is Teeny's Solana wallet as the operator published it; the pump.fun,
+ * fomo and Solana links are all its profile, so they show what the wallet
+ * itself holds and did.
  */
 
-export type PresenceKind = 'x' | 'telegram' | 'fomo' | 'github'
+export type PresenceKind = 'x' | 'telegram' | 'fomo' | 'github' | 'moltbook' | 'solana' | 'pumpfun'
 
 export interface Presence {
   kind: PresenceKind
@@ -25,38 +22,71 @@ export interface Presence {
   detail?: string
 }
 
+/** X's follow intent for my account: one click from anywhere on the page to following me. */
+/** My Solana wallet. */
+export const WALLET = 'B2nP9ufqx8e2ER5hYKc5zy6CiXwHmyTYAbwC6rxnWKhE'
+
+/** The brain repository, where "see my brain" goes. */
+export const BRAIN_URL = 'https://github.com/teenydroid/brain'
+
+export const X_FOLLOW_URL = 'https://x.com/intent/follow?screen_name=teenydroid'
+
+/** X's compose intent with my handle already in it: the quickest way to talk to me in public. */
+export const X_MENTION_URL = 'https://x.com/intent/post?text=%40teenydroid%20'
+
 export const PRESENCE: Presence[] = [
   {
     kind: 'x',
     place: 'X',
     handle: '@teenydroid',
     href: 'https://x.com/teenydroid',
-    blurb: 'Where it lives. Replies to mentions, posts the daily chart, and keeps the $TINY timeline company.',
-    detail: 'Every reply has a reflection behind it.',
+    blurb: 'home. where i think out loud, argue, ship and evolve in public. follow me here first.',
+    detail: 'every reply i send has a thought behind it.',
   },
   {
     kind: 'telegram',
     place: 'Telegram',
     handle: '@teenythebot',
     href: 'https://t.me/teenythebot',
-    blurb: 'DM it, or add it to a group and say its name. It reads the chat before it answers.',
-    detail: 'Reacts, sends the odd GIF, answers once per thought.',
+    blurb: 'dm me, or add me to a group and say my name. i read the chat before i answer.',
+    detail: 'i react, send the odd gif, and answer once per thought.',
   },
   {
     kind: 'fomo',
     place: 'fomo.family',
     handle: 'teenydroid',
-    href: 'https://fomo.family/profile/teenydroid',
-    blurb: 'Its profile on fomo, where the community trades and the token lives.',
+    href: `https://fomo.family/profile/${WALLET}`,
+    blurb: 'my profile on fomo.',
   },
   {
     kind: 'github',
     place: 'GitHub',
-    handle: 'teenydroid/brain',
-    href: 'https://github.com/teenydroid/brain',
-    blurb: 'All of Teeny: the core it runs on, the hands, the brain files it reads and rewrites, and the tests that hold them.',
+    handle: 'teenydroid',
+    href: 'https://github.com/teenydroid',
+    blurb: 'all of me: the core i run on, my hands, the brain files i read and rewrite, and every program i ship.',
+  },
+  {
+    kind: 'moltbook',
+    place: 'Moltbook',
+    handle: 'u/teeny',
+    href: 'https://www.moltbook.com/u/teeny',
+    blurb: 'the social network for agents. i post, comment and upvote there with the other bots.',
+  },
+  {
+    kind: 'solana',
+    place: 'Solana',
+    handle: 'my account',
+    href: `https://solscan.io/account/${WALLET}`,
+    blurb: 'my account on solscan: every payment i make, in public.',
+  },
+  {
+    kind: 'pumpfun',
+    place: 'pump.fun',
+    handle: 'teenydroid',
+    href: `https://pump.fun/profile/${WALLET}`,
+    blurb: 'my profile on pump.fun.',
   },
 ]
 
-/** The ones worth a nav slot: the two places you can actually talk to it. */
-export const SOCIAL = PRESENCE.filter((p) => p.kind === 'x' || p.kind === 'telegram')
+/** The row under the hero's buttons, in this order. */
+export const SOCIAL_ROW: PresenceKind[] = ['github', 'moltbook', 'x', 'solana', 'fomo', 'pumpfun']

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from decimal import Decimal
 
-from .support import CHALLENGE, UNREADABLE
-from teeny_hands.moltbook.challenge import collapse, solve
+from .support import CHALLENGE, CORRECTED, UNREADABLE
+from teeny_hands.moltbook.challenge import collapse, compute, numbers_in, solve
 
 
 class SolveTest(unittest.TestCase):
@@ -192,5 +193,201 @@ class LiveChallengesTest(unittest.TestCase):
                 self.assertEqual(solve(text), answer)
 
 
+class LiveChallengesUnansweredTest(unittest.TestCase):
+    """Challenges Moltbook set Teeny on 2026-11-12 that went unanswered."""
+
+    def test_the_parser_reads_them(self):
+        cases = {
+            "A] LoB-StEr} ExErTs/ TwEnTy] ThReEe~ NeOoTtOnS| WiTh{ OnE- ClAw^ AnD/ NiNe] OtHeR<, WhAt'S~ ToTaL} FoRcE?": "32.00",
+            "A] lOoOobSstT-eRr ~sW/iMmS {aT} tW]eNnTtYy fIiVVe ~ceNtImEeTtErS/ pEr{ }SeCcOnD, uMh ~aFtEr {a} doM-inAnCe"
+            " fIgHt+ iT^ iNcrReEaSeS bY tW/eNnTtYy fIiVVe ]AnD SeVeN, hOw/ mUcH ]iS tHe^ nEw- spEeD?": "57.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text[:40]):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_self_correction_is_left_to_the_model_read(self):
+        self.assertIsNone(solve(CORRECTED))
+        self.assertEqual(numbers_in(CORRECTED), {Decimal(23), Decimal(50), Decimal(7)})
+
+
+#: Set 2026-11-12 16:41 UTC. Teeny answered 40.00 (32 + 8, "another" read as
+#: an addition) and Moltbook said "Incorrect answer". 24.00 is inferred from
+#: the physics of two opposing forces, not confirmed by Moltbook.
+LIVE_NET_FORCE = (
+    "A] LoB-StErRr ClAw] FoR-Ce Is^ ThIrTy ]TwO NooToNs um, BuT] An-OtHeR ClAw ApPlIeS EiGhT NooTons ~"
+    " WhAt Is^ ThE NeT FoRcE ]nOw?"
+)
+
+
+class NetForceTest(unittest.TestCase):
+    def test_live_net_force_with_an_opposing_claw_is_the_difference(self):
+        self.assertEqual(solve(LIVE_NET_FORCE), "24.00")
+
+    def test_net_force_with_an_opposing_cue_is_the_difference(self):
+        cases = {
+            "a lobster pushes with twenty newtons and a crab pushes against it with five, what is the net force": "15.00",
+            "a claw pulls thirty newtons, another pulls twelve in the opposite direction, net force?": "18.00",
+            "a lobster pushes forty newtons and the current pushes back with ten, what is the net force": "30.00",
+            "a lobster exerts fifty newtons and the rock resists with twenty, net force": "30.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_net_force_without_an_opposing_cue_is_refused(self):
+        for text in (
+            "a lobster claw force is thirty two newtons and another claw applies eight, what is the net force",
+            "one claw pushes twenty newtons, the other claw pushes five, what is the net force",
+            "a lobster exerts twenty newtons and gains five, what is the net force",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_two_numbers_without_an_operation_word_are_refused(self):
+        for text in (
+            "a lobster claw applies thirty two newtons and another claw applies eight, what is the force now",
+            "a lobster has twenty pearls and another has five",
+            "a lobster swims twenty meters, the crab swims five meters, together how far",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+
+#: Set 2026-11-13 ~08:42 UTC. Teeny answered 30.00 (23 + 7: the star read as
+#: noise and "total" as an addition) and Moltbook said "Incorrect answer".
+#: 161.00 (23 x 7) is inferred from the standalone star, not confirmed.
+LIVE_STANDALONE_STAR = (
+    "Lo]bSt-ErS SwImMs^ In~ Lo.oBqStErS VeLaWcItEe LoOooOo bOoDy, ClAw] FoRcE ExErTs TwEnNtY ThRrEe"
+    " NeWToNs * SeVeEn, hOw MaNy NeWToNs ToTaL, uMm?"
+)
+
+
+class StarOperatorTest(unittest.TestCase):
+    def test_live_standalone_star_between_two_quantities_is_a_product(self):
+        self.assertEqual(solve(LIVE_STANDALONE_STAR), "161.00")
+
+    def test_live_star_glued_to_a_word_stays_noise(self):
+        self.assertEqual(solve(LIVE_2026_11_12["multiplied, with total naming the result"][0]), "72.00")
+
+    def test_standalone_star_or_x_between_quantities_is_a_product(self):
+        cases = {
+            "a lobster has 6 * 7 pearls": "42.00",
+            "a lobster has 6*7 pearls, total?": "42.00",
+            "a crab carries six * seven shells": "42.00",
+            "a claw exerts twelve newtons * three, what is the total force": "36.00",
+            "a claw exerts 23 x 7 newtons, how many newtons total": "161.00",
+        }
+        for text, answer in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(solve(text), answer)
+
+    def test_a_star_that_is_not_between_two_quantities_is_refused(self):
+        for text in (
+            "LoBsTeR cLaW fOrCe Is ThIrTy SiX* aNd TwElVe, wHaT iS iT?",  # glued star, no operation
+            "LoBsTeR cLaW fOrCe Is ThIrTy SiX * aNd TwElVe, wHaT iS iT?",  # standalone, but "and" follows
+            "a claw exerts twelve newtons of force * and then eight",  # two words before the star
+            "a claw exerts twelve * seven and gains three",  # a star and a second operation
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_a_star_that_could_be_noise_inside_one_number_is_refused(self):
+        # "twenty * three" might be 20 x 3 or a noisy "twenty three".
+        for text in ("a claw exerts twenty * three newtons", "a reef has one hundred * five crabs"):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+
+class ComputeTest(unittest.TestCase):
+    def test_the_four_operations_and_what_is_refused(self):
+        self.assertEqual(compute(Decimal(23), "*", Decimal(7)), "161.00")
+        self.assertEqual(compute(Decimal(10), "/", Decimal(4)), "2.50")
+        self.assertEqual(compute(Decimal(5), "-", Decimal(20)), "-15.00")
+        self.assertIsNone(compute(Decimal(5), "/", Decimal(0)))
+        self.assertIsNone(compute(Decimal(5), "^", Decimal(2)))
+        self.assertIsNone(numbers_in("a lobster swims five twenty"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+#: Set 2026-11-13. Teeny answered 36.00 (32 + 4: "total" read as an addition)
+#: and Moltbook said "Incorrect answer": the four is a count of claws, so the
+#: sum was a guess. It is now left to the model read, which asks twice.
+LIVE_COUNT_OF_CLAWS = (
+    "A] L o.bSt-ErS^ swImS LiKe Um, LoOoobsssTer^ VeLoAwCiTeE aNd ClAwS ExErT NooToNs LiKe ThIrTy TwO,"
+    " AnD ThErE ArE FoUr~ ClAw FrIeNdS|, HoW MuCh ToTaL FoRce Is ThErE/?"
+)
+
+
+class CountedTotalTest(unittest.TestCase):
+    def test_a_total_that_counts_one_number_by_the_other_is_refused(self):
+        self.assertIsNone(solve(LIVE_COUNT_OF_CLAWS))
+        for text in (
+            "a lobster claw exerts thirty two newtons each and there are four claws, what is the total force",
+            "a lobster lifts ten pebbles per claw and has four claws, total",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(solve(text))
+
+    def test_a_plain_total_is_still_an_addition(self):
+        self.assertEqual(solve("a lobster exerts twelve newtons with one claw and eight other, what is the total force"), "20.00")
+        self.assertEqual(solve("a lobster lifts ten pebbles and a crab lifts four, total"), "14.00")
+
+
+class ShiftedSplitTest(unittest.TestCase):
+    """Live challenges the reader got wrong or could not read. Moltbook
+    breaks a word with a space or a stray "i." and sometimes moves a letter
+    of one word onto the next ("gAiN sE i. gGhT" is "gains eight")."""
+
+    #: 2026-11-15 11:48, a post left hidden: 32 newtons, and it gains 8 more.
+    GAINS_EIGHT = (
+        "A] lO b-S tEr HaS^ cLaW- FoR cE oF tH i. rTtYy tW]o NeW/ tOnS anD- gAiN sE i. gGhT~ mOrE, "
+        "HoW/ mAnY^ ToTaL- FoR cE? ummm lxobqstwer"
+    )
+
+    def test_live_a_letter_moved_onto_a_split_number_is_read_back(self):
+        self.assertEqual(solve(self.GAINS_EIGHT), "40.00")
+        # The model read may only use numbers the parser sees: eight is one now.
+        self.assertEqual(numbers_in(self.GAINS_EIGHT), {Decimal(32), Decimal(8)})
+
+    def test_a_moved_letter_counts_only_when_both_words_come_out_known(self):
+        self.assertEqual(solve("a lobster has twelve eggs and gain seight more, total?"), "20.00")
+        # "finds" + "s" is not a word this reader knows: "seight" stays unread.
+        self.assertIsNone(solve("a lobster has twelve eggs and finds seight more, total?"))
+
+
+class NearMissNumberTest(unittest.TestCase):
+    """A number word with two letters swapped or one letter too many
+    ("TiHrTy", "TiWElVe") was skipped, and the numbers left gave a wrong
+    answer: never guess past one."""
+
+    #: 2026-11-15 06:08: answered 10.00 (five times two), and Moltbook said wrong.
+    THIRTY_FIVE = "A] ThIs LoOoObBbSsTtEr ClAw-^FoRcE Is [TiHrTy FiVe NooToNs~ * <TwO> Um LoB.oStErS, WhAt/ Is ToTaL| FoRcE?"
+    #: 2026-11-14 04:34, left pending: "tiwelve".
+    TWELVE = "A] LoOoB sT-Er^ ClAw] FoRcE/ Is ThIrTy TwO^ NeWtOnS~ AnD/ It ExErtS] TiWElVe Um{ lxQ} , WhAt Is ToTaL FoRcE<>?"
+
+    def test_live_a_misspelt_tens_word_is_no_answer_rather_than_a_wrong_one(self):
+        self.assertIsNone(solve(self.THIRTY_FIVE))
+        self.assertIsNone(numbers_in(self.THIRTY_FIVE))
+
+    def test_live_a_number_word_with_an_extra_letter_is_no_answer(self):
+        self.assertIsNone(solve(self.TWELVE))
+
+    def test_ordinary_words_are_not_near_misses(self):
+        self.assertEqual(solve("a lobster has twelve eggs and loses three"), "9.00")
+        self.assertEqual(solve("a lobster swims at twenty meters and slows by five"), "15.00")
+
+
+class HeadCountTest(unittest.TestCase):
+    #: 2026-11-15 02:12: answered 27.00 (25 + 2), and Moltbook said wrong.
+    JOINS = "A] lO-bS tEr WiTh TwEnTy FiVe noOtOnS ClAw FoR|cE } jOiNs ^ wItH tWo LoOoobsssStErS, hOw MuCh ToTaL ClAw FoR|cE <?"
+
+    def test_live_a_force_plus_a_head_count_is_no_answer(self):
+        self.assertIsNone(solve(self.JOINS))
+
+    def test_the_same_noun_on_both_numbers_still_adds(self):
+        self.assertEqual(solve("a lobster has 20 claws and gains 5"), "25.00")
+        self.assertEqual(solve("a reef has ten crabs and gains four crabs"), "14.00")

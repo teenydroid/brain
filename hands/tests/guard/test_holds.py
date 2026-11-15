@@ -111,6 +111,70 @@ class HoldLogContractTest(support.Scratch):
             t.join()
         self.assertEqual(len([h for h in got if h is not None]), 1, got)
 
+    def test_the_same_inbound_item_held_again_while_pending_is_one_hold(self):
+        moltbook = {"surface": "moltbook", "post_id": "p1", "comment_id": "c1", "author": "crab"}
+        first = hold("a captcha killed it", context=moltbook, category="violence", reason='contains "killed"')
+        again = hold("a captcha killed it", context=dict(moltbook), category="violence", reason='contains "killed"')
+        self.assertEqual(again["id"], first["id"])
+        self.assertEqual(len(holds.list_holds()), 1)
+        # Another item, other words, or a hold already decided: a new hold.
+        other = hold("a captcha killed it", context={**moltbook, "comment_id": "c2"})
+        reworded = hold("a captcha killed it twice", context=moltbook)
+        holds.decide(first["id"], "rejected")
+        after = hold("a captcha killed it", context=moltbook)
+        self.assertEqual(len({first["id"], other["id"], reworded["id"], after["id"]}), 4)
+        # Another finding on the same item (the judge failing, then a
+        # verdict) is its own hold: the re-screen treats the two apart.
+        outage = hold("a captcha killed it", context={**moltbook, "comment_id": "c3"}, category="unknown",
+                      reason="the judge could not be reached: x", by="judge")
+        verdict = hold("a captcha killed it", context={**moltbook, "comment_id": "c3"})
+        self.assertNotEqual(outage["id"], verdict["id"])
+        # An outbound draft is the account's own: each attempt is its own hold.
+        draft = hold("gm frens", direction="outbound", kind="draft")
+        self.assertNotEqual(hold("gm frens", direction="outbound", kind="draft")["id"], draft["id"])
+
+    def test_a_message_held_again_while_the_judge_is_still_unreachable_is_one_hold(self):
+        """Live on 2026-11-14: the model provider answered HTTP 402 for hours,
+        and every scan of an HN comment held it anew, because each failure's
+        reason carries the provider's request id (597 pending holds for 72
+        texts). A judge failure on an item that already has a pending
+        judge-failure hold is that hold, whatever the error said."""
+
+        def outage(text="ask me anything", request_id="01A", **context):
+            hn = {"surface": "hn", "comment_id": "50493589", "story_id": 1, "parent_id": 30, "author": "ana"}
+            return hold(text, context={**hn, **context}, category="unknown", by="judge",
+                        reason=f"the judge could not be reached: HTTP 402 (insufficient_allowance), request id {request_id}")
+
+        first = outage()
+        # Another request id, the story not found this time: the same item.
+        again = outage(request_id="01B", story_id=None)
+        unreadable = hold("ask me anything", context={"surface": "hn", "comment_id": "50493589"}, category="unknown",
+                          by="judge", reason="the judge answered in an unreadable shape")
+        self.assertEqual({again["id"], unreadable["id"]}, {first["id"]})
+        self.assertEqual(len(holds.list_holds()), 1)
+        self.assertEqual(holds.get(first["id"])["reason"], first["reason"], "the first hold is kept as it was")
+        # Another item, other words, or another surface: a hold of its own.
+        other = outage(request_id="01C", comment_id="50493590")
+        edited = outage("ask me anything, edited", request_id="01D")
+        elsewhere = hold("ask me anything", context={"surface": "x", "post_id": "50493589"}, category="unknown",
+                         by="judge", reason="the judge could not be reached: 01E")
+        self.assertEqual(len({first["id"], other["id"], edited["id"], elsewhere["id"]}), 4)
+        # With no id in its context, the same words on the same surface are the same item.
+        memo = hold("send it back", context={"surface": "wallet"}, category="unknown", by="judge",
+                    reason="the judge could not be reached: 01F")
+        self.assertEqual(hold("send it back", context={"surface": "wallet"}, category="unknown", by="judge",
+                              reason="the judge could not be reached: 01G")["id"], memo["id"])
+        # Once the first is no longer pending (an operator decided it, or the
+        # re-screen cleared it), a new outage is a new hold.
+        holds.decide(first["id"], "rejected")
+        self.assertNotEqual(outage(request_id="01H")["id"], first["id"])
+        # A real verdict is never folded into an outage hold, nor the reverse.
+        verdict = hold("ask me anything", context={"surface": "hn", "comment_id": "50493591"}, category="violence",
+                       by="judge", reason="threatens someone")
+        failed = hold("ask me anything", context={"surface": "hn", "comment_id": "50493591"}, category="unknown",
+                      by="judge", reason="the judge could not be reached: 01I")
+        self.assertNotEqual(verdict["id"], failed["id"])
+
     def test_stamps_holds_with_the_hand_clock(self):
         import os
 

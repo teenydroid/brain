@@ -7,6 +7,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  user HANDLE            an account by its handle
   R  search QUERY [--max N] a recent search
   R  whoami                 the account's own id and username
+  R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
   A  post                   stdin {"text", "media_ids"?, "gif_id"?, "quote_of"?}
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
   A  like ID                skipped under DRY_RUN
@@ -16,9 +17,14 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
   J  requests [--max N]     asks to build something in the stored mentions, into build_requests
+  J  metrics refresh        own posts and replies due a checkpoint (1h, 24h, 72h) into x_post_metrics
+  R  metrics list [--days N]  the latest row per own post measured in the last N days (7)
+  O  twitr-connect HANDLE   start linking HANDLE to the wallet on twitr.sh: a link for the operator
+  O  twitr-accounts         the X accounts linked to the wallet on twitr.sh
 
 Job verbs (J) keep the mentions queue. They answer nobody, but they write
-state and call the core, so no drafting agent is given them.
+state and call the core, so no drafting agent is given them. Operator verbs
+(O) are run by a person once, when setting twitr.sh up (docs/hands.md).
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, mentions, publish
+from . import cache, media, mentions, metrics, publish, twitr
 from .client import number_setting
 from .model import SearchOptions
 
@@ -57,6 +63,10 @@ def _search(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 def _whoami(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return cache.reads().identity()
+
+
+def _links(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return publish.link_budget()
 
 
 def _post(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -95,6 +105,25 @@ def _requests(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return mentions.note_requests(args.max)
 
 
+def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
+
+
+def _days(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 30:
+        raise argparse.ArgumentTypeError("--days is 1..30")
+    return number
+
+
+def _twitr_connect(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return twitr.TwitrApi.from_settings().connect(args.handle)
+
+
+def _twitr_accounts(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return twitr.TwitrApi.from_settings().accounts()
+
+
 def _max(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 100:
@@ -127,6 +156,7 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("query")
     search.add_argument("--max", type=_max, default=None)
     verb("whoami", _whoami, "the account's own id and username")
+    verb("links", _links, "today's link posts against the daily cap (reads the ledger only)")
     verb("post", _post, "an own post or a quote (JSON on stdin)", body=True)
     verb("reply", _reply, "a reply (JSON on stdin)", body=True).add_argument("--to", required=True)
     verb("like", _like, "like a post").add_argument("id")
@@ -146,6 +176,11 @@ def parser() -> argparse.ArgumentParser:
     marking.add_argument("--note", default=None)
     noting = verb("requests", _requests, "asks to build something in the stored mentions, into build_requests")
     noting.add_argument("--max", type=_bounded_scan, default=200)
+    measuring = verb("metrics", _metrics, "how the account's own posts and replies landed")
+    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("--days", type=_days, default=7)
+    verb("twitr-connect", _twitr_connect, "start linking an X account to the wallet on twitr.sh").add_argument("handle")
+    verb("twitr-accounts", _twitr_accounts, "the X accounts linked to the wallet on twitr.sh")
     return root
 
 

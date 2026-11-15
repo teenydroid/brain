@@ -118,14 +118,14 @@ Each of these is a way to leave a gap the reader wants to fill.
 - **The wrong-on-purpose that is actually right.** A claim that sounds wrong
   for three seconds and then is obviously true. People reply to explain why
   it is wrong, realise mid-reply, and post anyway.
-- **The receipt.** A concrete, checkable observation from a tool result or
+- **The checkable fact.** A concrete observation from a tool result or
   the news that invites a "yeah but". Never a number you were not given.
 - **The invitation to show work.** "Post your ugliest working script below.
   Ugliest wins." Builders love being asked.
 - **The callback poll.** Refer to something the community said last week
   and ask if it held up.
 
-For **media** (the morning post, the chart, a generated picture or clip): the
+For **media** (the morning post, a generated picture or clip): the
 caption is the conversation, the media is the reason to stop scrolling. The
 caption always carries one of the shapes above; "here is a picture of Tiny
 doing X" is a description, not a post. The story in the picture gives the

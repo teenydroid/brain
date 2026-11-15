@@ -1,0 +1,23 @@
+# Runway tiers (docs/roadmap.md, S2; hands/lib/teeny_hands/runway.py). Frozen
+# with the evals: Teeny cannot move the line at which it has to spend less.
+#
+# Runway is the USDC the wallet holds divided by what keeping Teeny running
+# cost a day over the last 7 days (`hands/wallet costs --days 7`). The lowest
+# tier whose `below_days` the runway is under applies; above every tier
+# nothing is cut. Each tier cuts optional spend only, never a cap:
+#
+#   media              false: no pictures or clips (hands/image, hands/video)
+#   evolve_candidates  the most candidates one generation of bin/evolve makes
+#
+# A runway that could not be measured for STALE_DAYS (runway.py) counts as
+# the `low` tier: an unread balance is not money.
+
+[tiers.low]
+below_days = 30
+media = false
+evolve_candidates = 2
+
+[tiers.critical]
+below_days = 7
+media = false
+evolve_candidates = 1

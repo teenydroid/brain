@@ -60,30 +60,49 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(out["written"], {
             "x": {"followers": 120.0, "following": 30.0, "posts": 400.0},
             "moltbook": {"karma": 42.0, "followers": 7.0},
+            # No writes yet: the counts are 0, and a median or a share of
+            # nothing is left out.
+            "moltbook_ledger": {"live_posts_24h": 0.0, "posts_10_plus_14d": 0.0, "posts_50_plus_14d": 0.0,
+                                "comments_on_others_24h": 0.0, "comments_on_own_24h": 0.0,
+                                "own_thread_unanswered": 0.0, "own_thread_comments": 0.0},
             "github": {"followers": 9.0, "public_repos": 3.0, "stars": 7.0},
         })
-        self.assertEqual(len(self.rows()), 8)
+        self.assertEqual(len(self.rows()), 15)
         self.assertNotIn("impressions", out["written"]["x"])
+
+    def test_the_snapshot_keeps_the_x_bio_for_the_doctor(self):
+        self.fake.route("GET", "/2/users/by/username/teenydroid",
+                        {"data": {"id": "1", "username": "teenydroid", "description": "an automated bot, run by @op",
+                                  "public_metrics": {"followers_count": 120}}})
+        collect.snapshot()
+        conn = hand.db()
+        row = conn.execute("SELECT handle, description, read_at FROM x_profile").fetchone()
+        conn.close()
+        self.assertEqual(tuple(row), ("teenydroid", "an automated bot, run by @op", T0))
+        # one lookup per snapshot, as before: the bio rode along on it
+        self.assertEqual(len(self.fake.requests("GET", "/2/users/by/username/teenydroid")), 1)
 
     def test_idempotent_per_day(self):
         collect.snapshot()
         self.fake.route("GET", "/agents/me", {"success": True, "agent": {"karma": 50}})
         collect.snapshot()
         rows = self.rows()
-        self.assertEqual(len(rows), 8)
+        self.assertEqual(len(rows), 15)
         self.assertIn(("2026-09-14", "moltbook", "karma", 50.0), rows)
 
     def test_missing_keys_skip_a_source(self):
         self.configure(MOLTBOOK_API_KEY=None, GITHUB_TOKEN=None)
         out = collect.snapshot()
         self.assertEqual(set(out["written"]), {"x"})
-        self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set"})
+        self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set",
+                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set"})
 
     def test_a_failing_source_does_not_stop_the_others(self):
         self.fake.route("GET", "/agents/me", {"success": False, "error": "down"}, status=500)
         out = collect.snapshot()
         self.assertIn("moltbook", out["failed"])
-        self.assertEqual(set(out["written"]), {"x", "github"})
+        # The ledger's numbers do not need the profile read.
+        self.assertEqual(set(out["written"]), {"x", "moltbook_ledger", "github"})
 
     def test_report_and_get(self):
         collect.snapshot()
@@ -110,6 +129,50 @@ class StatsTest(unittest.TestCase):
         collect.snapshot()
         out = collect.report(1)
         self.assertEqual((out["days_recorded"], out["first_recorded"]), (2, "2026-09-14"))
+
+    def test_bin_stats_snapshot_refreshes_moltbook_metrics_first(self):
+        from teeny_hands.moltbook import rules
+
+        rules.db().execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status)"
+                           " VALUES ('p1', ?, 'general', 't', 'verified')", (T0 - 2 * 3600,))
+        self.fake.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 4, "comment_count": 1}})
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot")], capture_output=True, text=True,
+                              env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        lines = done.stdout.splitlines()
+        self.assertEqual(len(lines), 1, done.stdout)
+        self.assertEqual(json.loads(lines[0])["date"], "2026-09-14")
+        rows = rules.db().execute("SELECT target_id, checkpoint, score FROM moltbook_post_metrics").fetchall()
+        self.assertEqual([tuple(r) for r in rows], [("p1", 1, 4)])
+
+    def test_bin_stats_snapshot_metrics_refreshes_both_surfaces_and_takes_no_snapshot(self):
+        from teeny_hands.moltbook import rules
+        from teeny_hands.x import metrics, posting_rules
+
+        rules.db().execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status)"
+                           " VALUES ('p1', ?, 'general', 't', 'verified')", (T0 - 2 * 3600,))
+        self.fake.route("GET", "/posts/p1", {"success": True, "post": {"id": "p1", "score": 4, "comment_count": 1}})
+        posting_rules.record_post(metrics.db(), "42", "post", "gm", created_at=T0 - 2 * 3600)
+        self.fake.route("GET", "/2/tweets", {"data": [{"id": "42", "text": "gm", "public_metrics": {"like_count": 3}}]})
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot"), "metrics"], capture_output=True,
+                              text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual([tuple(r) for r in rules.db().execute("SELECT target_id, checkpoint FROM moltbook_post_metrics")],
+                         [("p1", 1)])
+        self.assertEqual([tuple(r) for r in metrics.db().execute("SELECT post_id, checkpoint, likes FROM x_post_metrics")],
+                         [("42", 1, 3)])
+        self.assertEqual(self.rows(), [])
+
+    def test_bin_stats_snapshot_goes_on_when_the_moltbook_refresh_fails(self):
+        self.configure(MOLTBOOK_API_KEY=None)
+        env = {**os.environ, "TEENY_HANDS": str(STATS.parent)}
+        done = subprocess.run([str(STATS.parents[1] / "bin" / "stats-snapshot")], capture_output=True, text=True,
+                              env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["skipped"]["moltbook"], "MOLTBOOK_API_KEY not set")
 
     def test_cli(self):
         done = subprocess.run([sys.executable, "-I", "-B", str(STATS), "snapshot"], capture_output=True, text=True,

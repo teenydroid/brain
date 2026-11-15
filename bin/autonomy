@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The autonomy ladder (evals/autonomy.toml; docs/governance.md; roadmap G2, G8).
+#
+#   bin/autonomy report [--text]   each capability's level and what the next one needs
+#   bin/autonomy check             is any switch in secrets/ above its level? (the doctor runs it)
+#   bin/autonomy models            record the model behind each role (the doctor runs it at boot)
+#   bin/autonomy issue             open the issue a model change prepared; off unless LADDER_ISSUES=1
+#                                  in secrets/teeny.env, a rehearsal under DRY_RUN (the pinned
+#                                  `ladder-issue` job)
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec python3 "$TEENY_ROOT/bin/lib/autonomy.py" "$@" --root "$TEENY_ROOT" --secrets "$TEENY_SECRETS" --state "$TEENY_STATE"

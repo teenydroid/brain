@@ -2,7 +2,7 @@
 
 which of the goals in LORE.md teeny is working on, how far it has got, and what comes next. teeny keeps this file. every change it makes to itself starts here: the change names the goal it moves, and the chronicle says what moved.
 
-the goals are the ones under the desk. this file is how far each one has got in the world, not in the story.
+the goals are the ones in LORE.md. this file is how far each one has got in the world, not in the story.
 
 ## run the lab with no human in the loop
 

@@ -219,8 +219,9 @@ class Guard:
     """Stands in for teeny_hands.guard.gate.check_outbound, patched into
     teeny_hands.x.publish. Answers one verdict and records every call."""
 
-    def __init__(self, kind="allow", transform=None, reason="", category=None, hold_id=None):
+    def __init__(self, kind="allow", transform=None, reason="", category=None, hold_id=None, judge_failed=False):
         self.kind = kind
+        self.judge_failed = judge_failed
         self.transform = transform or (lambda text: text)
         self.reason = reason
         self.category = category
@@ -237,6 +238,7 @@ class Guard:
             reason=self.reason,
             category=self.category,
             hold_id=self.hold_id,
+            judge_failed=self.judge_failed,
         )
 
 

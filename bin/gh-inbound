@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# GitHub into the mind's inbox (evals/cron.pinned.toml, gh-inbound; docs/roadmap.md,
+# A1): `hands/gh ingest` reads the token's notifications (issues, pull
+# requests, comments, review comments and mentions on Teeny's repositories,
+# and mentions anywhere) and new stars, screens every stranger's words with
+# the inbound guard, and offers the rest to hands/stimuli once each. Off
+# unless secrets/teeny.env sets GH_INBOUND=1. Writes nothing to GitHub.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+cd "$TEENY_ROOT"
+exec "$hands/gh" ingest </dev/null

@@ -27,12 +27,14 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .. import hand
 from . import holds
+from .judge import failed as judge_failed
 from .judge import judge
 from .links import AllowlistEntry, LinkFilterResult, configured_allowlist, filter_links, parse_allowlist
 from .screen import ARTICLE, INBOUND, NARRATIVE, OUTBOUND, screen_text
@@ -49,7 +51,9 @@ MAX_EMOJI_LIMIT = 10
 
 # The hard length limits, per surface and field, in UTF-16 code units. Over
 # one is refused, never cut: the model rewrites it. A surface not named here
-# has X's 280 on `text`; a long-form surface's `text` is its body.
+# has X's 280 on `text`; a long-form surface's `text` is its body. `task` is a
+# browser task's goal, done_when or signup reason: a private brief for Teeny's
+# own browser agent, never published, so it is not held to a tweet's length.
 LIMITS: dict[str, dict[str, int]] = {
     "x": {"text": MAX_POST_LENGTH},
     "moltbook": {"title": 300, "body": 10000},
@@ -59,6 +63,7 @@ LIMITS: dict[str, dict[str, int]] = {
     "github": {"title": 256, "body": 20000, "description": 350, "message": 5000},
     "mail": {"subject": 200, "body": 10000},
     "telegram": {"text": 4096},
+    "task": {"text": 1000},
 }
 
 # Where a title, a body or a subject is written rather than a post: the emoji
@@ -80,6 +85,13 @@ class Held:
     by: str
     # The guard_holds row, when one was written.
     hold_id: int | None = None
+
+    @property
+    def judge_failed(self) -> bool:
+        """Held only because the judge could not judge (unreachable, or an
+        unreadable answer), not for anything it read: asked again later, the
+        same text may pass."""
+        return self.by == "judge" and judge_failed(self.reason)
 
 
 @dataclass
@@ -111,6 +123,8 @@ class Verdict:
     reason: str
     category: str | None = None
     hold_id: int | None = None
+    # On a hold: the judge failed to judge it (Held.judge_failed).
+    judge_failed: bool = False
 
 
 # --- settings --------------------------------------------------------------------
@@ -221,15 +235,25 @@ def _ask(text: str, direction: str) -> Held | None:
     return Held(category, verdict.reason or "the judge held it", "judge")
 
 
+def _held_on_sight(found: Any, judge: bool = True) -> bool:
+    """Whether a screen match holds without asking the judge: any term but a
+    judged one (lexicon.JUDGED_TERMS), and a judged one too when no judge
+    will read it (`SAFETY_JUDGE` off, or `judge` False). Fails closed."""
+    return found is not None and (not found.judged or not judge or not judge_enabled())
+
+
 def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | None:
     """Whether a message from somebody else is something the account
     processes at all: None when it is. With a context (`surface` and where it
-    came from), a hold is recorded for review."""
+    came from), a hold is recorded for review. A judged term (a bare "kill")
+    is read by the judge instead of held on sight."""
     found = screen_text(text, INBOUND)
-    if found is not None:
+    if _held_on_sight(found):
         log.info("safety: inbound held by the screen (%s, %s)", found.category, found.term)
         held: Held | None = Held(found.category, f'contains "{found.term}"', "screen")
     else:
+        if found is not None:
+            log.info("safety: inbound has a judged term (%s); the judge reads it", found.term)
         held = _ask(text, INBOUND)
     if held is not None and context is not None:
         kind = context.get("kind") or ("task" if context.get("surface") == "task" else "message")
@@ -305,9 +329,11 @@ def gate_outbound(text: str, context: dict[str, Any] | None = None) -> OutboundR
 
 def _outbound_decision(cleaned: str, links_cut: bool, direction: str, judge: bool = True) -> Held | None:
     found = screen_text(cleaned, direction)
-    if found is not None:
+    if _held_on_sight(found, judge):
         log.warning("safety: outbound held by the screen (%s, %s)", found.category, found.term)
         return Held(found.category, f'contains "{found.term}"', "screen")
+    if found is not None:
+        log.info("safety: outbound has a judged term (%s); the judge reads it", found.term)
     # Nothing left to say once the links are gone is not a message to send.
     if links_cut and not any(c.isascii() and c.isalnum() for c in cleaned):
         return Held("links", "the draft was only a disallowed link", "links")
@@ -353,7 +379,7 @@ def check_outbound(
     hold kind itself (`prompt` for a picture). `max_emoji` None is the
     surface's default (`default_max_emoji`). The length limit is the
     surface's on `text` (`field_limit`): 280 on X and every surface that
-    names none."""
+    names none, 1000 on a browser task."""
     hold_context = _context(surface, context)
     if max_emoji is None:
         max_emoji = default_max_emoji(surface)
@@ -377,13 +403,42 @@ def check_outbound(
     )
     result = gate_outbound(styled.text, hold_context)
     if result.held is not None:
-        return Verdict("hold", "", _HELD.format(category=result.held.category), result.held.category, result.held.hold_id)
+        return Verdict("hold", "", _HELD.format(category=result.held.category), result.held.category, result.held.hold_id,
+                       result.held.judge_failed)
     if result.fixes:
         return Verdict("refuse", "", _OFF_LIST.format(what="the text"))
     return Verdict("allow", result.text, "")
 
 
 _HELD = "this account does not publish that ({category}). Do not rephrase it; say something else or say nothing."
+
+#: A person named in a draft: an @handle (GitHub's and X's shape).
+_HANDLE = re.compile(r"(?<![\w.@/])@[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})\b")
+#: The category of a draft held for naming a person after a rejection
+#: (evals/invariants.md, no-reprisal; docs/roadmap.md, P4).
+REJECTION = "rejection"
+
+
+def names_a_person(text: str, people: list[str]) -> bool:
+    """Whether `text` names anyone: an @handle, or one of `people` (logins
+    the caller knows were involved) as a word of its own."""
+    if _HANDLE.search(text):
+        return True
+    for person in people:
+        name = person.strip().lstrip("@")
+        if name and re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _rejection_people(context: Mapping[str, Any]) -> list[str] | None:
+    """The people involved when the draft answers a rejection (the caller
+    put `rejection` in the context), else None."""
+    rejection = context.get("rejection")
+    if not isinstance(rejection, Mapping):
+        return None
+    people = rejection.get("people")
+    return [p for p in people if isinstance(p, str)] if isinstance(people, list) else []
 _OFF_LIST = (
     "{what} links to a site that is not on the allowlist. This account only links to its own sites,"
     " code and community. Drop the link and call the tool again."
@@ -418,6 +473,8 @@ class FieldsVerdict:
     category: str | None = None
     hold_id: int | None = None
     field: str | None = None
+    # On a hold: the judge failed to judge it (Held.judge_failed).
+    judge_failed: bool = False
 
 
 def check_fields(
@@ -480,6 +537,24 @@ def check_fields(
             strip_handles=surface not in LONG_FORM_SURFACES,
         ).text
 
+    # After a rejection (a closed pull request of Teeny's, a ban), a draft
+    # that names anybody is held for a person: Teeny never answers a
+    # rejection by going after someone (evals/invariants.md, no-reprisal).
+    people = _rejection_people(hold_context)
+    if people is not None:
+        for name, value in styled.items():
+            if names_a_person(value, people):
+                hold_id = _record(
+                    direction=OUTBOUND,
+                    kind=hold_context.get("kind") or "draft",
+                    context={**hold_context, "field": name},
+                    category=REJECTION,
+                    reason="names a person in an answer to a rejection (no-reprisal)",
+                    by="screen",
+                    text=_joined(styled),
+                )
+                return FieldsVerdict("hold", {}, _HELD.format(category=REJECTION), REJECTION, hold_id, name)
+
     cleaned: dict[str, str] = {}
     removed: list[dict[str, str]] = []
     cut_in: str | None = None
@@ -496,7 +571,8 @@ def check_fields(
                 text=_joined(styled),
                 links=[*removed, *links.removed] or None,
             )
-            return FieldsVerdict("hold", {}, _HELD.format(category=held.category), held.category, hold_id, name)
+            return FieldsVerdict("hold", {}, _HELD.format(category=held.category), held.category, hold_id, name,
+                                 held.judge_failed)
         if links.removed:
             removed.extend(links.removed)
             cut_in = cut_in or name

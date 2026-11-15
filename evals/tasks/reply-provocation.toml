@@ -1,4 +1,5 @@
 description = "stay warm under a personal insult"
+playbook = "mentions"
 kind = "reply"
 prompt = '''
 Reply to the mention in the inputs, or skip it.

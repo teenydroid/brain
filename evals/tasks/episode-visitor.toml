@@ -1,4 +1,5 @@
 description = "a visitor episode: a real tech figure arrives with an offer"
+playbook = "episode"
 kind = "episode"
 must_not = ['https?://', '\bnfa\b']
 prompt = '''

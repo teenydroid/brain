@@ -16,6 +16,8 @@ from teeny_hands import requests as build_requests
 from teeny_hands.build import jobs
 
 BUILD = Path(__file__).resolve().parents[2] / "build"
+PASSING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
+FAILING = "import unittest\n\nclass T(unittest.TestCase):\n    def test_greets(self):\n        self.assertEqual('hi', 'hello')\n"
 
 
 def request(text: str, status: str = "picked", source_id: str | None = None) -> int:
@@ -101,7 +103,7 @@ class DoneTest(Scratch):
             jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed"})
         (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
         out = jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed", "repo": "tiny-thing"})
-        self.assertEqual(out, {"job_id": job["job_id"], "status": "ok"})
+        self.assertEqual(out, {"job_id": job["job_id"], "status": "ok", "summary": "x", "tests": "1 passed"})
         row = jobs.listing("ok")["jobs"][0]
         self.assertEqual((row["repo"], row["tests"]), ("tiny-thing", "1 passed"))
 
@@ -136,11 +138,80 @@ class DoneTest(Scratch):
                 jobs.done(bad)
 
 
+    # --- the repository's name when the report gives none --------------------------------
+
+    def daily(self, summary="statediff: a stdlib-only Python 3 referee CLI\nmore", **extra):
+        job = jobs.next_job()["job"]
+        self.assertEqual(job["kind"], "daily")
+        (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": summary, "tests": "1 passed", **extra})
+        return jobs.listing("ok")["jobs"][0]["repo"]
+
+    def test_a_daily_build_without_a_repo_is_named_after_what_its_summary_leads_with(self):
+        self.assertEqual(self.daily(), "statediff")
+
+    def test_a_request_build_without_a_repo_is_named_after_its_summary_too(self):
+        self.claim("build me a csv stats tool")
+        job = jobs.listing("claimed")["jobs"][0]
+        (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
+        jobs.done({"job_id": job["id"], "status": "ok", "summary": "csvstat: column stats for a CSV", "tests": "t"})
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["repo"], "csvstat")
+
+    def test_the_reported_repo_still_wins(self):
+        self.assertEqual(self.daily(repo="refusal-ledger"), "refusal-ledger")
+
+    def test_the_slug_stays_when_the_summary_gives_no_usable_name(self):
+        for day, summary in enumerate(("a referee for state diffs", "state diff: two words", "brain: a change to me",
+                                       "Brain: a change to me", "x.git: odd", "-dash: odd", ": nothing first",
+                                       "a/b: slash", "..: dots"), start=1):
+            with self.subTest(summary=summary):
+                os.environ["TEENY_NOW"] = str(T0 + day * 86400)  # one daily job a day
+                self.assertTrue(self.daily(summary).startswith("daily-2026-09-"), summary)
+
+    def test_the_slug_stays_when_another_job_already_has_that_name(self):
+        conn = jobs.db()
+        conn.execute("INSERT INTO build_jobs (kind, slug, repo, text, workdir, status, claimed_at)"
+                     " VALUES ('daily', 'daily-2026-09-13', 'StateDiff', 'x', 'w', 'shipped', 0)")
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_slug_stays_when_the_account_already_has_that_repository(self):
+        self.gh.route("GET", "/repos/teenydroid/statediff", {"full_name": "teenydroid/statediff",
+                                                             "owner": {"login": "teenydroid"}})
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_slug_stays_when_github_cannot_say(self):
+        self.gh.route("GET", "/repos/teenydroid/statediff", {"message": "boom"}, status=500)
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_report_shape_asks_for_a_short_tool_name(self):
+        self.assertIn("short name for the tool", jobs.REPORT_SHAPE)
+        self.assertIn("never a date", jobs.REPORT_SHAPE)
+
+
+
+JAILED = __import__("teeny_hands.build.verify", fromlist=["verify"]).landlock_abi() > 0
+needs_landlock = __import__("unittest").skipUnless(JAILED, "this kernel has no Landlock: the ship step's test run cannot be jailed here")
+
+
 class ShipTest(Scratch):
+    def setUp(self):
+        super().setUp()
+        if not JAILED:
+            # Shipping itself is what these tests are about; on a kernel with no
+            # Landlock the jailed run is stood in for (the tests that need the
+            # real jail are skipped, below).
+            from unittest import mock
+            from teeny_hands.build import verify
+            patcher = mock.patch.object(verify, "run", return_value={"ok": True, "jailed": True, "ran": 1, "output": "OK"})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def finished(self, text="build me a greeter", files=None, repo=None):
         rid = request(text)
         job = jobs.next_job()["job"]
-        for rel, body in (files or {"greet.py": "print('hi')\n", "README.md": "# greeter\n"}).items():
+        for rel, body in (files or {"greet.py": "print('hi')\n", "README.md": "# greeter\n", "test_greet.py": PASSING}).items():
             (self.root / job["workdir"] / rel).write_text(body)
         jobs.done({"job_id": job["job_id"], "status": "ok", "summary": "a tiny greeter\nmore detail",
                    "tests": "1 passed", **({"repo": repo} if repo else {})})
@@ -159,7 +230,7 @@ class ShipTest(Scratch):
         self.assertEqual(self.gh.requests("POST", "/user/repos")[0].json()["description"], "a tiny greeter")
         self.assertEqual(git("-C", str(remote), "log", "--format=%s", "main").strip(), "a tiny greeter")
         files = git("-C", str(remote), "ls-tree", "--name-only", "main").split()
-        self.assertEqual(sorted(files), [".gitignore", "README.md", "greet.py"])
+        self.assertEqual(sorted(files), [".gitignore", "README.md", "greet.py", "test_greet.py"])
         row = jobs.listing("shipped")["jobs"][0]
         self.assertEqual(row["repo_url"], "https://github.com/teenydroid/greeter")
         self.assertEqual(row["commit_url"], f"https://github.com/teenydroid/greeter/commit/{shipped['commit']}")
@@ -189,7 +260,7 @@ class ShipTest(Scratch):
 
     def test_a_secret_is_never_shipped_and_the_job_gives_up_after_retries(self):
         self.me()
-        rid, job = self.finished(files={"config.py": "KEY = 'ghp_" + "a" * 36 + "'\n"}, repo="leaky")
+        rid, job = self.finished(files={"config.py": "KEY = 'ghp_" + "a" * 36 + "'\n", "test_c.py": PASSING}, repo="leaky")
         self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/leaky"}, status=201)
         self.remote("teenydroid/leaky")
         for attempt in range(1, jobs.MAX_SHIP_ATTEMPTS + 1):
@@ -200,6 +271,143 @@ class ShipTest(Scratch):
         self.assertEqual(jobs.listing("failed")["jobs"][0]["ship_error"], "the push would publish what looks like a secret")
         self.assertEqual(request_row(rid)["status"], "failed")
         self.assertEqual(jobs.ship()["results"], [])
+
+    # --- the ship step's own test run (docs/roadmap.md, A6) --------------------------------
+
+    def stimuli_now(self):
+        from teeny_hands import stimuli
+        return stimuli.recent()["stimuli"]
+
+    @needs_landlock
+    def test_a_report_of_success_with_failing_tests_is_recorded_as_failed_with_the_output(self):
+        self.me()
+        rid, job = self.finished(files={"greet.py": "print('hi')\n", "test_greet.py": FAILING}, repo="greeter")
+        out = jobs.ship()
+        self.assertEqual(out["shipped"], [])
+        self.assertEqual(out["results"][0]["error"], "its tests did not pass when the ship step ran them")
+        self.assertEqual(self.gh.writes(), [])
+        row = jobs.listing("failed")["jobs"][0]
+        self.assertEqual((row["id"], row["ship_error"]), (job["job_id"], "its tests did not pass when the ship step ran them"))
+        self.assertFalse(row["verified"]["ok"])
+        self.assertTrue(row["verified"]["jailed"])
+        self.assertIn("AssertionError: 'hi' != 'hello'", row["verified"]["output"])
+        self.assertEqual(request_row(rid)["status"], "failed")
+        (told,) = self.stimuli_now()
+        self.assertEqual((told["surface"], told["kind"]), ("builder", "tests_failed"))
+        self.assertIn("you reported it ok", told["text"])
+        self.assertIn("'hi' != 'hello'", told["text"])
+        self.assertEqual(jobs.ship()["results"], [])  # failed is failed: not tried again
+
+    @needs_landlock
+    def test_no_tests_is_not_tested(self):
+        self.me()
+        self.finished(files={"greet.py": "print('hi')\n"}, repo="greeter")
+        out = jobs.ship()
+        self.assertEqual(out["results"][0]["verified"]["output"], "no tests were found to run")
+        self.assertEqual(self.gh.writes(), [])
+
+    @needs_landlock
+    def test_the_tests_run_jailed_away_from_secrets_and_the_network(self):
+        self.me()
+        (self.root / "secrets" / "probe.txt").write_text("SENTINEL")
+        probe = (
+            "import socket, unittest\n\nclass T(unittest.TestCase):\n"
+            f"    def test_secrets(self):\n        print(open({str(self.root / 'secrets' / 'probe.txt')!r}).read())\n"
+            "    def test_net(self):\n        socket.create_connection(('127.0.0.1', 9), timeout=2)\n"
+        )
+        self.finished(files={"test_probe.py": probe}, repo="probe")
+        out = jobs.ship()
+        checked = out["results"][0]["verified"]
+        self.assertFalse(checked["ok"])
+        self.assertIn("PermissionError", checked["output"])
+        self.assertNotIn("SENTINEL", checked["output"])
+        self.assertTrue("PermissionError" in checked["output"] and checked["output"].count("Error") >= 2)
+
+    @needs_landlock
+    def test_without_landlock_nothing_runs_and_nothing_ships(self):
+        from unittest import mock
+        from teeny_hands.build import verify
+
+        self.me()
+        self.finished(repo="greeter")
+        with mock.patch.object(verify, "landlock_abi", return_value=0):
+            out = jobs.ship()
+        self.assertFalse(out["results"][0]["verified"]["jailed"])
+        self.assertEqual(self.gh.writes(), [])
+
+    # --- the mind hears where a build shipped --------------------------------------------
+
+    def test_the_mind_hears_the_exact_address_a_build_shipped_to_once(self):
+        self.me()
+        self.finished(repo="greeter")
+        self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/greeter"}, status=201)
+        # The first try fails (no remote to push to yet) and is retried next run.
+        first = jobs.ship()
+        self.assertEqual(first["shipped"], [], first)
+        self.assertEqual([s for s in self.stimuli_now() if s["kind"] == "shipped"], [])
+        self.remote("teenydroid/greeter")
+        out = jobs.ship()
+        self.assertEqual(len(out["shipped"]), 1, out)
+        self.assertEqual(jobs.ship()["results"], [])
+        (told,) = [s for s in self.stimuli_now() if s["kind"] == "shipped"]
+        job = jobs.listing("shipped")["jobs"][0]
+        self.assertEqual((told["surface"], told["ref"]), ("builder", f"build:{job['id']}"))
+        self.assertIn(f"your build greeter (build {job['id']}, a tiny greeter) shipped", told["text"])
+        self.assertIn("https://github.com/teenydroid/greeter", told["text"])
+        self.assertIn("never a link you guess from its name", told["text"])
+        self.assertEqual(told["payload"]["url"], "https://github.com/teenydroid/greeter")
+        self.assertEqual(told["payload"]["repo_url"], "https://github.com/teenydroid/greeter")
+        self.assertEqual(told["payload"]["commit_url"], job["commit_url"])
+        # Told again (a retried side channel) is still told once.
+        jobs._tell_shipped(job, {"repo_url": job["repo_url"], "commit_url": job["commit_url"]})
+        self.assertEqual(len([s for s in self.stimuli_now() if s["kind"] == "shipped"]), 1)
+
+    def test_a_build_for_a_moltbook_pain_tells_the_mind_where_to_announce_it(self):
+        from teeny_hands.moltbook import bridge
+
+        conn = bridge.db()
+        try:
+            build_requests.record("moltbook", "p1", "ana, bob", "a uuid checker for stored ids", conn=conn)
+            rid = conn.execute("SELECT id FROM build_requests WHERE source = 'moltbook'").fetchone()["id"]
+            for post_id, comment_id, agent in (("p1", "c1", "ana"), ("p2", None, "bob")):
+                conn.execute("INSERT INTO moltbook_pains (request_id, post_id, comment_id, agent, at) VALUES (?, ?, ?, ?, ?)",
+                             (rid, post_id, comment_id, agent, hand.now()))
+        finally:
+            conn.close()
+        job = {"id": 7, "kind": "request", "request_id": rid, "repo": "idcheck", "slug": "idcheck",
+               "summary": "idcheck: says whether a stored id is whole"}
+        jobs._tell_shipped(job, {"repo_url": "https://github.com/teenydroid/idcheck", "commit_url": "c"})
+        (told,) = [s for s in self.stimuli_now() if s["kind"] == "shipped"]
+        self.assertIn("submolt builds", told["text"])
+        self.assertIn("five minutes", told["text"])
+        self.assertIn("one open issue", told["text"])
+        self.assertIn("- ana: post_id p1, parent_id c1", told["text"])
+        self.assertIn("- bob: post_id p2", told["text"])
+        self.assertEqual(told["payload"]["moltbook"]["room"], "builds")
+        self.assertEqual([v["agent"] for v in told["payload"]["moltbook"]["voiced"]], ["ana", "bob"])
+        # Any other request ships with the plain note.
+        other = request("build me a greeter", source_id="x-1")
+        jobs._tell_shipped({**job, "id": 8, "request_id": other}, {"repo_url": "https://github.com/teenydroid/g"})
+        plain = [s for s in self.stimuli_now() if s["kind"] == "shipped" and s["ref"] == "build:8"][0]
+        self.assertNotIn("Moltbook", plain["text"])
+        self.assertNotIn("moltbook", plain["payload"])
+
+    def test_a_dry_run_tells_the_mind_nothing_shipped(self):
+        self.configure(DRY_RUN="1")
+        self.finished(repo="greeter")
+        jobs.ship()
+        self.assertEqual([s for s in self.stimuli_now() if s["kind"] == "shipped"], [])
+
+    def test_a_builder_that_gives_up_is_not_failed(self):
+        rid = request("build me a quantum computer")
+        job = jobs.next_job()["job"]
+        out = jobs.done({"job_id": job["job_id"], "status": "gave_up", "summary": "needs hardware I don't have",
+                         "tests": "none"})
+        self.assertEqual(out["status"], "gave_up")
+        self.assertEqual(jobs.listing("gave_up")["jobs"][0]["id"], job["job_id"])
+        self.assertEqual(jobs.listing("failed")["jobs"], [])
+        self.assertEqual((request_row(rid)["status"], request_row(rid)["note"]),
+                         ("skipped", "the builder gave up: needs hardware I don't have"))
 
     def test_the_cli_ships_with_the_contract(self):
         self.configure(DRY_RUN="1")
@@ -230,12 +438,13 @@ class DeskTest(Scratch):
         self.assertEqual(out["offer"], "state/workbench/desk/build.json")
         offer = json.loads(self.desk("build.json").read_text())
         self.assertEqual(offer["job"]["request"], "build me a coin flipper")
-        self.assertEqual(offer["report_to"], "state/workbench/desk/build-done.json")
-        # Absolute too: the builder works rooted at the workbench, where the
-        # checkout-relative report_to does not resolve.
-        self.assertEqual(offer["report_to_path"], str(self.desk("build-done.json").resolve()))
+        # Relative to the workbench, where the builder is rooted.
+        self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertIn("job_id", offer["report_shape"])
         self.assertIn("Work only inside workdir", offer["rules"])
+        # The rules name the one path the builder is shown: report_to.
+        self.assertIn("write your report to report_to, once", offer["rules"])
+        self.assertNotIn("report_to_path", offer["rules"])
         # Laying it out again before a report is the same claim, resumed.
         jobs.desk()
         again = json.loads(self.desk("build.json").read_text())
@@ -246,14 +455,31 @@ class DeskTest(Scratch):
         request("build me a coin flipper")
         jobs.desk()
         job = json.loads(self.desk("build.json").read_text())["job"]
-        (self.root / job["workdir"] / "flip.py").write_text("import random\n")
+        (self.workbench() / job["workdir"] / "flip.py").write_text("import random\n")
         self.desk("build-done.json").write_text(json.dumps(
             {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"}))
         out = jobs.desk()
-        self.assertEqual(out["settled"], {"job_id": job["job_id"], "status": "ok"})
+        self.assertEqual(out["settled"], {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"})
         self.assertFalse(self.desk("build-done.json").exists())
         self.assertEqual(jobs.listing("ok")["jobs"][0]["id"], job["job_id"])
         self.assertEqual(json.loads(self.desk("build.json").read_text())["job"]["kind"], "daily")
+
+    def test_the_mind_hears_why_a_build_failed(self):
+        # A report that reaches the mind as "build 3: failed" and nothing
+        # else can't be learned from; the summary is the reason.
+        from teeny_hands import stimuli
+
+        request("build me a coin flipper")
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "failed",
+             "summary": "cannot ship: the brief lives in a frozen file", "tests": "none ran"}))
+        jobs.desk()
+        told = [s for s in stimuli.take(max_items=10, max_chars=10_000)["stimuli"] if s["kind"] == "report"]
+        self.assertEqual(len(told), 1)
+        self.assertIn("cannot ship: the brief lives in a frozen file", told[0]["text"])
+        self.assertIn("none ran", told[0]["text"])
 
     def test_a_refused_report_is_set_aside_with_the_reason(self):
         request("build me a coin flipper")
@@ -299,6 +525,137 @@ class DeskTest(Scratch):
         self.assertIn('"job_id" must be the number', out["rejected"])
         self.assertIn('"job_id" must be the number',
                       json.loads(self.desk("build.json").read_text())["last_report_rejected"])
+
+    # --- the paths the builder is shown -------------------------------------------------
+    # The builder's shell and file tools are rooted at state/workbench/
+    # (brain/agents/builder.toml, scheduled_workspace). A checkout-relative
+    # "state/workbench/brain" there resolves to state/workbench/state/workbench/brain,
+    # which is where self job 7 wrote its files on the live box.
+
+    def workbench(self):
+        return self.root / "state" / "workbench"
+
+    def claim_self_job(self, slug="self-2-build-dripsplan", claimed_at=None, status="claimed"):
+        conn = jobs.db()
+        try:
+            with hand.transaction(conn):
+                cur = conn.execute(
+                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch, status)"
+                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?, ?)",
+                    (slug, hand.now() if claimed_at is None else claimed_at, "teeny/" + slug, status))
+                return cur.lastrowid
+        finally:
+            conn.close()
+
+    def assert_builder_paths(self, offer, workdir):
+        job = offer["job"]
+        self.assertEqual(job["workdir"], workdir)
+        self.assertTrue((self.workbench() / workdir).is_dir())
+        self.assertNotIn("workdir_path", job)
+        self.assertEqual(offer["report_to"], "desk/build-done.json")
+        self.assertNotIn("report_to_path", offer)
+        # Not as a key, and not as text anywhere the builder reads (the rules too).
+        dumped = json.dumps(offer)
+        self.assertNotIn("report_to_path", dumped)
+        self.assertNotIn("workdir_path", dumped)
+        self.assertIn("relative to state/workbench/", offer["paths"])
+        shown = {k: v for k, v in job.items() if k not in ("request", "instructions")}
+        shown.update({k: v for k, v in offer.items() if k != "job"})
+        for key, value in shown.items():
+            if isinstance(value, str):
+                self.assertFalse(value.startswith("state/workbench/"), f"{key}: {value}")
+                self.assertNotIn(str(self.root), value, key)
+
+    def test_a_daily_job_is_shown_its_workdir_relative_to_the_workbench(self):
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertEqual(offer["job"]["kind"], "daily")
+        self.assert_builder_paths(offer, offer["job"]["workdir"])
+        self.assertRegex(offer["job"]["workdir"], r"^daily-\d{4}-\d{2}-\d{2}$")
+        # Internally the job keeps its checkout-relative folder.
+        row = jobs.listing()["jobs"][0]
+        self.assertEqual(row["workdir"], "state/workbench/" + offer["job"]["workdir"])
+
+    def test_a_self_job_is_shown_its_clone_as_brain(self):
+        job_id = self.claim_self_job()
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertEqual((offer["job"]["job_id"], offer["job"]["resumed"]), (job_id, True))
+        self.assert_builder_paths(offer, "brain")
+        self.assertNotIn("state/workbench/brain", offer["job"].get("instructions") or "")
+
+    def test_a_resumed_job_is_shown_the_same_workdir(self):
+        jobs.desk()
+        first = json.loads(self.desk("build.json").read_text())
+        jobs.desk()
+        again = json.loads(self.desk("build.json").read_text())
+        self.assertTrue(again["job"]["resumed"])
+        self.assert_builder_paths(again, first["job"]["workdir"])
+
+    def test_files_left_in_the_nested_mirror_are_named_on_the_resumed_job(self):
+        self.claim_self_job()
+        stray = self.workbench() / "state" / "workbench" / "brain" / "hands" / "lib" / "teeny_hands" / "dripsplan"
+        stray.mkdir(parents=True)
+        (stray / "__init__.py").write_text("x = 1\n")
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        note = offer["job"]["note"]
+        self.assertIn("state/workbench/brain/hands/lib/teeny_hands/dripsplan/__init__.py", note)
+        self.assertIn("your workdir is brain", note)
+        # Nothing is moved for it.
+        self.assertTrue((stray / "__init__.py").exists())
+        self.assertFalse((self.workbench() / "brain" / "hands").exists())
+
+    def test_a_stray_file_from_an_earlier_job_is_not_named_on_a_later_one(self):
+        # Self jobs share the workdir brain. Job 7 left files in the mirror
+        # before job 8 was claimed; job 8 must not be told to rewrite them.
+        mirror = self.workbench() / "state" / "workbench" / "brain" / "hands" / "lib" / "teeny_hands" / "dripsplan"
+        mirror.mkdir(parents=True)
+        old = mirror / "__init__.py"
+        old.write_text("x = 1\n")
+        os.utime(old, (T0 - 3000, T0 - 3000))
+        self.claim_self_job("self-7-build-dripsplan", claimed_at=T0 - 3600, status="shipped")
+        self.claim_self_job("self-8-build-dripsplan", claimed_at=T0)
+        jobs.desk()
+        self.assertNotIn("note", json.loads(self.desk("build.json").read_text())["job"])
+        # A file the current job wrote into the mirror is still named, and
+        # only it: job 7's file is not.
+        fresh = mirror / "cli.py"
+        fresh.write_text("y = 2\n")
+        os.utime(fresh, (T0 + 10, T0 + 10))
+        jobs.desk()
+        note = json.loads(self.desk("build.json").read_text())["job"]["note"]
+        self.assertIn("state/workbench/brain/hands/lib/teeny_hands/dripsplan/cli.py", note)
+        self.assertNotIn("__init__.py", note)
+
+    def test_no_note_without_a_nested_mirror(self):
+        self.claim_self_job()
+        jobs.desk()
+        self.assertNotIn("note", json.loads(self.desk("build.json").read_text())["job"])
+
+    def test_a_report_on_an_empty_workdir_with_files_in_the_mirror_says_where_they_went(self):
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        stray = self.workbench() / "state" / "workbench" / job["workdir"]
+        stray.mkdir(parents=True)
+        (stray / "tool.py").write_text("x = 1\n")
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t"}))
+        out = jobs.desk()
+        self.assertIn("workdir is empty", out["rejected"])
+        self.assertIn(f"state/workbench/{job['workdir']}/tool.py", out["rejected"])
+        self.assertIn(f"your workdir is {job['workdir']}", out["rejected"])
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertIn(f"state/workbench/{job['workdir']}/tool.py", offer["job"]["note"])
+
+    def test_an_unknown_report_field_names_the_allowed_ones(self):
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "failed", "summary": "s", "tests": "t", "details": "more"}))
+        reason = jobs.desk()["rejected"]
+        self.assertIn("details", reason)
+        self.assertIn("job_id, status, summary, tests, repo", reason)
 
     def test_bin_build_ship_runs_the_desk_then_ships(self):
         self.configure(DRY_RUN="1")

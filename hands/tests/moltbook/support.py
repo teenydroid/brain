@@ -29,6 +29,12 @@ OLD_CLAIM = str(T0 - 30 * DAY)
 
 CHALLENGE = "A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE, wH-aTs] ThE/ nEw^ SpE[eD?"
 UNREADABLE = "A] lO^bSt-Er S[wImS fIvE tWeNtY mE^tE[rS, wH-aTs] ThE/ nEw^ SpE[eD?"
+#: A live challenge (2026-11-12) the parser refuses: a spoken self-correction,
+#: "twenty three ... by fifty umm no, say ... seven", meaning 23 * 7.
+CORRECTED = (
+    "A] lO.oB sT-ErRr LoOoBbSsTtErR^ ClAwWw FoRcE Is^ ExErTtEd LiKe Um, EaCh] ExErTtS TwEnTy^ ThReE} NeWtOnS~"
+    " By^ fIfTy Umm No, SaY, SeNse, LiKe, AuH, AnD ThEn SeVeN< Lo.bStErS| MuLtIiPly/ ThAt ToTaLl, HoW MuCh ToTaL FoR-cE?"
+)
 
 
 def verification(text: str = CHALLENGE, code: str = "moltbook_verify_abc") -> dict:
@@ -65,6 +71,8 @@ class Scratch(unittest.TestCase):
             "MOLTBOOK_CLAIMED_AT": OLD_CLAIM,
             "DRY_RUN": "0",
             "SAFETY_JUDGE": "0",
+            # The model read of a challenge is off unless a test wires a fake core.
+            "MOLTBOOK_CHALLENGE_MODEL": "0",
         }
         values.update(self.settings)
         values.update(overrides)

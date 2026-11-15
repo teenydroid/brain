@@ -1,17 +1,63 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import type { SceneName } from '@/lib/pages'
+import { useEffect, useRef, useState } from 'react'
+
+import type { MiniKind } from './scenes/mini'
+
+const MiniCanvasInner = dynamic(() => import('./mini-canvas').then((m) => m.MiniCanvasInner), {
+  ssr: false,
+  loading: () => null,
+})
 
 const Scene = dynamic(() => import('./scene').then((m) => m.Scene), {
   ssr: false,
   loading: () => null,
 })
 
-export function SceneCanvas({ name, className }: { name: SceneName; className?: string }) {
+/**
+ * The core scene, loaded in the browser only. Decorative, so hidden from
+ * assistive tech. It stops rendering while it is scrolled out of view, so the
+ * GPU is free for the scroll, and sits on its own compositing layer so the
+ * page moving over it doesn't make it flicker.
+ */
+export function SceneCanvas({ className }: { className?: string }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(true)
+  useEffect(() => {
+    const node = box.current
+    if (!node) return
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: 0 })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   return (
-    <div className={className} aria-hidden>
-      <Scene name={name} />
+    <div ref={box} className={className} style={{ transform: 'translateZ(0)', willChange: 'transform' }} aria-hidden>
+      <Scene running={visible} />
+    </div>
+  )
+}
+
+/** Whether a box is on screen, so its canvas can stop drawing when it isn't. */
+function useOnScreen<T extends Element>() {
+  const ref = useRef<T>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: '100px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, visible] as const
+}
+
+/** One of the small feature blobs. Decorative, and drawn only while on screen. */
+export function MiniCanvas({ kind, className }: { kind: MiniKind; className?: string }) {
+  const [ref, visible] = useOnScreen<HTMLDivElement>()
+  return (
+    <div ref={ref} className={className} aria-hidden>
+      <MiniCanvasInner kind={kind} running={visible} />
     </div>
   )
 }

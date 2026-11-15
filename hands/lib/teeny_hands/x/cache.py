@@ -30,7 +30,7 @@ from datetime import datetime
 from typing import Any, Callable, Iterator
 
 from .. import hand
-from . import open_db
+from . import open_db, twitr
 from .client import XApi, number_setting
 from .model import Json, SearchOptions
 
@@ -261,7 +261,7 @@ class CachedReads:
 def reads(x: XApi | None = None) -> CachedReads | XApi:
     """The reads the configuration asks for: through the store when
     `X_CACHE_ENABLED` is on (the default), straight to X otherwise."""
-    x = x or XApi.from_settings()
+    x = x or twitr.client()
     if not hand.flag("X_CACHE_ENABLED", True):
         return x
     return CachedReads(x, Ttl.from_settings())

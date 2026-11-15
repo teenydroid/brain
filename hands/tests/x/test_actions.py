@@ -17,6 +17,8 @@ def likes() -> list[dict]:
 
 
 class LikeTest(Scratch):
+    settings = {"X_LIKES": "1"}
+
     def setUp(self):
         super().setUp()
         me(self.x, "1000")
@@ -44,6 +46,18 @@ class LikeTest(Scratch):
         self.liked.status = 403
         with self.assertRaises(hand.HandError):
             publish.like("77")
+        self.assertEqual(likes(), [])
+
+    def test_likes_are_off_unless_the_operator_turns_them_on(self):
+        # X's developer guidelines: a like must be user-initiated, and every
+        # caller of this verb is a model (docs/roadmap.md, P1).
+        for setting in (None, "0"):
+            for dry in ("0", "1"):
+                self.configure(X_LIKES=setting, DRY_RUN=dry)
+                with self.assertRaises(hand.Refused) as refused:
+                    publish.like("77")
+                self.assertEqual(refused.exception.detail.get("rule"), "likes_off")
+        self.assertEqual(self.x.requests(), [])
         self.assertEqual(likes(), [])
 
     def test_the_post_must_be_an_x_id(self):

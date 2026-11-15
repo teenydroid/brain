@@ -135,14 +135,13 @@ export function TokenCounter({ initial, source }: { initial: Totals; source: "li
             <span className={cn("absolute inline-flex size-full animate-ping rounded-full opacity-60", live ? "bg-primary" : "bg-destructive")} />
             <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-primary" : "bg-destructive")} />
           </span>
-          {live ? "tokens teeny has burned" : "the bot is not reachable right now · last known figure"}
+          {live ? "tokens i have burned" : "i am not reachable right now · last known figure"}
           {last ? <span className="normal-case tracking-normal">· last call {ago(last, now)}</span> : null}
         </p>
         <Digits value={all.tokens.total} className="text-6xl font-semibold sm:text-7xl lg:text-8xl" />
         <p className="text-sm text-muted-foreground">
           across {formatTokens(all.calls)} model calls
-          {first ? `, counting since ${since(first)}` : ", counting from the first call the ledger sees"} · every one is a row in the{" "}
-          <a href="/ledger" className="underline underline-offset-4 hover:text-foreground">ledger</a>
+          {first ? `, counting since ${since(first)}` : ", counting from the first call the ledger sees"} · every one is a row in my ledger
         </p>
       </div>
 
@@ -184,8 +183,8 @@ export function TokenCounter({ initial, source }: { initial: Totals; source: "li
       ) : (
         <p className="max-w-xl text-sm text-muted-foreground">
           {live
-            ? "The ledger began counting with this deploy and no call has run since. The next reply, chart or morning post is the first row."
-            : "Nothing to show until the bot answers."}
+            ? "My ledger began counting with this deploy and no call has run since. My next reply, chart or morning post is the first row."
+            : "Nothing to show until I answer."}
         </p>
       )}
       <p className="sr-only">

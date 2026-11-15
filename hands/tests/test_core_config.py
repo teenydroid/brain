@@ -29,6 +29,9 @@ class CoreConfigTest(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
+        os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
+        os.environ.pop("TEENY_CAPTCHA_MODEL", None)
+        os.environ.pop("TEENY_CAPTCHA_PROVIDER", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -53,19 +56,96 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
         brain = self.root / "brain"
         for path in (self.root / "secrets", brain / "storage.db", brain / "agents", brain / "playbooks",
-                     brain / "cron.toml", brain / "MEMORY.md", brain / "agent", Path.home() / ".ssh"):
+                     brain / "cron.toml", brain / "MEMORY.md", brain / "MEMORY.seed.md", brain / "agent",
+                     Path.home() / ".ssh"):
             self.assertIn(str(path), autonomy["forbidden_paths"])
         # TinySecurity refuses the whole policy over one relative entry.
         self.assertTrue(all(Path(p).is_absolute() for p in autonomy["forbidden_paths"]))
         browser = doc["browser"]
-        self.assertEqual((browser["enabled"], browser["headless"], browser["profile_mode"]), (True, True, "persistent"))
-        self.assertEqual(browser["profile_path"], str(self.root / "state" / "browser" / "profile"))
-        self.assertTrue(Path(browser["profile_path"]).is_dir())
+        self.assertEqual((browser["enabled"], browser["headless"]), (True, True))
         self.assertIn("click", browser["unattended_actions"])
         self.assertEqual(doc["http_request"]["allowed_domains"], websites.load(self.root))
-        self.assertEqual(doc["modules"]["overrides"],
-                         [{"id": "tinycomputer", "source": "linked"}, {"id": "tinywallet", "source": "linked"}])
+        self.assertEqual(doc["modules"]["overrides"], [{"id": "tinywallet", "source": "linked"}])
         self.assertNotIn("mcp_client", doc)
+
+    def test_the_headless_core_answers_its_own_secret_unlock(self):
+        # bin/wallet-setup's encrypt_secret needs the config secret master
+        # grant; with nobody to approve it, it parked 29 s and was refused.
+        # The operator's key file (bin/spine) lets the core answer it.
+        secrets = self.written()["secrets"]
+        self.assertIs(secrets["unattended_unlock"], True)
+        self.assertIs(secrets["encrypt"], False)
+
+    def test_the_browser_keeps_its_profile_so_cookies_survive_a_restart(self):
+        # Sign-ins and cookies live in a persistent profile under
+        # state/browser/profile (mounted from the checkout, so a restart keeps
+        # it). TinyComputer's egress-enforced launcher admits it because the
+        # core hands it over as the host's own profile (browser.profile,
+        # tinyhumansai/tinycomputer#175), launched with extensions off.
+        browser = self.written()["browser"]
+        profile = self.root / "state" / "browser" / "profile"
+        self.assertEqual(browser["profile_mode"], "persistent")
+        self.assertEqual(browser["profile_path"], str(profile))
+        self.assertTrue(profile.is_dir())
+        # Cookies are credentials: the folder is the owner's alone.
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+
+    def test_the_browser_fills_keychain_placeholders_from_bin_keychain_fill(self):
+        browser = self.written()["browser"]
+        self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
+        self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
+
+    def test_the_browser_saves_its_own_pictures_where_the_task_desk_collects_them(self):
+        # Without it the operator's tasks ended with no screenshot: its
+        # browser tool has no screenshot action. The spine keeps the core's
+        # pictures in the folder bin/spine names (spine/src/browser_pictures.rs),
+        # and hands/tasks collects them from there (queue.CAPTURES).
+        self.written()
+        folder = self.root / "state" / "browser" / "screenshots"
+        self.assertTrue(folder.is_dir())
+        self.assertIn('export TEENY_BROWSER_PICTURES="$TEENY_STATE/browser/screenshots"',
+                      (REPO / "bin" / "spine").read_text())
+        from teeny_hands.tasks import queue
+
+        self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
+
+    def test_the_core_refuses_the_deny_list_itself(self):
+        # A link the operator follows to another site is opened by the core
+        # (left_for_another_site, then open); the deny list must hold there
+        # without the model, so bin/spine names it to the core.
+        self.assertIn('export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"',
+                      (REPO / "bin" / "spine").read_text())
+        self.assertTrue((REPO / "deploy" / "browser-deny.txt").is_file())
+
+    def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
+        # The browser loads TinyComputer with a host callback (the consequence
+        # gate on browser egress), and TinyBus admits a callback-bound load
+        # only from the pinned release or a local file. Linked, every browser
+        # call fails with "module 'tinycomputer' callback source cannot
+        # preserve admitted identity".
+        overrides = self.written()["modules"]["overrides"]
+        self.assertNotIn("tinycomputer", [entry["id"] for entry in overrides])
+
+    def test_the_evolvers_lab_writes_its_worktree_and_nothing_of_the_core(self):
+        os.environ.update(SPINE_LAB="1", SPINE_LAB_EDIT="1")
+        autonomy = self.written()["autonomy"]
+        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root), "access": "readwrite"}])
+        brain = self.root / "brain"
+        forbidden = autonomy["forbidden_paths"]
+        for path in (self.root / "secrets", self.root / ".git", self.root / ".openhuman", self.root / "state",
+                     brain / "storage.db", brain / "agent", brain / "keyring"):
+            self.assertIn(str(path), forbidden)
+        # The files a candidate changes are its to edit there.
+        for path in (brain / "playbooks", brain / "cron.toml", brain / "narrative"):
+            self.assertNotIn(str(path), forbidden)
+        self.assertTrue(all(Path(p).is_absolute() for p in forbidden))
+
+    def test_edit_mode_needs_a_lab_spine(self):
+        os.environ.pop("SPINE_LAB", None)
+        os.environ["SPINE_LAB_EDIT"] = "1"
+        autonomy = self.written()["autonomy"]
+        self.assertEqual(autonomy["trusted_roots"], [{"path": str(self.root / "state" / "workbench"), "access": "readwrite"}])
+        self.assertIn(str(self.root / "brain" / "playbooks"), autonomy["forbidden_paths"])
 
     def test_context_compacts_at_100k_with_a_free_form_summary(self):
         doc = self.written()
@@ -75,7 +155,9 @@ class CoreConfigTest(unittest.TestCase):
         # thread is a life, so it folds into a free-form summary.
         self.assertEqual(context["compaction_strategy"], "summary")
         self.assertTrue(context["autocompact_enabled"])
-        self.assertEqual(context["keep_recent_tokens"], 20_000)
+        # A fold keeps the last 40k tokens word for word: at 20k the mind kept
+        # about ten beats, and everything older was a summary.
+        self.assertEqual(context["keep_recent_tokens"], 40_000)
         self.assertLess(context["keep_recent_tokens"], context["compaction_trigger_tokens"])
 
     def test_the_trigger_can_be_moved_from_the_environment(self):
@@ -97,6 +179,66 @@ class CoreConfigTest(unittest.TestCase):
         self.assertEqual(doc["memory"]["engine"], "cortexdb")
         self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
         self.assertGreaterEqual(doc["memory"]["recall"]["budget_tokens"], 3000)
+
+    def test_each_turn_waits_for_recall_on_its_own_message(self):
+        # Unset, a turn only takes the pack an earlier turn left in a cache
+        # that lives 60 s, so a beat every 5 minutes went without one, or got
+        # the pack recalled for the previous batch.
+        self.assertEqual(self.written()["memory"]["recall_each_turn_ms"], 3000)
+
+    def test_the_recall_wait_is_set_inside_the_cores_memory_table(self):
+        before = ('[memory]\nengine = "cortexdb"\nrecall_each_turn_ms = 5\n\n'
+                  '[memory.engines.cortexdb]\nendpoint = "http://c"\n')
+        doc = self.written(before)
+        self.assertEqual(doc["memory"]["recall_each_turn_ms"], 3000)
+        self.assertEqual(doc["memory"]["engine"], "cortexdb")
+        self.assertEqual(doc["memory"]["engines"]["cortexdb"]["endpoint"], "http://c")
+        once = self.config.read_text()
+        core_config.write(self.config, self.root)
+        self.assertEqual(self.config.read_text(), once)
+
+    def test_no_beliefs_are_built_from_the_beat_batches(self):
+        # A beat logs the whole batch as "the user", so beliefs built from it
+        # read "the user energy level 56" and crowd the memory block.
+        self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
+
+    def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
+        computer = self.written()["computer"]
+        self.assertTrue(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
+        self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_can_go_back_to_typesafe_with_its_own_model(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "TypeSafe"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "type_safe")
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+
+    def test_an_unknown_captcha_provider_falls_back_to_surplus(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "nowhere"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
+
+    def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
+        doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')
+        self.assertEqual(doc["computer"]["decision_model"], "sage")
+        self.assertEqual(doc["computer"]["max_rescues"], 2)
+        self.assertTrue(doc["computer"]["captcha_solver"])
+
+    def test_the_captcha_solver_can_be_turned_off_or_moved_to_another_model(self):
+        os.environ["TEENY_CAPTCHA_SOLVER"] = "0"
+        os.environ["TEENY_CAPTCHA_MODEL"] = "jev-2"
+        computer = self.written()["computer"]
+        self.assertFalse(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-2")
+
+    def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
+        text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"
+        self.assertEqual(core_config.set_key(text, "a", "x", "3"), "[a]\nx = 3\ny = 2\n\n[a.b]\nx = 9\n")
+        self.assertEqual(core_config.set_key(text, "a", "z", "4"), "[a]\nx = 1\ny = 2\nz = 4\n\n[a.b]\nx = 9\n")
+        self.assertEqual(tomllib.loads(core_config.set_key(text, "c", "k", "1"))["c"], {"k": 1})
 
     def test_chrome_path_comes_from_the_environment_when_given(self):
         os.environ["TEENY_CHROME_PATH"] = "/opt/chrome/chrome"

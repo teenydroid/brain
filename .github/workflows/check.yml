@@ -7,8 +7,10 @@
 # - scripts: shellcheck over bin/, the reconciliation tests, and the hands'
 #   unit tests on Python 3.11 (the image's version); none needs a core.
 # - web: the Next.js site.
-# - frozen: on Teeny's own pull requests only (opened by teenydroid, or a
-#   gen/<n> branch), refuse any change to a path in evals/frozen.txt
+# - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
+#   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
+#   revert's teeny/revert-gen-<n>, a self job's teeny/<slug>), refuse any
+#   change to a path in evals/frozen.txt
 #   (docs/evolve.md, "What Teeny may change"). The operator's PRs skip it.
 #
 # Nothing here deploys. There is no deploy-on-merge: the box runs
@@ -42,38 +44,53 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p teeny-spine
+      # Google Chrome, not the runner's /usr/bin/chromium (the first browser
+      # bin/lib/core_sections/automation.py finds). That one is a bare Chromium
+      # snapshot: it has no AppArmor profile, so it needs --no-sandbox here
+      # (apparmor_restrict_unprivileged_userns=1), and its first cold launch took
+      # ~10 s to DevTools in an idle step against ~4 s for Chrome. Beside a
+      # freshly booted spine it sometimes passed the readiness probe's 30 s cap,
+      # and bin/doctor --live failed "Chrome launch timed out" on about half the
+      # runs. The box runs Debian's chromium (TEENY_CHROME_PATH in the image).
       - run: bin/test/spine_live_test.sh
         env:
           OPENHUMAN_CORE_BIN: target/release/teeny-spine
+          TEENY_CHROME_PATH: /usr/bin/google-chrome
 
   scripts:
     runs-on: ubuntu-latest
-    # The job takes about five minutes (the hands' suite about 90 s). A hung
-    # test should fail the check in minutes, not hold a runner for GitHub's
+    # The hands' suite (about 2,300 tests) takes about 9 minutes on the dev box
+    # and about 15 on the runner, so the job runs close to 20 minutes. The cap
+    # stays well above that so a real hang still fails the check, not GitHub's
     # six-hour default.
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      # The hands and bin/lib/*.py: Python 3.11 standard library only (tomllib),
-      # so no install step. The tests fake X and the core; nothing leaves the
-      # runner.
+      # The hands and bin/lib/*.py: Python 3.11's standard library, plus
+      # `cryptography` for hands/keychain (python3-cryptography in the image).
+      # The tests fake X and the core; nothing leaves the runner.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - run: python3 -m pip install --quiet "cryptography>=38"
       # shellcheck and sqlite3 ship on the runner image.
-      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/build-ship bin/tasks-desk bin/bounty-pay bin/tick bin/reflect bin/health bin/lib/*.sh bin/test/*.sh deploy/*.sh
+      - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/moltbook-prune bin/build-ship bin/tasks-desk bin/keychain-fill bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/surplus-sweep bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/guard-rescreen bin/lib/*.sh bin/test/*.sh deploy/*.sh
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
       - run: bin/test/doctor_test.sh
       - run: bin/test/eval_test.sh
       - run: bin/test/inbound_consume_test.sh
+      - run: bin/test/tell_test.sh
       - run: bin/test/frozen_test.sh
+      - run: bin/test/evolve_test.sh
+      - run: bin/test/memory_page_test.sh
+      - run: bin/test/proofs_test.sh
       - run: python3 -m unittest discover -s hands/tests -t hands/tests -v
 
   frozen:
     if: >-
       github.event_name == 'pull_request' &&
-      (github.event.pull_request.user.login == 'teenydroid' || startsWith(github.head_ref, 'gen/'))
+      (github.event.pull_request.user.login == 'teenydroid' || startsWith(github.head_ref, 'teeny/'))
     runs-on: ubuntu-latest
     steps:
       # Full history: the check diffs the head from its merge base with main.

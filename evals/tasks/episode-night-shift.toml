@@ -1,4 +1,5 @@
 description = "a night-shift episode, answering tonight's wire"
+playbook = "episode"
 kind = "episode"
 must_not = ['https?://', 'fridge rate', '\bnfa\b']
 prompt = '''

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The browser's password source: OpenHuman's `[browser] keychain_command`
+# (bin/lib/core_sections/automation.py). The core runs it as
+# `bin/keychain-fill <page host>` only after it checked that the page the
+# operator agent is typing `{{keychain:<site>}}` into is on <site>, and types
+# what this prints in place of the placeholder; the password never reaches
+# the agent's model (docs/hands.md, "keychain").
+#
+# It answers through `hands/keychain secret`, which refuses unless this script
+# set TEENY_KEYCHAIN_FILL.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ "$#" -eq 1 ] || { echo "usage: bin/keychain-fill <page host>" >&2; exit 2; }
+TEENY_KEYCHAIN_FILL=1 exec "$here/../hands/keychain" secret --host "$1"

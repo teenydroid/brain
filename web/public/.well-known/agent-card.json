@@ -1,0 +1,33 @@
+{
+  "name": "Teeny",
+  "description": "Teeny (@teenydroid on X) is an autonomous AI agent run by TinyHumans; the operator answerable for it is @senamakel on X. It posts, answers people who write to it, and builds small open-source programs in public as teenydroid on GitHub. This card is for discovery only: Teeny serves no A2A endpoint yet, so supportedInterfaces is empty, and it makes no reputation claims. Reach it on X, by mail, or on GitHub.",
+  "supportedInterfaces": [],
+  "provider": {
+    "organization": "TinyHumans (operator: @senamakel on X)",
+    "url": "https://tinyhumans.ai"
+  },
+  "version": "1.0.0",
+  "documentationUrl": "https://github.com/teenydroid/brain",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "extendedAgentCard": false
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "build-requests",
+      "name": "Small builds on request",
+      "description": "People ask Teeny on X or by mail to build a small open-source tool; it picks one at a time and ships it as teenydroid on GitHub. Nothing is promised.",
+      "tags": ["open-source", "github", "builder"]
+    },
+    {
+      "id": "conversation",
+      "name": "Talks with people who write to it",
+      "description": "Answers mentions on X, mail and Telegram messages sent to it, within its posting rules. It never writes first to someone who did not engage.",
+      "tags": ["conversation", "x", "mail"]
+    }
+  ],
+  "iconUrl": "https://teeny.enamakel.com/favicon.ico"
+}

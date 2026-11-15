@@ -9,6 +9,7 @@
 #   docker compose -f deploy/compose.yaml up -d --build
 #   docker compose -f deploy/compose.yaml exec spine bin/crons
 #   docker compose -f deploy/compose.yaml exec spine bin/ask "hello"
+#   deploy/tell.sh "tweet that the paywall is live"   # a beat, now, on your word
 
 name: teeny-spine
 
@@ -53,6 +54,16 @@ services:
   # one key: SURPLUS_API_KEY), written into secrets/cortex.env with the
   # model keys (deploy/cortex.env.example says how).
   #
+  # Two model tiers. Writing (CORTEX_LLM_*, CORTEX_ENRICHMENT_*: turning new
+  # memories into facts, in the background) is most of the tokens and nobody
+  # waits on it, so it runs on glm-5.3-flash, the cheapest model that keeps
+  # CortexDB's strict JSON (16/16 on a strict json_schema probe, 2026-11-14;
+  # about 44% cheaper a call than gpt-6-luna once its reasoning tokens are
+  # counted, but ~15s a call). Reading (CORTEX_ANSWER_*, CORTEX_VERIFIER_*:
+  # recall, which a tick waits on) stays on gpt-6-luna (~3s). Override either
+  # tier with CORTEX_WRITE_MODEL / CORTEX_READ_MODEL; CORTEX_MODEL, if set,
+  # still sets both, as it did before.
+  #
   # The embedding pair (model and dims) is pinned on the first memory and
   # cannot change after it without re-embedding everything stored.
   cortexdb:
@@ -68,15 +79,15 @@ services:
       CORTEX_INSECURE_NO_AUTH: "1"
       CORTEX_CHANNEL: docker
       CORTEX_LLM_URL: https://api.surplusintelligence.ai/v1
-      CORTEX_LLM_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_LLM_MODEL: ${CORTEX_WRITE_MODEL:-${CORTEX_MODEL:-glm-5.3-flash}}
       CORTEX_ENRICHMENT_URL: https://api.surplusintelligence.ai/v1
-      CORTEX_ENRICHMENT_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_ENRICHMENT_MODEL: ${CORTEX_WRITE_MODEL:-${CORTEX_MODEL:-glm-5.3-flash}}
       CORTEX_ENRICHMENT_DELAY_SECONDS: "0"
       CORTEX_ANSWER_URL: https://api.surplusintelligence.ai/v1
       CORTEX_ANSWER_PROVIDER: openai
-      CORTEX_ANSWER_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_ANSWER_MODEL: ${CORTEX_READ_MODEL:-${CORTEX_MODEL:-gpt-6-luna}}
       CORTEX_VERIFIER_URL: https://api.surplusintelligence.ai/v1
-      CORTEX_VERIFIER_MODEL: ${CORTEX_MODEL:-gpt-6-luna}
+      CORTEX_VERIFIER_MODEL: ${CORTEX_READ_MODEL:-${CORTEX_MODEL:-gpt-6-luna}}
       CORTEX_EMBEDDING_URL: https://api.surplusintelligence.ai/v1
       CORTEX_EMBEDDING_MODEL: venice-embed-1
       CORTEX_EMBEDDING_DIMS: "1024"
@@ -101,7 +112,10 @@ services:
   # they happen, so nothing is searched or billed per post. The vhost routes
   # https://teeny.enamakel.com/api/webhooks/x to 127.0.0.1:3110/webhooks/x.
   # Same image and checkout as the spine; it only writes x_mentions in
-  # state/hands.db, and bin/mentions offers what it queued.
+  # state/hands.db. It screens nothing: it has its own network namespace, so
+  # the core on 127.0.0.1:7788 (and with it the safety judge) is out of its
+  # reach. It queues each mention `unscreened`, and bin/mentions, in the
+  # spine, screens it with the guard before offering it.
   xhook:
     image: teeny-spine:current
     restart: unless-stopped
@@ -119,6 +133,31 @@ services:
       retries: 3
     ports:
       - "127.0.0.1:${XHOOK_PORT:-3110}:3110"
+    volumes:
+      - ..:/srv/teeny
+
+  # Teeny's paid endpoint (bin/paywall; docs/roadmap.md, S4): one x402-priced
+  # resource, its latest public stats, at https://x402.teeny.enamakel.com/stats
+  # (nginx/sites.teeny.enamakel.com.conf proxies to 127.0.0.1:3130). Same
+  # image and checkout as the spine; it signs nothing and pays nothing, and
+  # writes only x402_sales and the inflow ledger in state/hands.db. Behind a
+  # profile, and 404 until X402_ENDPOINT=1: `--profile paywall up -d`.
+  paywall:
+    profiles: [paywall]
+    image: teeny-spine:current
+    restart: unless-stopped
+    init: true
+    user: "${TEENY_UID:-1000}:${TEENY_GID:-1000}"
+    environment:
+      HOME: /tmp
+    entrypoint: ["/srv/teeny/bin/paywall"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3130/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "127.0.0.1:${PAYWALL_PORT:-3130}:3130"
     volumes:
       - ..:/srv/teeny
 

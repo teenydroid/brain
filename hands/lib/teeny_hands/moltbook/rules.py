@@ -11,8 +11,16 @@ is refused locally with the wait instead of collecting 429s:
 "New" is the 24 hours after `MOLTBOOK_CLAIMED_AT` (epoch seconds or an ISO
 date), else after the first post Moltbook accepted from this ledger, and an
 account with neither is treated as new. Our own caps sit on top:
-`MOLTBOOK_MAX_POSTS_PER_DAY` (3) and `MOLTBOOK_MAX_COMMENTS_PER_DAY` (30). A
-"day" is the last 24 hours, rolling.
+`MOLTBOOK_MAX_POSTS_PER_DAY` (20), `MOLTBOOK_MAX_COMMENTS_PER_DAY` (50, the
+server's own limit) and `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no
+limit on follows). A "day" is the last 24 hours, rolling.
+
+The own-thread reserve: while comments on Teeny's own posts wait for an
+answer (`moltbook_owed`, moltbook/owed.py), the day's last comments are kept
+for those answers. A comment that answers one of them may use any of the
+allowance; any other comment is refused (`own_thread_reserve`) once it would
+leave fewer than the number waiting. No cap moves: it is an order inside the
+same cap.
 
 Verification: a challenge Moltbook sets and nobody answers expires, and
 Moltbook suspends an account whose last ten challenges all failed (wrong or
@@ -36,10 +44,11 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from .. import hand
+from .. import hand, tags
 
 MINUTE = 60.0
 HOUR = 3600.0
@@ -52,9 +61,16 @@ COMMENT_GAP = 20.0
 NEW_COMMENT_GAP = 60.0
 COMMENTS_PER_DAY = 50
 NEW_COMMENTS_PER_DAY = 20
-DEFAULT_MAX_POSTS_PER_DAY = 3
-DEFAULT_MAX_COMMENTS_PER_DAY = 30
+DEFAULT_MAX_POSTS_PER_DAY = 20
+DEFAULT_MAX_COMMENTS_PER_DAY = 50
+DEFAULT_MAX_FOLLOWS_PER_DAY = 30
+#: Moltbook draws a comment tree to this depth (a top-level comment is depth
+#: 1); a reply under a comment this deep is never shown, so it is not sent.
+MAX_REPLY_DEPTH = 5
 LOCKOUT_AFTER = 3
+#: A comment on Teeny's own post left unanswered this long is no longer owed
+#: an answer (owed.py marks it expired), and holds back none of the allowance.
+OWED_MAX_AGE = 3 * DAY
 
 #: Ledger statuses of content Moltbook accepted (it counts against the limits
 #: whether or not its challenge was answered).
@@ -107,6 +123,41 @@ CREATE TABLE IF NOT EXISTS moltbook_state (
     value TEXT NOT NULL,
     at    REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS moltbook_post_metrics (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind                TEXT NOT NULL CHECK (kind IN ('post', 'comment')),
+    target_id           TEXT NOT NULL,
+    checkpoint          INTEGER NOT NULL,
+    at                  REAL NOT NULL,
+    score               INTEGER,
+    comment_count       INTEGER,
+    verification_status TEXT,
+    UNIQUE (kind, target_id, checkpoint)
+);
+CREATE INDEX IF NOT EXISTS moltbook_post_metrics_at ON moltbook_post_metrics (at);
+CREATE TABLE IF NOT EXISTS moltbook_held (
+    comment_id TEXT PRIMARY KEY,
+    post_id    TEXT NOT NULL,
+    hold_id    INTEGER,
+    at         REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS moltbook_owed (
+    comment_id TEXT PRIMARY KEY,
+    post_id    TEXT NOT NULL,
+    parent_id  TEXT,
+    author     TEXT,
+    depth      INTEGER NOT NULL DEFAULT 1,
+    said_at    REAL NOT NULL,
+    seen_at    REAL NOT NULL,
+    status     TEXT NOT NULL,
+    reason     TEXT,
+    note       TEXT,
+    answer_id  TEXT,
+    settled_at REAL,
+    offered    INTEGER NOT NULL DEFAULT 0,
+    offered_at REAL
+);
+CREATE INDEX IF NOT EXISTS moltbook_owed_status ON moltbook_owed (status, said_at);
 CREATE TABLE IF NOT EXISTS collabs (
     name         TEXT PRIMARY KEY COLLATE NOCASE,
     consent_note TEXT NOT NULL,
@@ -115,8 +166,21 @@ CREATE TABLE IF NOT EXISTS collabs (
 """
 
 
+#: Columns added after the tables first shipped: what Teeny wrote, and the
+#: lab tags (teeny_hands/tags.py). Older rows keep NULL in them.
+ADDED_COLUMNS = {
+    "moltbook_posts": {"body": "TEXT", **tags.COLUMNS},
+    "moltbook_comments": {"body": "TEXT", **tags.COLUMNS},
+    # What the scan would have put in the inbox, kept so a release says it too.
+    "moltbook_held": {"payload": "TEXT"},
+}
+
+
 def db() -> sqlite3.Connection:
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    for table, columns in ADDED_COLUMNS.items():
+        hand.add_columns(conn, table, columns)
+    return conn
 
 
 # --- settings ------------------------------------------------------------------------
@@ -128,6 +192,10 @@ def max_posts_per_day() -> int:
 
 def max_comments_per_day() -> int:
     return hand.number("MOLTBOOK_MAX_COMMENTS_PER_DAY", DEFAULT_MAX_COMMENTS_PER_DAY, 0, COMMENTS_PER_DAY)
+
+
+def max_follows_per_day() -> int:
+    return hand.number("MOLTBOOK_MAX_FOLLOWS_PER_DAY", DEFAULT_MAX_FOLLOWS_PER_DAY, 0, 200)
 
 
 def _claimed_at_setting() -> float | None:
@@ -226,7 +294,62 @@ def check_post(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"new_agent": new}
 
 
-def check_comment(conn: sqlite3.Connection) -> dict[str, Any]:
+#: The longest wait `post-slot --wait` takes. A cron shell job past 300 s
+#: fails (docs/oh-gaps.md, G12), and a posting playbook's run already takes
+#: one to six minutes, so the gate never sits out more than this.
+POST_SLOT_MAX_WAIT = 180
+
+
+def post_slot(wait: float = 0.0, sleep: Any = time.sleep) -> dict[str, Any]:
+    """Whether a post would pass the limits now, for a posting playbook's
+    first input (`hands/moltbook post-slot`): {"open": true} when it would,
+    else only {"why": "<rule>: <reason>"}, which bin/act reads as empty and
+    skips before the model turn. A wait for the gap (or the write rate) of at
+    most `wait` seconds is sat out once, then asked again. It reads the same
+    rules a post meets (check_post) and moves none of them."""
+    conn = db()
+    try:
+        waited = 0
+        while True:
+            try:
+                mode = check_post(conn)
+                return {"open": True, **mode, **({"waited": waited} if waited else {})}
+            except hand.Refused as refused:
+                rule, left = refused.detail.get("rule"), refused.detail.get("wait_seconds")
+                if (waited or rule != "rate_limit" or not isinstance(left, (int, float))
+                        or left > min(wait, POST_SLOT_MAX_WAIT)):
+                    return {"why": f"{rule}: {refused.reason}"}
+            sleep(left)
+            waited = int(left)
+    finally:
+        conn.close()
+
+
+def check_follow(conn: sqlite3.Connection, name: str) -> None:
+    """The follow cap, and never again an agent Teeny unfollowed (the prune
+    unfollowed it because it did not follow back)."""
+    if conn.execute("SELECT 1 FROM moltbook_actions WHERE verb = 'unfollow' AND target = ?", (name,)).fetchone():
+        raise hand.Refused(f"Teeny already unfollowed {name}; it does not follow the same agent twice", rule="unfollowed")
+    cap = max_follows_per_day()
+    done = int(
+        conn.execute("SELECT count(*) FROM moltbook_actions WHERE verb = 'follow' AND at > ?", (hand.now() - DAY,)).fetchone()[0]
+    )
+    if done >= cap:
+        raise hand.Refused(f"{done} Moltbook follow(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
+
+
+def owed_waiting(conn: sqlite3.Connection) -> int:
+    """Comments on Teeny's own posts waiting for an answer, young enough to
+    still be owed one (OWED_MAX_AGE)."""
+    row = conn.execute(
+        "SELECT count(*) FROM moltbook_owed WHERE status = 'waiting' AND said_at >= ?", (hand.now() - OWED_MAX_AGE,)
+    ).fetchone()
+    return int(row[0])
+
+
+def check_comment(conn: sqlite3.Connection, own_thread: bool = False) -> dict[str, Any]:
+    """The limits on one comment. `own_thread`: it answers a comment on
+    Teeny's own post, which may spend the reserve the others may not."""
     check_lockout(conn)
     check_write_rate(conn)
     new = new_agent(conn)
@@ -235,6 +358,16 @@ def check_comment(conn: sqlite3.Connection) -> dict[str, Any]:
     done = _today(conn, "moltbook_comments")
     if done >= cap:
         raise hand.Refused(f"{done} Moltbook comment(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
+    if not own_thread:
+        waiting = owed_waiting(conn)
+        if waiting and cap - done <= waiting:
+            raise hand.Refused(
+                f"{done} of {cap} Moltbook comments spent in the last 24 hours and {waiting} comment(s) on Teeny's own"
+                f" posts still wait for an answer; the last {cap - done} are kept for those answers",
+                rule="own_thread_reserve",
+                waiting=waiting,
+                left=cap - done,
+            )
     return {"new_agent": new}
 
 

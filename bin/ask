@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Run one agent turn on the core and print the answer.
 #
-#   bin/ask [--agent ID] [--thread ID] MESSAGE...
+#   bin/ask [--agent ID] [--thread ID] [--model M] [--cwd DIR] MESSAGE...
 #   echo MESSAGE | bin/ask [--agent ID]
 #
-# Without --agent the turn runs as the core's orchestrator. This is the
+# Without --agent the turn runs as the core's orchestrator. --model asks the
+# core to run this one turn on model M (`model_override`; the agent's
+# definition is not touched), and --cwd roots the turn's file and shell tools
+# in DIR (bin/evolve's evolver agent, on a lab spine). This is the
 # operator's way in (it replaces the Rust bot's bearer-authenticated
 # /agent/run): whoever can run it holds the core token, so it is never wired
 # to anything the public can reach.
@@ -15,12 +18,16 @@ need jq
 
 agent=""
 thread=""
+model=""
+cwd=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent) agent="$2"; shift 2 ;;
     --thread) thread="$2"; shift 2 ;;
+    --model) model="$2"; shift 2 ;;
+    --cwd) cwd="$2"; shift 2 ;;
     --) shift; break ;;
-    -*) die "usage: bin/ask [--agent ID] [--thread ID] MESSAGE..." ;;
+    -*) die "usage: bin/ask [--agent ID] [--thread ID] [--model M] [--cwd DIR] MESSAGE..." ;;
     *) break ;;
   esac
 done
@@ -33,9 +40,11 @@ fi
 # bash, and stalls for minutes on a long playbook or judge message.
 [[ "$message" =~ [^[:space:]] ]] || die "nothing to ask"
 
-params="$(jq -cn --arg m "$message" --arg a "$agent" --arg t "$thread" \
+params="$(jq -cn --arg m "$message" --arg a "$agent" --arg t "$thread" --arg o "$model" --arg c "$cwd" \
   '{message: $m} + (if $a != "" then {agent_id: $a} else {} end)
-                 + (if $t != "" then {thread_id: $t} else {} end)')"
+                 + (if $t != "" then {thread_id: $t} else {} end)
+                 + (if $o != "" then {model_override: $o} else {} end)
+                 + (if $c != "" then {cwd: $c} else {} end)')"
 answer="$(oh inference_agent_chat "$params")"
 # The turn's text when the answer carries one, else the whole payload.
 jq -r 'if type == "string" then .

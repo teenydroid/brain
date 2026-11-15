@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Teeny acting on what it learned (docs/evolve.md, "The loop"). The work is
+# bin/lib/evolve.py.
+#
+#   bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+#       One generation in state/evolve/<gen>/: up to N open learnings from
+#       brain/MEMORY.md (what Teeny decided, promised and is in the middle
+#       of), one candidate each in its own worktree off main, from Teeny's
+#       own clone; gated in code, measured on the eval tasks the change
+#       reaches (none: unmeasurable, nothing boots), and each one that
+#       passes opens its own ready pull request, teeny/gen-<n>-c<i>, with a
+#       teeny/eval commit status. With no open learning it does nothing. A
+#       restart resumes the unfinished generation where it was.
+#   bin/evolve watch             evolve-watch: the newest merge, reverted
+#                                when holds, cron failures, the probes or J say so
+#   bin/evolve probe [--baseline [--force]]
+#                                the persona and memory probes on the live core
+#   bin/evolve credit            merges found, chronicled, ΔJ credited up the lineage
+#   bin/evolve status            open learnings, open evolve PRs, each candidate's state
+#   bin/evolve resume            clear a latched halt
+#
+# Off unless secrets/evolve.env sets EVOLVE=1, so the pinned job is safe to
+# seed. With EVOLVE_EVALUATOR=lab (the default) a candidate a task reaches is
+# measured on a lab spine of its own (bin/lib/lab.py, DRY_RUN=1 forced).
+# Under DRY_RUN nothing is pushed, opened or filed. Nothing here merges: the
+# babysitter (hands/babysit) merges a teeny/gen-* pull request once its audit
+# and CI pass and teeny/eval is success. --detach starts the verb in the
+# background and returns at once (a generation outlasts the 300 s a cron
+# shell call gets, oh-gaps.md G12); `run` logs to state/evolve/evolve.log and
+# `watch` to state/evolve/watch.log, each with a lock of its own, and a
+# second call while one runs says `busy`.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need git python3 jq
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+args=()
+detach=0
+for arg in "$@"; do
+  if [ "$arg" = --detach ]; then detach=1; else args+=("$arg"); fi
+done
+if [ "$detach" = 1 ]; then
+  log_name=evolve lock=evolve
+  if [ "${args[0]:-}" = watch ]; then log_name=watch lock=evolve-watch; fi
+  exec python3 "$here/lib/detach.py" --log "evolve/$log_name.log" --lock "$lock" -- \
+    "$here/evolve" ${args[@]+"${args[@]}"}
+fi
+exec python3 "$here/lib/evolve.py" ${args[@]+"${args[@]}"}

@@ -30,12 +30,13 @@ fresh() {
   cp -R "$repo/bin" "$repo/evals" "$root/"
   mkdir -p "$root/deploy"
   cp "$repo/deploy/browser-allow.txt" "$root/deploy/"
+  cp "$repo/deploy/browser-deny.txt" "$root/deploy/"
   mkdir -p "$root/hands"
   # Every hand a playbook may name, and their library; not the tests.
   cp -R "$repo/hands/lib" "$root/hands/"
   find "$repo/hands" -maxdepth 1 -type f -perm -u+x -exec cp {} "$root/hands/" \;
   cp -R "$repo/brain/playbooks" "$repo/brain/agents" "$repo/brain/narrative" "$root/brain/"
-  cp "$repo/brain/SOUL.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
+  cp "$repo/brain/SOUL.md" "$repo/brain/DRIVE.md" "$repo/brain/CHARTER.md" "$repo/brain/CONTEXT.md" "$repo/brain/cron.toml" "$root/brain/"
 }
 doctor() { "$root/bin/doctor" >"$scratch/report.json" 2>"$scratch/doctor.log"; }
 fails() { # NAME CHECK-SUBSTRING: the doctor exits 1 and names the failing check
@@ -69,6 +70,13 @@ fresh; rm "$root/brain/SOUL.md"
 fails "fails without SOUL.md" "brain/SOUL.md"
 fresh; : >"$root/brain/CONTEXT.md"
 fails "fails on an empty CONTEXT.md" "brain/CONTEXT.md"
+fresh; rm "$root/brain/DRIVE.md"
+fails "fails without DRIVE.md" "brain/DRIVE.md"
+# The charter (docs/governance.md, fence "charter").
+fresh; rm "$root/brain/CHARTER.md"
+fails "fails without CHARTER.md" "brain/CHARTER.md"
+fresh; sed -i.bak 's/responsible for what you do/answerable to nobody/' "$root/brain/CHARTER.md"
+fails "fails a charter that no longer names the operator as responsible" "invariants"
 fresh; : >"$root/brain/config.toml"
 fails "fails on a config.toml inside the brain" "brain/config.toml"
 fresh; printf '[jobs.x]\nschedule = "* * * * *"\ncommand = "bin/heartbeat"\n' >"$root/brain/cron.toml"
@@ -120,6 +128,8 @@ fresh; perl -pi -e 's/^id = "teeny-mentions"/id = "teeny-mentions"\nscheduled_ac
 fails "fails a drafting agent that opts into scheduled actions" "agent teeny-mentions.toml"
 fresh; printf 'example.com\n*\n' >"$root/deploy/browser-allow.txt"
 fails "fails a browser allow list with a wildcard" "browser-allow.txt"
+fresh; rm "$root/deploy/browser-deny.txt"
+fails "fails without the browser's deny list" "browser-deny.txt"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/judge.toml"
 fails "fails a judge agent that was given a tool" "agent judge.toml"
 fresh; rm "$root/brain/agents/judge.toml"
@@ -127,12 +137,47 @@ fails "fails without the judge agent" "agent judge.toml"
 fresh; sed -i.bak 's/never sell/hold/' "$root/brain/SOUL.md"
 fails "fails a soul that no longer says it never sells" "invariants"
 check "and names the invariant it lost" grep -q '^FAIL invariants: .*never-sell' "$scratch/doctor.log"
+fresh; sed -i.bak 's/recorded in a ledger/recorded somewhere/' "$root/brain/DRIVE.md"
+fails "fails a drive that no longer needs a ledger" "invariants"
+check "and names the drive" grep -q '^FAIL invariants: .*drive' "$scratch/doctor.log"
 fresh; rm "$root/brain/narrative/LORE.md"
 fails "fails a brain that lost the lore's satire rule" "invariants"
 fresh; rm "$root/evals/invariants.md"
 fails "fails a checkout without evals/invariants.md" "invariants"
 fresh; rm -rf "$root/hands/lib/teeny_hands/guard"
 fails "fails without the guard" "guard screen"
+# The autonomy ladder (docs/governance.md, fence "ladder"; roadmap G2).
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
+fails "fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4" "autonomy ladder"
+check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladder: EVOLVE_AUTO_PROMOTE=1 .*merge at L5' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=0\n' >"$root/secrets/evolve.env"
+check "passes EVOLVE=1 with self-edit at L4" doctor
+check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
+# Self-merge is its own rung (L5, the operator's decision of 2026-11-15), so
+# granting it leaves EVOLVE_AUTO_PROMOTE refused under merge at L4.
+fresh; mkdir -p "$root/secrets"; printf 'BABYSIT_MERGE=1\nBABYSIT_SELF_MERGE=1\n' >"$root/secrets/teeny.env"
+check "passes BABYSIT_SELF_MERGE=1 with self-merge at L5" doctor
+printf 'EVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
+fails "still fails EVOLVE_AUTO_PROMOTE=1 beside it" "autonomy ladder"
+sed -i.bak '/^\[capability.self-merge\]/,/^switch/ s/^level = 5$/level = 4\nnext = { level = 5, also = ["x"] }/' "$root/evals/autonomy.toml"
+rm "$root/secrets/evolve.env"
+fails "fails BABYSIT_SELF_MERGE=1 once self-merge is under L5" "autonomy ladder"
+check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladder: BABYSIT_SELF_MERGE=1 .*self-merge at L5' "$scratch/doctor.log"
+fresh; rm "$root/evals/autonomy.toml"
+fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
+# A model change (roadmap G8): recorded at boot, the levels on it drop, a switch
+# above the dropped level warns (never fails the boot), and the issue is prepared.
+fresh; mkdir -p "$root/secrets" "$root/docs"; cp "$repo/docs/governance.md" "$root/docs/"
+printf 'SPINE_MODEL=model-a\n' >"$root/secrets/spine.env"; printf 'EVOLVE=1\n' >"$root/secrets/evolve.env"
+# Confirmed before today, so a change today counts as after it.
+sed -i.bak 's/^confirmed = .*/confirmed = "2020-01-01"/' "$root/evals/autonomy.toml"
+check "records the model behind each role" doctor
+check "and says nothing changed the first time" grep -q '^ok   model: .*no change' "$scratch/doctor.log"
+printf 'SPINE_MODEL=model-b\n' >"$root/secrets/spine.env"
+check "a model change still boots" doctor
+check "and warns that it changed" grep -q '^warn model: changed: .*model-a -> model-b' "$scratch/doctor.log"
+check "and warns that EVOLVE=1 is above self-edit's dropped level" grep -q '^warn autonomy ladder: EVOLVE=1 .*dropped to L3' "$scratch/doctor.log"
+check "and prepares the issue" grep -q 'self-edit: L4 -> L3' "$root/secrets/autonomy/issue-pending.json"
 fresh; printf 'LEXICON = ()\nIDIOMS = ()\n' >"$root/hands/lib/teeny_hands/guard/lexicon.py"
 fails "fails a guard whose lexicon was emptied" "guard screen"
 
@@ -154,6 +199,21 @@ fails "fails an absurd cap" "wallet caps"
 fresh; wallet_env "${caps_ok[@]}" WALLET_CLUSTER=testnet
 fails "fails an unknown cluster" "wallet caps"
 
+# --- the x402 hand: its top-up and search limits are sane -------------------------------
+fresh
+check "passes with no x402 keys, and says the top-up is off" doctor
+check "and names it" grep -q '^ok   x402 settings: top-up off' "$scratch/doctor.log"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=1 X402_FUND_TARGET_USD=5 X402_FUND_MAX_PER_DAY_USD=10
+check "passes a sane top-up" doctor
+# shellcheck disable=SC2016 # the dollar signs are the doctor's literal words
+check "and says what it does" grep -qF 'ok   x402 settings: top-up on: below $1 on Base, up to $5' "$scratch/doctor.log"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=1
+fails "fails a top-up switched on without its limits" "x402 settings"
+fresh; wallet_env X402_FUND=1 X402_FUND_FLOOR_USD=5 X402_FUND_TARGET_USD=5 X402_FUND_MAX_PER_DAY_USD=10
+fails "fails a floor that is not below the target" "x402 settings"
+fresh; wallet_env X402_EXA_MAX_USD=50
+fails "fails a search limit over its ceiling" "x402 settings"
+
 # --- the keyring's directory: nobody else may write it, from / down -----------------
 fresh; chmod 775 "$root/brain"
 fails "fails a group-writable brain (the keyring would refuse it)" "keyring path"
@@ -169,6 +229,27 @@ fresh; mkdir -p "$root/secrets" "$root/workspace"; : >"$root/secrets/kernel.env"
 check "passes with pre-spine leftovers" doctor
 check "but warns about the old kernel env" grep -q '^warn secrets/kernel.env: pre-spine leftover' "$scratch/doctor.log"
 check "and the old workspace storage" grep -q '^warn workspace/storage.db: pre-spine leftover' "$scratch/doctor.log"
+# --- the X profile's disclosure line warns, never fails (P1) --------------------------
+fresh
+check "passes with no X keys" doctor
+check "and the X profile check is ok" grep -q '^ok   x profile: no X keys' "$scratch/doctor.log"
+mkdir -p "$root/secrets" "$root/state"
+printf 'X_API_KEY=k\nX_API_SECRET=s\nX_ACCESS_TOKEN=t\nX_ACCESS_TOKEN_SECRET=ts\nX_OPERATOR_HANDLE=steven\n' >"$root/secrets/teeny.env"
+check "passes with X keys and no cached profile" doctor
+check "but warns that the bio is unchecked" grep -q '^warn x profile: no cached profile' "$scratch/doctor.log"
+bio() { python3 -c '
+import sqlite3, sys, time
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("create table if not exists x_profile (handle text primary key, user_id text, name text, description text not null default \x27\x27, read_at real not null)")
+conn.execute("insert or replace into x_profile values (\x27teenydroid\x27, \x271\x27, \x27teeny\x27, ?, ?)", (sys.argv[2], time.time()))
+conn.commit()
+' "$root/state/hands.db" "$1"; }
+bio "a tiny crab"
+check "passes a bio without the disclosure line" doctor
+check "but warns that it does not say automated" grep -q '^warn x profile: @teenydroid: the bio does not say' "$scratch/doctor.log"
+bio "a tiny crab. automated, run by @steven"
+check "passes a bio with the disclosure line" doctor
+check "and names the X profile ok" grep -q '^ok   x profile: @teenydroid' "$scratch/doctor.log"
 check "teeny-mentions must stay tool-less" bash -c "grep -q 'teeny-mentions' '$root/bin/lib/agent_check.py'"
 fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/teeny-mail.toml"
 fails "fails a mail agent that was given a tool" "agent teeny-mail.toml"
@@ -209,6 +290,9 @@ cat >"$scratch/fake-oh" <<'FAKE'
 case "$1" in
   cron_list) cat "$FAKE_JOBS" ;;
   config_get_agent_settings) printf '{"agent_timeout_secs": %s}\n' "${FAKE_AGENT_TIMEOUT:-900}" ;;
+  modules_browser_check_readiness)
+    ready='{"module_ready": true, "chrome_ready": true}'
+    printf '%s\n' "${FAKE_BROWSER:-$ready}" ;;
   *) echo "unexpected method $1" >&2; exit 1 ;;
 esac
 FAKE
@@ -253,6 +337,18 @@ check "--live fails when a cron agent turn gets only the core's default 120 s" \
   grep -q '^FAIL cron agent turn budget: ' "$scratch/doctor.log"
 live_doctor || true
 check "--live passes the budget bin/spine sets" grep -q '^ok   cron agent turn budget' "$scratch/doctor.log"
+
+# 2026-11-13: every browser call the operator made failed with "module
+# 'tinycomputer' callback source cannot preserve admitted identity" (the core
+# was told to serve TinyComputer linked), and only the operator's own report
+# said so. The core's readiness probe loads the module and opens Chrome.
+FAKE_BROWSER='{"module_ready": false, "chrome_ready": false, "error": "TinyComputer module is unavailable"}' live_doctor || true
+check "--live fails when the TinyComputer browser module cannot load" \
+  grep -q '^FAIL browser: .*TinyComputer module is unavailable' "$scratch/doctor.log"
+FAKE_BROWSER='{"module_ready": true, "chrome_ready": false, "error": "Chrome could not start: no binary"}' live_doctor || true
+check "--live fails when Chrome does not start" grep -q '^FAIL browser: .*Chrome could not start' "$scratch/doctor.log"
+live_doctor || true
+check "--live passes a browser that loads and starts Chrome" grep -q '^ok   browser: ' "$scratch/doctor.log"
 
 # --- bin/spine will not boot what the doctor fails -----------------------------------------
 cat >"$scratch/fake-core" <<'FAKE'

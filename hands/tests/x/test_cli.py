@@ -30,6 +30,7 @@ class Verdict:
     reason: str
     category: str | None = None
     hold_id: int | None = None
+    judge_failed: bool = False
 
 def check_outbound(text, *, surface="x", kind="post", replying_to=None, max_emoji=None, context=None):
     if "$FAKE" in text:
@@ -59,9 +60,12 @@ class Cli(Scratch):
         (lib / "guard").mkdir(parents=True)
         shutil.copy(LIB / "teeny_hands" / "__init__.py", lib / "__init__.py")
         (lib / "hand.py").symlink_to(LIB / "teeny_hands" / "hand.py")
+        (lib / "tags.py").symlink_to(LIB / "teeny_hands" / "tags.py")
         (lib / "x").symlink_to(LIB / "teeny_hands" / "x", target_is_directory=True)
         (lib / "guard" / "__init__.py").write_text("")
         (lib / "guard" / "gate.py").write_text(FAKE_GATE)
+        # The gate is the stand-in; the repeat measure the posting rules use is the real one.
+        (lib / "guard" / "repeats.py").symlink_to(LIB / "teeny_hands" / "guard" / "repeats.py")
         shutil.copy(SHIM, shim)
         return shim
 
@@ -92,6 +96,24 @@ class ReadVerbsTest(Cli):
     def test_whoami(self):
         code, out, _ = self.run_x("whoami")
         self.assertEqual((code, out), (0, {"ok": True, "id": "1000", "username": "teenydroid"}))
+
+    def test_links_says_the_days_link_is_spent_after_an_earlier_link_post(self):
+        # The 23:00 show reads this before it drafts: once the 07:00 post used
+        # the day's one link, it writes the Moltbook exchange without one.
+        from teeny_hands import hand
+        from teeny_hands.x import posting_rules
+
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 0, 1))
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "101", "post", "shipped it: github.com/teenydroid/thing", created_at=T0)
+        conn.commit()
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 1, 0))
+        self.assertEqual(self.x.requests(), [], "a read of the ledger, never of X")
 
     def test_get(self):
         self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "hello", "author_id": "42"}})
@@ -188,6 +210,9 @@ class WriteVerbsTest(Cli):
 
     def test_like(self):
         self.x.route("POST", "/2/users/1000/likes", {"data": {"liked": True}})
+        code, out, _ = self.run_x("like", "77")
+        self.assertEqual((code, out["rule"]), (2, "likes_off"))
+        self.configure(X_LIKES="1")
         self.assertEqual(self.run_x("like", "77")[:2], (0, {"ok": True, "liked": "77"}))
 
     def test_unsay_previews_then_deletes(self):
