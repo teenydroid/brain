@@ -227,9 +227,6 @@ class CliTest(Scratch):
         self.assertEqual(self.run_people("list")[1]["people"][0]["open_promises"], 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RedditPeopleTest(Scratch):
     def test_someone_who_wrote_on_reddit_has_a_record(self):
@@ -238,3 +235,7 @@ class RedditPeopleTest(Scratch):
         rec = records.record("reddit", "ana_dev")
         self.assertEqual(rec["messages"], 2)
         self.assertIn(("reddit", "ana_dev"), [(p["surface"], p["who"]) for p in records.listing()["people"]])
+
+
+if __name__ == "__main__":
+    unittest.main()

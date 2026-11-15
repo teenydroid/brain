@@ -148,9 +148,6 @@ class LabTest(unittest.TestCase):
         self.assertEqual(run("lessons", "--max", "3"), (0, {"ok": True, "lessons": []}))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RedditLabTest(LabTest):
     def test_a_reddit_experiment_is_scored_from_reddits_writes(self):
@@ -178,3 +175,7 @@ class RedditLabTest(LabTest):
         conn.close()
         ledger.propose(body(surface="moltbook", format="gm"))
         ledger.propose(body(surface="reddit", format="gm"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -125,9 +125,6 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(board.board()["x"]["formats"], [{"format": "(post)", "n": 1, "avg": 2}])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def reddit_write(self, kind, wid, score, fmt=None, state="live", at=T0 - DAY):
         from teeny_hands.reddit import rules as reddit_rules
 
@@ -152,3 +149,7 @@ if __name__ == "__main__":
         self.assertEqual([w["id"] for w in out["reddit"]["best"]], ["p1", "c1", "c2"])
         self.assertEqual(out["reddit"]["best"][0]["result"], 12)
         self.assertEqual(out["lines"][-1][:31], "Reddit last 7d: 3 measured, avg")
+
+
+if __name__ == "__main__":
+    unittest.main()

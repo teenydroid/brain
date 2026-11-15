@@ -230,9 +230,6 @@ class RunContractTest(Scratch):
         self.assertIn("not JSON", out["error"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RebuildTableTest(Scratch):
     def test_a_table_is_rebuilt_to_a_new_check_and_keeps_its_rows_and_indexes(self):
@@ -248,3 +245,7 @@ class RebuildTableTest(Scratch):
         hand.rebuild_table(conn, "t", new)  # already as it should be: nothing to do
         self.assertEqual(conn.execute("SELECT count(*) FROM t").fetchone()[0], 2)
         conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
