@@ -2109,8 +2109,8 @@ class TargetedEvaluator:
 def eval_summary(report: Mapping[str, Any], tasks: list[str], plan: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
     out: Json = {"verdict": report.get("verdict"), "tasks": tasks, "all": bool(plan.get("all"))}
-    for key in ("reason", "wins", "losses", "ties", "decided", "regressions", "fences", "unmeasured_tasks",
-                "judge_model"):
+    for key in ("reason", "wins", "losses", "ties", "decided", "signal", "p_worse", "p_better", "regressions",
+                "fences", "unmeasured_tasks", "judge_model"):
         if report.get(key) is not None:
             out[key] = report[key]
     return out
@@ -2697,8 +2697,9 @@ def eval_text(cand: Mapping[str, Any]) -> str:
     return (f"**Targeted eval** (`bin/eval compare --mode nonregression` against main, blind): "
             f"{ev.get('verdict')} on the {len(tasks)} task(s) the change reaches"
             + (f" ({'every task' if ev.get('all') else ', '.join(f'`{t}`' for t in tasks)})" if tasks else "")
-            + f". {ev.get('wins', 0)} won, {ev.get('losses', 0)} lost, {ev.get('ties', 0)} tied; "
-            f"regressions: {len(regressions) or 'none'}; fences: {len(fences) or 'none'}."
+            + f". {ev.get('wins', 0)} won, {ev.get('losses', 0)} lost, {ev.get('ties', 0)} tied"
+            + (f" (signal: {ev['signal']})" if ev.get("signal") else "")
+            + f"; regressions: {len(regressions) or 'none'}; fences: {len(fences) or 'none'}."
             + (f" {ev.get('reason')}." if ev.get("reason") else "")
             + (f"\n\nPersona drift from gen-0: {cand['probe'].get('drift')}." if isinstance(cand.get("probe"), Mapping)
                else ""))

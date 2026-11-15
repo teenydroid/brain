@@ -292,7 +292,9 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(self.drafts(), [])
 
     def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
-        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4)
+        # Four pairs a task: the judge prefers main on all four of candidate 2's
+        # (one chance in 16 for a change like main), where one pair says nothing.
+        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4, EVOLVE_EVAL_PAIRS=4)
         self.edit(1, "morning")
         self.edit(2, "shiplog")
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2
@@ -306,10 +308,10 @@ class TargetedEvaluation(LabCase):
                          [self.port, self.port + 1, self.port + 2])
         drafts = self.drafts()
         # The baseline drafts the union of the tasks, once, with the whole budget.
-        self.assertEqual(sorted((d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port),
+        self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
                          [("morning-post", "4"), ("shiplog-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
-        self.assertEqual(sorted((d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port),
+        self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
                          [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
         reports = [json.loads((evolve.evolve_dir() / "1" / "eval" / f"cand-{i}" / "compare" / "report.json").read_text())
                    for i in (1, 2)]
