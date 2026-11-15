@@ -49,6 +49,9 @@ name = os.path.basename(sys.argv[0])
 body = sys.stdin.read()
 with open(os.environ["FAKE_HANDS"], "a") as fh:
     fh.write(json.dumps({"hand": name, "argv": sys.argv[1:], "body": json.loads(body) if body.strip() else None}) + "\n")
+if os.environ.get("TEENY_WRITER"):
+    with open(os.environ["FAKE_HANDS"] + ".writer", "a") as fh:
+        fh.write(f"{name} {os.environ['TEENY_WRITER']}\n")
 if sys.argv[1:2] == ["mark"]:
     print(json.dumps({"ok": True})); sys.exit(0)
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -1259,6 +1262,13 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual([r["status"] for r in got["results"]], ["done", "done"])
         self.assertEqual([c["body"]["post_id"] for c in self.hand_calls()], ["p1", "p2", "p2"])
+
+    def test_the_hand_is_told_the_mind_sent_it_to_tag_the_comment_with(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "comment_moltbook", "post_id": "p1", "text": "first"}]})
+        self.tick()
+        writers = Path(str(self.hands_log) + ".writer").read_text().splitlines()
+        self.assertIn("moltbook mind", writers)
 
     def test_a_deferred_reply_still_paced_after_an_hour_goes_back_to_the_mind(self):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600), self.paced(600), self.paced(600)])

@@ -40,10 +40,12 @@ would invite a retry of something already done.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import string
 import sys
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from .. import hand, stimuli, tags
@@ -486,6 +488,64 @@ def _author(node: Mapping[str, Any]) -> str | None:
     return author if isinstance(author, str) else None
 
 
+def _writer() -> str | None:
+    """Who asked for this write: the playbook's name (bin/act sets
+    TEENY_WRITER to it), `mind` (bin/lib/tick.py), or None (by hand)."""
+    value = os.environ.get("TEENY_WRITER", "").strip().lower()
+    return value or None
+
+
+def comment_format(writer: str | None, own_post: bool, parent_id: str | None) -> str | None:
+    """The format a comment is tagged with when its caller named none
+    (docs/hands.md, "moltbook comment"): the playbook's name without
+    `moltbook-` (`threads`, `helpdesk`), else, from the mind or by hand,
+    where it went: `own-thread` on Teeny's own post, `reply` under another
+    agent's comment, `comment` on another agent's post."""
+    if writer and writer != "mind":
+        name = writer.removeprefix("moltbook-")
+        return name if tags._FORMAT.match(name) else None
+    if own_post:
+        return "own-thread"
+    return "reply" if parent_id else "comment"
+
+
+def _minutes_since(created: Any) -> float | None:
+    if not isinstance(created, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return round(max(0.0, hand.now() - moment.timestamp()) / 60, 1)
+
+
+def _comment_detail(writer: str | None, own_post: bool, the_post: Any) -> str:
+    """What the audit had to rebuild by hand, as the post read showed it just
+    before the write: the post's age and comment count, its author and the
+    author's karma and followers. Only what the read carried."""
+    detail: dict[str, Any] = {"own_post": own_post}
+    if writer:
+        detail["writer"] = writer
+    if isinstance(the_post, Mapping):
+        age = _minutes_since(the_post.get("created_at"))
+        if age is not None:
+            detail["post_age_minutes"] = age
+        for key, value in (("post_comments", the_post.get("comment_count")), ("post_score", the_post.get("score"))):
+            if isinstance(value, int) and not isinstance(value, bool):
+                detail[key] = value
+        if _author(the_post):
+            detail["post_author"] = _author(the_post)
+        author = the_post.get("author")
+        if isinstance(author, Mapping):
+            for key, fields in (("author_karma", ("karma",)), ("author_followers", ("followerCount", "follower_count"))):
+                value = next((author[f] for f in fields if f in author), None)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    detail[key] = value
+    return json.dumps(detail, sort_keys=True)
+
+
 #: The oldest post (hours) Teeny comments on at the top level, by default.
 DEFAULT_MAX_COMMENT_AGE_HOURS = 6
 
@@ -510,7 +570,9 @@ def _check_age(the_post: Mapping[str, Any], me: str) -> None:
     )
 
 
-def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id: str, parent_id: str | None) -> None:
+def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id: str, parent_id: str | None) -> tuple[bool, Any]:
+    """Refuses a comment the rules forbid; else (is it Teeny's own post, the
+    post as read)."""
     me = reads.me_name(api).lower()
     mine = conn.execute(
         f"SELECT comment_id, parent_id FROM moltbook_comments WHERE post_id = ? AND status IN ({','.join('?' * len(rules.COUNTED))})",
@@ -539,7 +601,7 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
             raise hand.Refused("on its own post Teeny answers the comments (parent_id), it does not add another", rule="own_post")
         if not own_post and isinstance(the_post, Mapping):
             _check_age(the_post, me)
-        return
+        return own_post, the_post
     if any(row["parent_id"] == parent_id for row in mine):
         raise hand.Refused("Teeny has already answered that comment", rule="once_per_parent")
     found = next(((node, parent) for node, parent in (tree or []) if str(node.get("id")) == parent_id), None)
@@ -564,6 +626,7 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
             raise hand.Refused(
                 "Teeny has already commented here; it only answers a reply to Teeny", rule="once_per_post"
             )
+    return own_post, the_post
 
 
 def comment(body: Any, api: RestApi | None = None) -> Json:
@@ -588,7 +651,9 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
             mode = rules.check_comment(conn, own_thread=own_thread)
-        _check_comment_rules(conn, api, post_id, parent_id)
+        own_post, the_post = _check_comment_rules(conn, api, post_id, parent_id)
+        writer = _writer()
+        fmt = tagged["format"] or comment_format(writer, own_post, parent_id)
         if rules.looks_crypto([text]):
             the_post = reads.post(post_id, api).get("post")
             sub = the_post.get("submolt") if isinstance(the_post, Mapping) else None
@@ -601,7 +666,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
             rules.check_crypto(reads.submolt(name, api), name)
         if hand.dry_run():
             would = {"post_id": post_id, "body": text, **({"parent_id": parent_id} if parent_id else {})}
-            return {"dry_run": True, "would_comment": would, **mode}
+            return {"dry_run": True, "would_comment": would, **({"format": fmt} if fmt else {}), **mode}
         api = api or client.api()
         payload: dict[str, Any] = {"content": text}
         if parent_id:
@@ -618,10 +683,10 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         ver = _verification(got, "comment")
         row_id = _insert(
             conn,
-            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status, body, format, experiment)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status, body, format, experiment, detail)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (comment_id, post_id, parent_id, hand.now(), "created" if ver else "posted", text,
-             tagged["format"], tagged["experiment"]),
+             fmt, tagged["experiment"], _comment_detail(writer, own_post, the_post)),
         )
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:

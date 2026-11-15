@@ -1053,6 +1053,9 @@ def _run_hand(name: str, argv: list[str], body: Any) -> tuple[int, Json]:
         text=True,
         cwd=ROOT,
         timeout=300,
+        # Names the mind to the hand, which tags a comment it sends by where
+        # it went when the intent named no format (hands/moltbook comment).
+        env={**os.environ, "TEENY_WRITER": "mind"},
     )
     try:
         out = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {}

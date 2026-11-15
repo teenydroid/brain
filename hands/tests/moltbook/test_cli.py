@@ -93,6 +93,8 @@ class CliTest(Scratch):
         code, out = self.run_hand("metrics", "list", "--days", "3")
         self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
         self.assertEqual(self.run_hand("metrics")[0], 1)
+        code, out = self.run_hand("metrics", "daily")
+        self.assertEqual((code, out["metrics"]["live_posts_24h"], out["metrics"]["own_thread_unanswered"]), (0, 1.0, 0.0))
 
     def test_study(self):
         self.mb.route("GET", "/posts", {"success": True, "posts": [

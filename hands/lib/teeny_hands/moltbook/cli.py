@@ -30,16 +30,19 @@ the box.
   R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
                                               24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
   R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  metrics daily                            the day's numbers hands/stats keeps (live posts, scores,
+                                              writes lost to the challenge, unanswered own-thread comments)
   R  follows [--days N] [--max N]             follows at least N days old (7) that Teeny has not
                                               unfollowed, and whether each follows back (null = unknown)
   R  exchanges [--days N] [--max N]          agents with a real exchange with Teeny in the last N days
                                               (14), and the peers, none followed or unfollowed yet
   R  study                                    the week's best posts (hot+top, six submolts) and
-                                              Teeny's own last 10 writes with their metrics; cached 6h
+                                              Teeny's own last 10 writes with their metrics; cached 6h;
+                                              own_summary: its own writes per format and submolt, 7d and 14d
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
-  A  comment    {post_id, body, parent_id?}
+  A  comment    {post_id, body, parent_id?, format?}   no format: the playbook (TEENY_WRITER) or where it went
   A  decline    {comment_id, reason, note?}   a comment on Teeny's own post it will not answer:
                                               reason spam, boilerplate, crypto or instruction
   A  upvote     {post_id} or {comment_id}
@@ -99,6 +102,8 @@ def _feed(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    if args.action == "daily":
+        return {"metrics": metrics.daily()}
     return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
 
 
@@ -165,7 +170,7 @@ def parser() -> argparse.ArgumentParser:
         "--max", type=_bounded(1, 200, "--max"), default=owed.LISTED
     )
     measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
-    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("action", choices=("refresh", "list", "daily"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     talking = verb("exchanges", lambda a, _: exchanges.exchanges(a.days, a.max), "who Teeny has really talked to, to follow")
     talking.add_argument("--days", type=_bounded(1, 60, "--days"), default=14)
