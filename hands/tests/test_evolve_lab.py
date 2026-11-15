@@ -98,7 +98,7 @@ elif agent == "judge":
         hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
 elif agent == "evolver":
-    path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")
+    path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-follow.md")
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
     answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
@@ -264,7 +264,7 @@ class TargetedEvaluation(LabCase):
     spines and a stand-in core: measured only on the tasks the change
     reaches, all candidates at once, against one baseline per base commit.
     A playbook edit reaches the tasks drafted from that playbook: morning ->
-    morning-post, shiplog -> shiplog-numbers, moltbook-daily -> none."""
+    morning-post, shiplog -> shiplog-numbers, moltbook-follow -> none."""
 
     def edit(self, i, playbook, line=None):
         self.propose(i, [self.playbook_edit(line or f"Candidate {i} says it plainly.", f"brain/playbooks/{playbook}.md")],
@@ -281,7 +281,7 @@ class TargetedEvaluation(LabCase):
 
     def test_a_change_no_task_reaches_boots_no_lab(self):
         self.lab_config()
-        self.edit(1, "moltbook-daily")
+        self.edit(1, "moltbook-follow")
         out = self.run_gen(1, publisher=Refusing())
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertEqual(self.entries()["g1c1"]["eval"]["verdict"], "unmeasurable")
@@ -468,7 +468,7 @@ class Evolver(LabCase):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="evolver", EVOLVE_LAB_PORT=self.port,
                     EVOLVE_LAB_BOOT_SECS=20)
         fake = Path(os.environ["TEENY_OH"])
-        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")',
+        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "moltbook-follow.md")',
                                         'os.path.join(params["cwd"], "bin", "ask")'))
         evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         cand = self.entries()["g1c1"]
