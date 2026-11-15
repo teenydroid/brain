@@ -387,10 +387,12 @@ def reclassify(hold_id: int, category: str, reason: str, by: str) -> dict[str, A
     )
 
 
-def expire(hold_id: int, effect: str) -> dict[str, Any] | None:
-    """A draft held only by the judge failing: closed, never to be sent."""
+def expire(hold_id: int, effect: str, claimed: bool = False) -> dict[str, Any] | None:
+    """A draft held only by the judge failing: closed, never to be sent (or,
+    `claimed`, a re-send the hand refused or the guard held again)."""
     return _rescreen_update(
-        hold_id, "rescreen = 'expired', status = 'expired', decided_at = ?, effect = ?", (_iso_now(), effect)
+        hold_id, "rescreen = 'expired', status = 'expired', decided_at = ?, effect = ?", (_iso_now(), effect),
+        status="releasing" if claimed else "pending",
     )
 
 

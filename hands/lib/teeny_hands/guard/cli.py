@@ -14,6 +14,8 @@
   links list | approve HOST[/PATH]
   repeats [--days N] -> {"repeats", "by_surface"}: near-duplicate posts the
             posting rules refused over the last N days (default 30)
+  rescreen  -> the re-screen's counts: the holds a judge outage made, asked
+            about again (rescreen.py; the pinned guard-rescreen job)
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -199,6 +201,13 @@ def review_run(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return review.run(args.limit)
 
 
+def rescreen_run(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    """The re-screen's pass (rescreen.py): what came of each outage hold."""
+    from . import rescreen
+
+    return {"rescreen": rescreen.run()}
+
+
 def reviews_list(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     from . import review
 
@@ -264,6 +273,7 @@ def parser() -> argparse.ArgumentParser:
     reviews_p.add_argument("--sampled", action="store_true", help="only the releases queued for the operator to read")
     reviews_p.add_argument("--limit", type=int, default=100)
     reviews_p.set_defaults(handler=reviews_list)
+    verbs.add_parser("rescreen").set_defaults(handler=rescreen_run)
 
     links_p = verbs.add_parser("links").add_subparsers(dest="action")
     links_p.add_parser("list").set_defaults(handler=links_list)

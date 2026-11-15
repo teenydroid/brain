@@ -34,8 +34,11 @@ Every run:
 4. When the model answered, re-screens the guard holds an outage made
    (teeny_hands.guard.rescreen): at most ten, oldest first, none younger
    than two minutes. A held message the judge now finds clean goes back to
-   its queue; a real verdict stays held; a held draft of Teeny's own expires
-   and is never sent. A failed probe skips it: the judge is that model.
+   its queue; a real verdict stays held; a held Moltbook draft of Teeny's
+   own under an hour old is sent again through hands/moltbook, any other
+   draft expires and is never sent. A failed probe skips it: the judge is
+   that model. The pinned guard-rescreen job runs the same pass every five
+   minutes.
 5. Looks for cron jobs stuck behind their schedule (`stale_crons`): enabled,
    a next run more than STALE_SECS in the past, and no run holding that
    slot. On 2026-11-11 the box rebooted mid-run, the dead runs' claims held

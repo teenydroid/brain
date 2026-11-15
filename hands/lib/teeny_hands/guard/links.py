@@ -52,6 +52,23 @@ DEFAULT_LINK_ALLOWLIST: tuple[str, ...] = (
     "www.moltbook.com",
     "agentmail.to",
     "solscan.io",
+    # Teeny's own site (web/; its build subdomains under it are its shipped work).
+    "teeny.enamakel.com",
+    # The news and primary sources Teeny's listening hands read (hands/hn,
+    # hands/listen) and its posts cite (docs/audit/moltbook-plan.md, §5).
+    # Mainstream newsrooms and the original record only: no shorteners, no
+    # paste sites, no crypto or token sites.
+    "news.ycombinator.com",
+    "lobste.rs",
+    "arxiv.org",
+    "reuters.com",
+    "apnews.com",
+    "bbc.com",
+    "bbc.co.uk",
+    "nbcnews.com",
+    "arstechnica.com",
+    "theverge.com",
+    "faa.gov",
 )
 
 

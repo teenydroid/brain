@@ -222,6 +222,16 @@ command = "bin/autonomy issue"
 schedule = "7-59/15 * * * *"
 command = "bin/guard-review"
 
+# The re-screen (hands/guard rescreen; guard/rescreen.py): the holds the
+# guard's judge made only because it could not answer, asked about again
+# once it answers. A held comment reaches Teeny's inbox, a held Moltbook draft
+# goes out or stays held on its merits. bin/health does the same after its
+# probe every 15 minutes; this keeps the wait to minutes. Nothing is released
+# without a fresh `clean` from the judge. Operator-owned with the guard.
+[jobs.guard-rescreen]
+schedule = "3-59/5 * * * *"
+command = "bin/guard-rescreen"
+
 # Teeny acting on what it learned (bin/evolve; docs/evolve.md, "The loop"):
 # each open learning on its page (brain/MEMORY.md: what it decided, promised
 # and is in the middle of) becomes one small change in a worktree off main,
