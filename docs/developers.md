@@ -217,9 +217,8 @@ brain Teeny edits. `browser-allow.txt` is what OpenHuman's raw `http_request`
 tool may reach; `bin/spine` writes it into the core's config at every boot.
 The browser opens any public https page (`bin/spine` sets
 `OPENHUMAN_BROWSER_ALLOW_ALL=1`) except a host on `browser-deny.txt`: OpenHuman
-refuses a navigation there (`OPENHUMAN_BROWSER_DENY_FILE`, set by `bin/spine`,
-checked on `open`, `task` and `browser_open`, and a list it cannot read refuses
-every page), `hands/tasks add` refuses a task that starts there, and the
+refuses a connection there before its request is sent (`OPENHUMAN_BROWSER_DENY_FILE`, set by `bin/spine`;
+clicks and redirects included; a list it cannot read refuses every page), `hands/tasks add` refuses a task that starts there, and the
 operator agent is told never to open one. The doctor fails a boot without the deny list.
 
 ### The core's config

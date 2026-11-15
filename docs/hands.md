@@ -1131,7 +1131,7 @@ agent job, every 20 minutes) does one task at a time in OpenHuman's browser,
 on the open web: any public https page except the operator's
 `deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1` and
 `OPENHUMAN_BROWSER_DENY_FILE` to that list, which OpenHuman enforces on every
-navigation; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
+connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
@@ -1187,7 +1187,9 @@ is a decision under the task's rules. The core never follows such a link by
 itself. The operator opens it with the browser's `open` action only if its
 rules let it, and a host on `deploy/browser-deny.txt` is refused by the
 browser itself: OpenHuman reads that list from `OPENHUMAN_BROWSER_DENY_FILE`
-on every navigation (`open`, `task`, and the `browser_open` tool), whatever
+and refuses a connection to a listed host before its request is sent (a click, a
+redirect, a task's own navigation, and the `open`, `task` and `browser_open`
+actions alike), whatever
 `OPENHUMAN_BROWSER_ALLOW_ALL` says, and refuses every page if it cannot read
 the list. The operator's prompt says the same.
 
