@@ -154,10 +154,13 @@ export OPENHUMAN_KEYRING_BACKEND=file
 export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
 # The browser may open any public https page; private and local addresses
 # stay refused by the core, and deploy/browser-deny.txt is what it never
-# opens (hands/tasks, the operator's desk and prompt). `[http_request]
-# allowed_domains` (deploy/browser-allow.txt) still bounds the raw
-# `http_request` tool. OpenHuman takes this switch from the environment only.
+# opens. The core enforces that list on every navigation (open, task and
+# the browser_open tool), whatever allow-all says; a list it cannot read
+# refuses every page. `[http_request] allowed_domains`
+# (deploy/browser-allow.txt) still bounds the raw `http_request` tool.
+# OpenHuman takes these switches from the environment only.
 export OPENHUMAN_BROWSER_ALLOW_ALL=1
+export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"
 # Where the browser's own pictures of the pages it reaches go
 # (spine/src/browser_pictures.rs); hands/tasks moves a task's into
 # state/media/tasks/<id>/ for a post's `shots`. Unset, none are taken.
