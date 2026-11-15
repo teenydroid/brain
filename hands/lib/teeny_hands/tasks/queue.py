@@ -375,21 +375,25 @@ def _hand_over(conn: sqlite3.Connection, task_id: int, notes: str) -> None:
     )
 
 
-def next_task() -> Json:
+def next_task(turned_away: bool = False) -> Json:
     """The operator's open claim if it has one, else the oldest pending
-    task, claimed. A claim whose operator run ended without a report (the
-    desk settles reports before it asks), or a stale one, goes back to
-    pending once, then fails, with the pictures its runs took."""
+    task, claimed. A claim whose operator run ended without a report, or a
+    stale one, goes back to pending once, then fails, with the pictures its
+    runs took. The desk settles reports before it asks: when it just turned
+    one away (`turned_away`), the run did report, so the claim is resumed
+    rather than released."""
     with hand.lock("tasks-queue"):
         conn = db()
         try:
+            # The core's storage is read before the write transaction opens.
+            claims = [(row["id"], row["attempts"], float(row["claimed_at"] or 0)) for row in conn.execute(
+                "SELECT id, attempts, claimed_at FROM browser_tasks WHERE status = 'claimed'").fetchall()]
+            ended_by = {tid: None if turned_away else _unreported_run(since) for tid, _, since in claims}
             with hand.transaction(conn):
                 cutoff = hand.now() - STALE_CLAIM_SECONDS
-                for row in conn.execute(
-                    "SELECT id, attempts, claimed_at FROM browser_tasks WHERE status = 'claimed'"
-                ).fetchall():
-                    ended = _unreported_run(float(row["claimed_at"] or 0))
-                    if ended is None and float(row["claimed_at"] or 0) >= cutoff:
+                for tid, attempts, since in claims:
+                    ended = ended_by[tid]
+                    if ended is None and since >= cutoff:
                         continue
                     shots = _captured(row["id"], float(row["claimed_at"] or 0), BROWSE_MAX_SCREENSHOTS)
                     if row["attempts"] >= 2:
