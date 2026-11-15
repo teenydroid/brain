@@ -536,6 +536,16 @@ class SmallActionsTest(Scratch, Refusing):
         self.refused(actions.upvote, {"comment_id": "bab55589"}, "short_id")
         self.assertEqual(self.mb.seen, [])
 
+    def test_a_comment_id_upvoted_as_a_post_is_refused(self):
+        from teeny_hands import stimuli
+
+        theirs, its_post = "b2e848b7-5960-497a-82f7-7bc4129f572d", "8f817b7b-e26d-425a-bf6f-e81f25292c2c"
+        stimuli.add("moltbook", "comment", theirs, "hi", payload={"post_id": its_post})
+        caught = self.refused(actions.upvote, {"post_id": theirs}, "comment_as_post")
+        self.assertEqual((caught.detail.get("rewrite"), caught.detail.get("field")), (True, "post_id"))
+        self.assertIn('"comment_id"', caught.reason)
+        self.assertEqual(self.mb.seen, [])
+
     def test_dry_run_upvote(self):
         self.configure(DRY_RUN="1")
         self.assertEqual(actions.upvote({"post_id": "x1"}), {"dry_run": True, "would_upvote": {"post_id": "x1"}})
