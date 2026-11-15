@@ -151,7 +151,7 @@ def _created(post: Mapping[str, Any]) -> float | None:
         return None
 
 
-def _quoted_recently(conn: sqlite3.Connection, names: Sequence[str]) -> tuple[set[str], set[str]]:
+def _quoted_recently(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
     """Who was quoted in the last QUOTED_DAYS: author ids from the own-post
     ledger, handles (lowercase) from the touches."""
     since = hand.now() - QUOTED_DAYS * 86400.0
@@ -198,7 +198,7 @@ def read(max_age_hours: float = 8.0, per_peer: int = 2, skip_quoted: bool = Fals
             if error.status == 429:
                 break
     wanted = {n.lower(): n for n in names}
-    quoted_ids, quoted_handles = _quoted_recently(conn, names) if skip_quoted else (set(), set())
+    quoted_ids, quoted_handles = _quoted_recently(conn) if skip_quoted else (set(), set())
     left_out: list[str] = []
     per: dict[str, int] = {}
     kept: list[Json] = []
@@ -320,7 +320,9 @@ def _bar(conn: sqlite3.Connection, top: Json) -> tuple[str, str] | None:
         return "not_read", f"post {top['quote_of']} was not in the last peers read; only a post it returned is quoted"
     now = hand.now()
     cap = int(number_setting("PEER_QUOTES_MAX_PER_DAY", 1, 0, 4))
-    sent = conn.execute("SELECT count(*) FROM x_peer_candidates WHERE status = 'posted' AND at >= ?",
+    # `posting`: a run died between claiming the quote and recording it, so
+    # it may be out; it counts, rather than risk a second quote today.
+    sent = conn.execute("SELECT count(*) FROM x_peer_candidates WHERE status IN ('posted', 'posting') AND at >= ?",
                         (_day_start(now),)).fetchone()[0]
     if sent >= cap:
         return "daily", f"{sent} peer quote(s) went out today (UTC) and the cap is {cap}; the next is tomorrow"
