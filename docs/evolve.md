@@ -352,6 +352,21 @@ way. A draft turn that never answers keeps its failed `turn` check and is
 written with `no_sample: true` and `attempts`. An answer that does come back
 but doesn't parse is the brain's, and is never retried.
 
+**Inconclusive.** Setting unrun pairs aside (above) and `--min-pairs` still
+let a candidate win on what is left. That holds when a sixth of its samples
+never ran (cand-2 in generation 6 still had 34 decided pairs), or when no
+sample of one task ran on both sides, so that task's checks, a wallet fence
+say, never ran at all. In either case the comparison measured too little to
+decide: more than a tenth of either side's visible samples unrun, or a task
+with none run on both sides. The verdict is then `inconclusive` (report
+`verdict`, with the counts in `reason` and the tasks in `unmeasured_tasks`),
+never a promotion and never `lost`. A regression seen in what did run still
+rejects. In `bin/evolve` an inconclusive candidate is archived with its
+reason and listed with it in the generation's `result.json`. It counts as
+unmeasured for parent sampling and the win-rate-jump halt, and its change
+isn't a near-duplicate of anything, so it can be proposed again once the
+cause is gone.
+
 The judge inherits the core's model. Two ways give it another:
 
 - Per run, without touching `judge.toml`: `bin/eval compare --judge-model M`
@@ -785,8 +800,8 @@ Each candidate records:
   removed); `patch` (against main), `mutation_patch` (against its parent) and
   `hypothesis`, all beside it in `state/evolve/<gen>/`
 - `gate` (every check), `scores` (the compare report's numbers) and `verdict`:
-  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost` or
-  `flagged`
+  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost`,
+  `inconclusive` (with `eval_reason`) or `flagged`
 - `selected`, `branch`, `pr_url` and `pr_number`
 - later: `merged_at`, `delta_j` and `credit`
 

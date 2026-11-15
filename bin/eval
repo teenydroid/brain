@@ -13,7 +13,10 @@
 #                    [--judge-model M] BASE CAND OUT
 #       Judge two runs pair by pair, blind, twice with the order swapped, as
 #       the `judge` agent on the core at OH_URL. Writes OUT/judged.jsonl and
-#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not.
+#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not
+#       (report.json's `verdict` says "lost", or "inconclusive" when more
+#       than a tenth of either side's samples never ran, or a task ran on
+#       neither side together).
 #       --judge-model (or EVAL_JUDGE_MODEL) runs every judge turn on model M
 #       through the core's per-turn `model_override`, without editing the
 #       frozen judge.toml; report.json records the model asked for.
