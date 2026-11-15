@@ -375,6 +375,16 @@ check "and the one verdict decides the pair" test "$(jq -r '[.wins, .losses] | m
 FAKE_JUDGE=first "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par-first" >/dev/null 2>&1 || true
 check "a judge that always picks draft 1 favours each side equally often" \
   test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par-first/report.json")" = "4 4"
+# With one sample (EVOLVE_EVAL_SAMPLES may be 1) every pair is sample 1: the
+# order must still alternate, across the pairs judged, or a judge that
+# favours draft 1 favours the baseline on every pair.
+"$eval_bin" run --samples 1 --only "$four" "$runs/onec" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the BASE"}'
+"$eval_bin" run --samples 1 --only "$four" "$runs/oneb" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+FAKE_JUDGE=first "$eval_bin" compare "$runs/oneb" "$runs/onec" "$scratch/one-first" >/dev/null 2>&1 || true
+check "with one sample, a judge that always picks draft 1 still favours each side equally often" \
+  test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/one-first/report.json")" = "2 2"
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
