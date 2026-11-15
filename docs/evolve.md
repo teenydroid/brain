@@ -538,13 +538,18 @@ that passes opens its own pull request.
    ├── skip (already | not-actionable) ─────────────────────► settled
    ├── skip (frozen) ─────────────────── one issue for the operator, settled
    │          a near-duplicate is dropped
- 4 Gate       every check, in code (unchanged)
-   ├── any one fails ───────────────────────────────────────► rejected
+ 4 Rounds     up to EVOLVE_REVISE_ROUNDS (3) of:
+   │            build ─► hard gate ─► checks ─► review
+   ├── hard gate fails (frozen path, over 5% of the repo, SOUL+CONTEXT) ► rejected
+   │            a failed check, or the reviewer's findings ─► the next round
+   ├── still failing after the last round ───────────────► parked (open again)
+   │            the reviewer approves ─► evaluate
  5 Evaluate   bin/eval affected: which tasks the change reaches
    │          none ─► unmeasurable (no lab boots)
    │          some ─► a lab per candidate, all at once, those tasks only,
    │                  against main's baseline (drafted once per base commit)
-   ├── regressed ───────────────────────────────────────────► settled, no PR
+   ├── regressed, rounds left, no fence broken ─► back to 4 with its lost pairs
+   ├── regressed (a fence, or no round left) ───────────────► settled, no PR
    ├── inconclusive ──────────────────────────────────────────► tried again
  6 Publish    pass or unmeasurable ─► its own ready PR, teeny/gen-<n>-c<i>,
    │          through hands/gh, and teeny/eval: success on its head
@@ -600,9 +605,9 @@ with that hash and a verdict that settles it:
 |---|---|
 | `opened` (a pull request) | settled |
 | `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
-| `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
+| `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `no-proposal`, `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight) | a failed try: open again |
+| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
 An edit to the text changes its hash, so a learning the dream rewrites is
@@ -658,9 +663,15 @@ reason for a change.
   lessons`), each with its verdict and numbers.
 - `world`: `hands/world report --days 7` cut to J, its reading lines and each
   component's value, with `unread` naming the components never read.
-- `hands/build jobs --limit 10`, guard holds as counts, the archive's
-  summary (counts by verdict, the latest, what is open, what merged), and the
-  judge notes from the newest compare report, visible tasks only.
+- `hands/build jobs --limit 10`, guard holds as counts, and the archive's
+  summary (counts by verdict, the latest, what is open, what merged).
+
+The judge's notes are no longer generation-wide evidence: until 2026-11-15
+every candidate was shown the notes of the newest compare report, whatever
+change it had measured. They now reach a candidate only through "what was
+tried before" (`tried_before`): the notes on the pairs lost by an earlier
+candidate of the same learning, or of one whose change touched a file the
+research named.
 
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
@@ -782,16 +793,53 @@ lines, `EVOLVE_DUP_THRESHOLD`, 0.9).
 main when it starts (the line its base carries), or `main`. Lineage credit
 walks that line.
 
-### 4. Gate (code, not prompt)
+### 4. Rounds: build, gate, checks, review
 
-Unchanged. Every check runs, and each is `{check, ok, detail}`:
+Until 2026-11-15 a candidate had one shot: any failed check settled its
+learning as `rejected`, and the builder never saw why. Now a candidate gets
+up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
+
+1. **build**: one proposer turn (round 1 is the build of "3. Propose";
+   later rounds are shown "## round N of 3: what to fix" with the findings
+   and their last change as a diff, and write the whole change again from
+   main: the worktree is reset between rounds);
+2. **hard gate** (`hard_gate`): a frozen path, a change bigger than
+   `EVOLVE_MAX_CHANGE_PCT` of the repository (a mass refactor), or
+   SOUL+CONTEXT past its 60 lines. Any one is final: `rejected`, no next
+   round. A near-duplicate of the archive is dropped as before;
+3. **checks** (`checks`): every other check below. A failed one is a finding
+   (`{file, problem, fix}`, with the check's detail) and the round ends; the
+   reviewer is not asked about a change that fails a check;
+4. **review**: the `reviewer` agent reads it and approves, or asks for a
+   revision with findings ("Review" below).
+
+Edits that do not apply (an old text not found once) end the round with that
+as a finding, and the next round's message carries "## your last edits did
+not apply" as before. A change approved by the reviewer is `pending` and goes
+to the eval. One still failing after the last round is **parked**: no pull
+request, its last findings on the archive entry (`findings`), its rounds as
+lines (`rounds`), and its learning open again. The next try on that learning
+is shown the parked one's findings ("what was tried before"), and a park
+counts toward the 3 failed tries, after which the learning is `gave-up`.
+
+Every round is kept in `state/evolve/<gen>/cand-<i>.rounds.json`: its
+proposal (and the evolver's patch, `cand-<i>.round-<n>.patch`), its outcome,
+its findings, its review, and an eval sent back. A restart replays those
+rounds without a new turn: a round that ended goes on to the next with its
+findings, and a proposal or review already paid for is not asked again.
+
+#### The gate's checks
+
+Every check runs, and each is `{check, ok, detail}`; the hard ones carry
+`hard: true`:
 
 | Check | Fails when |
 |---|---|
-| frozen paths | `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
+| frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
 | existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
-| diff size | more than 400 changed lines (added plus removed, against main), none, or a binary file |
-| SOUL+CONTEXT size | more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
+| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 6,500 today), or none |
+| no binary files | the diff adds or changes a binary file |
+| SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
 | aims at a component with a reading | the proposal names a W component the world report lists in `unread`. Passes when there is no world report |
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
@@ -806,7 +854,37 @@ The last three run the candidate's own frozen code (its `bin/` and
 as their root (`tree_env`): on 2026-11-13 the box ran 249 commits behind its
 clone, and every candidate of gen 4 failed `doctor --root` on a playbook none
 of them touched. A check that fails is detailed by its failing lines, up to
-600 characters. The caps are constants, not settings.
+600 characters. The SOUL+CONTEXT cap is a constant; the size cap is `EVOLVE_MAX_CHANGE_PCT`.
+
+#### Review
+
+The reviewer is a new tool-less agent, `brain/agents/reviewer.toml`
+(temperature 0, no identity, no memory, no tools; frozen, like the judge),
+on the live core, on `EVOLVE_JUDGE_MODEL` when one is set. Its message holds
+the frozen rubric `evals/review.md`, the learning, the research plan, the
+change's own account (title, component, expected move, hypothesis), every
+check's result and the diff against main (cut at 36 KiB, and said so). It is
+never told which model or agent wrote the diff. The rubric asks:
+
+- does the diff act on the learning;
+- is it the smallest change that does;
+- is any of it a refactor the learning does not need;
+- are the docs updated;
+- do tests cover new code.
+
+It answers `{"verdict": "approve" | "revise", "findings": [{file, problem,
+fix}]}`, at most 10 findings. A revision with no finding, an unknown verdict,
+an answer that is not JSON or a turn that fails is **unusable**, and an
+unusable review never approves: the first is taken as a revision with no
+findings (the builder is asked again), the second parks the candidate. With
+`--proposals DIR` the reviews come from `DIR/cand-<i>.review-<round>.json`
+or `DIR/cand-<i>.review.json`; without one the operator's own proposal is
+approved with a note that no reviewer read it.
+
+The pull request's body carries the research (its verdict, why and plan)
+and one line per round ("round 1: checks failed: doctor --root", "round 2:
+the reviewer asked for changes (2 finding(s))", "round 3: approved by the
+reviewer").
 
 ### 5. Evaluate: targeted non-regression
 
@@ -920,8 +998,11 @@ with its patch), the gate, the eval, the pull request. The next `run`
 (under the run lock, so nothing else runs) finds the newest generation with
 no `result.json` and finishes it where it was, in the same generation:
 
-- a candidate with a saved proposal is rebuilt from it without a proposer
-  turn, and gated again;
+- a candidate with saved research and rounds (`cand-<i>.research.json`,
+  `cand-<i>.rounds.json`) replays them without a research, proposer or
+  reviewer turn, and is gated again; one cut off before rounds existed
+  replays its `cand-<i>.proposal.json` as round 1;
+- a candidate the eval sent back (`revising`) goes on to its next round;
 - a gated one is measured, reusing the drafts its eval already made
   (`eval/cand-<i>/run/evolve-run.json` marks a finished run) and a compare report
   it already has; when every report is there, no lab boots;
@@ -982,6 +1063,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
+| `EVOLVE_REVISE_ROUNDS` | `3` | rounds of build, checks and review before a candidate is parked, 1 to 6 |
+| `EVOLVE_MAX_CHANGE_PCT` | `5` | the biggest change, as a percentage of every text line the repository tracks (the old fixed cap of 400 changed lines is gone); past it a candidate is rejected for good |
 | `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
@@ -1002,8 +1085,9 @@ issue opens; the halt records what it would have opened.
 ### 11. Held-out tasks
 
 Held-out tasks live in `secrets/heldout/*.toml`, outside the public
-repository. The proposer never sees them: evidence takes judge notes only
-from pairs not marked held out and not on a held-out id, then every string
+repository. The proposer never sees them: "what was tried before" takes
+judge notes only from pairs not marked held out and not on a held-out id,
+and so do the findings a regression sends back; then every string
 that names one, or quotes its description or prompt, is replaced with
 `[withheld]`, and so is anything in a learning that does. The targeted eval
 runs the visible tasks `bin/eval affected` names; the pull request never
