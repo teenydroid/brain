@@ -13,7 +13,13 @@ The comment rules, on top of the limits in `rules`:
   a reply there is not shown to anyone.
 
 A comment or upvote naming a shortened id (a UUID's first characters, as
-Teeny's memory writes them) is refused before anything is sent (`short_id`).
+Teeny's memory writes them) is refused before anything is sent (`short_id`),
+and so is one that puts an id in the wrong field, when this box already knows
+what the id is (`_known_comment`, `_known_post`): a comment's id as post_id
+(`comment_as_post`), a post's id as parent_id or as an upvote's comment_id
+(`post_as_parent`, `post_as_comment`). The refusal names the id that goes in
+each field, when it is known here; nothing is guessed or corrected. A 404
+from Moltbook on the post says what a 404 means there.
 
 Under DRY_RUN nothing is written anywhere: Moltbook, the ledger or the
 lockout counter. The answer says what would have happened (`would_*`), after
@@ -28,13 +34,14 @@ would invite a retry of something already done.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import string
 import sys
 from typing import Any, Mapping
 
-from .. import hand, tags
+from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
 from . import challenge, client, model_read, reads, rules
 
@@ -96,6 +103,128 @@ def _full_id(value: str, what: str) -> str:
             rule="short_id", rewrite=True, field=what,
         )
     return value
+
+
+# --- which kind an id is ------------------------------------------------------------------------
+#
+# Moltbook answers a comment's id sent as a post's with a bare 404 (live,
+# 2026-11-15: the mind read it as "the stored id is dead" and parked two
+# replies it owed). What this box has already seen says which is which: Teeny's
+# own comments and posts, the inbox's Moltbook comments (their payload carries
+# the post id), held comments, and the read cache's comment trees and posts.
+
+
+def _rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...]) -> list[Any]:
+    """The rows, or none when the table is not there (yet)."""
+    try:
+        return conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+
+def _cached(conn: sqlite3.Connection, kind: str, needle: str) -> list[Any]:
+    """The read cache's answers of `kind` that mention `needle`, parsed."""
+    out = []
+    for (value,) in _rows(conn, f"SELECT value FROM {reads.CACHE.table} WHERE kind = ? AND instr(value, ?) > 0",
+                          (kind, needle)):
+        try:
+            out.append(json.loads(value))
+        except ValueError:
+            continue
+    return out
+
+
+def _known_comment(conn: sqlite3.Connection, cid: str) -> tuple[bool, str | None]:
+    """Whether `cid` is a comment's id this box has seen, and its post's id
+    when that is known too."""
+    known = False
+    for sql in ("SELECT post_id FROM moltbook_comments WHERE comment_id = ?",
+                "SELECT post_id FROM moltbook_held WHERE comment_id = ?"):
+        for (post_id,) in _rows(conn, sql, (cid,)):
+            known = True
+            if post_id:
+                return True, str(post_id)
+    inbox = stimuli.db()
+    for (payload,) in _rows(inbox, "SELECT payload FROM stimuli WHERE id = ?", (f"moltbook:comment:{cid}",)):
+        known = True
+        try:
+            post_id = json.loads(payload or "{}").get("post_id")
+        except (ValueError, AttributeError):
+            post_id = None
+        if isinstance(post_id, str) and post_id:
+            return True, post_id
+    for got in _cached(conn, "comments", cid):
+        if not isinstance(got, Mapping):
+            continue
+        for node, _ in _walk(got.get("comments")):
+            if str(node.get("id")) == cid:
+                known = True
+                post_id = node.get("post_id") or got.get("post_id")
+                if isinstance(post_id, str) and post_id:
+                    return True, post_id
+    return known, None
+
+
+def _known_post(conn: sqlite3.Connection, pid: str) -> bool:
+    """Whether `pid` is a post's id this box has seen."""
+    for sql in ("SELECT 1 FROM moltbook_posts WHERE post_id = ? LIMIT 1",
+                "SELECT 1 FROM moltbook_comments WHERE post_id = ? LIMIT 1",
+                "SELECT 1 FROM moltbook_held WHERE post_id = ? LIMIT 1"):
+        if _rows(conn, sql, (pid,)):
+            return True
+    inbox = stimuli.db()
+    for (payload,) in _rows(inbox, "SELECT payload FROM stimuli WHERE surface = 'moltbook' AND instr(payload, ?) > 0", (pid,)):
+        try:
+            if json.loads(payload or "{}").get("post_id") == pid:
+                return True
+        except (ValueError, AttributeError):
+            continue
+    for got in _cached(conn, "comments", pid):
+        if isinstance(got, Mapping) and got.get("post_id") == pid:
+            return True
+    for got in _cached(conn, "post", pid):
+        the_post = reads._pick(got, "post", "data")
+        if isinstance(the_post, Mapping) and str(the_post.get("id")) == pid:
+            return True
+    return False
+
+
+def _comment_as_post(conn: sqlite3.Connection, pid: str, to: str) -> None:
+    """Refuses a comment's id named as a post's (`to`: what the call was for)."""
+    known, its_post = _known_comment(conn, pid)
+    if not known or _known_post(conn, pid):
+        return
+    if to == "upvote":
+        fix = f'to upvote it, send "comment_id": "{pid}" instead of "post_id"'
+    elif its_post:
+        fix = f'to answer it, send "parent_id": "{pid}" with "post_id": "{its_post}" (the post it is on)'
+    else:
+        fix = (f'to answer it, send "parent_id": "{pid}" with its post\'s id as "post_id";'
+               " its post's id is not known here, so read the post the comment came from")
+    raise hand.Refused(f"{pid} is a comment, not a post: {fix}", rule="comment_as_post", rewrite=True,
+                       field="post_id", its_post_id=its_post)
+
+
+def _post_as_comment(conn: sqlite3.Connection, cid: str, field: str, post_id: str | None = None) -> None:
+    """Refuses a post's id named as a comment's (`field`: parent_id, or an upvote's comment_id)."""
+    if cid != post_id and (not _known_post(conn, cid) or _known_comment(conn, cid)[0]):
+        return
+    if field == "parent_id":
+        fix = (f'to comment on the post itself, send "post_id": "{cid}" and leave parent_id out;'
+               " parent_id is only ever the id of the comment being answered")
+        rule = "post_as_parent"
+    else:
+        fix = f'to upvote it, send "post_id": "{cid}" instead of "comment_id"'
+        rule = "post_as_comment"
+    raise hand.Refused(f"{cid} is a post, not a comment: {fix}", rule=rule, rewrite=True, field=field)
+
+
+def _no_such_post(post_id: str) -> RestError:
+    return RestError(
+        f'Moltbook has no post with the id {post_id} (404). If it is a comment\'s id, it belongs in "parent_id",'
+        ' with the id of the post that comment is on as "post_id"',
+        404,
+    )
 
 
 # --- the guard ----------------------------------------------------------------------------------
@@ -355,7 +484,12 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
         f"SELECT comment_id, parent_id FROM moltbook_comments WHERE post_id = ? AND status IN ({','.join('?' * len(rules.COUNTED))})",
         (post_id, *rules.COUNTED),
     ).fetchall()
-    the_post = reads.post(post_id, api).get("post")
+    try:
+        the_post = reads.post(post_id, api).get("post")
+    except RestError as error:
+        if error.status == 404:
+            raise _no_such_post(post_id) from None
+        raise
     own_post = bool(conn.execute("SELECT 1 FROM moltbook_posts WHERE post_id = ?", (post_id,)).fetchone())
     if not own_post and isinstance(the_post, Mapping):
         own_post = (_author(the_post) or "").lower() == me
@@ -403,8 +537,11 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     body = _body(body, ("post_id", "body"), ("parent_id",))
     post_id = _full_id(client.object_id(body["post_id"], "post_id"), "post_id")
     parent_id = _full_id(client.object_id(body["parent_id"], "parent_id"), "parent_id") if body.get("parent_id") is not None else None
-    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
     conn = rules.db()
+    _comment_as_post(conn, post_id, "comment")
+    if parent_id is not None:
+        _post_as_comment(conn, parent_id, "parent_id", post_id)
+    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
             mode = rules.check_comment(conn)
@@ -431,6 +568,8 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         except RestError as error:
             if error.status == 429:
                 raise _rate_limited(error) from None
+            if error.status == 404:
+                raise _no_such_post(post_id) from None
             raise
         comment_id = _content_id(got, "comment")
         ver = _verification(got, "comment")
@@ -490,8 +629,21 @@ def upvote(body: Any, api: RestApi | None = None) -> Json:
         if conn.execute(f"SELECT 1 FROM {table} WHERE {column} = ?", (target,)).fetchone():
             raise hand.Refused(f"Teeny does not upvote its own {noun}", rule=f"own_{noun}")
 
+    conn = rules.db()
+    if noun == "post":
+        _comment_as_post(conn, target, "upvote")
+    else:
+        _post_as_comment(conn, target, "comment_id")
     path = f"/posts/{quote(target)}/upvote" if noun == "post" else f"/comments/{quote(target)}/upvote"
-    if _simple(f"upvote-{noun}", target, path, api, not_own):
+    try:
+        dry = _simple(f"upvote-{noun}", target, path, api, not_own)
+    except RestError as error:
+        if error.status != 404:
+            raise
+        other = "comment_id" if noun == "post" else "post_id"
+        raise RestError(f'Moltbook has no {noun} with the id {target} (404). If it is a {"comment" if noun == "post" else "post"}\'s id,'
+                        f' send it as "{other}"', 404) from None
+    if dry:
         return {"dry_run": True, "would_upvote": {key: target}}
     return {"upvoted": {key: target}}
 
