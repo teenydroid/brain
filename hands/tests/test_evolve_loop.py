@@ -771,6 +771,7 @@ class HandTestSandbox(LoopCase):
         self.assertIn("--bind /tmp/evolve-sandbox-x/tree /work", joined)
         self.assertIn("--ro-bind-try /usr /usr", joined)
         self.assertIn("--tmpfs /tmp", joined)
+        self.assertIn("--remount-ro /", joined)  # the sandbox's own root is read-only too
         self.assertIn("--setenv TEENY_SECRETS /work/secrets", joined)
         self.assertIn("--setenv DRY_RUN 1", joined)
         self.assertNotIn("--share-net", argv)
