@@ -1544,14 +1544,9 @@ def research_one(cfg: Config, proposer: Proposer, tree: Path, gdir: Path, i: int
     answers out of shape is recorded as research with an `error`, and the
     build goes ahead without a plan, as before research existed. Whatever
     the turn wrote in the worktree is undone. Kept in cand-<i>.research.json."""
-    path = gdir / f"cand-{i}.research.json"
-    try:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        saved = None
-    if (isinstance(saved, dict) and isinstance(saved.get("research"), dict)
-            and (saved.get("learning") or {}).get("hash") == learning.get("hash")):
-        return saved["research"]
+    saved = saved_research(gdir, i, learning)
+    if saved is not None:
+        return saved
     ask = getattr(proposer, "research", None)
     if ask is None:
         return None
@@ -1568,8 +1563,36 @@ def research_one(cfg: Config, proposer: Proposer, tree: Path, gdir: Path, i: int
         return None
     if web:
         got["web"] = web
-    write_json(path, {"learning": {"id": learning.get("id"), "hash": learning.get("hash")}, "research": got})
+    write_json(gdir / f"cand-{i}.research.json",
+               {"learning": {"id": learning.get("id"), "hash": learning.get("hash")}, "research": got})
     return got
+
+
+def saved_research(gdir: Path, i: int, learning: Mapping[str, Any]) -> Json | None:
+    """Candidate I's research from before a restart, if it was for this
+    learning's text."""
+    try:
+        saved = json.loads((gdir / f"cand-{i}.research.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (isinstance(saved, dict) and isinstance(saved.get("research"), dict)
+            and (saved.get("learning") or {}).get("hash") == learning.get("hash")):
+        return saved["research"]
+    return None
+
+
+def research_record(research: Mapping[str, Any], gen: int, i: int) -> Json:
+    """The research as the archive keeps it: the verdict and plan, the paths,
+    and how many searches ran; the web's text stays in the research file."""
+    out: Json = {k: research[k] for k in ("verdict", "why", "read", "document", "error", "read_cut")
+                 if research.get(k)}
+    if research.get("plan"):
+        out["plan"] = str(research["plan"])[:500]
+    web = research.get("web") or []
+    if web:
+        out["searches"] = sum(1 for w in web if "results" in w)
+    out["file"] = f"{gen}/cand-{i}.research.json"
+    return out
 
 
 def research_brief(request: Json, in_place: bool) -> list[str]:
@@ -2931,9 +2954,11 @@ def _saved_proposal(gdir: Path, i: int, learning: Mapping[str, Any]) -> Json | N
 
 
 def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: int, i: int, learning: Json,
-                parent: str, evidence: Json, siblings: list[str], mutations: dict[str, set[str]]) -> Json:
-    """Candidate I, for LEARNING: worktree, proposal (or the one it saved
-    before a restart), edits, the duplicate filter, the gate."""
+                parent: str, evidence: Json, siblings: list[str], mutations: dict[str, set[str]],
+                tried: list[Json] | None = None, budget: SearchBudget | None = None) -> Json:
+    """Candidate I, for LEARNING: worktree, research (research_one: `already`
+    and `not-worth` end it as a skip), proposal (or the one it saved before a
+    restart), edits, the duplicate filter, the gate."""
     gdir = gen_dir(gen)
     tree = gdir / f"cand-{i}"
     entry: Json = {"id": cand_id(gen, i), "gen": gen, "cand": i, "parent": parent, "base": base,
@@ -2947,6 +2972,9 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         if saved is not None:
             proposal = check_proposal(saved["proposal"])
             entry["resumed"] = True
+            research = saved_research(gdir, i, learning)
+            if research is not None:
+                entry["research"] = research_record(research, gen, i)
             if saved.get("in_place"):
                 _apply(tree, (gdir / f"cand-{i}.patch").read_text(encoding="utf-8"))
             else:
@@ -2957,6 +2985,20 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                        "evidence": evidence, "siblings": siblings, "editable": editable,
                        "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
                        "gen_dir": str(gdir)}
+            research = research_one(cfg, proposer, tree, gdir, i, learning, {**request, "tried": tried or []},
+                                    budget or SearchBudget(gdir))
+            if research is not None:
+                entry["research"] = research_record(research, gen, i)
+                if research["verdict"] != "build":
+                    entry.update(verdict="skipped", skip={"why": research["verdict"],
+                                                          "where": (research.get("read") or [""])[0],
+                                                          "note": research["why"]}, gate={"ok": False, "checks": []})
+                    return entry
+                if research.get("read"):
+                    # The files research named come first in what the build is shown.
+                    editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
+                    request.update(editable=editable, files={} if in_place else files)
+                request["research"] = research
             proposal = check_proposal(proposer.propose(request))
             if not in_place:
                 try:
@@ -3306,6 +3348,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     cands: list[Json] = []
     progress["cands"] = cands
     siblings: list[str] = []
+    budget = SearchBudget(gdir)
     for i, learning in enumerate(picks, 1):
         entry = entries.get(cand_id(gen, i))
         if entry and entry.get("verdict"):
@@ -3316,7 +3359,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             continue
         say(f"candidate {i}/{len(picks)}: [{learning['id']}]")
         cand = propose_one(cfg, proposer, src, base, gen, i, withhold(learning, markers), parent, evidence,
-                           siblings, mutations)
+                           siblings, mutations, withhold(tried_before(entries, learning), markers), budget)
         if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
             cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
         record(cand)
