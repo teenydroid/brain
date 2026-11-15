@@ -331,6 +331,11 @@ def helpdesk(body: Any, api: RestApi | None = None) -> Json:
         raise hand.HandError('nothing to do: give "post_id" and "body" to answer, or "pain" to file, or both')
     out: Json = {}
     refusals: list[hand.Refused] = []
+    comment = {k: body[k] for k in ("post_id", "body", "parent_id", "format", "experiment") if k in body}
+    if answering:
+        # Malformed input is refused before the pain is written: only what
+        # Moltbook does with a well-formed answer can leave the pain filed.
+        actions.comment_input(comment)
     if body.get("pain") is not None:
         try:
             out["filed"] = file_pain(body["pain"], api)
@@ -338,7 +343,6 @@ def helpdesk(body: Any, api: RestApi | None = None) -> Json:
             refusals.append(refused)
             out["pain_refused"] = {"reason": refused.reason, **refused.detail}
     if answering:
-        comment = {k: body[k] for k in ("post_id", "body", "parent_id", "format", "experiment") if k in body}
         try:
             out["comment"] = actions.comment(comment, api)
         except hand.Refused as refused:
