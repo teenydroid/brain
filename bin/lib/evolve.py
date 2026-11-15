@@ -4206,13 +4206,34 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
     return True
 
 
+def sandbox_available() -> bool:
+    return sandbox_ready()[0] or sandbox_lib.sidecar_ready(sandbox_jobs())[0]
+
+
+def sandbox_deferred(entries: Mapping[str, Json]) -> set[tuple[str, str]]:
+    """The learnings (id, hash) whose newest candidate was deferred for want
+    of a hand-test sandbox: while there is still none, a generation does not
+    pay for their research and build again."""
+    newest: dict[tuple[str, str], Json] = {}
+    for e in entries.values():
+        ref = e.get("learning")
+        if not isinstance(ref, Mapping):
+            continue
+        key = (str(ref.get("id")), str(ref.get("hash")))
+        if key not in newest or (e.get("gen") or 0, e.get("cand") or 0) > (newest[key].get("gen") or 0,
+                                                                           newest[key].get("cand") or 0):
+            newest[key] = e
+    return {k for k, e in newest.items() if e.get("verdict") == DEFERRED and e.get("deferred_for") == "sandbox"}
+
+
 def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None:
     """Why the reviewer is down, when the newest generation deferred a
     candidate for a failed reviewer turn and a cheap probe (one tiny turn,
     no candidate in it) still fails; else None. Only then: a generation
     whose reviewer answered pays for no probe."""
     latest = next_gen() - 1
-    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest for e in entries.values()):
+    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and e.get("deferred_for") != "sandbox"
+               for e in entries.values()):
         return None
     probe = getattr(reviewer, "probe", None)
     if probe is None:
@@ -4300,7 +4321,11 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         n, cut = runway.cap_candidates(n)
         if cut:
             say(f"runway: {cut}")
-        picks = [item.ref() for item in open_learnings(entries, learnings)[:n]]
+        waiting_for_box = sandbox_deferred(entries) if not sandbox_available() else set()
+        if waiting_for_box:
+            say(f"no hand-test sandbox yet: {len(waiting_for_box)} learning(s) wait for one")
+        picks = [item.ref() for item in open_learnings(entries, learnings)
+                 if (item.id, item.hash) not in waiting_for_box][:n]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer
