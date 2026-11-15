@@ -135,8 +135,9 @@ function RoundClaim({ round, owner }: { round: ClaimableRound; owner: PublicKey 
             {state.step === "sending" ? "waiting for your wallet…" : "claim"}
           </Button>
           <p className="max-w-xl text-xs text-muted-foreground">
-            you sign and you pay the network&apos;s fees: about 0.002 SOL, most of it rent for the record that you claimed
-            and, if you don&apos;t hold $TINY yet, for your token account. have that much SOL in this wallet first.
+            you sign and you pay the fees: about 0.0014 SOL of rent for the on-chain record that you claimed, about
+            0.002 SOL more if this wallet has no $TINY token account yet, and the network fee. so keep roughly 0.002 to
+            0.004 SOL in this wallet first.
           </p>
         </div>
       ) : null}
