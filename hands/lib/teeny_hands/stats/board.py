@@ -38,7 +38,7 @@ TOP = 5
 TEXT_CHARS = 80
 #: Characters of each of the three lines.
 LINE_CHARS = 320
-AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"))
+AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("reddit", "karma"))
 
 Json = dict[str, Any]
 
