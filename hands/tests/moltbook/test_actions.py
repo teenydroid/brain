@@ -442,7 +442,6 @@ class CommentTest(Scratch, Refusing):
         self.assertEqual(self.mb.seen, [])
 
     def test_an_unknown_id_moltbook_404s_explains_the_404(self):
-        caught = None
         with self.assertRaises(hand.HandError) as caught:
             actions.comment({"post_id": self.THEIRS, "body": "the ruling"})
         message = str(caught.exception)
