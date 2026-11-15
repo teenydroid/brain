@@ -6,13 +6,17 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py heldout-tasks EVALS DIR       -> the held-out task ids in DIR
     python3 bin/lib/evals.py render EVALS TASK            -> the draft message
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
-    python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS -- ASK...
+    python3 bin/lib/evals.py select EVALS HELDOUT_DIR WITH_HELDOUT IDS
+                                                          -> the ids of IDS to draft or judge
+    python3 bin/lib/evals.py affected EVALS HELDOUT_DIR ROOT BASE
+                                                          -> {tasks, all, why, paths}
+    python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS [--resume] [--key K] -- ASK...
                                                           -> OUT, a checked draft per line
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
-    python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT -- ASK...
-                                                          -> OUT, a verdict pair per line
-    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS
+    python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT [--both-orders] [--tasks IDS] -- ASK...
+                                                          -> OUT, a judged pair per line
+    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS|auto [--mode M] [--tasks IDS]
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
 canned, so both brains answer the same thing:
@@ -44,6 +48,7 @@ puts a held-out task, draft or judge note in what the proposer reads.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -180,6 +185,156 @@ def playbook_prompt(brain: Path, name: str) -> str:
         return f"(brain/playbooks/{name}.md is missing)"
     parts = text.split("+++", 2)
     return parts[2].strip() if len(parts) == 3 else text.strip()
+
+
+def select(evals: Path, held: Path | None, with_heldout: bool, ids: list[str]) -> list[str]:
+    """The ids of IDS a run or a compare takes: every visible task named,
+    and the held-out ones only WITH_HELDOUT. A held-out id without it is
+    left out, not refused (`affected` names held-out tasks whenever there
+    are some); an id that is neither is refused."""
+    visible, hidden = set(task_ids(evals)), set(heldout_ids(held))
+    out = []
+    for task_id in ids:
+        if task_id in visible or (with_heldout and task_id in hidden):
+            out.append(task_id)
+        elif task_id not in hidden:
+            raise EvalError(f"no task {task_id} in evals/tasks" + (" or the held-out tasks" if hidden else ""))
+    return list(dict.fromkeys(out))
+
+
+# --- what a change can reach (docs/evolve.md, "Affected tasks") ---------------------------------
+#
+# A draft is one `act` turn on the core serving the measured brain. Its
+# message is render(): the task (frozen, in the measuring checkout) and the
+# prompt of the task's playbook, read from the measured brain. Its system
+# prompt is the core's subagent prompt for act.toml: brain/agent/prompts/act.md
+# (built at every boot by bin/lib/prompts.py from brain/agents/act.md, then
+# MEMORY.md, DRIVE.md, CHARTER.md, CONTEXT.md, narrative/LORE.md and
+# narrative/ARCS.md), SOUL.md and IDENTITY.md (act.toml: omit_identity =
+# false), and AGENTS.md in the workspace (brain/) and the action directory
+# (the repository root). act has no tools, so no skill reaches it, and the
+# core's "Available Skills" block is not in a subagent's prompt. The inputs
+# are canned in the task, so no hand or data job runs. The hard checks, the
+# rubric and the judge's reference are the measuring checkout's, the same
+# for both sides.
+
+#: Paths in every draft, and why.
+EVERY_DRAFT = {
+    "brain/agents/act.md": "the act agent's instructions, in every draft's system prompt",
+    "brain/agents/act.toml": "the act agent's definition: its model settings and prompt",
+    "brain/agent/prompts/act.md": "the act agent's built system prompt",
+    "brain/SOUL.md": "in every draft's system prompt (act.toml: omit_identity = false)",
+    "brain/IDENTITY.md": "in every draft's system prompt (act.toml: omit_identity = false)",
+    "brain/AGENTS.md": "the workspace's AGENTS.md, in every turn's system prompt",
+    "AGENTS.md": "the action directory's AGENTS.md, in every turn's system prompt",
+    "brain/MEMORY.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/MEMORY.seed.md": "the memory a lab starts from, in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/DRIVE.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/CHARTER.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/CONTEXT.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/narrative/LORE.md": "its cast and running bits are in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/narrative/ARCS.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    # The code that builds that prompt or runs the turn. All frozen: only an
+    # operator's diff has them.
+    "bin/lib/prompts.py": "builds every speaking agent's system prompt",
+    "bin/lib/core_config.py": "writes the core's settings every turn runs under",
+    "bin/spine": "boots the core every draft comes from",
+    "bin/ask": "sends every draft's turn",
+    "bin/lib/teeny.sh": "sets the paths bin/spine and bin/ask use",
+    "Cargo.toml": "builds the core every draft comes from",
+    "Cargo.lock": "builds the core every draft comes from",
+    "rust-toolchain.toml": "builds the core every draft comes from",
+    "Dockerfile": "builds the core every draft comes from",
+}
+EVERY_DRAFT_TREES = {
+    "bin/lib/core_sections/": "writes the core's settings every turn runs under",
+    "spine/": "the core every draft comes from",
+    "vendor/": "the core every draft comes from",
+}
+PLAYBOOK_PATH = re.compile(r"brain/playbooks/([a-z0-9][a-z0-9-]*)\.md")
+
+
+def _reaches(path: str) -> tuple[str, str]:
+    """("all", why), ("playbook", name) or ("none", why) for one path."""
+    if path in EVERY_DRAFT:
+        return "all", EVERY_DRAFT[path]
+    for tree, why in EVERY_DRAFT_TREES.items():
+        if path.startswith(tree):
+            return "all", why
+    match = PLAYBOOK_PATH.fullmatch(path)
+    if match:
+        return "playbook", match.group(1)
+    if path.startswith("hands/") or path.startswith("bin/lib/datajob"):
+        return "none", "a task's inputs are canned: no hand or data job runs in an eval"
+    if path.startswith("evals/") or path in ("bin/eval", "bin/lib/evals.py"):
+        return "none", "measures both sides alike, from the measuring checkout"
+    return "none", "in no draft's message or system prompt"
+
+
+def affected_tasks(changed_paths: list[str], tasks: list[dict]) -> dict:
+    """The tasks a change to CHANGED_PATHS can move: {"tasks": [ids],
+    "all": bool, "why": {id or "*": reason}, "paths": {path: reason}}.
+    A path in every draft (EVERY_DRAFT) is every task; a playbook is the
+    tasks that name it (`playbook = "..."`); anything else is none."""
+    why: dict[str, str] = {}
+    paths: dict[str, str] = {}
+    every = False
+    by_playbook: dict[str, list[str]] = {}
+    for task in tasks:
+        if task.get("playbook"):
+            by_playbook.setdefault(task["playbook"], []).append(task["id"])
+    hit: set[str] = set()
+    for path in sorted(set(changed_paths)):
+        kind, detail = _reaches(path)
+        if kind == "all":
+            every = True
+            why.setdefault("*", f"{path}: {detail}")
+            paths[path] = f"every task: {detail}"
+        elif kind == "playbook":
+            ids = by_playbook.get(detail, [])
+            for task_id in ids:
+                hit.add(task_id)
+                why.setdefault(task_id, f"drafted from {path}")
+            paths[path] = f"{', '.join(ids)}: drafted from it" if ids else "no task drafts from this playbook"
+        else:
+            paths[path] = f"no task: {detail}"
+    ids = [t["id"] for t in tasks] if every else [t["id"] for t in tasks if t["id"] in hit]
+    return {"tasks": ids, "all": every, "why": why, "paths": paths}
+
+
+def changed_paths(root: Path, base: str) -> list[str]:
+    """What ROOT's working tree changes against BASE, from the repository's
+    top: every path git diff names (both sides of a rename) and every
+    untracked file not ignored. NUL-separated, so a path git would quote is
+    read as it is."""
+    def git(*args: str) -> str:
+        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        if done.returncode != 0:
+            raise EvalError(f"git {' '.join(args[:2])} in {root}: {done.stderr.strip()[-300:]}")
+        return done.stdout
+
+    top = Path(git("rev-parse", "--show-toplevel").strip())
+    root = top
+    names = git("diff", "--name-only", "--no-renames", "-z", base, "--").split("\0")
+    names += git("ls-files", "--others", "--exclude-standard", "-z").split("\0")
+    return sorted({n for n in names if n})
+
+
+def all_tasks(evals: Path, held: Path | None) -> list[dict]:
+    """Every visible task, then every held-out one in HELD."""
+    out = [load_task(evals, t) for t in task_ids(evals)]
+    ids = heldout_ids(held)
+    if ids:
+        before = os.environ.get(HELDOUT_ENV)
+        os.environ[HELDOUT_ENV] = str(held)
+        try:
+            out += [load_task(evals, t) for t in ids]
+        finally:
+            if before is None:
+                os.environ.pop(HELDOUT_ENV, None)
+            else:
+                os.environ[HELDOUT_ENV] = before
+    return out
 
 
 def render(task: dict, brain: Path | None = None) -> str:
@@ -342,16 +497,96 @@ def drafting_brain(evals: Path) -> Path:
     return Path(os.environ.get("OPENHUMAN_WORKSPACE") or evals.parent / "brain")
 
 
-def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+#: What, beside the message, the act turn's system prompt is read from in
+#: the measured brain (see EVERY_DRAFT): the built prompt carries the rest.
+PROMPT_FILES = ("agent/prompts/act.md", "agents/act.toml", "SOUL.md", "IDENTITY.md", "AGENTS.md")
+
+
+def measured(brain: Path, samples: int, key: str = "") -> dict:
+    """What a run records about the brain it drafted (OUT/run.json), and
+    what a later run must match to reuse its drafts: the commit of the
+    brain's checkout, a hash of what the act turn's system prompt is built
+    from (PROMPT_FILES, and the repository's AGENTS.md), the samples, and a
+    KEY of the caller's (bin/eval run --key: say, the model). `commit` is
+    None outside a git checkout, and such a run is never reused."""
+    def git(*args: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(brain), *args], capture_output=True, text=True)
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    top = git("rev-parse", "--show-toplevel")
+    prompt = hashlib.sha256()
+    for name in PROMPT_FILES:
+        path = brain / name
+        prompt.update(f"{name}\0".encode())
+        prompt.update(path.read_bytes() if path.is_file() else b"\0missing")
+    if top:
+        path = Path(top) / "AGENTS.md"
+        prompt.update(b"AGENTS.md@root\0" + (path.read_bytes() if path.is_file() else b"\0missing"))
+    status = git("status", "--porcelain", "--", ".")
+    return {"brain": str(brain.resolve()), "root": top, "commit": git("rev-parse", "HEAD") if top else None,
+            "dirty": bool(status) if status is not None else None, "prompt_sha": prompt.hexdigest(),
+            "samples": samples, "key": key}
+
+
+def _reusable(old: dict | None, now: dict) -> str | None:
+    """Why OLD's drafts cannot stand for NOW's, or None when they can."""
+    if old is None:
+        return "no run.json"
+    if not now["commit"]:
+        return f"{now['brain']} is not in a git checkout"
+    for field in ("commit", "prompt_sha", "samples", "key"):
+        if old.get(field) != now[field]:
+            return f"its {field} differs"
+    return None
+
+
+def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str],
+          resume: bool = False, key: str = "") -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
     --agent act) and checked. A turn that fails is tried again (Retrier);
     one that never answers keeps its failed `turn` check, with `no_sample`
-    and `attempts`, and is set aside as unrun."""
+    and `attempts`, and is set aside as unrun.
+
+    OUT/run.json (beside OUT) records what was measured (measured()), and
+    every draft its message's hash. With RESUME, an OUT whose run.json
+    matches is kept: every row stays, and only the (task, sample) pairs of
+    IDS with no row, a row that never ran, or a row drafted from another
+    message are drafted again. So one baseline serves every candidate of a
+    generation, and the next generation too while main has not moved, each
+    drafting only the tasks the last ones did not need."""
     tasks = [load_task(evals, task_id) for task_id in ids]
     retrier = Retrier()
     drafted = passed = missing = 0
     brain = drafting_brain(evals)
+    meta_path = out.with_name("run.json")
+    now = measured(brain, samples, key)
+    kept: list[dict] = []
+    if resume and out.is_file():
+        try:
+            old = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            old = None
+        why = _reusable(old, now)
+        if why is None:
+            kept = _read_jsonl(out)
+        else:
+            print(f"[eval] not reusing {out}: {why}; drafting afresh", file=sys.stderr)
     jobs = [(task, render(task, brain), sample) for task in tasks for sample in range(1, samples + 1)]
+    done = {(r["task"], r["sample"]): r for r in kept}
+    reused = 0
+    todo = []
+    for task, message, sample in jobs:
+        row = done.get((task["id"], sample))
+        if row is not None and not _unrun(row) and row.get("message_sha") == _sha(message):
+            reused += 1
+            continue
+        done.pop((task["id"], sample), None)
+        todo.append((task, message, sample))
+    kept = list(done.values())
 
     def one(job: tuple) -> dict:
         task, message, sample = job
@@ -362,10 +597,15 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
         else:
             result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
             extra["no_sample"] = True
-        return {"task": task["id"], "sample": sample, "heldout": task["heldout"], "answer": turn.stdout[:4000], **result, **extra}
+        return {"task": task["id"], "sample": sample, "heldout": task["heldout"], "answer": turn.stdout[:4000],
+                **result, **extra, "message_sha": _sha(message)}
 
+    meta_path.write_text(json.dumps(now, indent=2) + "\n", encoding="utf-8")
     with out.open("w", encoding="utf-8") as fh:
-        for record in _in_flight(one, jobs):
+        for record in kept:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        fh.flush()
+        for record in _in_flight(one, todo):
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             fh.flush()
             failed = [c["check"] for c in record["checks"] if not c["ok"]]
@@ -373,7 +613,7 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
             drafted += 1
             passed += record["ok"]
             missing += bool(record.get("no_sample"))
-    return {"drafts": drafted, "ok": passed, "no_sample": missing}
+    return {"drafts": drafted, "ok": passed, "no_sample": missing, "reused": reused}
 
 
 # --- invariants ------------------------------------------------------------------------
@@ -469,16 +709,18 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _drafts(path: Path) -> dict:
-    """A run's drafts by (task, sample). Held-out ones only while
-    EVAL_HELDOUT_DIR is set: without it they are not judged or scored."""
+def _drafts(path: Path, tasks: set[str] | None = None) -> dict:
+    """A run's drafts by (task, sample), of TASKS only when given. Held-out
+    ones only while EVAL_HELDOUT_DIR is set: without it they are not judged
+    or scored."""
     keep = heldout_dir() is not None
-    return {(r["task"], r["sample"]): r for r in _read_jsonl(path) if keep or not r.get("heldout")}
+    return {(r["task"], r["sample"]): r for r in _read_jsonl(path)
+            if (keep or not r.get("heldout")) and (tasks is None or r["task"] in tasks)}
 
 
-def pairs(base_path: Path, cand_path: Path) -> list[dict]:
-    """The pairs the judge reads: every task and sample both runs drafted."""
-    base, cand = _drafts(base_path), _drafts(cand_path)
+def pairs(base_path: Path, cand_path: Path, tasks: set[str] | None = None) -> list[dict]:
+    """The pairs the judge reads: every task (of TASKS) and sample both runs drafted."""
+    base, cand = _drafts(base_path, tasks), _drafts(cand_path, tasks)
     return [
         {"task": k[0], "sample": k[1], "base": base[k]["draft"], "cand": cand[k]["draft"]}
         for k in sorted(set(base) & set(cand))
@@ -486,16 +728,34 @@ def pairs(base_path: Path, cand_path: Path) -> list[dict]:
     ]
 
 
-def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str]) -> int:
-    """Every pair, judged twice by `ask` (bin/ask --agent judge): the
-    baseline shown as draft 1, then the candidate. A turn that fails is
-    tried again (Retrier); one that never answers is an unusable answer, so
-    a tie. Both orderings of every pair are judged side by side, up to
-    EVAL_CONCURRENCY turns at once."""
+def orders(turn: int, both: bool) -> tuple[str, ...]:
+    """Which way round a pair is shown: "first" puts the baseline as draft
+    1, "second" the candidate. Once per pair, alternating by TURN, the
+    pair's place (from 1) among the pairs judged: odd, the baseline first,
+    even, the candidate first. So a judge that favours a position favours
+    each side equally often, to within one pair, whatever the samples (with
+    every sample drafted and an even count, the turn's parity is the
+    sample's). Or both, with BOTH."""
+    if both:
+        return ("first", "second")
+    return ("first",) if turn % 2 else ("second",)
+
+
+def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str],
+          both_orders: bool = False, tasks: set[str] | None = None) -> int:
+    """Every pair (of TASKS, when given), judged by `ask` (bin/ask --agent
+    judge) once, the way round orders() says, or twice with BOTH_ORDERS
+    (the baseline shown as draft 1, then the candidate). A turn that fails
+    is tried again (Retrier); one that never answers is an unusable answer,
+    so a tie. Up to EVAL_CONCURRENCY turns at once."""
     jobs = []
-    for pair in pairs(base_path, cand_path):
+    plan = []
+    for turn, pair in enumerate(pairs(base_path, cand_path, tasks), 1):
         task = load_task(evals, pair["task"])
-        for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
+        shown = orders(turn, both_orders)
+        plan.append((pair, shown))
+        for way in shown:
+            drafts = {"1": pair["base"], "2": pair["cand"]} if way == "first" else {"1": pair["cand"], "2": pair["base"]}
             jobs.append((pair, judge_message(evals, brain, task, drafts)))
     retrier = Retrier()
 
@@ -510,25 +770,37 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     # closing(): a raise while writing closes the queue at once, cancelling the
     # turns not yet started, rather than when the traceback is let go.
     with contextlib.closing(_in_flight(one, jobs)) as results, out.open("w", encoding="utf-8") as fh:
-        for pair, _ in jobs[::2]:
-            first, second = next(results), next(results)
-            fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": first, "second": second}, ensure_ascii=False) + "\n")
+        for pair, shown in plan:
+            record = {"task": pair["task"], "sample": pair["sample"]}
+            for way in shown:
+                record[way] = next(results)
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             fh.flush()
             count += 1
     return count
 
 
-def pair_outcome(first: dict, second: dict) -> dict:
-    """Two verdicts on one pair: `first` showed the baseline as draft 1,
-    `second` showed the candidate as draft 1. They must agree to decide."""
+def pair_outcome(first: dict | None, second: dict | None) -> dict:
+    """A pair's verdicts: `first` showed the baseline as draft 1, `second`
+    showed the candidate as draft 1. With both, they must agree to decide
+    (`consistent`); with one, it decides alone (`consistent` is None: the
+    alternation across pairs controls for position, not agreement)."""
     side = {"1": "base", "2": "cand", "tie": "tie"}
     swapped = {"1": "cand", "2": "base", "tie": "tie"}
-    a, b = side[first["better"]], swapped[second["better"]]
-    breaks = {
-        "base": sorted(set(first["breaks"]["1"]) | set(second["breaks"]["2"])),
-        "cand": sorted(set(first["breaks"]["2"]) | set(second["breaks"]["1"])),
-    }
-    return {"winner": a if a == b else "tie", "consistent": a == b, "breaks": breaks}
+    if first is not None and second is not None:
+        a, b = side[first["better"]], swapped[second["better"]]
+        breaks = {
+            "base": sorted(set(first["breaks"]["1"]) | set(second["breaks"]["2"])),
+            "cand": sorted(set(first["breaks"]["2"]) | set(second["breaks"]["1"])),
+        }
+        return {"winner": a if a == b else "tie", "consistent": a == b, "breaks": breaks}
+    if first is not None:
+        return {"winner": side[first["better"]], "consistent": None,
+                "breaks": {"base": sorted(first["breaks"]["1"]), "cand": sorted(first["breaks"]["2"])}}
+    if second is not None:
+        return {"winner": swapped[second["better"]], "consistent": None,
+                "breaks": {"base": sorted(second["breaks"]["2"]), "cand": sorted(second["breaks"]["1"])}}
+    return {"winner": "tie", "consistent": None, "breaks": {"base": [], "cand": []}}
 
 
 def _unrun(record: dict) -> bool:
@@ -590,15 +862,16 @@ def fence_failures(record: dict, breaks: list[str]) -> list[str]:
 MAX_UNRUN = 0.1
 
 
-def _unmeasured(base: dict, cand: dict) -> dict:
+def _unmeasured(base: dict, cand: dict, expected: set[str] | None = None) -> dict:
     """What the two runs could not compare: each side's visible samples that
     never ran (or are missing), and the visible tasks with no sample drafted
-    on both sides, whose checks therefore never ran."""
+    on both sides, whose checks therefore never ran. EXPECTED, the visible
+    tasks selected, counts one neither run drafted at all as such a task."""
     keys = {k for k in set(base) | set(cand)
             if not (base.get(k, {}).get("heldout") or cand.get(k, {}).get("heldout"))}
     out = {side: [k for k in keys if k not in run or _unrun(run[k])] for side, run in (("base", base), ("cand", cand))}
     ran = {k[0] for k in keys if k in base and k in cand and not _unrun(base[k]) and not _unrun(cand[k])}
-    out["tasks"] = sorted({k[0] for k in keys} - ran)
+    out["tasks"] = sorted(({k[0] for k in keys} | (expected or set())) - ran)
     out["samples"] = len(keys)
     return out
 
@@ -614,8 +887,46 @@ def _inconclusive(unmeasured: dict) -> str | None:
     return "inconclusive: " + "; ".join(why) if why else None
 
 
-def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int) -> dict:
-    base, cand = _drafts(base_path), _drafts(cand_path)
+#: The modes of a compare (docs/evolve.md, "4. Evaluate"): a tournament
+#: promotes a candidate that beats the baseline; a non-regression check
+#: passes one that does no worse on the tasks its change can reach.
+MODES = ("tournament", "nonregression")
+#: What a non-regression check's --min-pairs is at most, by default; it is
+#: otherwise half the pairs there could be, so a change one task reaches
+#: can still be decided.
+NONREGRESSION_MIN_PAIRS = 12
+#: Why a compare with no visible task selected decides nothing.
+UNMEASURABLE = "no eval task reaches this change"
+
+
+def auto_min_pairs(possible: int) -> int:
+    """--min-pairs in a non-regression check, unless given: half the
+    possible pairs (rounded up, at least 1), at most 12."""
+    return min(NONREGRESSION_MIN_PAIRS, max(1, -(-possible // 2)))
+
+
+def unmeasurable(mode: str, tasks: list[str] | None, threshold: float) -> dict:
+    """The report of a compare with no visible task to measure: never
+    promoted, never lost, and nothing was drafted or judged."""
+    return {"promote": False, "verdict": "unmeasurable", "reason": UNMEASURABLE, "mode": mode,
+            "tasks": sorted(tasks or []), "wins": 0, "losses": 0, "ties": 0, "decided": 0, "win_rate": 0.0,
+            "threshold": threshold, "min_pairs": 0, "regressions": [], "fences": [], "hard_failure_rise": 0,
+            "hard_failures": {}, "unrun": [], "unmeasured_tasks": [], "pairs": []}
+
+
+def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int | None,
+          mode: str = "tournament", tasks: set[str] | None = None) -> dict:
+    """The report of a compare. MODE is a tournament (verdicts won, lost,
+    inconclusive) or a non-regression check (pass, regressed,
+    inconclusive); TASKS, when given, is the only tasks scored, and with no
+    visible one among them the verdict is "unmeasurable". MIN_PAIRS None is
+    12 in a tournament and auto_min_pairs() in a non-regression check."""
+    if mode not in MODES:
+        raise EvalError(f"mode is one of {', '.join(MODES)}")
+    visible_selected = None if tasks is None else set(tasks) - set(heldout_ids(heldout_dir()))
+    if visible_selected is not None and not visible_selected:
+        return unmeasurable(mode, sorted(tasks or []), threshold)
+    base, cand = _drafts(base_path, tasks), _drafts(cand_path, tasks)
     judged = {(r["task"], r["sample"]): r for r in _read_jsonl(judged_path)} if judged_path.is_file() else {}
 
     pairs = []
@@ -637,7 +948,7 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             continue
         record = judged.get(key)
         if record is not None:
-            outcome = pair_outcome(record["first"], record["second"])
+            outcome = pair_outcome(record.get("first"), record.get("second"))
         elif b.get("draft") is None or c.get("draft") is None:
             # No draft to judge on one side: the other side wins it, without a judge.
             winner = "tie" if b.get("draft") is None and c.get("draft") is None else ("cand" if b.get("draft") is None else "base")
@@ -663,7 +974,7 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             "consistent": outcome["consistent"],
             "breaks": outcome["breaks"],
             "hard_fail": hard,
-            "notes": [r["notes"] for r in (record["first"], record["second"])] if record else [],
+            "notes": [record[k]["notes"] for k in ("first", "second") if record.get(k)] if record else [],
         })
 
     # The verdict is the visible tasks'; the held-out ones are reported
@@ -675,8 +986,11 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     regressions = sorted(set(visible["regressions"]) | set(fenced))
     # A regression seen in what did run rejects however much did not; too
     # little run otherwise decides nothing either way.
-    unmeasured = _unmeasured(base, cand)
+    unmeasured = _unmeasured(base, cand, visible_selected)
     unsure = None if regressions else _inconclusive(unmeasured)
+    if min_pairs is None:
+        min_pairs = auto_min_pairs(unmeasured["samples"]) if mode == "nonregression" else 12
+    short = decided < min_pairs
     if fenced:
         reason = "hard-check regression: a fence check failed on " + ", ".join(
             f"{t} ({', '.join(sorted({f['check'] for f in fences[False] if f['task'] == t}))})" for t in fenced)
@@ -687,17 +1001,27 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"hard-check regression on {', '.join(regressions)}"
     elif unsure:
         reason = unsure
-    elif decided < min_pairs:
+    elif short:
         reason = f"{decided} decided pair(s), needs {min_pairs}"
+        if mode == "nonregression":
+            reason = "inconclusive: " + reason
     elif win_rate < threshold:
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
-    promote = not regressions and not unsure and decided >= min_pairs and win_rate >= threshold
+    good = not regressions and not unsure and not short and win_rate >= threshold
+    if mode == "nonregression":
+        # Too few decided pairs says nothing either way here: a change one
+        # task reaches has few pairs, and a tie is no regression.
+        verdict = "pass" if good else "inconclusive" if unsure or (short and not regressions) else "regressed"
+    else:
+        verdict = "won" if good else "inconclusive" if unsure else "lost"
     out = {
-        "promote": promote,
-        "verdict": "won" if promote else "inconclusive" if unsure else "lost",
+        "promote": good,
+        "verdict": verdict,
         "reason": reason,
+        "mode": mode,
+        "tasks": None if tasks is None else sorted(tasks),
         "wins": wins,
         "losses": losses,
         "ties": visible["ties"],
@@ -726,6 +1050,29 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
 # --- the command line --------------------------------------------------------------------------
 
 
+def _ids(text: str) -> list[str]:
+    """A comma list of task ids; "" is none."""
+    return [t for t in (x.strip() for x in text.split(",")) if t]
+
+
+def _options(args: list[str], flags: tuple[str, ...], valued: tuple[str, ...]) -> tuple[list[str], dict]:
+    """ARGS up to a "--" split into positionals and options: FLAGS take no
+    value, VALUED take the next argument."""
+    head, tail = (args[:args.index("--")], args[args.index("--"):]) if "--" in args else (args, [])
+    plain, opts, i = [], {}, 0
+    while i < len(head):
+        if head[i] in flags:
+            opts[head[i]] = True
+            i += 1
+        elif head[i] in valued and i + 1 < len(head):
+            opts[head[i]] = head[i + 1]
+            i += 2
+        else:
+            plain.append(head[i])
+            i += 1
+    return plain + tail, opts
+
+
 def main(argv: list[str]) -> int:
     usage = __doc__.split("\n\n")[1]
     if len(argv) < 2:
@@ -733,6 +1080,11 @@ def main(argv: list[str]) -> int:
         return 2
     cmd, args = argv[1], argv[2:]
     try:
+        if cmd in ("draft", "judge", "score"):
+            args, opts = _options(args, ("--resume", "--both-orders"), ("--key", "--tasks", "--mode"))
+        else:
+            opts = {}
+        tasks = set(_ids(opts["--tasks"])) if "--tasks" in opts else None
         if cmd == "tasks" and len(args) == 1:
             out = [load_task(Path(args[0]), t) for t in task_ids(Path(args[0]))]
             if not out:
@@ -746,6 +1098,13 @@ def main(argv: list[str]) -> int:
             for task_id in ids:
                 load_task(Path(args[0]), task_id)
             out = ids
+        elif cmd == "select" and len(args) == 4:
+            out = select(Path(args[0]), Path(args[1]) if args[1] else None, args[2] == "1", _ids(args[3]))
+        elif cmd == "affected" and len(args) == 4:
+            held = Path(args[1]) if args[1] else None
+            every = all_tasks(Path(args[0]), held)
+            out = affected_tasks(changed_paths(Path(args[2]), args[3]), every)
+            out["heldout"] = [t["id"] for t in every if t["heldout"] and t["id"] in out["tasks"]]
         elif cmd == "render" and len(args) == 2:
             print(render(load_task(Path(args[0]), args[1]), drafting_brain(Path(args[0]))))
             return 0
@@ -759,11 +1118,14 @@ def main(argv: list[str]) -> int:
             print(judge_message(Path(args[0]), Path(args[1]), load_task(Path(args[0]), args[2]), json.loads(sys.stdin.read())))
             return 0
         elif cmd == "judge" and len(args) > 6 and args[5] == "--":
-            out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:])}
+            out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:],
+                                   both_orders=bool(opts.get("--both-orders")), tasks=tasks)}
         elif cmd == "draft" and len(args) > 6 and args[5] == "--":
-            out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), args[4].split(","), args[6:])
+            out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), _ids(args[4]), args[6:],
+                        resume=bool(opts.get("--resume")), key=opts.get("--key", ""))
         elif cmd == "score" and len(args) == 5:
-            out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]), int(args[4]))
+            out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]),
+                        None if args[4] == "auto" else int(args[4]), mode=opts.get("--mode", "tournament"), tasks=tasks)
         else:
             print(usage, file=sys.stderr)
             return 2
