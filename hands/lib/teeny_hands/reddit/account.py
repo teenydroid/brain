@@ -22,7 +22,7 @@ from typing import Any
 
 from .. import hand
 from . import ledger, rules
-from .actions import guarded, queue_task
+from .actions import queue_task
 
 #: Tried in this order after the one asked for, when a name is taken.
 USERNAMES = ("teenydroid", "teeny_droid", "teenydroid_ai")
@@ -102,5 +102,3 @@ def profile() -> Json:
     return queue_task("profile", "reddit_profile", [{"target": "profile"}], PROFILE_URL, goal,
                       "Both are saved and show on the profile. Report ok.", text=bio)
 
-
-__all__ = ["signup", "profile", "guarded"]
