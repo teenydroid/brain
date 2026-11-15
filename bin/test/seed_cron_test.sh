@@ -438,7 +438,7 @@ refuses_check "--check refuses catch-up on a playbook that posts" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act morning"\ncatch_up = true'
 refuses_check "--check refuses catch-up on a playbook that comments" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act chatty"\ncatch_up = true'
-printf '+++\ndescription = "x"\noutput = "hand:x peers suggest"\n+++\nx\n' >"$scratch/playbooks/outward.md"
+printf '+++\ndescription = "x"\noutput = "hand:x peer-suggest"\n+++\nx\n' >"$scratch/playbooks/outward.md"
 refuses_check "--check refuses catch-up on a playbook that quotes on X through a hands/x verb" \
   $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act outward"\ncatch_up = true'
 printf '+++\ndescription = "x"\n+++\nx\n' >"$scratch/playbooks/vague.md"

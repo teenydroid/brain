@@ -441,7 +441,7 @@ class CliTest(SuggestBase):
         code, out = self.run_x("peers", "--skip-quoted", "--max-age-hours", "8", "--per-peer", "2")
         self.assertEqual(code, 0, out)
         self.assertEqual([p["id"] for p in out["posts"]], ["202", "201"])
-        code, out = self.run_x("peers", "suggest", stdin=json.dumps({"candidates": [self.candidate("202", 4)]}))
+        code, out = self.run_x("peer-suggest", stdin=json.dumps({"candidates": [self.candidate("202", 4)]}))
         self.assertEqual((code, out["skipped"]["rule"]), (0, "relevance"), out)
         code, out = self.run_x("peers", "suggestions", "--days", "7")
         self.assertEqual((code, len(out["suggestions"])), (0, 1), out)
