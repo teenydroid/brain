@@ -318,8 +318,40 @@ class TargetedEvaluation(LabCase):
         self.run_gen(1, publisher=Refusing())
         self.edit(1, ["reply-fud", "shiplog-numbers"], line="Another change.")
         self.run_gen(1, publisher=Refusing())
-        base_runs = [r["tasks"] for r in self.runs() if r["url"] == f"http://127.0.0.1:{self.port}"]
-        self.assertEqual(base_runs, [["morning-post", "reply-fud"], ["shiplog-numbers"]])
+        base_runs = [r for r in self.runs() if r["url"] == f"http://127.0.0.1:{self.port}"]
+        self.assertEqual([r["tasks"] for r in base_runs], [["morning-post", "reply-fud"], ["shiplog-numbers"]])
+        self.assertEqual(base_runs[0]["out"], base_runs[1]["out"])  # one run folder bin/eval reuses
+
+    def test_a_candidates_playbook_edit_reaches_its_drafts(self):
+        """bin/eval reads a task's playbook prompt from the brain it is told
+        the core serves. The tournament passed only the lab's URL and token,
+        so a candidate's own playbook edit never reached its draft messages:
+        both sides drafted from the live checkout's playbook."""
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, ["reply-fud"], line="Ask one question back.")
+        self.run_gen(1, publisher=Refusing())
+        base_url = f"http://127.0.0.1:{self.port}"
+        (base,) = [r for r in self.runs() if r["url"] == base_url]
+        (cand,) = [r for r in self.runs() if r["url"] != base_url]
+        self.assertEqual(cand["brain"], str(evolve.evolve_dir() / "1" / "cand-1" / "brain"))
+        self.assertEqual(base["brain"], str(evolve.evolve_dir() / "1" / "lab-base" / "tree" / "brain"))
+        self.assertIn("Ask one question back. TOUCHES:reply-fud", cand["message"])
+        self.assertNotIn("Ask one question back. TOUCHES:reply-fud", base["message"])
+
+    def test_the_baseline_is_keyed_by_the_labs_model(self):
+        """A model change must not reuse main's drafts from another model."""
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, ["reply-fud"])
+        self.run_gen(1, publisher=Refusing())
+        (self.root / "secrets" / "spine.env").write_text(
+            "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-2\n")
+        self.edit(1, ["reply-fud"], line="Another change.")
+        self.run_gen(1, publisher=Refusing())
+        base_runs = [r for r in self.runs() if r["url"] == f"http://127.0.0.1:{self.port}"]
+        self.assertEqual([(r["tasks"], r["key"]) for r in base_runs], [(["reply-fud"], "m-1"), (["reply-fud"], "m-2")])
+        self.assertNotEqual(base_runs[0]["out"], base_runs[1]["out"])
+        (compare, _) = [c for c in self.eval_log() if c["verb"] == "compare"]
+        self.assertIsNone(compare["min_pairs"])  # nonregression's own default applies
 
     def test_the_persona_probe_runs_only_when_the_change_reaches_every_task(self):
         self.lab_config()
