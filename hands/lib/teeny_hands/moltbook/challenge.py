@@ -18,11 +18,15 @@ How it reads one:
    letter in the noise and a real one compare equal.
 3. Re-join a word the noise split with a space ("tw enty") when the joined
    form is a number word or an operation word and the pieces are not both
-   words already.
+   words already. When the noise also moved a letter or two of the word
+   before onto it ("gAiN sE i. gGhT" is "gains eight"), the letters go back
+   only when both words then come out known.
 4. Read the numbers: digits, or number words with the usual grammar
    ("thirty two", "one hundred and five", "three point five"). Two numbers
    written next to each other ("five twenty") are not one number: that is
-   ambiguous, so no answer.
+   ambiguous, so no answer. So is a long number word with two letters
+   swapped or one letter too many ("tihrty", "tiwelve"): skipping it
+   answered 10 for "tihrty five * two" on 2026-11-15.
 5. Find the operation from its words (plus, gains ... / minus, slows,
    loses ... / times, multiplied ... / divided, split, shared ...). A
    comparison ("how much faster than") is the difference, as a positive
@@ -56,7 +60,9 @@ How it reads one:
    text says one number counts the other ("each exerts thirty two ... and
    there are four claw friends, how much total force": 32 x 4, not 36, which
    Moltbook marked wrong on 2026-11-12). "Each", "per", "every", "apiece" or
-   "there are" before a number make that sum a guess: no answer.
+   "there are" before a number make that sum a guess: no answer. So does an
+   addition where the second number counts creatures ("two lobsters") and
+   the first does not ("twenty five newtons").
 
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
