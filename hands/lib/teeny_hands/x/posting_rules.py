@@ -5,11 +5,12 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
   post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
-  minutes drawing before they post), is refused. Eight hours by default:
-  brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST). Posts an
-  hour apart are the repetitive-publishing shape the ranker demotes. Replies
-  are never subject to it: they are conversations, not slots.
-- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (3 by default).
+  minutes drawing before they post), is refused. Four hours by default:
+  brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST) and one
+  outward quote at 11:00 or 19:00 IST (`peers suggest`). Posts an hour apart
+  are the repetitive-publishing shape the ranker demotes. Replies are never
+  subject to it: they are conversations, not slots.
+- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
   Replies to mentions are not posts and are never counted.
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
@@ -47,9 +48,9 @@ from .model import utf16_length
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
 #: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
-#: (POST_MIN_GAP_HOURS): three slots, eight hours apart.
-DEFAULT_POSTS_MAX_PER_DAY = 3
-DEFAULT_POST_MIN_GAP_HOURS = 8.0
+#: (POST_MIN_GAP_HOURS): three slots and one outward quote, four hours apart.
+DEFAULT_POSTS_MAX_PER_DAY = 4
+DEFAULT_POST_MIN_GAP_HOURS = 4.0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
