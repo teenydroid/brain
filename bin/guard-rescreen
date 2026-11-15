@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# The re-screen's pass, for the pinned `guard-rescreen` job (hands/guard
+# rescreen; hands/lib/teeny_hands/guard/rescreen.py): the holds the guard's
+# judge made only because it could not answer, asked about again, so a
+# comment held by an outage reaches Teeny within minutes of the judge
+# answering, and a held Moltbook draft goes out or stays held on its merits.
+# bin/health runs the same pass after its probe; one runs at a time.
+#
+#   bin/guard-rescreen
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need python3
+exec "$TEENY_ROOT/hands/guard" rescreen "$@"
