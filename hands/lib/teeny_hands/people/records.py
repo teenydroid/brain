@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS people_promises_who ON people_promises (surface, who,
 """
 
 #: Where people write to Teeny (the stimuli surfaces with a person behind them).
-SURFACES = ("x", "moltbook", "mail", "telegram", "gh")
+SURFACES = ("x", "moltbook", "reddit", "mail", "telegram", "gh")
 STATUSES = ("open", "kept", "dropped")
 #: Wrote on this many different days: a regular.
 REGULAR_DAYS = 2

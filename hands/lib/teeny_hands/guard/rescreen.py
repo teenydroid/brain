@@ -186,11 +186,38 @@ def _resend_moltbook(held: dict[str, Any]) -> str:
     return f"re-judged clean and sent: commented on Moltbook as {out.get('commented')} on {out.get('post_id')}"
 
 
+def _reddit_body(held: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """(the hands/reddit verb, its body) to send a held Reddit draft again
+    exactly as it was written, or None when the hold does not say enough."""
+    context, fields = held["context"], _fields(held)
+    if fields is None or "body" not in fields:
+        return None
+    kind = context.get("post_kind")
+    if kind == "comment" and isinstance(context.get("thread"), str):
+        return "comment", {"thread": context["thread"], "body": fields["body"]}
+    if kind == "reply" and isinstance(context.get("comment"), str):
+        return "reply", {"comment": context["comment"], "body": fields["body"]}
+    if kind == "post" and isinstance(context.get("subreddit"), str) and "title" in fields:
+        return "post", {"subreddit": context["subreddit"], "title": fields["title"], "body": fields["body"]}
+    return None
+
+
+def _resend_reddit(held: dict[str, Any]) -> str:
+    """Queues a held Reddit draft again through hands/reddit (the guard, the
+    caps and the allowlist again); where it went."""
+    from ..reddit import actions
+
+    verb, body = _reddit_body(held)  # type: ignore[misc]
+    out = getattr(actions, verb)(body)
+    return f"re-judged clean and sent: queued as Reddit {verb} task {out.get('task_id')}"
+
+
 # surface -> (whether a held draft says enough to send again, what sends it
 # and says where it went). A surface not here only expires: an X reply is the
 # tick's to send again (bin/lib/tick.py), and the rest wait for Teeny.
 RESENDERS: dict[str, tuple[Callable[[dict[str, Any]], bool], Callable[[dict[str, Any]], str]]] = {
     "moltbook": (lambda held: _moltbook_body(held) is not None, _resend_moltbook),
+    "reddit": (lambda held: _reddit_body(held) is not None, _resend_reddit),
 }
 
 
