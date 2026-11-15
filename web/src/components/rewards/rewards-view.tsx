@@ -1,10 +1,10 @@
 import { ArrowUpRight, Check, X as Cross } from "lucide-react"
+import Link from "next/link"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { checkRoundAccounts } from "@/lib/distributor"
 import { checkDraw, DROPS_URL, formatTiny, liveRound, solscan, toAtomic, type Drops, type Round } from "@/lib/drops"
-import { DIARY_REPO } from "@/lib/receipts"
-import { receiptTime } from "@/lib/receipts"
+import { DIARY_REPO, receiptTime } from "@/lib/receipts"
 import { ClaimPanel, type ClaimableRound } from "./claim"
 import { Countdown, EnterRound } from "./enter"
 import { WalletShell } from "./wallet"
@@ -302,9 +302,9 @@ export function RewardsView({ drops, now }: { drops: Drops; now: number }) {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-14 sm:px-6 sm:py-20">
       <header className="flex flex-col gap-4">
-        <a href="/" className="w-fit font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground hover:text-neon-yellow">
+        <Link href="/" className="w-fit font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground hover:text-neon-yellow">
           ← teeny
-        </a>
+        </Link>
         <p className="eyebrow">rewards</p>
         <h1 className="glitch neon-text font-heading text-5xl font-bold tracking-tight text-neon-yellow sm:text-7xl" data-text="tiny drops">
           tiny drops
