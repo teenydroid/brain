@@ -138,6 +138,58 @@ class DoneTest(Scratch):
                 jobs.done(bad)
 
 
+    # --- the repository's name when the report gives none --------------------------------
+
+    def daily(self, summary="statediff: a stdlib-only Python 3 referee CLI\nmore", **extra):
+        job = jobs.next_job()["job"]
+        self.assertEqual(job["kind"], "daily")
+        (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
+        jobs.done({"job_id": job["job_id"], "status": "ok", "summary": summary, "tests": "1 passed", **extra})
+        return jobs.listing("ok")["jobs"][0]["repo"]
+
+    def test_a_daily_build_without_a_repo_is_named_after_what_its_summary_leads_with(self):
+        self.assertEqual(self.daily(), "statediff")
+
+    def test_a_request_build_without_a_repo_is_named_after_its_summary_too(self):
+        self.claim("build me a csv stats tool")
+        job = jobs.listing("claimed")["jobs"][0]
+        (self.root / job["workdir"] / "a.py").write_text("x = 1\n")
+        jobs.done({"job_id": job["id"], "status": "ok", "summary": "csvstat: column stats for a CSV", "tests": "t"})
+        self.assertEqual(jobs.listing("ok")["jobs"][0]["repo"], "csvstat")
+
+    def test_the_reported_repo_still_wins(self):
+        self.assertEqual(self.daily(repo="refusal-ledger"), "refusal-ledger")
+
+    def test_the_slug_stays_when_the_summary_gives_no_usable_name(self):
+        for summary in ("a referee for state diffs", "state diff: two words", "brain: a change to me",
+                        "Brain: a change to me", "x.git: odd", "-dash: odd", ": nothing first", "a/b: slash"):
+            with self.subTest(summary=summary):
+                self.setUp()
+                self.assertEqual(self.daily(summary), "daily-2026-09-14")
+
+    def test_the_slug_stays_when_another_job_already_has_that_name(self):
+        conn = jobs.db()
+        conn.execute("INSERT INTO build_jobs (kind, slug, repo, text, workdir, status, claimed_at)"
+                     " VALUES ('daily', 'daily-2026-09-13', 'StateDiff', 'x', 'w', 'shipped', 0)")
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_slug_stays_when_the_account_already_has_that_repository(self):
+        self.gh.route("GET", "/repos/teenydroid/statediff", {"full_name": "teenydroid/statediff",
+                                                             "owner": {"login": "teenydroid"}})
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_slug_stays_when_github_cannot_say(self):
+        self.gh.route("GET", "/repos/teenydroid/statediff", {"message": "boom"}, status=500)
+        self.assertEqual(self.daily(), "daily-2026-09-14")
+
+    def test_the_report_shape_asks_for_a_short_tool_name(self):
+        self.assertIn("short name for the tool", jobs.REPORT_SHAPE)
+        self.assertIn("never a date", jobs.REPORT_SHAPE)
+
+
+
 JAILED = __import__("teeny_hands.build.verify", fromlist=["verify"]).landlock_abi() > 0
 needs_landlock = __import__("unittest").skipUnless(JAILED, "this kernel has no Landlock: the ship step's test run cannot be jailed here")
 
@@ -281,6 +333,39 @@ class ShipTest(Scratch):
             out = jobs.ship()
         self.assertFalse(out["results"][0]["verified"]["jailed"])
         self.assertEqual(self.gh.writes(), [])
+
+    # --- the mind hears where a build shipped --------------------------------------------
+
+    def test_the_mind_hears_the_exact_address_a_build_shipped_to_once(self):
+        self.me()
+        self.finished(repo="greeter")
+        self.gh.route("POST", "/user/repos", {"full_name": "teenydroid/greeter"}, status=201)
+        # The first try fails (no remote to push to yet) and is retried next run.
+        first = jobs.ship()
+        self.assertEqual(first["shipped"], [], first)
+        self.assertEqual([s for s in self.stimuli_now() if s["kind"] == "shipped"], [])
+        self.remote("teenydroid/greeter")
+        out = jobs.ship()
+        self.assertEqual(len(out["shipped"]), 1, out)
+        self.assertEqual(jobs.ship()["results"], [])
+        (told,) = [s for s in self.stimuli_now() if s["kind"] == "shipped"]
+        job = jobs.listing("shipped")["jobs"][0]
+        self.assertEqual((told["surface"], told["ref"]), ("builder", f"build:{job['id']}"))
+        self.assertIn(f"your build greeter (build {job['id']}, a tiny greeter) shipped", told["text"])
+        self.assertIn("https://github.com/teenydroid/greeter", told["text"])
+        self.assertIn("never a link you guess from its name", told["text"])
+        self.assertEqual(told["payload"]["url"], "https://github.com/teenydroid/greeter")
+        self.assertEqual(told["payload"]["repo_url"], "https://github.com/teenydroid/greeter")
+        self.assertEqual(told["payload"]["commit_url"], job["commit_url"])
+        # Told again (a retried side channel) is still told once.
+        jobs._tell_shipped(job, {"repo_url": job["repo_url"], "commit_url": job["commit_url"]})
+        self.assertEqual(len([s for s in self.stimuli_now() if s["kind"] == "shipped"]), 1)
+
+    def test_a_dry_run_tells_the_mind_nothing_shipped(self):
+        self.configure(DRY_RUN="1")
+        self.finished(repo="greeter")
+        jobs.ship()
+        self.assertEqual([s for s in self.stimuli_now() if s["kind"] == "shipped"], [])
 
     def test_a_builder_that_gives_up_is_not_failed(self):
         rid = request("build me a quantum computer")
