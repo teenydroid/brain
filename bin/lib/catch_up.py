@@ -94,9 +94,10 @@ A schedule with names (MON) or with both day fields set (the core's cron
 library and classic cron disagree on what that means) is not guessed at:
 cron_policy.py refuses catch-up on one, and this skips it, said in `errors`.
 
-Prints (or returns) {caught_up: [{name, slot}] (a make-up adds `lost: "provider"`), pending: [names left for
-a later call], deferred: [names waiting out the quiet hours], errors:
-{name: why}}; with --dry-run, what it would catch up, changing nothing.
+Prints (or returns) {caught_up: [{name, slot}] (a make-up adds `lost:
+"provider"`), pending: [names left for a later call], deferred: [names
+waiting out the quiet hours], errors: {name: why}}; with --dry-run, what it
+would catch up, changing nothing.
 """
 
 from __future__ import annotations
