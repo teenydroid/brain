@@ -270,8 +270,8 @@ draft '{"text": "gm %TASK% from the CAND"}'
 # 21: the candidate wins both orderings (draft 2 in the first, draft 1 in the
 # second); 12: the baseline wins both. A split verdict would be 11 or 22.
 capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
-check "and keeps each pair's orderings apart and its own verdict" \
-  test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
+check "and keeps each pair's orderings apart and its own verdict (both samples agree)" \
+  test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
