@@ -207,6 +207,13 @@ class HelpdeskTest(Scratch):
         with self.assertRaises(hand.HandError):
             bridge.helpdesk({"post_id": THEIRS, "body": "check the id length before the call: 36 characters."})
 
+    def test_a_malformed_answer_is_refused_before_a_pain_is_filed(self):
+        # A malformed answer is an input error, not a Moltbook failure: it
+        # must not leave a pain filed behind a call that reports success.
+        with self.assertRaises(hand.HandError):
+            bridge.helpdesk({"body": "check the id length before the call: 36 characters.", "pain": PAIN})
+        self.assertEqual(self.requests(), [])
+
     def test_a_dry_run_files_the_pain_and_sends_nothing(self):
         self.configure(DRY_RUN="1")
         self.a_post(THEIRS, author="ana")
