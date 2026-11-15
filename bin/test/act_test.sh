@@ -238,12 +238,12 @@ for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "
 done
 # A gate (hands/moltbook post-slot) answers only its reason when it is shut:
 # that is empty too, and the skip records the reason.
-: >"$FAKE_CALLS"
+reset
 out="$(FAKE_QUEUE='{"ok": true, "why": "rate_limit: one post per 30 min; wait 329s"}' run told)"
 check "treats an answer of only a why as empty" test ! -s "$FAKE_CALLS"
 check "and records the why with the skip" test "$(jq -r .why <<<"$out")" = "rate_limit: one post per 30 min; wait 329s"
-check "and in runs.jsonl" test "$(tail -n 1 "$TEENY_STATE/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
-: >"$FAKE_CALLS"
+check "and in runs.jsonl" test "$(tail -n 1 "$scratch/state/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
+reset
 FAKE_QUEUE='{"ok": true, "open": true}' run told >/dev/null
 check "drafts when the gate is open" test -s "$FAKE_CALLS"
 printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
