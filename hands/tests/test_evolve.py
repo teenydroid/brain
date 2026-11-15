@@ -741,7 +741,8 @@ class Gate(EvolveCase):
     def test_a_playbook_delta_passes_every_check(self):
         out, checks = self.gated([self.playbook_edit("Name the person who shipped it.")])
         self.assertTrue(out["ok"], checks)
-        self.assertEqual(set(checks), {"frozen paths", "frozen hands' entry points", "changed hands have tests", "docs updated", "diff size",
+        self.assertEqual(set(checks), {"frozen paths", "hands/lib holds only teeny_hands", "frozen hands' entry points", "changed hands have tests",
+                                       "docs updated", "diff size",
                                        "no binary files",
                                        "SOUL+CONTEXT size",
                                        "new hands have tests", "aims at a component with a reading",
