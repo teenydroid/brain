@@ -127,3 +127,28 @@ class BoardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def reddit_write(self, kind, wid, score, fmt=None, state="live", at=T0 - DAY):
+        from teeny_hands.reddit import rules as reddit_rules
+
+        conn = reddit_rules.db()
+        if kind == "post":
+            conn.execute("INSERT INTO reddit_posts (post_id, at, subreddit, title, status, anchor, format)"
+                         " VALUES (?, ?, 'learnpython', ?, 'posted', 'PR #1', ?)", (wid, at, f"title {wid}", fmt))
+        else:
+            conn.execute("INSERT INTO reddit_comments (comment_id, post_id, subreddit, at, status, format)"
+                         " VALUES (?, 'p', 'learnpython', ?, 'posted', ?)", (wid, at, fmt))
+        conn.execute("INSERT INTO reddit_post_metrics (kind, target_id, checkpoint, at, score, comment_count, state)"
+                     " VALUES (?, ?, 24, ?, ?, ?, ?)", (kind, wid, at + DAY, score, 2 if kind == "post" else None, state))
+        conn.close()
+
+    def test_reddit_karma_is_audience_and_its_writes_are_ranked(self):
+        self.assertIn(("reddit", "karma"), board.AUDIENCE)
+        self.assertEqual(len(board.board()["lines"]), 3, "no Reddit line before Reddit has a measured write")
+        self.reddit_write("post", "p1", 10, fmt="show")
+        self.reddit_write("comment", "c1", 3, fmt="answer")
+        self.reddit_write("comment", "c2", 0)
+        out = board.board()
+        self.assertEqual([w["id"] for w in out["reddit"]["best"]], ["p1", "c1", "c2"])
+        self.assertEqual(out["reddit"]["best"][0]["result"], 12)
+        self.assertEqual(out["lines"][-1][:31], "Reddit last 7d: 3 measured, avg")

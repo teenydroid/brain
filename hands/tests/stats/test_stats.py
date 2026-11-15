@@ -95,7 +95,8 @@ class StatsTest(unittest.TestCase):
         out = collect.snapshot()
         self.assertEqual(set(out["written"]), {"x"})
         self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set",
-                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set"})
+                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set",
+                                          "reddit": "REDDIT_CLIENT_ID not set"})
 
     def test_a_failing_source_does_not_stop_the_others(self):
         self.fake.route("GET", "/agents/me", {"success": False, "error": "down"}, status=500)
@@ -184,3 +185,21 @@ class StatsTest(unittest.TestCase):
         done = subprocess.run([sys.executable, "-I", "-B", str(STATS), "get", "x.nope"], capture_output=True, text=True,
                               env=os.environ, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 2)
+
+
+from reddit.support import ME as REDDIT_ME, Scratch as RedditScratch  # noqa: E402
+
+
+class RedditSourceTest(RedditScratch):
+    def test_the_accounts_karma_is_read_through_the_hand(self):
+        self.rd.route("GET", "/api/v1/me", {"name": REDDIT_ME, "link_karma": 12, "comment_karma": 30, "total_karma": 42})
+        out = collect.snapshot()
+        self.assertEqual(out["written"]["reddit"], {"karma": 42.0, "link_karma": 12.0, "comment_karma": 30.0})
+        self.assertNotIn("reddit", out["skipped"])
+        self.assertEqual(self.leaked(), [])
+
+    def test_it_is_skipped_cleanly_without_a_client_id(self):
+        self.configure(REDDIT_CLIENT_ID=None)
+        out = collect.snapshot()
+        self.assertEqual(out["skipped"]["reddit"], "REDDIT_CLIENT_ID not set")
+        self.assertEqual(self.rd.requests(), [])

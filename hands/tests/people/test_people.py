@@ -236,5 +236,5 @@ class RedditPeopleTest(Scratch):
         self.said("reddit", "ana_dev", "t1_r1", "this helped, thanks", T0 - DAY)
         self.said("reddit", "ana_dev", "t1_r2", "one more question", T0 - 2 * DAY)
         rec = records.record("reddit", "ana_dev")
-        self.assertEqual(len(rec["messages"]), 2)
+        self.assertEqual(rec["messages"], 2)
         self.assertIn(("reddit", "ana_dev"), [(p["surface"], p["who"]) for p in records.listing()["people"]])

@@ -164,12 +164,13 @@ class RedditLabTest(LabTest):
             conn.execute("INSERT INTO reddit_post_metrics (kind, target_id, checkpoint, at, score, state)"
                          " VALUES ('comment', ?, 24, ?, ?, 'live')", (cid, T0 + DAY, score))
         conn.close()
-        exp = ledger.db().execute("SELECT * FROM experiments WHERE id = ?", (out["experiment"]["id"],)).fetchone()
+        exp = ledger.db().execute("SELECT * FROM experiments WHERE id = ?", (out["proposed"],)).fetchone()
         got = ledger.measure(ledger.db(), exp)
         self.assertEqual((got["n"], got["avg"], got["baseline_n"], got["baseline_avg"]), (1, 9, 1, 1))
 
     def test_views_are_xs_alone(self):
-        self.refused(ledger.propose, body(surface="reddit", metric="views"), rule=None)
+        with self.assertRaises(hand.HandError):
+            ledger.propose(body(surface="reddit", metric="views"))
 
     def test_a_ledger_from_before_reddit_takes_a_reddit_experiment(self):
         conn = hand.db()
