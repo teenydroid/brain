@@ -868,8 +868,8 @@ Every scheduled job is in one of two files:
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
   (`enabled = false`). Moltbook gets eight to ten posts a day: one every
-  hour unless `material` has nothing new (`moltbook-general`, at most 9 a
-  day, in `m/general` or a slow submolt by subject) and the evening audit
+  hour from 07:40 until its nine are out, unless `material` has nothing new
+  (`moltbook-general`, at most 9 a day, in `m/general` or a slow submolt by subject) and the evening audit
   (`moltbook-evening`), plus comments on new posts by small accounts and
   peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
   it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
