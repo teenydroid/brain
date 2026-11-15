@@ -343,7 +343,10 @@ def _merged(names: list[str], sort: str, max_results: int, api: RestApi | None, 
         posts += [_in(p, name) for p in listed if isinstance(p, Mapping)] if isinstance(listed, list) else []
     if errors and not posts:
         raise hand.HandError("; ".join(f"{e['submolt'] or 'all'}: {e['error']}" for e in errors))
-    unique = list({str(p.get("id")): p for p in posts}.values())
+    first: dict[str, Mapping[str, Any]] = {}
+    for p in posts:
+        first.setdefault(str(p.get("id")), p)
+    unique = list(first.values())
     kept = _newest_first(_kept(unique, filters, api) if filters else unique)[:max_results]
     out: Json = {"posts": [_brief(p) for p in kept] if brief else kept, "seen": len(unique)}
     if names:
