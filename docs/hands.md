@@ -35,6 +35,7 @@ report they leave beside it.
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
+| `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
 | `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
 | `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
@@ -44,6 +45,7 @@ report they leave beside it.
 | `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each own post measured in the last N days (7), newest first, with its kind, `format`, `experiment` and the first 120 characters. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
+| `subscribe --webhook-id ID [--confirm]` | O | Subscribes the registered webhook (X's id for it) to every X Activity event the webhook reads (`webhook.SUBSCRIBED_EVENTS`: `post.mention.create`, `post.reply.create`, `post.quote.create`, `follow.follow`, `follow.unfollow`; the follow events with the `inbound` direction), one `POST /2/activity/subscriptions` each, signed as the account. Previews the request bodies unless `--confirm`. X treats a subscription it already has as a refresh, so it is safe to run again after an event type is added. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -143,8 +145,9 @@ hands/x twitr-accounts             # until teenydroid reads `linked`
 
 X also pushes mentions, replies and quotes to the account's webhook,
 `https://teeny.enamakel.com/api/webhooks/x` (registered with X, subscribed
-through the X Activity API to `post.mention.create`, `post.reply.create` and
-`post.quote.create` for the account). `bin/x-webhook`, the `xhook` service in
+through the X Activity API to `post.mention.create`, `post.reply.create`,
+`post.quote.create`, `follow.follow` and `follow.unfollow` for the account:
+`hands/x subscribe`). `bin/x-webhook`, the `xhook` service in
 `deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge and
 refuses any delivery whose `x-twitter-webhooks-signature` is not the
 HMAC-SHA256 of the body under `X_API_SECRET`. It queues each post about the
@@ -161,6 +164,23 @@ held as "the judge could not be reached" until the guard's re-screen let it
 go, 2 to 15 minutes or more later.) This is how mentions arrive. Nothing is searched or billed per post, and the webhook catches
 replies that X's mentions timeline leaves out (2026-11-11: four of nine
 replies to the gm never came back from `/mentions`).
+
+A delivery also carries the post's author (`includes.users`, or `user` in
+the older `tweet_create_events` shape). Its account age, follower count and
+verified badge are kept on the row (`author_created_at`, ISO 8601;
+`author_followers`; `author_verified`, 0 or 1), null when the delivery did
+not carry them or the row came from the mentions timeline. Somebody following
+or unfollowing the account (`follow.follow` / `follow.unfollow`, payload
+`{source, target}` with `source` the follower,
+docs.x.com/x-api/activity/event-payloads) becomes one `x_follows` row per
+follower (`user_id`, `username`, `followed_at`, `unfollowed_at`, the
+follower's `user_created_at`, `followers` and `verified`), moved only by an
+event newer than the last it took (`event_at`), so a replayed follow cannot
+undo a later unfollow. The account's own follows of others are dropped.
+`teeny_hands.x.follows.follow_state(ids)` reads only that table:
+`{id: True | False | None}`, None for an account with no event seen (it
+followed before the subscription, or never). None of this reads X; a
+giveaway pays for `users --ids` only for the None ones it needs.
 
 How a mention reaches whoever answers it (`teeny_hands/x/mentions.py`):
 
@@ -2708,7 +2728,7 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |

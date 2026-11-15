@@ -63,9 +63,11 @@ live in `secrets/`.
 
 ## The X webhook
 
-X's Activity API pushes `post.mention.create`, `post.reply.create` and
-`post.quote.create` for the account to
-`https://teeny.enamakel.com/api/webhooks/x`. `bin/x-webhook` answers X's CRC
+X's Activity API pushes `post.mention.create`, `post.reply.create`,
+`post.quote.create`, `follow.follow` and `follow.unfollow` (inbound) for the
+account to `https://teeny.enamakel.com/api/webhooks/x`. The subscriptions are
+made, or refreshed after an event type is added, with
+`hands/x subscribe --webhook-id ID` (a preview) and then `--confirm`. `bin/x-webhook` answers X's CRC
 challenge and refuses any delivery whose signature is not the HMAC of the
 body under `X_API_SECRET`. `curl -fsS http://127.0.0.1:3110/health` checks it.
 X search is not used.

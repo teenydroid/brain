@@ -69,9 +69,19 @@ CREATE TABLE IF NOT EXISTS x_mentions (
 CREATE INDEX IF NOT EXISTS x_mentions_status ON x_mentions (status, seen_at);
 """
 
+#: What X's webhook says about a mention's author, when the delivery carries
+#: it (`includes.users`): kept so a giveaway's filters need no paid lookup.
+#: Null on a row from the mentions timeline, which asks only for usernames.
+AUTHOR_COLUMNS = {
+    "author_created_at": "TEXT",
+    "author_followers": "INTEGER",
+    "author_verified": "INTEGER",
+}
+
 
 def _db() -> sqlite3.Connection:
     conn = open_db(SCHEMA)
+    hand.add_columns(conn, "x_mentions", AUTHOR_COLUMNS)
     rules.ensure_schema(conn)
     return conn
 
@@ -135,9 +145,11 @@ def _store(
         verdict = _screen(post)
         if verdict.kind != "allow":
             status, note, hold_id = "held", verdict.reason, verdict.hold_id
+    verified = post.get("authorVerified")
     conn.execute(
         "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
-        " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " text, post, status, note, hold_id, seen_at, updated_at, author_created_at, author_followers,"
+        " author_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             post["id"],
             post.get("authorId"),
@@ -151,6 +163,9 @@ def _store(
             hold_id,
             now,
             now,
+            post.get("authorCreatedAt"),
+            post.get("authorFollowers"),
+            None if not isinstance(verified, bool) else int(verified),
         ),
     )
     counts[status] += 1
