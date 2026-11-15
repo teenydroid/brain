@@ -1448,8 +1448,32 @@ QUERY_SCRUB = (
     re.compile(r"\b0x[0-9a-fA-F]{6,}\b"),
     re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{25,}\b"),
     re.compile(r"\+?\d[\d\s().-]{5,}\d|\d{4,}"),
-    re.compile(r"\b[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)+"),
 )
+#: Capitalised words a query keeps past a sentence's first: the surfaces and
+#: names of Teeny's own world. Every other one may be a person's name, and
+#: is cut (with the repository's playbook and hand names, query_vocabulary).
+QUERY_WORDS = ("Teeny", "TINY", "Moltbook", "X", "GitHub", "Telegram", "Hacker", "News", "HN", "Lobsters",
+               "arXiv", "OpenHuman", "TinyBox", "Solana", "Base", "USDC", "SOL", "Exa", "AgentMail", "Python",
+               "Rust", "AI")
+
+
+def query_vocabulary() -> set[str]:
+    """QUERY_WORDS, the playbooks' and the hands' names (and their parts),
+    casefolded."""
+    words = {w.casefold() for w in QUERY_WORDS}
+    names = [p.stem for p in (CODE / "brain" / "playbooks").glob("*.md")]
+    names += [p.name for p in (CODE / "hands").glob("*") if p.is_file()]
+    for name in names:
+        words.add(name.casefold())
+        words.update(part.casefold() for part in name.split("-") if part)
+    return words
+
+
+def _keep_word(word: str, first: bool, vocabulary: set[str]) -> bool:
+    bare = word.strip(".,:;!?()\"'`").split("'")[0]
+    if first or not bare or not bare[0].isupper():
+        return True
+    return bare.casefold() in vocabulary
 _SECRET_NAME = re.compile(r"(^|/)(\.env|[^/]*\.env|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*)$", re.I)
 
 
@@ -1513,8 +1537,9 @@ def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any], files
 def research_queries(learning: Mapping[str, Any], n: int) -> list[str]:
     """Up to N web queries for a learning: its sentences, in order, with
     what could identify someone taken out (QUERY_SCRUB: links, emails,
-    handles, wallet addresses, phone and other long numbers, capitalised
-    name pairs). None for a promise (it names people) or when N is 0."""
+    handles, wallet addresses, phone and other long numbers; then every
+    capitalised word past a sentence's first that is not the repository's
+    own, query_vocabulary). None for a promise (it names people) or when N is 0."""
     if n <= 0 or learning.get("section") in NO_SEARCH_SECTIONS:
         return []
     text = str(learning.get("text") or "")
@@ -1522,8 +1547,13 @@ def research_queries(learning: Mapping[str, Any], n: int) -> list[str]:
         text = pattern.sub(" ", text)
     text = re.sub(r"[*_`#>\[\]]", "", text)
     out: list[str] = []
+    vocabulary = query_vocabulary()
     for sentence in re.split(r"(?<=[.!?:;])\s+", text):
-        query = " ".join(sentence.split()).strip(" .:;")[:MAX_QUERY_CHARS]
+        words = sentence.split()
+        # A capitalised word past the first may be a name: kept only when it
+        # is one of the repository's own (query_vocabulary).
+        words = [w for i, w in enumerate(words) if _keep_word(w, i == 0, vocabulary)]
+        query = " ".join(words).strip(" .:;")[:MAX_QUERY_CHARS]
         if len(query.split()) >= 3 and query.casefold() not in {q.casefold() for q in out}:
             out.append(query)
         if len(out) >= n:
@@ -1855,6 +1885,20 @@ class AskReviewer:
 
     def __init__(self, agent: str, model: str | None) -> None:
         self.agent, self.model = agent, model
+
+    def probe(self) -> None:
+        """One tiny turn with no candidate in it: raises ReviewTurnFailed
+        when the agent does not answer."""
+        argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread", f"evolve-review:probe:{uuid.uuid4().hex[:8]}"]
+        if self.model:
+            argv += ["--model", self.model]
+        try:
+            done = subprocess.run(argv, input='Answer with JSON only: {"verdict": "approve", "findings": []}',
+                                  capture_output=True, text=True, env=code_env(), timeout=300)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ReviewTurnFailed(f"the reviewer's probe did not finish: {exc}"[:300]) from None
+        if done.returncode != 0:
+            raise ReviewTurnFailed(f"the reviewer's probe failed: {done.stderr.strip()[-300:]}")
 
     def review(self, request: Json) -> Any:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
@@ -4162,6 +4206,24 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
     return True
 
 
+def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None:
+    """Why the reviewer is down, when the newest generation deferred a
+    candidate for a failed reviewer turn and a cheap probe (one tiny turn,
+    no candidate in it) still fails; else None. Only then: a generation
+    whose reviewer answered pays for no probe."""
+    latest = next_gen() - 1
+    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest for e in entries.values()):
+        return None
+    probe = getattr(reviewer, "probe", None)
+    if probe is None:
+        return None
+    try:
+        probe()
+    except (EvolveError, OSError) as exc:
+        return str(exc)[:300] or type(exc).__name__
+    return None
+
+
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
                    publisher: Publisher | None = None, evaluator: Evaluator | None = None,
                    reviewer: Reviewer | None = None) -> Json:
@@ -4239,8 +4301,17 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         if cut:
             say(f"runway: {cut}")
         picks = [item.ref() for item in open_learnings(entries, learnings)[:n]]
+        down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
+        if down:
+            # The last generation's candidates were deferred and the reviewer
+            # still does not answer: every new one would be too, after paying
+            # for its research, searches and build. Nothing runs.
+            say(f"the reviewer still does not answer ({down[:160]}): no generation")
+            picks = []
         if not picks:
             out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings: nothing to act on"}
+            if down:
+                out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
             if queue:
                 out["published"] = [{"id": c["id"], **publish(cfg, c, src, publisher, open_count)} for c in queue]
                 for c in queue:

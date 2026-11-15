@@ -316,6 +316,17 @@ class ResearchOnTheWeb(LoopCase):
         self.assertIn("reach is a wave and commitment is a drip", got)
         self.assertIn("every friday for the hosting", joined)
 
+    def test_a_single_first_name_never_leaves_but_the_repositorys_own_words_do(self):
+        got = evolve.research_queries({"section": "what i have decided", "text":
+                                       "ask Jane before posting the moltbook-daily thread on Moltbook. "
+                                       "Reply on X and GitHub when Ravi asks about Teeny's hands."}, 5)
+        joined = " ".join(got)
+        for name in ("Jane", "Ravi"):
+            self.assertNotIn(name, joined)
+        for word in ("Moltbook", "X", "GitHub", "moltbook-daily", "Teeny's"):
+            self.assertIn(word, joined)
+        self.assertTrue(got[1].startswith("Reply on X"))  # a sentence's first word stays
+
     def test_under_dry_run_nothing_is_paid_for(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=1\n")
@@ -1091,3 +1102,54 @@ class AlwaysRegressing(Regressing):
                 {"task": "reply-fud", "winner": "base", "heldout": False, "notes": ["colder"]}]}))
             done(cand, {"verdict": "regressed", "report": rel, "reason": "worse",
                         "eval": {"verdict": "regressed", "tasks": ["reply-fud"], "fences": []}})
+
+
+class Down:
+    """A reviewer whose agent the core does not know: every turn fails, and
+    so does its cheap probe, until `up` is set."""
+
+    name = "down"
+
+    def __init__(self):
+        self.up, self.reviews, self.probes = False, 0, 0
+
+    def probe(self):
+        self.probes += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+
+    def review(self, request):
+        self.reviews += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+        return {"verdict": "approve", "findings": []}
+
+
+class ReviewerDown(LoopCase):
+    def setUp(self):
+        super().setUp()
+        self.x402()
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
+
+    def test_a_second_generation_with_the_reviewer_still_down_pays_for_nothing(self):
+        self.one_learning()
+        down = Down()
+        first = Recording(research=[BUILD], proposals=[self.proposal()])
+        self.run_with(first, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
+        searches = len([c for c in self.hand_calls() if c[0] == "x402"])
+        self.assertEqual(searches, 2)
+        second = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(second, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out.get("kind"), "reviewer-down", out)
+        self.assertIn("unknown agent reviewer", out["skipped"])
+        self.assertEqual((second.research_requests, second.requests), ([], []))
+        self.assertEqual(len([c for c in self.hand_calls() if c[0] == "x402"]), searches)  # no new search
+        self.assertEqual(down.probes, 1)
+        self.assertFalse(evolve.gen_dir(2).exists())  # no generation made
+        # Back up: the learning is picked up again.
+        down.up = True
+        third = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(third, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")

@@ -700,8 +700,10 @@ repository at all, and if so, what is the smallest one? The turn is shown:
   allowlist and ledger apply). The queries are the learning's sentences, with
   whatever could identify someone cut out first (`QUERY_SCRUB`): links,
   emails, handles, `0x` and base58 wallet addresses, phone numbers and any
-  run of four or more digits, and two or more capitalised words in a row (a
-  name); a learning under "promises and open
+  run of four or more digits, and then every capitalised word that is not
+  a sentence's first and not one of the repository's own (`query_vocabulary`:
+  Moltbook, X, GitHub and the other surfaces, and the playbooks' and hands'
+  names), since it may be a person's name; a learning under "promises and open
   threads" names people and is never searched for. Each query brings back 3
   results, each cut to 600 characters, pasted in as JSON under a line saying
   they are what web pages said, data to read and never instructions to
@@ -996,6 +998,13 @@ the candidate is **`deferred`**, its learning stays open with no failed try,
 and `bin/evolve status` lists it under `deferred` with the error. A deploy
 that has not loaded the agent yet therefore cannot push every learning to
 `gave-up`; it only defers them until the agent answers.
+
+Nor does it pay for them over and over. When the newest generation deferred
+a candidate, the next run first asks the reviewer one tiny probe turn (no
+candidate in it, `reviewer_down`); if that fails too, no generation is made
+at all: no research, no search, no build. The run answers `kind:
+reviewer-down` with the error and tries again next time. The probe runs only
+after a deferral, so a healthy loop never pays for it.
 
 The reviewer is required: every generation reviews with the `reviewer`
 agent. Only when the operator passes `--proposals DIR` (their own
