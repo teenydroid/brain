@@ -852,6 +852,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
 | no binary files | the diff adds or changes a binary file |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
+| hands/lib holds only teeny_hands | **hard**: the diff adds or changes anything directly under `hands/lib/` that is not under `hands/lib/teeny_hands/` (`hands/lib/argparse.py`, `hands/lib/json/`): every hand and `bin/doctor --root` put `hands/lib` first on the import path, so such a file would run in place of the standard library under frozen code |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
 | frozen hands' entry points | the diff changes an existing `hands/<name>` that loads a frozen module (`hands/git` runs `teeny_hands.git_cli`): a rewritten shim would step around the frozen code, so it stays as it is. The doctor isn't run then |
 | changed hands have tests | the diff changes an existing hand (its `hands/<name>` or its code under `hands/lib/teeny_hands/`) and none of its tests (`hands/tests/test_<name>.py` or `hands/tests/<name>/`) |
@@ -871,12 +872,10 @@ frozen may now change; the frozen ones (`evals/frozen.txt`: guard, x,
 wallet, babysit and the rest) are still refused by the hard gate, and their
 code never runs here. The entry point of a hand whose code is frozen but
 whose shim is not (`hands/git`, `hands/stimuli`, `hands/brief`) still may
-not change ("frozen hands' entry points"). When the diff changes an existing hand, the doctor
-runs with none of `bin/evolve`'s environment (`sealed_env`). It runs no
-code the candidate may write: `bin/doctor --root` imports only frozen
-modules from the candidate's `hands/lib` (`websites`, `guard`, `hand`, `x`,
-`x402`, `surplus`, which the hard gate proved are main's) and runs its
-`hands/git`, whose change is refused above.
+not change ("frozen hands' entry points"), and nothing but `teeny_hands/`
+may be added or changed directly under `hands/lib/` (a hard check, below). How
+the doctor runs, and where the hand tests run, is under "The hand-test
+sandbox".
 
 #### The hand-test sandbox
 
