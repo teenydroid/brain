@@ -419,7 +419,6 @@ class CommentTest(Scratch, Refusing):
 
     def test_a_known_comment_id_whose_post_is_unknown_says_so(self):
         conn = hand.open_db(rules.SCHEMA)
-        conn.execute("CREATE TABLE IF NOT EXISTS moltbook_held (comment_id TEXT PRIMARY KEY, post_id TEXT, hold_id INTEGER, at REAL)")
         from teeny_hands import stimuli
 
         stimuli.add("moltbook", "comment", self.THEIRS, "hi", payload={"on_own_post": False})
