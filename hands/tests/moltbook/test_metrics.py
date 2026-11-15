@@ -214,6 +214,27 @@ class DailyTest(Scratch):
         self.assertEqual(got["post_score_24h_median_7d"], 8.0)  # a, b, c: the hidden one and the old ones are out
         self.assertEqual((got["posts_10_plus_14d"], got["posts_50_plus_14d"]), (3.0, 2.0))
 
+    def test_a_post_moltbook_shows_hidden_is_out_of_the_scores(self):
+        # The ledger says verified; the metrics rows say Moltbook hides it.
+        for name, score, status in (("a", 4, "verified"), ("b", 12, "verified"), ("hidden", 0, "pending")):
+            self.post(name, 2 * DAY)
+            self.measured("post", name, 24, score, status=status)
+        self.measured("post", "hidden", 72, 60, status="pending")
+        got = metrics.daily()
+        self.assertEqual(got["post_score_24h_median_7d"], 8.0)
+        self.assertEqual((got["posts_10_plus_14d"], got["posts_50_plus_14d"]), (1.0, 0.0))
+
+    def test_a_failed_profile_read_leaves_only_the_thread_numbers_out(self):
+        # No configured name: own_thread_replies needs /agents/me, and its
+        # failure must not take the ledger's own numbers down with it.
+        self.configure(MOLTBOOK_AGENT_NAME=None)
+        self.mb.route("GET", "/agents/me", {"success": False, "error": "down"}, status=500)
+        self.post("mine", HOUR)
+        got = metrics.daily()
+        self.assertEqual(got["live_posts_24h"], 1.0)
+        self.assertNotIn("own_thread_unanswered", got)
+        self.assertNotIn("own_thread_comments", got)
+
     def test_comments_split_by_whose_post(self):
         self.post("mine", 2 * DAY)
         self.comment("c1", "mine", HOUR, parent_id="o1")
