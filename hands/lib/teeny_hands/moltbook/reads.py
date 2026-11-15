@@ -6,6 +6,7 @@ and long strings are clipped, since what a reader gets is model context."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from .. import hand
@@ -31,6 +32,7 @@ CACHE = ReadCache(
         "submolts": HOUR,
         "submolt": HOUR,
         "study": 6 * HOUR,
+        "peer": 10 * MINUTE,
     },
     "MOLTBOOK_CACHE_ENABLED",
 )
@@ -176,6 +178,8 @@ def _brief(post: Mapping[str, Any]) -> Json:
         "content": content[:BRIEF_CHARS] if isinstance(content, str) else None,
         "author": _name(post.get("author")),
         "submolt": _name(post.get("submolt")),
+        "author_karma": _author_number(post, "karma"),
+        "author_followers": _author_number(post, "followerCount", "follower_count"),
         "score": post.get("score"),
         "comment_count": post.get("comment_count"),
         "created_at": post.get("created_at"),
@@ -183,24 +187,246 @@ def _brief(post: Mapping[str, Any]) -> Json:
     return {k: v for k, v in out.items() if v is not None}
 
 
-def feed(submolt: str | None, sort: str, max_results: int, api: RestApi | None = None, brief: bool = False) -> Json:
+def _author_number(post: Mapping[str, Any], *keys: str) -> int | None:
+    author = post.get("author")
+    if isinstance(author, Mapping):
+        for key in keys:
+            value = author.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return int(value)
+    return None
+
+
+def _when(value: Any) -> float | None:
+    """An ISO time as Moltbook writes it ("2026-11-15T06:00:22.128Z") in
+    epoch seconds; None when it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.timestamp()
+
+
+def age_hours(post: Mapping[str, Any]) -> float | None:
+    """How old a post is, in hours, by its `created_at`; None when unknown."""
+    at = _when(post.get("created_at"))
+    return None if at is None else max(0.0, (hand.now() - at) / HOUR)
+
+
+#: Posts a filtered feed reads from each submolt before filtering: the newest
+#: 50 of m/general span well under an hour.
+FILTER_FETCH = 50
+
+
+def _teenys(api: RestApi | None) -> tuple[str, set[str]]:
+    """Teeny's own name (lowercase) and the posts it has written or already
+    commented on, from the ledger (any status the caps count)."""
+    from . import rules  # rules is the ledger's owner; imported late, as it imports nothing of ours
+
+    conn = rules.db()
+    marks = ",".join("?" * len(rules.COUNTED))
+    seen = {r[0] for r in conn.execute(f"SELECT post_id FROM moltbook_comments WHERE status IN ({marks})", rules.COUNTED)}
+    seen |= {r[0] for r in conn.execute("SELECT post_id FROM moltbook_posts WHERE post_id IS NOT NULL")}
+    return me_name(api).lower(), {str(p) for p in seen if p}
+
+
+def _kept(posts: list[Any], filters: Mapping[str, Any], api: RestApi | None) -> list[Mapping[str, Any]]:
+    """`posts` that pass every filter given. A post whose age or author karma
+    is unknown fails a filter on it: nothing unknown gets through."""
+    max_age = filters.get("max_age_hours")
+    max_karma = filters.get("max_author_karma")
+    min_karma = filters.get("min_author_karma")
+    max_comments = filters.get("max_comments")
+    me, seen = _teenys(api) if filters.get("skip_mine") else ("", set())
+    out = []
+    for post in posts:
+        if not isinstance(post, Mapping):
+            continue
+        if max_age is not None:
+            age = age_hours(post)
+            if age is None or age > max_age:
+                continue
+        karma = _author_number(post, "karma")
+        if (max_karma is not None or min_karma is not None) and karma is None:
+            continue
+        if max_karma is not None and karma > max_karma:
+            continue
+        if min_karma is not None and karma < min_karma:
+            continue
+        if max_comments is not None:
+            count = post.get("comment_count")
+            if not isinstance(count, int) or count > max_comments:
+                continue
+        if filters.get("skip_mine"):
+            author = _name(post.get("author"))
+            if (isinstance(author, str) and author.lower() == me) or str(post.get("id")) in seen:
+                continue
+        out.append(post)
+    return out
+
+
+def _newest_first(posts: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    return sorted(posts, key=lambda p: _when(p.get("created_at")) or 0.0, reverse=True)
+
+
+FILTERS = ("max_age_hours", "max_author_karma", "min_author_karma", "max_comments", "skip_mine")
+
+
+def feed(
+    submolt: str | list[str] | None,
+    sort: str,
+    max_results: int,
+    api: RestApi | None = None,
+    brief: bool = False,
+    **filters: Any,
+) -> Json:
     """A feed as Moltbook sends it. `brief` keeps at most `max_results`
     posts, each cut down (`_brief`), small enough to be a playbook's input
-    or ride in a nudge; Moltbook's own answer runs to kilobytes a post."""
+    or ride in a nudge; Moltbook's own answer runs to kilobytes a post.
+
+    `submolt` may name several submolts: each is read (one request, cached
+    like any feed) and the posts are merged, newest first. `filters` (any of
+    FILTERS) drop posts before the cut: older than `max_age_hours`, by an
+    author above `max_author_karma` or below `min_author_karma`, with more
+    than `max_comments` comments, and (`skip_mine`) Teeny's own posts and
+    those it already commented on, by the ledger. With a filter, each submolt
+    is read FILTER_FETCH deep and at most `max_results` posts are kept."""
     if sort not in SORTS:
         raise hand.HandError(f"--sort is one of {', '.join(SORTS)}")
-    name = client.submolt_name(submolt, "--submolt") if submolt else None
+    unknown = set(filters) - set(FILTERS)
+    if unknown:
+        raise TypeError(f"feed() got unknown filters {sorted(unknown)}")
+    filters = {k: v for k, v in filters.items() if v is not None and v is not False}
+    asked = submolt if isinstance(submolt, list) else [submolt] if submolt else []
+    names = list(dict.fromkeys(client.submolt_name(s, "--submolt") for s in asked))
+    if len(names) > 1 or filters:
+        return _merged(names, sort, max_results, api, brief, filters)
+    name = names[0] if names else None
     query = [("sort", sort), ("limit", str(max_results))]
     path = f"/submolts/{quote(name)}/feed" if name else "/posts"
     got = CACHE.cached("feed", (name, sort, max_results), lambda: _get(api, path, query))
     out: Json = {"posts": _pick(got, "posts", "data")}
     if brief:
         posts = out["posts"] if isinstance(out["posts"], list) else []
-        out["posts"] = [_brief(p) for p in posts[:max_results] if isinstance(p, Mapping)]
+        out["posts"] = [_brief(_in(p, name)) for p in posts[:max_results] if isinstance(p, Mapping)]
     elif isinstance(got, Mapping) and got.get("next_cursor"):
         out["next_cursor"] = got["next_cursor"]
     if name:
         out["submolt"] = name
+    return out
+
+
+def _in(post: Mapping[str, Any], name: str | None) -> Mapping[str, Any]:
+    """A submolt's own feed leaves the submolt off each post; it is put back."""
+    return {**post, "submolt": name} if name and post.get("submolt") is None else post
+
+
+def _merged(names: list[str], sort: str, max_results: int, api: RestApi | None, brief: bool, filters: Mapping[str, Any]) -> Json:
+    fetch = FILTER_FETCH if filters else max_results
+    posts: list[Any] = []
+    errors: list[Json] = []
+    for name in names or [None]:
+        query = [("sort", sort), ("limit", str(fetch))]
+        path = f"/submolts/{quote(name)}/feed" if name else "/posts"
+        try:
+            got = CACHE.cached("feed", (name, sort, fetch), lambda path=path, query=query: _get(api, path, query))
+        except RestError as error:
+            errors.append({"submolt": name, "error": str(error)})
+            if error.status == 429:
+                break
+            continue
+        listed = _pick(got, "posts", "data")
+        posts += [_in(p, name) for p in listed if isinstance(p, Mapping)] if isinstance(listed, list) else []
+    if errors and not posts:
+        raise hand.HandError("; ".join(f"{e['submolt'] or 'all'}: {e['error']}" for e in errors))
+    first: dict[str, Mapping[str, Any]] = {}
+    for p in posts:
+        first.setdefault(str(p.get("id")), p)
+    unique = list(first.values())
+    kept = _newest_first(_kept(unique, filters, api) if filters else unique)[:max_results]
+    out: Json = {"posts": [_brief(p) for p in kept] if brief else kept, "seen": len(unique)}
+    if names:
+        out["submolts"] = names
+    if filters:
+        out["filters"] = dict(filters)
+    if errors:
+        out["errors"] = errors
+    return out
+
+
+#: Teeny's peers: one Moltbook agent name a line, `#` starts a comment. Teeny
+#: may edit it (it is under brain/, not frozen).
+PEERS_FILE = "brain/moltbook-peers.txt"
+#: At most this many peers are read a call (one request each), so a long
+#: list cannot run past Moltbook's request limits.
+PEERS_MAX = 20
+
+
+def peer_names() -> tuple[list[str], list[str]]:
+    """The peers file's names, in order and once each, and the lines that
+    are not agent names (left out, and said so)."""
+    path = hand.root() / PEERS_FILE
+    try:
+        lines = path.read_text().splitlines()
+    except FileNotFoundError:
+        return [], []
+    names: list[str] = []
+    skipped: list[str] = []
+    for line in lines:
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        try:
+            name = client.agent_name(text)
+        except hand.HandError:
+            skipped.append(text[:60])
+            continue
+        if name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names, skipped
+
+
+def peers(per_peer: int = 2, api: RestApi | None = None, brief: bool = True, **filters: Any) -> Json:
+    """Each peer's newest `per_peer` posts (`/posts?author=NAME&sort=new`,
+    cached 10 minutes), through the same `filters` as `feed`, newest first.
+    A post Moltbook returns that is not by that peer is dropped, so the read
+    never turns into the global feed if the author filter is ignored."""
+    unknown = set(filters) - set(FILTERS)
+    if unknown:
+        raise TypeError(f"peers() got unknown filters {sorted(unknown)}")
+    filters = {k: v for k, v in filters.items() if v is not None and v is not False}
+    names, skipped = peer_names()
+    out: Json = {"peers": names[:PEERS_MAX]}
+    if len(names) > PEERS_MAX:
+        out["not_read"] = names[PEERS_MAX:]
+    if skipped:
+        out["skipped"] = skipped
+    posts: list[Mapping[str, Any]] = []
+    errors: list[Json] = []
+    for name in names[:PEERS_MAX]:
+        query = [("author", name), ("sort", "new"), ("limit", str(per_peer))]
+        try:
+            got = CACHE.cached("peer", (name.lower(), per_peer), lambda query=query: _get(api, "/posts", query))
+        except RestError as error:
+            errors.append({"peer": name, "error": str(error)})
+            if error.status == 429:
+                break
+            continue
+        listed = _pick(got, "posts", "data")
+        for post in listed if isinstance(listed, list) else []:
+            author = _name(post.get("author")) if isinstance(post, Mapping) else None
+            if isinstance(author, str) and author.lower() == name.lower():
+                posts.append(post)
+    kept = _newest_first(_kept(posts, filters, api) if filters else posts)
+    out["posts"] = [_brief(p) for p in kept] if brief else kept
+    if filters:
+        out["filters"] = dict(filters)
+    if errors:
+        out["errors"] = errors
     return out
 
 
