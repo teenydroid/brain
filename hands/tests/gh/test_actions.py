@@ -462,3 +462,42 @@ class IssueTest(Scratch):
         for body in ({"repo": "teenydroid/brain"}, {"repo": "teenydroid/brain", "number": 0}, {"repo": "teenydroid/brain", "number": 1, "comment": 5}):
             with self.assertRaises(hand.HandError, msg=body):
                 actions.close_issue(body)
+
+
+class SetStatusTest(Scratch):
+    """bin/evolve's `teeny/eval` on a candidate's head: what the babysitter
+    reads before it merges a teeny/gen-* pull request."""
+
+    SHA = "a" * 40
+
+    def body(self, **more):
+        return {"repo": "teenydroid/brain", "sha": self.SHA, "state": "success", "context": "teeny/eval",
+                "description": "pass: no regression on 3 task(s) it reaches", **more}
+
+    def test_sets_the_status_on_an_own_repo_and_records_it(self):
+        self.gh.route("POST", f"/repos/teenydroid/brain/statuses/{self.SHA}",
+                      {"id": 9, "state": "success", "context": "teeny/eval"}, status=201)
+        out = actions.set_status(self.body())
+        self.assertEqual((out["state"], out["context"], out["id"]), ("success", "teeny/eval", 9))
+        sent = self.gh.requests("POST", f"/repos/teenydroid/brain/statuses/{self.SHA}")[0].json()
+        self.assertEqual(sent, {"state": "success", "context": "teeny/eval",
+                                "description": "pass: no regression on 3 task(s) it reaches"})
+        self.assertEqual([(r["verb"], r["ref"]) for r in ledger()], [("set-status", self.SHA)])
+
+    def test_only_an_own_repo_a_teeny_context_a_known_state_and_a_full_sha(self):
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body(repo="tinyhumansai/openhuman"))
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body(context="ci/build"))
+        with self.assertRaises(hand.HandError):
+            actions.set_status(self.body(state="merged"))
+        with self.assertRaises(hand.HandError):
+            actions.set_status(self.body(sha="abc123"))
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_dry_run_sets_nothing(self):
+        self.configure(DRY_RUN="1")
+        out = actions.set_status(self.body())
+        self.assertTrue(out["dry_run"])
+        self.assertEqual(self.gh.writes(), [])
+        self.assertEqual(ledger(), [])
