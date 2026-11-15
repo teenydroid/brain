@@ -200,3 +200,78 @@ class LinkAllowlistSettingTest(support.Scratch):
 
     def test_is_the_built_in_list_when_unset(self):
         self.assertEqual(configured_allowlist(), allowlist())
+
+
+class OwnWorkAndNewsTest(unittest.TestCase):
+    """Teeny's own code and site, and the news it cites
+    (docs/audit/moltbook-plan.md, §5): the links two Moltbook posts were
+    refused for on 2026-11-14, and the look-alikes that must still be cut."""
+
+    def test_allows_teenys_own_code_and_site(self):
+        for url in [
+            "https://github.com/teenydroid",
+            "https://github.com/teenydroid/refusal-ledger",
+            "github.com/teenydroid/brain/pull/250",
+            "https://teeny.enamakel.com",
+            "https://teeny.enamakel.com/diary",
+            "https://x402.teeny.enamakel.com/stats",
+        ]:
+            self.assertIs(verdict(url), ALLOWED, url)
+
+    def test_allows_the_news_sources_on_the_list(self):
+        for url in [
+            # Refused 2026-11-14 in a Moltbook post on the FAA ground stop.
+            "https://www.nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop-departing-flights-reasons-safety-rcna609247",
+            "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=11142026&advn=5",
+            "https://news.ycombinator.com/item?id=46000000",
+            "https://lobste.rs/s/abc123",
+            "https://arxiv.org/abs/2611.01234",
+            "https://www.reuters.com/technology/x",
+            "https://apnews.com/article/x",
+            "https://www.bbc.com/news/x",
+            "https://www.bbc.co.uk/news/x",
+            "https://arstechnica.com/ai/2026/11/x/",
+            "https://www.theverge.com/ai/x",
+        ]:
+            self.assertIs(verdict(url), ALLOWED, url)
+
+    def test_still_refuses_what_is_not_on_the_list(self):
+        for url in [
+            # Refused 2026-11-14, and still refused: a local station, and a
+            # company that runs a token (Brave's BAT).
+            "https://www.fox5dc.com/news/amtrak-outage-ticket-booking-faa-ground-stop-november-13-2026",
+            "https://brave.com/blog/search-api-agentic-payments/",
+            "https://github.com/someone-else/repo",
+            "https://github.com/teenydroid-fake/repo",
+            "https://teenydroid.github.io/",
+            "https://enamakel.com/",
+            "https://bit.ly/3abcd",
+            "https://pastebin.com/abcd",
+            "https://dexscreener.com/solana/abc",
+        ]:
+            self.assertIsNot(verdict(url), ALLOWED, url)
+
+    def test_is_not_fooled_by_lookalikes_of_the_new_entries(self):
+        for url in [
+            "https://github.com.evil.example/teenydroid",
+            "https://teenydroid.github.io.evil.example/",
+            "https://evil.example/github.com/teenydroid",
+            "https://teeny.enamakel.com.evil.example/",
+            "https://evilteeny.enamakel.com.example/",
+            "https://notteeny.enamakel.com/",
+            "https://nbcnews.com.evil.example/",
+            "https://evil.example/www.reuters.com/",
+            "https://reuters.com@evil.example/",
+            "https://www.reuters.com:8443/",
+            "https://reuters.co/",
+            "https://faa.gov.evil.example/",
+        ]:
+            self.assertIsNot(verdict(url), ALLOWED, url)
+
+    def test_a_moltbook_post_with_the_refused_sources_now_goes_out_but_for_the_one_still_off_the_list(self):
+        body = ("faa ground stop: https://www.nbcnews.com/news/us-news/faa-orders-nationwide-ground-stop "
+                "and the advisory https://www.fly.faa.gov/adv/adv_otherdis?adv_date=11142026&advn=5 "
+                "and https://www.fox5dc.com/news/amtrak-outage")
+        result = filter_links(body, allowlist())
+        self.assertEqual([r["link"] for r in result.removed], ["https://www.fox5dc.com/news/amtrak-outage"])
+        self.assertEqual(len(result.kept), 2)
