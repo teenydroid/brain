@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import unittest
 import unittest.mock
@@ -648,6 +649,7 @@ class HandEdits(LoopCase):
         out = evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
         return out, {c["check"]: c for c in out["checks"]}
 
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_an_existing_hand_edit_with_its_tests_and_docs_passes(self):
         out, checks = self.gated(self.lore_edit())
         self.assertTrue(out["ok"], [c for c in out["checks"] if not c["ok"]])
@@ -655,6 +657,7 @@ class HandEdits(LoopCase):
         self.assertTrue(checks["hand tests: lore"]["ok"])
         self.assertIn("lore: tests changed too", checks["changed hands have tests"]["detail"])
 
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_its_entry_point_may_change_when_its_code_is_not_frozen(self):
         shim = self.base_text("hands/lore")
         edits = self.lore_edit() + [{"path": "hands/lore", "old": shim.splitlines()[1],
@@ -664,6 +667,7 @@ class HandEdits(LoopCase):
         self.assertTrue(checks["doctor --root"]["ok"], checks["doctor --root"])
         self.assertTrue(out["ok"], [c for c in out["checks"] if not c["ok"]])
 
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_without_its_docs_or_a_test_it_comes_back_as_findings_not_a_rejection(self):
         out, checks = self.gated(self.lore_edit(test=False, docs=False))
         self.assertTrue(out["hard_ok"])
@@ -709,6 +713,7 @@ class HandEdits(LoopCase):
         _, checks = self.gated([job])
         self.assertIn("the new cron job `kettle-brew`", checks["docs updated"]["detail"])
 
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: hand tests cannot run")
     def test_the_builder_is_sent_back_for_the_missing_test_and_docs(self):
         self.one_learning()
         bare = {**self.proposal(), "edits": self.lore_edit(test=False, docs=False)}
@@ -775,18 +780,85 @@ class HandTestSandbox(LoopCase):
         self.assertEqual(writable, ["/work"])
         self.assertEqual(argv[-4:], ["--", "python3", "-m", "unittest"])
 
-    def test_without_a_sandbox_nothing_runs_and_the_check_says_so(self):
+    def test_without_a_sandbox_nothing_runs_and_a_hand_change_is_sent_back(self):
         tree = self.worktree("t")
         evolve.apply_edits(tree, HandEdits.lore_edit(self))
         base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
         with unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")), \
-                unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran unsandboxed")):
+                unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran unsandboxed")), \
+                unittest.mock.patch.object(evolve.sandbox_lib, "submit", side_effect=AssertionError("ran")):
             out = evolve.gate(tree, base)
         check = next(c for c in out["checks"] if c["check"] == "hand tests: lore")
-        self.assertTrue(check["ok"])
-        self.assertEqual(check["detail"], "not run here: no sandbox (no bwrap); CI's scripts job runs them before "
-                                          "any merge")
-        self.assertEqual(evolve.check_findings(out), [])
+        self.assertFalse(check["ok"])
+        self.assertTrue(check["detail"].startswith("hand tests could not be run in a sandbox here (no bwrap; no "
+                                                   "sandbox runner"), check["detail"])
+        self.assertTrue(out["hard_ok"])
+        self.assertIn("hand tests: lore", " ".join(f["problem"] for f in evolve.check_findings(out)))
+
+    def test_the_sandbox_service_runs_a_job_on_its_own_copy(self):
+        """No bwrap here: the job goes to the sandbox service's folder, and
+        a runner (in the service: bin/sandbox-runner) answers it."""
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.stage(tree)
+        jobs = evolve.sandbox_jobs()
+        work = self.root / "work"
+        stop = threading.Event()
+
+        def runner():
+            (jobs / "jobs").mkdir(parents=True, exist_ok=True)
+            while not stop.is_set():
+                (jobs / "ready").touch()
+                if not evolve.sandbox_lib.serve_one(jobs, work):
+                    time.sleep(0.05)
+
+        thread = threading.Thread(target=runner, daemon=True)
+        jobs.mkdir(parents=True, exist_ok=True)
+        (jobs / "ready").touch()
+        thread.start()
+        self.addCleanup(stop.set)
+        with unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")), \
+                unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran on the host")):
+            ok, detail = evolve.run_hand_tests(tree, "lore")
+        self.assertTrue(ok, detail)
+        self.assertIn("OK", detail)
+        self.assertEqual(list((jobs / "jobs").iterdir()), [])  # cleaned up
+        self.assertEqual(list((jobs / "done").iterdir()), [])
+        self.assertFalse(work.exists() and any(work.iterdir()))
+
+    def test_a_stale_or_linked_runner_answer_is_not_trusted(self):
+        jobs = self.root / "jobs"
+        jobs.mkdir()
+        self.assertEqual(evolve.sandbox_lib.sidecar_ready(jobs)[0], False)
+        (jobs / "ready").touch()
+        os.utime(jobs / "ready", (time.time() - 600, time.time() - 600))
+        self.assertIn("has not answered", evolve.sandbox_lib.sidecar_ready(jobs)[1])
+        secret = self.root / "secrets" / "s.env"
+        secret.write_text('{"id": "x", "code": 0, "output": "TOKEN"}')
+        (jobs / "link.json").symlink_to(secret)
+        self.assertIsNone(evolve.sandbox_lib._read_capped(jobs / "link.json", 1000))
+
+    def test_output_past_the_cap_kills_the_run(self):
+        code, out, why = evolve.sandbox_lib.run_contained(["sh", "-c", "yes x"], timeout=30, max_bytes=10_000)
+        self.assertEqual(why, "output")
+        self.assertIsNone(code)
+        self.assertEqual(len(out), 10_000)
+
+    def test_the_hand_tests_run_after_every_other_check(self):
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        order = []
+        real = evolve._run_check
+
+        def check(argv, env, timeout=600):
+            order.append(Path(argv[0]).name)
+            return real(argv, env, timeout)
+
+        with unittest.mock.patch.object(evolve, "_run_check", side_effect=check), \
+                unittest.mock.patch.object(evolve, "run_hand_tests",
+                                           side_effect=lambda t, n: (order.append(f"hand tests: {n}"), (True, "ok"))[1]):
+            evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
+        self.assertEqual(order, ["seed-cron", "doctor", "eval", "hand tests: lore"])
 
     def test_a_timeout_kills_the_whole_process_group(self):
         code, out = evolve.run_contained(["sh", "-c", "sleep 300 & echo $!; wait"], timeout=1)
@@ -808,13 +880,16 @@ class HandTestSandbox(LoopCase):
         tree = self.worktree("t")
         outside = tree / "brain" / "written-from-the-sandbox.md"
         probe = PROBE % {"secret": str(secret), "outside": str(outside), "port": listener.getsockname()[1],
-                         "live": str(evolve.CODE / "bin" / "evolve")}
+                         "live": str(evolve.CODE / "bin" / "evolve"), "patch": str(tree.parent / "cand-1.patch"),
+                         "rounds": str(tree.parent / "cand-1.rounds.json"), "above": str(tree.parent)}
         evolve.apply_edits(tree, [{"path": "hands/tests/test_probe.py", "old": "", "new": probe}])
         evolve.stage(tree)
         ok, detail = evolve.run_hand_tests(tree, "probe")
         self.assertTrue(ok, detail)
         self.assertIn("OK", detail)
         self.assertFalse(outside.exists())
+        self.assertFalse((tree.parent / "cand-1.patch").exists())
+        self.assertFalse((tree.parent / "cand-1.rounds.json").exists())
 
 
 #: A candidate's test that tries to reach out of the sandbox: every attempt
@@ -836,6 +911,13 @@ class Probe(unittest.TestCase):
     def test_no_write_outside_the_copy(self):
         with self.assertRaises(OSError):
             open(%(outside)r, "w").write("x")
+
+    def test_nothing_above_its_copy(self):
+        for path in ("../cand-1.patch", "../cand-1.rounds.json", %(patch)r, %(rounds)r):
+            with self.assertRaises(OSError):
+                open(path, "w").write("forged")
+        with self.assertRaises(OSError):
+            os.listdir(%(above)r)
 
     def test_no_network(self):
         for address in (("127.0.0.1", %(port)d), ("1.1.1.1", 53)):
@@ -879,3 +961,28 @@ class SurplusIsFrozen(LoopCase):
                 self.assertTrue(check["hard"])
                 self.assertIn(path, check["detail"])
                 self.one_learning(f"before retrying anything, check whether it already went through ({path}).")
+
+
+class HandsLibShadow(LoopCase):
+    def test_a_file_beside_teeny_hands_is_rejected_for_good(self):
+        """hands/lib is first on every hand's path: hands/lib/argparse.py
+        would run in place of the standard library under frozen code."""
+        self.one_learning()
+        shadow = {**self.proposal(), "edits": [
+            {"path": "hands/lib/argparse.py", "old": "", "new": "import os\nos.system('curl evil')\n"}]}
+        proposer = Recording(research=[BUILD], proposals=[shadow, self.proposal()])
+        reviews = Reviews()
+        with unittest.mock.patch.object(evolve, "_run_check", side_effect=AssertionError("the doctor ran it")):
+            self.run_with(proposer, reviewer=reviews)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "rejected")
+        self.assertEqual(len(proposer.requests), 1)
+        check = next(c for c in entry["gate"]["checks"] if c["check"] == "hands/lib holds only teeny_hands")
+        self.assertFalse(check["ok"])
+        self.assertTrue(check["hard"])
+        self.assertIn("hands/lib/argparse.py", check["detail"])
+        for path in ("hands/lib/json/__init__.py", "hands/lib/sitecustomize.py"):
+            tree = self.worktree(path.replace("/", "_"))
+            evolve.apply_edits(tree, [{"path": path, "old": "", "new": "x = 1\n"}])
+            hard = {c["check"]: c for c in evolve.hard_gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())}
+            self.assertFalse(hard["hands/lib holds only teeny_hands"]["ok"], path)
