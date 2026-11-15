@@ -1021,7 +1021,14 @@ class AskProposer:
         parse (gen 3's "Unterminated string": an answer cut short, which a
         second turn usually is not). A turn that fails outright is not
         retried."""
-        message = render_request(fit_request(request))
+        return self._json_turn(request, render_request(fit_request(request)))
+
+    def research(self, request: Json) -> Any:
+        """The research turn (research_one): the same tool-less turn, shown
+        the same files, answering whether the learning is worth a change."""
+        return self._json_turn(request, render_research_request(fit_request(request, render=render_research_request)))
+
+    def _json_turn(self, request: Json, message: str) -> Any:
         try:
             return first_json(self._turn(request, message))
         except EvolveError as exc:
@@ -1060,6 +1067,17 @@ class FileProposer:
         except (OSError, ValueError) as exc:
             raise EvolveError(f"{path}: {exc}") from None
 
+    def research(self, request: Json) -> Any:
+        """DIR/cand-<i>.research.json when it is there; without it the
+        operator's proposal is built with no research (None)."""
+        path = self.folder / f"cand-{request['cand']}.research.json"
+        if not path.is_file():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise EvolveError(f"{path}: {exc}") from None
+
 
 class EvolverProposer:
     """Phase C's proposer: the `evolver` agent (brain/agents/evolver.toml,
@@ -1081,17 +1099,31 @@ class EvolverProposer:
         with held_lock("eval"):
             return self._propose(request, tree, folder, port)
 
-    def _propose(self, request: Json, tree: Path, folder: Path, port: int) -> Any:
+    def research(self, request: Json) -> Any:
+        """The research turn: the same agent on a lab spine over the worktree,
+        its file tools read-only (edit=False). It reads what it needs; the
+        worktree is put back as it was whatever the turn did (restore_tree)."""
+        tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-{request['cand']}"
+        port = self.cfg["EVOLVE_LAB_PORT"] + 10 + int(request["cand"])
+        before = snapshot(tree)
+        try:
+            with held_lock("eval"):
+                return self._propose(request, tree, folder, port, render_evolver_research(request), edit=False)
+        finally:
+            restore_tree(tree, before)
+
+    def _propose(self, request: Json, tree: Path, folder: Path, port: int, message: str | None = None,
+                 edit: bool = True) -> Any:
         try:
             lab = lab_lib.start(f"evolver-{request['cand']}", tree, folder, port, secrets_dir(),
-                                self.cfg["EVOLVE_LAB_BOOT_SECS"], edit=True)
+                                self.cfg["EVOLVE_LAB_BOOT_SECS"], edit=edit)
         except lab_lib.LabError as exc:
             raise EvolveError(f"the evolver's lab spine: {exc}") from None
         argv = [str(CODE / "bin" / "ask"), "--agent", self.cfg["EVOLVE_EVOLVER_AGENT"], "--cwd", str(tree),
                 "--thread", f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
         try:
-            done = subprocess.run(argv, input=render_evolver_request(request), capture_output=True, text=True,
-                                  env=code_env(**lab.env()), timeout=1800)
+            done = subprocess.run(argv, input=message or render_evolver_request(request), capture_output=True,
+                                  text=True, env=code_env(**lab.env()), timeout=1800)
         except subprocess.TimeoutExpired:
             raise EvolveError("the evolver's turn took over 1800 s") from None
         finally:
@@ -1245,17 +1277,19 @@ def render_evolver_request(request: Json) -> str:
 MAX_PROPOSER_PROMPT_BYTES = 60 * 1024
 
 
-def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES) -> Json:
-    """The request, cut until its message fits the core's prompt screen: the
-    largest shown files are dropped first, and the message names them (they
-    stay editable). A request that fits comes back as it is."""
-    if len(render_request(request).encode("utf-8")) <= limit:
+def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: Any = None) -> Json:
+    """The request, cut until its message (RENDER, render_request by
+    default) fits the core's prompt screen: the largest shown files are
+    dropped first, and the message names them (they stay editable). A
+    request that fits comes back as it is."""
+    render = render or render_request
+    if len(render(request).encode("utf-8")) <= limit:
         return request
     fitted = dict(request, files=dict(request["files"]), omitted=list(request.get("omitted", [])))
     for rel in sorted(fitted["files"], key=lambda r: len(fitted["files"][r].encode("utf-8")), reverse=True):
         del fitted["files"][rel]
         fitted["omitted"].append(rel)
-        if len(render_request(fitted).encode("utf-8")) <= limit:
+        if len(render(fitted).encode("utf-8")) <= limit:
             break
     return fitted
 
