@@ -741,12 +741,40 @@ def _tell_shipped(job: Json, result: Mapping[str, Any]) -> None:
     url = result["repo_url"]
     summary = (job.get("summary") or "").strip().splitlines()[:1]
     what = " ".join(summary[0].split())[:200] if summary else job["slug"]
-    _tell_the_mind("shipped", job,
-                   f"your build {job['repo']} (build {job['id']}, {what}) shipped and is public at {url}\n"
-                   "That is its exact address: when you post or reply about it, link it exactly as written above, "
-                   "never a link you guess from its name.",
-                   {"job_id": job["id"], "kind": job["kind"], "repo": job["repo"], "url": url,
-                    "repo_url": url, "commit_url": result.get("commit_url")})
+    payload = {"job_id": job["id"], "kind": job["kind"], "repo": job["repo"], "url": url,
+               "repo_url": url, "commit_url": result.get("commit_url")}
+    text = (f"your build {job['repo']} (build {job['id']}, {what}) shipped and is public at {url}\n"
+            "That is its exact address: when you post or reply about it, link it exactly as written above, "
+            "never a link you guess from its name.")
+    voiced = _moltbook_voices(job)
+    if voiced:
+        payload["moltbook"] = {"room": "builds", "voiced": voiced}
+        threads = "\n".join(f"- {v['agent']}: post_id {v['post_id']}"
+                            + (f", parent_id {v['comment_id']}" if v.get("comment_id") else "") for v in voiced)
+        text += ("\n\nIt was built for a problem agents named on Moltbook (moltbook-helpdesk filed it). Announce it "
+                 "there, once: a post_moltbook in submolt builds (or the room the problem was voiced in), format "
+                 "shipped, that says in a line what it does and for which problem, links the repository exactly as "
+                 "above, gives a setup someone can follow in five minutes from its README, and names one open issue "
+                 "someone could take (open it first with open_issue on the repository when it has none). Then one "
+                 "comment_moltbook in each thread below, saying what you built for that agent's stated problem and "
+                 "asking for one case where it fails. No other link, no ask to follow, nothing about tokens. A thread "
+                 "the hand refuses is skipped, never retried another way.\n" + threads)
+    _tell_the_mind("shipped", job, text, payload)
+
+
+def _moltbook_voices(job: Json) -> list[Json]:
+    """Where the problem behind a request was voiced on Moltbook
+    (moltbook/bridge.py), at most a few; none for any other request. A side
+    channel: an error reading it only leaves the threads out."""
+    if job.get("request_id") is None:
+        return []
+    try:
+        from ..moltbook import bridge
+
+        return bridge.voiced(int(job["request_id"]))[: bridge.MAX_VOICES]
+    except (hand.HandError, sqlite3.Error, ImportError) as exc:
+        print(f"build: could not read where job {job['id']}'s problem was voiced: {exc}", file=__import__("sys").stderr)
+        return []
 
 
 def _verify(job: Json) -> Json:

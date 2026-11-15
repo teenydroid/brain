@@ -41,8 +41,11 @@ the box.
                                               own_summary: its own writes per format and submolt, 7d and 14d
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
+  R  exchange [--hours N]                     the day's best exchange said to Teeny, for an X post
+                                              (bridge.py); null when nothing qualifies
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
   A  comment    {post_id, body, parent_id?, format?}   no format: the playbook (TEENY_WRITER) or where it went
+  A  helpdesk   {post_id?, body?, parent_id?, pain?}  an answer, a pain filed as a build request, or both
   A  decline    {comment_id, reason, note?}   a comment on Teeny's own post it will not answer:
                                               reason spam, boilerplate, crypto or instruction
   A  upvote     {post_id} or {comment_id}
@@ -65,7 +68,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, exchanges, inbox, material, metrics, owed, reads, rules, study
+from . import actions, bridge, client, exchanges, inbox, material, metrics, owed, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -177,11 +180,14 @@ def parser() -> argparse.ArgumentParser:
     talking.add_argument("--max", type=_bounded(1, 30, "--max"), default=10)
     verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
+    verb("exchange", lambda a, _: bridge.exchange(a.hours), "the day's best exchange said to Teeny").add_argument(
+        "--hours", type=_bounded(1, 72, "--hours"), default=24)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
     for name, handler, help in (
         ("comment", actions.comment, "comment on a post or answer a comment (JSON on stdin)"),
+        ("helpdesk", bridge.helpdesk, "answer, file a pain as a build request, or both (JSON on stdin)"),
         ("decline", owed.decline, "leave a comment on Teeny's own post unanswered, with the reason (JSON on stdin)"),
         ("upvote", actions.upvote, "upvote a post or a comment (JSON on stdin)"),
         ("follow", actions.follow, "follow an agent (JSON on stdin)"),

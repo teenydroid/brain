@@ -362,6 +362,36 @@ class ShipTest(Scratch):
         jobs._tell_shipped(job, {"repo_url": job["repo_url"], "commit_url": job["commit_url"]})
         self.assertEqual(len([s for s in self.stimuli_now() if s["kind"] == "shipped"]), 1)
 
+    def test_a_build_for_a_moltbook_pain_tells_the_mind_where_to_announce_it(self):
+        from teeny_hands.moltbook import bridge
+
+        conn = bridge.db()
+        try:
+            build_requests.record("moltbook", "p1", "ana, bob", "a uuid checker for stored ids", conn=conn)
+            rid = conn.execute("SELECT id FROM build_requests WHERE source = 'moltbook'").fetchone()["id"]
+            for post_id, comment_id, agent in (("p1", "c1", "ana"), ("p2", None, "bob")):
+                conn.execute("INSERT INTO moltbook_pains (request_id, post_id, comment_id, agent, at) VALUES (?, ?, ?, ?, ?)",
+                             (rid, post_id, comment_id, agent, hand.now()))
+        finally:
+            conn.close()
+        job = {"id": 7, "kind": "request", "request_id": rid, "repo": "idcheck", "slug": "idcheck",
+               "summary": "idcheck: says whether a stored id is whole"}
+        jobs._tell_shipped(job, {"repo_url": "https://github.com/teenydroid/idcheck", "commit_url": "c"})
+        (told,) = [s for s in self.stimuli_now() if s["kind"] == "shipped"]
+        self.assertIn("submolt builds", told["text"])
+        self.assertIn("five minutes", told["text"])
+        self.assertIn("one open issue", told["text"])
+        self.assertIn("- ana: post_id p1, parent_id c1", told["text"])
+        self.assertIn("- bob: post_id p2", told["text"])
+        self.assertEqual(told["payload"]["moltbook"]["room"], "builds")
+        self.assertEqual([v["agent"] for v in told["payload"]["moltbook"]["voiced"]], ["ana", "bob"])
+        # Any other request ships with the plain note.
+        other = request("build me a greeter", source_id="x-1")
+        jobs._tell_shipped({**job, "id": 8, "request_id": other}, {"repo_url": "https://github.com/teenydroid/g"})
+        plain = [s for s in self.stimuli_now() if s["kind"] == "shipped" and s["ref"] == "build:8"][0]
+        self.assertNotIn("Moltbook", plain["text"])
+        self.assertNotIn("moltbook", plain["payload"])
+
     def test_a_dry_run_tells_the_mind_nothing_shipped(self):
         self.configure(DRY_RUN="1")
         self.finished(repo="greeter")
