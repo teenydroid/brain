@@ -2205,12 +2205,29 @@ def doctor_red() -> str | None:
     return ", ".join(str(f) for f in failed[:5]) or "it failed"
 
 
+def doctor_recheck() -> None:
+    """Runs the doctor again (`bin/doctor --live`, or EVOLVE_DOCTOR in the
+    tests), which rewrites state/doctor.json. bin/spine writes that report
+    at boot alone, so a check that is red only for the minutes after a
+    restart (2026-11-15: a cron job the restart killed, its claim still
+    held) would otherwise hold every run until the next boot. A doctor that
+    cannot run leaves the report as it was."""
+    argv = [os.environ["EVOLVE_DOCTOR"]] if os.environ.get("EVOLVE_DOCTOR") else [str(CODE / "bin" / "doctor")]
+    try:
+        subprocess.run([*argv, "--live"], capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def halts_before(cfg: Config, new_generation: bool = True) -> list[Halt]:
     """What stops a run before it does anything. The day's cap counts only
     against starting a generation: finishing one a restart cut off is not
-    one more."""
+    one more. A red doctor report is checked again before it counts."""
     out = []
     red = doctor_red()
+    if red:
+        doctor_recheck()
+        red = doctor_red()
     if red:
         out.append(Halt("doctor", f"the last doctor report (state/doctor.json) is not green: {red}", latch=False))
     if fallback_path().exists():
