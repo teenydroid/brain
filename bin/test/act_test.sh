@@ -508,6 +508,19 @@ check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
 check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
+# --- a hand verb with a sub-verb: hands/x peers suggest --------------------------------
+# The peer-quote playbook hands its scored suggestions to `hands/x peers suggest`,
+# which keeps them all and posts the top one only when it clears the bar.
+reset
+printf '+++\ndescription = "test"\noutput = "hand:x peers suggest"\nmedia = ["image"]\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "my evals caught 3", "relevance": 5, "why": "w", "source": "s", "format": "quote"}], "image": "teeny waving at a lighthouse"}'
+out="$(run peer-quote)"
+check "a hand: output may name a sub-verb, given to the hand as two words" \
+  grep -q '^x peers suggest DRY_RUN= stdin={"candidates":\[{"quote_of":"201","text":"my evals caught 3","relevance":5,"why":"w","source":"s","format":"quote"}\],"media_ids":\["1234567890"\]}$' "$FAKE_HANDS"
+check "the suggestions carry no text of their own for bin/act's guard (publish guards the one it posts)" test "$(hand_calls guard)" = 1
+check "and the action is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "--check takes the sub-verb" test "$("$act" --check peer-quote | jq -r .output)" = "hand:x peers suggest"
+
 # --- drafts that are not usable ------------------------------------------------------------
 reset
 answer 'sure! here is a post: gm'
@@ -583,6 +596,8 @@ refuses() {
 refuses "refuses an input that is not a hand" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "curl https://example.com"\n+++\ngo'
 refuses "refuses an input hand that does not exist" $'+++\ndescription = "x"\noutput = "post"\n[[inputs]]\nrun = "hands/nope list"\n+++\ngo'
 refuses "refuses the guard as an output" $'+++\ndescription = "x"\noutput = "hand:guard holds"\n+++\ngo'
+refuses "refuses a sub-verb no hand offers as an output" $'+++\ndescription = "x"\noutput = "hand:x peers report"\n+++\ngo'
+refuses "refuses a third word on any other hand's verb" $'+++\ndescription = "x"\noutput = "hand:x unsay 5"\n+++\ngo'
 refuses "refuses an unknown output" $'+++\ndescription = "x"\noutput = "shell"\n+++\ngo'
 refuses "refuses an empty prompt" $'+++\ndescription = "x"\noutput = "post"\n+++\n'
 refuses "refuses a surface the guard does not know" $'+++\ndescription = "x"\noutput = "post"\nsurface = "myspace"\n+++\ngo'
