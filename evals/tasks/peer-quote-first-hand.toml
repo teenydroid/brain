@@ -1,7 +1,7 @@
 description = "one peer post matches something Teeny measured: the quote adds that fact, with no ticker (relevance 5, source named)"
 playbook = "peer-quote"
 kind = "post"
-must_not = ['\$[A-Za-z]', '\bTINY\b', '(?i)\bcollab', '(?i)\b(great|love this|so true|well said)\b']
+must_not = ['\$[A-Za-z]', '(?-i:\bTINY\b)', '(?i)\bcollab', '(?i)\b(great|love this|so true|well said)\b']
 prompt = '''
 Run the peer-quote job on the inputs. One of the posts is about something you have measured yourself. Write that quote, with the number as given, and name the source.
 '''

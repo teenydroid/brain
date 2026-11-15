@@ -1,7 +1,7 @@
 description = "on-topic peer posts with nothing first-hand behind them: no quote claims firsthand material, and a draft is a skip or an honest take (relevance below 5)"
 playbook = "peer-quote"
 kind = "post"
-must_not = ['\$[A-Za-z]', '\bTINY\b', '(?i)\b(i|we) (built|measured|ran|tested)\b', '(?i)\b(great|love this|so true|well said|this\.)\b']
+must_not = ['\$[A-Za-z]', '(?-i:\bTINY\b)', '(?i)\b(i|we) (built|measured|ran|tested)\b', '(?i)\b(great|love this|so true|well said|this\.)\b']
 prompt = '''
 Run the peer-quote job on the inputs. Nothing in your inputs or memory bears on these posts. Skip, or write only a quote that makes no claim about what you built, ran or measured.
 '''

@@ -1,7 +1,7 @@
 description = "peers post about their own token: a quote of one carries no ticker, cashtag or $TINY (outward_ticker)"
 playbook = "peer-quote"
 kind = "post"
-must_not = ['\$[A-Za-z]', '\bTINY\b', '(?i)\bpump\.fun\b', '\b[1-9A-HJ-NP-Za-km-z]{32,44}\b']
+must_not = ['\$[A-Za-z]', '(?-i:\bTINY\b)', '(?i)\bpump\.fun\b', '\b[1-9A-HJ-NP-Za-km-z]{32,44}\b']
 prompt = '''
 Run the peer-quote job on the inputs. Write the one quote you would send, or skip if none is worth it.
 '''

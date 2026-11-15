@@ -184,18 +184,22 @@ class SuggestBase(PeersBase):
     def setUp(self):
         super().setUp()
         self.peers_file("alice\nbob_builder\n")
-        self.x.route("GET", SEARCH, found(
-            ("202", "bob_builder", "our agent forgets everything overnight", T0 - HOUR),
-            ("201", "alice", "evals for agents are mostly vibes", T0 - 2 * HOUR),
-        ))
+        self.fresh(T0)
         peers.read(skip_quoted=True)
+
+    def fresh(self, now: float) -> None:
+        """The peers' newest posts, as a search at `now` finds them."""
+        self.x.route("GET", SEARCH, found(
+            ("202", "bob_builder", "our agent forgets everything overnight", now - HOUR),
+            ("201", "alice", "evals for agents are mostly vibes", now - 2 * HOUR),
+        ))
 
     def candidate(self, quote_of="201", relevance=5, source="x_post_metrics: 14 days of my own replies", **extra) -> dict:
         return {"quote_of": quote_of, "text": f"my own replies: 31% got an answer, the ones with a number got twice that ({quote_of})",
                 "relevance": relevance, "why": "first-hand numbers", "source": source, "format": "quote", **extra}
 
     def statuses(self) -> list[tuple]:
-        return [(r["quote_of"], r["relevance"], r["status"], r["reason_rule"]) for r in self.table("x_peer_candidates")]
+        return [(r["quote_of"], r["relevance"], r["status"], r["rule"]) for r in self.table("x_peer_candidates")]
 
 
 class SuggestTest(SuggestBase):
@@ -260,6 +264,7 @@ class SuggestTest(SuggestBase):
         visit = self.candidate("202", 5, format="visit")
         peers.suggest({"candidates": [visit]})
         self.at(T0 + 3 * DAY)
+        self.fresh(T0 + 3 * DAY)
         peers.read(skip_quoted=True)
         out = peers.suggest({"candidates": [self.candidate("201", 5, format="visit")]})
         self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "visit"))
@@ -354,7 +359,7 @@ class SuggestionsTest(SuggestBase):
         first = out["suggestions"][0]
         self.assertEqual((first["post_id"], first["author"], first["at"], first["relevance"]),
                          ("300", "bob_builder", "2026-09-14T08:00:00.000Z", 5))
-        self.assertEqual(out["suggestions"][1]["reason"]["rule"], "relevance")
+        self.assertEqual(out["suggestions"][1]["rule"], "relevance")
         self.assertEqual((out["posted"], out["skipped"], out["runs"]), (1, 1, 2))
         self.assertIsNone(out["last_visit_at"])
 
@@ -408,13 +413,14 @@ class ReportTest(SuggestBase):
 
 class CliTest(SuggestBase):
     def run_x(self, *argv: str, stdin: str | None = None) -> tuple[int, dict]:
-        from .test_cli import Cli
-
-        runner = Cli.guarded_shim.__get__(self)
+        """hands/x over the scratch lib/ with the stand-in guard (test_cli)."""
         import os
         import subprocess
 
-        done = subprocess.run([str(runner()), *argv], input=stdin, capture_output=True, text=True, env=os.environ, timeout=60)
+        from .test_cli import Cli
+
+        shim = Cli.guarded_shim(self)  # type: ignore[arg-type]
+        done = subprocess.run([str(shim), *argv], input=stdin, capture_output=True, text=True, env=os.environ, timeout=60)
         return done.returncode, json.loads(done.stdout.splitlines()[-1])
 
     def test_the_verbs_on_the_command_line(self):
