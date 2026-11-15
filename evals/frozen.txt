@@ -50,6 +50,9 @@ docs/governance.md
 # playbooks stay Teeny's.
 brain/agents/act.toml
 brain/agents/judge.toml
+# The agent bin/evolve reviews each candidate with (its rubric, evals/review.md,
+# is frozen with evals/).
+brain/agents/reviewer.toml
 brain/agents/teeny.toml
 brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
