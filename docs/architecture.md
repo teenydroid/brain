@@ -266,8 +266,10 @@ generation stays on disk.
 
 - X mentions (`hands/x ingest`, the webhook);
 - mail (`hands/mail ingest`);
-- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
-  10 minutes (`hands/moltbook inbox`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses every beat,
+  at most every 4 minutes (`hands/moltbook inbox`); a comment on Teeny's own
+  post that the mind read and left comes back until it is answered or
+  declined with a reason (`hands/moltbook unanswered` counts them);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
 - GitHub: issues, pull requests, comments, review comments and mentions
