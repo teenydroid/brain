@@ -10,7 +10,12 @@ The comment rules, on top of the limits in `rules`:
 - never on Teeny's own post except as its first comment, when nobody else
   has commented yet;
 - never under a comment already at Moltbook's drawing depth (rules.MAX_REPLY_DEPTH):
-  a reply there is not shown to anyone.
+  a reply there is not shown to anyone;
+- never a top-level comment on another agent's post older than
+  `MOLTBOOK_MAX_COMMENT_AGE_HOURS` (6): such a comment lands far down a
+  thread nobody reads again (`too_old`). Replies (parent_id), Teeny's own
+  posts and a post that names Teeny are exempt, and so is a post whose age
+  Moltbook does not say.
 
 A comment or upvote naming a shortened id (a UUID's first characters, as
 Teeny's memory writes them) is refused before anything is sent (`short_id`),
@@ -43,7 +48,7 @@ from typing import Any, Mapping
 
 from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
-from . import challenge, client, model_read, reads, rules
+from . import challenge, client, model_read, owed, reads, rules
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -478,6 +483,30 @@ def _author(node: Mapping[str, Any]) -> str | None:
     return author if isinstance(author, str) else None
 
 
+#: The oldest post (hours) Teeny comments on at the top level, by default.
+DEFAULT_MAX_COMMENT_AGE_HOURS = 6
+
+
+def _check_age(the_post: Mapping[str, Any], me: str) -> None:
+    """Refuses a top-level comment on another agent's post that is too old
+    to be read (`too_old`), unless the post names Teeny: that is a mention,
+    and a mention is answered whatever its age."""
+    limit = hand.number("MOLTBOOK_MAX_COMMENT_AGE_HOURS", DEFAULT_MAX_COMMENT_AGE_HOURS, 1, 24 * 30)
+    age = reads.age_hours(the_post)
+    if age is None or age <= limit:
+        return
+    text = " ".join(str(the_post.get(k) or "") for k in ("title", "content")).lower()
+    if me and re.search(rf"(?<![a-z0-9_-]){re.escape(me)}(?![a-z0-9_-])", text):
+        return
+    raise hand.Refused(
+        f"that post is {age:.0f} hours old; a new comment on a post older than {limit} hours lands under the rest"
+        " and is not read. Comment on a newer post instead (feed --sort new --max-age-hours 3)",
+        rule="too_old",
+        age_hours=round(age, 1),
+        limit_hours=limit,
+    )
+
+
 def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id: str, parent_id: str | None) -> None:
     me = reads.me_name(api).lower()
     mine = conn.execute(
@@ -505,6 +534,8 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
             raise hand.Refused("Teeny has already commented on this post; it answers replies, it does not comment twice", rule="once_per_post")
         if own_post and tree:
             raise hand.Refused("on its own post Teeny answers the comments (parent_id), it does not add another", rule="own_post")
+        if not own_post and isinstance(the_post, Mapping):
+            _check_age(the_post, me)
         return
     if any(row["parent_id"] == parent_id for row in mine):
         raise hand.Refused("Teeny has already answered that comment", rule="once_per_parent")
@@ -542,9 +573,15 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     if parent_id is not None:
         _post_as_comment(conn, parent_id, "parent_id", post_id)
     text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
+    # An answer to a comment on Teeny's own post may spend the reserve of
+    # the day's allowance kept for those answers (rules.check_comment).
+    own_thread = parent_id is not None and (
+        owed.status(conn, parent_id) is not None
+        or conn.execute("SELECT 1 FROM moltbook_posts WHERE post_id = ?", (post_id,)).fetchone() is not None
+    )
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
-            mode = rules.check_comment(conn)
+            mode = rules.check_comment(conn, own_thread=own_thread)
         _check_comment_rules(conn, api, post_id, parent_id)
         if rules.looks_crypto([text]):
             the_post = reads.post(post_id, api).get("post")
@@ -583,6 +620,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:
             out["parent_id"] = parent_id
+            _safely("an answer to a comment on Teeny's own post", lambda: owed.answered(conn, parent_id, comment_id))
         if ver:
             out.update(_settle(conn, api, "comment", "moltbook_comments", row_id, comment_id, ver))
         return out

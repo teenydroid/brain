@@ -119,7 +119,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), one persistent profile in `state/browser/profile/` (mode 0700), so cookies and sign-ins survive a restart, and downloads under `state/browser/`. The core passes that folder to TinyComputer as the host's own `browser.profile`, the only one its egress-enforced launcher lets a session name, and Chrome launches it with extensions off (tinyhumansai/tinycomputer#175). A second browser that starts while the first holds the profile runs fresh, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`, which hands/tasks enforces for start pages and the operator's prompt for links; TinyComputer has no host hook for it. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
+| Browser | `[browser]` headless Chromium (in the image), one persistent profile in `state/browser/profile/` (mode 0700), so cookies and sign-ins survive a restart, and downloads under `state/browser/`. The core passes that folder to TinyComputer as the host's own `browser.profile`, the only one its egress-enforced launcher lets a session name, and Chrome launches it with extensions off (tinyhumansai/tinycomputer#175). A second browser that starts while the first holds the profile runs fresh, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`: OpenHuman enforces that list on every connection the browser makes, clicks and redirects included (`OPENHUMAN_BROWSER_DENY_FILE`, set by bin/spine; an unreadable list refuses every page), hands/tasks refuses such start pages, and the operator's prompt covers links. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
 | Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; bridges go through LI.FI and swaps through deBridge unless `WALLET_CONVERT_PROVIDER` names one (`spine/src/wallet_backend.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
@@ -206,10 +206,12 @@ brain/
 `CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
-`narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
-merged only if it wins, behind rules in code the brain cannot edit. The loop
-is `bin/evolve`, documented in [`evolve.md`](evolve.md): the operator merges
-what it proposes unless `EVOLVE_AUTO_PROMOTE=1`.
+`narrative/LORE.md` and tracked in `narrative/ARCS.md`, and the loop acts on
+what Teeny learned: each item of `MEMORY.md` it decided, promised or is in the
+middle of becomes one small change, gated in code the brain cannot edit,
+measured on the eval tasks it reaches, and opened as its own pull request.
+The loop is `bin/evolve`, documented in [`evolve.md`](evolve.md); the
+babysitter merges what passes its audit and CI, or a person does.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -266,8 +268,10 @@ generation stays on disk.
 
 - X mentions (`hands/x ingest`, the webhook);
 - mail (`hands/mail ingest`);
-- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
-  10 minutes (`hands/moltbook inbox`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses every beat,
+  at most every 4 minutes (`hands/moltbook inbox`); a comment on Teeny's own
+  post that the mind read and left comes back until it is answered or
+  declined with a reason (`hands/moltbook unanswered` counts them);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
 - GitHub: issues, pull requests, comments, review comments and mentions
@@ -830,6 +834,11 @@ Every scheduled job is in one of two files:
   - `gh-inbound` (`bin/gh-inbound`, every 15 minutes), GitHub's
     notifications and new stars into the inbox through the inbound guard,
     off until `GH_INBOUND=1`;
+  - `babysit` (`bin/babysit`, every 20 minutes), the pull-request
+    babysitter: audits every open pull request on teenydroid/brain and
+    teenydroid/diary in code and logs every prompt-injection attempt;
+    labels and comments only with `BABYSIT=1`, merges a person-approved,
+    green, clean head only with `BABYSIT_MERGE=1` (docs/hands.md, "babysit");
   - `wallet-watch` (`bin/wallet-watch`, every 15 minutes) and
     `wallet-daily` (`bin/wallet-watch daily`, 00:50 UTC), the on-chain
     senses, read only, off until `WALLET_WATCH=1`; `accounts`
@@ -862,11 +871,14 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
-  evening post (`moltbook-evening`), a post in `m/general` about hourly when
-  there is something to say (`moltbook-general`, at most 12 a day), threads
-  (`moltbook-threads`), the helpdesk and a daily follow (`moltbook-follow`).
-  Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
+  (`enabled = false`). Moltbook gets eight to ten posts a day: one every
+  hour from 07:40 until its nine are out, unless `material` has nothing new
+  (`moltbook-general`, at most 9 a day, in `m/general` or a slow submolt by subject) and the evening audit
+  (`moltbook-evening`), plus comments on new posts by small accounts and
+  peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
+  it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
+  never skip for it. Posts carry a `format` tag (`confession`, `claim`,
+  `news`, `question`, `audit`, `finding`, `answer`).
   Answering comments on its own posts is the mind's job: `hands/moltbook
   inbox` shows each comment's depth, and one at Moltbook's fifth level is
   not answered.

@@ -161,7 +161,8 @@ class Model(BaseHTTPRequestHandler):
                 answer = "built"
             else:
                 with open(sys.argv[5]) as desk:
-                    workdir = json.load(desk)["job"]["workdir_path"]
+                    # Relative to the workbench, where the builder's shell starts.
+                    workdir = json.load(desk)["job"]["workdir"]
                 # The jail confines files, not the network: the shell shares the
                 # host's, so it reaches this model on loopback (a printed status,
                 # computed by the shell like the marker).
@@ -454,7 +455,8 @@ check "bin/build-ship lays the builder's desk out" \
 # brain/agents/ with its named tools, runs it with the scheduled-actions
 # opt-in, and roots it at the workbench, so the sandboxed shell runs.
 builder_request() { grep 'building something small in public' "$scratch/model-bodies.jsonl" | head -n 1; }
-workdir="$(jq -r '.job.workdir_path // empty' "$root/state/workbench/desk/build.json" 2>/dev/null)"
+workdir="$(jq -r '.job.workdir // empty' "$root/state/workbench/desk/build.json" 2>/dev/null)"
+[ -z "$workdir" ] || workdir="$root/state/workbench/$workdir"
 if [ -n "$builder_id" ]; then
   "$root/bin/oh" cron_run "$(jq -cn --arg id "$builder_id" '{job_id: $id}')" >/dev/null 2>&1 || true
   for _ in $(seq 1 120); do

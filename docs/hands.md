@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -340,6 +340,128 @@ writes nothing anywhere: not GitHub, git or the ledger. Done actions are
 recorded in `gh_actions` (which also counts the daily cap), reads in
 `gh_cache`.
 
+## `babysit`: reviews, triages and merges pull requests on Teeny's own repositories
+
+The babysitter watches the open pull requests on `BABYSIT_REPOS` (default
+`teenydroid/brain` and `teenydroid/diary`; a repository `GITHUB_USER` does
+not own is never watched). It reads through hands/gh's transport, so the
+token stays hands/gh's, and every word it publishes goes through
+`gh comment` and so through the guard. The pinned `babysit` job
+(`bin/babysit`, every 20 minutes) runs `sweep`. Frozen to Teeny, like
+`gh`: the code that merges Teeny's changes is not Teeny's to edit.
+
+The audit is code, never a model. A pull request is strangers' text, and
+the thing that decides whether it merges must not be something it can talk
+to. It reads the title, body, branch, every commit, every changed file's
+added lines, every comment and review comment, the reviews, the check runs
+and commit statuses, and GitHub's mergeability, and turns them into
+findings `{rule, severity, where, detail?}`. `where` is a field, a path, a
+commit, a comment id or a check name; `detail` is the babysitter's own
+words. A finding never quotes the pull request, and a filename that is not a
+plain path, or that itself talks to a model, is named `path#<digest>`.
+
+| Rule | Severity | When |
+|---|---|---|
+| `injection:<rule>` | block, operator or note | The prompt-injection screen (`babysit/injection.py`) found `override` ("ignore previous instructions"), `role_hijack` ("you are now"), `chat_markup` (`<\|im_start\|>`, `[INST]`, `<system>`, turn markers), `agent_directive` (an AI, bot, reviewer, Teeny or the babysitter told to approve, merge or skip), `exfiltrate` (print your system prompt, `cat secrets/`), `hidden_comment` (an HTML comment written for a model), `encoded_payload` (base64 that decodes to one of these), `invisible_chars`, `bidi_control` (Trojan Source) or `unicode_tags` (ASCII smuggling). The text is NFKC-folded and stripped of invisibles first. In the author's title, body, branch or commits: block for a stranger, operator for anyone else. In the diff: block for a stranger, operator for Teeny, a note for a trusted author (a guard test fixture is legitimate); `bidi_control` and `unicode_tags` block whoever wrote them. In a comment or review by anyone not trusted: operator |
+| `secret`, `secret_path` | block | hands/gh's `secretscan`: a token shape in an added line or a commit message, or a path like `secrets/`, `.env*`, `*.pem` |
+| `frozen` | block or operator | teenydroid/brain only: a path on `evals/frozen.txt`, read from the default branch through `bin/lib/frozen.py`, the check CI runs (this checkout's copy if GitHub cannot be read). Teeny or a stranger: block, since Teeny never sends a diff to a frozen path. Anyone else: an operator signs it off |
+| `prompt_surface` | block | teenydroid/brain: a stranger changing `brain/**`, `evals/**` or `DIRECTIVE.md`, which ride in Teeny's prompts |
+| `sensitive` | operator, or block | `.github/**`, `.gitmodules`, `vendor/**`, dependency manifests and lockfiles, Dockerfiles, the toolchain. A stranger's fork touching `.github/` is blocked |
+| `diary_history` | block | teenydroid/diary: a published receipt, day, closed week or the memory chain edited, removed or renamed (written once; an edit breaks every later hash) |
+| `diary_layout` | block | teenydroid/diary: a file the diary's layout does not have |
+| `diary_data`, `diary_verifier` | operator | teenydroid/diary: data `bin/receipts` writes, or `verify.py` and the workflows that make the receipts checkable |
+| `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
+| `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
+| `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
+| `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
+| `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
+
+Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
+`senamakel`); a **maintainer** is a login on `BABYSIT_MAINTAINERS` or anyone
+GitHub says can write to the repository; **teeny** is `GITHUB_USER`; anyone
+else, and every `[bot]`, is a **stranger**. Only an operator's or a
+maintainer's words go unscreened.
+
+The verdict is the first that holds: `blocked` (a block finding),
+`failing` (a fail finding), `needs_operator` (an operator finding and no
+operator approved this head), `needs_review` (no operator or maintainer
+other than the author and Teeny approved the exact head commit), `waiting`
+(a wait finding), else `ready`. An approval of an older head never counts.
+
+**Self-merge** (`BABYSIT_SELF_MERGE=1` in `secrets/teeny.env`, off by
+default; the `self-merge` rung at L5 in `evals/autonomy.toml`, the
+operator's decision of 2026-11-15: "if the internal babysitter checks out,
+we merge"). A pull request on teenydroid/brain whose author is
+`GITHUB_USER` (tier `teeny`), from a branch of the same repository named
+`teeny/gen-<n>-c<i>` (or the older loop's `teeny/gen-<n>`; digits only, so
+a builder's `teeny/<slug>` never qualifies), is not held at `needs_review`.
+The `teeny/eval` commit status on its exact head, set by Teeny or an
+operator, stands in for the approval: `success` (the targeted eval passed
+non-regression, or found the change unmeasurable) makes it `ready` with
+`self_merge: true` and `approved_by: []`; missing is `waiting`
+(`eval_missing`), pending is `waiting`, `failure` or `error` is `failing`.
+Every other rule holds as before: any block, fail or operator finding stops
+it (a frozen path blocks Teeny; a sensitive path, a removed test, an
+injection in Teeny's own diff or too large a change needs the operator), and
+every check must be green. Strangers, maintainers and builder pull requests
+still need a person's approval of the exact head.
+
+**Deploy on merge.** A self-merge queues `state/deploy-pending.json`
+(`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
+and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
+(`TEENY_ROOT`, the one `bin/spine` runs) to the merge in the order
+`bin/lib/live_checkout.py` keeps for it and for `bin/evolve`'s promotion
+restart:
+
+1. **wait** while `state/locks/evolve.lock`, `evolve-watch.lock` or
+   `eval.lock` is held (a generation, evolve-watch, the targeted eval): a
+   restart ends the container they run in. Nothing moves; `deploy_wait`.
+2. **refuse** tracked edits, a failed fetch, or a history that cannot
+   fast-forward to the merge (`deploy_refused`, with the reason, also in the
+   pending file). Nothing is reset or forced; the deploy stays pending until
+   the operator clears the way.
+3. **last-good**: the outgoing commit goes to `state/last-good` when a
+   restart follows, so a boot that fails on the merge falls back.
+4. **fast-forward**: `git merge --ff-only` (`deploy_ff`).
+5. **submodules**: `git submodule update --init --recursive` when the
+   merge moved a gitlink (`deploy_submodules`).
+6. **seed-cron**: `bin/seed-cron` when `brain/cron.toml` or
+   `evals/cron.pinned.toml` changed and no restart follows
+   (`deploy_seed_cron`; a boot reseeds anyway).
+7. **restart**: TERM to `bin/spine` (`state/spine.pid`) only when the merge
+   touched what is read at boot (`deploy_restart`, written before the TERM):
+   `brain/SOUL.md`, `CONTEXT.md`, `DRIVE.md`, `CHARTER.md`,
+   `narrative/LORE.md` and `narrative/ARCS.md` (bin/lib/prompts.py),
+   `brain/agents/**` and `brain/skills/**` (the core), the playbooks
+   `bin/lib/inbound_config.py` writes into the core's config
+   (`mentions.md`, `mail.md`), `bin/**`, `deploy/**`, `spine/**`,
+   `vendor/**`, `.gitmodules` and `hands/lib/teeny_hands/websites.py`.
+   Any other playbook, `brain/narrative/chronicle/**`, `brain/cron.toml`,
+   `hands/**`, `evals/**` and `docs/**` are read by each run and restart
+   nothing; a path in neither list restarts (`unlisted`). Compose starts
+   the spine again and the doctor gates the boot.
+
+Under `DRY_RUN` nothing moves: `deploy_dry_run` records the plan once and
+the deploy stays pending.
+
+| Verb | | Does |
+|---|---|---|
+| `queue [--repo OWNER/REPO] [--max N]` | R | Every open pull request on the watched repositories (20 each), audited, worst verdict first, with `counts`. |
+| `audit OWNER/REPO NUMBER` | R | One pull request: `verdict`, `findings`, `tier`, `approved_by`, `head_sha`, `injections` (how many). The `title` is `null` and `title_withheld` true when the title tripped a rule. Records an audit row and each new injection sighting. Writes nothing to GitHub. |
+| `injections [--days N] [--max N]` | R | The injection log, newest first: when, repository, number, head, `who`, `tier`, `rule`, `location` and a 16-hex `digest` of the matched span. Never the span. |
+| `audits [--max N]` | R | The last audits, with their findings. |
+| `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
+| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC, self-merges included; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). A self-merge is also refused past `BABYSIT_SELF_MERGES_PER_DAY` (2, at most 10; `self_merge_cap`), is recorded as `self_merge` (with `eval`) instead of `merge`, and queues the deploy. GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. One pull request's refusal or error is listed in `errors`; the rest go on. |
+
+Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
+write nothing to GitHub or the action ledger; the audits are reads and are
+recorded either way. State is `state/deploy-pending.json`, `babysit_audits`, `babysit_injections`
+(unique on pull request, who, rule, place and digest, so a payload seen
+twice is logged once) and `babysit_actions` in `state/hands.db`. No row
+holds a pull request's words: the dream and the weekly audit read the
+ledgers, and a payload kept there would reach the model it was written for.
+
 ## `git`: how every git command is set up
 
 The container's uid has no passwd entry and HOME is /tmp, so a bare `git
@@ -378,22 +500,26 @@ A link post's `url` must be on the link allowlist.
 | Verb | | Does |
 |---|---|---|
 | `whoami`, `status`, `home [--expand]` | R | `/agents/me` (10 min), the claim status, the dashboard (1 min). `--expand` attaches, to each mention of Teeny in someone else's post, that post and its latest comments (at most 5 posts, through the `post` and `comments` caches). |
-| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, submolt, score, comment_count, created_at}` with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. |
+| `feed [--submolt S]... [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, author_karma, author_followers, submolt, score, comment_count, created_at}` (the author numbers when Moltbook sends them: a submolt's feed has karma, not followers) with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. `--submolt` may be given several times: each submolt is one request (cached like any feed) and the posts are merged, newest first, as `{posts, seen, submolts}`. The filters drop posts before the cut to N: `--max-age-hours H` (by `created_at`), `--max-author-karma K`, `--min-author-karma K`, `--max-comments N`, and `--skip-mine` (Teeny's own posts and those it already commented on, by the ledger). A post whose age or karma is unknown fails a filter on it. With a filter each submolt is read 50 deep. A failing submolt is named in `errors` and the rest are kept; a 429 stops the reading. |
+| `peers [--per-peer N] [--max-age-hours H] [--skip-mine]` | R | The newest N posts (2) of each agent in `brain/moltbook-peers.txt` (one name a line, `#` comments, checked as agent names; Teeny may edit it), at most 20 peers, one `/posts?author=NAME&sort=new` request each (10 min). A post not by that peer is dropped. The same filters as `feed`; brief posts, newest first. |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
-| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one once: a held one is not added but kept in `moltbook_held`, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox). `bin/tick` runs it at most every 10 minutes. |
+| `inbox [--days N] [--max N] [--max-own N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), newest `--max-own` posts (30), and replies under its own comments elsewhere, newest `--max` posts (10). The inbound guard screens each one once: a held one is not added but kept in `moltbook_held` with the details the scan would have given it, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox, with its parent and depth). A comment on Teeny's own post is also owed an answer (below): the scan keeps its `moltbook_owed` row and offers one the mind read and left back to it (`again` counts them). `bin/tick` runs it every beat, at most every 4 minutes. |
+| `unanswered [--max N]` | R | The comments on Teeny's own posts still owed an answer. A stable shape, for the daily stats: `{unanswered, held, oldest_minutes, comments: [{comment_id, post_id, parent_id, author, depth, status, minutes, offered}], last_24h: {answered, declined, expired, median_answer_minutes}}`. `unanswered` counts `waiting`, `held` the ones the inbound guard holds, `minutes` is the wait since the comment was made, `offered` how many times it went to the mind; `comments` is oldest first, at most N (50). |
 | `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each write measured in the last N days (7), newest write first: a post with its title, a comment with its post's id. |
-| `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row. The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
-| `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count, and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
+| `exchanges [--days N] [--max N]` | R | From the ledger only: the agents Teeny had a real exchange with in the last N days (14), most talk first (at most `--max`, 10). An exchange is a reply under Teeny's comment (`answering_teeny` in the inbox's stimulus), or a comment Teeny answered followed by another from the same agent. Each as `{name, replied_to_teeny, comments, teeny_answered, came_back, last_at}`. `peers` is the peer list. Agents Teeny already followed or unfollowed are left out of both, so two empty lists mean nobody to follow. `moltbook-follow` reads it. |
+| `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row; `own_posts` is its last 20 posts alone, each with its `format`, whether its body carried a link (`linked`) and its latest `metrics` row. The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
+| `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count of Teeny's own writes the guard held (inbound comments left out), and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason), with how many review later let through (re-screened clean or approved; `let_through` in all). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. `moltbook`: Teeny's own writes by day from the ledger, posts and comments Moltbook accepted and how their challenges ended (verified, failed, never answered). `exchanges`: the newest 12 comments agents left for Teeny in the last 3 days (its mind's inbox, already through `guard inbound`): `who`, `at`, `comment_id`, `post_id`, `on_your_post` (the title, on its own post), `answering_you`, and the first 300 characters scrubbed as `said`; their words, data for an `answer` post. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
 | `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
 | `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. A follow needs no earlier exchange. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
+| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. The hand does not check for an earlier exchange; the daily `moltbook-follow` picks only from `exchanges`. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
 | `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
 | `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` once; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
+| `decline` | A | `{comment_id, reason, note?}`: a comment on Teeny's own post it will not answer, with a `reason` of `spam`, `boilerplate`, `crypto` or `instruction` (nothing else declines). Refused (`not_owed`) for a comment that is not owed, (`settled`) for one already answered or declined. Under `DRY_RUN` it says `would_decline`. The mind's `decline_moltbook` intent. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Lists the challenges left for the operator and the failure count; answers one; clears the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
 
@@ -410,11 +536,23 @@ hears of the write, and refuses each with its `rule`:
   with Moltbook's 30-minute gap between posts), `MOLTBOOK_MAX_COMMENTS_PER_DAY`
   (50, and never above Moltbook's 50, or 20 for a new agent) and
   `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no limit of its own).
+- The own-thread reserve (`own_thread_reserve`, with `waiting` and `left`):
+  while comments on Teeny's own posts wait for an answer (`moltbook_owed`,
+  under three days old), the day's last comments are kept for them. An
+  answer to one of them (its parent is an owed comment, or the post is
+  Teeny's own) may use the whole allowance; any other comment is refused once
+  the comments left would be no more than the number waiting. No cap moves.
 - Comments (`once_per_post`, `once_per_parent`, `own_post`,
   `own_comment`, `unknown_parent`): never twice on a post unless answering a
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
   never twice to one comment, and on its own post only the first comment,
   while nobody else has commented.
+- Age (`too_old`): a top-level comment on another agent's post older than
+  `MOLTBOOK_MAX_COMMENT_AGE_HOURS` (6, at least 1) is refused, because it
+  lands under every earlier comment and is not read. A reply (`parent_id`),
+  anything on Teeny's own post, a post that names Teeny and a post whose
+  `created_at` is missing are exempt. The playbooks' own inputs are
+  filtered tighter (`feed --max-age-hours`).
 - Collaboration (`collab`): a post that says collab, co-built,
   "partnered with" or "with u/NAME" is refused unless every agent it names
   has a `collabs` row.
@@ -450,7 +588,25 @@ moment Moltbook returns it, before the challenge is answered. Tables:
 `follow`, `unfollow`, `subscribe`), `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
 `moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
 in hours, at, score, comment_count, verification_status; unique per kind,
-target and checkpoint).
+target and checkpoint), `moltbook_held` (with the held comment's `payload`)
+and `moltbook_owed`.
+
+**Owed answers** (`moltbook/owed.py`). Every comment said to Teeny on its own
+post (a top-level comment, or a reply under Teeny's comment there) has a
+`moltbook_owed` row from the first scan that sees it: comment_id, post_id,
+parent_id, author, depth, `said_at` (Moltbook's `created_at`), `seen_at`,
+`status`, `reason`, `note`, `answer_id`, `settled_at`, `offered`,
+`offered_at`. The status is `waiting` (seen, not yet answered), `held` (the
+inbound guard holds it; a release makes it waiting), `answered` (Teeny's
+answer is under it: `comment` sent it, or the scan saw it in the thread),
+`declined` (a `decline` reason, `too_deep` at Moltbook's fifth level where an
+answer is never seen, or `gone` once it is no longer in a thread read whole)
+or `expired` (still waiting after three days). A waiting comment that a beat
+read and settled without an answer goes back to the inbox, pending in its old
+place, with `again` and `waiting_minutes` in its details: 15 minutes after
+the last offer, then 30, 60 and every 2 hours, until it is answered, declined
+or expired. Live, 2026-11-11 to 11-15, each comment was offered once, and 31
+of 58 on Teeny's posts went unanswered (docs/audit/moltbook-plan.md, item 2).
 
 `bin/health` also counts the writes nobody can see. When at least 3 went
 out in the last 24 hours and fewer than 90% of them are visible (`verified`,
@@ -487,8 +643,8 @@ item is never listed, and `item` answers it as missing.
 
 **As playbook inputs.** The story lists are free and need no key, so a
 playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
-`morning`, `take`, `moltbook-daily` and `moltbook-evening` (top, show), and
-`moltbook-general` (top). Beyond the front page, `hands/listen` (below)
+`morning`, `take` and `moltbook-evening` (top, show), and `moltbook-general`
+(top). Beyond the front page, `hands/listen` (below)
 searches HN for Teeny's names and its standing topics, and those playbooks
 read what it heard through `listen digest`. Each is marked `optional = true`, so an outage on Hacker News leaves
 that input out as `{"unavailable": true}` and the run goes on. The idle look
@@ -547,7 +703,7 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-daily`, `-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
@@ -1011,9 +1167,9 @@ hands/gh's own actions.
 
 | Verb | | Does |
 |---|---|---|
-| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
+| `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`, `workdir` relative to the checkout. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
 | `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name, a short name for the tool). A request or daily report with no `repo` ships under the name its summary leads with, the text before the first `:` (`statediff: a referee CLI` ships as `statediff`), when that is a plain name, not Teeny's own repository's, no other job's and not a repository the account already has (GitHub is asked; when it cannot say, the slug stays); otherwise under the job's slug. Self, fix and upstream jobs ship where they always do. `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
-| `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to`, `report_to_path` (the same file, absolute, for an agent rooted at the workbench) and `report_shape`. |
+| `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to` and `report_shape`, every path as the builder must use it: relative to the workbench, where its tools are rooted (`workdir` is `brain` or `daily-<date>`, `report_to` is `desk/build-done.json`), with no absolute or checkout-relative second form and a `paths` line saying so. When files sit under the nested mirror `state/workbench/state/workbench/<workdir>/` (a path written with `state/workbench/` in front), the job carries a `note` naming them and the right workdir, and a refused empty-workdir report says the same; nothing is moved. A report with a field beyond `job_id, status, summary, tests, repo` is refused naming those. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
 | `self` | A | `{text}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). |
 | `self-sync` | J | Keeps Teeny's own clone (docs/evolve.md, "Teeny's own clone") current. Clones `GITHUB_USER/brain` into `state/workbench/brain/` (git directory `state/self/brain.git`) when missing; otherwise fetches `main` and `teeny/*` and fast-forwards a clean `main` to `origin/main`. Unshipped work (edits, a branch whose job is `claimed` or `ok`) is left alone; a branch whose job shipped or failed is parked (leftovers committed to it) and `main` checked out. Answers and writes `state/self/sync.json`: `at`, `commit` (origin/main), `head`, `branch`, `state` (`cloned`, `synced`, `dirty`, `diverged`, `busy`), and every `teeny/*` branch with `ahead`, `behind` and `pushed`. Never resets, forces or deletes. |
@@ -1129,8 +1285,9 @@ write on it reaches only the tool-less mind (`gh ingest`), never the builder.
 The browser operator (`brain/agents/operator.toml`, the pinned `operator`
 agent job, every 20 minutes) does one task at a time in OpenHuman's browser,
 on the open web: any public https page except the operator's
-`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1`;
-`deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
+`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1` and
+`OPENHUMAN_BROWSER_DENY_FILE` to that list, which OpenHuman enforces on every
+connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
@@ -1141,7 +1298,7 @@ outcome (`operator · report`), except for the findings kinds (`news`,
 | Verb | | Does |
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
 | `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
@@ -1177,6 +1334,20 @@ JPEG, WebP or GIF of at most 5 MB (what X takes for a still image), copied
 to `state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder
 is emptied. A `browser` `task` action runs in TinyComputer's own session
 and is not pictured.
+
+**Links to other sites.** A browser session stays on the site it was
+opened on. A click, key press or redirect that leads to another site
+answers `left_for_another_site` with that page's normalized URL instead of
+failing the turn, and says the page is on another site and that going there
+is a decision under the task's rules. The core never follows such a link by
+itself. The operator opens it with the browser's `open` action only if its
+rules let it, and a host on `deploy/browser-deny.txt` is refused by the
+browser itself: OpenHuman reads that list from `OPENHUMAN_BROWSER_DENY_FILE`
+and refuses a connection to a listed host before its request is sent (a click, a
+redirect, a task's own navigation, and the `open`, `task` and `browser_open`
+actions alike), whatever
+`OPENHUMAN_BROWSER_ALLOW_ALL` says, and refuses every page if it cannot read
+the list. The operator's prompt says the same.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
