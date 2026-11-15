@@ -58,6 +58,12 @@ class CliTest(Scratch):
         self.assertEqual((code, out["rule"]), (2, "not_owed"))
         self.assertEqual(self.run_hand("decline", body={"comment_id": "c1", "reason": "busy"})[0], 1)
 
+    def test_post_slot_is_a_read_that_says_open_or_why(self):
+        self.configure(DRY_RUN="1")
+        code, out = self.run_hand("post-slot", "--wait", "0")
+        self.assertEqual((code, out["open"]), (0, True))
+        self.assertEqual(self.run_hand("post-slot", "--wait", "9999")[0], 1)
+
     def test_a_refusal_exits_2(self):
         code, out = self.run_hand("post", body={"submolt": "general", "title": "a collab with u/crabby"})
         self.assertEqual((code, out["ok"], out["rule"]), (2, False, "collab"))

@@ -27,7 +27,8 @@ argv, required, optional}], prompt} or exits non-zero with what is wrong.
     required = true            # optional: an empty result skips the run
                                # before the draft (no model turn); empty is
                                # null, [], {}, "" or an object of only those
-                               # (an "ok" key aside)
+                               # (an "ok" key aside, and a "why" a gate gives
+                               # for being shut, kept in the run's record)
     optional = true            # optional: a hand that fails (an outage on
                                # somebody else's site) is left out of the
                                # inputs as {"unavailable": true} instead of

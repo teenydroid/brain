@@ -41,6 +41,10 @@ the box.
                                               own_summary: its own writes per format and submolt, 7d and 14d
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
+  R  post-slot [--wait S]                     whether a post would pass the limits now: {open: true},
+                                              or only {why}; a wait for the gap of at most S seconds
+                                              (0, at most 180) is sat out first. A posting playbook's
+                                              first input (required), so a closed gap skips its run
   R  exchange [--hours N]                     the day's best exchange said to Teeny, for an X post
                                               (bridge.py); null when nothing qualifies
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
@@ -182,6 +186,8 @@ def parser() -> argparse.ArgumentParser:
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
     verb("exchange", lambda a, _: bridge.exchange(a.hours), "the day's best exchange said to Teeny").add_argument(
         "--hours", type=_bounded(1, 72, "--hours"), default=24)
+    verb("post-slot", lambda a, _: rules.post_slot(a.wait), "whether a post would pass the limits now").add_argument(
+        "--wait", type=_bounded(0, rules.POST_SLOT_MAX_WAIT, "--wait"), default=0)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 

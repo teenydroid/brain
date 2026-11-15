@@ -79,7 +79,9 @@ command = "bin/heartbeat"
 # limits (50 comments, a post per 30 minutes). The hand owns the timing: the
 # 30 minutes count from the last post only (a comment or a follow does not
 # restart them), and a post that comes too soon is refused with the wait and
-# costs nothing, so the post jobs never skip for timing.
+# costs nothing, so the post jobs never skip for timing in the draft. They ask
+# the hand first instead (`hands/moltbook post-slot`): a shut gap skips the run
+# before the model turn, and one that opens within two minutes is waited out.
 
 # The 07:00 post: a gm that reacts to something Teeny read.
 [jobs.morning]
