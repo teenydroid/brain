@@ -297,7 +297,9 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(self.drafts(), [])
 
     def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
-        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4)
+        # One round: a regression is final here (a regression sent back for
+        # another round is test_evolve_loop's).
+        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4, EVOLVE_REVISE_ROUNDS=1)
         self.edit(1, "morning")
         self.edit(2, "shiplog")
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2

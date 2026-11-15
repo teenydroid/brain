@@ -1272,7 +1272,7 @@ class HeldOut(EvolveCase):
         # An earlier candidate on the newest learning lost those pairs: its
         # judge notes reach that learning's next try, and only those.
         learning = next(x for x in evolve.read_learnings() if x.id == ORDER[0])
-        evolve.record({"id": "g0c1", "gen": 0, "cand": 1, "verdict": "regressed",
+        evolve.record({"id": "g0c1", "gen": 0, "cand": 1, "verdict": "parked",
                        "report": "0/eval/cand-1/compare/report.json", "learning": learning.ref()})
 
     def test_held_out_tasks_never_reach_the_evidence(self):
@@ -1296,6 +1296,7 @@ class HeldOut(EvolveCase):
                 seen.append(evolve.render_request(request))
                 return {"skip": "just looking", "why": "not-actionable"}
 
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Capture()):
             self.run_gen(1)
         self.assertEqual(len(seen), 1)
