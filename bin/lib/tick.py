@@ -1518,13 +1518,34 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
     return results
 
 
+#: What the mind hears after a browser task it queued lands: where it stands
+#: and how the result comes back (hands/tasks: a research task that ends ok
+#: is a `world · research` stimulus, any other ending the operator's report).
+QUEUED = {
+    "queue_task": ("the browser operator does it at its next run, and its notes come back to you as a later "
+                   "`world · research` stimulus (an `operator · report` if it could not be done). Until one of "
+                   "those arrives it has not run, so don't say it is done"),
+    "queue_signup": ("the browser operator signs you up at its next run, and how it went comes back to you as a "
+                     "later `operator · report` naming the account. Until that arrives you have no account there"),
+}
+
+
 def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     """What a hand did with an intent, back into the inbox for the next beat."""
     do = entry["do"]
     if do in ("remember", "follow_up", "drop_follow_up", "feel", "journal") and entry["status"] == "done":
         return  # Teeny's own bookkeeping: nothing to learn from it landing.
     result = entry.get("result") or {}
-    if entry["status"] == "done":
+    queued = None
+    if entry["status"] == "done" and do in QUEUED and not result.get("dry_run"):
+        # A browser task is only queued when the hand says done: never tell
+        # the mind it is done (it once read "done" as the research finished).
+        if isinstance(result.get("task_id"), int):
+            queued = {"id": result["task_id"], "status": str(result.get("status") or "pending")}
+            what = f"queued as browser task #{queued['id']} ({queued['status']}), not done yet: {QUEUED[do]}"
+        else:
+            what = f"queued, not done yet: {QUEUED[do]}"
+    elif entry["status"] == "done":
         what = "done (dry run: nothing was sent)" if result.get("dry_run") else "done"
     elif entry["status"] == "refused":
         what = f"refused: {result.get('refused') or result.get('error') or 'a rule'}"
@@ -1574,6 +1595,8 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
     payload = {"do": do, "status": entry["status"]}
     if request:
         payload["request"] = request
+    if queued:
+        payload["task"] = queued
     refs = _refs(do, entry["intent"])
     if refs:
         payload["ref"] = refs[0]

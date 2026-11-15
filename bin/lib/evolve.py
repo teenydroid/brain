@@ -772,18 +772,22 @@ def staged_patch(tree: Path, since: str) -> str:
 
 
 def numstat(tree: Path, since: str) -> list[tuple[int | None, int | None, str]]:
+    """-z: a path git would quote (non-ASCII, a space, a quote) stays literal,
+    so the checks that key off a path see the name it really has."""
     stage(tree)
     out = []
-    for line in git(in_tree(tree), "diff", "--cached", "--no-renames", "--numstat", since, "--").splitlines():
-        added, removed, path = line.split("\t", 2)
+    for record in git(in_tree(tree), "diff", "--cached", "--no-renames", "--numstat", "-z", since, "--").split("\0"):
+        if not record:
+            continue
+        added, removed, path = record.split("\t", 2)
         out.append((None if added == "-" else int(added), None if removed == "-" else int(removed), path))
     return out
 
 
 def name_status(tree: Path, since: str) -> list[tuple[str, str]]:
     stage(tree)
-    out = git(in_tree(tree), "diff", "--cached", "--no-renames", "--name-status", since, "--")
-    return [(line.split("\t", 1)[0][:1], line.split("\t", 1)[1]) for line in out.splitlines() if "\t" in line]
+    fields = git(in_tree(tree), "diff", "--cached", "--no-renames", "--name-status", "-z", since, "--").split("\0")
+    return [(fields[i][:1], fields[i + 1]) for i in range(0, len(fields) - 1, 2) if fields[i + 1]]
 
 
 def exists_at(tree: Path, commit: str, path: str) -> bool:
