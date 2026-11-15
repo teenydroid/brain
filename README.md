@@ -157,7 +157,7 @@ bin/tasks-desk ── task.json ──► operator agent ──► browser, on d
 
 Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
 its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
+posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least four hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
 
 | Playbook | When | Does |
 |---|---|---|
