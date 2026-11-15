@@ -270,6 +270,9 @@ def _scores(conn, since: float, until: float) -> tuple[list[int], list[int]]:
         f" WHERE p.status IN ({accepted}) AND p.at > ? AND p.at <= ? AND m.score IS NOT NULL",
         (*rules.ACCEPTED, since, until),
     ).fetchall()
+    # A post whose latest row says Moltbook hides it is not live (the ledger
+    # may still say verified), so its scores are left out like its count.
+    rows = [r for r in rows if not _hidden(conn, "post", r["post_id"])]
     day = [int(r["score"]) for r in rows if r["checkpoint"] == 24]
     best: dict[str, int] = {}
     for r in rows:
@@ -310,7 +313,13 @@ def own_thread_replies(conn, api: RestApi | None = None, now: float | None = Non
     out: Json = {"threads": 0, "comments": 0, "answered": 0, "unanswered": 0, "answer_minutes": [], "complete": True}
     if not posts:
         return out
-    me = reads.me_name(api).lower()
+    try:
+        me = reads.me_name(api).lower()
+    except hand.HandError:
+        # Without Teeny's name no answer can be told apart: the thread numbers
+        # are short, and the ledger's own numbers still land.
+        out["complete"] = False
+        return out
     for post_id in posts:
         try:
             tree = reads.comments(str(post_id), "new", COMMENTS_READ, api).get("comments")
