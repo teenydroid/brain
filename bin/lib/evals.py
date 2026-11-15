@@ -728,14 +728,17 @@ def pairs(base_path: Path, cand_path: Path, tasks: set[str] | None = None) -> li
     ]
 
 
-def orders(sample: int, both: bool) -> tuple[str, ...]:
+def orders(turn: int, both: bool) -> tuple[str, ...]:
     """Which way round a pair is shown: "first" puts the baseline as draft
-    1, "second" the candidate. Once per pair, alternating by sample (odd:
-    the baseline first, even: the candidate first), so a judge that favours
-    a position favours each side equally often; or both, with BOTH."""
+    1, "second" the candidate. Once per pair, alternating by TURN, the
+    pair's place (from 1) among the pairs judged: odd, the baseline first,
+    even, the candidate first. So a judge that favours a position favours
+    each side equally often, to within one pair, whatever the samples (with
+    every sample drafted and an even count, the turn's parity is the
+    sample's). Or both, with BOTH."""
     if both:
         return ("first", "second")
-    return ("first",) if sample % 2 else ("second",)
+    return ("first",) if turn % 2 else ("second",)
 
 
 def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str],
@@ -747,9 +750,9 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     so a tie. Up to EVAL_CONCURRENCY turns at once."""
     jobs = []
     plan = []
-    for pair in pairs(base_path, cand_path, tasks):
+    for turn, pair in enumerate(pairs(base_path, cand_path, tasks), 1):
         task = load_task(evals, pair["task"])
-        shown = orders(pair["sample"], both_orders)
+        shown = orders(turn, both_orders)
         plan.append((pair, shown))
         for way in shown:
             drafts = {"1": pair["base"], "2": pair["cand"]} if way == "first" else {"1": pair["cand"], "2": pair["base"]}
@@ -781,7 +784,7 @@ def pair_outcome(first: dict | None, second: dict | None) -> dict:
     """A pair's verdicts: `first` showed the baseline as draft 1, `second`
     showed the candidate as draft 1. With both, they must agree to decide
     (`consistent`); with one, it decides alone (`consistent` is None: the
-    alternation across samples controls for position, not agreement)."""
+    alternation across pairs controls for position, not agreement)."""
     side = {"1": "base", "2": "cand", "tie": "tie"}
     swapped = {"1": "cand", "2": "base", "tie": "tie"}
     if first is not None and second is not None:
