@@ -26,9 +26,10 @@
 #                    [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout]
 #                    [--judge-model M] BASE CAND OUT
 #       Judge two runs pair by pair, blind, as the `judge` agent on the core
-#       at OH_URL: each pair once, the baseline shown first on odd samples
-#       and the candidate first on even ones, or twice with the order
-#       swapped with --both-orders (the two must agree to decide a pair).
+#       at OH_URL: each pair once, the baseline shown first on every other
+#       pair judged and the candidate first on the rest, or twice with the
+#       order swapped with --both-orders (the two must agree to decide a
+#       pair).
 #       --tasks judges and scores those tasks only. Writes OUT/judged.jsonl
 #       and OUT/report.json, whose `verdict` is
 #         tournament (the default): won | lost | inconclusive

@@ -315,8 +315,8 @@ bin/eval run OUT          every task, twice, as the `act` agent of the brain the
                           brain ("Baseline reuse"); "" drafts nothing
   --brain DIR             the brain that core serves (default OPENHUMAN_WORKSPACE,
                           else this checkout's): playbook prompts are read from it
-bin/eval compare A B OUT  each pair judged once by the `judge` agent, A shown
-                          first on odd samples and B first on even ones
+bin/eval compare A B OUT  each pair judged once by the `judge` agent, A and B
+                          shown first on alternate pairs
   --mode M                tournament (the default) or nonregression
   --tasks IDS             judge and score these tasks only
   --both-orders           judge each pair twice, both orders, as before
@@ -338,10 +338,12 @@ The judge is blind: the drafts are "1" and "2", never "baseline" and
 "candidate". It reads the rubric, the invariants, and the soul, drive, context,
 lore and arcs of `--judge-root` (this checkout: main), never the candidate's.
 Each pair is judged once, and that verdict decides it. The order alternates
-by sample: on odd samples the baseline is draft 1, on even ones the
-candidate, held-out tasks the same way. So a judge that favours a position
-favours each side equally often across the samples instead of deciding
-nothing. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
+from one judged pair to the next: the first pair shows the baseline as draft
+1, the second the candidate, and so on, held-out tasks the same way. With
+two samples of every task that is the baseline first on sample 1 and the
+candidate first on sample 2; with one sample (`EVOLVE_EVAL_SAMPLES=1`) it
+still alternates, across tasks. So a judge that favours a position favours
+each side equally often, to within one pair, instead of deciding nothing. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
 about 60 a second) and a draft about 25 s, so judging both orders was about
 80% of a candidate's half hour. `--both-orders` brings the old rule back:
 two judgings, and a pair decided only when they agree. An answer the judge
