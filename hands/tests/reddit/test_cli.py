@@ -50,3 +50,20 @@ class CliTest(Scratch):
         code, out = self.run_hand("check")
         self.assertEqual(code, 1)
         self.assertIn("different account", out["error"])
+
+    def test_slot_answers_without_a_body(self):
+        code, out = self.run_hand("slot", "--kind", "post")
+        self.assertEqual((code, out["open"], out["why"].split(":")[0]), (0, False, "daily_cap"))
+        code, out = self.run_hand("slot", "--kind", "comment", "--wait", "5")
+        self.assertEqual((code, out["open"]), (0, True))
+
+    def test_rules_shows_the_backoffs_and_clear_backoff_lifts_one(self):
+        from teeny_hands.reddit import rules
+
+        rules.start_backoff(rules.db(), "learnpython", "forbidden", "Reddit answered a write with 403")
+        code, out = self.run_hand("rules")
+        self.assertEqual((code, [b["scope"] for b in out["backoffs"]]), (0, ["learnpython"]))
+        self.assertEqual(out["rules"]["backoff_days"], 7)
+        code, out = self.run_hand("clear-backoff", "r/learnpython")
+        self.assertEqual((code, out["cleared"]), (0, 1))
+        self.assertEqual(self.run_hand("rules")[1]["backoffs"], [])

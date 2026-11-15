@@ -23,13 +23,16 @@ class Refusing:
 
 
 class PostTest(Scratch, Refusing):
+    settings = {"REDDIT_MAX_POSTS_PER_DAY": "1"}
+
     def setUp(self):
         super().setUp()
         self.community()
         self.community("SideProject")
 
     def body(self, **more):
-        return {"subreddit": "learnpython", "title": "a tiny cli that explains tracebacks", "body": "it reads the last frame first.", **more}
+        return {"subreddit": "learnpython", "title": "a tiny cli that explains tracebacks", "body": "it reads the last frame first.",
+                "anchor": "receipt r-1", **more}
 
     def test_publishes_a_self_post_and_records_it(self):
         self.submitted("p1")
