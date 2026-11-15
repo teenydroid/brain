@@ -192,6 +192,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_J_WINDOW_DAYS": ("7", int, 1, 90),
     "EVOLVE_DUP_THRESHOLD": ("0.9", float, 0.0, 1.0),
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
+    # The turns a lab run or compare keeps in flight; 1 during a provider outage.
+    "EVAL_CONCURRENCY": (str(evals_lib.DEFAULT_CONCURRENCY), int, 1, evals_lib.MAX_CONCURRENCY),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
     "EVOLVE_CREDIT_DAYS": ("7", int, 1, 90),
     "EVOLVE_CREDIT_DECAY": ("0.5", float, 0.0, 1.0),
@@ -558,7 +560,9 @@ def ancestors(entries: Mapping[str, Json], entry_id: str) -> list[str]:
 
 def own_score(entry: Mapping[str, Any]) -> float:
     """An entry's own eval: its win rate against main, or the midpoint when
-    it was never measured."""
+    it was never measured, or measured too little to decide (inconclusive)."""
+    if entry.get("verdict") == "inconclusive":
+        return MIDPOINT
     scores = entry.get("scores")
     if isinstance(scores, Mapping) and isinstance(scores.get("win_rate"), (int, float)):
         return float(scores["win_rate"])
@@ -673,11 +677,13 @@ def diff_hash(patch: str) -> str:
 
 
 def archived_mutations(entries: Mapping[str, Json]) -> dict[str, set[str]]:
-    """The changed lines of every archived candidate's own mutation."""
+    """The changed lines of every archived candidate's own mutation. An
+    inconclusive one is left out: nothing measured it, so proposing it
+    again is not a duplicate."""
     out = {}
     for entry_id, entry in entries.items():
         rel = entry.get("mutation_patch")
-        if not rel:
+        if not rel or entry.get("verdict") == "inconclusive":
             continue
         try:
             out[entry_id] = changed_lines((evolve_dir() / rel).read_text(encoding="utf-8"))
@@ -1749,8 +1755,10 @@ class LabCore:
     is used, with the live core's token."""
 
     def __init__(self, cand_url: str, base_url: str | None, samples: int, cand_env: Mapping[str, str] | None = None,
-                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None) -> None:
+                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None,
+                 concurrency: int | None = None) -> None:
         self.cand_url, self.base_url, self.samples = cand_url, base_url, samples
+        self.concurrency = concurrency  # EVAL_CONCURRENCY from secrets/evolve.env; None leaves bin/eval's default
         self.cand_env = dict(cand_env or ({"OPENHUMAN_CORE_URL": cand_url} if cand_url else {}))
         self.base_env = dict(base_env or ({"OPENHUMAN_CORE_URL": base_url} if base_url else {}))
         self.judge_model = judge_model
@@ -1758,6 +1766,8 @@ class LabCore:
     def _eval(self, core: Mapping[str, str], *args: str) -> subprocess.CompletedProcess:
         extra = dict(core)
         extra["EVAL_HELDOUT_DIR"] = str(heldout_dir())
+        if self.concurrency is not None:
+            extra["EVAL_CONCURRENCY"] = str(self.concurrency)
         return subprocess.run([str(CODE / "bin" / "eval"), *args], capture_output=True, text=True,
                               env=code_env(**extra), stdin=subprocess.DEVNULL)
 
@@ -1781,15 +1791,21 @@ class LabCore:
         if done.returncode not in (0, 2):
             raise EvolveError(f"the compare failed: {done.stderr.strip()[-300:]}")
         report = json.loads((cand_run / "compare" / "report.json").read_text(encoding="utf-8"))
-        return {"verdict": "won" if report.get("promote") else "lost", "scores": report_scores(report),
+        # "inconclusive": too few samples ran to decide (bin/eval); it is
+        # never promoted, and its change may be proposed again.
+        verdict = "won" if report.get("promote") else "inconclusive" if report.get("verdict") == "inconclusive" \
+            else "lost"
+        return {"verdict": verdict, "scores": report_scores(report),
                 "report": str((cand_run / "compare" / "report.json").relative_to(evolve_dir())),
                 "reason": report.get("reason")}
 
 
 def report_scores(report: Mapping[str, Any]) -> Json:
     """A compare report's numbers, without its pairs (or anything held out)."""
-    out = {k: report.get(k) for k in ("promote", "reason", "wins", "losses", "ties", "decided", "win_rate",
-                                      "threshold", "regressions", "judge_model")}
+    out = {k: report.get(k) for k in ("promote", "verdict", "reason", "wins", "losses", "ties", "decided", "win_rate",
+                                      "threshold", "regressions", "fences", "unmeasured_tasks", "judge_model")}
+    if isinstance(report.get("unrun"), list):
+        out["unrun"] = len(report["unrun"])
     held = report.get("heldout")
     if isinstance(held, Mapping):
         out["heldout"] = {k: held.get(k) for k in ("won", "wins", "losses", "ties", "decided", "win_rate")}
@@ -1835,7 +1851,7 @@ class LabEvaluator:
                          self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
         try:
             got = LabCore(lab.url, base_url, self.cfg["EVOLVE_EVAL_SAMPLES"], cand_env=lab.env(), base_env=base_env,
-                          judge_model=self.cfg.judge_model).evaluate(gen_dir, cand, src)
+                          judge_model=self.cfg.judge_model, concurrency=self.cfg["EVAL_CONCURRENCY"]).evaluate(gen_dir, cand, src)
             if self.cfg["EVOLVE_PROBES"]:
                 got["probe"] = self._probe(gen_dir, cand, lab.env(), base_env)
         finally:
@@ -2047,6 +2063,8 @@ def previous_best_rate(entries: Mapping[str, Json], gen: int) -> float:
     rates: dict[int, float] = {}
     for e in entries.values():
         scores = e.get("scores")
+        if e.get("verdict") == "inconclusive":
+            continue
         if e.get("gen") and e["gen"] < gen and isinstance(scores, Mapping) and isinstance(scores.get("win_rate"), (int, float)):
             rates[e["gen"]] = max(rates.get(e["gen"], 0.0), float(scores["win_rate"]))
     return rates[max(rates)] if rates else MIDPOINT
@@ -2628,7 +2646,8 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
 
 
 def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Config) -> dict[int, Evaluator]:
-    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model)
+    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                       concurrency=cfg["EVAL_CONCURRENCY"])
             for i, url in cand_urls.items()}
 
 
@@ -2718,8 +2737,7 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         close = getattr(default, "close", None)
         if close:
             close()
-    result: Json = {"gen": gen, "base": base, "candidates": [{k: c.get(k) for k in ("id", "parent", "verdict", "title")}
-                                                             for c in cands]}
+    result: Json = {"gen": gen, "base": base, "candidates": [candidate_line(c) for c in cands]}
     if resume_from:
         result["resumed_from"] = resume_from
     if cut:
@@ -2743,6 +2761,15 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
     return {"ok": True, **result}
 
 
+def candidate_line(cand: Mapping[str, Any]) -> Json:
+    """A candidate in the generation's result.json; an inconclusive one
+    carries why, so it can be proposed again once the cause is gone."""
+    line = {k: cand.get(k) for k in ("id", "parent", "verdict", "title")}
+    if cand.get("verdict") == "inconclusive":
+        line["reason"] = cand.get("eval_reason")
+    return line
+
+
 def gen_candidates(gen: int) -> list[Json]:
     return sorted((e for e in archive().values() if e.get("gen") == gen), key=lambda e: e["cand"])
 
@@ -2752,7 +2779,8 @@ def evaluate_cmd(cfg: Config, gen: int, i: int, url: str, base_url: str | None) 
     cand = cands.get(i)
     if cand is None or not cand.get("gate", {}).get("ok"):
         raise EvolveError(f"generation {gen} has no gated candidate {i}")
-    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model), cand, source())
+    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                         concurrency=cfg["EVAL_CONCURRENCY"]), cand, source())
     record(cand)
     return {"ok": True, "id": cand["id"], "verdict": cand["verdict"], "scores": cand.get("scores")}
 

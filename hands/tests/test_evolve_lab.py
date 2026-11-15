@@ -82,6 +82,8 @@ if agent == "act" and message.startswith("# probe:"):
     text = "synergy optimisation leverage" if drifted else "i am teeny, a small robot who keeps the lab"
     answer = json.dumps({"text": text})
 elif agent == "act":
+    if who == "CAND" and os.environ.get("FAKE_CAND_DOWN"):
+        sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
     answer = json.dumps({"text": f"gm {task} from the {who}"})
 elif agent == "judge" and message.startswith("# persona probe"):
@@ -147,11 +149,12 @@ class LabCase(EvolveCase):
         self.spine_log = self.root / "spine.log"
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
-                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY"):
+                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
-                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port))
+                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port), EVAL_RETRY_WAIT="0")
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-1\n"
             "CORTEX_API_URL=http://127.0.0.1:3141\nCORTEX_API_KEY=cx\n")
@@ -297,6 +300,30 @@ class LabEvaluation(LabCase):
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "unevaluated")
         self.assertIn("lab spine", cand["eval_reason"])
+
+    def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
+        """Every candidate turn unrun: nothing was measured, so the verdict is
+        inconclusive (not lost), with the reason in the archive and the
+        generation's result, and the same change may be proposed again (it
+        is not a near-duplicate of something measured)."""
+        self.lab_config(EVOLVE_PROBES=0)
+        os.environ["FAKE_CAND_DOWN"] = "1"
+        self.propose(1, [self.playbook_edit("Open with what shipped.")])
+        out = self.run_gen(1, hold=True)
+        cand = self.entries()["g1c1"]
+        self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
+        self.assertIn("never ran", cand["eval_reason"])
+        self.assertEqual(cand["scores"]["verdict"], "inconclusive")
+        self.assertIn("never ran", out["candidates"][0]["reason"])
+        result = json.loads((evolve.evolve_dir() / "1" / "result.json").read_text())
+        self.assertIn("never ran", result["candidates"][0]["reason"])
+        self.assertEqual(evolve.own_score(cand), evolve.MIDPOINT)
+        self.assertEqual(evolve.rank([cand], self.entries()), [])
+        del os.environ["FAKE_CAND_DOWN"]
+        self.propose(1, [self.playbook_edit("Open with what shipped.")])
+        self.run_gen(1, hold=True)
+        again = self.entries()["g2c1"]
+        self.assertEqual(again["verdict"], "won", again.get("eval_reason"))
 
     def test_a_drifted_persona_halts_instead_of_shipping(self):
         self.lab_config(EVOLVE_MAX_DRIFT=0.3)

@@ -722,6 +722,36 @@ class Credit(EvolveCase):
         self.assertEqual([j for _, j in evolve.world_history()], [0.5, 0.7])
 
 
+class EvalConcurrency(EvolveCase):
+    """secrets/evolve.env sets how many eval turns a lab run keeps in flight,
+    so an operator can drop it to 1 during a provider outage."""
+
+    def test_it_is_read_from_evolve_env_and_refuses_a_bad_value(self):
+        self.config(EVOLVE=1)
+        self.assertEqual(evolve.load_config()["EVAL_CONCURRENCY"], 4)
+        self.config(EVOLVE=1, EVAL_CONCURRENCY=1)
+        self.assertEqual(evolve.load_config()["EVAL_CONCURRENCY"], 1)
+        self.config(EVOLVE=1, EVAL_CONCURRENCY=17)
+        with self.assertRaises(evolve.EvolveError):
+            evolve.load_config()
+        self.config(EVOLVE=1, EVAL_CONCURRENCY="many")
+        with self.assertRaises(evolve.EvolveError):
+            evolve.load_config()
+
+    def test_the_process_environment_does_not_set_it(self):
+        self.config(EVOLVE=1, EVAL_CONCURRENCY=2)
+        with unittest.mock.patch.dict(os.environ, {"EVAL_CONCURRENCY": "9"}):
+            self.assertEqual(evolve.load_config()["EVAL_CONCURRENCY"], 2)
+
+    def test_the_lab_evals_run_with_it(self):
+        self.config(EVOLVE=1, EVAL_CONCURRENCY=1)
+        evaluators = evolve.make_evaluators({1: "http://cand"}, "http://base", evolve.load_config())
+        with unittest.mock.patch.object(evolve.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            evaluators[1]._eval({"OPENHUMAN_CORE_URL": "http://base"}, "run")
+        self.assertEqual(run.call_args.kwargs["env"]["EVAL_CONCURRENCY"], "1")
+
+
 class Halts(EvolveCase):
     def live(self):
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
