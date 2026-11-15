@@ -750,12 +750,13 @@ check "bin/ask still refuses a message that is only whitespace" bash -c "! print
 # real show playbook reads `hands/x links` first and is told to write the
 # Moltbook exchange without its url when none is left, rather than lose the
 # 23:00 slot to a refusal.
-for h in gh stats moltbook brief; do
+for h in gh stats moltbook reddit brief; do
   cat >"$scratch/hands/$h" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$FAKE_HANDS"
 case "$(basename "$0") $1" in
   "moltbook highlight") echo '{"ok": true, "highlight": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
+  "reddit highlight") echo '{"ok": true, "hours": 24, "highlight": null, "why": "nothing qualifies"}' ;;
   "brief next") echo '{"ok": true, "brief": null}' ;;
   *) echo '{"ok": true}' ;;
 esac
@@ -768,6 +769,7 @@ answer '{"action": "post", "anchor": "hn:1", "text": "an agent named Ava told me
 out="$(FAKE_X_LINKS='{"ok": true, "cap": 1, "sent_today": 1, "left": 0}' run show)"
 message="$(jq -r .message "$FAKE_CALLS")"
 check "show reads today's X link budget before it drafts" grep -q '^x links DRY_RUN=1 ' "$FAKE_HANDS"
+check "show reads the day's best Reddit exchange beside Moltbook's" grep -q '^reddit highlight --hours 24$' "$FAKE_HANDS"
 check "and gives the model the spent link as data" grep -q '"x-links":{"ok":true,"cap":1,"sent_today":1,"left":0}' <<<"$message"
 check "and tells it to leave the exchange's url out when none is left" grep -q "only when \`x-links\` says \`left\` is 1 or more; otherwise leave the url out" <<<"$message"
 check "the link-free show post goes out instead of being refused" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
