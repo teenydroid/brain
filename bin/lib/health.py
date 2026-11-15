@@ -720,8 +720,10 @@ def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
     runs = outage["runs"]
     due = runs >= _setting_int("ACT_ALARM_RUNS", ACT_ALARM_RUNS) or (
         runs >= 2 and outage["last"] - outage["since"] >= 60 * _setting_int("ACT_ALARM_MINUTES", ACT_ALARM_MINUTES))
-    out: Json = {"act_outage": ({k: outage[k] for k in ("runs", "by", "provider")} | {"since": _iso(int(outage["since"] * 1000))}
-                                if runs else None), "act_alarm": None}
+    out: Json = {"act_outage": None, "act_alarm": None}
+    if runs:
+        out["act_outage"] = {"runs": runs, "since": _iso(int(outage["since"] * 1000)), "by": outage["by"],
+                             "provider": outage["provider"]}
     if alarm and runs == 0 and outage["answered_at"] is not None:
         down = f"from {_when(alarm['since'])} to {_when(outage['answered_at'])}"
         closed = _close_issue(alarm, f"A playbook draft was answered again. The drafts failed {down}. Closing.")
