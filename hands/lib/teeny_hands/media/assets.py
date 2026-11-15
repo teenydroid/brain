@@ -17,7 +17,7 @@ animated, so Teeny stays on model in motion too, at a fraction of what a
 text-to-video costs.
 
 The caps are code, in secrets/teeny.env (defaults in brackets):
-  MEDIA_IMAGE_MAX_PER_DAY [8]   MEDIA_VIDEO_MAX_PER_DAY [2]
+  MEDIA_IMAGE_MAX_PER_DAY [20]  MEDIA_VIDEO_MAX_PER_DAY [2]
   MEDIA_MAX_USD_PER_DAY [1.00]  every image and video today, estimates included
   MEDIA_VIDEO_MAX_USD_PER_JOB [0.20]  a video quoted above this is cancelled
 A failed generation costs nothing on Surplus and nothing here. DRY_RUN (on by
@@ -120,7 +120,7 @@ def _check_caps(conn, kind: str, extra_micro: int) -> None:
     lim = runway.limits()
     if not lim["media"]:
         raise hand.Refused(f"no {kind}s on the {lim['tier']} runway tier ({lim['why']})", rule="runway", tier=lim["tier"])
-    limit = hand.number(f"MEDIA_{kind.upper()}_MAX_PER_DAY", 8 if kind == "image" else 2, 0, 100)
+    limit = hand.number(f"MEDIA_{kind.upper()}_MAX_PER_DAY", 20 if kind == "image" else 2, 0, 100)
     used = conn.execute(
         "SELECT COUNT(*) AS n FROM media_assets WHERE kind = ? AND status != 'failed' AND created_at >= ?"
         + (" AND purpose = 'post'" if kind == "image" else ""),

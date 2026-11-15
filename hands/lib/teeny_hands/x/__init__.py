@@ -7,6 +7,7 @@
   posting_rules  the gap, one reply per post, pacing, attachments, the ledger
   media          uploads from the allowed folders, and Giphy GIFs
   mentions       the mentions queue: ingest, screen, offer to the core
+  peers          the peer loop: read the peers' posts, suggest a quote, report
   publish        the only path to a write: guard, rules, DRY_RUN, X, record
   cli            the verbs
 """
