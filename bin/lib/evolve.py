@@ -2447,7 +2447,7 @@ def sandbox_argv(binary: str, copy: Path, command: list[str]) -> list[str]:
     if not str(python).startswith(("/usr/", "/bin/")):
         argv += ["--ro-bind", str(Path(sys.base_prefix).resolve()), str(Path(sys.base_prefix).resolve())]
     argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(copy), SANDBOX_ROOT,
-             "--chdir", SANDBOX_ROOT, "--", *command]
+             "--remount-ro", "/", "--chdir", SANDBOX_ROOT, "--", *command]
     return argv
 
 
