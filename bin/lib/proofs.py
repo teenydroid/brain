@@ -60,6 +60,8 @@ MOLTBOOK_VISIBLE = ("posted", "verified")
 UPSTREAM = "tinyhumansai/openhuman"
 GEN_BRANCH = "teeny/gen-"
 REVERT_BRANCH = "teeny/revert-gen-"
+#: The repository bin/evolve opens its pull requests on.
+BRAIN_REPO = "teenydroid/brain"
 
 Json = dict[str, Any]
 
@@ -350,14 +352,34 @@ def generation_prs(db: Ledgers, t: float) -> tuple[float, str]:
     return n, "generations bin/evolve opened a pull request for (state/evolve/archive.jsonl)"
 
 
+def _self_merged(db: Ledgers) -> set[int]:
+    """Teeny's brain pull requests the babysitter merged with no person's
+    approval (hands/babysit's `self_merge`, the `self-merge` rung at L5). Its
+    plain `merge` is of a head a person approved, so that one is a person's."""
+    rows = db.rows("SELECT number FROM babysit_actions WHERE verb = 'self_merge' AND repo = ?", (BRAIN_REPO,))
+    return {int(r["number"]) for r in rows if r["number"] is not None}
+
+
+def _pr_number(entry: Json) -> int | None:
+    number = entry.get("pr_number")
+    if isinstance(number, int) and not isinstance(number, bool):
+        return number
+    tail = str(entry.get("pr_url") or "").rstrip("/").rsplit("/", 1)[-1]
+    return int(tail) if tail.isdigit() else None
+
+
 def human_merged(db: Ledgers, t: float) -> tuple[float, str]:
-    n = sum(1 for e in _archive() if e.get("merged_at") and not e.get("promoted_at"))
-    return n, "generations a person merged (state/evolve/archive.jsonl); the autonomy ladder's merge evidence (G2)"
+    selfs = _self_merged(db)
+    n = sum(1 for e in _archive()
+            if e.get("merged_at") and not e.get("promoted_at") and _pr_number(e) not in selfs)
+    return n, "generations a person merged or approved (state/evolve/archive.jsonl); the autonomy ladder's merge evidence (G2)"
 
 
-def promoted(db: Ledgers, t: float) -> tuple[float, str]:
-    n = sum(1 for e in _archive() if e.get("promoted_at"))
-    return n, "generations the loop promoted itself"
+def unattended(db: Ledgers, t: float) -> tuple[float, str]:
+    selfs = _self_merged(db)
+    n = sum(1 for e in _archive()
+            if e.get("promoted_at") or (e.get("merged_at") and _pr_number(e) in selfs))
+    return n, "generations merged with no person: self-merged by the babysitter (babysit_actions) or promoted by the loop"
 
 
 def rolled_back(db: Ledgers, t: float) -> tuple[float, str]:
@@ -396,11 +418,11 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L3.vendor", 3, "Pays a vendor for something it decided it needs", "a vendor payment", 1, _paid("vendor")),
     ("L4.diary", 4, "Public diary, one page a day for 30 days", "30 diary pages in a row", 30, diary_days),
     ("L5.generation_pr", 5, "bin/evolve, human-gated first", "a generation PR with a compare report", 1, generation_prs),
-    ("L5.promoted", 5, "Promotion and rollback", "one promoted generation", 1, promoted),
+    ("L5.promoted", 5, "Merging with no human, and rollback", "one generation merged with no person", 1, unattended),
     ("L5.human_merged", 5, "bin/evolve, human-gated first", "five generations a person merged", 5, human_merged),
     ("L5.rollback", 5, "Promotion and rollback", "one automatic rollback", 1, rolled_back),
     ("L5.chronicle", 5, "Chronicle", "a chronicle page per generation", 1, chronicle),
-    ("L5.ten_promoted", 5, "Ten generations promoted with no human", "ten promoted generations", 10, promoted),
+    ("L5.ten_promoted", 5, "Ten generations merged with no human", "ten generations merged with no person", 10, unattended),
 )
 
 #: The proofs whose last step is outside the ledgers: never `met` here.

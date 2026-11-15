@@ -2385,9 +2385,12 @@ class HandsPublisher:
         got = run_json([str(hands_dir() / "gh"), "pr", self._repo(), str(number)], env=hand_env())
         if isinstance(got, Mapping) and isinstance(got.get("pr"), Mapping):
             return dict(got["pr"])
-        got = run_json(["gh", "pr", "view", str(number), "-R", self._repo(), "--json", "mergedAt,state,url,mergeCommit"])
+        got = run_json(["gh", "pr", "view", str(number), "-R", self._repo(), "--json",
+                        "mergedAt,mergedBy,state,url,mergeCommit"])
         if isinstance(got, Mapping):
+            by = got.get("mergedBy")
             return {"merged_at": got.get("mergedAt"), "state": got.get("state"), "html_url": got.get("url"),
+                    "merged_by": by.get("login") if isinstance(by, Mapping) else None,
                     "merge_sha": (got.get("mergeCommit") or {}).get("oid") if isinstance(got.get("mergeCommit"), Mapping)
                     else None}
         return None
@@ -2445,7 +2448,18 @@ def chronicle_path(gen: int, brain: Path | None = None) -> Path:
     return (brain or brain_dir()) / "narrative" / "chronicle" / f"gen-{gen}.md"
 
 
-def write_chronicle(entry: Mapping[str, Any], entries: Mapping[str, Json]) -> Path | None:
+def merger(login: Any, repo: str) -> str:
+    """Who merged, for the chronicle: Teeny's own account (the repository's
+    owner) merges only through the babysitter; anyone else did it by hand."""
+    if not login:
+        return "not recorded"
+    if str(login).lower() == repo.split("/", 1)[0].lower():
+        return "the babysitter, once its audit and CI passed"
+    return f"{login}, by hand"
+
+
+def write_chronicle(entry: Mapping[str, Any], entries: Mapping[str, Json],
+                    merged_by: str = "not recorded") -> Path | None:
     """The chronicle page of a merged generation, in the live brain
     (docs/roadmap.md, A13). Written once: a page already there (an earlier
     merge of the same generation, or an earlier run's) is left as it is."""
@@ -2457,12 +2471,12 @@ def write_chronicle(entry: Mapping[str, Any], entries: Mapping[str, Json]) -> Pa
         return None
     tried = sum(1 for e in entries.values() if e.get("gen") == gen)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(chronicle_text(gen, entry, entries, tried), encoding="utf-8")
+    path.write_text(chronicle_text(gen, entry, entries, tried, merged_by), encoding="utf-8")
     return path
 
 
 def chronicle_text(gen: int, cand: Mapping[str, Any], entries: Mapping[str, Json], tried: int,
-                   merged_by: str = "the babysitter, once its audit and CI passed") -> str:
+                   merged_by: str = "not recorded") -> str:
     """brain/narrative/chronicle/gen-<n>.md: a short entry under the night
     shift engine, written by this script from the record, never by a model."""
     ev = cand.get("eval") or {}
@@ -3277,12 +3291,14 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
                 entry["merged_at"] = merged_at
                 if info.get("merge_sha"):
                     entry["merge_sha"] = info["merge_sha"]
+                if info.get("merged_by"):
+                    entry["merged_by"] = str(info["merged_by"])
                 updated.append(entry["id"])
             elif str(info.get("state", "")).lower() == "closed":
                 entry["closed"] = True
                 updated.append(entry["id"])
         if entry.get("merged_at") and not entry.get("chronicle"):
-            page = write_chronicle(entry, entries)
+            page = write_chronicle(entry, entries, merger(entry.get("merged_by"), cfg["EVOLVE_ISSUE_REPO"]))
             if page is not None:
                 entry["chronicle"] = f"brain/narrative/chronicle/{page.name}"
                 chronicled.append(entry["id"])
