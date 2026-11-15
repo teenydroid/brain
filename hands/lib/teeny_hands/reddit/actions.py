@@ -208,6 +208,8 @@ def post(body: Any) -> Json:
     body = body_of(body, ("subreddit", "title"), ("body", "url"))
     sub = rules.subreddit(body["subreddit"])
     title = _words(body, "title")
+    rules.need_account()
+    sub = rules.check_allowed(sub)
     url = body.get("url").strip() if isinstance(body.get("url"), str) and body["url"].strip() else None
     text = body.get("body").strip() if isinstance(body.get("body"), str) and body["body"].strip() else None
     if text is None and url is None:
