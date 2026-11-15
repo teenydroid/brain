@@ -1395,8 +1395,9 @@ def query_vocabulary() -> set[str]:
     """QUERY_WORDS, the playbooks' and the hands' names (and their parts),
     casefolded."""
     words = {w.casefold() for w in QUERY_WORDS}
-    for name in [p.stem for p in (CODE / "brain" / "playbooks").glob("*.md")] + \
-            [p.name for p in hands_dir().iterdir() if p.is_file()] if hands_dir().is_dir() else []:
+    names = [p.stem for p in (CODE / "brain" / "playbooks").glob("*.md")]
+    names += [p.name for p in (CODE / "hands").glob("*") if p.is_file()]
+    for name in names:
         words.add(name.casefold())
         words.update(part.casefold() for part in name.split("-") if part)
     return words
