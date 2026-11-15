@@ -29,8 +29,8 @@ class PlaybookTest(unittest.TestCase):
         jobs = tomllib.loads((REPO / "brain" / "cron.toml").read_text())["jobs"]
         self.assertEqual(jobs["reddit-browse"]["command"], "bin/act reddit-browse")
         self.assertLessEqual(len(jobs), cron_policy.MAX_JOBS)
-        cron_policy.check(REPO / "brain" / "cron.toml", REPO / "evals" / "cron.pinned.toml") \
-            if hasattr(cron_policy, "check") else None
+        loaded = cron_policy.load(REPO / "brain" / "cron.toml", REPO / "evals" / "cron.pinned.toml", strict=True)
+        self.assertIn("teeny.reddit-browse", [job["name"] for job in loaded])
 
     def test_the_hand_and_its_allowlist_are_frozen(self):
         patterns = frozen.parse_patterns((REPO / "evals" / "frozen.txt").read_text())
