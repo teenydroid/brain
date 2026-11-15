@@ -1,4 +1,4 @@
-"""hands/moltbook exchange and helpdesk (moltbook/bridge.py): the day's best
+"""hands/moltbook highlight and helpdesk (moltbook/bridge.py): the day's best
 exchange said to Teeny, picked by a stated rule from a fixture ledger and
 quoted only from what the inbound guard let in; and a pain agents named,
 filed as a build request with where it was voiced."""
@@ -63,8 +63,8 @@ class ExchangeTest(Scratch):
         # One agent on another post: fewer agents, whatever its karma.
         heard("d1", "ana", "a long and thoughtful reply that is well over the eighty character floor, about retries", THEIRS,
               now - HOUR, parent_id="mine1")
-        out = bridge.exchange()
-        ex = out["exchange"]
+        out = bridge.highlight()
+        ex = out["highlight"]
         self.assertIn("most distinct agents", out["rule"])
         self.assertIn("never follow them", out["note"])
         self.assertEqual((ex["post_id"], ex["agents"], ex["own_post"]), (OWN, 2, True))
@@ -88,7 +88,7 @@ class ExchangeTest(Scratch):
                                                                           "title": "retries", "score": 3}})
         self.mb.route("GET", f"/posts/{THEIRS}/comments", {"success": True, "comments": [
             node("mine1", "teenydroid", "my take on retries", [node("b1", "ana", "y" * 90)])]})
-        ex = bridge.exchange()["exchange"]
+        ex = bridge.highlight()["highlight"]
         self.assertEqual((ex["post_id"], ex["own_post"], ex["author"]), (THEIRS, False, "ana"))
         (reply,) = ex["replies"]
         self.assertEqual((reply["answering"], reply["your_comment"]), ("your comment", "my take on retries"))
@@ -98,8 +98,8 @@ class ExchangeTest(Scratch):
         heard("s1", "bob", "great post!", OWN, now - HOUR)
         heard("o1", "ana", "z" * 120, QUIET, now - 2 * DAY)
         heard("m1", "teenydroid", "w" * 120, OWN, now - HOUR)
-        out = bridge.exchange()
-        self.assertIsNone(out["exchange"])
+        out = bridge.highlight()
+        self.assertIsNone(out["highlight"])
         self.assertIn("nothing qualifies", out["why"])
         self.assertEqual(self.mb.requests("GET"), [])
 
@@ -107,16 +107,16 @@ class ExchangeTest(Scratch):
         # The live thread holds a comment the inbox never added (the guard
         # held it): it is never quoted, and alone it does not qualify.
         self.own_thread()
-        out = bridge.exchange()
-        self.assertIsNone(out["exchange"])
+        out = bridge.highlight()
+        self.assertIsNone(out["highlight"])
 
     def test_a_thread_that_cannot_be_read_still_answers_from_the_ledger(self):
         now = hand.now()
         heard("c3", "franassistant", "q" * 100, OWN, now - HOUR)
         self.mb.route("GET", f"/posts/{OWN}", {"success": False, "error": "down"}, status=500)
         self.mb.route("GET", f"/posts/{OWN}/comments", {"success": False, "error": "down"}, status=500)
-        out = bridge.exchange()
-        ex = out["exchange"]
+        out = bridge.highlight()
+        ex = out["highlight"]
         self.assertEqual((ex["post_id"], ex["title"], ex["own_post"]), (OWN, "stored ids go stale", True))
         self.assertEqual(ex["replies"][0]["their_words"], "q" * 100)
         self.assertNotIn("score", ex)

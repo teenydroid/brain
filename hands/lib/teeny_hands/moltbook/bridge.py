@@ -1,9 +1,9 @@
 """Moltbook to the rest of Teeny: the day's best exchange for X, and a
 problem agents named, filed as a build request (docs/hands.md, "moltbook
-exchange" and "moltbook helpdesk"; docs/audit/moltbook-plan.md, sections 5
+highlight" and "moltbook helpdesk"; docs/audit/moltbook-plan.md, sections 5
 and 6).
 
-`exchange` (R) is the day's best real exchange on Moltbook, from the ledger
+`highlight` (R) is the day's best real exchange on Moltbook, from the ledger
 and the live thread. The ledger part is the inbox: every comment said to
 Teeny (a comment on its own post, a reply under its comment elsewhere) that
 the inbound guard let through is a `moltbook · comment` stimulus. A quote
@@ -14,7 +14,7 @@ hear, is ever quoted. The rule, as it is answered in `rule`:
   heard it in the last N hours (24); the best post is the one with the most
   distinct agents who left one, a tie going to the post whose respondent has
   the most karma, then to the newest. One counting comment qualifies; with
-  none, `exchange` is null and `why` says so.
+  none, `highlight` is null and `why` says so.
 
 The winner is read live for its numbers (score, comment count), Teeny's own
 words in the thread (its post, the comment an agent answered, its answer)
@@ -54,7 +54,7 @@ HOUR = 3600.0
 DAY = 86400.0
 #: A comment shorter than this is a thank-you, not an exchange.
 MIN_CHARS = 80
-#: Replies `exchange` quotes, at most, and how much of each.
+#: Replies `highlight` quotes, at most, and how much of each.
 MAX_QUOTES = 3
 QUOTE_CHARS = 600
 #: Teeny's own words beside a quote, at most.
@@ -103,7 +103,7 @@ def _clip(text: Any, limit: int) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
 
 
-# --- exchange -------------------------------------------------------------------------------
+# --- highlight ------------------------------------------------------------------------------
 
 
 def _heard(since: float, me: str) -> dict[str, list[Json]]:
@@ -175,14 +175,14 @@ def _index(nodes: Any) -> tuple[dict[str, Mapping[str, Any]], dict[str, list[Map
     return by_id, children
 
 
-def exchange(hours: int = 24, api: RestApi | None = None) -> Json:
+def highlight(hours: int = 24, api: RestApi | None = None) -> Json:
     me = reads.me_name(api).lower()
     heard = _heard(hand.now() - hours * HOUR, me)
     karma: dict[str, int | None] = {}
     out: Json = {"hours": hours, "rule": RULE.format(hours=hours)}
     best = _best(heard, api, karma)
     if best is None:
-        return {**out, "exchange": None, "why": "nothing qualifies: no comment of that length said to Teeny in the window"}
+        return {**out, "highlight": None, "why": "nothing qualifies: no comment of that length said to Teeny in the window"}
     notes: list[str] = []
     conn = rules.db()
     try:
@@ -245,7 +245,7 @@ def exchange(hours: int = 24, api: RestApi | None = None) -> Json:
     if own and post.get("content"):
         found["your_post"] = _clip(post.get("content"), OWN_CHARS)
     found = {k: v for k, v in found.items() if v is not None}
-    return {**out, "exchange": found, "note": UNTRUSTED, **({"notes": notes} if notes else {})}
+    return {**out, "highlight": found, "note": UNTRUSTED, **({"notes": notes} if notes else {})}
 
 
 # --- helpdesk: an answer, a pain, or both -----------------------------------------------------

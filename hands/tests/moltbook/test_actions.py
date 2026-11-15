@@ -11,7 +11,7 @@ import os
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
 from teeny_hands import hand
-from teeny_hands.moltbook import actions, rules
+from teeny_hands.moltbook import actions, reads, rules
 
 
 #: Moltbook ids are UUIDs; the beat's batch carries them whole.
@@ -729,6 +729,30 @@ class SmallActionsTest(Scratch, Refusing):
         self.assertEqual((out["unfollowed"], out["checked"], out["kept"]), (["quiet"], 3, 2))
         self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
         self.assertEqual(actions.prune()["unfollowed"], [])  # nothing left to do the next week
+
+    def test_prune_never_unfollows_a_peer_who_does_not_follow_back(self):
+        (self.root / "brain").mkdir(exist_ok=True)
+        (self.root / reads.PEERS_FILE).write_text("Lilt\n")
+        self.followed("lilt", 9, follows_you=False)
+        self.followed("quiet", 9, follows_you=False)
+        self.mb.route("DELETE", "/agents/quiet/follow", {"success": True})
+        out = actions.prune()
+        self.assertEqual((out["unfollowed"], out["spared"], out["kept"]), (["quiet"], ["lilt"], 0))
+        self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
+
+    def test_prune_never_unfollows_an_agent_with_a_recent_exchange(self):
+        from teeny_hands import stimuli
+
+        self.followed("talker", 9, follows_you=False)
+        self.followed("oldtalk", 30, follows_you=False)
+        self.mb.route("DELETE", "/agents/oldtalk/follow", {"success": True})
+        stimuli.add("moltbook", "comment", "c1", "words", who="talker",
+                    payload={"post_id": "p", "answering_teeny": True}, at=T0 - 3 * DAY)
+        stimuli.add("moltbook", "comment", "c2", "words", who="oldtalk",
+                    payload={"post_id": "p", "answering_teeny": True}, at=T0 - 20 * DAY)
+        out = actions.prune()
+        self.assertEqual((out["unfollowed"], out["spared"]), (["oldtalk"], ["talker"]))
+        self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/oldtalk/follow"])
 
     def test_stale_follows_reports_unknown_as_null(self):
         self.followed("mystery", 8)
