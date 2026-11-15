@@ -198,6 +198,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
 | `review [--limit N]` | A | The hold reviewer (docs/roadmap.md, G4; `teeny_hands/guard/review.py`; the pinned `guard-review` job through `bin/guard-review`, every 15 minutes). Off unless `GUARD_REVIEW=1`. A second model, `GUARD_REVIEW_MODEL`, which must differ from the drafter's (`SPINE_MODEL` in `secrets/spine.env`) and the judge's, reads each pending outbound draft once, at most ten a run and none older than `max_age_hours`, and only in a category `evals/guard-review.toml` (frozen) lists as `releasable` (`profanity`, `drugs`). Whatever that file says, a person always decides `rejection` (people), `self-harm`, `violence`, `weapons`, `hate`, `extremism`, `sexual`, `links`, a judge hold with no category, and any draft that mentions money (`review.MONEY`). The reviewer can only answer `release` or `keep`, and anything else keeps the hold. A release goes out like `holds release` (the posting rules still apply) with the note "released by the hold reviewer". Each review is written to `guard_reviews` (hold id, category, outcome, sampled, model; never the text), and a random `sample` (a tenth) of releases is marked for the operator. Under `DRY_RUN` the outcome is `would_release` and nothing is claimed. |
 | `reviews [--sampled] [--limit N]` | R | The reviewer's log, newest first; `--sampled` gives the releases queued for the operator to read. |
+| `rescreen` | A | One pass of the re-screen ("Re-screening", below), the pinned `guard-rescreen` job through `bin/guard-rescreen`, every five minutes. Prints its counts as `rescreen`. |
 
 **Surfaces and limits** (lengths in UTF-16 code units, refused over, never
 cut; `max_emoji` overrides the cap):
@@ -212,8 +213,28 @@ cut; `max_emoji` overrides the cap):
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
-`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to` and
-`solscan.io`.
+`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to`,
+`solscan.io` and Teeny's own site, `teeny.enamakel.com` (with its
+subdomains). It carries a short list of news and primary sources that the
+listening hands read and Teeny's posts cite (docs/audit/moltbook-plan.md,
+§5): `news.ycombinator.com`, `lobste.rs`, `arxiv.org`, `reuters.com`,
+`apnews.com`, `bbc.com`, `bbc.co.uk`, `nbcnews.com`, `arstechnica.com`,
+`theverge.com` and `faa.gov`. No shorteners, paste sites, or crypto or
+token sites. Anything else is cut, and a Moltbook or GitHub draft with a cut
+link is refused for a rewrite. An operator adds a host with `links approve`.
+
+**Kill words go to the judge.** The bare `kill`, `kills`, `killed` and
+`killing` (`lexicon.JUDGED_TERMS`) are not held on sight: agents kill
+processes, jobs and replies all day, and on 2026-11-13 the word held one
+harmless Moltbook comment ("A captcha killed the reply") 40 times. A text
+whose only listed word is one of these goes to the judge, like a text with no
+listed word, and the judge holds violence. It still holds when the judge is
+off (`SAFETY_JUDGE=0`, or `check_fields(judge=False)`), cannot be reached, or
+answers in a shape it cannot read. A kill word aimed at a person (`kill
+you`, `killed him`, `killing people`, and the rest in the lexicon) is a
+violence term of its own and is held on sight, as is every other violence
+word. Callers that read the lexicon alone (`screen_text`, `gate.screen`)
+still see the four words as a match (`ScreenMatch.judged`).
 
 **Repeated letters.** The screen collapses repeated letters, except in a
 term made of one repeated letter, which keeps its count (`x{3,}`). Otherwise
@@ -277,17 +298,47 @@ minutes (`teeny_hands.guard.rescreen`):
   ingest to offer, a comment goes into the `stimuli` inbox, and the hold is
   `cleared`. A real verdict is written on the hold (its category and
   reason), and the hold stays. Another failure leaves it for the next run.
-- A draft of Teeny's own is `expired`, never sent late; Teeny drafts afresh.
-  (A reply, Moltbook comment or mail reply held this way is sent again by
-  the next beat of `bin/tick`, through the guard again, under a new hold if
-  the judge fails again; the expired hold is the old attempt.)
+- A Moltbook post or comment of Teeny's own, under an hour old
+  (`RESEND_SECS`), is judged again the same way (the links, the lexicon and
+  the judge on each stored field). A fresh `clean` sends it through
+  `hands/moltbook post` or `comment`, as written: the guard runs again there,
+  and every posting rule (the gap, the caps, once per post and per parent,
+  the captcha). The hold is `cleared` with where it went. A real verdict is
+  written on the hold, which stays. Another failure leaves it for the next
+  run. A re-send the hand refuses (Teeny posted meanwhile, or the tick
+  already sent the comment again) or the guard holds again is closed as
+  `expired` and never tried again; if the guard's judge failed again, that
+  new hold is expired too. The hold's context carries what a re-send needs
+  (the post's `submolt`, `type` and `url`; a comment's `post_id` and
+  `parent_id`; the lab tags). A hold from before it did, or older than an
+  hour, is `expired`. Under `DRY_RUN` it is judged and left pending
+  (`would_send`).
+- Any other draft of Teeny's own is `expired`, never sent late; Teeny drafts
+  afresh. (A reply, Moltbook comment or mail reply held this way is also
+  sent again by the next beat of `bin/tick`, through the guard again, under
+  a new hold if the judge fails again; the expired hold is the old attempt.)
 
 Re-screening never touches a hold from a real verdict (the lexicon, the links,
 the judge naming a reason) or one an operator has decided, and it never
 releases a verdict. With `SAFETY_JUDGE=0` it asks nothing. Each hold
 records `rescreened_at` and `rescreen` (`cleared`, `prohibited`,
-`unreachable`, `unreadable`, `expired`, `release_failed`); `bin/health`
-prints the counts as `rescreen`.
+`unreachable`, `unreadable`, `expired`, `release_failed`, `would_send`);
+`bin/health` prints the counts as `rescreen`, with `sent` and `refused` for
+the Moltbook re-sends.
+
+It runs twice over: in `bin/health` after its probe (every 15 minutes), and
+in the pinned `guard-rescreen` job (`bin/guard-rescreen`, every five
+minutes, at :03, :08 and so on), so a comment held by an outage reaches
+Teeny's inbox, and a held Moltbook draft goes out, within about five minutes
+of the judge answering again. On 2026-11-14 four comments held through a
+three-hour billing outage waited for the next health run. One pass runs at a
+time (the `guard-rescreen` lock); a second skips.
+
+A released Moltbook comment is visible as a `stimuli` row `moltbook:comment:<comment
+id>` (surface `moltbook`, kind `comment`, `who` its author, payload
+`{post_id, on_own_post}`), and its hold reads `cleared` with the effect "the
+comment went into Teeny's inbox". Its `moltbook_held` row stays, so later
+scans pass it over.
 
 The statuses a hold moves through (`teeny_hands/guard/holds.py` and
 `rescreen.py`). `releasing` is a claim taken while the effect runs, never a
@@ -307,7 +358,10 @@ resting state:
        ├─ inbound item, fresh clean ─► releasing ─► cleared (item back in its queue)
        ├─ inbound item, real verdict ─► stays pending (category and reason written)
        ├─ judge fails again ──────────► stays pending, for the next run
-       └─ Teeny's own draft ──────────► expired (never sent late)
+       ├─ Teeny's Moltbook draft, under an hour, fresh clean
+       │     ─► releasing ─► cleared (sent through hands/moltbook)
+       │                 └─► expired (the hand refused, or the guard held it again)
+       └─ any other draft of Teeny's own ─► expired (never sent late)
 ```
 
 ## `gh`: the only holder of the GitHub token
