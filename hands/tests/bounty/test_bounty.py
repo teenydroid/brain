@@ -200,6 +200,12 @@ class BountyTest(Scratch):
         bounty_id = self.picked()
         row = self.row(bounty_id)
         self.assertEqual((row["status"], row["winner_post_id"], row["public_at"]), ("picked", "1200", DEADLINE + 2 * HOUR))
+        from teeny_hands.x import posting_rules
+
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        anchor = conn.execute("SELECT anchor FROM x_posts WHERE id = '1200'").fetchone()["anchor"]
+        self.assertEqual(anchor, f"bounty:{bounty_id}")
         with self.assertRaises(hand.Refused) as caught:
             actions.pick({"bounty_id": bounty_id, "entry_id": self.entry_id("bob"), "reasons": "x", "text": f"bounty #{bounty_id}"})
         self.assertEqual(caught.exception.detail["rule"], "picked")
