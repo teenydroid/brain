@@ -71,7 +71,7 @@ export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE
   FAKE_CALLS="$scratch/calls.log" TEENY_OH="$scratch/no-core" DRY_RUN=1
 : >"$FAKE_CALLS"
 
-# A proposal: one more line at the end of the morning playbook.
+# A proposal: one more line at the end of the moltbook-daily playbook (no eval task drafts from it).
 propose() { # I LINE
   python3 - "$src" "$root/props/cand-$1.json" "$2" <<'PY'
 import json, subprocess, sys
