@@ -247,23 +247,31 @@ check "judges by the soul in --judge-root" grep -q 'MAIN-SOUL-MARKER' <<<"$(jq -
 # write their files in order, each pair's two orderings on its own line.
 inflight() { # VAR=VALUE... -- CMD...: the most turns in flight while CMD ran
   rm -rf "$scratch/room"; mkdir "$scratch/room"
-  env FAKE_SLOW=0.4 FAKE_INFLIGHT="$scratch/room" "$@" >/dev/null 2>&1 || true
+  env FAKE_SLOW=1 FAKE_INFLIGHT="$scratch/room" "$@" >/dev/null 2>&1 || true
   cat "$scratch/room/max"
+}
+# The cap is hard (never more than N at once); FAKE_SLOW is long enough that N
+# really are in flight together, so the peak is exactly N on any box.
+capped() { # PEAK N: exactly N turns at once
+  check "$3" test "$1" -ge "$2" -a "$1" -le "$2"
 }
 four="arc-progress,morning-post,reply-fud,humans-post"
 draft '{"text": "gm %TASK% from the base"}'
-check "a run keeps four turns in flight by default" test "$(inflight "$eval_bin" run --samples 2 --only "$four" "$runs/par")" = 4
+capped "$(inflight "$eval_bin" run --samples 2 --only "$four" "$runs/par")" 4 "a run keeps four turns in flight by default"
 EVAL_CONCURRENCY=1 "$eval_bin" run --samples 2 --only "$four" "$runs/seq" >/dev/null 2>&1
 check "and writes its drafts in the same order as one at a time" \
   test "$(jq -c '[.task, .sample]' "$runs/par/drafts.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl")"
-check "EVAL_CONCURRENCY=1 runs one turn at a time" test "$(inflight EVAL_CONCURRENCY=1 "$eval_bin" run --samples 1 --only "$four" "$runs/one")" = 1
-check "EVAL_CONCURRENCY=3 keeps three" test "$(inflight EVAL_CONCURRENCY=3 "$eval_bin" run --samples 2 --only "$four" "$runs/three")" = 3
+capped "$(inflight EVAL_CONCURRENCY=1 "$eval_bin" run --samples 1 --only "$four" "$runs/one")" 1 "EVAL_CONCURRENCY=1 runs one turn at a time"
+capped "$(inflight EVAL_CONCURRENCY=3 "$eval_bin" run --samples 2 --only "$four" "$runs/three")" 3 "EVAL_CONCURRENCY=3 keeps three"
 draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 --only "$four" "$runs/parc" >/dev/null 2>&1
-check "a compare judges four turns at once" \
-  test "$(inflight FAKE_JUDGE=prefer:CAND "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" = 4
-check "and keeps each pair's orderings apart: the baseline first, then the candidate" \
-  test "$(jq -r '"\(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = 21
+# The judge's verdict differs per task, so a pairing mix-up shows: arc-progress
+# and reply-fud prefer the candidate, morning-post and humans-post the baseline.
+# A pair is judged 21 when the candidate wins both orderings (draft 2 both
+# times is the baseline in the swapped one), 12 when the baseline does.
+capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
+check "and keeps each pair's orderings apart and its own verdict" \
+  test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
