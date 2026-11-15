@@ -180,6 +180,7 @@ class HelpdeskTest(Scratch):
         self.assertEqual(out["comment"]["commented"], "new1")
         # A second answer on the same post is refused by the comment rules;
         # with nothing else asked for, the refusal is the answer.
+        self.at(hand.now() + 60)
         with self.assertRaises(hand.Refused) as twice:
             bridge.helpdesk({"post_id": THEIRS, "body": "one more thing about ids and their length."})
         self.assertEqual(twice.exception.detail["rule"], "once_per_post")
