@@ -256,7 +256,8 @@ def _make_up(job: dict, minutes: list[int], where: str, catch_up_secs: int) -> i
         raise PolicyError(f"{where}: make-up on a schedule that sets both day of month and day of week")
     if (hours + CATCH_UP_CLAIM_HOURS) * 60 >= min_gap(minutes):
         raise PolicyError(f"{where}: a {hours}-hour make-up window, plus the {CATCH_UP_CLAIM_HOURS} hours a cut-off"
-                          f" run's claim can last, is not shorter than the {min_gap(minutes)} minutes between its slots")
+                          f" run's claim can last, is not shorter than the {min_gap(minutes)} minutes"
+                          " between its slots")
     return hours * 3600
 
 
