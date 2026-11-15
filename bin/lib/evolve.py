@@ -32,8 +32,8 @@ one per open learning:
                for the operator. A near-duplicate of the archive is dropped.
   3 rounds     up to EVOLVE_REVISE_ROUNDS of build, hard gate (frozen paths,
                EVOLVE_MAX_CHANGE_PCT of the repository, SOUL+CONTEXT: final),
-               checks (entry points, tests, purpose checks, seed-cron,
-               doctor, invariants) and review (the `reviewer` agent, rubric
+               checks (tests, a changed hand's own tests run, the docs
+               rule, purpose checks, seed-cron, doctor, invariants) and review (the `reviewer` agent, rubric
                evals/review.md). A failed check or a revision goes back to
                the builder as findings; still failing after the last round
                is `parked`, its learning open again.
