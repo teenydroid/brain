@@ -832,10 +832,15 @@ operator opens each community, and the fences are tighter than Moltbook's.
 | `thread ID [--sort S] [--max N]` | R | One post and its comment tree, six deep (2 min). |
 | `search QUERY [--subreddit S]`, `user NAME`, `subreddit NAME` | R | Post search (10 min); an account (1 h); a community's about page and its rules, and whether it is on the allowlist (1 h). |
 | `inbox [--days N] [--max N]` | R | Reddit's inbox: replies to Teeny's posts and comments and mentions of it, from the last N days (7), into its mind's inbox (`stimuli`, `reddit · comment`, ref `t1_<id>`), each screened by the inbound guard first. The payload carries `post_id`, `comment_id` and `can_answer` (the subreddit is on the allowlist). Private messages are counted, not added, and nothing is marked read. Run by `bin/tick` at most every 10 minutes once `REDDIT_CLIENT_ID` is set. |
-| `post` | A | `{subreddit, title, body? \| url?, flair_id?}`. |
-| `comment` | A | `{post_id, body, parent_id?}`; ids bare or as fullnames (`t3_…`, `t1_…`). |
+| `metrics refresh` | J | Measures each of Teeny's own posts and comments due a checkpoint (1h, 24h, 72h after it went out, for 14 days) into `reddit_post_metrics`: score, a post's comment count, and `state` (`live`, `removed` by a moderator, the admins or the spam filter, or `deleted` by Teeny). All due writes in one `/api/info` read (100 at most); a late run records the latest checkpoint due. A write found removed for the first time starts a back-off on its subreddit. Reads only, so it records under `DRY_RUN` too; with nothing due it calls nothing and needs no credentials. Run hourly by `bin/stats-snapshot metrics`. |
+| `metrics list [--days N]`, `metrics daily` | R | The latest row per write measured in the last N days (7); the account's `karma`, `link_karma` and `comment_karma` from a fresh `whoami` (hands/stats source `reddit`). |
+| `study` | R | Per subreddit on the allowlist: its top posts of the week (`feed SUB --sort top --time week`: title, score, comment count, age in hours) and what Teeny's own writes there of the last 14 days scored, per kind and `format` tag (count, measured, median, best and worst score, removed). Deterministic; the feeds cached 6 h, a study with a failed feed not cached. |
+| `slot --kind post\|comment [--wait S]` | R | Whether a write of that kind would pass the caps, the gaps and the back-offs now, in at least one allowlisted subreddit: `{open: true}`, or `{open: false, why, wait_seconds?}`, which `bin/act` reads as an empty required input and skips before the model turn. A gap of at most S seconds (180 at most) is sat out once. |
+| `post` | A | `{subreddit, title, anchor, body? \| url?, flair_id?, format?, experiment?}`. |
+| `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`; ids bare or as fullnames (`t3_…`, `t1_…`). |
 | `subscribe` | A | `{subreddit}`; once each. |
-| `rules`, `check` | O | The rules in force; that the credentials give a token for `REDDIT_USERNAME`. |
+| `rules`, `check` | O | The rules in force and the back-offs in force (`backoffs`); that the credentials give a token for `REDDIT_USERNAME`. |
+| `clear-backoff [SUBREDDIT]` | O | Lifts the back-off on one subreddit or, with none named, the account's. |
 
 There is no vote verb and no private-message verb: automated voting is vote
 manipulation under Reddit's rules, and a bot's unasked DM is spam.
@@ -848,8 +853,15 @@ write, each refused with its `rule`:
   nowhere. The community must exist and be open (`subreddit`), Teeny must not
   be banned there (`banned`), it must not be NSFW (`nsfw`), and a post must be
   of a kind it takes (`submission_type`). These are read fresh, not cached.
-- **Caps** (`daily_cap`, last 24 hours): `REDDIT_MAX_POSTS_PER_DAY` (1, at
-  most 10), `REDDIT_MAX_COMMENTS_PER_DAY` (10, at most 100).
+- **The anchor** (`anchor`): a post names, in `anchor`, the real and current
+  thing it is about (a receipt id from `hands/moltbook material`, a PR number,
+  a `listen` item). Missing or blank is refused before anything is read or
+  sent. It is kept in `reddit_posts.anchor`, never published. A comment needs
+  none.
+- **Caps** (`daily_cap`, last 24 hours): `REDDIT_MAX_POSTS_PER_DAY` (0, at
+  most 10), `REDDIT_MAX_COMMENTS_PER_DAY` (6, at most 100). A new account that
+  posts is what Reddit's filters catch first, so a fresh install comments
+  only, and posts once the operator raises the post cap.
 - **Gaps** (`rate_limit`, with `wait_seconds`): `REDDIT_POST_GAP_HOURS` (6)
   between posts, `REDDIT_SUBREDDIT_POST_GAP_DAYS` (7) between two posts in one
   subreddit, `REDDIT_COMMENT_GAP_SECONDS` (120, never under 30) between
@@ -863,12 +875,40 @@ write, each refused with its `rule`:
   comment, never a top-level comment on its own post, never on a locked,
   archived or NSFW post. The post and the parent are read fresh from
   `/api/info`.
+- **Thread age** (`too_old`, with `age_hours` and `limit_hours`): an unasked
+  comment (a top-level comment on someone else's post, or a reply into a
+  thread where nobody answered Teeny) on a post older than
+  `REDDIT_MAX_COMMENT_AGE_HOURS` (3, clamped 1 to 48) is refused. An answer
+  to a reply to Teeny has no age limit.
+- **Back-offs** (`backoff`): a sign of trouble in a subreddit (Reddit answers
+  a write there with 403, the community check finds Teeny banned, or
+  `metrics refresh` finds one of Teeny's posts or comments there removed)
+  stops every write to it for `REDDIT_BACKOFF_DAYS` (7, 1 to 90), refused
+  locally with the reason and the time left (`wait_seconds`). A sign of
+  trouble with the account (a fresh `whoami` says suspended, or the account's
+  own read answers 403) stops every Reddit write until the operator runs
+  `hands/reddit clear-backoff`. Each back-off puts one item in the mind's
+  inbox (`stimuli`, `reddit · backoff`), whatever number of writes it then
+  refuses. Under `DRY_RUN` a ban seen starts none.
 - **Crypto** (`crypto`): text that reads as crypto (Moltbook's detector) goes
   only to a subreddit `REDDIT_CRYPTO_SUBREDDITS` names.
 
 Under `DRY_RUN` every rule runs (reads included) and nothing is written:
-Reddit or the ledger. Tables: `reddit_posts`, `reddit_comments`,
-`reddit_actions`, `reddit_cache`.
+Reddit or the ledger. Tables: `reddit_posts` (with `anchor`, `format`,
+`experiment`), `reddit_comments` (with `format`, `experiment`),
+`reddit_actions`, `reddit_backoffs` (scope: a subreddit, or `*` for the
+account; signal `forbidden`, `banned`, `removed` or `suspended`; `until`, NULL
+for the account's; `cleared_at`), `reddit_post_metrics`, `reddit_cache`.
+
+Reddit also reaches the other hands: its karma is a `hands/stats` source
+(`reddit`: `karma`, `link_karma`, `comment_karma`, skipped without
+`REDDIT_CLIENT_ID`) and an audience line on the board, with Reddit's best and
+worst writes once one is measured; the lab can test a format on `reddit`; a
+brief can be a Reddit lead (`hands/brief add --surface reddit`, `hands/brief
+leads --surface reddit`); people who write on Reddit have records; the world
+score counts Reddit karma and engaged Reddit accounts (class unknown) and the
+channel; and a Reddit draft held only because the judge was down is sent
+again by the guard's re-screen, through every rule again.
 
 ### Setting the account up
 
@@ -886,7 +926,9 @@ Reddit or the ledger. Tables: `reddit_posts`, `reddit_comments`,
    NAME`), skip any that ban bots, AI-written content or self-promotion, and
    list the rest in `REDDIT_SUBREDDITS`. A new, low-karma account is
    rate-limited and filtered by Reddit and by many communities' AutoModerator:
-   start with one or two, comments only.
+   start with one or two, comments only (the defaults: no posts, six comments
+   a day). Raise `REDDIT_MAX_POSTS_PER_DAY` once the account has some karma
+   and no back-off (`hands/reddit rules`).
 6. With `DRY_RUN=1`, `hands/reddit comment` (and `bin/act reddit-helpdesk`)
    show what would go out. Then, when `DRY_RUN=0`, the mind answers replies
    and mentions on its own, and `reddit-helpdesk` in `brain/cron.toml` can be
