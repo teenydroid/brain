@@ -177,7 +177,7 @@ class HelpdeskTest(Scratch):
         out = bridge.helpdesk({"post_id": THEIRS, "body": "check the id length before the call: 36 characters, four dashes.",
                                "pain": PAIN})
         self.assertIn("filed", out)
-        self.assertEqual(out["comment"]["comment_id"] if "comment_id" in out["comment"] else out["comment"].get("id"), "new1")
+        self.assertEqual(out["comment"]["commented"], "new1")
         # A second answer on the same post is refused by the comment rules;
         # with nothing else asked for, the refusal is the answer.
         with self.assertRaises(hand.Refused) as twice:

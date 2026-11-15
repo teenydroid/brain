@@ -108,11 +108,15 @@ def _clip(text: Any, limit: int) -> str:
 
 def _heard(since: float, me: str) -> dict[str, list[Json]]:
     """post id -> the counting comments heard on it, oldest first."""
-    rows = stimuli.db().execute(
-        "SELECT ref, who, text, payload, at FROM stimuli WHERE surface = 'moltbook' AND kind = 'comment' AND at >= ?"
-        " ORDER BY at, rowid",
-        (since,),
-    ).fetchall()
+    conn = stimuli.db()
+    try:
+        rows = conn.execute(
+            "SELECT ref, who, text, payload, at FROM stimuli WHERE surface = 'moltbook' AND kind = 'comment' AND at >= ?"
+            " ORDER BY at, rowid",
+            (since,),
+        ).fetchall()
+    finally:
+        conn.close()
     out: dict[str, list[Json]] = {}
     for row in rows:
         try:
@@ -181,8 +185,11 @@ def exchange(hours: int = 24, api: RestApi | None = None) -> Json:
         return {**out, "exchange": None, "why": "nothing qualifies: no comment of that length said to Teeny in the window"}
     notes: list[str] = []
     conn = rules.db()
-    own_row = conn.execute("SELECT title, submolt FROM moltbook_posts WHERE post_id = ? ORDER BY at DESC LIMIT 1",
-                           (best,)).fetchone()
+    try:
+        own_row = conn.execute("SELECT title, submolt FROM moltbook_posts WHERE post_id = ? ORDER BY at DESC LIMIT 1",
+                               (best,)).fetchone()
+    finally:
+        conn.close()
     post: Any = None
     try:
         post = reads.post(best, api).get("post")
