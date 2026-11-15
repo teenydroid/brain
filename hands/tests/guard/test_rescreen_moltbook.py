@@ -145,6 +145,23 @@ class PostResendTest(ResendBase):
         self.assertEqual(len(self.mb.requests("POST", "/posts")), 1)
         self.assertEqual(self.run_at(LATER + 5 * MINUTE)["checked"], 0)
 
+    def test_a_post_is_not_sent_again_once_teeny_has_posted_since_the_hold(self):
+        # Teeny posted something else after the hold, and the re-screen only
+        # reaches the hold once the hand's 30-minute gap has passed (a backlog
+        # of outage holds, ten a run): the stale draft must not go out as a
+        # second post on top of the one Teeny wrote instead.
+        hold = self.held(actions.post, self.BODY)
+        self.created("post", "p8")
+        self.judge_says(CLEAN)
+        self.at(T0 + MINUTE)
+        actions.post({"submolt": "general", "title": "another one", "body": "x"})
+        out = self.run_at(MINUTE + rules.POST_GAP + MINUTE)
+        self.assertEqual((out["refused"], out["sent"]), (1, 0))
+        self.assertEqual(len(self.mb.requests("POST", "/posts")), 1)
+        after = holds.get(hold["id"])
+        self.assertEqual(after["status"], "expired")
+        self.assertIn("posted on Moltbook since", after["effect"])
+
     def test_a_resend_the_guard_holds_again_on_a_judge_failure_is_not_tried_a_third_time(self):
         hold = self.held(actions.post, self.BODY)
         # Clean for the re-screen's two fields, then down for the hand's own guard.
