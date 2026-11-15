@@ -83,7 +83,7 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             os.replace(report_path, rejected_path)
             _write(desk / f"{name}-done.rejected.reason.json", {"reason": rejected})
     _tell_the_mind(name, settled, rejected)
-    offer = dict(claim())
+    offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
     # The same file, absolute: an agent rooted elsewhere (the builder works
     # from state/workbench/) resolves no checkout-relative path.
