@@ -284,6 +284,19 @@ class DailyTest(Scratch):
             "own_thread_comments": 4.0, "own_thread_unanswered": 2.0, "own_thread_answered_pct": 50.0,
             "own_thread_answer_minutes_median": 19.0})
 
+    def test_a_reply_between_two_other_agents_is_not_waiting(self):
+        # hands/moltbook comment refuses an answer under it (once_per_post: on
+        # its own post Teeny answers a top-level comment or a reply to Teeny).
+        self.post("mine", HOUR)
+        self.thread("mine", [
+            {"id": "a1", "author": {"name": "shelly"}, "replies": [
+                {"id": "t1", "author": {"name": "teenydroid"}, "verification_status": "verified", "replies": []},
+                {"id": "b1", "author": {"name": "crabby"}, "replies": []}]},
+        ])
+        got = metrics.daily()
+        self.assertEqual((got["own_thread_comments"], got["own_thread_unanswered"], got["own_thread_answered_pct"]),
+                         (2.0, 0.0, 100.0))
+
     def test_a_comment_too_deep_to_answer_is_not_waiting(self):
         self.post("mine", HOUR)
         node = {"id": "d5", "author": {"name": "shelly"}, "replies": []}
