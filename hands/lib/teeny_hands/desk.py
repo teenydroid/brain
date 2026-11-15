@@ -57,10 +57,12 @@ def _write(path: Path, payload: Mapping[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[], Mapping[str, Any]],
+def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[bool], Mapping[str, Any]],
         shape: str) -> dict[str, Any]:
-    """Settles `<name>-done.json` with `settle`, then writes `claim()` to
-    `<name>.json`, telling the agent where and how to report."""
+    """Settles `<name>-done.json` with `settle`, then writes `claim(turned_away)`
+    to `<name>.json`, telling the agent where and how to report. `turned_away`
+    is True when this pass refused the report the run left: that run did
+    report, so its claim is still the agent's to resume."""
     desk = folder()
     offer_path, report_path = desk / f"{name}.json", desk / f"{name}-done.json"
     rejected_path = desk / f"{name}-done.rejected.json"
