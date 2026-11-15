@@ -186,6 +186,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_J_WINDOW_DAYS": ("7", int, 1, 90),
     "EVOLVE_DUP_THRESHOLD": ("0.9", float, 0.0, 1.0),
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
+    # Pairs a candidate is measured on: the samples per task are chosen to reach it (eval_samples).
+    "EVOLVE_EVAL_PAIRS": ("24", int, 1, 200),
     # The turns all of a run's labs keep in flight together; 1 during a provider outage.
     "EVAL_CONCURRENCY": (str(evals_lib.DEFAULT_CONCURRENCY), int, 1, evals_lib.MAX_CONCURRENCY),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
@@ -1845,6 +1847,18 @@ def _ran(run: Path, tasks: list[str], samples: int, key: str) -> bool:
             and set(tasks) <= set(marker.get("tasks") or []))
 
 
+#: Most samples one task is drafted, however few tasks a change reaches.
+MAX_EVAL_SAMPLES = 8
+
+
+def eval_samples(pairs: int, floor: int, reached: int) -> int:
+    """Samples per task so the REACHED tasks give about PAIRS pairs:
+    ceil(PAIRS / REACHED), at least FLOOR (EVOLVE_EVAL_SAMPLES), at most
+    MAX_EVAL_SAMPLES (FLOOR wins over the cap). A change reaching one task
+    has two pairs at two samples, too few to tell a regression from luck."""
+    return max(floor, min(MAX_EVAL_SAMPLES, -(-pairs // max(1, reached))))
+
+
 def model_key() -> str:
     """What a draft depends on besides the brain: the model the labs run
     (SPINE_MODEL in secrets/spine.env, which every lab copies), passed to
@@ -1949,24 +1963,32 @@ class TargetedEvaluator:
                 done(cand, unmeasurable(plans[cand["id"]]))
         if not measured:
             return
-        baseline = Baseline(self.base, self.cfg["EVOLVE_EVAL_SAMPLES"], model_key())
+        # A candidate and main are drafted the same number of samples a task,
+        # and that depends on how many tasks the change reaches: one baseline
+        # folder per sample count (its folder name has it), each drafting the
+        # union of the tasks of the candidates that count serves.
+        key = model_key()
+        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]), key) for c in measured}
         try:
             try:
                 # A restart that finds every report it needs boots nothing.
                 fresh = [c for c in measured if not self._reusable(c, plans[c["id"]])]
                 base_env = self._base_env() if fresh else {}
-                union = sorted({t for c in fresh for t in plans[c["id"]]["tasks"]})
-                if baseline.missing(union):
-                    assert self.base_tree is not None
-                    baseline.draft(baseline.missing(union), self._env(base_env, self.cfg["EVAL_CONCURRENCY"]),
-                                   self.base_tree / "brain")
+                for samples in sorted({baselines[c["id"]].samples for c in fresh}):
+                    group = [c for c in fresh if baselines[c["id"]].samples == samples]
+                    baseline = baselines[group[0]["id"]]
+                    union = sorted({t for c in group for t in plans[c["id"]]["tasks"]})
+                    if baseline.missing(union):
+                        assert self.base_tree is not None
+                        baseline.draft(baseline.missing(union), self._env(base_env, self.cfg["EVAL_CONCURRENCY"]),
+                                       self.base_tree / "brain")
             except EvolveError as exc:
                 for cand in measured:
                     done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300]})
                 return
             share = max(1, self.cfg["EVAL_CONCURRENCY"] // max(1, len(fresh)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(measured)) as pool:
-                futures = {pool.submit(self._one, c, plans[c["id"]], baseline, base_env, share): c for c in measured}
+                futures = {pool.submit(self._one, c, plans[c["id"]], baselines[c["id"]], base_env, share): c for c in measured}
                 for future in concurrent.futures.as_completed(futures):
                     cand = futures[future]
                     try:
@@ -1977,13 +1999,17 @@ class TargetedEvaluator:
         finally:
             self.close()
 
+    def _samples(self, plan: Json) -> int:
+        """Samples per task for a change reaching PLAN's tasks (eval_samples)."""
+        return eval_samples(self.cfg["EVOLVE_EVAL_PAIRS"], self.cfg["EVOLVE_EVAL_SAMPLES"], len(plan["tasks"]))
+
     def _paths(self, cand: Json) -> tuple[Path, Path]:
         folder = self.gdir / "eval" / f"cand-{cand['cand']}"
         return folder / "run", folder / "compare"
 
     def _saved_report(self, cand: Json, tasks: list[str]) -> Json | None:
         run, compare = self._paths(cand)
-        if not (compare / "report.json").is_file() or not _ran(run, tasks, self.cfg["EVOLVE_EVAL_SAMPLES"], model_key()):
+        if not (compare / "report.json").is_file() or not _ran(run, tasks, samples, model_key()):
             return None
         try:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
