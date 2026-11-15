@@ -432,7 +432,9 @@ while IFS= read -r item; do
       if [ "$status" = 0 ]; then
         attach_media "$item"
         [ "$media_ids" = '[]' ] || body="$(jq -c --argjson m "$media_ids" '. + {media_ids: $m}' <<<"$body")"
-        result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && "$hands/$hand" "$verb"))" || status=$?
+        # TEENY_WRITER names the playbook to the hand, which tags a write
+        # with it when the answer named no format (hands/moltbook comment).
+        result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && TEENY_WRITER="$name" "$hands/$hand" "$verb"))" || status=$?
       fi
       ;;
   esac

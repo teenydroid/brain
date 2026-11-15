@@ -6,6 +6,7 @@ against the fake Moltbook."""
 from __future__ import annotations
 
 import json
+import os
 
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
