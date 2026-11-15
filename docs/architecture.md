@@ -399,7 +399,8 @@ already past its budget sends no more of the file and keeps the rest.
 closed (docs/hands.md, `guard`), so when the model provider drops streams in
 bursts (on 2026-11-13 the judge could not be reached about 45 times in an
 hour and a quarter) it holds Teeny's own words as category `unknown`, and
-such a hold expires unsent. The judge itself asks up to three times first.
+such a hold expires unsent (unless the re-screen sends a Moltbook draft
+again, docs/hands.md, "Re-screening"). The judge itself asks up to three times first.
 When it still fails, the hand's refusal (`refused: held`) carries
 `judge_failed: true`, which only a judge failure sets (its reason starts
 `the judge could not be reached` or is `the judge answered in an unreadable
