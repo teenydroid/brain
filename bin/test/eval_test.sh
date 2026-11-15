@@ -587,7 +587,7 @@ check "one task's two samples are enough to decide (min pairs: half the possible
 FAKE_JUDGE=prefer:base nr "$scratch/nr-worse" --tasks morning-post,reply-fud
 check "a candidate the judge likes less has regressed (0 of 4: one chance in 16)" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "regressed false"
 check "and compare exits 2" test "$code" = 2
-check "the report's signal is worse, with its tails" test "$(report '[.signal, .p_worse, .p_better] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "worse 0.0625 1"
+check "the report's signal is worse, with its tails" test "$(report '[.signal, .p_worse, (.p_better == 1)] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "worse 0.0625 true"
 check "the summary line says the signal too" test "$(FAKE_JUDGE=prefer:base "$eval_bin" compare --mode nonregression --tasks morning-post,reply-fud "$runs/nbase" "$runs/ncand" "$scratch/nr-worse2" 2>/dev/null | jq -r .signal)" = worse
 FAKE_JUDGE=prefer:CAND nr "$scratch/nr-better" --tasks morning-post,reply-fud
 check "four of four wins read better, and pass" test "$(report '[.verdict, .signal, .p_better] | map(tostring) | join(" ")' "$scratch/nr-better")" = "pass better 0.0625"
