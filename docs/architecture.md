@@ -831,7 +831,8 @@ Every scheduled job is in one of two files:
     out, for the scoreboard (`hands/stats board`);
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
-    unfollow of agents that did not follow Teeny back after 7 days
+    unfollow of agents that did not follow Teeny back after 7 days, never a
+    peer or an agent with a real exchange in the last 14 days
     (`hands/moltbook prune`);
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
