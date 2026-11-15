@@ -10,7 +10,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
   R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted]
                             the newest original posts of the accounts in brain/x-peers.txt, screened
-  A  peers suggest          stdin {"candidates": [{quote_of, text, relevance, why, source, format}], "media_ids"?}:
+  A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source, format}], "media_ids"?}:
                             all kept, the top one quoted only when it clears the bar (x/peers.py)
   R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
@@ -198,14 +198,15 @@ def parser() -> argparse.ArgumentParser:
     reading.add_argument("--per-peer", type=_per_peer, default=2)
     reading.add_argument("--skip-quoted", action="store_true", help="leave out peers quoted in the last 7 days")
     peer_verbs = reading.add_subparsers(dest="peers_verb")
-    peer_verbs.add_parser("suggest", help="up to 3 quote suggestions (JSON on stdin)").set_defaults(
-        handler=_peers_suggest, takes_body=True)
     listed = peer_verbs.add_parser("suggestions", help="what was suggested, posted and skipped")
     listed.add_argument("--days", type=_days, default=7)
     listed.set_defaults(handler=_peers_suggestions, takes_body=False)
     reported = peer_verbs.add_parser("report", help="per peer: touches, who answered, how the quote did")
     reported.add_argument("--days", type=_days, default=14)
     reported.set_defaults(handler=_peers_report, takes_body=False)
+    # One word, as a playbook's `hand:x <verb>` output names it (peer-quote).
+    verb("peer-suggest", _peers_suggest, "up to 3 scored quote suggestions; the top one posted only past the bar",
+         body=True)
     verb("post", _post, "an own post or a quote (JSON on stdin)", body=True)
     verb("reply", _reply, "a reply (JSON on stdin)", body=True).add_argument("--to", required=True)
     verb("like", _like, "like a post").add_argument("id")

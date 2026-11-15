@@ -195,6 +195,10 @@ def _speaks(output: str) -> bool:
         return True
     if output.startswith("hand:"):
         words = output.split()
+        # Every hands/x output acts on X, whatever its verb is called
+        # (`peer-suggest` quotes a peer).
+        if words[0] == "hand:x":
+            return True
         return len(words) > 1 and words[1].split("-")[0] in POSTING_VERBS
     return False
 
