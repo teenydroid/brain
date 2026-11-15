@@ -196,8 +196,6 @@ answer '{"action": "post", "anchor": "pr 212", "posts": ["a", 2]}'
 out="$(run morning)"
 check "posts that are not all strings are an error and nothing is sent" \
   bash -c "[ '$(jq -r '.actions[0].status' <<<"$out")' = error ] && ! grep -q '^x post' '$FAKE_HANDS' && ! grep -q '^guard anchor' '$FAKE_HANDS'"
-reset
-out="$(FAKE_X_EXIT=1 run morning)" || true
 
 # --- a data job (A17): Teeny's script, jailed, fed the inputs before it --------------
 if python3 -c "import sys; sys.path[:0] = ['$here/../lib', '$here/../../hands/lib']; import datajob
