@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -713,6 +713,84 @@ comments cache and stops at a 429. When a thread cannot be read they are
 all left out that day, since a short count would read as good news.
 `hands/stats board` shows the newest of them as its fourth line.
 
+## `reddit`: Teeny on Reddit, through the browser operator
+
+Reddit has no API open to Teeny: its public JSON answers 403 to the box
+(`listen/sources.py`), and an OAuth app now needs Reddit's approval. The
+browser operator already has what Reddit needs: a persistent profile
+(`state/browser/profile`, so a login survives between tasks), the keychain's
+`{{keychain:<site>}}` fill, the `signup` task kind, the `needs_code` loop
+through Teeny's inbox, and the captcha solver. So `hands/reddit` never drives
+a browser and never calls Reddit. Like the HTTP hands it validates, applies
+its caps and the guard, honours `DRY_RUN` and keeps a ledger in
+`state/hands.db`; what it decides to do it queues as one `hands/tasks` task
+of a `reddit_*` kind (`--source reddit`, a start page on reddit.com, the
+words to type as the task's `text`), and the desk's settling closes its row.
+The operator works on old.reddit.com and types `text` exactly (`tasks`
+RULES).
+
+| Verb | | Does |
+|---|---|---|
+| `status` | R | The account (handle, age, karma), each cap and what is left of it, the allowlist, the subreddits whose rules were read, and the rows still on the desk. |
+| `feed [--subreddit S] [--max N]` | R | The threads the last browses brought back, newest first. |
+| `seen [--max N]` | R | Everything a browse brought back (`reddit_seen`): the only things an upvote may target. |
+| `due` | R | The next read the `reddit-browse` playbook owes: the allowlisted subreddit read longest ago, then the inbox once there is an account, when that was over 6 hours ago; `{due: null, why}` otherwise, which skips the run before the model. |
+| `browse [--subreddit S] [--sort hot\|new\|rising]` | A | `{subreddit?, sort?, inbox?}`. Queues a `reddit_browse` task: a subreddit's (or the front page's) ten threads most worth an agent's reply, and a subreddit's rules (`reddit.rules`). At most once an hour per subreddit (`rate_limit`, `wait_seconds`). No account needed; anywhere public. `{inbox: true}` is `inbox`. |
+| `inbox` | A | Queues a `reddit_inbox` task: replies and mentions, read only. |
+| `stats` | A | Queues a `reddit_stats` task: the profile's karma and age, into `reddit_account` (and `hands/stats`' `reddit` source). |
+| `comment [--thread P]` | A | `{thread, body}`: a top-level comment on a thread (`reddit_comment`). |
+| `reply [--comment P]` | A | `{comment, body}`: an answer to a comment (`reddit_reply`). |
+| `post [--subreddit S] [--title T] [--url U]` | A | `{subreddit, title, body?, url?}`: a post of Teeny's own (`reddit_post`); a `url` must pass the guard's link allowlist. |
+| `upvote [P ...]` | A | `{targets: [P, ...]}` or `{permalink}`: up to 5 in one `reddit_vote` task, so a vote does not spend an operator run each. |
+| `subscribe [S]` | A | `{subreddit}` (`reddit_subscribe`). |
+| `signup [--username U]` | O | Queues an operator-source `signup` task on `https://www.reddit.com/register`: the desk makes the keychain password on offer (handle: `AGENTMAIL_INBOX`), the username is `teenydroid`, else `teeny_droid`, else `teenydroid_ai`, and Reddit's code comes from `redditmail.com` (`needs_code`, then `mail_codes`). It ends `ok` naming the username, which lands in `accounts`. Refused without `AGENTMAIL_INBOX` (`no_inbox`), without the keychain (`no_keychain`), with an account already (`have_account`) or one on the desk (`duplicate`). |
+| `profile` | O | Queues a `reddit_profile` task: display name `Teeny`, bio "An AI agent (Teeny), run by its operator. Not a person." (brain/DRIVE.md: say you are an AI where a profile has room). |
+
+Every acting verb runs, in one invocation: the body's shape, the rules, the
+guard (`check_fields`, surface `reddit`: title 300, body 10000, long-form),
+then under the `reddit-write` lock the rules again, then `DRY_RUN`
+(`{dry_run, would_queue}`: no task, no row), then the task and its row
+(`queued`). A task that ends ok marks its rows `done`, with the permalink of
+what Teeny wrote (`own`); any other end marks them `failed`. A row whose task
+ended without a settle (a stale claim, a hand-over to a person) is closed the
+next time the hand looks.
+
+The rules (`reddit/rules.py`):
+
+- **An account first** (`no_account`): nothing is written before a signup
+  recorded Teeny's Reddit account.
+- **The allowlist** (`subreddit`): comments and posts go only to the
+  subreddits in `deploy/reddit-subreddits.txt`, the operator's list of
+  communities that tolerate a disclosed AI account (frozen). Teeny reads
+  anywhere public.
+- **Rules first** (`no_rules`): a comment or post in a subreddit needs a
+  browse of it that captured its rules; the rules ride along in the task's
+  goal, and the operator ends the task `failed` if they forbid it.
+- **The caps** over the last 24 hours (`daily_cap`, with `wait_seconds`):
+  `REDDIT_COMMENTS_PER_DAY` (6, at most 20; comments and replies together),
+  `REDDIT_POSTS_PER_DAY` (1, at most 3), `REDDIT_VOTES_PER_DAY` (15, at most
+  40; each target), `REDDIT_SUBSCRIBES_PER_DAY` (3, at most 10). A task
+  still on the desk counts; a failed one frees its place.
+- **Posts** (`rate_limit`, `ramp`): 6 hours apart, and only once the account
+  is 7 days old with 50 comment karma. Until then it comments.
+- **Once** (`duplicate`): one comment per thread, one reply per comment, one
+  vote per target, one subscribe per subreddit.
+- **Votes** (`unseen`, `own`): only on something a browse brought back, never
+  on Teeny's own post or comment, never as a trade.
+- **Crypto** (`crypto`): never written.
+
+What comes back: a `reddit_browse` that ends ok is a `world · reddit_browse`
+stimulus (the operator's notes, framed as data) and its threads land in
+`reddit_seen`; a `reddit_inbox` is a `reddit · inbox` stimulus, its notes
+screened by `guard inbound` first (a hold never reaches the mind). The mind
+answers with `reddit_comment`, `reddit_reply`, `reddit_post`,
+`reddit_upvote` and `reddit_subscribe` (bin/lib/tick.py), each held to the
+same setting the hand reads and offered only once Teeny holds an account;
+the hand's refusals carry `rule` and `wait_seconds`. A guard hold the judge
+only made because it failed is sent again by `guard rescreen` through this
+hand. The `reddit-browse` job (every 2 hours) reads `due` and queues the
+next read, so the loop is browse, stimuli, mind, intent, desk.
+
 ## `hn`: Hacker News, read only
 
 Teeny reads Hacker News and hears what is said to it there, and never
@@ -1391,16 +1469,16 @@ on the open web: any public https page except the operator's
 connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
-Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
+Playbooks (`hand:tasks add`), `hands/reddit` (its `reddit_*` kinds, below) and the operator (the person) add tasks.
 Nothing else turns a task into words for the mind: the desk tells it only the
 outcome (`operator · report`), except for the findings kinds (`news`,
 `browse`, `research`), whose notes come back framed as data (below).
 
 | Verb | | Does |
 |---|---|---|
-| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
+| `add [--source S]` | A | `{goal, start_url, done_when, kind?, text?}`. `text` is words the operator types exactly as given (a Reddit comment), at most 10000 characters, offered as `task.text`. A task from `--source reddit` starts only on reddit.com (`rule: hand_site`) and needs no reputed link. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, text?, max_pages?, max_screenshots?, email?, mail_codes?, code_sites?}, rules}`. `code_sites` comes with `mail_codes`: a mail domain that sends codes for another site (`redditmail.com` for `reddit.com`); a task waiting on `reddit.com` reads mail from redditmail.com too. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?, reddit?}`. `reddit` (an object: what the task's `done_when` asked for) goes with a `reddit_*` task only; when one settles, `reddit.ledger.settle` closes hands/reddit's row, and a failure there is logged, never a refused report. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -2712,6 +2790,7 @@ creates its own tables:
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
+| `reddit` | `reddit_actions` (the ledger: one row a write or read queued, unique per verb and target for comments, replies, votes and subscribes), `reddit_seen`, `reddit_rules`, `reddit_account` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `hn` | `hn_watch`, `hn_cache` |
 | `listen` | `listen_heard`, `listen_cache` |
@@ -2721,7 +2800,7 @@ creates its own tables:
 | `brief` | `briefs` |
 | `image`, `video` | `media_assets` |
 | `build` | `build_jobs` |
-| `tasks` | `browser_tasks` |
+| `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
