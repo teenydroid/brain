@@ -199,8 +199,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_LAB_BOOT_SECS": ("180", int, 10, 1800),
     "EVOLVE_EVOLVER_AGENT": ("evolver", str, None, None),
     # Paid web searches (hands/x402, Exa) a learning's research may run;
-    # 0, the default, runs none. The operator turns it on (2 is plenty).
-    "EVOLVE_RESEARCH_SEARCHES": ("0", int, 0, 3),
+    # 0, the default, runs none; the operator turns it on (the box runs 3).
+    "EVOLVE_RESEARCH_SEARCHES": ("0", int, 0, 5),
     "EVOLVE_JUDGE_MODEL": ("", str, None, None),
     "EVOLVE_PROBES": ("1", int, 0, 1),
     "EVOLVE_PROBE_SAMPLES": ("2", int, 1, 5),
