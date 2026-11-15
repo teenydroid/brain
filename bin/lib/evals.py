@@ -187,6 +187,156 @@ def playbook_prompt(brain: Path, name: str) -> str:
     return parts[2].strip() if len(parts) == 3 else text.strip()
 
 
+def select(evals: Path, held: Path | None, with_heldout: bool, ids: list[str]) -> list[str]:
+    """The ids of IDS a run or a compare takes: every visible task named,
+    and the held-out ones only WITH_HELDOUT. A held-out id without it is
+    left out, not refused (`affected` names held-out tasks whenever there
+    are some); an id that is neither is refused."""
+    visible, hidden = set(task_ids(evals)), set(heldout_ids(held))
+    out = []
+    for task_id in ids:
+        if task_id in visible or (with_heldout and task_id in hidden):
+            out.append(task_id)
+        elif task_id not in hidden:
+            raise EvalError(f"no task {task_id} in evals/tasks" + (" or the held-out tasks" if hidden else ""))
+    return list(dict.fromkeys(out))
+
+
+# --- what a change can reach (docs/evolve.md, "Affected tasks") ---------------------------------
+#
+# A draft is one `act` turn on the core serving the measured brain. Its
+# message is render(): the task (frozen, in the measuring checkout) and the
+# prompt of the task's playbook, read from the measured brain. Its system
+# prompt is the core's subagent prompt for act.toml: brain/agent/prompts/act.md
+# (built at every boot by bin/lib/prompts.py from brain/agents/act.md, then
+# MEMORY.md, DRIVE.md, CHARTER.md, CONTEXT.md, narrative/LORE.md and
+# narrative/ARCS.md), SOUL.md and IDENTITY.md (act.toml: omit_identity =
+# false), and AGENTS.md in the workspace (brain/) and the action directory
+# (the repository root). act has no tools, so no skill reaches it, and the
+# core's "Available Skills" block is not in a subagent's prompt. The inputs
+# are canned in the task, so no hand or data job runs. The hard checks, the
+# rubric and the judge's reference are the measuring checkout's, the same
+# for both sides.
+
+#: Paths in every draft, and why.
+EVERY_DRAFT = {
+    "brain/agents/act.md": "the act agent's instructions, in every draft's system prompt",
+    "brain/agents/act.toml": "the act agent's definition: its model settings and prompt",
+    "brain/agent/prompts/act.md": "the act agent's built system prompt",
+    "brain/SOUL.md": "in every draft's system prompt (act.toml: omit_identity = false)",
+    "brain/IDENTITY.md": "in every draft's system prompt (act.toml: omit_identity = false)",
+    "brain/AGENTS.md": "the workspace's AGENTS.md, in every turn's system prompt",
+    "AGENTS.md": "the action directory's AGENTS.md, in every turn's system prompt",
+    "brain/MEMORY.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/MEMORY.seed.md": "the memory a lab starts from, in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/DRIVE.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/CHARTER.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/CONTEXT.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/narrative/LORE.md": "its cast and running bits are in every draft's system prompt (bin/lib/prompts.py)",
+    "brain/narrative/ARCS.md": "in every draft's system prompt (bin/lib/prompts.py)",
+    # The code that builds that prompt or runs the turn. All frozen: only an
+    # operator's diff has them.
+    "bin/lib/prompts.py": "builds every speaking agent's system prompt",
+    "bin/lib/core_config.py": "writes the core's settings every turn runs under",
+    "bin/spine": "boots the core every draft comes from",
+    "bin/ask": "sends every draft's turn",
+    "bin/lib/teeny.sh": "sets the paths bin/spine and bin/ask use",
+    "Cargo.toml": "builds the core every draft comes from",
+    "Cargo.lock": "builds the core every draft comes from",
+    "rust-toolchain.toml": "builds the core every draft comes from",
+    "Dockerfile": "builds the core every draft comes from",
+}
+EVERY_DRAFT_TREES = {
+    "bin/lib/core_sections/": "writes the core's settings every turn runs under",
+    "spine/": "the core every draft comes from",
+    "vendor/": "the core every draft comes from",
+}
+PLAYBOOK_PATH = re.compile(r"brain/playbooks/([a-z0-9][a-z0-9-]*)\.md")
+
+
+def _reaches(path: str) -> tuple[str, str]:
+    """("all", why), ("playbook", name) or ("none", why) for one path."""
+    if path in EVERY_DRAFT:
+        return "all", EVERY_DRAFT[path]
+    for tree, why in EVERY_DRAFT_TREES.items():
+        if path.startswith(tree):
+            return "all", why
+    match = PLAYBOOK_PATH.fullmatch(path)
+    if match:
+        return "playbook", match.group(1)
+    if path.startswith("hands/") or path.startswith("bin/lib/datajob"):
+        return "none", "a task's inputs are canned: no hand or data job runs in an eval"
+    if path.startswith("evals/") or path in ("bin/eval", "bin/lib/evals.py"):
+        return "none", "measures both sides alike, from the measuring checkout"
+    return "none", "in no draft's message or system prompt"
+
+
+def affected_tasks(changed_paths: list[str], tasks: list[dict]) -> dict:
+    """The tasks a change to CHANGED_PATHS can move: {"tasks": [ids],
+    "all": bool, "why": {id or "*": reason}, "paths": {path: reason}}.
+    A path in every draft (EVERY_DRAFT) is every task; a playbook is the
+    tasks that name it (`playbook = "..."`); anything else is none."""
+    why: dict[str, str] = {}
+    paths: dict[str, str] = {}
+    every = False
+    by_playbook: dict[str, list[str]] = {}
+    for task in tasks:
+        if task.get("playbook"):
+            by_playbook.setdefault(task["playbook"], []).append(task["id"])
+    hit: set[str] = set()
+    for path in sorted(set(changed_paths)):
+        kind, detail = _reaches(path)
+        if kind == "all":
+            every = True
+            why.setdefault("*", f"{path}: {detail}")
+            paths[path] = f"every task: {detail}"
+        elif kind == "playbook":
+            ids = by_playbook.get(detail, [])
+            for task_id in ids:
+                hit.add(task_id)
+                why.setdefault(task_id, f"drafted from {path}")
+            paths[path] = f"{', '.join(ids)}: drafted from it" if ids else "no task drafts from this playbook"
+        else:
+            paths[path] = f"no task: {detail}"
+    ids = [t["id"] for t in tasks] if every else [t["id"] for t in tasks if t["id"] in hit]
+    return {"tasks": ids, "all": every, "why": why, "paths": paths}
+
+
+def changed_paths(root: Path, base: str) -> list[str]:
+    """What ROOT's working tree changes against BASE, from the repository's
+    top: every path git diff names (both sides of a rename) and every
+    untracked file not ignored. NUL-separated, so a path git would quote is
+    read as it is."""
+    def git(*args: str) -> str:
+        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        if done.returncode != 0:
+            raise EvalError(f"git {' '.join(args[:2])} in {root}: {done.stderr.strip()[-300:]}")
+        return done.stdout
+
+    top = Path(git("rev-parse", "--show-toplevel").strip())
+    root = top
+    names = git("diff", "--name-only", "--no-renames", "-z", base, "--").split("\0")
+    names += git("ls-files", "--others", "--exclude-standard", "-z").split("\0")
+    return sorted({n for n in names if n})
+
+
+def all_tasks(evals: Path, held: Path | None) -> list[dict]:
+    """Every visible task, then every held-out one in HELD."""
+    out = [load_task(evals, t) for t in task_ids(evals)]
+    ids = heldout_ids(held)
+    if ids:
+        before = os.environ.get(HELDOUT_ENV)
+        os.environ[HELDOUT_ENV] = str(held)
+        try:
+            out += [load_task(evals, t) for t in ids]
+        finally:
+            if before is None:
+                os.environ.pop(HELDOUT_ENV, None)
+            else:
+                os.environ[HELDOUT_ENV] = before
+    return out
+
+
 def render(task: dict, brain: Path | None = None) -> str:
     """The message a brain drafts from, in bin/act's shape: the job, the
     inputs as data, and the one JSON answer. A task that names its playbook
