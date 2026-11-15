@@ -502,14 +502,14 @@ class DeskTest(Scratch):
     def workbench(self):
         return self.root / "state" / "workbench"
 
-    def claim_self_job(self, slug="self-2-build-dripsplan"):
+    def claim_self_job(self, slug="self-2-build-dripsplan", claimed_at=None, status="claimed"):
         conn = jobs.db()
         try:
             with hand.transaction(conn):
                 cur = conn.execute(
-                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch)"
-                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?)",
-                    (slug, hand.now(), "teeny/" + slug))
+                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch, status)"
+                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?, ?)",
+                    (slug, hand.now() if claimed_at is None else claimed_at, "teeny/" + slug, status))
                 return cur.lastrowid
         finally:
             conn.close()
@@ -521,6 +521,10 @@ class DeskTest(Scratch):
         self.assertNotIn("workdir_path", job)
         self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertNotIn("report_to_path", offer)
+        # Not as a key, and not as text anywhere the builder reads (the rules too).
+        dumped = json.dumps(offer)
+        self.assertNotIn("report_to_path", dumped)
+        self.assertNotIn("workdir_path", dumped)
         self.assertIn("relative to state/workbench/", offer["paths"])
         shown = {k: v for k, v in job.items() if k not in ("request", "instructions")}
         shown.update({k: v for k, v in offer.items() if k != "job"})
