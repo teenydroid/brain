@@ -20,10 +20,13 @@ the box.
   R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
                                               24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
   R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  metrics daily                            the day's numbers hands/stats keeps (live posts, scores,
+                                              writes lost to the challenge, unanswered own-thread comments)
   R  follows [--days N] [--max N]             follows at least N days old (7) that Teeny has not
                                               unfollowed, and whether each follows back (null = unknown)
   R  study                                    the week's best posts (hot+top, six submolts) and
-                                              Teeny's own last 10 writes with their metrics; cached 6h
+                                              Teeny's own last 10 writes with their metrics; cached 6h;
+                                              own_summary: its own writes per format and submolt, 7d and 14d
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
@@ -70,6 +73,8 @@ def _post(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    if args.action == "daily":
+        return {"metrics": metrics.daily()}
     return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
 
 
@@ -119,7 +124,7 @@ def parser() -> argparse.ArgumentParser:
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
-    measuring.add_argument("action", choices=("refresh", "list"))
+    measuring.add_argument("action", choices=("refresh", "list", "daily"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
