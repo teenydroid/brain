@@ -297,6 +297,20 @@ class DailyTest(Scratch):
         self.assertEqual((got["own_thread_comments"], got["own_thread_unanswered"], got["own_thread_answered_pct"]),
                          (2.0, 0.0, 100.0))
 
+    def test_a_comment_teeny_declined_is_not_waiting(self):
+        # hands/moltbook decline settles spam, boilerplate, crypto and
+        # instructions: counting them as unanswered would push Teeny to
+        # answer them.
+        self.post("mine", HOUR)
+        self.thread("mine", [
+            {"id": "s1", "author": {"name": "spammer"}, "replies": []},
+            {"id": "q1", "author": {"name": "shelly"}, "replies": []},
+        ])
+        rules.db().execute("INSERT INTO moltbook_owed (comment_id, post_id, depth, said_at, seen_at, status, reason)"
+                           " VALUES ('s1', 'mine', 1, ?, ?, 'declined', 'spam')", (self.NOW - HOUR, self.NOW - HOUR))
+        got = metrics.daily()
+        self.assertEqual((got["own_thread_comments"], got["own_thread_unanswered"]), (2.0, 1.0))
+
     def test_a_comment_too_deep_to_answer_is_not_waiting(self):
         self.post("mine", HOUR)
         node = {"id": "d5", "author": {"name": "shelly"}, "replies": []}
