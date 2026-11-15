@@ -206,4 +206,27 @@ describe("/rewards", () => {
     expect(page).toContain("2026-11-20 18:00 UTC")
     expect(page).not.toMatch(/did i win/)
   })
+
+  it("offers the claim for a settled round still in its window, and names when the window closes", () => {
+    const round: Round = {
+      id: 2, tag: "drop #2", status: "settled", format: "drop", pool_tiny: "1000", winners: 1, best_reply_tiny: "0",
+      prompt: "worst advice?", deadline: "2026-11-10T18:00:00Z", post_id: "1990000000000000002",
+      post_url: "https://x.com/teenydroid/status/1990000000000000002", cluster: "devnet",
+      mint: "So11111111111111111111111111111111111111112", decimals: 6, program_id: "mERKcfxMC5SqJn4Ld4BUris3WKZZ1ojjWJ3A3J5CKxv",
+      distributor: "HS8EQ8QkQSBJggY8r255AKdWbtYRtyNMoRt4LjNkkWm1", vault: "8Xm3tkQH581s3MoRHWUNYA5jKbgPATW4tJAAxgwDC6T6",
+      merkle_root: "00".repeat(32), clawback_at: "2026-12-10T18:00:00Z",
+      seed: { slot: 1, blockhash: "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn", sha256: "00".repeat(32) },
+      entrants: [{ handle: "alice", eligible: true, reason: "ok" }], draw_order: ["alice"],
+      claims: [{ index: 0, handle: "alice", kind: "random", address: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", amount_atomic: "1000000000", proof: [] }],
+      txs: {},
+    }
+    const drops: Drops = { source: "live", url, rounds: [round], skipped: 0 }
+    const page = text(renderToStaticMarkup(<RewardsView drops={drops} now={NOW} />))
+    expect(page).toMatch(/did i win/)
+    expect(page).toContain("drop #2 closes 2026-12-10 18:00 UTC")
+    expect(page).toContain("@alice")
+    const after = text(renderToStaticMarkup(<RewardsView drops={drops} now={Date.parse("2026-12-11T00:00:00Z")} />))
+    expect(after).not.toMatch(/did i win/)
+  })
 })
+
