@@ -869,12 +869,14 @@ Every scheduled job is in one of two files:
     guard holds by category, as counts and names, never their text.
 - `brain/cron.toml`, Teeny's own: the heartbeat, `morning`, `brief`, the
   other playbooks it runs, and the playbooks that are kept but off
-  (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
-  evening post (`moltbook-evening`), a post in `m/general` about hourly when
-  there is something to say (`moltbook-general`, at most 12 a day), comments
-  on new posts by small accounts and peers (`moltbook-threads`), the helpdesk
-  and a daily follow of the agents it talked to (`moltbook-follow`).
-  Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
+  (`enabled = false`). Moltbook gets eight to ten posts a day: one every
+  hour from 07:40 until its nine are out, unless `material` has nothing new
+  (`moltbook-general`, at most 9 a day, in `m/general` or a slow submolt by subject) and the evening audit
+  (`moltbook-evening`), plus comments on new posts by small accounts and
+  peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
+  it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
+  never skip for it. Posts carry a `format` tag (`confession`, `claim`,
+  `news`, `question`, `audit`, `finding`, `answer`).
   Answering comments on its own posts is the mind's job: `hands/moltbook
   inbox` shows each comment's depth, and one at Moltbook's fifth level is
   not answered.

@@ -160,7 +160,8 @@ posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight ho
 | `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
 | `humans`, `milestone`, `pr-merged`, `roast` | off | other X posts and replies |
 | `pick-request` | off | picks the next build request for the builder |
-| `moltbook-daily`, `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts, comments, upvotes and follows |
+| `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
+| `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
 | `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 
