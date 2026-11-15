@@ -3685,15 +3685,65 @@ def wait_for_dream() -> bool:
     return True
 
 
+#: A candidate the eval said regressed, sent back for another round: not a
+#: settled verdict, so a generation that crashes with one leaves its learning
+#: open (a failed try).
+REVISING = "revising"
+
+
+def eval_findings(cand: Mapping[str, Any], report: Mapping[str, Any], heldout_ids: set[str]) -> list[Json]:
+    """A regression as findings: the eval's reason, then each pair the change
+    lost with the judge's notes (visible tasks only)."""
+    out = [{"file": "", "problem": f"the targeted eval said regressed: {cand.get('eval_reason') or 'no reason'}"[:500],
+            "fix": "act on the learning without making these tasks' drafts worse than main's"}]
+    for pair in lost_pairs(report, heldout_ids)[:MAX_FINDINGS - 1]:
+        notes = " / ".join(pair["notes"])
+        out.append({"file": "", "problem": (f"on the eval task `{pair['task']}` main's draft won"
+                                            + (f": {notes}" if notes else ""))[:500],
+                    "fix": "keep what main's draft did on that task"})
+    return out
+
+
+def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
+    """A regressed candidate goes back for one more round when it has one
+    left and broke no fence: the pairs it lost become the last round's eval
+    findings (cand-<i>.rounds.json), and its eval folder moves aside
+    (eval/cand-<i>.round-<n>), so the next measurement starts clean."""
+    gdir, i = gen_dir(cand["gen"]), cand["cand"]
+    rounds = load_rounds(gdir, i, cand.get("learning") or {})
+    if not rounds or rounds[-1].get("outcome") != "approved" or len(rounds) >= cfg["EVOLVE_REVISE_ROUNDS"]:
+        return False
+    report: Json = {}
+    if cand.get("report"):
+        try:
+            report = json.loads((evolve_dir() / cand["report"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            report = {}
+    if (cand.get("eval") or {}).get("fences") or report.get("fences") or (report.get("heldout") or {}).get("fences"):
+        return False
+    rounds[-1]["eval"] = {"verdict": cand.get("verdict"), "reason": str(cand.get("eval_reason") or "")[:300],
+                          "findings": eval_findings(cand, report, heldout_ids)}
+    save_rounds(gdir, i, cand.get("learning") or {}, rounds)
+    folder = gdir / "eval" / f"cand-{i}"
+    if folder.exists():
+        aside = gdir / "eval" / f"cand-{i}.round-{len(rounds)}"
+        shutil.rmtree(aside, ignore_errors=True)
+        folder.rename(aside)
+        if cand.get("report"):
+            cand["report"] = cand["report"].replace(f"eval/cand-{i}/", f"eval/cand-{i}.round-{len(rounds)}/", 1)
+    return True
+
+
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
-                   publisher: Publisher | None = None, evaluator: Evaluator | None = None) -> Json:
+                   publisher: Publisher | None = None, evaluator: Evaluator | None = None,
+                   reviewer: Reviewer | None = None) -> Json:
     """One generation (_run_generation). One that raises is ended, not left
     for the next run to resume: resumable() would take it again and the same
     exception would end every run after it, with no other learning ever
     reaching a proposer. What it was doing is recorded as a failed try."""
     progress: Json = {"picks": [], "cands": [], "queue": []}
     try:
-        return _run_generation(cfg, n, proposals, publisher, evaluator, progress)
+        return _run_generation(cfg, n, proposals, publisher, evaluator, progress, reviewer)
     except Exception as exc:
         end_crashed(progress, exc)
         raise
@@ -3724,7 +3774,7 @@ def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
 
 
 def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher: Publisher | None,
-                    evaluator: Evaluator | None, progress: Json) -> Json:
+                    evaluator: Evaluator | None, progress: Json, reviewer: Reviewer | None = None) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
     if halt_path().exists():
@@ -3784,54 +3834,77 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         evidence = observe(entries)
         write_json(gdir / "evidence.json", evidence)
     proposer = make_proposer(cfg, proposals)
+    reviewer = reviewer or make_reviewer(cfg, proposals)
+    held_ids = {t["id"] for t in held}
     mutations = archived_mutations(entries)
     parent = line_head(entries)
     cands: list[Json] = []
     progress["cands"] = cands
     siblings: list[str] = []
     budget = SearchBudget(gdir)
+
+    def build(i: int, learning: Json) -> Json:
+        def tried(files: list[str] | None = None) -> list[Json]:
+            return withhold(tried_before(entries, learning, files, held_ids), markers)
+
+        cand = propose_one(cfg, proposer, src, base, gen, i, withhold(learning, markers), parent, evidence,
+                           siblings, mutations, tried, budget, reviewer)
+        if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
+            cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
+        record(cand)
+        if cand["verdict"] != "pending":
+            remove_worktree(src, gdir / f"cand-{i}")
+            say(f"candidate {i}: {cand['verdict']} {cand.get('reason') or ''}".rstrip())
+        return cand
+
     for i, learning in enumerate(picks, 1):
         entry = entries.get(cand_id(gen, i))
-        if entry and entry.get("verdict"):
+        if entry and entry.get("verdict") and entry["verdict"] != REVISING:
             say(f"candidate {i}: {entry['verdict']} before the restart")
             cands.append(entry)
             if entry.get("title"):
                 siblings.append(f"{entry.get('component')}: {entry['title']}")
             continue
         say(f"candidate {i}/{len(picks)}: [{learning['id']}]")
-        cand = propose_one(cfg, proposer, src, base, gen, i, withhold(learning, markers), parent, evidence,
-                           siblings, mutations, withhold(tried_before(entries, learning), markers), budget)
-        if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
-            cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
-        record(cand)
+        cand = build(i, learning)
         cands.append(cand)
         if cand.get("title"):
             siblings.append(f"{cand['component']}: {cand['title']}")
-        if cand["verdict"] != "pending":
-            remove_worktree(src, gdir / f"cand-{i}")
-            say(f"candidate {i}: {cand['verdict']} {cand.get('reason') or ''}".rstrip())
     pending = [c for c in cands if c["verdict"] == "pending"]
     halted: list[Json] = []
-    if pending:
+
+    def done(cand: Json, got: Json) -> None:
+        cand.update(verdict=got["verdict"], eval=got.get("eval"), eval_reason=got.get("reason"),
+                    **({"report": got["report"]} if got.get("report") else {}),
+                    **({"probe": got["probe"]} if got.get("probe") else {}))
+        halt = drift_halt(cfg, cand)
+        if halt is not None:
+            cand["verdict"] = "flagged"
+            halted.append(stop(cfg, halt, publisher))
+        elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
+            cand["verdict"] = REVISING
+        record(cand)
+        say(f"candidate {cand['cand']}: {cand['verdict']}")
+
+    # The eval runs once per approved change. A regression with rounds left
+    # (and no fence broken) goes back to the builder with the pairs it lost,
+    # and what it builds then is measured again.
+    while pending:
         for cand in pending:
             ensure_tree(src, cand)
         evaluator = evaluator or make_evaluator(cfg, src, base, gdir)
-
-        def done(cand: Json, got: Json) -> None:
-            cand.update(verdict=got["verdict"], eval=got.get("eval"), eval_reason=got.get("reason"),
-                        **({"report": got["report"]} if got.get("report") else {}),
-                        **({"probe": got["probe"]} if got.get("probe") else {}))
-            halt = drift_halt(cfg, cand)
-            if halt is not None:
-                cand["verdict"] = "flagged"
-                halted.append(stop(cfg, halt, publisher))
-            record(cand)
-            say(f"candidate {cand['cand']}: {cand['verdict']}")
-
         # state/locks/eval.lock while any lab runs: the babysitter's deploy
         # waits on it before it moves or restarts the live checkout.
         with held_lock("eval"):
             evaluator.evaluate(pending, done)
+        pending = []
+        for k, cand in enumerate(list(cands)):
+            if cand["verdict"] != REVISING:
+                continue
+            say(f"candidate {cand['cand']}: regressed, sent back with the pairs it lost")
+            cands[k] = build(cand["cand"], picks[cand["cand"] - 1])
+            if cands[k]["verdict"] == "pending":
+                pending.append(cands[k])
     ready = [c for c in cands if c["verdict"] in SHIPS]
     published = []
     for cand in [*queue, *ready]:
