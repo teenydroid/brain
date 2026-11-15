@@ -2582,9 +2582,10 @@ def docs_missing(tree: Path, base: str, changes: list[tuple[str, str]], hands_ch
 
 
 #: The checks whose failure is final (docs/evolve.md, "4. Gate"): a frozen
-#: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository, and
-#: SOUL+CONTEXT past their cap. Every other check is a finding the builder
-#: is sent back to fix.
+#: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository,
+#: SOUL+CONTEXT past their cap, and a file in hands/lib beside teeny_hands
+#: (it would shadow the standard library under frozen code). Every other
+#: check is a finding the builder is sent back to fix.
 HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size", "hands/lib holds only teeny_hands")
 #: EVOLVE_MAX_CHANGE_PCT's default, for a gate run outside a generation.
 DEFAULT_MAX_CHANGE_PCT = 5.0
