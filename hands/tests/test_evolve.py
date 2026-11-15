@@ -754,7 +754,7 @@ class Gate(EvolveCase):
         self.assertFalse(out["ok"])
         self.assertFalse(checks["frozen paths"]["ok"])
         self.assertIn("bin/ask", checks["frozen paths"]["detail"])
-        self.assertIn("not run", checks["doctor --root"]["detail"])
+        self.assertNotIn("doctor --root", checks)  # a refused change runs no other check
 
     def test_the_entry_point_of_a_hand_whose_code_is_frozen_stays_as_it_is(self):
         """hands/git runs teeny_hands.git_cli, which is frozen: a rewritten

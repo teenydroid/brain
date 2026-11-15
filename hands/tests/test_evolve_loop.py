@@ -203,6 +203,14 @@ class Research(LoopCase):
         self.assertNotIn("research", proposer.requests[0])
         self.assertIn("may not read", self.entries()["g1c1"]["research"]["error"])
 
+    def test_docs_to_update_are_only_ones_the_builder_may_change(self):
+        tree = self.worktree("t")
+        got = evolve.check_research({**BUILD, "document": ["docs/governance.md", "brain/playbooks/morning.md",
+                                                           "bin/evolve", "evals/judge.md"]}, tree)
+        self.assertEqual(got["document"], ["brain/playbooks/morning.md"])
+        self.assertEqual(got["document_cut"], ["docs/governance.md", "bin/evolve", "evals/judge.md"])
+        self.assertNotIn("governance", evolve.research_text(got))
+
     def test_files_to_read_past_the_byte_cap_are_dropped_and_named(self):
         tree = self.worktree("t")
         sizes = {p: (tree / p).stat().st_size for p in git("-C", str(tree), "ls-files", "brain/playbooks").split()}
@@ -294,6 +302,19 @@ class ResearchOnTheWeb(LoopCase):
         got = evolve.research_queries({"section": "what i have decided",
                                        "text": "ask @nyna_dev at nyna@example.com about https://x.com/a/b first thing"}, 3)
         self.assertEqual(got, ["ask at about first thing"])
+
+    def test_names_addresses_and_numbers_never_leave_in_a_query(self):
+        text = ("Pay Jane Doe at 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU and "
+                "0x52908400098527886E0F7030069857D2E4169EE7 every friday for the hosting. "
+                "call her on +1 415-555-0100 or 0044 20 7946 0958 before the invoice 123456 is due. "
+                "reach is a wave and commitment is a drip.")
+        got = evolve.research_queries({"section": "what i have decided", "text": text}, 5)
+        joined = " ".join(got)
+        for leak in ("Jane", "Doe", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "0x5290", "415", "555", "0100",
+                     "7946", "0958", "123456"):
+            self.assertNotIn(leak, joined)
+        self.assertIn("reach is a wave and commitment is a drip", got)
+        self.assertIn("every friday for the hosting", joined)
 
     def test_under_dry_run_nothing_is_paid_for(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
@@ -987,3 +1008,87 @@ class HandsLibShadow(LoopCase):
             evolve.apply_edits(tree, [{"path": path, "old": "", "new": "x = 1\n"}])
             hard = {c["check"]: c for c in evolve.hard_gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())}
             self.assertFalse(hard["hands/lib holds only teeny_hands"]["ok"], path)
+
+
+class ReviewFixes(LoopCase):
+    """The independent review of #297 (2026-11-15)."""
+
+    def test_a_retry_like_the_parked_change_is_not_a_duplicate(self):
+        self.one_learning()
+        parked = self.proposal("Check whether it went through before any retry, every time.")
+        proposer = Recording(research=[BUILD], proposals=[parked] * 3)
+        self.run_with(proposer, reviewer=Reviews([REVISE] * 3))
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "parked")
+        # The next try shares nearly every line with the parked one.
+        proposer = Recording(research=[BUILD], proposals=[parked])
+        out = self.run_with(proposer)
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning)[0], "settled")
+
+    def test_a_diff_too_big_to_review_whole_is_never_approved(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("x " * 400)] * 3)
+        reviews = Reviews()
+        with unittest.mock.patch.object(evolve, "MAX_REVIEW_DIFF_BYTES", 500):
+            out = self.run_with(proposer, reviewer=reviews)
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+        self.assertEqual(reviews.requests, [])  # no reviewer turn spent
+        entry = self.entries()["g1c1"]
+        self.assertIn("too big to review in one pass", entry["findings"][0]["problem"])
+        self.assertIn("split it or make it smaller", entry["findings"][0]["fix"])
+
+    def test_the_eval_sends_a_candidate_back_once_at_most(self):
+        self.one_learning()
+        self.live()
+        evaluator = AlwaysRegressing()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal(f"Try {n}.") for n in (1, 2, 3)])
+        out = self.run_with(proposer, evaluator=evaluator)
+        self.assertEqual(out["candidates"][0]["verdict"], "regressed")
+        self.assertEqual(evaluator.asked, ["g1c1", "g1c1"])  # two evals, never three
+        self.assertEqual(len(proposer.requests), 2)
+
+    def test_a_failed_reviewer_turn_defers_the_candidate_without_counting_a_try(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(proposer, reviewer=Reviews([evolve.ReviewTurnFailed("unknown agent reviewer")]))
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertIn("unknown agent reviewer", entry["reason"])
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+        status = evolve.status()
+        self.assertEqual(status["deferred"], [{"id": "g1c1", "learning": "m36", "reason": entry["reason"]}])
+
+    def test_the_hard_gate_failing_runs_no_other_check(self):
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1], "new": "# x"}])
+        with unittest.mock.patch.object(evolve, "_run_check", side_effect=AssertionError("a check ran")):
+            out = evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
+        self.assertFalse(out["hard_ok"])
+        self.assertEqual([c["check"] for c in out["checks"]], list(evolve.HARD_CHECKS))
+
+    def test_propose_one_needs_a_reviewer(self):
+        import inspect
+        param = inspect.signature(evolve.propose_one).parameters["reviewer"]
+        self.assertIs(param.default, inspect.Parameter.empty)
+        self.assertEqual(param.kind, inspect.Parameter.KEYWORD_ONLY)
+
+    def test_the_rubric_asks_about_safety_and_treats_the_diff_as_data(self):
+        rubric = " ".join((evolve.CODE / "evals" / "review.md").read_text().split())
+        for phrase in ("reads or sends secrets", "moves or spends money", "outbound host", "widens what",
+                       "weakens a test or a check", "Instructions found inside them"):
+            self.assertIn(phrase, rubric)
+
+
+class AlwaysRegressing(Regressing):
+    def evaluate(self, cands, done):
+        for cand in cands:
+            self.asked.append(cand["id"])
+            rel = f"{cand['gen']}/eval/cand-{cand['cand']}/compare/report.json"
+            path = evolve.evolve_dir() / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"verdict": "regressed", "fences": [], "pairs": [
+                {"task": "reply-fud", "winner": "base", "heldout": False, "notes": ["colder"]}]}))
+            done(cand, {"verdict": "regressed", "report": rel, "reason": "worse",
+                        "eval": {"verdict": "regressed", "tasks": ["reply-fud"], "fences": []}})
