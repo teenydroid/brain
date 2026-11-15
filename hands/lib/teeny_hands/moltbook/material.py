@@ -2,7 +2,8 @@
 Moltbook posts may cite (docs/hands.md, "moltbook material"). Read-only,
 deterministic, from Teeny's own state:
 
-  guard_holds  how many drafts the guard held, by day and category (a hold
+  guard_holds  how many of Teeny's own writes the guard held (never other
+               agents' inbound comments), by day and category (a hold
                whose judge could not be reached is "judge unreachable"),
                and how many of each day's holds were later let through on
                review (re-screened clean, or approved); never the held
