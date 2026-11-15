@@ -76,10 +76,13 @@ Solana RPC.
   That direct reply to the round post is the whole link between an X account
   and a wallet.
 - **Did I win.** The page finds the connected wallet's leaf in the round file
-  and checks its proof locally. It then reads the claim-status PDA and the mint
-  on chain, and builds the merkle-distributor `new_claim` instruction (plus an
-  idempotent ATA create) for the wallet to sign. The visitor pays the fees:
-  about 0.0014 SOL of rent, plus about 0.002 SOL for a new token account.
+  and checks its proof locally. It then reads the distribution (its root must
+  match the file), the claim and revocation PDAs, and the mint on chain. The mint
+  is refused if it has a transfer fee or a transfer hook. It then builds the
+  Solana Foundation Rewards program's `ClaimMerkle` instruction, plus an
+  idempotent ATA create, for the wallet to sign. The visitor pays the fees:
+  about 0.001 SOL of rent for the claim record, which they get back once the
+  round closes, plus about 0.0021 SOL for a new Token-2022 account.
 - **Past rounds.** Each one has its winners, Solscan links and clawback state.
 - **Verify the draw.** The seed, the ordering formula, the three checks re-run
   from the file, and a Python script anyone can run themselves.
@@ -87,8 +90,9 @@ Solana RPC.
 
 The data contract is `src/lib/drops.ts`, and the same contract is written out
 in `docs/drops-schema.md`. The on-chain encoding is in `src/lib/distributor.ts`,
-whose comments cite the program source. Its tests check against the real JTO
-airdrop tree and its mainnet distributor.
+whose comments cite the program source. Its tests check byte for byte against
+vectors computed in Rust with the program's own hashing code, and run the mint
+guard on the real $TINY mint account.
 
 With no `giveaways/index.json`, the page says no round is open. When GitHub
 doesn't answer, it says the rounds could not be read. It never shows a sample

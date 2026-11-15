@@ -39,11 +39,14 @@ The page reads the newest 12 rounds.
 | `cluster` | `"devnet"` \| `"mainnet"` | |
 | `mint` | base58 pubkey | |
 | `decimals` | integer 0–18 | the mint's decimals |
-| `program_id` | base58 pubkey | the merkle-distributor deployment (see below) |
-| `distributor` | base58 \| null | required once `settled`; must equal the PDA below |
-| `vault` | base58 \| null | required once `settled`; the distributor's associated token account |
-| `merkle_root` | 64 hex \| null | required once `settled` |
-| `clawback_at` | ISO \| null | required once `settled`; claims close then |
+| `token_program` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` \| `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | the mint's owner; $TINY is Token-2022 |
+| `program_id` | base58 pubkey | the Rewards program, `REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi` |
+| `authority` | base58 \| null | required once `settled`; the giveaway wallet (index 1) that funds the round and claws it back |
+| `distribution_seed` | base58 \| null | required once `settled`; the throwaway keypair's address that seeds the distribution PDA |
+| `distributor` | base58 \| null | required once `settled`; must equal the distribution PDA below |
+| `vault` | base58 \| null | required once `settled`; the distribution's associated token account under `token_program` |
+| `merkle_root` | 64 hex \| null | required once `settled`; must equal the root stored on chain |
+| `clawback_at` | ISO \| null | required once `settled`; the distribution's `clawback_ts`. The page offers claims until then |
 | `seed` | `{slot, blockhash, sha256}` \| null | required once the status is past `open` |
 | `entrants` | `[{handle, eligible, reason}]` | handle lowercase without `@`, one per account |
 | `draw_order` | `[handle]` | see "The draw" |
