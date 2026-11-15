@@ -507,6 +507,40 @@ class RestartAndHalts(EvolveCase):
         (evolve.state_dir() / "spine-fallback.json").unlink()
         self.assertIn("gen", self.run_gen(1))
 
+    def test_a_red_doctor_that_is_green_on_a_fresh_run_does_not_halt(self):
+        """The doctor writes state/doctor.json at boot alone, so a check that
+        fails for a minute after a restart (2026-11-15: a cron job the restart
+        killed, still claimed) held evolve until the next boot. A red report
+        is checked again before it halts the run."""
+        evolve.state_dir().mkdir(parents=True, exist_ok=True)
+        report = evolve.state_dir() / "doctor.json"
+        report.write_text(json.dumps({"ok": False, "checks": [{"check": "cron next runs are current", "status": "fail"}]}))
+        doctor = self.root / "doctor"
+        doctor.write_text(f"#!/bin/sh\necho \"$@\" >>{self.root / 'doctor.calls'}\n"
+                          f"echo '{{\"ok\": true, \"checks\": []}}' >{report}\n")
+        doctor.chmod(0o755)
+        os.environ["EVOLVE_DOCTOR"] = str(doctor)
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1)
+        self.assertNotIn("skipped", out)
+        self.assertIn("gen", out)
+        self.assertEqual((self.root / "doctor.calls").read_text().split(), ["--live"])
+
+    def test_a_doctor_still_red_on_a_fresh_run_halts(self):
+        evolve.state_dir().mkdir(parents=True, exist_ok=True)
+        report = evolve.state_dir() / "doctor.json"
+        report.write_text(json.dumps({"ok": True, "checks": []}))
+        doctor = self.root / "doctor"
+        doctor.write_text(f"#!/bin/sh\necho '{{\"ok\": false, \"checks\": [{{\"check\": \"invariants\", "
+                          f"\"status\": \"fail\"}}]}}' >{report}\nexit 1\n")
+        doctor.chmod(0o755)
+        report.write_text(json.dumps({"ok": False, "checks": [{"check": "invariants", "status": "fail"}]}))
+        os.environ["EVOLVE_DOCTOR"] = str(doctor)
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1)
+        self.assertEqual(out["skipped"], "halted: doctor")
+        self.assertIn("invariants", out["halts"][0]["detail"])
+
     def test_an_unknown_evaluator_refuses_the_run(self):
         self.config(EVOLVE=1, EVOLVE_EVALUATOR="maybe")
         with self.assertRaises(evolve.EvolveError):

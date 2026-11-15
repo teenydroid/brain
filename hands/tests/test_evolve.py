@@ -27,7 +27,7 @@ SECRET_ID = "heldout-whisper"
 SECRET_PROMPT = "Reply to the lighthouse keeper who asks about the tide clock"
 ENV_KEYS = ("TEENY_ROOT", "TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "TEENY_OH", "EVOLVE_GIT_DIR", "EVOLVE_BASE",
             "EVOLVE_NOW", "DRY_RUN", "EVOLVE", "EVAL_HELDOUT_DIR", "TEENY_STORAGE", "OPENHUMAN_CORE_URL",
-            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE")
+            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE", "EVOLVE_DOCTOR")
 
 
 def git(*args, cwd=None):
@@ -166,7 +166,7 @@ class EvolveCase(unittest.TestCase):
             os.environ.pop(k, None)
         os.environ.update(TEENY_ROOT=str(self.root), TEENY_HANDS=str(hands), EVOLVE_GIT_DIR=str(self.src),
                           EVOLVE_BASE="main", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
-                          TEENY_OH=str(self.root / "no-core"))
+                          TEENY_OH=str(self.root / "no-core"), EVOLVE_DOCTOR=str(self.root / "no-doctor"))
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24)
         self.props = self.root / "props"
         self.props.mkdir()

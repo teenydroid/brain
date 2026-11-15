@@ -80,6 +80,7 @@ ENVIRONMENT = {
     "DRY_RUN": "can only force a rehearsal on (hand.dry_run, evolve), never off",
     "EVOLVE_NOW": "a pinned clock for the tests",
     "EVOLVE_BASE": "the base ref a generation starts from (tests)",
+    "EVOLVE_DOCTOR": "the doctor a red report is checked again with (tests); a doctor that cannot run leaves the halt",
     "EVOLVE_GIT_DIR": "Teeny's clone's git dir (tests)",
     "EVOLVE_LAB_SPINE": "the lab spine's command (tests)",
     "EVAL_HELDOUT_DIR": "where the held-out tasks are (tests); under secrets/ by default",
