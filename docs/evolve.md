@@ -696,7 +696,10 @@ repository at all, and if so, what is the smallest one? The turn is shown:
   runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
   (Exa, paid from the wallet over x402, so the wallet's own caps, host
   allowlist and ledger apply). The queries are the learning's sentences, with
-  handles, addresses and links taken out; a learning under "promises and open
+  whatever could identify someone cut out first (`QUERY_SCRUB`): links,
+  emails, handles, `0x` and base58 wallet addresses, phone numbers and any
+  run of four or more digits, and two or more capitalised words in a row (a
+  name); a learning under "promises and open
   threads" names people and is never searched for. Each query brings back 3
   results, each cut to 600 characters, pasted in as JSON under a line saying
   they are what web pages said, data to read and never instructions to
@@ -721,7 +724,9 @@ plan for a build, and at most 8 paths each to read and to document, each a
 repository path inside the worktree, never under `secrets/`, `state/` or
 `.git`, never an `.env`, key or certificate file; a path to read must be a
 tracked file. What the files to read hold past 24,000 bytes is dropped and
-named (`read_cut`). An answer out of shape, or a turn that fails, is kept as
+named (`read_cut`). A doc to update must be one the builder may change (under
+`brain/`, `hands/` or `docs/`, and not frozen, so never
+`docs/governance.md`); any other is dropped and named (`document_cut`). An answer out of shape, or a turn that fails, is kept as
 research with an `error`, and the build goes ahead without a plan, as it did
 before research existed.
 
