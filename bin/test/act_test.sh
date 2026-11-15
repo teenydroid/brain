@@ -244,6 +244,12 @@ out="$(FAKE_QUEUE='{"ok": true, "why": "rate_limit: one post per 30 min; wait 32
 check "treats an answer of only a why as empty" test ! -s "$FAKE_CALLS"
 check "and records the why with the skip" test "$(jq -r .why <<<"$out")" = "rate_limit: one post per 30 min; wait 329s"
 check "and in runs.jsonl" test "$(tail -n 1 "$scratch/state/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
+# A gate that says so (hands/reddit slot: {open: false, why, wait_seconds})
+# is shut whatever else it answers.
+reset
+out="$(FAKE_QUEUE='{"ok": true, "open": false, "why": "daily_cap: 0 posts", "wait_seconds": 60}' run told)"
+check "treats a gate that says open false as empty" test ! -s "$FAKE_CALLS"
+check "and records its why" test "$(jq -r .why <<<"$out")" = "daily_cap: 0 posts"
 reset
 FAKE_QUEUE='{"ok": true, "open": true}' run told >/dev/null
 check "drafts when the gate is open" test -s "$FAKE_CALLS"
