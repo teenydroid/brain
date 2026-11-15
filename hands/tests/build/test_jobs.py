@@ -161,11 +161,12 @@ class DoneTest(Scratch):
         self.assertEqual(self.daily(repo="refusal-ledger"), "refusal-ledger")
 
     def test_the_slug_stays_when_the_summary_gives_no_usable_name(self):
-        for summary in ("a referee for state diffs", "state diff: two words", "brain: a change to me",
-                        "Brain: a change to me", "x.git: odd", "-dash: odd", ": nothing first", "a/b: slash"):
+        for day, summary in enumerate(("a referee for state diffs", "state diff: two words", "brain: a change to me",
+                                       "Brain: a change to me", "x.git: odd", "-dash: odd", ": nothing first",
+                                       "a/b: slash", "..: dots"), start=1):
             with self.subTest(summary=summary):
-                self.setUp()
-                self.assertEqual(self.daily(summary), "daily-2026-09-14")
+                os.environ["TEENY_NOW"] = str(T0 + day * 86400)  # one daily job a day
+                self.assertTrue(self.daily(summary).startswith("daily-2026-09-"), summary)
 
     def test_the_slug_stays_when_another_job_already_has_that_name(self):
         conn = jobs.db()
