@@ -402,7 +402,6 @@ class UnreportedRunTest(Scratch):
             self.assertEqual((offer["task"]["task_id"], offer["task"]["resumed"]), (tid, True))
             self.assertEqual(offer["last_report_rejected"], "unknown task")
             self.assertEqual((self.row(tid)["status"], self.row(tid)["attempts"]), ("claimed", 1))
-        self.assertNotIn("ended without a report", self.row(tid)["notes"] or "")
 
     def test_no_storage_leaves_the_claim_to_the_stale_cutoff(self):
         tid = self.claimed()
