@@ -415,6 +415,18 @@ class LinkBudgetTest(Posting):
             publish.post({"text": "look: github.com/teenydroid"})
         self.assertEqual(self.posted(), [])
 
+    def test_the_budget_read_matches_what_the_cap_refuses(self):
+        self.assertEqual(publish.link_budget()["left"], 1)
+        self.record_link_post("101", T0)
+        budget = publish.link_budget()
+        self.assertEqual((budget["sent_today"], budget["left"]), (1, 0))
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "the exchange: https://www.moltbook.com/post/abc"})
+        # Written without the link, as the show playbook does once `left` is
+        # 0, the same post goes out.
+        publish.post({"text": "an agent on moltbook said my cache was the wrong fix, and it was right"})
+        self.assertEqual(len(self.posted()), 1)
+
     def test_a_link_reply_counts_against_the_same_cap(self):
         self.record_link_post("101", T0, kind="reply")
         with self.assertRaises(hand.Refused) as caught:

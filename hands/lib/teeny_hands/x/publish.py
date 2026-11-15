@@ -104,6 +104,12 @@ def _db():
     return open_db(rules.SCHEMA)
 
 
+def link_budget() -> Json:
+    """Today's link posts against the cap (`rules.link_budget`). A read of
+    the ledger: it writes nothing and calls no one."""
+    return rules.link_budget(_db())
+
+
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: guard, 280, attachments, then the gap under
     the process-wide posting lock, so two jobs firing in the same minute
