@@ -74,9 +74,9 @@ class PostTest(Scratch, Refusing):
         self.assertEqual(self.rd.requests("POST", "/api/submit"), [])
 
     def test_a_link_post_must_be_on_the_link_allowlist(self):
-        self.refused(actions.post, {"subreddit": "learnpython", "title": "look", "url": "https://evil.example/x"}, "link")
+        self.refused(actions.post, {"subreddit": "learnpython", "title": "look", "url": "https://evil.example/x", "anchor": "PR #1"}, "link")
         self.submitted("p2")
-        actions.post({"subreddit": "learnpython", "title": "my code", "url": "https://github.com/teenydroid/hello"})
+        actions.post({"subreddit": "learnpython", "title": "my code", "url": "https://github.com/teenydroid/hello", "anchor": "PR #1"})
         sent = form(self.rd.requests("POST", "/api/submit")[0])
         self.assertEqual((sent["kind"], sent["url"]), ("link", "https://github.com/teenydroid/hello"))
 
