@@ -194,13 +194,15 @@ class GapTest(Posting):
         publish.post({"text": "chart"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_the_default_gap_is_eight_hours_less_twenty_minutes(self):
+    def test_the_default_gap_is_four_hours_less_twenty_minutes(self):
+        # Four slots a day (07:00, 11:00 or 19:00, 15:00, 23:00 IST): the
+        # outward quote sits four hours from its neighbours.
         self.configure(POST_MIN_GAP_HOURS=None)
         publish.post({"text": "gm"})
-        self.at(T0 + 8 * HOUR - 21 * MINUTE)
+        self.at(T0 + 4 * HOUR - 21 * MINUTE)
         with self.assertRaises(hand.Refused):
             publish.post({"text": "chart"})
-        self.at(T0 + 8 * HOUR - 19 * MINUTE)
+        self.at(T0 + 4 * HOUR - 19 * MINUTE)
         publish.post({"text": "chart"})
 
 
@@ -259,13 +261,14 @@ class GapTest(Posting):
 
 
 class DailyCapTest(Posting):
-    """Three own posts a UTC day by default (X_POSTS_MAX_PER_DAY); replies are
-    never counted."""
+    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the three
+    slots and one outward quote; replies are never counted."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
-    TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi")
+    TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi",
+             "a gull stole the tracker and the numbers got weird")
 
-    def earlier(self, kinds=("post", "post", "post"), at=T0 - 6 * HOUR) -> None:
+    def earlier(self, kinds=("post", "post", "post", "post"), at=T0 - 6 * HOUR) -> None:
         """Own posts already in the ledger (the fake X answers every post with
         id 100, so a test seeds the earlier ones)."""
         conn = hand.db()
@@ -273,16 +276,21 @@ class DailyCapTest(Posting):
         for n, (kind, text) in enumerate(zip(kinds, self.TEXTS)):
             posting_rules.record_post(conn, f"8{n}", kind, text, created_at=at + n * 60, quote_of="5" if kind == "quote" else None)
 
-    def test_a_fourth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
+    def test_a_fourth_post_in_a_day_goes_out(self):
+        self.earlier(kinds=("post", "post", "post"))
+        publish.post({"text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_a_fifth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
         self.earlier()
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "a fourth thing about lighthouses and moss"})
+            publish.post({"text": "a fifth thing about lighthouses and moss"})
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
-                         ("daily_cap", 3, 3))
+                         ("daily_cap", 4, 4))
         self.assertEqual(self.posted(), [])
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "a fourth thing about lighthouses and moss"})
+            publish.post({"text": "a fifth thing about lighthouses and moss"})
 
     def test_the_next_utc_day_starts_again(self):
         self.earlier()
@@ -295,7 +303,7 @@ class DailyCapTest(Posting):
         posting_rules.ensure_schema(conn)
         for n in range(5):
             posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
-        self.earlier(kinds=("post", "quote", "post"))
+        self.earlier(kinds=("post", "quote", "post", "post"))
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"text": "one more about lighthouses and moss"})
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
