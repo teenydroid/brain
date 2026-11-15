@@ -2435,7 +2435,9 @@ that; at Exa's $0.007 to $0.012 a search it is under $0.05 a day.
 The surplus wallet (`SURPLUS_ADDRESS`, an EVM address) is what funds Teeny,
 and it takes only USDC on Base. `hands/surplus` moves Teeny's spare SOL there
 in two steps, each through `hands/wallet` and every rule and cap it keeps.
-It has no payment path of its own. Code: `teeny_hands/surplus/`.
+It has no payment path of its own. Code: `teeny_hands/surplus/`. Frozen
+(`evals/frozen.txt`): the hand, its library and its tests (`hands/tests/surplus/`)
+are the operator's, since it moves money out of Teeny's wallet.
 
 | Verb | | Does |
 |---|---|---|
