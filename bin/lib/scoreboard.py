@@ -5,8 +5,10 @@
                  the three lines of `hands/stats board`, the open
                  experiments, the latest lessons; at most BLOCK_CHARS
   sections()     what both dreams get (bin/lib/dream.py): the board, the
-                 open experiments as scored now, the lab's lessons, and
-                 "true right now" (balances and followers), each a
+                 open experiments as scored now, the lab's lessons, what
+                 worked on Moltbook by format and submolt over 7 and 14 days
+                 (`hands/moltbook study`'s own_summary), and "true right
+                 now" (balances and followers), each a
                  `- ` list with a hard character cap, so reflect._fit can
                  cut it like the dream's other lists
 
@@ -74,6 +76,12 @@ def _lessons(n: int) -> list[Json]:
     from teeny_hands.lab import ledger
 
     return ledger.lessons(n)["lessons"]
+
+
+def _moltbook_formats() -> list[str]:
+    from teeny_hands.moltbook import study
+
+    return study.summary_lines()
 
 
 def experiment_line(e: Json) -> str:
@@ -176,6 +184,12 @@ def sections(score: bool = True) -> list[str]:
                         [experiment_line(e) for e in experiments]))
     out.append(_section("what the lab has learned", "Concluded experiments, newest first.",
                         [lesson_line(l) for l in lessons]))
+    moltbook = _safe(_moltbook_formats, None)
+    if moltbook is not None:
+        out.append(_section("moltbook: what worked and what flopped",
+                            "Your own posts and comments by format and by submolt, counted in code from the ledger:"
+                            " how many were measured, median and best score, median comments; best first, worst last."
+                            " Keep in the page which format and room did best and which did worst.", moltbook))
     people = [f"{a['metric']}: {a['value']} (as of {a['date']})" for a in (board or {}).get("audience", [])]
     out.append(_section("true right now", "Read just now. Where your memory page says otherwise, this is right:"
                         " fix the page, never copy an old number into it.", _safe(balances, []) + people))
