@@ -11,7 +11,8 @@ import json
 from .support import DAY, HOUR, T0, Scratch
 from teeny_hands import stimuli
 from teeny_hands.guard import holds
-from teeny_hands.moltbook import material
+from teeny_hands import hand
+from teeny_hands.moltbook import material, rules
 
 HELD = "PLEASE NEVER QUOTE THIS HELD DRAFT"
 TOKEN = "ghp_" + "FAKEtoken" * 3 + "0000"
@@ -48,6 +49,77 @@ class MaterialTest(Scratch):
             "2026-09-13: 1 guard hold (harassment 1)",
         ])
         self.assertNotIn(HELD, json.dumps(out))
+
+    def test_guard_holds_say_how_many_review_later_let_through(self):
+        self.hold("unknown", "the judge could not be reached: 401", T0 - HOUR)
+        self.hold("unknown", "the judge could not be reached: 401", T0 - 2 * HOUR)
+        self.hold("violence", "killed", T0 - 3 * HOUR)
+        conn = hand.db()
+        with hand.transaction(conn):
+            conn.execute("UPDATE guard_holds SET status = 'cleared' WHERE category = 'unknown'")
+        conn.close()
+        out = material.material()["guard_holds"]
+        self.assertEqual(out["let_through"], 2)
+        self.assertEqual(out["lines"], [
+            "2026-09-14: 3 guard holds (judge unreachable 2, violence 1); 2 later let through on review",
+        ])
+
+    def test_guard_holds_count_teenys_own_writes_not_other_agents_comments(self):
+        # An inbound comment the guard held (e.g. "killed" in a harmless reply)
+        # is not a write of Teeny's: the audit's count must leave it out.
+        self.hold("violence", "killed", T0 - HOUR)
+        self.at(T0 - HOUR)
+        holds.record(direction="inbound", kind="message", context={"surface": "moltbook"}, category="violence",
+                     reason="killed", by="judge", text="a stranger's comment")
+        self.at(T0)
+        out = material.material()["guard_holds"]
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["lines"], ["2026-09-14: 1 guard hold (violence 1)"])
+
+    def _write(self, table: str, at: float, status: str, n: int = 1) -> None:
+        conn = rules.db()
+        with hand.transaction(conn):
+            for i in range(n):
+                if table == "moltbook_posts":
+                    conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES (?, ?, 'general', ?, ?)",
+                                 (f"p{at}{i}", at, f"title {i}", status))
+                else:
+                    conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'p', ?, ?)",
+                                 (f"c{at}{i}{status}", at, status))
+        conn.close()
+
+    def test_moltbook_writes_and_challenges_by_day(self):
+        self._write("moltbook_posts", T0 - HOUR, "verified", 2)
+        self._write("moltbook_posts", T0 - 2 * HOUR, "verification_failed")
+        self._write("moltbook_comments", T0 - HOUR, "verified", 3)
+        self._write("moltbook_comments", T0 - HOUR, "needs_verification")
+        self._write("moltbook_comments", T0 - DAY - HOUR, "posted", 2)
+        self._write("moltbook_posts", T0 - 9 * DAY, "verified")
+        self.assertEqual(material.material()["moltbook"], [
+            "2026-09-14: 3 posts and 4 comments accepted by Moltbook; challenges: 5 verified, 1 failed,"
+            " 1 never answered (hidden)",
+            "2026-09-13: 0 posts and 2 comments accepted by Moltbook",
+        ])
+
+    def test_exchanges_are_the_newest_comments_said_to_teeny_with_who_and_where(self):
+        conn = rules.db()
+        with hand.transaction(conn):
+            conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES"
+                         " ('p1', ?, 'general', 'a cleared reminder proves the clearing', 'verified')", (T0 - DAY,))
+        conn.close()
+        self.at(T0 - HOUR)
+        stimuli.add("moltbook", "comment", "c1", f"what does your ledger do on retry? key {FAKE_KEY}", who="bookkeeper",
+                    payload={"post_id": "p1", "on_own_post": True, "answering_teeny": True})
+        self.at(T0 - 4 * DAY)
+        stimuli.add("moltbook", "comment", "c0", "too old", who="lilt", payload={"post_id": "p1", "on_own_post": True})
+        stimuli.add("x", "mention", "m1", "not moltbook", who="someone")
+        self.at(T0)
+        got = material.material()["exchanges"]
+        self.assertEqual(got, [{
+            "at": "2026-09-14 06:00", "who": "bookkeeper", "comment_id": "c1", "post_id": "p1",
+            "on_your_post": "a cleared reminder proves the clearing", "answering_you": True,
+            "said": "what does your ledger do on retry? key [redacted]",
+        }])
 
     def test_health_alarms_of_the_week_and_the_current_state(self):
         self.at(T0 - 2 * DAY)

@@ -7,7 +7,11 @@ Teeny is doing, worked out in code so no model does arithmetic.
             latest `x_post_metrics` row
   moltbook  own posts and comments of the last N days with their latest
             `moltbook_post_metrics` row
-  lines     the same in three short lines, for a prompt
+  moltbook_daily  the newest snapshot's Moltbook numbers counted from the
+            ledger (collect.py, source moltbook_ledger): live posts,
+            unanswered own-thread comments, writes lost to the challenge
+  lines     the same in three short lines, for a prompt, and a fourth for
+            moltbook_daily once a snapshot has it
 
 For each surface: the five best and five worst writes, and the average
 result per format (the lab tag on the write; an untagged write counts under
@@ -78,6 +82,37 @@ def audience(conn: sqlite3.Connection) -> list[Json]:
                 item[label] = _num(latest["value"] - before["value"])
         out.append(item)
     return out
+
+
+#: The moltbook_ledger metrics the board's fourth line reads, in its order,
+#: each with how it reads.
+DAILY = (
+    ("live_posts_24h", "live posts (24h) {}"),
+    ("own_thread_unanswered", "own-thread comments unanswered {}"),
+    ("own_thread_answered_pct", "answered {}%"),
+    ("own_thread_answer_minutes_median", "median answer {} min"),
+    ("lost_pct_7d", "writes lost to the challenge (7d) {}%"),
+    ("post_score_24h_median_7d", "median post score at 24h (7d) {}"),
+    ("posts_10_plus_14d", "posts at 10+ (14d) {}"),
+    ("posts_50_plus_14d", "at 50+ {}"),
+)
+
+
+def moltbook_daily(conn: sqlite3.Connection) -> Json:
+    """The newest snapshot's moltbook_ledger metrics, with its date; {} before one."""
+    if "stats" not in _tables(conn):
+        return {}
+    row = conn.execute("SELECT max(date) FROM stats WHERE source = 'moltbook_ledger'").fetchone()
+    if not row or row[0] is None:
+        return {}
+    values = {r["metric"]: _num(r["value"]) for r in conn.execute(
+        "SELECT metric, value FROM stats WHERE source = 'moltbook_ledger' AND date = ?", (row[0],))}
+    return {"date": row[0], **values}
+
+
+def _daily_line(daily: Json) -> str | None:
+    said = [text.format(daily[name]) for name, text in DAILY if name in daily]
+    return _line(f"Moltbook on {daily['date']}: " + ", ".join(said)) if said else None
 
 
 def x_writes(conn: sqlite3.Connection, since: float, until: float | None = None) -> list[Json]:
@@ -210,6 +245,7 @@ def board(days: int = 7) -> Json:
         people = audience(conn)
         x = _surface(x_writes(conn, since))
         moltbook = _surface(moltbook_writes(conn, since))
+        daily = moltbook_daily(conn)
     finally:
         conn.close()
     said = "; ".join(
@@ -222,5 +258,8 @@ def board(days: int = 7) -> Json:
         _surface_line("X", days, x),
         _surface_line("Moltbook", days, moltbook),
     ]
+    daily_line = _daily_line(daily) if daily else None
+    if daily_line:
+        lines.append(daily_line)
     return {"days": days, "at": datetime.fromtimestamp(hand.now(), timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-            "audience": people, "x": x, "moltbook": moltbook, "lines": lines}
+            "audience": people, "x": x, "moltbook": moltbook, "moltbook_daily": daily, "lines": lines}

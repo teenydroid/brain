@@ -233,15 +233,25 @@ def _ask(text: str, direction: str) -> Held | None:
     return Held(category, verdict.reason or "the judge held it", "judge")
 
 
+def _held_on_sight(found: Any, judge: bool = True) -> bool:
+    """Whether a screen match holds without asking the judge: any term but a
+    judged one (lexicon.JUDGED_TERMS), and a judged one too when no judge
+    will read it (`SAFETY_JUDGE` off, or `judge` False). Fails closed."""
+    return found is not None and (not found.judged or not judge or not judge_enabled())
+
+
 def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | None:
     """Whether a message from somebody else is something the account
     processes at all: None when it is. With a context (`surface` and where it
-    came from), a hold is recorded for review."""
+    came from), a hold is recorded for review. A judged term (a bare "kill")
+    is read by the judge instead of held on sight."""
     found = screen_text(text, INBOUND)
-    if found is not None:
+    if _held_on_sight(found):
         log.info("safety: inbound held by the screen (%s, %s)", found.category, found.term)
         held: Held | None = Held(found.category, f'contains "{found.term}"', "screen")
     else:
+        if found is not None:
+            log.info("safety: inbound has a judged term (%s); the judge reads it", found.term)
         held = _ask(text, INBOUND)
     if held is not None and context is not None:
         kind = context.get("kind") or ("task" if context.get("surface") == "task" else "message")
@@ -317,9 +327,11 @@ def gate_outbound(text: str, context: dict[str, Any] | None = None) -> OutboundR
 
 def _outbound_decision(cleaned: str, links_cut: bool, direction: str, judge: bool = True) -> Held | None:
     found = screen_text(cleaned, direction)
-    if found is not None:
+    if _held_on_sight(found, judge):
         log.warning("safety: outbound held by the screen (%s, %s)", found.category, found.term)
         return Held(found.category, f'contains "{found.term}"', "screen")
+    if found is not None:
+        log.info("safety: outbound has a judged term (%s); the judge reads it", found.term)
     # Nothing left to say once the links are gone is not a message to send.
     if links_cut and not any(c.isascii() and c.isalnum() for c in cleaned):
         return Held("links", "the draft was only a disallowed link", "links")

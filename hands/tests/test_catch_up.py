@@ -11,6 +11,7 @@ recording core and a pinned clock."""
 import datetime as dt
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -42,6 +43,12 @@ FOLLOW = {"name": "teeny.moltbook-follow", "kind": "shell", "expr": "0 17 * * *"
           "command": "bin/act moltbook-follow", "enabled": True, "catch_up_secs": 6 * 3600}
 TAKE = {"name": "teeny.take", "kind": "shell", "expr": "0 15 * * *", "tz": "Asia/Kolkata",
         "command": "bin/act take", "enabled": True, "catch_up_secs": 0}
+# The noon Moltbook post (12:00 India time, 06:30 UTC): a post, so no
+# catch-up, but a slot the model provider lost is made up within 6 hours.
+NOON = {"name": "teeny.moltbook-daily", "kind": "shell", "expr": "0 12 * * *", "tz": "Asia/Kolkata",
+        "command": "bin/act moltbook-daily", "enabled": True, "catch_up_secs": 0, "make_up_secs": 6 * 3600}
+LOST = {"ok": False, "playbook": "moltbook-daily", "error": "the draft turn failed", "failure": "provider",
+        "provider": "payment"}
 DREAM = {"name": "teeny.dream", "kind": "shell", "expr": "0 2 * * *", "tz": "Asia/Kolkata",
          "command": "bin/dream --detach", "enabled": True, "catch_up_secs": 6 * 3600}
 
@@ -174,6 +181,78 @@ class CatchUpTest(unittest.TestCase):
         self.run_of("j3", "2026-11-14T09:30:03", status="error")
         self.assertEqual(self.catch_up("2026-11-14T10:00", [take])["caught_up"], [])
         self.assertEqual(self.core.calls, [])
+
+    # --- a slot the model provider lost (2026-11-14, HTTP 402 from 06:10 to 09:15 UTC) --------
+
+    def act_log(self, playbook, *lines):
+        path = self.root / "state" / "act" / playbook / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            for at, line in lines:
+                fh.write(json.dumps({"at": at, **line}) + "\n")
+
+    def lost_noon(self):
+        self.job("j5", NOON, "2026-11-15T06:30")
+        self.run_of("j5", "2026-11-14T06:30:03")
+        self.act_log("moltbook-daily", ("2026-11-14T06:30:16Z", LOST))
+
+    def test_a_post_the_provider_lost_is_made_up_once_when_it_is_back(self):
+        self.lost_noon()
+        out = self.catch_up("2026-11-14T10:15", [NOON], provider_back=True)
+        self.assertEqual(out["caught_up"], [{"name": "teeny.moltbook-daily", "slot": "2026-11-14T06:30:00Z",
+                                             "lost": "provider"}])
+        self.assertEqual(self.core.calls, [("cron_run", {"job_id": "j5"})])
+        # Once: the make-up failing again, or any later check, leaves it alone.
+        self.run_of("j5", "2026-11-14T10:15:02")
+        self.act_log("moltbook-daily", ("2026-11-14T10:15:10Z", LOST))
+        self.assertEqual(self.catch_up("2026-11-14T10:30", [NOON], provider_back=True)["caught_up"], [])
+        self.assertEqual(self.core.methods(), ["cron_run"])
+
+    def test_a_lost_post_waits_while_the_provider_is_still_down(self):
+        self.lost_noon()
+        self.assertEqual(self.catch_up("2026-11-14T09:00", [NOON])["caught_up"], [])
+        self.assertEqual(self.core.calls, [])
+
+    def test_a_lost_post_is_not_made_up_past_its_window(self):
+        self.lost_noon()
+        self.assertEqual(self.catch_up("2026-11-14T12:31", [NOON], provider_back=True)["caught_up"], [])
+        self.assertEqual(self.core.calls, [])
+
+    def test_a_slot_held_by_anything_but_the_provider_is_not_made_up(self):
+        # A skip, a refusal or a playbook error held the slot: nothing was lost.
+        for line in ({"ok": True, "playbook": "moltbook-daily", "actions": [{"action": "skip"}]},
+                     {"ok": False, "playbook": "moltbook-daily", "error": "input feed failed", "failure": "playbook"},
+                     {"ok": False, "playbook": "moltbook-daily", "error": "the draft turn failed"}):
+            with self.subTest(line=line):
+                self.runs, self.jobs, self.core.calls = [], [], []
+                shutil.rmtree(self.root / "state" / "act", ignore_errors=True)
+                self.lost_noon()
+                self.act_log("moltbook-daily", ("2026-11-14T06:31:00Z", line))
+                self.assertEqual(self.catch_up("2026-11-14T10:15", [NOON], provider_back=True)["caught_up"], [])
+                self.assertEqual(self.core.calls, [])
+
+    def test_a_run_with_no_line_in_the_log_is_not_made_up(self):
+        # Cut off before bin/act wrote anything: not known to be the provider's.
+        self.job("j5", NOON, "2026-11-15T06:30")
+        self.run_of("j5", "2026-11-14T06:30:03")
+        self.assertEqual(self.catch_up("2026-11-14T10:15", [NOON], provider_back=True)["caught_up"], [])
+
+    def test_a_post_without_a_make_up_window_is_never_made_up(self):
+        take = dict(TAKE, command="bin/act take")
+        self.job("j3", take, "2026-11-15T09:30")
+        self.run_of("j3", "2026-11-14T09:30:03")
+        self.act_log("take", ("2026-11-14T09:30:10Z", dict(LOST, playbook="take")))
+        self.assertEqual(self.catch_up("2026-11-14T10:15", [take], provider_back=True)["caught_up"], [])
+
+    def test_a_lost_post_waits_out_the_quiet_hours(self):
+        os.environ["TEENY_QUIET_HOURS"] = "1-7"
+        os.environ["CALENDAR_TZ"] = "Asia/Kolkata"
+        late = dict(NOON, expr="30 0 * * *")  # 00:30 India time, 19:00 UTC
+        self.job("j5", late, "2026-11-15T19:00")
+        self.run_of("j5", "2026-11-14T19:00:03")
+        self.act_log("moltbook-daily", ("2026-11-14T19:00:16Z", LOST))
+        out = self.catch_up("2026-11-14T20:45", [late], provider_back=True)
+        self.assertEqual((out["caught_up"], out["deferred"]), ([], ["teeny.moltbook-daily"]))
 
     def test_a_job_without_catch_up_waits_for_its_next_slot(self):
         self.job("j3", TAKE, "2026-11-15T09:30")

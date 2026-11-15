@@ -29,6 +29,9 @@ class CoreConfigTest(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
+        os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
+        os.environ.pop("TEENY_CAPTCHA_MODEL", None)
+        os.environ.pop("TEENY_CAPTCHA_PROVIDER", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -105,6 +108,14 @@ class CoreConfigTest(unittest.TestCase):
         from teeny_hands.tasks import queue
 
         self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
+
+    def test_the_core_refuses_the_deny_list_itself(self):
+        # A link the operator follows to another site is opened by the core
+        # (left_for_another_site, then open); the deny list must hold there
+        # without the model, so bin/spine names it to the core.
+        self.assertIn('export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"',
+                      (REPO / "bin" / "spine").read_text())
+        self.assertTrue((REPO / "deploy" / "browser-deny.txt").is_file())
 
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
@@ -190,6 +201,38 @@ class CoreConfigTest(unittest.TestCase):
         # A beat logs the whole batch as "the user", so beliefs built from it
         # read "the user energy level 56" and crowd the memory block.
         self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
+
+    def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
+        computer = self.written()["computer"]
+        self.assertTrue(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
+        self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_can_go_back_to_typesafe_with_its_own_model(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "TypeSafe"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "type_safe")
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+
+    def test_an_unknown_captcha_provider_falls_back_to_surplus(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "nowhere"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
+
+    def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
+        doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')
+        self.assertEqual(doc["computer"]["decision_model"], "sage")
+        self.assertEqual(doc["computer"]["max_rescues"], 2)
+        self.assertTrue(doc["computer"]["captcha_solver"])
+
+    def test_the_captcha_solver_can_be_turned_off_or_moved_to_another_model(self):
+        os.environ["TEENY_CAPTCHA_SOLVER"] = "0"
+        os.environ["TEENY_CAPTCHA_MODEL"] = "jev-2"
+        computer = self.written()["computer"]
+        self.assertFalse(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-2")
 
     def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
         text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"

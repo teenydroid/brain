@@ -15,7 +15,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from .lexicon import IDIOMS, LEXICON
+from .lexicon import IDIOMS, JUDGED_TERMS, LEXICON
 
 # Which reading of the lexicon applies, the hold log's direction.
 #
@@ -38,6 +38,9 @@ class ScreenMatch:
     category: str
     # The lexicon term that matched, for the log. Never the text around it.
     term: str
+    # A term the gate passes to the judge rather than holding on sight
+    # (lexicon.JUDGED_TERMS). Still a match: a caller with no judge holds it.
+    judged: bool = False
 
 
 # Leetspeak, folded. Applied as a second reading of the text rather than the
@@ -116,7 +119,9 @@ def screen_text(text: str, direction: str) -> ScreenMatch | None:
 
     The longest matching term wins, so "kill yourself" is reported as
     self-harm rather than as the violence of "kill": the log names the most
-    specific reason it has. Ties go to lexicon order."""
+    specific reason it has. Ties go to lexicon order. A term held on sight
+    always wins over a judged one (JUDGED_TERMS), whatever their lengths, so
+    a judged match means nothing else in the text matched."""
     return screen_text_with(text, direction, idioms=True)
 
 
@@ -129,12 +134,18 @@ def screen_text_with(text: str, direction: str, idioms: bool = True) -> ScreenMa
         return None
     plain, leet = normalise_for_screen(text, idioms)
     best: ScreenMatch | None = None
+    judged: ScreenMatch | None = None
     for category, outbound_only, terms in _COMPILED:
         if outbound_only and direction != OUTBOUND:
             continue
         for term, pattern in terms:
-            if best is not None and len(term) <= len(best.term):
+            soft = term in JUDGED_TERMS
+            kept = judged if soft else best
+            if kept is not None and len(term) <= len(kept.term):
                 continue
             if pattern.search(plain) or pattern.search(leet):
-                best = ScreenMatch(category, term)
-    return best
+                if soft:
+                    judged = ScreenMatch(category, term, judged=True)
+                else:
+                    best = ScreenMatch(category, term)
+    return best or judged

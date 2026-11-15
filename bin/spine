@@ -154,10 +154,13 @@ export OPENHUMAN_KEYRING_BACKEND=file
 export OPENHUMAN_KEYRING_MASTER_KEY_FILE="$TEENY_SECRETS/openhuman.key"
 # The browser may open any public https page; private and local addresses
 # stay refused by the core, and deploy/browser-deny.txt is what it never
-# opens (hands/tasks, the operator's desk and prompt). `[http_request]
-# allowed_domains` (deploy/browser-allow.txt) still bounds the raw
-# `http_request` tool. OpenHuman takes this switch from the environment only.
+# opens. The core enforces that list on every connection the browser makes
+# (clicks and redirects included), whatever allow-all says; a list it cannot read
+# refuses every page. `[http_request] allowed_domains`
+# (deploy/browser-allow.txt) still bounds the raw `http_request` tool.
+# OpenHuman takes these switches from the environment only.
 export OPENHUMAN_BROWSER_ALLOW_ALL=1
+export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"
 # Where the browser's own pictures of the pages it reaches go
 # (spine/src/browser_pictures.rs); hands/tasks moves a task's into
 # state/media/tasks/<id>/ for a post's `shots`. Unset, none are taken.
@@ -258,6 +261,27 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
     fi
   else
     log "model: not configured (no LADDER_URL in $env_file)"
+  fi
+  # The captcha solver's key (bin/lib/core_sections/automation.py turns the
+  # solver on): stored as the core's `typesafe` credential, never its
+  # environment. Once stored it can be dropped from spine.env.
+  if [ -n "${TYPESAFE_API_KEY:-}" ]; then
+    oh auth_store_provider_credentials "$(jq -cn --arg k "$TYPESAFE_API_KEY" \
+      '{provider: "provider:typesafe", token: $k, setActive: true}')" >/dev/null ||
+      die "captcha: the core did not store the TypeSafe key"
+    log "captcha: TypeSafe key stored; browser tasks try a CAPTCHA before stopping for a person"
+  else
+    log "captcha: no TYPESAFE_API_KEY in $env_file; keeping the key the core already stores, if any"
+  fi
+  # Surplus Intelligence, where the solver asks by default
+  # (TEENY_CAPTCHA_PROVIDER): its key is the core's `surplus` credential.
+  if [ -n "${SURPLUS_API_KEY:-}" ]; then
+    oh auth_store_provider_credentials "$(jq -cn --arg k "$SURPLUS_API_KEY" \
+      '{provider: "provider:surplus", token: $k, setActive: true}')" >/dev/null ||
+      die "captcha: the core did not store the Surplus key"
+    log "captcha: Surplus key stored"
+  else
+    log "captcha: no SURPLUS_API_KEY in $env_file; keeping the key the core already stores, if any"
   fi
   if [ -n "${CORTEX_API_URL:-}" ]; then
     result="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \

@@ -653,6 +653,141 @@ class HealthTest(unittest.TestCase):
         (alarm,) = self.inbox()
         self.assertIn("teeny.post waits for its next slot", alarm["text"])
 
+    # --- playbook drafts the model provider failed (bin/act's run logs) ----------------------
+    # 2026-11-14, 06:10 to 09:15 UTC: every draft failed with HTTP 402
+    # (insufficient_allowance), 27 failed lines across four Moltbook
+    # playbooks, about nine runs lost, and the noon post never made up.
+
+    LOST = {"ok": False, "error": "the draft turn failed", "failure": "provider", "provider": "payment",
+            "stderr": "[oh] model error: local-openai returned HTTP 402 (insufficient_allowance): see"
+                      " https://surplus.example/pay?key=sk-live-123"}
+    ANSWERED = {"ok": True, "actions": [{"action": "skip", "reason": "nothing new"}], "left_today": 1}
+
+    def act_runs(self, playbook, *runs):
+        """Lines in state/act/<playbook>/runs.jsonl: `(seconds from T0, line)`."""
+        path = self.root / "state" / "act" / playbook / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as fh:
+            for offset, line in runs:
+                at = health._iso(int((T0 + offset) * 1000))
+                fh.write(json.dumps({"at": at, "playbook": playbook, **line}) + "\n")
+
+    def act_alarms(self) -> list[dict]:
+        return [s for s in self.inbox() if s["kind"] == "alarm" and s["ref"].startswith("act:")]
+
+    def test_two_drafts_the_provider_failed_are_not_an_alarm(self):
+        self.act_runs("moltbook-general", (-1200, self.LOST))
+        self.act_runs("moltbook-threads", (-300, self.LOST))
+        out = health.check()
+        self.assertEqual((out["act_outage"]["runs"], out["act_alarm"]), (2, None))
+        self.assertEqual((self.act_alarms(), self.gh.seen), ([], []))
+
+    def test_one_runs_quick_retries_count_once(self):
+        # The core's cron ran each failed run three times in twenty seconds.
+        self.act_runs("moltbook-daily", (-600, self.LOST), (-594, self.LOST), (-588, self.LOST))
+        out = health.check()
+        self.assertEqual((out["act_outage"]["runs"], out["act_alarm"]), (1, None))
+
+    def test_three_drafts_in_a_row_the_provider_failed_raise_one_alarm_while_the_probe_answers(self):
+        self.act_runs("moltbook-general", (-3000, self.ANSWERED), (-1800, self.LOST))
+        self.act_runs("moltbook-threads", (-1500, self.LOST))
+        self.act_runs("moltbook-helpdesk", (-600, self.LOST))
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual(out["act_outage"], {"runs": 3, "since": "2026-11-11T11:30:00Z", "provider": "payment",
+                                             "by": {"moltbook-general": 1, "moltbook-threads": 1,
+                                                    "moltbook-helpdesk": 1}})
+        self.assertEqual((out["act_alarm"], out["act_issue"]), ("raised", 41))
+        self.assertEqual(self.state()["act_alarm"]["issue"], 41)
+        (alarm,) = self.act_alarms()
+        self.assertIn("failed the draft of your last 3 playbook run(s) in a row", alarm["text"])
+        (opened,) = self.gh.requests("POST", ISSUES)
+        sent = opened.json()
+        self.assertIn("playbook drafts fail on the model provider", sent["title"])
+        self.assertIn("moltbook-helpdesk 1", sent["body"])
+        self.assertNotIn("sk-live-123", sent["body"])
+        self.assertNotIn("https://surplus", sent["body"])
+        # The next check files nothing more.
+        self.at(QUARTER)
+        self.assertEqual(health.check()["act_alarm"], "open")
+        self.assertEqual((len(self.gh.requests("POST", ISSUES)), len(self.act_alarms())), (1, 1))
+
+    def test_two_failed_drafts_half_an_hour_apart_raise_it_too(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-300, self.LOST))
+        self.assertEqual(health.check()["act_alarm"], "raised")
+
+    def test_the_thresholds_are_settings(self):
+        self.configure(ACT_ALARM_RUNS="5", ACT_ALARM_MINUTES="90")
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        self.assertEqual(health.check()["act_alarm"], None)
+
+    def test_an_answered_draft_clears_the_alarm_and_closes_its_issue(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        health.check()
+        self.act_runs("moltbook-general", (QUARTER - 60, self.ANSWERED))
+        self.at(QUARTER)
+        out = health.check()
+        self.assertEqual((out["act_alarm"], out["act_outage"]), ("cleared", None))
+        self.assertIsNone(self.state()["act_alarm"])
+        self.assertEqual(self.gh.requests("PATCH", f"{ISSUES}/41")[0].json()["state"], "closed")
+        self.assertIn("answered again", self.inbox()[-1]["text"])
+
+    def test_a_playbooks_own_failures_are_no_provider_outage(self):
+        own = {"ok": False, "error": "input feed failed", "failure": "playbook"}
+        self.act_runs("moltbook-general", (-2400, own), (-1200, own), (-300, own))
+        out = health.check()
+        self.assertEqual((out["act_outage"], out["act_alarm"]), (None, None))
+
+    def test_while_the_model_alarm_is_open_the_same_outage_files_one_issue(self):
+        self.act_runs("moltbook-general", (-2400, self.LOST), (-1200, self.LOST), (-300, self.LOST))
+        first, second = self.outage(2)
+        self.assertEqual((second["alarm"], second["act_alarm"]), ("raised", None))
+        self.assertEqual(second["act_outage"]["runs"], 3)
+        self.assertEqual(len(self.gh.requests("POST", ISSUES)), 1)
+
+    def noon(self, lost_at=-19800):
+        """A noon post (06:30 UTC) with `make_up_hours = 6` whose run at
+        `lost_at` from T0 the provider failed."""
+        brain = self.root / "brain"
+        (brain / "playbooks").mkdir(parents=True, exist_ok=True)
+        (brain / "playbooks" / "noon.md").write_text('+++\ndescription = "x"\noutput = "post"\n+++\npost\n')
+        storage = brain / "storage.db"
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        body = {"name": "teeny.noon", "enabled": True, "next_run_ms": int((T0 + 66600) * 1000),
+                "schedule": {"kind": "cron", "expr": "30 6 * * *", "tz": "UTC"}}
+        db.execute("insert into docs (coll, id, body) values ('cron.jobs', 'j9', ?)", (json.dumps(body),))
+        run = {"job_id": "j9", "started_ms": int((T0 + lost_at) * 1000), "finished_ms": int((T0 + lost_at + 9) * 1000),
+               "status": "ok"}
+        db.execute("insert into docs (coll, id, body) values ('cron.runs', 'r1', ?)", (json.dumps(run),))
+        db.commit()
+        db.close()
+        (brain / "cron.toml").write_text('[jobs.noon]\nschedule = "30 6 * * *"\ntz = "UTC"\ncommand = "bin/act noon"\n'
+                                         "make_up_hours = 6\n")
+        (self.root / "evals").mkdir(exist_ok=True)
+        (self.root / "evals" / "cron.pinned.toml").write_text("")
+        self.act_runs("noon", (lost_at + 10, self.LOST))
+
+    def test_a_post_the_provider_lost_is_made_up_once_a_draft_is_answered_again(self):
+        os.environ["TEENY_QUIET_HOURS"] = "off"
+        self.noon()
+        self.act_runs("moltbook-general", (-600, self.ANSWERED))
+        self.core.replies = [ALIVE, result({"job_id": "j9", "status": "queued"})]
+        out = health.check()
+        self.assertEqual(out["caught_up"], [{"name": "teeny.noon", "slot": "2026-11-11T06:30:00Z",
+                                             "lost": "provider"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j9"}])
+
+    def test_a_lost_post_waits_while_the_drafts_still_fail(self):
+        os.environ["TEENY_QUIET_HOURS"] = "off"
+        self.noon()
+        self.act_runs("moltbook-general", (-600, self.LOST))
+        out = health.check()
+        self.assertTrue(out["healthy"])
+        self.assertEqual((out["caught_up"], self.cron_runs()), ([], []))
+
     # --- the re-screen -----------------------------------------------------------------------
 
     def outage_holds(self) -> tuple[int, int]:

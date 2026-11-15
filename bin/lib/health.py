@@ -34,8 +34,11 @@ Every run:
 4. When the model answered, re-screens the guard holds an outage made
    (teeny_hands.guard.rescreen): at most ten, oldest first, none younger
    than two minutes. A held message the judge now finds clean goes back to
-   its queue; a real verdict stays held; a held draft of Teeny's own expires
-   and is never sent. A failed probe skips it: the judge is that model.
+   its queue; a real verdict stays held; a held Moltbook draft of Teeny's
+   own under an hour old is sent again through hands/moltbook, any other
+   draft expires and is never sent. A failed probe skips it: the judge is
+   that model. The pinned guard-rescreen job runs the same pass every five
+   minutes.
 5. Looks for cron jobs stuck behind their schedule (`stale_crons`): enabled,
    a next run more than STALE_SECS in the past, and no run holding that
    slot. On 2026-11-11 the box rebooted mid-run, the dead runs' claims held
@@ -53,9 +56,24 @@ Every run:
    re-armed it to the next day, and a boot did the same to self-improve on
    11-13 and 11-14, so the day's run was dropped. The alarm says which
    stuck job was caught up and which waits for its next slot.
-6. Prints one JSON line: `ok` (the check ran), `healthy` (the model
+6. Watches the playbook runs (bin/act's state/act/*/runs.jsonl) for drafts
+   the model provider failed (`failure: "provider"`): ACT_ALARM_RUNS such
+   runs in a row across the playbooks, with no draft answered between them,
+   or two or more spread over ACT_ALARM_MINUTES, raise a third alarm of the
+   same kind (`act_alarm`: a `health · alarm` stimulus and one issue). The
+   core's quick retries of one run count once. It is cleared by the first
+   draft that is answered again. The probe above asks a one-word question;
+   a draft is a long turn as the `act` agent, which can fail while the probe
+   answers (a spending allowance that covers the small call and not the big
+   one). It is raised only while the probe answers: when the probe fails
+   too, the model alarm above is the one, and one outage files one issue.
+   With the probe answering and no provider failure since the last answered
+   draft, a slot such a failure lost is made up (bin/lib/catch_up.py,
+   `provider_back`).
+7. Prints one JSON line: `ok` (the check ran), `healthy` (the model
    answered), what it did, `rescreen`, the re-screen's counts (null when it
-   did not run), `stale_crons`, `rearmed`, `caught_up` and `cron_alarm`, and
+   did not run), `stale_crons`, `rearmed`, `caught_up`, `cron_alarm`,
+   `act_outage` (the provider failures in a row, or null) and `act_alarm`, and
    `moltbook_unverified`: how many of the last day's Moltbook writes are
    still hidden behind an unsolved challenge, when fewer than nine in ten
    of at least three are visible (null otherwise). That one is a count on
@@ -144,6 +162,16 @@ STALE_SECS = 600
 MOLTBOOK_VERIFIED_SHARE = 0.9
 MOLTBOOK_MIN_WRITES = 3
 MOLTBOOK_WINDOW_SECS = 86400
+#: Playbook runs in a row the model provider failed before the act alarm
+#: opens (secrets/teeny.env ACT_ALARM_RUNS), or the minutes from the first
+#: such failure to the last (ACT_ALARM_MINUTES) when there are two or more.
+ACT_ALARM_RUNS = 3
+ACT_ALARM_MINUTES = 30
+#: Failures of one playbook this close together are one run: the core's
+#: cron retries a failed shell job at once.
+ACT_RETRY_SECS = 120
+#: How far back the playbook logs are read.
+ACT_LOOKBACK_SECS = 86400
 
 Json = dict[str, Any]
 
@@ -369,7 +397,7 @@ def rearm(stale: list[Json]) -> tuple[list[str], dict[str, str]]:
 # --- state ------------------------------------------------------------------------------------
 
 FRESH: Json = {"failures": 0, "first_failed_at": None, "last_failed_at": None, "last_ok_at": None,
-               "last_error": None, "alarm": None, "cron_alarm": None}
+               "last_error": None, "alarm": None, "cron_alarm": None, "act_alarm": None}
 
 
 def _path() -> Path:
@@ -530,7 +558,7 @@ def _rearm_line(rearmed: list[str], rearm_errors: Mapping[str, str], caught: Map
     return line
 
 
-def _catch_up(rearmed: list[str]) -> Json:
+def _catch_up(rearmed: list[str], provider_back: bool = False) -> Json:
     """Runs a missed slot of a `catch_up` job once now (bin/lib/catch_up.py),
     with the schedule files bin/seed-cron seeds from."""
     import catch_up
@@ -543,7 +571,7 @@ def _catch_up(rearmed: list[str]) -> Json:
                                    os.environ.get("CALENDAR_TZ", ""))
     except Exception as error:  # noqa: BLE001 - an invalid file is bin/doctor's to report; nothing is caught up
         return {"caught_up": [], "pending": [], "deferred": [], "errors": {"schedule": scrub(str(error))}}
-    return catch_up.run(desired, hand.core, rearmed=rearmed)
+    return catch_up.run(desired, hand.core, rearmed=rearmed, provider_back=provider_back)
 
 
 def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str, str],
@@ -569,13 +597,13 @@ def _cron_issue(stale: list[Json], rearmed: list[str], rearm_errors: Mapping[str
     }
 
 
-def _watch_crons(state: Json, now: float) -> Json:
+def _watch_crons(state: Json, now: float, provider_back: bool = False) -> Json:
     """Finds and re-arms stuck cron jobs, and raises, keeps or clears their
     alarm. What goes on the check's line."""
     stale = stale_crons(now)
     rearmed, rearm_errors = rearm(stale)
     try:
-        caught = _catch_up(rearmed)
+        caught = _catch_up(rearmed, provider_back)
     except Exception as error:  # noqa: BLE001 - a failed catch-up never stops the watch
         caught = {"caught_up": [], "errors": {"catch-up": scrub(f"{type(error).__name__}: {error}")}}
     out: Json = {"stale_crons": [{"name": job["name"], "next_run": job["next_run"]} for job in stale],
@@ -612,6 +640,123 @@ def _watch_crons(state: Json, now: float) -> Json:
     if alarm:
         out.update(cron_issue=alarm.get("issue"), cron_issue_error=alarm.get("issue_error"))
     return out
+
+
+# --- playbook drafts the model provider failed ------------------------------------------------
+
+
+def _at(line: Mapping[str, Any]) -> float | None:
+    try:
+        when = dt.datetime.fromisoformat(str(line["at"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return None
+    return (when if when.tzinfo else when.replace(tzinfo=dt.timezone.utc)).timestamp()
+
+
+def _answered(line: Mapping[str, Any]) -> bool:
+    """Whether a run's line shows the model answered its draft."""
+    return (line.get("ok") is True and "actions" in line) or str(line.get("error") or "").startswith(
+        "the draft is not usable JSON")
+
+
+def act_outage(now: float) -> Json:
+    """The playbook runs the model provider failed since a draft was last
+    answered, across every playbook: `runs` (one run's quick retries count
+    once), `since` and `last` (when the first and the last failed), `by` (per
+    playbook), `provider` and `error` (the last one's class and scrubbed
+    error), and `answered_at` (the last answered draft, or None)."""
+    events: list[tuple[float, str, Json]] = []
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        for line in _lines(path)[-500:]:
+            at = _at(line)
+            if at is not None and at >= now - ACT_LOOKBACK_SECS and (
+                    line.get("failure") == "provider" or _answered(line)):
+                events.append((at, path.parent.name, line))
+    events.sort(key=lambda e: e[0])
+    answered_at = next((at for at, _, line in reversed(events) if _answered(line)), None)
+    lost = [(at, name, line) for at, name, line in events if answered_at is None or at > answered_at]
+    runs, by, seen = 0, {}, {}
+    for at, name, _ in lost:
+        if name not in seen or at - seen[name] >= ACT_RETRY_SECS:
+            runs += 1
+            by[_named(name)] = by.get(_named(name), 0) + 1
+        seen[name] = at
+    out: Json = {"runs": runs, "answered_at": answered_at}
+    if lost:
+        last = lost[-1][2]
+        out.update(since=lost[0][0], last=lost[-1][0], by=by, provider=_named(last.get("provider")),
+                   error=scrub(str(last.get("stderr") or last.get("error") or "")))
+    return out
+
+
+def _setting_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(hand.setting(name, str(default)) or default))
+    except ValueError:
+        return default
+
+
+def _act_issue(outage: Mapping[str, Any]) -> Json:
+    return {
+        "repo": _repo(),
+        "title": f"Teeny's playbook drafts fail on the model provider (since {_when(outage['since'])})",
+        "body": (
+            "The pinned health check (bin/health) reads the playbook runs (bin/act). The model provider failed"
+            f" the draft of the last {outage['runs']} run(s) in a row, and no draft was answered between them.\n\n"
+            f"- failing since: {_when(outage['since'])}\n"
+            f"- by playbook: {_counts(outage['by'])}\n"
+            f"- kind: {outage['provider']}\n"
+            f"- last error: {outage['error']}\n\n"
+            "Each of those runs lost its slot: no post, comment or note was made. Check the model provider's"
+            " balance and key (bin/spine). The health probe's one-word question may still be answered: a draft"
+            " is a much larger turn. Once a draft is answered again, a Moltbook post that lost its slot is made"
+            " up once, within its window (`make_up_hours`, brain/cron.toml).\n\n"
+            "This issue is closed by the same check when a draft is answered again."
+        ),
+    }
+
+
+def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
+    """Raises, keeps or clears the alarm on playbook drafts the model
+    provider failed. What goes on the check's line, and the outage."""
+    outage = act_outage(now)
+    alarm = state.get("act_alarm")
+    runs = outage["runs"]
+    due = runs >= _setting_int("ACT_ALARM_RUNS", ACT_ALARM_RUNS) or (
+        runs >= 2 and outage["last"] - outage["since"] >= 60 * _setting_int("ACT_ALARM_MINUTES", ACT_ALARM_MINUTES))
+    out: Json = {"act_outage": None, "act_alarm": None}
+    if runs:
+        out["act_outage"] = {"runs": runs, "since": _iso(int(outage["since"] * 1000)), "by": outage["by"],
+                             "provider": outage["provider"]}
+    if alarm and runs == 0 and outage["answered_at"] is not None:
+        down = f"from {_when(alarm['since'])} to {_when(outage['answered_at'])}"
+        closed = _close_issue(alarm, f"A playbook draft was answered again. The drafts failed {down}. Closing.")
+        out.update(closed)
+        stimuli.add("health", "recovered", alarm["ref"],
+                    f"health: your playbook drafts are answered again. the model provider failed them {down}.",
+                    payload={"since": alarm["since"], "recovered_at": now, "issue": alarm.get("issue")})
+        out["act_alarm"] = "cleared"
+        alarm = None
+    elif alarm:
+        if not alarm.get("issue") and runs:
+            _open_issue(alarm, _act_issue(outage))
+        out["act_alarm"] = "open"
+    elif due and not state.get("failures"):
+        alarm = {"ref": f"act:{int(outage['since'])}", "opened_at": now, "since": outage["since"], "issue": None}
+        _open_issue(alarm, _act_issue(outage))
+        stimuli.add(
+            "health", "alarm", alarm["ref"],
+            f"health alarm: the model provider failed the draft of your last {runs} playbook run(s) in a row,"
+            f" since {_when(outage['since'])} ({_counts(outage['by'])}; {outage['provider']}). those slots made"
+            f" nothing. last error: {outage['error']}. {_issue_line(alarm)}",
+            payload={"runs": runs, "since": outage["since"], "by": outage["by"], "provider": outage["provider"],
+                     "issue": alarm["issue"]},
+        )
+        out["act_alarm"] = "raised"
+    state["act_alarm"] = alarm
+    if alarm:
+        out.update(act_issue=alarm.get("issue"), act_issue_error=alarm.get("issue_error"))
+    return out, outage
 
 
 # --- yesterday, as one stimulus (docs/roadmap.md, A4) ------------------------------------------
@@ -898,7 +1043,9 @@ def check() -> Json:
                            issue_dry_run=alarm.get("issue_dry_run"))
         out["failures"] = state["failures"]
         out.update(reroute(state, error, now))
-        out.update(_watch_crons(state, now))
+        watched, outage = _watch_act(state, now)
+        out.update(watched)
+        out.update(_watch_crons(state, now, provider_back=error is None and outage["runs"] == 0))
         save(state)
         return out
 

@@ -153,6 +153,16 @@ check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladd
 fresh; mkdir -p "$root/secrets"; printf 'EVOLVE=1\nEVOLVE_AUTO_PROMOTE=0\n' >"$root/secrets/evolve.env"
 check "passes EVOLVE=1 with self-edit at L4" doctor
 check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
+# Self-merge is its own rung (L5, the operator's decision of 2026-11-15), so
+# granting it leaves EVOLVE_AUTO_PROMOTE refused under merge at L4.
+fresh; mkdir -p "$root/secrets"; printf 'BABYSIT_MERGE=1\nBABYSIT_SELF_MERGE=1\n' >"$root/secrets/teeny.env"
+check "passes BABYSIT_SELF_MERGE=1 with self-merge at L5" doctor
+printf 'EVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"
+fails "still fails EVOLVE_AUTO_PROMOTE=1 beside it" "autonomy ladder"
+sed -i.bak '/^\[capability.self-merge\]/,/^switch/ s/^level = 5$/level = 4\nnext = { level = 5, also = ["x"] }/' "$root/evals/autonomy.toml"
+rm "$root/secrets/evolve.env"
+fails "fails BABYSIT_SELF_MERGE=1 once self-merge is under L5" "autonomy ladder"
+check "and names the switch and the level it needs" grep -q '^FAIL autonomy ladder: BABYSIT_SELF_MERGE=1 .*self-merge at L5' "$scratch/doctor.log"
 fresh; rm "$root/evals/autonomy.toml"
 fails "fails a checkout without evals/autonomy.toml" "autonomy ladder"
 # A model change (roadmap G8): recorded at boot, the levels on it drop, a switch

@@ -14,6 +14,7 @@ change it.
 | [`evolve.md`](evolve.md) | The self-improvement loop: what Teeny may change about itself, the frozen paths, how a generation is judged, and promotion, rollback and the probes. Built; it has not yet run a real generation. |
 | [`oh-gaps.md`](oh-gaps.md) | What upstream OpenHuman could add so the hands could shrink. |
 | [`research/`](research/README.md) | What others have built and written on self-improving, goal-driven and public agents, the state of agents and AGI in 2026, how agents govern and pay for themselves, and the proposal for Teeny's drive (grow and become powerful) and a faster evolve loop. |
+| [`audit/`](audit/README.md) | Audits of how Teeny is doing in public, with the evidence and the plan. First: Moltbook after five days (2026-11-15), the agents that win there, what a post earns, what gets an agent to act, and what to change. |
 
 Elsewhere in the repository:
 

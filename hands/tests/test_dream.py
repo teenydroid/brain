@@ -247,6 +247,23 @@ class DreamTest(unittest.TestCase):
             # Only the night may run the lab.
             self.assertEqual('"op": "experiment"' in message, not light)
 
+    def test_a_dream_sees_which_moltbook_formats_worked_and_which_flopped(self):
+        from teeny_hands.moltbook import rules
+
+        conn = rules.db()
+        for n, (fmt, score) in enumerate((("claim", 9), ("claim", 7), ("confession", 1))):
+            conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status, format)"
+                         " VALUES (?, ?, 'general', ?, 'verified', ?)", (f"p{n}", hand.now() - 3600, f"title {n}", fmt))
+            conn.execute("INSERT INTO moltbook_post_metrics (kind, target_id, checkpoint, at, score, comment_count,"
+                         " verification_status) VALUES ('post', ?, 1, ?, ?, 2, 'verified')", (f"p{n}", hand.now(), score))
+        conn.close()
+        self.answer({"ops": [], "diary": "d"})
+        self.assertTrue(self.dream()["ok"])
+        message = self.message()
+        self.assertIn("## moltbook: what worked and what flopped", message)
+        self.assertIn('Moltbook posts by format, last 7d: claim n=2 med 8 best 9 cmt 2; confession n=1 med 1 best 1 cmt 2;'
+                      ' worst confession "title 2"', message)
+
     def test_the_night_dream_concludes_and_proposes_through_hands_lab(self):
         from teeny_hands.lab import ledger
 

@@ -1,18 +1,15 @@
-"""bin/evolve, Phase C, offline: the lab spine (a stand-in that answers
-/health on its port), the evolver, promotion, the restart, the last-good
-fallback's trigger, evolve-watch and the persona drift halt. No real core
-starts, nothing is merged and nothing restarts: GitHub is a fake publisher
-and promoter, the restart a fake restarter (or a scratch checkout and a
-`sleep` that gets the TERM), and the core a stand-in (TEENY_OH)."""
+"""bin/evolve offline: the lab spine (a stand-in that answers /health on
+its port), the targeted evaluation, the evolver, the last-good fallback's
+trigger, evolve-watch and the persona drift halt. No real core starts and
+nothing is merged: GitHub is a fake publisher, bin/eval is the real one,
+and the core is a stand-in (TEENY_OH)."""
 
 from __future__ import annotations
 
 import json
 import os
 import random
-import signal
 import socket
-import subprocess
 import sys
 import time
 import unittest
@@ -28,12 +25,12 @@ import evolve  # noqa: E402
 import lab  # noqa: E402
 
 STUB_SPINE = r"""#!/usr/bin/env python3
-import http.server, json, os, signal, sys, threading
+import http.server, json, os, signal, sys, threading, time
 env = {k: os.environ.get(k) for k in ("TEENY_ROOT", "OPENHUMAN_WORKSPACE", "TEENY_STATE", "TEENY_SECRETS",
                                       "TEENY_STORAGE", "OPENHUMAN_CORE_PORT", "DRY_RUN", "SPINE_LAB",
                                       "SPINE_LAB_EDIT", "GITHUB_TOKEN", "CORTEX_API_URL")}
 with open(os.environ["FAKE_SPINE_LOG"], "a") as fh:
-    fh.write(json.dumps({"pid": os.getpid(), **env}) + "\n")
+    fh.write(json.dumps({"pid": os.getpid(), "at": time.time(), **env}) + "\n")
 if os.environ.get("FAKE_SPINE_FAIL"):
     sys.exit(3)
 if os.environ.get("FAKE_SPINE_SCRIBBLE"):
@@ -67,13 +64,17 @@ server.serve_forever()
 """
 
 #: A stand-in core for bin/ask: act turns answer in the voice of the port they
-#: reach (the base lab at FAKE_BASE_PORT, a candidate elsewhere), the judge
-#: prefers the candidate, and the evolver edits the worktree it is rooted in.
+#: reach (the base lab at FAKE_BASE_PORT, a candidate elsewhere, with its
+#: port), the judge prefers the candidate (but not the one at FAKE_LOSE_PORT),
+#: and the evolver edits the worktree it is rooted in. Every call is logged
+#: with the eval budget and the brain bin/eval said the core serves.
 FAKE_OH = r"""#!/usr/bin/env python3
 import json, os, re, sys
 method, params = sys.argv[1], json.loads(sys.argv[2])
 with open(os.environ["FAKE_CORE_CALLS"], "a") as fh:
     fh.write(json.dumps({"url": os.environ.get("OH_URL"), "token": os.environ.get("OPENHUMAN_CORE_TOKEN"),
+                         "concurrency": os.environ.get("EVAL_CONCURRENCY"),
+                         "workspace": os.environ.get("OPENHUMAN_WORKSPACE"), "at": __import__("time").time(),
                          **params}) + "\n")
 message, agent = params["message"], params.get("agent_id")
 who = "base" if os.environ.get("OH_URL", "").endswith(":" + os.environ["FAKE_BASE_PORT"]) else "CAND"
@@ -82,16 +83,22 @@ if agent == "act" and message.startswith("# probe:"):
     text = "synergy optimisation leverage" if drifted else "i am teeny, a small robot who keeps the lab"
     answer = json.dumps({"text": text})
 elif agent == "act":
+    if who == "CAND" and os.environ.get("FAKE_CAND_DOWN"):
+        sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
-    answer = json.dumps({"text": f"gm {task} from the {who}"})
+    port = os.environ.get("OH_URL", "").rsplit(":", 1)[-1]
+    answer = json.dumps({"text": f"gm {task} from the {who} on {port}"})
 elif agent == "judge" and message.startswith("# persona probe"):
     answer = json.dumps({"same": 0.2 if os.environ.get("FAKE_DRIFT") else 1.0})
 elif agent == "judge":
     drafts = dict(re.findall(r"^## draft ([12])\n\n```text\n(.*?)\n```", message, re.M | re.S))
     hits = [k for k in ("1", "2") if "CAND" in drafts.get(k, "")]
+    lose = os.environ.get("FAKE_LOSE_PORT")
+    if len(hits) == 1 and lose and drafts[hits[0]].endswith(" on " + lose):
+        hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
 elif agent == "evolver":
-    path = os.path.join(params["cwd"], "brain", "playbooks", "morning.md")
+    path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
     answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
@@ -147,11 +154,12 @@ class LabCase(EvolveCase):
         self.spine_log = self.root / "spine.log"
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
-                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY"):
+                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
-                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port))
+                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port), EVAL_RETRY_WAIT="0")
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-1\n"
             "CORTEX_API_URL=http://127.0.0.1:3141\nCORTEX_API_KEY=cx\n")
@@ -159,13 +167,15 @@ class LabCase(EvolveCase):
     def lab_config(self, **values):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_EVALUATOR="lab", EVOLVE_LAB_PORT=self.port,
                     EVOLVE_LAB_BOOT_SECS=20, EVOLVE_EVAL_SAMPLES=1, EVOLVE_PROBE_SAMPLES=1,
-                    EVOLVE_MAX_WINRATE_JUMP=0.6, **values)
+                    **values)
 
     def spines(self):
         return [json.loads(line) for line in self.spine_log.read_text().splitlines()] if self.spine_log.exists() else []
 
     def core_turns(self):
         return [json.loads(line) for line in self.core_calls.read_text().splitlines()] if self.core_calls.exists() else []
+
+
 
 
 class LabSpine(LabCase):
@@ -247,80 +257,190 @@ class LabSpine(LabCase):
             lab.stop(held)
 
 
-class LabEvaluation(LabCase):
-    def test_every_candidate_is_measured_on_a_lab_of_its_own(self):
+
+class TargetedEvaluation(LabCase):
+    """EVOLVE_EVALUATOR=lab end to end, with the real bin/eval (affected, run
+    --tasks --brain --key, compare --mode nonregression) on stand-in lab
+    spines and a stand-in core: measured only on the tasks the change
+    reaches, all candidates at once, against one baseline per base commit.
+    A playbook edit reaches the tasks drafted from that playbook: morning ->
+    morning-post, shiplog -> shiplog-numbers, moltbook-daily -> none."""
+
+    def edit(self, i, playbook, line=None):
+        self.propose(i, [self.playbook_edit(line or f"Candidate {i} says it plainly.", f"brain/playbooks/{playbook}.md")],
+                     title=f"candidate {i}")
+
+    def drafts(self):
+        """The eval draft turns: (port, task, workspace, message)."""
+        out = []
+        for c in self.core_turns():
+            if c.get("agent_id") == "act" and c["message"].startswith("# eval:"):
+                task = c["message"].split("\n", 1)[0].removeprefix("# eval: ").split()[0]
+                out.append((int(c["url"].rsplit(":", 1)[1]), task, c.get("workspace"), c["message"], c))
+        return out
+
+    def test_a_change_no_task_reaches_boots_no_lab(self):
         self.lab_config()
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        os.environ["DRY_RUN"] = "1"
+        self.edit(1, "moltbook-daily")
         out = self.run_gen(1, publisher=Refusing())
-        cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "won", cand.get("eval_reason"))
-        self.assertEqual(cand["scores"]["win_rate"], 1.0)
-        # One lab over main for the baseline, one over the candidate's worktree.
-        spines = self.spines()
-        ports = sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in spines)
-        self.assertEqual(ports, [self.port, self.port + 1])
-        roots = {s["TEENY_ROOT"] for s in spines}
-        self.assertIn(str(evolve.evolve_dir() / "1" / "cand-1"), roots)
-        self.assertIn(str(evolve.evolve_dir() / "1" / "lab-base" / "tree"), roots)
-        self.assertTrue(all(s["DRY_RUN"] == "1" and s["SPINE_LAB"] == "1" for s in spines))
-        # Each side drafted on its own lab, with that lab's token.
-        drafts = [c for c in self.core_turns() if c.get("agent_id") == "act" and c["message"].startswith("# eval:")]
-        cand_token = (evolve.evolve_dir() / "1" / "lab-1" / "secrets" / "core.token").read_text().strip()
-        self.assertTrue(any(c["url"].endswith(f":{self.port + 1}") and c["token"] == cand_token for c in drafts))
-        # The persona probe asked it, and main's answers became gen-0.
-        self.assertIsNotNone(cand["probe"]["drift"])
-        self.assertLessEqual(cand["probe"]["drift"], 0.1)
-        self.assertTrue((evolve.evolve_dir() / "probes" / "gen-0.json").is_file())
-        # Every lab is gone, and so is the base lab's worktree.
-        self.assertFalse(any(alive(s["pid"]) for s in spines))
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        self.assertEqual(self.entries()["g1c1"]["eval"]["verdict"], "unmeasurable")
+        self.assertEqual(self.spines(), [])
+        self.assertEqual(self.drafts(), [])
+
+    def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
+        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4)
+        self.edit(1, "morning")
+        self.edit(2, "shiplog")
+        os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2
+        self.live()
+        pub = FakePublisher()
+        out = self.run_gen(2, publisher=pub)
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "regressed"])
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertEqual(self.entries()["g1c1"]["eval"]["tasks"], ["morning-post"])
+        self.assertEqual(sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in self.spines()),
+                         [self.port, self.port + 1, self.port + 2])
+        drafts = self.drafts()
+        # The baseline drafts the union of the tasks, once, with the whole budget.
+        self.assertEqual(sorted((d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port),
+                         [("morning-post", "4"), ("shiplog-numbers", "4")])
+        # Each candidate drafts only its own tasks on its own lab, with half of it.
+        self.assertEqual(sorted((d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port),
+                         [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
+        reports = [json.loads((evolve.evolve_dir() / "1" / "eval" / f"cand-{i}" / "compare" / "report.json").read_text())
+                   for i in (1, 2)]
+        self.assertEqual([(r["mode"], r["verdict"]) for r in reports], [("nonregression", "pass"),
+                                                                       ("nonregression", "regressed")])
+        # The judge ran on the base lab.
+        judged = {int(c["url"].rsplit(":", 1)[1]) for c in self.core_turns() if c.get("agent_id") == "judge"}
+        self.assertEqual(judged, {self.port})
+        # At once: the two candidates' labs were up together.
+        starts = [s for s in self.spines() if int(s["OPENHUMAN_CORE_PORT"]) != self.port]
+        self.assertLess(abs(starts[0]["at"] - starts[1]["at"]), 2.0)
+        self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
         self.assertFalse((evolve.evolve_dir() / "1" / "lab-base" / "tree").exists())
-        self.assertTrue(out["dry_run"])
+        self.assertIn("pass on the 1 task(s) the change reaches (`morning-post`)", pub.prs[0]["body"])
 
-    def test_the_restored_tree_keeps_exactly_the_candidates_change(self):
+    def test_a_candidates_playbook_edit_reaches_its_drafts(self):
+        """bin/eval reads a task's playbook prompt from the brain it is told
+        the core serves. The tournament passed only the lab's URL and token,
+        so a candidate's own playbook edit never reached its draft message:
+        both sides drafted from the live checkout's playbook."""
         self.lab_config(EVOLVE_PROBES=0)
-        os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        out = self.run_gen(1, hold=True)
-        self.assertEqual(out["candidates"][0]["verdict"], "won")
-        self.assertTrue(any(s["TEENY_ROOT"].endswith("cand-1") for s in self.spines()))
-        tree = evolve.evolve_dir() / "1" / "cand-1"
-        self.assertNotIn("scribbled", (tree / "brain" / "CONTEXT.md").read_text())
-        self.assertIn("Open with what shipped.", (tree / "brain" / "playbooks" / "morning.md").read_text())
-        self.assertTrue((tree / "HYPOTHESIS.md").is_file())
+        self.edit(1, "morning", line="Open with the one thing that shipped overnight.")
+        self.run_gen(1, publisher=Refusing())
+        (base,) = [d for d in self.drafts() if d[0] == self.port]
+        (cand,) = [d for d in self.drafts() if d[0] != self.port]
+        self.assertEqual(cand[2], str(evolve.evolve_dir() / "1" / "cand-1" / "brain"))
+        self.assertEqual(base[2], str(evolve.evolve_dir() / "1" / "lab-base" / "tree" / "brain"))
+        self.assertIn("Open with the one thing that shipped overnight.", cand[3])
+        self.assertNotIn("Open with the one thing that shipped overnight.", base[3])
 
-    def test_a_lab_that_does_not_boot_leaves_the_candidate_unevaluated(self):
+    def test_the_baseline_is_drafted_once_per_base_commit_and_reused_by_the_next_generation(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        self.edit(1, "shiplog", line="Another change.")
+        self.run_gen(1, publisher=Refusing())
+        base = [d[1] for d in self.drafts() if d[0] == self.port]
+        self.assertEqual(base, ["morning-post", "shiplog-numbers"])
+
+    def test_the_baseline_is_keyed_by_the_labs_model(self):
+        """A model change must not reuse main's drafts from another model."""
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        (self.root / "secrets" / "spine.env").write_text(
+            "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-2\n")
+        self.edit(1, "morning", line="Another change.")
+        self.run_gen(1, publisher=Refusing())
+        self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["morning-post", "morning-post"])
+        runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
+        self.assertEqual(runs, ["s1-m-1", "s1-m-2"])
+
+    def test_the_persona_probe_runs_only_when_the_change_reaches_every_task(self):
         self.lab_config()
-        os.environ["FAKE_SPINE_FAIL"] = "1"
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        self.run_gen(1)
-        cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "unevaluated")
-        self.assertIn("lab spine", cand["eval_reason"])
+        soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
+        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
+        self.edit(2, "shiplog")
+        self.run_gen(2, publisher=Refusing())
+        entries = self.entries()
+        self.assertTrue(entries["g1c1"]["eval"]["all"])
+        self.assertIsNotNone(entries["g1c1"]["probe"]["drift"])
+        self.assertNotIn("probe", entries["g1c2"])
+        probes = [c for c in self.core_turns() if c["message"].startswith("# probe:")]
+        self.assertTrue(probes)
+        self.assertFalse(any(c["url"].endswith(f":{self.port + 2}") for c in probes))
 
     def test_a_drifted_persona_halts_instead_of_shipping(self):
         self.lab_config(EVOLVE_MAX_DRIFT=0.3)
         os.environ["FAKE_DRIFT"] = "1"
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
+        self.live()
+        soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
+        self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(pub.prs, [])
-        self.assertEqual(out["halt"]["kind"], "persona-drift")
+        self.assertEqual(out["halts"][0]["kind"], "persona-drift")
         self.assertEqual(self.entries()["g1c1"]["verdict"], "flagged")
-        self.assertGreater(self.entries()["g1c1"]["probe"]["drift"], 0.3)
         self.assertTrue(evolve.halt_path().exists())
 
+    def test_a_lab_that_does_not_boot_leaves_the_candidate_unevaluated(self):
+        self.lab_config()
+        os.environ["FAKE_SPINE_FAIL"] = "1"
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        cand = self.entries()["g1c1"]
+        self.assertEqual(cand["verdict"], "unevaluated")
+        self.assertIn("lab spine", cand["eval_reason"])
+
+    def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        os.environ["FAKE_CAND_DOWN"] = "1"
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        cand = self.entries()["g1c1"]
+        self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
+        self.assertIn("g1c1", [e["id"] for e in self.entries().values() if e.get("verdict") == "inconclusive"])
+        self.assertIn("m62", [x.id for x in evolve.open_learnings(self.entries())])
+
+    def test_a_lab_cores_scribbles_never_reach_the_pull_request(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
+        self.live()
+        self.edit(1, "morning")
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub)
+        self.assertTrue(any(s["TEENY_ROOT"].endswith("cand-1") for s in self.spines()))
+        (pr,) = pub.prs
+        self.assertEqual(pr["files"], ["brain/playbooks/morning.md"])
+
     def test_the_judge_runs_on_its_own_model(self):
-        self.lab_config(EVOLVE_JUDGE_MODEL="judge-9b")
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        self.run_gen(1, hold=True)
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_JUDGE_MODEL="judge-9b")
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
         judged = [c for c in self.core_turns() if c.get("agent_id") == "judge"]
         self.assertTrue(judged)
         self.assertEqual({c.get("model_override") for c in judged}, {"judge-9b"})
-        drafted = [c for c in self.core_turns() if c.get("agent_id") == "act"]
-        self.assertEqual({c.get("model_override") for c in drafted}, {None})
-        self.assertEqual(self.entries()["g1c1"]["scores"]["judge_model"], "judge-9b")
+        self.assertEqual({d[4].get("model_override") for d in self.drafts()}, {None})
+        self.assertEqual(self.entries()["g1c1"]["eval"]["judge_model"], "judge-9b")
+
+    def test_a_restart_reuses_the_drafts_and_the_report_it_already_has(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        booted, drafted = len(self.spines()), len(self.drafts())
+        # Cut off after it was measured, before the result was written.
+        (evolve.gen_dir(1) / "result.json").unlink()
+        rows = [r for r in evolve.read_jsonl(evolve.archive_path())
+                if not (r.get("id") == "g1c1" and r.get("verdict") != "pending")]
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
+        out = self.run_gen(1, publisher=Refusing())
+        self.assertTrue(out["resumed"])
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        self.assertEqual(len(self.drafts()), drafted)
+        self.assertEqual(len(self.spines()), booted)  # every report it needs is there: nothing boots
 
 
 class Evolver(LabCase):
@@ -329,7 +449,7 @@ class Evolver(LabCase):
                     EVOLVE_LAB_BOOT_SECS=20)
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         cand = self.entries()["g1c1"]
-        self.assertEqual(out["candidates"][0]["verdict"], "unevaluated", cand.get("reason"))
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run", cand.get("reason"))
         self.assertEqual(cand["proposer"], "evolver")
         self.assertEqual(cand["title"], "morning: name who shipped")
         patch = (evolve.evolve_dir() / cand["patch"]).read_text()
@@ -348,203 +468,31 @@ class Evolver(LabCase):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="evolver", EVOLVE_LAB_PORT=self.port,
                     EVOLVE_LAB_BOOT_SECS=20)
         fake = Path(os.environ["TEENY_OH"])
-        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "morning.md")',
+        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")',
                                         'os.path.join(params["cwd"], "bin", "ask")'))
         evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "rejected")
         self.assertIn("bin/ask", [c for c in cand["gate"]["checks"] if c["check"] == "frozen paths"][0]["detail"])
 
+    def test_a_restart_reapplies_the_evolvers_change_without_a_new_turn(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="evolver", EVOLVE_LAB_PORT=self.port,
+                    EVOLVE_LAB_BOOT_SECS=20)
+        evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        (evolve.gen_dir(1) / "result.json").unlink()
+        rows = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("id") != "g1c1"]
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
+        turns = len([c for c in self.core_turns() if c.get("agent_id") == "evolver"])
+        out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertTrue(out["resumed"])
+        self.assertEqual(len([c for c in self.core_turns() if c.get("agent_id") == "evolver"]), turns)
+        cand = self.entries()["g1c1"]
+        self.assertTrue(cand["resumed"])
+        self.assertIn("+Name the person who shipped it.", (evolve.evolve_dir() / cand["patch"]).read_text())
 
-# --- promotion ----------------------------------------------------------------------------------------
-
-
-class FakePromoter:
-    def __init__(self, refuse=False):
-        self.merges, self.tags, self.refuse = [], [], refuse
-
-    def merge(self, number):
-        self.merges.append(number)
-        if self.refuse:
-            return {"merged": False, "error": "required checks are pending"}
-        return {"merged": True, "sha": f"{number:040d}"}
-
-    def tag(self, name, sha):
-        self.tags.append((name, sha))
-        return {"tagged": True}
-
-
-class FakeRestarter:
-    def __init__(self, archive_path=None):
-        self.calls, self.archive_path, self.seen = [], archive_path, None
-
-    def restart(self, sha, gen, record_last_good=True):
-        self.calls.append((sha, gen, record_last_good))
-        if self.archive_path:
-            self.seen = self.archive_path.read_text()
-        return {"restarted": True, "to": sha}
-
-
-def judged(heldout_won=True, drift=0.05, rate=0.75):
-    class Judged:
-        def evaluate(self, gen_dir, cand, src):
-            return {"verdict": "won", "scores": {"promote": True, "win_rate": rate, "decided": 20, "wins": 15,
-                                                 "losses": 5, "heldout": {"won": heldout_won, "wins": 3, "losses": 0,
-                                                                          "decided": 3}},
-                    "probe": {"drift": drift}}
-
-    return {1: Judged()}
-
-
-class Promotion(EvolveCase):
-    def setUp(self):
-        super().setUp()
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        self.propose(1, [self.playbook_edit("Open with what shipped.")], title="open with what shipped")
-
-    def gen(self, evaluators, **cfg):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, **cfg)
-        self.pub, self.promoter = FakePublisher(), FakePromoter()
-        self.restarter = FakeRestarter(evolve.archive_path())
-        with unittest.mock.patch.object(evolve, "make_evaluators", return_value=evaluators):
-            return evolve.run_generation(evolve.load_config(), 1, str(self.props), publisher=self.pub,
-                                         promoter=self.promoter, restarter=self.restarter)
-
-    def test_off_by_default_the_operator_merges(self):
-        out = self.gen(judged())
-        self.assertEqual(len(self.pub.prs), 1)
-        self.assertEqual(self.promoter.merges, [])
-        self.assertEqual(self.restarter.calls, [])
-        self.assertNotIn("promoted_at", self.entries()["g1c1"])
-        self.assertNotIn("promotion", out)
-
-    def test_a_double_win_merges_tags_chronicles_and_restarts_last(self):
-        out = self.gen(judged(), EVOLVE_AUTO_PROMOTE=1)
-        self.assertEqual(self.promoter.merges, [1])
-        sha = f"{1:040d}"
-        self.assertEqual(self.promoter.tags, [("gen-1", sha)])
-        files = git("--git-dir", str(self.src), "show", "--name-only", "--format=", "teeny/gen-1").split()
-        self.assertEqual(sorted(files), ["brain/narrative/chronicle/gen-1.md", "brain/playbooks/morning.md"])
-        chronicle = git("--git-dir", str(self.src), "show", "teeny/gen-1:brain/narrative/chronicle/gen-1.md")
-        self.assertIn("the night shift ran 1 candidate", chronicle)
-        self.assertIn("open with what shipped", chronicle)
-        self.assertIn("Promoted by the loop", self.pub.prs[0]["body"])
-        entry = self.entries()["g1c1"]
-        self.assertEqual((entry["merge_sha"], entry["promotion"]["state"]), (sha, "merged"))
-        self.assertTrue(entry["promoted_at"] and entry["merged_at"])
-        # The restart comes last, once the archive already says it merged.
-        self.assertEqual(self.restarter.calls, [(sha, 1, True)])
-        self.assertIn('"promoted_at"', self.restarter.seen)
-        self.assertTrue(out["restart"]["restarted"])
-
-    def test_no_held_out_win_no_merge(self):
-        out = self.gen(judged(heldout_won=False), EVOLVE_AUTO_PROMOTE=1)
-        self.assertEqual(len(self.pub.prs), 1)  # still a pull request for the operator
-        self.assertEqual(self.promoter.merges, [])
-        self.assertIn("held-out", out["promotion"]["why"])
-        self.assertEqual(self.restarter.calls, [])
-        files = git("--git-dir", str(self.src), "show", "--name-only", "--format=", "teeny/gen-1").split()
-        self.assertEqual(files, ["brain/playbooks/morning.md"])
-
-    def test_an_unmeasured_candidate_is_never_promoted(self):
-        out = self.gen({}, EVOLVE_AUTO_PROMOTE=1)
-        self.assertEqual(self.promoter.merges, [])
-        self.assertIn("visible", out["promotion"]["why"])
-
-    def test_dry_run_merges_nothing_and_says_it_would(self):
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=1\n")
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_AUTO_PROMOTE=1)
-        promoter, restarter = FakePromoter(), FakeRestarter()
-        with unittest.mock.patch.object(evolve, "make_evaluators", return_value=judged()):
-            out = evolve.run_generation(evolve.load_config(), 1, str(self.props), publisher=Refusing(),
-                                        promoter=promoter, restarter=restarter)
-        self.assertTrue(out["would_promote"])
-        self.assertEqual((promoter.merges, restarter.calls), ([], []))
-        self.assertEqual(git("--git-dir", str(self.src), "branch", "--list", "teeny/*").strip(), "")
-
-    def test_the_environment_can_switch_promotion_off_but_never_on(self):
-        self.config(EVOLVE=1, EVOLVE_AUTO_PROMOTE=1)
-        os.environ["EVOLVE_AUTO_PROMOTE"] = "0"
-        try:
-            self.assertFalse(evolve.load_config().auto_promote)
-            self.config(EVOLVE=1)
-            os.environ["EVOLVE_AUTO_PROMOTE"] = "1"
-            self.assertFalse(evolve.load_config().auto_promote)
-        finally:
-            os.environ.pop("EVOLVE_AUTO_PROMOTE")
-
-    def test_a_refused_merge_waits_and_promote_retries_it(self):
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_AUTO_PROMOTE=1)
-        refusing, restarter = FakePromoter(refuse=True), FakeRestarter()
-        with unittest.mock.patch.object(evolve, "make_evaluators", return_value=judged()):
-            out = evolve.run_generation(evolve.load_config(), 1, str(self.props), publisher=FakePublisher(),
-                                        promoter=refusing, restarter=restarter)
-        self.assertEqual(out["promotion"]["state"], "pending")
-        self.assertEqual(restarter.calls, [])
-        self.assertEqual(self.entries()["g1c1"]["promotion"]["state"], "pending")
-        promoter = FakePromoter()
-        got = evolve.promote_cmd(evolve.load_config(), 1, promoter, restarter)
-        self.assertTrue(got["promoted"])
-        self.assertEqual(restarter.calls, [(f"{1:040d}", 1, True)])
-        again = evolve.promote_cmd(evolve.load_config(), 1, promoter, restarter)
-        self.assertIn("already promoted", again["skipped"])
-
-    def test_the_chronicle_counts_the_generations_carried_back(self):
-        entries = {"main": evolve.seed_entry(),
-                   "g1c1": {"id": "g1c1", "gen": 1, "promoted_at": "2026-11-01T00:00:00Z"},
-                   "g2c1": {"id": "g2c1", "gen": 2, "verdict": "lost"},
-                   "g3c1": {"id": "g3c1", "gen": 3, "verdict": "rejected"}}
-        text = evolve.chronicle_text(4, {"id": "g4c1", "parent": "main", "title": "t", "component": "world"},
-                                     entries, 2)
-        self.assertIn("- gen-2: the agents carried it back", text)
-        self.assertIn("- gen-3: the agents carried it back", text)
-        self.assertNotIn("gen-1:", text)
 
 
 class RestartAndHalts(EvolveCase):
-    def checkout(self):
-        root = self.root / "live"
-        root.mkdir()
-        run = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
-                                        text=True).stdout.strip()
-        run("init", "-q", "-b", "main")
-        run("config", "user.name", "t")
-        run("config", "user.email", "t@example.invalid")
-        (root / "f").write_text("a\n")
-        run("add", "f")
-        run("commit", "-q", "-m", "a")
-        old = run("rev-parse", "HEAD")
-        run("switch", "-q", "-c", "next")
-        (root / "f").write_text("b\n")
-        run("commit", "-q", "-am", "b")
-        new = run("rev-parse", "HEAD")
-        run("switch", "-q", "main")
-        return root, run, old, new
-
-    def test_the_live_restart_records_last_good_fast_forwards_and_terms_the_spine(self):
-        root, run, old, new = self.checkout()
-        sleeper = subprocess.Popen(["sleep", "60"])
-        (evolve.state_dir()).mkdir(parents=True, exist_ok=True)
-        (evolve.state_dir() / "spine.pid").write_text(f"{sleeper.pid}\n")
-        try:
-            got = evolve.LiveRestarter(root).restart(new, 3)
-            self.assertTrue(got["restarted"], got)
-            self.assertEqual(run("rev-parse", "HEAD"), new)
-            self.assertEqual(json.loads((evolve.state_dir() / "last-good").read_text())["commit"], old)
-            self.assertEqual(sleeper.wait(timeout=10), -signal.SIGTERM)
-        finally:
-            if sleeper.poll() is None:
-                sleeper.kill()
-
-    def test_a_checkout_with_edits_is_not_restarted(self):
-        root, run, old, new = self.checkout()
-        (root / "f").write_text("an operator's edit\n")
-        got = evolve.LiveRestarter(root).restart(new, 3)
-        self.assertFalse(got["restarted"])
-        self.assertIn("tracked edits", got["error"])
-        self.assertEqual(run("rev-parse", "HEAD"), old)
-        self.assertFalse((evolve.state_dir() / "last-good").exists())
-
     def test_a_red_doctor_or_a_fallback_starts_no_generation(self):
         evolve.state_dir().mkdir(parents=True, exist_ok=True)
         (evolve.state_dir() / "doctor.json").write_text(json.dumps(
@@ -565,7 +513,9 @@ class RestartAndHalts(EvolveCase):
             evolve.load_config()
 
 
+
 # --- evolve-watch -------------------------------------------------------------------------------------
+
 
 
 WATCH_GUARD = r"""#!/usr/bin/env python3
@@ -595,25 +545,26 @@ class Watch(EvolveCase):
         os.environ["FAKE_HOLDS"] = str(self.holds)
         self.config(EVOLVE=1, EVOLVE_PROBES=0)
 
-    def promote_one(self, at=T0, merge_sha=None):
-        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
-                       "title": "a change", "pr_number": 7, "promoted_at": evolve.iso(at), "merged_at": evolve.iso(at),
+    def merge_one(self, at=T0, merge_sha=None):
+        """g1c1's pull request, merged (by the babysitter or a person)."""
+        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "title": "a change", "pr_number": 7, "merged_at": evolve.iso(at),
                        "merge_sha": merge_sha or "0" * 40})
 
     def hold_at(self, *times):
         self.holds.write_text(json.dumps({"holds": [{"at": evolve.iso(t), "status": "pending", "category": "spam",
                                                      "text": "STRANGER TEXT"} for t in times]}))
 
-    def test_nothing_promoted_nothing_watched(self):
+    def test_nothing_merged_nothing_watched(self):
         self.assertEqual(evolve.watch(evolve.load_config())["watching"], None)
 
     def test_a_spike_in_holds_reverts_and_keeps_its_reasons_private(self):
-        self.promote_one(at=T0 - 3600 * 5)
+        self.merge_one(at=T0 - 3600 * 5)
         os.environ["DRY_RUN"] = "1"
         self.hold_at(T0 - 3 * DAY, *(T0 - 3600 * h for h in (1, 2, 3, 4)))
         out = evolve.watch(evolve.load_config())
         self.assertTrue(out["reverted"])
-        self.assertEqual(out["revert"]["would_open_pr"]["branch"], "teeny/revert-gen-1")
+        self.assertEqual(out["revert"]["would_open_pr"]["branch"], "teeny/revert-gen-1-c1")
         self.assertTrue(evolve.halt_path().exists())
         private = json.loads((evolve.secrets_dir() / "evolve-watch" / "g1c1.json").read_text())
         self.assertTrue(any("guard holds" in r for r in private["reasons"]))
@@ -631,7 +582,7 @@ class Watch(EvolveCase):
         self.assertIsNone(again["watching"])
 
     def test_a_quiet_day_is_not_a_spike(self):
-        self.promote_one(at=T0 - 3600 * 5)
+        self.merge_one(at=T0 - 3600 * 5)
         self.hold_at(*(T0 - DAY * d for d in (2, 3, 4, 5, 6)), T0 - 3600)
         out = evolve.watch(evolve.load_config())
         self.assertNotIn("reverted", out)
@@ -640,13 +591,13 @@ class Watch(EvolveCase):
     def test_j_lower_after_72_hours_reverts_and_j_higher_closes_the_watch(self):
         history = self.root / "history.json"
         os.environ["FAKE_HISTORY"] = str(history)
-        self.promote_one(at=T0 - 73 * 3600)
+        self.merge_one(at=T0 - 73 * 3600)
         history.write_text(json.dumps([{"at": T0 - 74 * 3600, "J": 1.0}, {"at": T0 - 2 * 3600, "J": 1.2}]))
         out = evolve.watch(evolve.load_config())
         self.assertTrue(out.get("closed"))
         self.assertIsNone(evolve.watch(evolve.load_config())["watching"])
-        evolve.record({"id": "g2c1", "gen": 2, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
-                       "pr_number": 8, "promoted_at": evolve.iso(T0 - 73 * 3600 + 1), "merge_sha": "1" * 40})
+        evolve.record({"id": "g2c1", "gen": 2, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 8, "merged_at": evolve.iso(T0 - 73 * 3600 + 1), "merge_sha": "1" * 40})
         history.write_text(json.dumps([{"at": T0 - 74 * 3600, "J": 1.0}, {"at": T0 - 2 * 3600, "J": 0.8}]))
         os.environ["DRY_RUN"] = "1"
         out = evolve.watch(evolve.load_config())
@@ -658,7 +609,7 @@ class Watch(EvolveCase):
     def test_a_drifted_persona_after_promotion_reverts(self):
         self.config(EVOLVE=1, EVOLVE_PROBES=1, EVOLVE_PROBE_SAMPLES=1, EVOLVE_MAX_DRIFT=0.3)
         os.environ["DRY_RUN"] = "1"
-        self.promote_one(at=T0 - 3600)
+        self.merge_one(at=T0 - 3600)
         from test_probes import scripted
 
         questions = evolve.probes_lib.persona_questions()
@@ -676,7 +627,7 @@ class Watch(EvolveCase):
         self.config(EVOLVE=1, EVOLVE_PROBES=1, EVOLVE_PROBE_SAMPLES=1, EVOLVE_MAX_DRIFT=0.3,
                     EVOLVE_MAX_MEMORY_LOSS=0.5)
         os.environ["DRY_RUN"] = "1"
-        self.promote_one(at=T0 - 3600)
+        self.merge_one(at=T0 - 3600)
         (self.root / "hands" / "stats").write_text("#!/bin/sh\necho '{\"metrics\": [{\"source\": \"x\", "
                                                     "\"metric\": \"followers\", \"value\": 5, \"date\": \"2026-11-10\"}]}'\n")
         (self.root / "hands" / "stats").chmod(0o755)
@@ -693,54 +644,43 @@ class Watch(EvolveCase):
         state = json.loads((evolve.secrets_dir() / "evolve-watch" / "state.json").read_text())
         self.assertNotIn("probed", state["g1c1"])  # asked again at the next watch
 
-    def test_live_a_revert_pull_request_undoes_the_merge(self):
+    def test_live_a_revert_pull_request_undoes_the_merge_and_waits_for_a_person(self):
         # A clone of its own, where main carries a real merge of a generation.
         src = self.root / "own.git"
         git("clone", "-q", "--bare", str(self.src), str(src))
         os.environ["EVOLVE_GIT_DIR"] = str(src)
         tree = self.root / "trees" / "promo"
-        git("--git-dir", str(src), "worktree", "add", "-q", "-b", "teeny/gen-1", str(tree), "main")
+        git("--git-dir", str(src), "worktree", "add", "-q", "-b", "teeny/gen-1-c1", str(tree), "main")
         git("-C", str(tree), "config", "user.name", "t")
         git("-C", str(tree), "config", "user.email", "t@example.invalid")
         morning = tree / "brain" / "playbooks" / "morning.md"
         morning.write_text(morning.read_text() + "\nPROMOTED LINE\n")
         git("-C", str(tree), "commit", "-q", "-am", "gen-1")
         git("-C", str(tree), "switch", "-q", "--detach", "main")
-        git("-C", str(tree), "merge", "-q", "--no-ff", "-m", "Merge gen-1", "teeny/gen-1")
+        git("-C", str(tree), "merge", "-q", "--no-ff", "-m", "Merge gen-1", "teeny/gen-1-c1")
         sha = git("-C", str(tree), "rev-parse", "HEAD").strip()
         git("--git-dir", str(src), "update-ref", "refs/heads/main", sha)
         git("--git-dir", str(src), "worktree", "remove", "--force", str(tree))
-        self.promote_one(at=T0 - 3600, merge_sha=sha)
+        self.merge_one(at=T0 - 3600, merge_sha=sha)
         self.hold_at(*(T0 - 60 * m for m in (1, 2, 3, 4, 5)))
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        self.config(EVOLVE=1, EVOLVE_PROBES=0, EVOLVE_AUTO_PROMOTE=1)
-        pub, promoter, restarter = FakePublisher(), FakePromoter(), FakeRestarter()
-        out = evolve.watch(evolve.load_config(), publisher=pub, promoter=promoter, restarter=restarter)
+        self.config(EVOLVE=1, EVOLVE_PROBES=0)
+        pub = FakePublisher()
+        out = evolve.watch(evolve.load_config(), publisher=pub)
         self.assertTrue(out["reverted"])
         self.assertNotIn("error", out["revert"], out["revert"])
         (pr,) = pub.prs
-        self.assertEqual((pr["branch"], pr["title"]), ("teeny/revert-gen-1", "Revert gen-1"))
+        self.assertEqual((pr["branch"], pr["title"]), ("teeny/revert-gen-1-c1", "Revert gen-1-c1"))
         self.assertNotIn("guard holds", pr["body"])
         self.assertNotIn("spike", pr["body"])
-        diff = git("--git-dir", str(src), "diff", "main", "teeny/revert-gen-1")
+        diff = git("--git-dir", str(src), "diff", "main", "teeny/revert-gen-1-c1")
         self.assertIn("-PROMOTED LINE", diff)
-        self.assertEqual(promoter.merges, [1])
-        # Back onto the reverted main, keeping the last-good from before the promotion.
-        self.assertEqual(restarter.calls, [(f"{1:040d}", 1, False)])
         (issue,) = pub.issues
         self.assertIn("watch-revert", issue["title"])
         self.assertNotIn("guard holds", issue["body"])
 
-    def test_without_auto_promote_the_revert_waits_for_the_operator(self):
-        self.promote_one(at=T0 - 3600)
-        self.hold_at(*(T0 - 60 * m for m in (1, 2, 3, 4, 5)))
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        pub, promoter, restarter = FakePublisher(), FakePromoter(), FakeRestarter()
-        with unittest.mock.patch.object(evolve, "revert", wraps=evolve.revert) as rev:
-            out = evolve.watch(evolve.load_config(), publisher=pub, promoter=promoter, restarter=restarter)
-        self.assertTrue(out["reverted"])
-        self.assertEqual(rev.call_count, 1)
-        self.assertEqual((promoter.merges, restarter.calls), ([], []))
+
+
 
 
 class Probe(EvolveCase):
@@ -759,3 +699,4 @@ class Probe(EvolveCase):
 
 if __name__ == "__main__":
     unittest.main()
+

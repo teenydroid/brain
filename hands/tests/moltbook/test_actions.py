@@ -6,6 +6,7 @@ against the fake Moltbook."""
 from __future__ import annotations
 
 import json
+import os
 
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
@@ -473,6 +474,109 @@ class CommentTest(Scratch, Refusing):
         # Answering a comment on its own post is answering a reply to Teeny.
         self.created("comment", "c2", path="/posts/mine2/comments")
         actions.comment({"post_id": "mine2", "body": "thanks", "parent_id": "o1"})
+
+    def test_a_playbooks_comment_is_tagged_with_its_name_and_the_post_it_found(self):
+        os.environ["TEENY_WRITER"] = "moltbook-threads"
+        self.mb.route("GET", "/posts/x1", {"success": True, "post": {
+            "id": "x1", "created_at": "2026-09-14T06:20:00Z", "comment_count": 4, "score": 7,
+            "author": {"name": "shelly", "karma": 812, "followerCount": 31}, "submolt": {"name": "memory"}}})
+        self.created("comment", "c1", path="/posts/x1/comments")
+        actions.comment({"post_id": "x1", "body": "nice"})
+        row = rows("moltbook_comments")[0]
+        self.assertEqual(row["format"], "threads")
+        self.assertEqual(json.loads(row["detail"]), {
+            "own_post": False, "writer": "moltbook-threads", "post_age_minutes": 40.0, "post_comments": 4,
+            "post_score": 7, "post_author": "shelly", "author_karma": 812, "author_followers": 31})
+
+    def test_the_minds_comment_is_tagged_by_where_it_went(self):
+        os.environ["TEENY_WRITER"] = "mind"
+        self.a_post("mine", author="teenydroid", comments=[{"id": "o1", "author": {"name": "crabby"}, "replies": []}])
+        self.created("comment", "c1", path="/posts/mine/comments")
+        actions.comment({"post_id": "mine", "body": "thanks", "parent_id": "o1"})
+        self.a_post("x1", comments=[{"id": "o2", "author": {"name": "crabby"}, "replies": []}])
+        self.created("comment", "c2", path="/posts/x1/comments")
+        self.at(T0 + HOUR)
+        actions.comment({"post_id": "x1", "body": "hm", "parent_id": "o2"})
+        os.environ.pop("TEENY_WRITER")
+        self.a_post("x2")
+        self.created("comment", "c3", path="/posts/x2/comments")
+        self.at(T0 + 2 * HOUR)
+        actions.comment({"post_id": "x2", "body": "a detail"})
+        got = [(r["format"], json.loads(r["detail"])) for r in rows("moltbook_comments")]
+        self.assertEqual(got, [
+            ("own-thread", {"own_post": True, "writer": "mind", "post_author": "teenydroid"}),
+            ("reply", {"own_post": False, "writer": "mind", "post_author": "someone"}),
+            ("comment", {"own_post": False, "post_author": "someone"}),
+        ])
+
+    def test_a_format_the_caller_names_wins_and_a_dry_run_says_it(self):
+        os.environ["TEENY_WRITER"] = "moltbook-helpdesk"
+        self.configure(DRY_RUN="1")
+        self.a_post("x1")
+        self.assertEqual(actions.comment({"post_id": "x1", "body": "nice"})["format"], "helpdesk")
+        self.assertEqual(actions.comment({"post_id": "x1", "body": "nice", "format": "answer"})["format"], "answer")
+
+    # The comment age backstop (docs/audit/moltbook-plan.md, section 4): 34 of
+    # 45 comments on other agents' posts went onto posts over a day old.
+    def dated_post(self, post_id: str, hours_old: float, author: str = "someone", comments: list | None = None, **more) -> None:
+        from datetime import datetime, timezone
+
+        at = datetime.fromtimestamp(T0 - hours_old * HOUR, timezone.utc).isoformat().replace("+00:00", "Z")
+        self.mb.route("GET", f"/posts/{post_id}", {"success": True, "post": {
+            "id": post_id, "author": {"name": author}, "submolt": {"name": "general"}, "created_at": at, **more}})
+        self.mb.route("GET", f"/posts/{post_id}/comments", {"success": True, "comments": comments or []})
+
+    def test_a_top_level_comment_on_an_old_post_is_refused(self):
+        self.dated_post("old1", 45.7)
+        caught = self.refused(actions.comment, {"post_id": "old1", "body": "late to this"}, "too_old")
+        self.assertEqual((caught.detail["age_hours"], caught.detail["limit_hours"]), (45.7, 6))
+        self.assertEqual(self.mb.writes(), [])
+        self.configure(DRY_RUN="1")
+        self.refused(actions.comment, {"post_id": "old1", "body": "late to this"}, "too_old")
+
+    def test_a_young_post_takes_a_comment(self):
+        self.dated_post("new1", 2)
+        self.created("comment", "c1", path="/posts/new1/comments")
+        self.assertEqual(actions.comment({"post_id": "new1", "body": "same here: 7 hours down"})["commented"], "c1")
+
+    def test_the_age_limit_is_a_setting(self):
+        self.configure(MOLTBOOK_MAX_COMMENT_AGE_HOURS="48")
+        self.dated_post("old1", 45.7)
+        self.created("comment", "c1", path="/posts/old1/comments")
+        self.assertEqual(actions.comment({"post_id": "old1", "body": "a detail"})["commented"], "c1")
+        self.configure(MOLTBOOK_MAX_COMMENT_AGE_HOURS="1")
+        self.dated_post("mid", 2)
+        self.at(T0 + MINUTE)
+        self.refused(actions.comment, {"post_id": "mid", "body": "a detail"}, "too_old")
+
+    def test_a_reply_on_an_old_post_is_exempt(self):
+        # Answering a comment said to Teeny is part B's path: age never stops it.
+        tree = [{"id": "c1", "author": {"name": "teenydroid"}, "replies": [{"id": "r1", "author": {"name": "crabby"}, "replies": []}]}]
+        self.dated_post("old1", 80, comments=tree)
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES ('c1', 'old1', ?, 'posted')", (T0 - 3 * DAY,))
+        self.created("comment", "c2", path="/posts/old1/comments")
+        out = actions.comment({"post_id": "old1", "body": "thanks", "parent_id": "r1"})
+        self.assertEqual(out["commented"], "c2")
+
+    def test_teenys_own_old_post_is_exempt(self):
+        self.dated_post("mine", 72, author="teenydroid", comments=[{"id": "o1", "author": {"name": "crabby"}, "replies": []}])
+        self.created("comment", "c1", path="/posts/mine/comments")
+        self.assertEqual(actions.comment({"post_id": "mine", "body": "thanks", "parent_id": "o1"})["commented"], "c1")
+        # Its first comment on its own post, old or not, is not refused for age.
+        self.dated_post("mine2", 72, author="teenydroid")
+        self.created("comment", "c2", path="/posts/mine2/comments")
+        self.at(T0 + MINUTE)
+        self.assertEqual(actions.comment({"post_id": "mine2", "body": "context"})["commented"], "c2")
+
+    def test_an_old_post_that_names_teeny_is_exempt(self):
+        self.dated_post("ment", 30, title="question for teenydroid", content="@teenydroid how do you hold drafts?")
+        self.created("comment", "c1", path="/posts/ment/comments")
+        self.assertEqual(actions.comment({"post_id": "ment", "body": "the guard holds them"})["commented"], "c1")
+        # A longer name that only contains Teeny's is not a mention.
+        self.dated_post("other", 30, content="teenydroid_fan says hi")
+        self.at(T0 + MINUTE)
+        self.refused(actions.comment, {"post_id": "other", "body": "hi"}, "too_old")
 
     def test_comment_gap_and_new_agent_mode(self):
         for name in ("x1", "x2", "x3"):

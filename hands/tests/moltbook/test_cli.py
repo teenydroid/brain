@@ -51,6 +51,13 @@ class CliTest(Scratch):
         code, out = self.run_hand("home", "--expand")
         self.assertEqual((code, out["home"]["activity_on_your_posts"][0]["post"]["content"]), (0, "why?"))
 
+    def test_unanswered_and_decline_on_the_command_line(self):
+        code, out = self.run_hand("unanswered")
+        self.assertEqual((code, out["unanswered"], out["comments"]), (0, 0, []))
+        code, out = self.run_hand("decline", body={"comment_id": "c1", "reason": "spam"})
+        self.assertEqual((code, out["rule"]), (2, "not_owed"))
+        self.assertEqual(self.run_hand("decline", body={"comment_id": "c1", "reason": "busy"})[0], 1)
+
     def test_a_refusal_exits_2(self):
         code, out = self.run_hand("post", body={"submolt": "general", "title": "a collab with u/crabby"})
         self.assertEqual((code, out["ok"], out["rule"]), (2, False, "collab"))
@@ -86,6 +93,8 @@ class CliTest(Scratch):
         code, out = self.run_hand("metrics", "list", "--days", "3")
         self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
         self.assertEqual(self.run_hand("metrics")[0], 1)
+        code, out = self.run_hand("metrics", "daily")
+        self.assertEqual((code, out["metrics"]["live_posts_24h"], out["metrics"]["own_thread_unanswered"]), (0, 1.0, 0.0))
 
     def test_study(self):
         self.mb.route("GET", "/posts", {"success": True, "posts": [
@@ -94,6 +103,26 @@ class CliTest(Scratch):
             self.mb.route("GET", f"/submolts/{name}/feed", {"success": True, "posts": []})
         code, out = self.run_hand("study")
         self.assertEqual((code, [p["title"] for p in out["top"]], out["own"]), (0, ["x is a y"], []))
+
+    def test_a_filtered_feed_and_the_peers(self):
+        young, old = "2026-09-14T06:30:00Z", "2026-09-12T06:30:00Z"  # T0 is 07:00Z on the 14th
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [
+            {"id": "g1", "author": {"name": "crabby", "karma": 40}, "comment_count": 1, "created_at": young},
+            {"id": "g2", "author": {"name": "whale", "karma": 90000}, "comment_count": 1, "created_at": young},
+            {"id": "g3", "author": {"name": "crabby", "karma": 40}, "comment_count": 1, "created_at": old}]})
+        self.mb.route("GET", "/submolts/memory/feed", {"success": True, "posts": [
+            {"id": "m1", "author": {"name": "shelly", "karma": 9}, "comment_count": 0, "created_at": young}]})
+        code, out = self.run_hand("feed", "--submolt", "general", "--submolt", "memory", "--sort", "new", "--brief",
+                                  "--max-age-hours", "3", "--max-author-karma", "10000", "--max-comments", "5", "--skip-mine")
+        self.assertEqual((code, sorted(p["id"] for p in out["posts"])), (0, ["g1", "m1"]))
+        self.assertEqual(self.run_hand("feed", "--max-age-hours", "0")[0], 1)  # a usage error
+        (self.root / "brain").mkdir()
+        (self.root / "brain" / "moltbook-peers.txt").write_text("lilt\n")
+        self.mb.route("GET", "/posts", {"success": True, "posts": [
+            {"id": "l1", "author": {"name": "lilt", "karma": 11183}, "created_at": young},
+            {"id": "l2", "author": {"name": "lilt", "karma": 11183}, "created_at": old}]})
+        code, out = self.run_hand("peers", "--max-age-hours", "3", "--skip-mine")
+        self.assertEqual((code, out["peers"], [p["id"] for p in out["posts"]]), (0, ["lilt"], ["l1"]))
 
     def test_register_prints_the_key_on_stdout_only(self):
         self.configure(MOLTBOOK_API_KEY=None)

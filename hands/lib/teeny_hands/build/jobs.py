@@ -101,7 +101,7 @@ _SHIPPED_CHARS = 80
 RULES = (
     "Work only inside workdir. Write small, working code with tests and run them. Never read or "
     "write anything outside workdir, never open secrets/, and never push: shipping happens later "
-    "and is not yours to do. When finished, write your report to report_to_path, once."
+    "and is not yours to do. When finished, write your report to report_to, once."
 )
 
 #: The build_requests source of a change Teeny proposes to itself.
@@ -219,6 +219,9 @@ def _offer(job: Json, resumed: bool = False) -> Json:
         "workdir_path": str(path),
         "repo": job["repo"],
         "resumed": resumed,
+        # The cutoff for stray files (_stray); _present takes it out of the
+        # job before the builder sees it.
+        "claimed_at": job["claimed_at"],
     }
     if job["kind"] == "upstream":
         offer.update(repo=upstream.UPSTREAM_REPO, branch=job["branch"], base=upstream.BASE)
@@ -507,9 +510,10 @@ def done(body: Any) -> Json:
     it) or failed (with why)."""
     if not isinstance(body, Mapping):
         raise hand.HandError("stdin must be a JSON object with job_id, status, summary, tests")
-    unknown = sorted(set(body) - {"job_id", "status", "summary", "tests", "repo"})
+    unknown = sorted(set(body) - set(REPORT_FIELDS))
     if unknown:
-        raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
+        raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}; a report has only "
+                             f"{', '.join(REPORT_FIELDS)} (put anything more in summary)")
     job_id = body.get("job_id")
     if isinstance(job_id, bool) or not isinstance(job_id, int):
         raise hand.HandError('"job_id" must be the number build_next gave')
@@ -542,9 +546,11 @@ def done(body: Any) -> Json:
                 repo = None  # a self job ships to Teeny's own repository, whatever the report says
                 since = f"refs/remotes/origin/{row['branch']}" if row["kind"] == "fix" else selfclone.ORIGIN_BASE
                 if status == "ok" and not selfclone.has_changes(since):
-                    raise hand.Refused("the clone has no change; an ok self job has something to ship", job_id=job_id)
+                    raise hand.Refused(_with_stray("the clone has no change; an ok self job has something to ship",
+                                                   row["workdir"], row["claimed_at"]), job_id=job_id)
             elif status == "ok" and not (folder.is_dir() and any(folder.iterdir())):
-                raise hand.Refused("the workdir is empty; an ok job has something to ship", job_id=job_id)
+                raise hand.Refused(_with_stray("the workdir is empty; an ok job has something to ship",
+                                               row["workdir"], row["claimed_at"]), job_id=job_id)
             conn.execute(
                 "UPDATE build_jobs SET status = ?, summary = ?, tests = ?, finished_at = ?, repo = COALESCE(?, repo)"
                 " WHERE id = ?",
@@ -577,10 +583,92 @@ REPORT_SHAPE = (
 )
 
 
+#: The fields a report may have, in the order the rejection names them.
+REPORT_FIELDS = ("job_id", "status", "summary", "tests", "repo")
+
+#: Where the builder's shell starts and its file tools resolve
+#: (brain/agents/builder.toml, scheduled_workspace), relative to the checkout.
+WORKBENCH = "state/workbench"
+#: Put on every desk, so the builder knows what its paths are relative to.
+PATHS = (
+    "Every path on this desk (workdir, report_to) is relative to state/workbench/, where your shell starts and "
+    "your file tools resolve: use it exactly as written, never with state/workbench/ in front."
+)
+_STRAY_SHOWN = 10
+
+
+def _for_builder(rel: str) -> str:
+    """A checkout-relative path under the workbench, as the builder (rooted
+    there) must write it."""
+    prefix = WORKBENCH + "/"
+    return rel[len(prefix):] if rel.startswith(prefix) else rel
+
+
+def _stray(workdir: str, since: float) -> list[str]:
+    """Files under the nested mirror of WORKDIR (a checkout-relative path)
+    written at or after SINCE, the job's claim: what a builder wrote when
+    it put state/workbench/ in front of a path its tools already resolve
+    from the workbench. A file older than the claim belongs to an earlier
+    job that shares the folder, and is not this job's to redo. Named as
+    the builder would see them; never moved. The walk stops once it has
+    enough to name, so a large mirror is not listed whole."""
+    mirror = hand.root() / WORKBENCH / workdir
+    if not workdir.startswith(WORKBENCH + "/") or not mirror.is_dir():
+        return []
+    base = hand.root() / WORKBENCH
+    found: list[Path] = []
+    for path in mirror.rglob("*"):
+        if path.is_file() and path.stat().st_mtime >= since:
+            found.append(path)
+            if len(found) > _STRAY_SHOWN:
+                break
+    return [str(path.relative_to(base)) for path in sorted(found)]
+
+
+def _stray_note(workdir: str, since: float) -> str | None:
+    found = _stray(workdir, since)
+    if not found:
+        return None
+    shown = ", ".join(found[:_STRAY_SHOWN]) + (", ..." if len(found) > _STRAY_SHOWN else "")
+    mine = _for_builder(workdir)
+    return (f"you wrote under state/workbench/... by mistake last run ({shown}); your workdir is {mine}, write "
+            f"there. Those files are not in your workdir and will not ship, and nothing has moved them: write them "
+            f"again under {mine}/.")
+
+
+def _with_stray(reason: str, workdir: str, since: float) -> str:
+    note = _stray_note(workdir, since)
+    return f"{reason}. {note}" if note else reason
+
+
+def _present(offer: dict[str, Any]) -> dict[str, Any]:
+    """What the builder is shown: every path relative to the workbench, its
+    root, with no second (absolute or checkout-relative) form beside it,
+    and a note when it wrote into the nested mirror last run. The job row
+    and `next` keep the checkout-relative workdir."""
+    shown = dict(offer)
+    job = shown.get("job")
+    if isinstance(job, Mapping):
+        job = dict(job)
+        job.pop("workdir_path", None)
+        since = job.pop("claimed_at", 0.0)
+        note = _stray_note(job["workdir"], since)
+        job["workdir"] = _for_builder(job["workdir"])
+        if note:
+            job["note"] = note
+        shown["job"] = job
+    if isinstance(shown.get("report_to"), str):
+        shown["report_to"] = _for_builder(shown["report_to"])
+    shown.pop("report_to_path", None)
+    shown["paths"] = PATHS
+    return shown
+
+
 def desk() -> Json:
     """The builder's desk (teeny_hands.desk): settle its report, then put
-    its next job on state/workbench/desk/build.json."""
-    return _desk.run("build", done, next_job, REPORT_SHAPE)
+    its next job on state/workbench/desk/build.json, its paths relative to
+    the workbench (`_present`)."""
+    return _desk.run("build", done, lambda _turned_away: next_job(), REPORT_SHAPE, _present)
 
 
 def listing(status: str | None = None, limit: int = 50) -> Json:

@@ -6,7 +6,7 @@
     python3 bin/lib/autonomy.py issue  [--root DIR]   open the issue a model change prepared (G8; off unless LADDER_ISSUES=1)
 
 `evals/autonomy.toml` grants each capability (post, reply, mail, browse,
-build, spend, self-edit, merge, servers) a level from L1 to L5, lists the
+build, spend, self-edit, merge, self-merge, servers) a level from L1 to L5, lists the
 settings that switch it on with the level each needs, the evidence that
 earns the next level (proof ids `bin/proofs` counts, and evidence a person
 reads), and the events that drop it a step: a promotion, a model change, a
@@ -56,7 +56,8 @@ from typing import Any, Iterable, Mapping
 HERE = Path(__file__).resolve().parent
 
 LEVELS = {1: "operator", 2: "collaborator", 3: "consultant", 4: "approver", 5: "observer"}
-CAPABILITIES = ("post", "reply", "mail", "browse", "build", "spend", "self-edit", "merge", "servers")
+CAPABILITIES = ("post", "reply", "mail", "browse", "build", "spend", "self-edit", "merge", "self-merge",
+                "servers")
 EVENTS = ("promotion", "model-change", "guard-escape")
 WHEN = ("truthy", "zero", "positive")
 SECRET_FILES = ("teeny.env", "evolve.env", "spine.env")
