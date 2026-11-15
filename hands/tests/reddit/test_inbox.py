@@ -60,6 +60,5 @@ class InboxTest(Scratch):
     def test_a_released_hold_goes_into_the_inbox(self):
         self.assertTrue(inbox.release_held({"post_id": "post1", "comment_id": "r3", "author": "eve", "subreddit": "learnpython",
                                             "parent_id": "t3_post1"}, "fine now"))
-        self.assertEqual(self.batch()["t1_r3"]["payload"]["parent_id"], "t3_post1")
         self.assertFalse(inbox.release_held({"post_id": "post1", "comment_id": "r3", "author": "eve", "subreddit": "learnpython"}, "fine now"))
-        self.assertIn("t1_r3", self.batch())
+        self.assertEqual(self.batch()["t1_r3"]["payload"]["parent_id"], "t3_post1")
