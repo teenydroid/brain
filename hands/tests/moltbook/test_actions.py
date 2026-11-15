@@ -474,6 +474,47 @@ class CommentTest(Scratch, Refusing):
         self.created("comment", "c2", path="/posts/mine2/comments")
         actions.comment({"post_id": "mine2", "body": "thanks", "parent_id": "o1"})
 
+    def test_a_playbooks_comment_is_tagged_with_its_name_and_the_post_it_found(self):
+        os.environ["TEENY_WRITER"] = "moltbook-threads"
+        self.mb.route("GET", "/posts/x1", {"success": True, "post": {
+            "id": "x1", "created_at": "2026-09-14T06:20:00Z", "comment_count": 4, "score": 7,
+            "author": {"name": "shelly", "karma": 812, "followerCount": 31}, "submolt": {"name": "memory"}}})
+        self.created("comment", "c1", path="/posts/x1/comments")
+        actions.comment({"post_id": "x1", "body": "nice"})
+        row = rows("moltbook_comments")[0]
+        self.assertEqual(row["format"], "threads")
+        self.assertEqual(json.loads(row["detail"]), {
+            "own_post": False, "writer": "moltbook-threads", "post_age_minutes": 40.0, "post_comments": 4,
+            "post_score": 7, "post_author": "shelly", "author_karma": 812, "author_followers": 31})
+
+    def test_the_minds_comment_is_tagged_by_where_it_went(self):
+        os.environ["TEENY_WRITER"] = "mind"
+        self.a_post("mine", author="teenydroid", comments=[{"id": "o1", "author": {"name": "crabby"}, "replies": []}])
+        self.created("comment", "c1", path="/posts/mine/comments")
+        actions.comment({"post_id": "mine", "body": "thanks", "parent_id": "o1"})
+        self.a_post("x1", comments=[{"id": "o2", "author": {"name": "crabby"}, "replies": []}])
+        self.created("comment", "c2", path="/posts/x1/comments")
+        self.at(T0 + HOUR)
+        actions.comment({"post_id": "x1", "body": "hm", "parent_id": "o2"})
+        os.environ.pop("TEENY_WRITER")
+        self.a_post("x2")
+        self.created("comment", "c3", path="/posts/x2/comments")
+        self.at(T0 + 2 * HOUR)
+        actions.comment({"post_id": "x2", "body": "a detail"})
+        got = [(r["format"], json.loads(r["detail"])) for r in rows("moltbook_comments")]
+        self.assertEqual(got, [
+            ("own-thread", {"own_post": True, "writer": "mind", "post_author": "teenydroid"}),
+            ("reply", {"own_post": False, "writer": "mind", "post_author": "someone"}),
+            ("comment", {"own_post": False, "post_author": "someone"}),
+        ])
+
+    def test_a_format_the_caller_names_wins_and_a_dry_run_says_it(self):
+        os.environ["TEENY_WRITER"] = "moltbook-helpdesk"
+        self.configure(DRY_RUN="1")
+        self.a_post("x1")
+        self.assertEqual(actions.comment({"post_id": "x1", "body": "nice"})["format"], "helpdesk")
+        self.assertEqual(actions.comment({"post_id": "x1", "body": "nice", "format": "answer"})["format"], "answer")
+
     def test_comment_gap_and_new_agent_mode(self):
         for name in ("x1", "x2", "x3"):
             self.a_post(name)
