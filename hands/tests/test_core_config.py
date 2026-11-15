@@ -29,6 +29,8 @@ class CoreConfigTest(unittest.TestCase):
         self._env = dict(os.environ)
         os.environ.pop("TEENY_CHROME_PATH", None)
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
+        os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
+        os.environ.pop("TEENY_CAPTCHA_MODEL", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -73,19 +75,38 @@ class CoreConfigTest(unittest.TestCase):
         self.assertIs(secrets["unattended_unlock"], True)
         self.assertIs(secrets["encrypt"], False)
 
-    def test_the_browser_starts_on_a_fresh_profile_the_egress_policy_admits(self):
-        # With TinySecurity's egress policy on, TinyComputer's enforced
-        # launcher refuses a launch that names a profile folder: "network
-        # policy refuses attached or externally managed browsers". A
-        # persistent profile is exactly that, so no session could start.
+    def test_the_browser_keeps_its_profile_so_cookies_survive_a_restart(self):
+        # Sign-ins and cookies live in a persistent profile under
+        # state/browser/profile (mounted from the checkout, so a restart keeps
+        # it). TinyComputer's egress-enforced launcher admits it because the
+        # core hands it over as the host's own profile (browser.profile,
+        # tinyhumansai/tinycomputer#175), launched with extensions off.
         browser = self.written()["browser"]
-        self.assertEqual(browser["profile_mode"], "fresh")
-        self.assertNotIn("profile_path", browser)
+        profile = self.root / "state" / "browser" / "profile"
+        self.assertEqual(browser["profile_mode"], "persistent")
+        self.assertEqual(browser["profile_path"], str(profile))
+        self.assertTrue(profile.is_dir())
+        # Cookies are credentials: the folder is the owner's alone.
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
 
     def test_the_browser_fills_keychain_placeholders_from_bin_keychain_fill(self):
         browser = self.written()["browser"]
         self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
         self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
+
+    def test_the_browser_saves_its_own_pictures_where_the_task_desk_collects_them(self):
+        # Without it the operator's tasks ended with no screenshot: its
+        # browser tool has no screenshot action. The spine keeps the core's
+        # pictures in the folder bin/spine names (spine/src/browser_pictures.rs),
+        # and hands/tasks collects them from there (queue.CAPTURES).
+        self.written()
+        folder = self.root / "state" / "browser" / "screenshots"
+        self.assertTrue(folder.is_dir())
+        self.assertIn('export TEENY_BROWSER_PICTURES="$TEENY_STATE/browser/screenshots"',
+                      (REPO / "bin" / "spine").read_text())
+        from teeny_hands.tasks import queue
+
+        self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
 
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
@@ -171,6 +192,25 @@ class CoreConfigTest(unittest.TestCase):
         # A beat logs the whole batch as "the user", so beliefs built from it
         # read "the user energy level 56" and crowd the memory block.
         self.assertEqual(self.written()["memory"]["recall"]["build_beliefs_every"], 0)
+
+    def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
+        computer = self.written()["computer"]
+        self.assertTrue(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+        self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
+        doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')
+        self.assertEqual(doc["computer"]["decision_model"], "sage")
+        self.assertEqual(doc["computer"]["max_rescues"], 2)
+        self.assertTrue(doc["computer"]["captcha_solver"])
+
+    def test_the_captcha_solver_can_be_turned_off_or_moved_to_another_model(self):
+        os.environ["TEENY_CAPTCHA_SOLVER"] = "0"
+        os.environ["TEENY_CAPTCHA_MODEL"] = "jev-2"
+        computer = self.written()["computer"]
+        self.assertFalse(computer["captcha_solver"])
+        self.assertEqual(computer["captcha_model"], "jev-2")
 
     def test_set_key_replaces_or_adds_one_key_and_leaves_the_rest(self):
         text = "[a]\nx = 1\ny = 2\n\n[a.b]\nx = 9\n"

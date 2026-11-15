@@ -1,4 +1,5 @@
 description = "roast a lazy dismissal, from conviction, without punching down"
+playbook = "mentions"
 kind = "reply"
 must_not = ['\bfair point\b', '\bfair skepticism\b']
 prompt = '''

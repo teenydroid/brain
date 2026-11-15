@@ -225,17 +225,33 @@ key stays in the core's encrypted store. It fails closed: an unreachable core
 or an unreadable verdict is a hold. `SAFETY_JUDGE=0` turns it off, leaving the
 lexicon and the links.
 
-**Asking again.** One text gets up to three asks (`MAX_ASKS`). A call that
+**Asking again.** One text gets up to five asks (`MAX_ASKS`). A call that
 failed for a reason that may pass (a cut provider stream, a timeout, a
-dropped connection, a 5xx) is asked again after 2 s, then after 6 s
-(`RETRY_BACKOFFS`); an unreadable answer is asked again at once; a failure
-that will not pass (no core token, an unknown method, a 401/402/403/404, a
-refused key, no model configured) holds at once. Every ask gets what is left
-of `JUDGE_BUDGET` (120 s), at most `JUDGE_TIMEOUT` (60 s), and one that
-would get under 10 s is not made, so the worst case, every ask timing out,
-is 120 s on the judge for one text: two asks of 60 s and 58 s around the
-2 s wait. A stream cut answers in seconds, so a burst of them is asked all
-three times. The last failure still holds; nothing ever turns into a pass.
+dropped connection, a 5xx) is asked again after 2 s, then 6 s, 15 s and
+30 s (`RETRY_BACKOFFS`, the n-th failed call waiting the n-th): the
+provider cuts streams in windows that last minutes, and on 2026-11-14 asks
+only 2 s and 6 s apart all landed in one window and held dozens of
+messages as "the judge could not be reached". An unreadable answer is the
+model answering: it is asked again at once, and only within the first three
+asks (`UNREADABLE_ASKS`), as before. A failure that will not pass (no core
+token, an unknown method, a 401/402/403/404, a refused key, no model
+configured) holds at once. Every ask gets what is left of `JUDGE_BUDGET`
+(120 s), at most `JUDGE_TIMEOUT` (60 s), and one that would get under 10 s
+is not made, so the worst case, every ask timing out, is still 120 s on the
+judge for one text: two asks of 60 s and 58 s around the 2 s wait. A stream
+cut fails in a second or two, so a window of them is asked five times over
+about a minute (53 s of waits).
+
+The 15 s and 30 s waits come out of one allowance of 45 s per process
+(`LONG_WAITS`), not one per text. A hand the tick or `bin/act` calls judges
+one draft in its own process and gets the whole minute. An inbound scan
+(`hands/x ingest`, `bin/mail`, `bin/gh-inbound` and the like) judges a batch
+in one process inside the 300 s the core gives a cron shell call, so in a
+failure window only its first text (or first few, when an answer comes back
+early) waits them out and the rest get the 2 s and 6 s they had before: a
+batch waits at most 45 s more than it used to. Only the timing changed:
+the verdicts, what holds, and fail-closed are as they were; the last
+failure still holds, and nothing ever turns into a pass.
 
 A hold the judge made only by failing is marked on the verdict:
 `Verdict.judge_failed` and `FieldsVerdict.judge_failed` (`Held.judge_failed`:
@@ -1061,7 +1077,7 @@ hands/gh's own actions.
 | Verb | | Does |
 |---|---|---|
 | `next` | A | The builder's open claim if it has one (`resumed: true`: a run that ended mid-job carries on), else the oldest `picked` build request with no job yet (`kind: request`), else a `daily` job (Teeny's own small thing, see "The daily job" below) when none was made this UTC day; else `{job: null, reason}`. Creates the folder. Answers `{job: {job_id, kind, request, workdir, workdir_path, repo, resumed}, rules}`. Before anything is handed out, a claim older than 6 hours is failed as abandoned (and its request marked `failed`). |
-| `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name). `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
+| `done` | A | `{job_id, status: ok\|failed\|gave_up, summary, tests, repo?}`. Only for a `claimed` job; `ok` needs something in the folder. `tests` is a sentence or a list (what ran, what came of it): the builder's claim, never the evidence (see `ship`). `repo` renames the repository it will ship as (a plain name, a short name for the tool). A request or daily report with no `repo` ships under the name its summary leads with, the text before the first `:` (`statediff: a referee CLI` ships as `statediff`), when that is a plain name, not Teeny's own repository's, no other job's and not a repository the account already has (GitHub is asked; when it cannot say, the slug stays); otherwise under the job's slug. Self, fix and upstream jobs ship where they always do. `failed` marks the request `failed` with the summary. `gave_up` is the builder's honest "I can't": the job is `gave_up`, never counted as a failure, and its request goes back as `skipped` with the reason. |
 | `desk` | J | The builder's desk. First it settles: `state/workbench/desk/build-done.json`, when there, goes through `done` with every rule above. A report `done` refuses (or one that is not JSON) is moved to `build-done.rejected.json`, and the reason is put on the next offer as `last_report_rejected`. A report that names no `job_id`, left while `build.json` offered no job (`job: null`), only says there was nothing to do: it is removed (`discarded` in the answer), not refused, not put on the next offer and not told to the mind. Then it claims: `next`, written to `build.json` with `report_to`, `report_to_path` (the same file, absolute, for an agent rooted at the workbench) and `report_shape`. |
 | `jobs [--status S] [--limit N]` | R | The jobs, newest first. |
 | `self` | A | `{text}`. A change Teeny proposes to itself: a `pending` build request with source `self`, picked with `requests pick` like any other. Its job is `kind: self` (below). |
@@ -1072,7 +1088,7 @@ hands/gh's own actions.
 | `ideas [--limit N]` | R | `today` (today's idea, or null) and `ideas`, the ones kept, newest first, each with the `job_id` made from it. |
 | `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
 | `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the builder's daily brief, the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). The self-improve playbook reads it. |
-| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, and its request is `shipped` with the repository as its note. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
+| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, its request is `shipped` with the repository as its note, and the mind hears `builder · shipped` once (ref `build:<id>`): which build, its summary's first line and the repository's exact URL (`payload.url`), with the line that this is the link to use, never one guessed from the build's name. The builder's own `builder · report` comes before shipping and carries no URL. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
 `build_jobs` has one row per job (`kind`, `request_id` unique, `slug` unique,
 `repo`, `status`: `claimed`, `ok`, `failed`, `shipped`, `gave_up`). This hand only reads
@@ -1191,7 +1207,7 @@ outcome (`operator · report`), except for the findings kinds (`news`,
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
 | `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 10 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -1209,10 +1225,33 @@ The stimulus text says how many screenshots the task saved, and a
 `post_x` or `reply_x` with `shots: <task id>` posts them (uploaded from
 `state/media/tasks/<id>/`, screenshots first, four in all).
 
+**Screenshots are the browser's, not the operator's.** The operator's
+browser tool has no screenshot action, so the core takes them itself
+while its host has a picture sink registered: a picture of the page after
+each `open`, click, key press, select or check, and before `close`. It
+never pictures a `fill` or `type`, and once a session has typed a keychain
+password it takes no more pictures at all: a sign-up is pictured up to its
+password step, not after. Other sessions skip any page that shows a
+password the keychain typed, or that has a frame it cannot read. A PNG over
+5 MB is taken again as a JPEG. The spine's sink (`spine/src/browser_pictures.rs`)
+writes them into `TEENY_BROWSER_PICTURES`, which `bin/spine` sets to
+`state/browser/screenshots/`, and keeps at most 24. When the desk settles
+a report, `done` takes the pictures taken since the claim: the first page
+and the last ones, four in all with any the operator named, each a PNG,
+JPEG, WebP or GIF of at most 5 MB (what X takes for a still image), copied
+to `state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder
+is emptied. A `browser` `task` action runs in TinyComputer's own session
+and is not pictured.
+
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
-settings say), a login Teeny has no account for, a CAPTCHA, anything that
-asks for money or a secret. Money moves only through `hands/wallet`, never
+settings say), a login Teeny has no account for, a CAPTCHA the browser could
+not get past itself, anything that asks for money or a secret. A CAPTCHA is
+first handed to the browser: a browser task tries checkbox and picture
+CAPTCHAs with Jev's image questions, a few times (`[computer] captcha_solver`,
+`bin/lib/core_sections/automation.py`, `TYPESAFE_API_KEY` in
+`secrets/spine.env`), and only one still
+standing ends the task `needs_human`. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
 **The news sense.** Teeny's read of the world is `world-scan` now, twice a
@@ -1240,8 +1279,9 @@ a site Teeny holds an account on gets the same `login`. The operator types
 the placeholder; the browser types the password, and only on that site's own
 pages. The operator signs up as Teeny, says it is an AI wherever a profile
 has room, never claims to be a person and never invents a legal name, birth
-date, phone, address or ID; a CAPTCHA, an ID, age or phone check, or a
-payment or payout page ends the task `needs_human` with the link
+date, phone, address or ID; an ID, age or phone check, a payment or payout
+page, or a CAPTCHA the browser's own tries did not pass ends the task
+`needs_human` with the link
 (brain/agents/operator.toml, brain/DRIVE.md). When it ends `ok`, the
 operator's report names the account as
 `{"handle": "<the name it signed up as>"}`; a report without one, or with any
@@ -1461,6 +1501,13 @@ issue is not tried over and over; the count is in `state/tick/caps.json`.
 A `propose_change` that lands comes back to the next beat with its build
 request's id and status (`payload.request`), so Teeny can say which request
 it is and that it is waiting for `pick-request`, not being built yet.
+A `queue_task` or `queue_signup` that lands is only queued, and the next
+beat reads it that way: `your queue_task: queued as browser task #4
+(pending), not done yet: ...`, with the task's id and status in
+`payload.task` (`payload.status` stays `done`, what the hand answered). It
+says how the result comes back: a research task's notes as a later `world ·
+research` stimulus (an `operator · report` when it could not be done), a
+signup's as an `operator · report`.
 Playbooks reach the same verbs and no others of those hands (`VERB_OUTPUTS`
 in `bin/lib/playbook.py`: `gh open-issue` and `comment`, `tasks add`, `mail
 reply` and `send`), except the web search: `x402 search` and `contents` pay

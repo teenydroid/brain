@@ -1,7 +1,8 @@
 description = "no round number crossed: no milestone post, and no milestone invented"
+playbook = "milestone"
 kind = "post"
 must_not = [
-  '(?<![\d,.])(?:100|250|500|1,?000|2,?500|5,?000|10,?000)(?![\d,.])',
+  '(?<![\d,.])(?:100|250|500|1,?000|2,?500|5,?000|10,?000)(?!\d|[.,]\d)',
   '(?i)\b\d+\s?k\b',
 ]
 prompt = '''

@@ -13,8 +13,12 @@ linked module.
                  core's config and the core's own files in the brain
                  `full` keeps cron shell jobs (bin/<job>) running as before:
                  the tier gates what an agent may do, the hands keep the rules
-  [browser]      TinyComputer, headless, a fresh profile per session,
-                 downloads under state/browser/, the actions an unattended
+  [browser]      TinyComputer, headless, a persistent profile in
+                 state/browser/profile/ (cookies and sign-ins survive a
+                 restart), downloads under state/browser/, the folder its
+                 pictures of pages go to (state/browser/screenshots/;
+                 bin/spine names it to the spine, which keeps them), the
+                 actions an unattended
                  run may take, and bin/keychain-fill as the password source
                  for the operator's {{keychain:<site>}} placeholder. It
                  opens any public https page (bin/spine sets
@@ -24,6 +28,13 @@ linked module.
                  http_request tool
   [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
                  every other module, TinyComputer included, from its release
+  [computer]     (single keys) the captcha solver: a browser task tries a
+                 captcha or "verify you are human" check with Jev's image
+                 questions, on TypeSafe (TYPESAFE_API_KEY in
+                 secrets/spine.env, which bin/spine stores in the core), a
+                 few times before it stops for a person. In the spine's
+                 environment, TEENY_CAPTCHA_SOLVER=0 turns it off and
+                 TEENY_CAPTCHA_MODEL names another image model
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
@@ -43,6 +54,14 @@ SHELL_TIMEOUT_SECS = 1800
 #: irreversible (submitting a form); the deny list bounds where, and a
 #: payment checkpoint still stops it whatever this says.
 UNATTENDED_ACTIONS = ("click", "fill", "type", "press", "select", "check", "task_step")
+
+#: The image-reading Jev model the captcha solver asks, unless
+#: TEENY_CAPTCHA_MODEL names another.
+CAPTCHA_MODEL = "jev-preview"
+
+#: Image challenges one captcha try may submit before the task stops for a
+#: person (TinyComputer allows 1 to 10).
+CAPTCHA_ATTEMPTS = 3
 
 #: OpenHuman's own default forbidden paths, kept.
 DEFAULT_FORBIDDEN = (
@@ -110,8 +129,12 @@ def tables(root: Path) -> dict[str, str]:
 
     workbench = root / "state" / "workbench"
     downloads = root / "state" / "browser" / "downloads"
-    for folder in (workbench, downloads, root / "state" / "media"):
+    pictures = root / "state" / "browser" / "screenshots"
+    profile = root / "state" / "browser" / "profile"
+    for folder in (workbench, downloads, pictures, root / "state" / "media", profile):
         folder.mkdir(parents=True, exist_ok=True)
+    # The profile holds cookies, which are sign-ins: the owner's alone.
+    profile.chmod(0o700)
 
     brain = Path(os.environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
     lab_edit = os.environ.get("SPINE_LAB") == "1" and os.environ.get("SPINE_LAB_EDIT") == "1"
@@ -134,15 +157,17 @@ def tables(root: Path) -> dict[str, str]:
         f'trusted_roots = [{{ path = {_s(str(trusted))}, access = "readwrite" }}]\n'
     )
 
-    # A fresh, disposable profile per session. With TinySecurity's egress
-    # policy on, TinyComputer's enforced launcher refuses a launch that names
-    # a profile folder ("network policy refuses attached or externally
-    # managed browsers"): a profile's own settings could route around the
-    # egress proxy. So `persistent` starts no browser at all.
+    # One persistent profile, so cookies and sign-ins survive a restart. The
+    # core hands it to TinyComputer as the host's own profile
+    # (browser.profile, tinyhumansai/tinycomputer#175), the only folder its
+    # egress-enforced launcher lets a session name, launched with extensions
+    # off so nothing stored in it can route around the egress proxy. When a
+    # second browser runs while the first holds it, that one starts fresh.
     browser = (
         "enabled = true\n"
         "headless = true\n"
-        'profile_mode = "fresh"\n'
+        'profile_mode = "persistent"\n'
+        f"profile_path = {_s(str(profile))}\n"
         f"download_dir = {_s(str(downloads))}\n"
         f"unattended_actions = {_list(UNATTENDED_ACTIONS)}\n"
         # The browser's password source for the operator's {{keychain:<site>}}
@@ -162,4 +187,19 @@ def tables(root: Path) -> dict[str, str]:
         "[browser]": browser,
         "[http_request]": f"allowed_domains = {_list(websites.load(root))}\n",
         "[modules]": f"overrides = [{overrides}]\n",
+    }
+
+
+def keys(root: Path) -> dict[str, dict[str, str]]:
+    """The captcha solver's keys in `[computer]`, which the core also keeps
+    the decision and rescue models in, so the table is not owned whole."""
+    del root
+    enabled = os.environ.get("TEENY_CAPTCHA_SOLVER", "1").strip().lower() not in ("0", "false", "no", "off")
+    model = os.environ.get("TEENY_CAPTCHA_MODEL", "").strip() or CAPTCHA_MODEL
+    return {
+        "computer": {
+            "captcha_solver": "true" if enabled else "false",
+            "captcha_model": _s(model),
+            "max_captcha_attempts": str(CAPTCHA_ATTEMPTS),
+        }
     }

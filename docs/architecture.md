@@ -119,7 +119,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), a fresh profile per session (TinyComputer's egress-enforced launcher refuses a named profile folder) and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`, which hands/tasks enforces for start pages and the operator's prompt for links; TinyComputer has no host hook for it. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
+| Browser | `[browser]` headless Chromium (in the image), one persistent profile in `state/browser/profile/` (mode 0700), so cookies and sign-ins survive a restart, and downloads under `state/browser/`. The core passes that folder to TinyComputer as the host's own `browser.profile`, the only one its egress-enforced launcher lets a session name, and Chrome launches it with extensions off (tinyhumansai/tinycomputer#175). A second browser that starts while the first holds the profile runs fresh, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`, which hands/tasks enforces for start pages and the operator's prompt for links; TinyComputer has no host hook for it. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
 | Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; bridges go through LI.FI and swaps through deBridge unless `WALLET_CONVERT_PROVIDER` names one (`spine/src/wallet_backend.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
@@ -848,7 +848,12 @@ Every scheduled job is in one of two files:
     `health · runway` stimulus and the tier that cuts optional spend, off
     until `RUNWAY=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
-    short question through the core. Two failures in a row raise one alarm:
+    short question through the core. A failed attempt that may pass (a cut
+    stream, a timeout) is asked again, up to three attempts 5 s and 20 s
+    apart and 90 s in all, so a stream the provider cut once is not a
+    failed check; `probe_attempts` on its line and in `state/health.json`
+    keeps that visible. Only a check whose every attempt failed counts. Two
+    such failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
     guard holds an outage made (docs/hands.md, "Re-screening"). With
@@ -927,7 +932,7 @@ Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
 | `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
-| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
+| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
 names its tools (never the wildcard). A cron job naming that agent in
@@ -936,7 +941,10 @@ tools go without a person's approval, and a sub-agent it spawns stays
 read-only. These stay in force: the autonomy tier and `workspace_only` (§2),
 TinySecurity's floor and command analysis, the agent's `sandbox_mode`, the
 allowed websites, and the browser's checkpoint before any payment, which
-ends a task as `needs_human` whatever `unattended_actions` says. `bin/doctor`
+ends a task as `needs_human` whatever `unattended_actions` says. A CAPTCHA in
+a browser task gets a few tries from TinyComputer's captcha solver first
+(Jev's image questions on TypeSafe, `[computer] captcha_solver`); only one it
+cannot pass ends the task `needs_human`. `bin/doctor`
 and `bin/lib/cron_policy.py` refuse a definition that loses the opt-in or
 its named tools, gives the builder the browser or a wallet tool, or gives
 the operator the shell or file writes. The drafting agents (`act`, `judge`,

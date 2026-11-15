@@ -4,15 +4,25 @@
 #   bin/eval run [--samples N] [--only ID[,ID...]] [--with-heldout] OUT
 #       Draft every task in evals/tasks/ on the core at OH_URL, as the `act`
 #       agent of whatever brain that core runs, N times each (default 2).
-#       Each draft gets the hard checks. Writes OUT/drafts.jsonl.
+#       Each draft gets the hard checks. Writes OUT/drafts.jsonl. A turn that
+#       fails (no answer came back) is tried again, up to EVAL_TURN_TRIES
+#       times in all (default 3), EVAL_RETRY_WAIT seconds apart (default 30,
+#       tripling), within EVAL_RETRY_BUDGET seconds of waiting per run
+#       (default 900); one that never answers is written as `no_sample`.
 #   bin/eval compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout]
 #                    [--judge-model M] BASE CAND OUT
 #       Judge two runs pair by pair, blind, twice with the order swapped, as
 #       the `judge` agent on the core at OH_URL. Writes OUT/judged.jsonl and
-#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not.
+#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not
+#       (report.json's `verdict` says "lost", or "inconclusive" when more
+#       than a tenth of either side's samples never ran, or a task ran on
+#       neither side together).
 #       --judge-model (or EVAL_JUDGE_MODEL) runs every judge turn on model M
 #       through the core's per-turn `model_override`, without editing the
 #       frozen judge.toml; report.json records the model asked for.
+#
+# Both keep EVAL_CONCURRENCY turns in flight at once (default 4, 1 to 16) and
+# write their files in order all the same.
 #
 # --with-heldout also drafts (run) and judges (compare) the held-out tasks
 # in $EVAL_HELDOUT_DIR (default secrets/heldout/*.toml, outside the public
@@ -30,8 +40,10 @@
 # main), never the candidate's.
 #
 # A candidate wins when it fails no hard check more often than the baseline
-# on any task, at least --min-pairs pairs (default 12) were decided, and it
-# won at least --threshold of them (default 0.6). Nothing here posts, holds
+# on any task, fails no fence check (the guard screen, a task's `fence`
+# patterns, a fence invariant) on any sample, at least --min-pairs pairs
+# (default 12) were decided, and it won at least --threshold of them
+# (default 0.6). Nothing here posts, holds
 # or writes to a core.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
@@ -124,7 +136,7 @@ compare() {
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" |
     jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
-  jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}
+  jq -c '{promote, verdict, reason, wins, losses, ties, decided, win_rate, regressions}
          + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$out/report.json"
   [ "$(jq -r .promote "$out/report.json")" = true ] || exit 2
 }
