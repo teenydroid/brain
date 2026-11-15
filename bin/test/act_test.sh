@@ -559,7 +559,7 @@ reset
 printf '+++\ndescription = "test"\noutput = "hand:lab post"\nsurface = "reddit"\nmax_per_day = 1\n+++\npost it\n' >"$brain/playbooks/rpost.md"
 answer '{"action": "hand", "subreddit": "LocalLLaMA", "title": "my guard held 40 of 212 replies", "body": "here is why", "anchor": "guard:2026-11-14"}'
 out="$(run rpost)"
-judged="$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//')"
+judged="$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' || true)"
 check "a hand draft with an anchor is judged on its title and body joined, and the anchor" \
   jq -e '.text == "my guard held 40 of 212 replies\n\nhere is why" and .anchor == "guard:2026-11-14"' <<<"$judged"
 check "and once anchored the hand gets the anchor beside the guard's fields" \
