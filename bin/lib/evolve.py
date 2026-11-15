@@ -1256,7 +1256,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
     return [
         learning_text(request["learning"]),
         "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
-        f"schedule or a new hand that makes you act on it from today, {how}. One learning, one change, one pull "
+        f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
+        f"act on it from today, {how}. One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
@@ -1291,6 +1292,14 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         + ("" if edits_in_place else "- Edit only the files shown below, whole, or add new files.\n")
         + "- A new hand is hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py together, "
         "and a playbook in the same change that calls it.\n"
+        "- A small edit inside an existing hand that is not frozen is yours to make: change or add its test "
+        "(hands/tests/test_<name>.py or hands/tests/<name>/) in the same change. bin/evolve runs that hand's "
+        "tests, and a failing one comes back to you.\n"
+        "- Docs go with the change: a new or changed hand touches its own section of docs/hands.md (its "
+        "`## `name`` heading); a new playbook or cron job is named on a line of docs/architecture.md (\"6. "
+        "Triggers\") or docs/hands.md, where its siblings are listed.\n"
+        "- No refactor the learning does not need: no renames, moves, reformatting or tidying of anything the "
+        "learning is not about.\n"
         "- Do not repeat a change already in the archive or in this generation.",
     ]
 
