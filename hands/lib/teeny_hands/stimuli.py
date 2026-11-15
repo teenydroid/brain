@@ -134,6 +134,22 @@ def add(surface: str, kind: str, ref: str, text: str, who: str | None = None,
     return cur.rowcount == 1
 
 
+def again(surface: str, kind: str, ref: str, payload: Mapping[str, Any]) -> bool:
+    """Puts a settled stimulus back to pending, in its old place (its `at`),
+    with new details: something a beat read and left that is still owed
+    (a comment on Teeny's own Moltbook post, moltbook/owed.py). False when
+    it is not there or not settled (pending or taken already)."""
+    now = hand.now()
+    conn = db()
+    with hand.transaction(conn):
+        cur = conn.execute(
+            "UPDATE stimuli SET status = 'pending', tick = NULL, taken_at = NULL, payload = ?, updated_at = ?"
+            " WHERE id = ? AND status = 'done'",
+            (json.dumps(dict(payload), ensure_ascii=False), now, f"{surface}:{kind}:{ref}"),
+        )
+    return cur.rowcount == 1
+
+
 def take(max_items: int = 20, max_chars: int = 30_000) -> Json:
     """The oldest pending stimuli, up to `max_items` and about `max_chars` of
     text (always at least one), marked taken under a new tick id."""
