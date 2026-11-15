@@ -81,7 +81,6 @@ import os
 import random
 import re
 import shutil
-import signal
 import sqlite3
 import subprocess
 import sys
