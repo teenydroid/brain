@@ -112,7 +112,9 @@ drops_on = ["promotion", "model-change"]
 switch = [
   { file = "evolve.env", name = "EVOLVE_AUTO_PROMOTE", when = "truthy", needs = 5 },
   # The babysitter presses merge only on a pull request a person approved at
-  # its exact head (hands/babysit): the person signs off, which is L4.
+  # its exact head (hands/babysit): the person signs off, which is L4. Its
+  # one unapproved merge, Teeny's evolve PR on a passed teeny/eval, is the
+  # `self-merge` rung below (BABYSIT_SELF_MERGE, L5).
   { file = "teeny.env", name = "BABYSIT_MERGE", when = "truthy", needs = 4 },
 ]
 next = { level = 5, proofs = [{ id = "L5.human_merged", need = 5 }], also = ["each of the five measured well after the merge (evolve-watch closed it)"] }
