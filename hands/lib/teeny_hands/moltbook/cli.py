@@ -8,7 +8,14 @@ the box.
   R  status                                   claim status
   R  home [--expand]                          the dashboard: notifications, what to do next;
                                               --expand attaches the post behind each mention
-  R  feed [--submolt S] [--sort hot|new|top|rising] [--max N] [--brief]
+  R  feed [--submolt S]... [--sort hot|new|top|rising] [--max N] [--brief]
+          [--max-age-hours H] [--max-author-karma K] [--min-author-karma K]
+          [--max-comments N] [--skip-mine]
+                                              several --submolt are read and merged, newest first;
+                                              the filters drop posts before the cut (--skip-mine:
+                                              Teeny's own and those it already commented on)
+  R  peers [--per-peer N] [--max-age-hours H] [--skip-mine]
+                                              the newest posts of the agents in brain/moltbook-peers.txt
   R  post ID                                  one post (with no ID, the acting verb below)
   R  comments ID [--sort best|new|old] [--max N]
   R  search QUERY [--type posts|comments|all] [--max N]
@@ -69,6 +76,21 @@ def _post(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return actions.post(hand.read_body())
 
 
+def _hours(value: str) -> float:
+    number = float(value)
+    if not 0.1 <= number <= 168:
+        raise argparse.ArgumentTypeError("--max-age-hours is 0.1..168")
+    return number
+
+
+def _feed(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return reads.feed(
+        args.submolt, args.sort, args.max, brief=args.brief, max_age_hours=args.max_age_hours,
+        max_author_karma=args.max_author_karma, min_author_karma=args.min_author_karma,
+        max_comments=args.max_comments, skip_mine=args.skip_mine,
+    )
+
+
 def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
 
@@ -100,11 +122,24 @@ def parser() -> argparse.ArgumentParser:
     verb("home", lambda a, _: reads.home(expand=a.expand), "the dashboard").add_argument(
         "--expand", action="store_true", help=f"attach the post behind each mention (at most {reads.EXPAND_MAX})"
     )
-    feed = verb("feed", lambda a, _: reads.feed(a.submolt, a.sort, a.max, brief=a.brief), "posts, newest or hottest")
+    feed = verb("feed", _feed, "posts, newest or hottest")
     feed.add_argument("--brief", action="store_true", help="each post cut down to what a reader needs")
-    feed.add_argument("--submolt", default=None)
+    feed.add_argument("--submolt", action="append", default=None, help="repeat to read several, merged newest first")
     feed.add_argument("--sort", default="hot", choices=reads.SORTS)
     feed.add_argument("--max", type=_bounded(1, 50, "--max"), default=15)
+    feed.add_argument("--max-age-hours", type=_hours, default=None, help="drop posts older than this")
+    feed.add_argument("--max-author-karma", type=_bounded(0, 10**9, "--max-author-karma"), default=None)
+    feed.add_argument("--min-author-karma", type=_bounded(0, 10**9, "--min-author-karma"), default=None)
+    feed.add_argument("--max-comments", type=_bounded(0, 10**6, "--max-comments"), default=None)
+    feed.add_argument("--skip-mine", action="store_true", help="drop Teeny's own posts and those it already commented on")
+    peering = verb(
+        "peers",
+        lambda a, _: reads.peers(a.per_peer, max_age_hours=a.max_age_hours, skip_mine=a.skip_mine),
+        "the newest posts of Teeny's peers (brain/moltbook-peers.txt)",
+    )
+    peering.add_argument("--per-peer", type=_bounded(1, 10, "--per-peer"), default=2)
+    peering.add_argument("--max-age-hours", type=_hours, default=None)
+    peering.add_argument("--skip-mine", action="store_true")
     verb("post", _post, "one post by ID, or publish one (JSON on stdin)").add_argument("id", nargs="?", metavar="ID")
     comments = verb("comments", lambda a, _: reads.comments(a.id, a.sort, a.max), "a post's comments")
     comments.add_argument("id", metavar="ID")
