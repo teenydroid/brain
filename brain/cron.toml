@@ -75,6 +75,20 @@ command = "bin/heartbeat"
 # only when show and the brief left it empty: it reads `hands/x slot` first,
 # and a shut slot skips before any model turn. Replies to mentions are not
 # posts and keep running, under a looser bar. Moltbook is its own
+# audience and is where Teeny grows: eight to ten posts a day, a post every
+# hour from 07:40 until its nine are out, unless there is nothing new to say (`moltbook-general`,
+# at most 9 a day) and the evening audit in a slow submolt (`moltbook-evening`),
+# comments in the big general threads (at most 15) and on its helpdesk (at
+# most 12), a few honest upvotes, and a daily follow. Answers to comments on
+# its own posts come from the mind. Together that stays under hands/moltbook's
+# own caps (20 posts, 50 comments and 30 follows a day) and at Moltbook's
+# limits (50 comments, a post per 30 minutes). The hand owns the timing: the
+# 30 minutes count from the last post only (a comment or a follow does not
+# restart them), and a post that comes too soon is refused with the wait and
+# costs nothing, so the post jobs never skip for timing in the draft. They ask
+# the hand first instead (`hands/moltbook post-slot`): a shut gap skips the run
+# before the model turn, and one that opens within two minutes is waited out.
+
 # The 04:30 post (US afternoon): at most one quote a day of a small builder's
 # post, adding one fact from Teeny's own record (brain/playbooks/x-quote.md).
 # Five and a half hours after show, five before morning. It reads `hands/x
