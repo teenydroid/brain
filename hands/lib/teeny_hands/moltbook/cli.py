@@ -30,7 +30,7 @@ the box.
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
-  A  comment    {post_id, body, parent_id?}
+  A  comment    {post_id, body, parent_id?, format?}   no format: the playbook (TEENY_WRITER) or where it went
   A  upvote     {post_id} or {comment_id}
   A  follow     {name}                        at most MOLTBOOK_MAX_FOLLOWS_PER_DAY (30) a day
   A  unfollow   {name}                        never followed again afterwards
