@@ -2,8 +2,9 @@
 # Tests for bin/evolve from the command line, offline: a scratch clone of this
 # repository for the candidates to branch from, stand-in hands that log every
 # call (hands/gh among them, which must never be called under DRY_RUN), a
-# page of learnings (brain/MEMORY.md), and a stand-in bin/eval that keeps the
-# targeted-eval contract. The logic is unit-tested in hands/tests/test_evolve.py;
+# page of learnings (brain/MEMORY.md), and the real bin/eval: the changes here
+# edit a playbook no eval task drafts from, so they are unmeasurable and no
+# lab boots. The logic is unit-tested in hands/tests/test_evolve.py;
 # this covers the wiring: the kill switch, --detach, a dry-run generation from
 # the page's learnings, a learning not asked about twice, nothing to do when
 # none is open, status, the halts, and the pinned jobs.
@@ -51,18 +52,6 @@ HAND
   chmod +x "$root/hands/$name"
 done
 
-# bin/eval's targeted contract: no task reaches a playbook line, so every
-# change here is unmeasurable and nothing boots.
-cat >"$scratch/stub-eval" <<'STUB'
-#!/usr/bin/env bash
-printf 'eval %s\n' "$*" >>"$FAKE_CALLS"
-case "$1" in
-  affected) echo '{"tasks": [], "all": false, "why": {}}' ;;
-  *) echo "stub bin/eval: $1 is not expected here" >&2; exit 1 ;;
-esac
-STUB
-chmod +x "$scratch/stub-eval"
-
 mkdir -p "$root/brain"
 cat >"$root/brain/MEMORY.md" <<'PAGE'
 # MEMORY.md
@@ -79,19 +68,19 @@ PAGE
 
 unset OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE TEENY_STATE TEENY_SECRETS EVAL_HELDOUT_DIR EVOLVE
 export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE_BASE=main \
-  FAKE_CALLS="$scratch/calls.log" TEENY_OH="$scratch/no-core" EVOLVE_EVAL_BIN="$scratch/stub-eval" DRY_RUN=1
+  FAKE_CALLS="$scratch/calls.log" TEENY_OH="$scratch/no-core" DRY_RUN=1
 : >"$FAKE_CALLS"
 
 # A proposal: one more line at the end of the morning playbook.
 propose() { # I LINE
   python3 - "$src" "$root/props/cand-$1.json" "$2" <<'PY'
 import json, subprocess, sys
-text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/playbooks/morning.md"],
+text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/playbooks/moltbook-daily.md"],
                       check=True, capture_output=True, text=True).stdout
 last = text.rstrip().splitlines()[-1]
 json.dump({"title": f"morning: {sys.argv[3][:30]}", "component": "attention", "expected_move": "+1% engaged reach",
            "hypothesis": "The morning post opens the same way every day.",
-           "edits": [{"path": "brain/playbooks/morning.md", "old": last, "new": f"{last}\n\n{sys.argv[3]}"}]},
+           "edits": [{"path": "brain/playbooks/moltbook-daily.md", "old": last, "new": f"{last}\n\n{sys.argv[3]}"}]},
           open(sys.argv[2], "w"))
 PY
 }

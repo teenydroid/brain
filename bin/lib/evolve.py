@@ -1763,9 +1763,9 @@ SHIPS = ("pass", "unmeasurable")
 
 
 def eval_bin() -> str:
-    """bin/eval, this checkout's (frozen). EVOLVE_EVAL_BIN is the tests'
-    stand-in, as TEENY_OH is the core's."""
-    return os.environ.get("EVOLVE_EVAL_BIN") or str(CODE / "bin" / "eval")
+    """bin/eval, this checkout's (frozen): what measures is never what is
+    measured."""
+    return str(CODE / "bin" / "eval")
 
 
 class Evaluator(Protocol):
