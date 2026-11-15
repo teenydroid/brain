@@ -214,7 +214,8 @@ class CommentResendTest(ResendBase):
         out = self.run_at(LATER)
         self.assertEqual((out["refused"], out["sent"]), (1, 0))
         self.assertEqual(len(self.mb.requests("POST", "/posts/x1/comments")), 1)
-        self.assertIn("once", holds.get(hold["id"])["effect"].lower() + "once")
+        effect = holds.get(hold["id"])["effect"]
+        self.assertIn("refused the re-send: Teeny has already commented", effect)
 
 
 class VerbTest(ResendBase):
