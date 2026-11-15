@@ -380,7 +380,7 @@ def fake_run(cmd, input=None, capture_output=None, text=None):
     return types.SimpleNamespace(returncode=0, stdout='{"better": "tie", "breaks": {}, "notes": ""}', stderr="")
 evals.subprocess.run = fake_run
 evals.fresh = lambda ask: ["true"]
-evals.pairs = lambda base, cand: [{"task": "t", "sample": i, "base": {}, "cand": {}} for i in range(60)]
+evals.pairs = lambda base, cand, tasks=None: [{"task": "t", "sample": i, "base": {}, "cand": {}} for i in range(60)]
 evals.load_task = lambda root, task_id: {}
 evals.judge_message = lambda *args: "message"
 real_dumps = json.dumps

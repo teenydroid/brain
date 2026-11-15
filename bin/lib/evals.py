@@ -747,7 +747,7 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     so a tie. Up to EVAL_CONCURRENCY turns at once."""
     jobs = []
     plan = []
-    for pair in (pairs(base_path, cand_path) if tasks is None else pairs(base_path, cand_path, tasks)):
+    for pair in pairs(base_path, cand_path, tasks):
         task = load_task(evals, pair["task"])
         shown = orders(pair["sample"], both_orders)
         plan.append((pair, shown))
