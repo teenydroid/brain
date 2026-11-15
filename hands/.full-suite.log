@@ -3011,3 +3011,6 @@ ResourceWarning: Enable tracemalloc to get the object allocation traceback
 [evolve] candidate 1/1 from main
 [evolve] candidate 1: unevaluated
 [evolve] candidate 1/1 from g2c1
+[evolve] candidate 1: unevaluated
+.[evolve] halted (j-rise): J rose 0.700 in 7 day(s); the most before a person looks is 0.5 (EVOLVE_MAX_J_RISE)
+[evolve] candidate 1/1 from main
