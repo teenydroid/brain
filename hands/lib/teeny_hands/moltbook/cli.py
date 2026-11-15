@@ -29,6 +29,8 @@ the box.
   R  metrics list [--days N]                  the latest row per write measured in the last N days
   R  follows [--days N] [--max N]             follows at least N days old (7) that Teeny has not
                                               unfollowed, and whether each follows back (null = unknown)
+  R  exchanges [--days N] [--max N]          agents with a real exchange with Teeny in the last N days
+                                              (14), and the peers, none followed or unfollowed yet
   R  study                                    the week's best posts (hot+top, six submolts) and
                                               Teeny's own last 10 writes with their metrics; cached 6h
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
@@ -55,7 +57,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, material, metrics, reads, rules, study
+from . import actions, client, exchanges, inbox, material, metrics, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -156,6 +158,9 @@ def parser() -> argparse.ArgumentParser:
     measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
     measuring.add_argument("action", choices=("refresh", "list"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    talking = verb("exchanges", lambda a, _: exchanges.exchanges(a.days, a.max), "who Teeny has really talked to, to follow")
+    talking.add_argument("--days", type=_bounded(1, 60, "--days"), default=14)
+    talking.add_argument("--max", type=_bounded(1, 30, "--max"), default=10)
     verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
