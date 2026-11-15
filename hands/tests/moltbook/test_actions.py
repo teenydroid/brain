@@ -504,6 +504,7 @@ class CommentTest(Scratch, Refusing):
         self.assertEqual(actions.comment({"post_id": "old1", "body": "a detail"})["commented"], "c1")
         self.configure(MOLTBOOK_MAX_COMMENT_AGE_HOURS="1")
         self.dated_post("mid", 2)
+        self.at(T0 + MINUTE)
         self.refused(actions.comment, {"post_id": "mid", "body": "a detail"}, "too_old")
 
     def test_a_reply_on_an_old_post_is_exempt(self):
