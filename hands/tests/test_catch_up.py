@@ -11,6 +11,7 @@ recording core and a pinned clock."""
 import datetime as dt
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -224,7 +225,7 @@ class CatchUpTest(unittest.TestCase):
                      {"ok": False, "playbook": "moltbook-daily", "error": "the draft turn failed"}):
             with self.subTest(line=line):
                 self.runs, self.jobs, self.core.calls = [], [], []
-                (self.root / "state" / "act").exists() and __import__("shutil").rmtree(self.root / "state" / "act")
+                shutil.rmtree(self.root / "state" / "act", ignore_errors=True)
                 self.lost_noon()
                 self.act_log("moltbook-daily", ("2026-11-14T06:31:00Z", line))
                 self.assertEqual(self.catch_up("2026-11-14T10:15", [NOON], provider_back=True)["caught_up"], [])
