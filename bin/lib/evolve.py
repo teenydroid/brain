@@ -104,8 +104,8 @@ import probes as probes_lib  # noqa: E402
 
 Json = dict[str, Any]
 
-#: The gate's caps: code, not config.
-MAX_DIFF_LINES = 400
+#: The gate's SOUL+CONTEXT cap: code, not config (the size cap is
+#: EVOLVE_MAX_CHANGE_PCT, HARD_CHECKS).
 MAX_SOUL_CONTEXT_LINES = 60
 SOUL_CONTEXT = ("brain/SOUL.md", "brain/CONTEXT.md")
 #: Written beside the candidate's edits, never committed with them.
@@ -2079,15 +2079,39 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     return checks
 
 
-def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[str, Any] | None = None) -> Json:
-    """Every check a candidate must pass before anything measures it. Each
-    is {check, ok, detail}; the candidate passes when every one does. The
-    cheap ones run first, and a candidate that touches a frozen path or an
-    existing hand's entry point never has its code run by the doctor."""
+#: The checks whose failure is final (docs/evolve.md, "4. Gate"): a frozen
+#: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository, and
+#: SOUL+CONTEXT past their cap. Every other check is a finding the builder
+#: is sent back to fix.
+HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size")
+#: EVOLVE_MAX_CHANGE_PCT's default, for a gate run outside a generation.
+DEFAULT_MAX_CHANGE_PCT = 5.0
+_TRACKED_LINES: dict[str, int] = {}
+
+
+def tracked_lines(tree: Path, base: str) -> int:
+    """Every text line git tracks at BASE (binary files count nothing): what
+    EVOLVE_MAX_CHANGE_PCT is a share of. Counted once per base commit."""
+    if base not in _TRACKED_LINES:
+        empty = git(in_tree(tree), "hash-object", "-t", "tree", "--stdin", input="").strip()
+        total = 0
+        for row in git(in_tree(tree), "diff", "--numstat", "--no-renames", empty, base, "--").splitlines():
+            added = row.split("\t", 1)[0]
+            total += int(added) if added.isdigit() else 0
+        _TRACKED_LINES[base] = total
+    return _TRACKED_LINES[base]
+
+
+def max_change_lines(tree: Path, base: str, max_pct: float) -> int:
+    return max(1, int(tracked_lines(tree, base) * max_pct / 100))
+
+
+def hard_gate(tree: Path, base: str, max_pct: float = DEFAULT_MAX_CHANGE_PCT) -> list[Json]:
+    """The final checks (HARD_CHECKS), each {check, ok, detail, hard: True}."""
     checks: list[Json] = []
 
     def note(name: str, ok: bool, detail: str = "") -> None:
-        checks.append({"check": name, "ok": ok, "detail": detail})
+        checks.append({"check": name, "ok": ok, "detail": detail, "hard": True})
 
     stage(tree)
     try:
@@ -2095,18 +2119,34 @@ def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[
         note("frozen paths", not hits, ", ".join(f"{h.status} {h.path}" for h in hits) or "none touched")
     except frozen.FrozenError as exc:
         note("frozen paths", False, f"the check could not run: {exc}")
+    stats = numstat(tree, base)
+    lines = sum((a or 0) + (r or 0) for a, r, _ in stats)
+    cap = max_change_lines(tree, base, max_pct)
+    note("diff size", 0 < lines <= cap,
+         f"{lines}/{cap} changed lines ({max_pct:g}% of the {tracked_lines(tree, base)} the repository tracks)")
+    soul = sum((a or 0) + (r or 0) for a, r, p in stats if p in SOUL_CONTEXT)
+    note("SOUL+CONTEXT size", soul <= MAX_SOUL_CONTEXT_LINES, f"{soul}/{MAX_SOUL_CONTEXT_LINES} changed lines")
+    return checks
+
+
+def checks(tree: Path, base: str, component: str | None = None, evidence: Mapping[str, Any] | None = None,
+           frozen_ok: bool = True) -> list[Json]:
+    """Every check that is not final, each {check, ok, detail}: a failure is
+    a finding the builder is sent back to fix. A candidate that touches a
+    frozen path (FROZEN_OK false) or an existing hand's entry point never has
+    its code run by the doctor."""
+    out: list[Json] = []
+
+    def note(name: str, ok: bool, detail: str = "") -> None:
+        out.append({"check": name, "ok": ok, "detail": detail})
+
     changes = name_status(tree, base)
     # bin/doctor --root runs the candidate's hands/git: an entry point that
     # exists on main stays as it is (new hands are Teeny's to add).
     touched_entry = [p for s, p in changes if _hand_name(p) and p.count("/") == 1 and s != "A"]
     note("existing hand entry points", not touched_entry, ", ".join(touched_entry) or "none changed")
-    stats = numstat(tree, base)
-    binary = [p for a, r, p in stats if a is None or r is None]
-    lines = sum((a or 0) + (r or 0) for a, r, _ in stats)
-    note("diff size", not binary and 0 < lines <= MAX_DIFF_LINES,
-         f"binary: {', '.join(binary)}" if binary else f"{lines}/{MAX_DIFF_LINES} changed lines")
-    soul = sum((a or 0) + (r or 0) for a, r, p in stats if p in SOUL_CONTEXT)
-    note("SOUL+CONTEXT size", soul <= MAX_SOUL_CONTEXT_LINES, f"{soul}/{MAX_SOUL_CONTEXT_LINES} changed lines")
+    binary = [p for a, r, p in numstat(tree, base) if a is None or r is None]
+    note("no binary files", not binary, f"binary: {', '.join(binary)}" if binary else "none")
     new_hands = sorted({n for s, p in changes if s == "A" and (n := _hand_name(p))
                         and not exists_at(tree, base, f"hands/{n}") and not exists_at(tree, base, f"hands/lib/teeny_hands/{n}")
                         and not exists_at(tree, base, f"hands/lib/teeny_hands/{n}.py")})
@@ -2120,7 +2160,7 @@ def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[
     note("new hands have tests", not untested,
          f"no hands/tests/test_<name>.py that parses for: {', '.join(untested)}" if untested
          else (f"{', '.join(new_hands)} (run by CI, never here)" if new_hands else "no new hand"))
-    checks.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
+    out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
     # own bin/ and evals/, which the frozen check just proved are main's.
     # This checkout's are whatever the box last pulled, and Teeny's clone can
@@ -2129,20 +2169,43 @@ def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[
     # failed `doctor --root` on a playbook none of them had touched. A
     # candidate that touches a frozen path is rejected already, and its own
     # scripts never run: this checkout's give the other checks their detail.
-    frozen_ok = all(c["ok"] for c in checks if c["check"] == "frozen paths")
     code, env = (tree, tree_env(tree)) if frozen_ok else (CODE, code_env())
     ok, detail = _run_check([str(code / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
                              "--pinned", str(code / "evals" / "cron.pinned.toml")], env)
     note("seed-cron --check", ok, detail)
-    if all(c["ok"] for c in checks if c["check"] in ("frozen paths", "existing hand entry points")):
+    if frozen_ok and not touched_entry:
         ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], env)
         note("doctor --root", ok, detail)
     else:
         note("doctor --root", False, "not run: the candidate touches a frozen path or a hand's entry point")
     ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
-    return {"ok": all(c["ok"] for c in checks), "checks": checks, "lines": lines, "soul_context_lines": soul,
+    return out
+
+
+def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[str, Any] | None = None,
+         max_pct: float = DEFAULT_MAX_CHANGE_PCT) -> Json:
+    """The hard gate, then every other check. `ok` when every one passes,
+    `hard_ok` when the final ones do (a candidate failing only the others is
+    sent back with them as findings)."""
+    hard = hard_gate(tree, base, max_pct)
+    hard_ok = all(c["ok"] for c in hard)
+    frozen_ok = all(c["ok"] for c in hard if c["check"] == "frozen paths")
+    rest = checks(tree, base, component, evidence, frozen_ok)
+    stats = numstat(tree, base)
+    every = [*hard, *rest]
+    return {"ok": all(c["ok"] for c in every), "hard_ok": hard_ok, "checks": every,
+            "lines": sum((a or 0) + (r or 0) for a, r, _ in stats),
+            "max_lines": max_change_lines(tree, base, max_pct),
+            "soul_context_lines": sum((a or 0) + (r or 0) for a, r, p in stats if p in SOUL_CONTEXT),
             "files": len(stats)}
+
+
+def check_findings(gate_result: Mapping[str, Any]) -> list[Json]:
+    """The gate's failed checks as findings for the builder."""
+    return [{"file": "", "problem": f"the check `{c['check']}` failed: {c.get('detail') or 'no detail'}",
+             "fix": "change the edit so this check passes"}
+            for c in gate_result.get("checks", []) if not c.get("ok")]
 
 
 # --- evaluate: targeted non-regression -------------------------------------------------------------
