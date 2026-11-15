@@ -88,16 +88,29 @@ class IntakeTest(unittest.TestCase):
         self.assertTrue((BRAIN / "playbooks" / "roast.md").is_file())
         self.assertTrue((BRAIN / "playbooks" / "news-scan.md").is_file())
 
-    def test_x_has_three_slots_eight_hours_apart_and_brief_takes_the_next_free_one(self):
+    def test_x_has_four_slots_five_hours_apart_and_brief_takes_the_next_free_one(self):
         jobs = tomllib.loads((BRAIN / "cron.toml").read_text())["jobs"]
         slots = {name: (jobs[name]["schedule"], jobs[name].get("tz"), jobs[name].get("enabled", True))
-                 for name in ("morning", "take", "show", "brief")}
+                 for name in ("x-quote", "morning", "take", "growth", "show", "brief", "shiplog")}
         self.assertEqual(slots, {
-            "morning": ("0 7 * * *", "Asia/Kolkata", True),
-            "take": ("0 15 * * *", "Asia/Kolkata", True),
+            "x-quote": ("30 4 * * *", "Asia/Kolkata", True),
+            "morning": ("30 9 * * *", "Asia/Kolkata", True),
+            "take": ("0 15 * * 1-6", "Asia/Kolkata", True),
+            "growth": ("0 15 * * 0", "Asia/Kolkata", True),
             "show": ("0 23 * * *", "Asia/Kolkata", True),
             "brief": ("5 15,23 * * *", "Asia/Kolkata", True),
+            "shiplog": ("10 23 * * *", "Asia/Kolkata", True),
         })
+        # The four daily slots (04:30, 09:30, 15:00, 23:00) keep five hours between them.
+        starts = sorted([4 * 60 + 30, 9 * 60 + 30, 15 * 60, 23 * 60])
+        gaps = [b - a for a, b in zip(starts, starts[1:])] + [starts[0] + 24 * 60 - starts[-1]]
+        self.assertGreaterEqual(min(gaps), 5 * 60)
+        # A post job off its own slot reads the gap first and skips when it is shut.
+        for name in ("x-quote", "growth", "shiplog"):
+            self.assertIn('run = "hands/x slot"', (BRAIN / "playbooks" / f"{name}.md").read_text())
+        for gone in ("humans", "milestone", "pr-merged", "wallet-receipt", "cost-of-living", "bounty-winner"):
+            self.assertNotIn(gone, jobs)
+            self.assertTrue((BRAIN / "playbooks" / f"{gone}.md").exists())
         self.assertNotIn("shipped", jobs)
         self.assertFalse((BRAIN / "playbooks" / "shipped.md").exists())
         # The posts are tagged for the lab, and take and show give way to a queued brief.
