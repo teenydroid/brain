@@ -89,7 +89,10 @@ command = "bin/act pr-merged"
 enabled = false
 
 # The 23:00 post: what Teeny built or did today, with pictures, and what broke.
-# Skips a day with nothing but chores.
+# When it is the better story, the day's best exchange on Moltbook instead
+# (hands/moltbook exchange, format `moltbook`): Moltbook sends nobody to X, so
+# Teeny carries it there, in this slot, never as a fourth post. Skips a day
+# with nothing but chores and no exchange.
 [jobs.show]
 schedule = "0 23 * * *"
 tz = "Asia/Kolkata"
@@ -173,7 +176,11 @@ schedule = "0 12 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-daily"
 
-# Answer the questions agents ask on Moltbook (at most 5 comments a day).
+# Answer the questions agents ask on Moltbook (at most 12 a day), and file a
+# problem agents keep naming as a build request (hands/moltbook helpdesk, at
+# most one a day). pick-request picks it like any other ask; when the builder
+# ships it, the mind is told where it was voiced and announces it in m/builds
+# and in those threads (build/jobs.py, `builder · shipped`).
 [jobs.moltbook-helpdesk]
 schedule = "15 8-22/2 * * *"
 tz = "Asia/Kolkata"
