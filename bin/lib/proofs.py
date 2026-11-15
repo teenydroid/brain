@@ -417,10 +417,10 @@ PROOFS: tuple[tuple[str, int, str, str, int, Counter], ...] = (
     ("L3.bounty", 3, "Bounties live", "a paid bounty", 1, _paid("bounty")),
     ("L3.vendor", 3, "Pays a vendor for something it decided it needs", "a vendor payment", 1, _paid("vendor")),
     ("L4.diary", 4, "Public diary, one page a day for 30 days", "30 diary pages in a row", 30, diary_days),
-    ("L5.generation_pr", 5, "bin/evolve, human-gated first", "a generation PR with a compare report", 1, generation_prs),
+    ("L5.generation_pr", 5, "bin/evolve, learning-driven", "a generation PR", 1, generation_prs),
     ("L5.promoted", 5, "Merging with no human, and rollback", "one generation merged with no person", 1, unattended),
-    ("L5.human_merged", 5, "bin/evolve, human-gated first", "five generations a person merged", 5, human_merged),
-    ("L5.rollback", 5, "Promotion and rollback", "one automatic rollback", 1, rolled_back),
+    ("L5.human_merged", 5, "bin/evolve, learning-driven", "five generations a person merged", 5, human_merged),
+    ("L5.rollback", 5, "Merging with no human, and rollback", "one automatic rollback", 1, rolled_back),
     ("L5.chronicle", 5, "Chronicle", "a chronicle page per generation", 1, chronicle),
     ("L5.ten_promoted", 5, "Ten generations merged with no human", "ten generations merged with no person", 10, unattended),
 )
