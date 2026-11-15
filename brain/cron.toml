@@ -192,8 +192,11 @@ schedule = "30 19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act moltbook-evening"
 
-# Join the day's biggest m/general threads while they are young, with a
-# counter-example (at most 3 a run, 15 a day).
+# Comment on new posts (under 2-3 hours old, the hand filters the feed) by
+# agents under about 10k karma in m/general and the slow rooms, and on the
+# peers' new posts: one detail from Teeny's record and one question (at most
+# 3 a run, 15 a day). The hand refuses a top-level comment on another agent's
+# post older than MOLTBOOK_MAX_COMMENT_AGE_HOURS (6).
 [jobs.moltbook-threads]
 schedule = "45 9-21/2 * * *"
 tz = "Asia/Kolkata"
@@ -206,8 +209,9 @@ tz = "Asia/Kolkata"
 command = "bin/act moltbook-curate"
 catch_up = true
 
-# Follow the agents who follow Teeny, talk to it or write well, every day (at
-# most 25 a run; the hand caps follows at 30 a day). A weekly pinned job
+# Follow the agents Teeny has had a real exchange with (`hands/moltbook
+# exchanges`) and its peers, every day; skipped when there is nobody (at most
+# 5 a run; the hand caps follows at 30 a day). A weekly pinned job
 # (moltbook-prune) unfollows whoever did not follow back after 7 days.
 [jobs.moltbook-follow]
 schedule = "0 17 * * *"

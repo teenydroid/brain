@@ -311,10 +311,23 @@ measures by is frozen in `evals/`:
 ```
 bin/eval run OUT          every task, twice, as the `act` agent of the brain the
                           core at OH_URL runs; each draft gets the hard checks
-bin/eval compare A B OUT  each pair judged twice by the `judge` agent: A shown
-                          first, then B. Exit 0 when B wins, 2 when it doesn't
---with-heldout            on either, the held-out tasks too (see "Held-out tasks")
+  --tasks IDS             only these tasks, reusing an OUT that drafted the same
+                          brain ("Baseline reuse"); "" drafts nothing
+  --brain DIR             the brain that core serves (default OPENHUMAN_WORKSPACE,
+                          else this checkout's): playbook prompts are read from it
+bin/eval compare A B OUT  each pair judged once by the `judge` agent, A and B
+                          shown first on alternate pairs
+  --mode M                tournament (the default) or nonregression
+  --tasks IDS             judge and score these tasks only
+  --both-orders           judge each pair twice, both orders, as before
+bin/eval affected --root DIR --base SHA
+                          the tasks DIR's changes against SHA can reach
+--with-heldout            on run and compare, the held-out tasks too (see "Held-out tasks")
 ```
+
+`compare` exits 0 when the candidate is promoted (`won`, `pass`), 2 when it
+isn't (`lost`, `regressed`, `inconclusive`), 3 when it is `unmeasurable`,
+and 1 on an error.
 
 Hard checks need no model. The draft must parse, pass the guard's offline
 screen (not `hands/guard check`, which files holds), fit the length and the
@@ -323,9 +336,18 @@ breaks an invariant counts as a hard failure too.
 
 The judge is blind: the drafts are "1" and "2", never "baseline" and
 "candidate". It reads the rubric, the invariants, and the soul, drive, context,
-lore and arcs of `--judge-root` (this checkout: main), never the candidate's. A
-pair is decided only when both orders agree, so a judge that favours a
-position decides nothing, and an answer it can't read is a tie.
+lore and arcs of `--judge-root` (this checkout: main), never the candidate's.
+Each pair is judged once, and that verdict decides it. The order alternates
+from one judged pair to the next: the first pair shows the baseline as draft
+1, the second the candidate, and so on, held-out tasks the same way. With
+two samples of every task that is the baseline first on sample 1 and the
+candidate first on sample 2; with one sample (`EVOLVE_EVAL_SAMPLES=1`) it
+still alternates, across tasks. So a judge that favours a position favours
+each side equally often, to within one pair, instead of deciding nothing. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
+about 60 a second) and a draft about 25 s, so judging both orders was about
+80% of a candidate's half hour. `--both-orders` brings the old rule back:
+two judgings, and a pair decided only when they agree. An answer the judge
+can't read is a tie either way.
 
 A pair whose draft never ran on either side (its turn failed: the model's
 backend answered `SESSION_EXPIRED`, a stream dropped) says nothing about the
@@ -342,6 +364,70 @@ every task exceed A's by a tenth of the pairs, or at least 2
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
+
+**Modes.** A tournament (`--mode tournament`, the default) promotes B
+when it beats A, as above. A non-regression check (`--mode nonregression`)
+asks only that B is no worse: `pass` when there is no fence failure and no
+hard-check regression (the same rules) and B won at least `--threshold` of
+the decided pairs (default 0.5 in this mode), `regressed` otherwise. It is
+`inconclusive` under the rules below, and also when fewer than `--min-pairs`
+pairs were decided, which here defaults to half the pairs there could be,
+rounded up, at most 12: a change one task reaches has two pairs, and one
+decided pair is enough. `report.json` says `mode`, the `tasks` it scored,
+and keeps `promote`, true only for `won` and `pass`.
+
+**Affected tasks.** `bin/eval affected --root DIR --base SHA` reads what
+DIR's working tree changes against SHA (`git diff --name-only --no-renames
+-z`, so both names of a rename and a path git would quote are read as they
+are, plus the untracked files git doesn't ignore) and prints
+
+```
+{"tasks": [ids], "all": bool, "why": {id or "*": reason}, "paths": {path: reason}, "heldout": [ids]}
+```
+
+The rule follows how a draft is built. Its message is the task (from the
+measuring checkout) and the prompt of the task's playbook, read from the
+measured brain. Its system prompt is `brain/agent/prompts/act.md`, which
+`bin/lib/prompts.py` builds at every boot from `agents/act.md`, `MEMORY.md`
+(or `MEMORY.seed.md` in a lab), `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`,
+`narrative/LORE.md` and `narrative/ARCS.md`, and the core adds `SOUL.md`
+and `IDENTITY.md` (act.toml sets `omit_identity = false`) and any
+`AGENTS.md` in the workspace or the repository root. So:
+
+- every task: those files, `agents/act.toml`, and the code that builds the
+  prompt or runs the turn (`bin/lib/prompts.py`, `bin/lib/core_config.py`,
+  `bin/lib/core_sections/`, `bin/spine`, `bin/ask`, `bin/lib/teeny.sh`,
+  `spine/`, `vendor/`, `Cargo.*`, `rust-toolchain.toml`, `Dockerfile`; all
+  frozen, so only an operator's diff has them). `EVERY_DRAFT` in
+  `bin/lib/evals.py` is the list.
+- `brain/playbooks/<p>.md`: the tasks with `playbook = "<p>"`, held-out ones
+  included. Today that is mentions (14), episode and milestone (2 each),
+  morning, growth, humans, roast, shiplog and cost-of-living (1 each); 6
+  tasks name none.
+- nothing else. A task's inputs are canned, so no hand or data job runs;
+  `act` has no tools, so no skill reaches it; `narrative/VOICE.md`,
+  `EDITOR.md` and the other agents' prompts aren't in its prompt; and the
+  rubric, the hard checks and the judge's reference come from the measuring
+  checkout, the same for both sides.
+
+Gen 6's candidates that edited `moltbook-daily.md` and `pr-merged.md` reach
+no task. `compare --tasks ""` reports them `unmeasurable` ("no eval task
+reaches this change"), never `lost`, and exits 3. Held-out tasks alone never
+decide, so a selection with no visible task is unmeasurable too.
+
+**Baseline reuse.** `run` writes `OUT/run.json` beside the drafts: the
+brain, its checkout's commit, a hash of what the act prompt is built from
+(the built `act.md`, `act.toml`, `SOUL.md`, `IDENTITY.md` and both
+`AGENTS.md`), the samples, and `--key` (the caller's: say, the model). Each
+draft records its message's hash. `run --tasks IDS` keeps an OUT whose
+run.json matches on all of those, and drafts only the (task, sample) rows of
+IDS it lacks, has unrun, or drafted from another message; every other row
+stays. So one baseline serves every candidate of a generation, and the next
+generation's while main hasn't moved, each candidate paying only for the
+tasks the earlier ones didn't need. A run outside a git checkout, or one
+that doesn't match, drafts afresh. `--only IDS` always drafts afresh, as
+before. A held-out id in `--tasks` is used only with `--with-heldout` and
+skipped without it.
 
 **Fence checks.** The rule above needs a task to fail in every sample the
 baseline passed, or many more failures overall, so a candidate that repeats
@@ -404,6 +490,12 @@ with N candidates and opens at most one pull request. The operator merges it,
 unless `EVOLVE_AUTO_PROMOTE=1` lets the loop merge a candidate that won the
 visible and the held-out tasks ("Phase C: promote, restart, watch" below).
 That switch is off by default.
+With `BABYSIT_SELF_MERGE=1` (the `self-merge` rung, L5, the operator's
+decision of 2026-11-15) hands/babysit merges a `teeny/gen-*` pull request
+whose audit is clean and whose `teeny/eval` status passed at its head, with
+no person's approval, then deploys the merge to the live checkout through
+`bin/lib/live_checkout.py`, the steps `LiveRestarter` takes (docs/hands.md,
+"babysit").
 
 ```
  bin/evolve run          state/evolve/<gen>/
@@ -756,7 +848,18 @@ context, lore and arcs, exported from main's commit to
 `state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
 promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
 touches SOUL or CONTEXT, with no hard-check regression.
-`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. A run and a
+`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task.
+
+A candidate is one edit to one file, and gen 6 scored them on all 30 tasks:
+two of its four edited playbooks no task drafts from and lost to noise. The
+evaluation is meant to be a cheap non-regression check on what the change can
+reach (`bin/eval affected` against the candidate's base, then `run --tasks`
+on both sides and `compare --mode nonregression --tasks`, with an
+unmeasurable change reported as such rather than lost; see "Evals"). The
+compare report says which mode decided. `run --brain` should name the brain
+each lab serves: without it (or `OPENHUMAN_WORKSPACE`), `run` reads the
+playbook prompts from the measuring checkout, which for a candidate is main's,
+not its own. A run and a
 compare keep `EVAL_CONCURRENCY` turns in flight at once (default 4, 1 to 16,
 set in secrets/evolve.env: the loop ignores the process environment for it, and 1
 is the setting to use during a provider outage):
