@@ -5,7 +5,9 @@ proposer is a stand-in that records what it was asked."""
 
 import json
 import os
+import socket
 import sys
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -670,6 +672,7 @@ class HandEdits(LoopCase):
         self.assertIn("hands/lore with no change to its tests", checks["changed hands have tests"]["detail"])
         self.assertTrue(checks["hand tests: lore"]["ok"])  # its existing tests still run
 
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here: the hand tests do not run")
     def test_a_failing_hand_test_is_a_finding_with_its_output(self):
         out, checks = self.gated(self.lore_edit(passes=False))
         self.assertTrue(out["hard_ok"])
@@ -747,3 +750,111 @@ class ShownToTheBuilder(LoopCase):
         self.assertIn("A small edit inside an existing hand that is not frozen is yours to make", message)
         self.assertIn("its own section of docs/hands.md", message)
         self.assertIn("No refactor the learning does not need", message)
+
+
+
+class HandTestSandbox(LoopCase):
+    """A candidate's hand tests run in bubblewrap on a copy of its tree, or
+    not at all (docs/evolve.md, "The hand-test sandbox")."""
+
+    def test_the_command_line_jails_a_copy_with_no_network_and_a_clean_environment(self):
+        argv = evolve.sandbox_argv("/usr/bin/bwrap", Path("/tmp/evolve-sandbox-x/tree"), ["python3", "-m", "unittest"])
+        self.assertEqual(argv[0], "/usr/bin/bwrap")
+        for flag in ("--unshare-all", "--die-with-parent", "--new-session", "--clearenv"):
+            self.assertIn(flag, argv)
+        joined = " ".join(argv)
+        self.assertIn("--bind /tmp/evolve-sandbox-x/tree /work", joined)
+        self.assertIn("--ro-bind-try /usr /usr", joined)
+        self.assertIn("--tmpfs /tmp", joined)
+        self.assertIn("--setenv TEENY_SECRETS /work/secrets", joined)
+        self.assertIn("--setenv DRY_RUN 1", joined)
+        self.assertNotIn("--share-net", argv)
+        self.assertNotIn(str(evolve.CODE), joined)  # nothing of the checkout
+        self.assertNotIn(str(self.root), joined)  # nor the data root, its state or secrets
+        writable = [argv[i + 2] for i, a in enumerate(argv) if a in ("--bind", "--bind-try")]
+        self.assertEqual(writable, ["/work"])
+        self.assertEqual(argv[-4:], ["--", "python3", "-m", "unittest"])
+
+    def test_without_a_sandbox_nothing_runs_and_the_check_says_so(self):
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
+        with unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")), \
+                unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran unsandboxed")):
+            out = evolve.gate(tree, base)
+        check = next(c for c in out["checks"] if c["check"] == "hand tests: lore")
+        self.assertTrue(check["ok"])
+        self.assertEqual(check["detail"], "not run here: no sandbox (no bwrap); CI's scripts job runs them before "
+                                          "any merge")
+        self.assertEqual(evolve.check_findings(out), [])
+
+    def test_a_timeout_kills_the_whole_process_group(self):
+        code, out = evolve.run_contained(["sh", "-c", "sleep 300 & echo $!; wait"], timeout=1)
+        self.assertIsNone(code)
+        child = int(out.split()[0])
+        deadline = time.time() + 5
+        while time.time() < deadline and alive(child):
+            time.sleep(0.05)
+        self.assertFalse(alive(child))
+
+    @unittest.skipUnless(evolve.sandbox_ready()[0], "no working bwrap here")
+    def test_a_test_in_the_sandbox_reads_nothing_outside_its_copy_and_has_no_network(self):
+        secret = self.root / "secrets" / "probe.env"
+        secret.write_text("TOKEN=hunter2\n")
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        tree = self.worktree("t")
+        outside = tree / "brain" / "written-from-the-sandbox.md"
+        probe = PROBE % {"secret": str(secret), "outside": str(outside), "port": listener.getsockname()[1],
+                         "live": str(evolve.CODE / "bin" / "evolve")}
+        evolve.apply_edits(tree, [{"path": "hands/tests/test_probe.py", "old": "", "new": probe}])
+        evolve.stage(tree)
+        ok, detail = evolve.run_hand_tests(tree, "probe")
+        self.assertTrue(ok, detail)
+        self.assertIn("OK", detail)
+        self.assertFalse(outside.exists())
+
+
+#: A candidate's test that tries to reach out of the sandbox: every attempt
+#: must fail for it to pass.
+PROBE = """import os
+import socket
+import unittest
+
+
+class Probe(unittest.TestCase):
+    def test_no_secret(self):
+        with self.assertRaises(OSError):
+            open(%(secret)r).read()
+
+    def test_no_live_checkout(self):
+        with self.assertRaises(OSError):
+            open(%(live)r).read()
+
+    def test_no_write_outside_the_copy(self):
+        with self.assertRaises(OSError):
+            open(%(outside)r, "w").write("x")
+
+    def test_no_network(self):
+        for address in (("127.0.0.1", %(port)d), ("1.1.1.1", 53)):
+            with self.assertRaises(OSError):
+                socket.create_connection(address, timeout=2).close()
+
+    def test_its_own_copy_is_writable(self):
+        with open("brain/scratch.md", "w") as fh:
+            fh.write("fine")
+        self.assertEqual(os.getcwd(), "/work")
+"""
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    try:
+        return "Z" not in Path(f"/proc/{pid}/stat").read_text().split()[2]
+    except OSError:
+        return False

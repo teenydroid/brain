@@ -2511,7 +2511,8 @@ def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
         copy_candidate(tree, copy)
         try:
             code, out = run_contained(sandbox_argv(sandbox_binary() or SANDBOX_BIN, copy,
-                                                   ["python3", "-m", "unittest", *target]), HAND_TEST_SECS)
+                                                   [str(Path(sys.executable).resolve()), "-m", "unittest", *target]),
+                                     HAND_TEST_SECS)
         except OSError as exc:
             return False, str(exc)[:MAX_CHECK_DETAIL]
     if code is None:
