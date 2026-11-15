@@ -166,7 +166,10 @@ def _release_x(held: dict[str, Any]) -> str:
         return f"published on X as {out['id']} (a reply to {post_id})"
     if kind != "post":
         raise hand.Refused(f"a held {kind} cannot be released yet; only posts and replies", rule="release")
-    out = publish.post({"text": held["text"]}, approved=True)
+    # The anchor the draft was held with (hands/x passes it in the context);
+    # a hold made before posts had anchors is anchored on the hold itself.
+    anchor = context.get("anchor") or f"hold:{held['id']}"
+    out = publish.post({"text": held["text"], "anchor": anchor}, approved=True)
     return f"published on X as {out['id']}"
 
 

@@ -173,20 +173,25 @@ class WriteVerbsTest(Cli):
     def test_post_under_dry_run_says_what_would_go_out_and_asks_x_nothing(self):
         self.configure(DRY_RUN="1")
         self.x.seen.clear()
-        code, out, _ = self.run_x("post", stdin='{"text":"hi"}', guarded=True)
+        code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"hi"}', guarded=True)
         self.assertEqual((code, out), (0, {"ok": True, "dry_run": True, "would_post": "hi", "kind": "post"}))
         self.assertEqual(self.x.requests(), [])
 
     def test_post_live_publishes_the_guard_s_text(self):
         self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201)
-        code, out, _ = self.run_x("post", stdin='{"text":"gm -- frens"}', guarded=True)
+        code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"gm -- frens"}', guarded=True)
         self.assertEqual((code, out), (0, {"ok": True, "id": "100", "kind": "post", "text": "gm, frens"}))
         self.assertEqual(self.x.requests("POST", "/2/tweets")[0].json(), {"text": "gm, frens"})
 
+    def test_a_post_without_an_anchor_is_exit_2_and_never_sent(self):
+        code, out, _ = self.run_x("post", stdin='{"text":"gm"}', guarded=True)
+        self.assertEqual((code, out["ok"], out["rule"]), (2, False, "anchor"))
+        self.assertEqual(self.x.writes(), [])
+
     def test_a_refusal_is_exit_2_with_the_reason(self):
-        code, out, _ = self.run_x("post", stdin='{"text":"buy $FAKE"}', guarded=True)
+        code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"buy $FAKE"}', guarded=True)
         self.assertEqual((code, out), (2, {"ok": False, "refused": "names a ticker that is not ours", "rewrite": True}))
-        code, out, _ = self.run_x("post", stdin='{"text":"hold me"}', guarded=True)
+        code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"hold me"}', guarded=True)
         self.assertEqual((code, out), (2, {"ok": False, "refused": "held", "category": "politics", "hold_id": 7}))
         self.assertEqual(self.x.writes(), [])
 
@@ -194,7 +199,7 @@ class WriteVerbsTest(Cli):
         # Whatever hands/guard holds right now: absent, the hand fails closed;
         # present, it is the real guard, which this test does not fake.
         self.configure(DRY_RUN="1")
-        code, out, _ = self.run_x("post", stdin='{"text":"hi"}')
+        code, out, _ = self.run_x("post", stdin='{"anchor":"hn:1","text":"hi"}')
         if not (LIB / "teeny_hands" / "guard" / "gate.py").exists():
             self.assertEqual(code, 1)
             self.assertIn("guard", out["error"])
