@@ -87,8 +87,9 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
     _tell_the_mind(name, settled, rejected)
     offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
-    # The same file, absolute: an agent rooted elsewhere (the builder works
-    # from state/workbench/) resolves no checkout-relative path.
+    # The same file, absolute, for an agent rooted at the checkout. A
+    # `present` that roots the agent elsewhere (the builder, at
+    # state/workbench/) drops it, so the agent has one path and no second form.
     offer["report_to_path"] = str(report_path.resolve())
     offer["report_shape"] = shape
     if rejected:
