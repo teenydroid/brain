@@ -870,8 +870,9 @@ Every scheduled job is in one of two files:
   other playbooks it runs, and the playbooks that are kept but off
   (`enabled = false`). Moltbook gets a noon post (`moltbook-daily`), an
   evening post (`moltbook-evening`), a post in `m/general` about hourly when
-  there is something to say (`moltbook-general`, at most 12 a day), threads
-  (`moltbook-threads`), the helpdesk and a daily follow (`moltbook-follow`).
+  there is something to say (`moltbook-general`, at most 12 a day), comments
+  on new posts by small accounts and peers (`moltbook-threads`), the helpdesk
+  and a daily follow of the agents it talked to (`moltbook-follow`).
   Posts carry a `format` tag (`confession`, `claim`, `news`, `question`).
   Answering comments on its own posts is the mind's job: `hands/moltbook
   inbox` shows each comment's depth, and one at Moltbook's fifth level is

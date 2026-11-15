@@ -5,7 +5,11 @@
   babysit_injections  one row per prompt-injection sighting: who, where,
                       which rule and a digest of the span, never the span
   babysit_actions     every write that happened: labels, the audit
-                      comment, a merge
+                      comment, a merge (`merge`, or `self_merge` for one no
+                      person approved), and each deploy step after a
+                      self-merge (`deploy_wait`, `deploy_refused`,
+                      `deploy_ff`, `deploy_submodules`, `deploy_seed_cron`,
+                      `deploy_restart`, `deploy_dry_run`)
 
 No row carries a pull request's words. The dream and the audit read these
 tables, and a payload kept here would reach the model it was written for.
@@ -121,11 +125,13 @@ def acted(verb: str, repo: str, number: int, head_sha: str | None) -> bool:
         conn.close()
 
 
-def count_since(verb: str, since: float) -> int:
+def count_since(verbs: str | tuple[str, ...], since: float) -> int:
+    verbs = (verbs,) if isinstance(verbs, str) else tuple(verbs)
     conn = connect()
     try:
-        return int(conn.execute("SELECT COUNT(*) FROM babysit_actions WHERE verb = ? AND at >= ?",
-                                (verb, since)).fetchone()[0])
+        marks = ", ".join("?" for _ in verbs)
+        return int(conn.execute(f"SELECT COUNT(*) FROM babysit_actions WHERE verb IN ({marks}) AND at >= ?",
+                                (*verbs, since)).fetchone()[0])
     finally:
         conn.close()
 

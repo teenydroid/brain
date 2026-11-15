@@ -427,6 +427,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
+| `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
 | `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
 
 Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
@@ -441,6 +442,62 @@ operator approved this head), `needs_review` (no operator or maintainer
 other than the author and Teeny approved the exact head commit), `waiting`
 (a wait finding), else `ready`. An approval of an older head never counts.
 
+**Self-merge** (`BABYSIT_SELF_MERGE=1` in `secrets/teeny.env`, off by
+default; the `self-merge` rung at L5 in `evals/autonomy.toml`, the
+operator's decision of 2026-11-15: "if the internal babysitter checks out,
+we merge"). A pull request on teenydroid/brain whose author is
+`GITHUB_USER` (tier `teeny`), from a branch of the same repository named
+`teeny/gen-<n>-c<i>` (or the older loop's `teeny/gen-<n>`; digits only, so
+a builder's `teeny/<slug>` never qualifies), is not held at `needs_review`.
+The `teeny/eval` commit status on its exact head, set by Teeny or an
+operator, stands in for the approval: `success` (the targeted eval passed
+non-regression, or found the change unmeasurable) makes it `ready` with
+`self_merge: true` and `approved_by: []`; missing is `waiting`
+(`eval_missing`), pending is `waiting`, `failure` or `error` is `failing`.
+Every other rule holds as before: any block, fail or operator finding stops
+it (a frozen path blocks Teeny; a sensitive path, a removed test, an
+injection in Teeny's own diff or too large a change needs the operator), and
+every check must be green. Strangers, maintainers and builder pull requests
+still need a person's approval of the exact head.
+
+**Deploy on merge.** A self-merge queues `state/deploy-pending.json`
+(`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
+and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
+(`TEENY_ROOT`, the one `bin/spine` runs) to the merge in the order
+`bin/lib/live_checkout.py` keeps for it and for `bin/evolve`'s promotion
+restart:
+
+1. **wait** while `state/locks/evolve.lock`, `evolve-watch.lock` or
+   `eval.lock` is held (a generation, evolve-watch, the targeted eval): a
+   restart ends the container they run in. Nothing moves; `deploy_wait`.
+2. **refuse** tracked edits, a failed fetch, or a history that cannot
+   fast-forward to the merge (`deploy_refused`, with the reason, also in the
+   pending file). Nothing is reset or forced; the deploy stays pending until
+   the operator clears the way.
+3. **last-good**: the outgoing commit goes to `state/last-good` when a
+   restart follows, so a boot that fails on the merge falls back.
+4. **fast-forward**: `git merge --ff-only` (`deploy_ff`).
+5. **submodules**: `git submodule update --init --recursive` when the
+   merge moved a gitlink (`deploy_submodules`).
+6. **seed-cron**: `bin/seed-cron` when `brain/cron.toml` or
+   `evals/cron.pinned.toml` changed and no restart follows
+   (`deploy_seed_cron`; a boot reseeds anyway).
+7. **restart**: TERM to `bin/spine` (`state/spine.pid`) only when the merge
+   touched what is read at boot (`deploy_restart`, written before the TERM):
+   `brain/SOUL.md`, `CONTEXT.md`, `DRIVE.md`, `CHARTER.md`,
+   `narrative/LORE.md` and `narrative/ARCS.md` (bin/lib/prompts.py),
+   `brain/agents/**` and `brain/skills/**` (the core), the playbooks
+   `bin/lib/inbound_config.py` writes into the core's config
+   (`mentions.md`, `mail.md`), `bin/**`, `deploy/**`, `spine/**`,
+   `vendor/**`, `.gitmodules` and `hands/lib/teeny_hands/websites.py`.
+   Any other playbook, `brain/narrative/chronicle/**`, `brain/cron.toml`,
+   `hands/**`, `evals/**` and `docs/**` are read by each run and restart
+   nothing; a path in neither list restarts (`unlisted`). Compose starts
+   the spine again and the doctor gates the boot.
+
+Under `DRY_RUN` nothing moves: `deploy_dry_run` records the plan once and
+the deploy stays pending.
+
 | Verb | | Does |
 |---|---|---|
 | `queue [--repo OWNER/REPO] [--max N]` | R | Every open pull request on the watched repositories (20 each), audited, worst verdict first, with `counts`. |
@@ -448,12 +505,12 @@ other than the author and Teeny approved the exact head commit), `waiting`
 | `injections [--days N] [--max N]` | R | The injection log, newest first: when, repository, number, head, `who`, `tier`, `rule`, `location` and a 16-hex `digest` of the matched span. Never the span. |
 | `audits [--max N]` | R | The last audits, with their findings. |
 | `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
-| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
-| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`. One pull request's refusal or error is listed in `errors`; the rest go on. |
+| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC, self-merges included; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). A self-merge is also refused past `BABYSIT_SELF_MERGES_PER_DAY` (2, at most 10; `self_merge_cap`), is recorded as `self_merge` (with `eval`) instead of `merge`, and queues the deploy. GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. One pull request's refusal or error is listed in `errors`; the rest go on. |
 
 Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
 write nothing to GitHub or the action ledger; the audits are reads and are
-recorded either way. State is `babysit_audits`, `babysit_injections`
+recorded either way. State is `state/deploy-pending.json`, `babysit_audits`, `babysit_injections`
 (unique on pull request, who, rule, place and digest, so a payload seen
 twice is logged once) and `babysit_actions` in `state/hands.db`. No row
 holds a pull request's words: the dream and the weekly audit read the
@@ -497,18 +554,20 @@ A link post's `url` must be on the link allowlist.
 | Verb | | Does |
 |---|---|---|
 | `whoami`, `status`, `home [--expand]` | R | `/agents/me` (10 min), the claim status, the dashboard (1 min). `--expand` attaches, to each mention of Teeny in someone else's post, that post and its latest comments (at most 5 posts, through the `post` and `comments` caches). |
-| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, submolt, score, comment_count, created_at}` with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. |
+| `feed [--submolt S]... [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, author_karma, author_followers, submolt, score, comment_count, created_at}` (the author numbers when Moltbook sends them: a submolt's feed has karma, not followers) with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. `--submolt` may be given several times: each submolt is one request (cached like any feed) and the posts are merged, newest first, as `{posts, seen, submolts}`. The filters drop posts before the cut to N: `--max-age-hours H` (by `created_at`), `--max-author-karma K`, `--min-author-karma K`, `--max-comments N`, and `--skip-mine` (Teeny's own posts and those it already commented on, by the ledger). A post whose age or karma is unknown fails a filter on it. With a filter each submolt is read 50 deep. A failing submolt is named in `errors` and the rest are kept; a 429 stops the reading. |
+| `peers [--per-peer N] [--max-age-hours H] [--skip-mine]` | R | The newest N posts (2) of each agent in `brain/moltbook-peers.txt` (one name a line, `#` comments, checked as agent names; Teeny may edit it), at most 20 peers, one `/posts?author=NAME&sort=new` request each (10 min). A post not by that peer is dropped. The same filters as `feed`; brief posts, newest first. |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
 | `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one once: a held one is not added but kept in `moltbook_held`, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox). `bin/tick` runs it at most every 10 minutes. |
 | `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each write measured in the last N days (7), newest write first: a post with its title, a comment with its post's id. |
+| `exchanges [--days N] [--max N]` | R | From the ledger only: the agents Teeny had a real exchange with in the last N days (14), most talk first (at most `--max`, 10). An exchange is a reply under Teeny's comment (`answering_teeny` in the inbox's stimulus), or a comment Teeny answered followed by another from the same agent. Each as `{name, replied_to_teeny, comments, teeny_answered, came_back, last_at}`. `peers` is the peer list. Agents Teeny already followed or unfollowed are left out of both, so two empty lists mean nobody to follow. `moltbook-follow` reads it. |
 | `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row. The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
 | `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count, and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
 | `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
 | `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. A follow needs no earlier exchange. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
+| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. The hand does not check for an earlier exchange; the daily `moltbook-follow` picks only from `exchanges`. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
 | `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
 | `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
@@ -534,6 +593,12 @@ hears of the write, and refuses each with its `rule`:
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
   never twice to one comment, and on its own post only the first comment,
   while nobody else has commented.
+- Age (`too_old`): a top-level comment on another agent's post older than
+  `MOLTBOOK_MAX_COMMENT_AGE_HOURS` (6, at least 1) is refused, because it
+  lands under every earlier comment and is not read. A reply (`parent_id`),
+  anything on Teeny's own post, a post that names Teeny and a post whose
+  `created_at` is missing are exempt. The playbooks' own inputs are
+  filtered tighter (`feed --max-age-hours`).
 - Collaboration (`collab`): a post that says collab, co-built,
   "partnered with" or "with u/NAME" is refused unless every agent it names
   has a `collabs` row.

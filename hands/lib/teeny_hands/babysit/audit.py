@@ -16,13 +16,27 @@ The verdict is the first that holds, in this order:
   failing         a fail finding
   needs_operator  an operator finding and no operator approved this head
   needs_review    nobody trusted (an operator or a maintainer, never the
-                  author and never Teeny) approved this head
+                  author and never Teeny) approved this head, and it is
+                  not a self-merge candidate (below)
   waiting         a wait finding
   ready           the babysitter may merge it (`actions.merge`)
 
 Every merge needs a person's approval of the exact head it merges: the
 babysitter is the hand on the button (L4, "a person signs off the risky
 steps"), never the one who decides the change is good.
+
+One exception, the self-merge path (`self-merge` at L5 in
+evals/autonomy.toml; the operator's decision of 2026-11-15, "if the
+internal babysitter checks out, we merge"). With BABYSIT_SELF_MERGE=1, a
+pull request on teenydroid/brain whose author is GITHUB_USER (tier teeny),
+whose head branch is teeny/gen-<n>[-c<i>] on the same repository, skips
+`needs_review`: the `teeny/eval` commit status on its exact head, set by
+Teeny or an operator, stands in for the approval. A missing or untrusted
+one is a wait (`eval_missing`, `eval_untrusted`), a pending one a wait and
+a failed one a fail (the ordinary check rules). Nothing else changes: a
+block, fail or operator finding stops it exactly as before, so a frozen
+path, a sensitive path or an injection in Teeny's own diff still needs the
+operator. `self_merge` in the answer says a ready verdict came this way.
 """
 
 from __future__ import annotations
@@ -106,6 +120,8 @@ class _Audit:
         self.author = pr.get("user")
         self.author_tier = self.tier(self.author)
         self.head_sha = pr.get("head_sha")
+        self.evolve = self._is_evolve_pr()
+        self.eval_state: str | None = None
         if pr.get("state") != "open":
             return self._answer(closed=True)
 
@@ -119,6 +135,14 @@ class _Audit:
         self._checks()
         reviews = self.api.reviews(self.owner, self.name, self.number)
         return self._answer(reviews=reviews)
+
+    def _is_evolve_pr(self) -> bool:
+        """A self-merge candidate: the switch on, teenydroid/brain, Teeny's
+        own pull request from a teeny/gen-* branch of the same repository."""
+        pr = self.pr
+        return (policy.self_merge_on() and policy.is_brain(self.repo) and self.author_tier == policy.TEENY
+                and bool(pr.get("head_repo")) and pr.get("head_repo") == pr.get("base_repo")
+                and policy.is_evolve_branch(pr.get("head_ref")))
 
     def _prose_severity(self, rule: str) -> str:
         if self.author_tier == policy.STRANGER:
@@ -280,6 +304,20 @@ class _Audit:
             self.add("check_pending", "wait", f"check:{name}")
         if not runs and not status["statuses"]:
             self.add("no_checks", "wait", "checks", "nothing has checked this head yet")
+        if self.evolve:
+            self._eval(status["statuses"])
+
+    def _eval(self, statuses: list[Json]) -> None:
+        """teeny/eval on the head of a self-merge candidate. Its pending and
+        failed states are already a wait and a fail (above)."""
+        where = f"check:{policy.EVAL_CONTEXT}"
+        found = [s for s in statuses if s.get("context") == policy.EVAL_CONTEXT]
+        if not found:
+            self.add("eval_missing", "wait", where, "no teeny/eval status on this head yet")
+            return
+        self.eval_state = str(found[0].get("state"))
+        if self.tier(found[0].get("creator")) not in (policy.TEENY, policy.OPERATOR):
+            self.add("eval_untrusted", "wait", where, "set by someone other than Teeny or an operator")
 
     # --- the verdict -----------------------------------------------------------------------
 
@@ -310,6 +348,7 @@ class _Audit:
 
     def _answer(self, reviews: list[Json] | None = None, closed: bool = False) -> Json:
         approved: list[str] = []
+        self_merge = False
         if closed:
             verdict = "closed"
         else:
@@ -324,12 +363,17 @@ class _Audit:
                 verdict = "failing"
             elif "operator" in severities and not by_operator:
                 verdict = "needs_operator"
-            elif not approved:
+            elif not approved and not self.evolve:
                 verdict = "needs_review"
             elif "wait" in severities:
                 verdict = "waiting"
+            elif not approved and self.eval_state != "success":
+                # A self-merge candidate merges unapproved only on a passed
+                # teeny/eval, whatever else its status says.
+                verdict = "needs_review"
             else:
                 verdict = "ready"
+                self_merge = not approved
         title_hit = any(f["where"] == "title" for f in self.findings)
         result: Json = {
             "repo": self.repo,
@@ -344,6 +388,8 @@ class _Audit:
             "title": None if title_hit else self.pr.get("title"),
             "verdict": verdict,
             "approved_by": approved,
+            "self_merge": self_merge,
+            "eval": self.eval_state,
             "labels": [str(label) for label in self.pr.get("labels") or []],
             "findings": sorted(self.findings, key=lambda f: (SEVERITIES.index(f["severity"]), f["rule"], f["where"])),
             "injections": len(self.injections),

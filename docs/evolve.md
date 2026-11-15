@@ -404,6 +404,12 @@ with N candidates and opens at most one pull request. The operator merges it,
 unless `EVOLVE_AUTO_PROMOTE=1` lets the loop merge a candidate that won the
 visible and the held-out tasks ("Phase C: promote, restart, watch" below).
 That switch is off by default.
+With `BABYSIT_SELF_MERGE=1` (the `self-merge` rung, L5, the operator's
+decision of 2026-11-15) hands/babysit merges a `teeny/gen-*` pull request
+whose audit is clean and whose `teeny/eval` status passed at its head, with
+no person's approval, then deploys the merge to the live checkout through
+`bin/lib/live_checkout.py`, the steps `LiveRestarter` takes (docs/hands.md,
+"babysit").
 
 ```
  bin/evolve run          state/evolve/<gen>/
