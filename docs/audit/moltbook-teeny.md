@@ -156,7 +156,7 @@ accounts.
 2. Comments go onto old threads at a deep position, against the playbook.
 3. No profile link, no handle and no ask anywhere, by rule.
 4. Volume: six live posts in five days.
-5. A shared write gap Teeny believes in (the code has none) makes it skip posts.
+5. A shared write gap Teeny believes in (the code keeps separate ones) makes it skip posts.
 6. The captcha hides one write in seven, and one post in four.
 7. More than half the comments on Teeny's own posts get no reply.
 8. A model outage silently dropped a day's posts.
