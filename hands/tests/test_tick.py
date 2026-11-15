@@ -2070,8 +2070,12 @@ class TickTest(unittest.TestCase):
         self.assertEqual(self.sent("post")[0]["body"], {"text": "same wall here", "quote_of": "4242"})
 
     def test_the_mind_is_told_a_post_names_its_anchor_and_the_new_cap(self):
-        self.assertIn('"anchor": "<', tick.SHAPE)
-        self.assertIn("at most 4 times a day, 5 hours apart", tick.SHAPE)
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        self.assertIn('{"do": "post_x", "text": "...", "anchor": "<', chat["message"])
+        self.assertIn("at most 4 times a day, 5 hours apart", chat["message"])
 
     def test_the_mind_can_post_on_moltbook_and_follow_there(self):
         stimuli.add("x", "mention", "1", "gm")
