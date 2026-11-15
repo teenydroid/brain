@@ -412,6 +412,9 @@ class DeskTest(Scratch):
         self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertIn("job_id", offer["report_shape"])
         self.assertIn("Work only inside workdir", offer["rules"])
+        # The rules name the one path the builder is shown: report_to.
+        self.assertIn("write your report to report_to, once", offer["rules"])
+        self.assertNotIn("report_to_path", offer["rules"])
         # Laying it out again before a report is the same claim, resumed.
         jobs.desk()
         again = json.loads(self.desk("build.json").read_text())
@@ -502,14 +505,14 @@ class DeskTest(Scratch):
     def workbench(self):
         return self.root / "state" / "workbench"
 
-    def claim_self_job(self, slug="self-2-build-dripsplan"):
+    def claim_self_job(self, slug="self-2-build-dripsplan", claimed_at=None, status="claimed"):
         conn = jobs.db()
         try:
             with hand.transaction(conn):
                 cur = conn.execute(
-                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch)"
-                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?)",
-                    (slug, hand.now(), "teeny/" + slug))
+                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch, status)"
+                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?, ?)",
+                    (slug, hand.now() if claimed_at is None else claimed_at, "teeny/" + slug, status))
                 return cur.lastrowid
         finally:
             conn.close()
@@ -521,6 +524,10 @@ class DeskTest(Scratch):
         self.assertNotIn("workdir_path", job)
         self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertNotIn("report_to_path", offer)
+        # Not as a key, and not as text anywhere the builder reads (the rules too).
+        dumped = json.dumps(offer)
+        self.assertNotIn("report_to_path", dumped)
+        self.assertNotIn("workdir_path", dumped)
         self.assertIn("relative to state/workbench/", offer["paths"])
         shown = {k: v for k, v in job.items() if k not in ("request", "instructions")}
         shown.update({k: v for k, v in offer.items() if k != "job"})
@@ -568,6 +575,28 @@ class DeskTest(Scratch):
         # Nothing is moved for it.
         self.assertTrue((stray / "__init__.py").exists())
         self.assertFalse((self.workbench() / "brain" / "hands").exists())
+
+    def test_a_stray_file_from_an_earlier_job_is_not_named_on_a_later_one(self):
+        # Self jobs share the workdir brain. Job 7 left files in the mirror
+        # before job 8 was claimed; job 8 must not be told to rewrite them.
+        mirror = self.workbench() / "state" / "workbench" / "brain" / "hands" / "lib" / "teeny_hands" / "dripsplan"
+        mirror.mkdir(parents=True)
+        old = mirror / "__init__.py"
+        old.write_text("x = 1\n")
+        os.utime(old, (T0 - 3000, T0 - 3000))
+        self.claim_self_job("self-7-build-dripsplan", claimed_at=T0 - 3600, status="shipped")
+        self.claim_self_job("self-8-build-dripsplan", claimed_at=T0)
+        jobs.desk()
+        self.assertNotIn("note", json.loads(self.desk("build.json").read_text())["job"])
+        # A file the current job wrote into the mirror is still named, and
+        # only it: job 7's file is not.
+        fresh = mirror / "cli.py"
+        fresh.write_text("y = 2\n")
+        os.utime(fresh, (T0 + 10, T0 + 10))
+        jobs.desk()
+        note = json.loads(self.desk("build.json").read_text())["job"]["note"]
+        self.assertIn("state/workbench/brain/hands/lib/teeny_hands/dripsplan/cli.py", note)
+        self.assertNotIn("__init__.py", note)
 
     def test_no_note_without_a_nested_mirror(self):
         self.claim_self_job()

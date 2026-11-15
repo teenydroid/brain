@@ -101,7 +101,7 @@ _SHIPPED_CHARS = 80
 RULES = (
     "Work only inside workdir. Write small, working code with tests and run them. Never read or "
     "write anything outside workdir, never open secrets/, and never push: shipping happens later "
-    "and is not yours to do. When finished, write your report to report_to_path, once."
+    "and is not yours to do. When finished, write your report to report_to, once."
 )
 
 #: The build_requests source of a change Teeny proposes to itself.
@@ -219,6 +219,9 @@ def _offer(job: Json, resumed: bool = False) -> Json:
         "workdir_path": str(path),
         "repo": job["repo"],
         "resumed": resumed,
+        # The cutoff for stray files (_stray); _present takes it out of the
+        # job before the builder sees it.
+        "claimed_at": job["claimed_at"],
     }
     if job["kind"] == "upstream":
         offer.update(repo=upstream.UPSTREAM_REPO, branch=job["branch"], base=upstream.BASE)
@@ -544,10 +547,10 @@ def done(body: Any) -> Json:
                 since = f"refs/remotes/origin/{row['branch']}" if row["kind"] == "fix" else selfclone.ORIGIN_BASE
                 if status == "ok" and not selfclone.has_changes(since):
                     raise hand.Refused(_with_stray("the clone has no change; an ok self job has something to ship",
-                                                   row["workdir"]), job_id=job_id)
+                                                   row["workdir"], row["claimed_at"]), job_id=job_id)
             elif status == "ok" and not (folder.is_dir() and any(folder.iterdir())):
                 raise hand.Refused(_with_stray("the workdir is empty; an ok job has something to ship",
-                                               row["workdir"]), job_id=job_id)
+                                               row["workdir"], row["claimed_at"]), job_id=job_id)
             conn.execute(
                 "UPDATE build_jobs SET status = ?, summary = ?, tests = ?, finished_at = ?, repo = COALESCE(?, repo)"
                 " WHERE id = ?",
@@ -601,26 +604,29 @@ def _for_builder(rel: str) -> str:
     return rel[len(prefix):] if rel.startswith(prefix) else rel
 
 
-def _stray(workdir: str) -> list[str]:
-    """Files under the nested mirror of WORKDIR (a checkout-relative path):
-    what a builder wrote when it put state/workbench/ in front of a path its
-    tools already resolve from the workbench. Named as the builder would see
-    them; never moved."""
+def _stray(workdir: str, since: float) -> list[str]:
+    """Files under the nested mirror of WORKDIR (a checkout-relative path)
+    written at or after SINCE, the job's claim: what a builder wrote when
+    it put state/workbench/ in front of a path its tools already resolve
+    from the workbench. A file older than the claim belongs to an earlier
+    job that shares the folder, and is not this job's to redo. Named as
+    the builder would see them; never moved. The walk stops once it has
+    enough to name, so a large mirror is not listed whole."""
     mirror = hand.root() / WORKBENCH / workdir
     if not workdir.startswith(WORKBENCH + "/") or not mirror.is_dir():
         return []
     base = hand.root() / WORKBENCH
-    found = []
-    for path in sorted(mirror.rglob("*")):
-        if path.is_file():
-            found.append(str(path.relative_to(base)))
+    found: list[Path] = []
+    for path in mirror.rglob("*"):
+        if path.is_file() and path.stat().st_mtime >= since:
+            found.append(path)
             if len(found) > _STRAY_SHOWN:
                 break
-    return found
+    return [str(path.relative_to(base)) for path in sorted(found)]
 
 
-def _stray_note(workdir: str) -> str | None:
-    found = _stray(workdir)
+def _stray_note(workdir: str, since: float) -> str | None:
+    found = _stray(workdir, since)
     if not found:
         return None
     shown = ", ".join(found[:_STRAY_SHOWN]) + (", ..." if len(found) > _STRAY_SHOWN else "")
@@ -630,8 +636,8 @@ def _stray_note(workdir: str) -> str | None:
             f"again under {mine}/.")
 
 
-def _with_stray(reason: str, workdir: str) -> str:
-    note = _stray_note(workdir)
+def _with_stray(reason: str, workdir: str, since: float) -> str:
+    note = _stray_note(workdir, since)
     return f"{reason}. {note}" if note else reason
 
 
@@ -645,7 +651,8 @@ def _present(offer: dict[str, Any]) -> dict[str, Any]:
     if isinstance(job, Mapping):
         job = dict(job)
         job.pop("workdir_path", None)
-        note = _stray_note(job["workdir"])
+        since = job.pop("claimed_at", 0.0)
+        note = _stray_note(job["workdir"], since)
         job["workdir"] = _for_builder(job["workdir"])
         if note:
             job["note"] = note
