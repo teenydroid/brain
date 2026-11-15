@@ -65,8 +65,13 @@ tinystoragedrivers-queue = { path = "vendor/openhuman/vendor/tinystoragedrivers/
 tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-secrets" }
 tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
+# Resolve tinyinference to the copy tinycomputer pins (tinyinference#155, the
+# image assets and Box questions the captcha solver calls), not to the older
+# copy tinyagents vendors. That copy is an ancestor of this one, so one copy
+# serves both and nothing tinyagents uses goes missing. Pointing at the older
+# copy fails the spine build with E0432/E0599 on BoxQuestion and BoxAnswer.
 [patch."https://github.com/tinyhumansai/tinyinference"]
-tinyinference-decisions = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-decisions" }
+tinyinference-decisions ={ path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-decisions" }
 tinyinference-core = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-core" }
 tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-embeddings" }
 tinyinference-llm = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-llm" }
