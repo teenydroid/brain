@@ -629,11 +629,21 @@ def _check_comment_rules(conn: sqlite3.Connection, api: RestApi | None, post_id:
     return own_post, the_post
 
 
-def comment(body: Any, api: RestApi | None = None) -> Json:
+def comment_input(body: Any) -> tuple[str, dict[str, Any], str, str | None]:
+    """The checks `comment` makes on its input before it writes or sends
+    anything: the tags, the required fields, both ids. Returns the words,
+    the tags, the post id and the parent id. A caller that files something
+    of its own first (the helpdesk's pain) runs this up front, so a malformed
+    answer is refused before anything else is written."""
     body, tagged = tags.split(body)
     body = _body(body, ("post_id", "body"), ("parent_id",))
     post_id = _full_id(client.object_id(body["post_id"], "post_id"), "post_id")
     parent_id = _full_id(client.object_id(body["parent_id"], "parent_id"), "parent_id") if body.get("parent_id") is not None else None
+    return _string(body, "body"), tagged, post_id, parent_id
+
+
+def comment(body: Any, api: RestApi | None = None) -> Json:
+    text_in, tagged, post_id, parent_id = comment_input(body)
     conn = rules.db()
     _comment_as_post(conn, post_id, "comment")
     if parent_id is not None:
@@ -641,7 +651,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     # parent_id (None for a top-level comment) and the tags let the guard's
     # re-screen send it again if only a judge outage held it (guard/rescreen.py).
     resend = {"parent_id": parent_id, **{k: v for k, v in tagged.items() if v is not None}}
-    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id, **resend})["body"]
+    text = guarded({"body": text_in}, "comment", {"post_id": post_id, **resend})["body"]
     # An answer to a comment on Teeny's own post may spend the reserve of
     # the day's allowance kept for those answers (rules.check_comment).
     own_thread = parent_id is not None and (
