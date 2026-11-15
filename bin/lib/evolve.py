@@ -2585,7 +2585,7 @@ def docs_missing(tree: Path, base: str, changes: list[tuple[str, str]], hands_ch
 #: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository, and
 #: SOUL+CONTEXT past their cap. Every other check is a finding the builder
 #: is sent back to fix.
-HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size")
+HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size", "hands/lib holds only teeny_hands")
 #: EVOLVE_MAX_CHANGE_PCT's default, for a gate run outside a generation.
 DEFAULT_MAX_CHANGE_PCT = 5.0
 _TRACKED_LINES: dict[str, int] = {}
@@ -2628,6 +2628,15 @@ def hard_gate(tree: Path, base: str, max_pct: float = DEFAULT_MAX_CHANGE_PCT) ->
          f"{lines}/{cap} changed lines ({max_pct:g}% of the {tracked_lines(tree, base)} the repository tracks)")
     soul = sum((a or 0) + (r or 0) for a, r, p in stats if p in SOUL_CONTEXT)
     note("SOUL+CONTEXT size", soul <= MAX_SOUL_CONTEXT_LINES, f"{soul}/{MAX_SOUL_CONTEXT_LINES} changed lines")
+    # Every hand puts hands/lib first on its path, and bin/doctor --root
+    # imports the candidate's hands/lib: a file there beside teeny_hands
+    # (hands/lib/argparse.py) would stand in for the standard library under
+    # frozen code. Only teeny_hands/ lives there.
+    shadow = sorted(p for _, p in name_status(tree, base)
+                    if p.startswith("hands/lib/") and not p.startswith("hands/lib/teeny_hands/"))
+    note("hands/lib holds only teeny_hands", not shadow,
+         f"adds or changes {', '.join(shadow)}: hands/lib/ is on every hand's import path, so only "
+         "hands/lib/teeny_hands/ may live there" if shadow else "nothing beside teeny_hands")
     return checks
 
 
@@ -2676,14 +2685,6 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
          else (f"{', '.join(edited)}: tests changed too" if edited else "no existing hand changed"))
     missing = docs_missing(tree, base, changes, hands_changed)
     note("docs updated", not missing, "; ".join(missing) if missing else "nothing that needs docs, or they are updated")
-    for name in sorted(set(hands_changed) | tests_touched):
-        if _hand_tests(tree, name) is None:
-            continue
-        if not frozen_ok:
-            note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
-            continue
-        ok, detail = run_hand_tests(tree, name)
-        note(f"hand tests: {name}", ok, detail)
     out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
     # own bin/ and evals/, which the frozen check just proved are main's.
@@ -2708,6 +2709,16 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
                                      "whose code is frozen")
     ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
+    # Last, after every check that runs the candidate's (frozen) scripts, and
+    # on a copy in the sandbox: nothing a test does can reach them.
+    for name in sorted(set(hands_changed) | tests_touched):
+        if _hand_tests(tree, name) is None:
+            continue
+        if not frozen_ok:
+            note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
+            continue
+        ok, detail = run_hand_tests(tree, name)
+        note(f"hand tests: {name}", ok, detail)
     return out
 
 
