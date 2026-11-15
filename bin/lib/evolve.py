@@ -1811,7 +1811,8 @@ def affected(cand: Json) -> Json:
         raise EvolveError("bin/eval affected did not answer JSON") from None
     if not isinstance(got, dict) or not isinstance(got.get("tasks"), list):
         raise EvolveError("bin/eval affected answered no task list")
-    got = {"tasks": sorted({str(t) for t in got["tasks"]}), "all": bool(got.get("all")), "why": got.get("why") or {}}
+    got = {"tasks": sorted({str(t) for t in got["tasks"]}), "all": bool(got.get("all")), "why": got.get("why") or {},
+           "paths": got.get("paths") or {}}
     write_json(path, got)
     return got
 
@@ -1820,23 +1821,39 @@ def _drafts_of(path: Path) -> list[Json]:
     return read_jsonl(path / "drafts.jsonl")
 
 
-def _ran(run: Path, tasks: list[str], samples: int) -> bool:
+#: bin/evolve's own mark of a finished candidate run, beside bin/eval's
+#: run.json (which bin/eval reads to reuse rows): a resumed run that finds it
+#: needs no lab to know the drafts are there.
+RUN_MARK = "evolve-run.json"
+
+
+def _ran(run: Path, tasks: list[str], samples: int, key: str) -> bool:
     """A run already holds every sample of TASKS: a resumed run reuses it."""
     try:
-        marker = json.loads((run / "run.json").read_text(encoding="utf-8"))
+        marker = json.loads((run / RUN_MARK).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return marker.get("samples") == samples and set(tasks) <= set(marker.get("tasks") or [])
+    return (marker.get("samples") == samples and marker.get("key") == key
+            and set(tasks) <= set(marker.get("tasks") or []))
+
+
+def model_key() -> str:
+    """What a draft depends on besides the brain: the model the labs run
+    (SPINE_MODEL in secrets/spine.env, which every lab copies), passed to
+    `bin/eval run --key`, so a model change drafts the baseline afresh."""
+    return _read_env(secrets_dir() / "spine.env").get("SPINE_MODEL", "").strip() or "default"
 
 
 class Baseline:
-    """Main's drafts, once per base commit and samples, task by task, kept
-    in state/evolve/baseline/<base>/s<samples>/ across candidates and
-    generations: a later run drafts only the tasks no earlier one did."""
+    """Main's drafts at one base commit, one bin/eval run folder kept across
+    candidates and generations (state/evolve/baseline/<base>/s<samples>-<key>/):
+    bin/eval reuses the rows its run.json still matches, and drafts only the
+    tasks no earlier run did (`missing`, which this records)."""
 
-    def __init__(self, base: str, samples: int) -> None:
-        self.base, self.samples = base, samples
-        self.folder = evolve_dir() / "baseline" / base / f"s{samples}"
+    def __init__(self, base: str, samples: int, key: str) -> None:
+        self.base, self.samples, self.key = base, samples, key
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "_", key)[:60] or "default"
+        self.folder = evolve_dir() / "baseline" / base / f"s{samples}-{slug}"
 
     def tasks(self) -> set[str]:
         try:
@@ -1847,27 +1864,15 @@ class Baseline:
     def missing(self, tasks: Iterable[str]) -> list[str]:
         return sorted(set(tasks) - self.tasks())
 
-    def draft(self, tasks: list[str], env: Mapping[str, str]) -> None:
-        """Drafts TASKS on the core in ENV and adds them to the store."""
+    def draft(self, tasks: list[str], env: Mapping[str, str], brain: Path) -> None:
+        """Drafts TASKS on the core in ENV, whose brain is BRAIN."""
         if not tasks:
             return
-        batch = self.folder / f"batch-{len(list(self.folder.glob('batch-*'))) + 1}"
-        done = _eval(["run", "--tasks", ",".join(tasks), "--samples", str(self.samples), str(batch)], env)
+        done = _eval(["run", "--tasks", ",".join(tasks), "--samples", str(self.samples), "--brain", str(brain),
+                      "--key", self.key, str(self.folder)], env)
         if done.returncode != 0:
             raise EvolveError(f"the baseline run failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
-        with (self.folder / "drafts.jsonl").open("a", encoding="utf-8") as fh:
-            for row in _drafts_of(batch):
-                if row.get("task") in tasks:
-                    fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
         write_json(self.folder / "tasks.json", sorted(self.tasks() | set(tasks)))
-
-    def view(self, tasks: list[str], out: Path) -> Path:
-        """A run folder holding the baseline's drafts of TASKS only."""
-        out.mkdir(parents=True, exist_ok=True)
-        rows = [r for r in _drafts_of(self.folder) if r.get("task") in tasks]
-        (out / "drafts.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n"
-                                                  for r in rows), encoding="utf-8")
-        return out
 
 
 class Unevaluated:
@@ -1936,14 +1941,17 @@ class TargetedEvaluator:
                 done(cand, unmeasurable(plans[cand["id"]]))
         if not measured:
             return
-        baseline = Baseline(self.base, self.cfg["EVOLVE_EVAL_SAMPLES"])
+        baseline = Baseline(self.base, self.cfg["EVOLVE_EVAL_SAMPLES"], model_key())
         try:
             try:
                 # A restart that finds every report it needs boots nothing.
                 fresh = [c for c in measured if not self._reusable(c, plans[c["id"]])]
                 base_env = self._base_env() if fresh else {}
                 union = sorted({t for c in fresh for t in plans[c["id"]]["tasks"]})
-                baseline.draft(baseline.missing(union), self._env(base_env, self.cfg["EVAL_CONCURRENCY"]))
+                if baseline.missing(union):
+                    assert self.base_tree is not None
+                    baseline.draft(baseline.missing(union), self._env(base_env, self.cfg["EVAL_CONCURRENCY"]),
+                                   self.base_tree / "brain")
             except EvolveError as exc:
                 for cand in measured:
                     done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300]})
@@ -1967,7 +1975,7 @@ class TargetedEvaluator:
 
     def _saved_report(self, cand: Json, tasks: list[str]) -> Json | None:
         run, compare = self._paths(cand)
-        if not (compare / "report.json").is_file() or not _ran(run, tasks, self.cfg["EVOLVE_EVAL_SAMPLES"]):
+        if not (compare / "report.json").is_file() or not _ran(run, tasks, self.cfg["EVOLVE_EVAL_SAMPLES"], model_key()):
             return None
         try:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
@@ -2012,19 +2020,26 @@ class TargetedEvaluator:
 
     def _measure(self, cand: Json, tasks: list[str], run: Path, compare: Path, baseline: Baseline,
                  cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
-        samples = self.cfg["EVOLVE_EVAL_SAMPLES"]
-        if not _ran(run, tasks, samples):
-            done = _eval(["run", "--tasks", ",".join(tasks), "--samples", str(samples), str(run)],
+        samples, key = self.cfg["EVOLVE_EVAL_SAMPLES"], model_key()
+        if not _ran(run, tasks, samples, key):
+            # --brain: the task's playbook prompt is read from the brain the
+            # lab serves, the candidate's worktree; without it bin/eval read
+            # the live checkout's, and a candidate's own playbook edit never
+            # reached its drafts.
+            done = _eval(["run", "--tasks", ",".join(tasks), "--samples", str(samples), "--brain",
+                          str(evolve_dir() / cand["worktree"] / "brain"), "--key", key, str(run)],
                          self._env(cand_env, share))
             if done.returncode != 0:
                 raise EvolveError(f"the candidate's run failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
-            write_json(run / "run.json", {"tasks": tasks, "samples": samples, "at": iso(now())})
-        base_view = baseline.view(tasks, compare.parent / "base")
+            write_json(run / RUN_MARK, {"tasks": tasks, "samples": samples, "key": key, "at": iso(now())})
         judge = ["--judge-model", self.cfg.judge_model] if self.cfg.judge_model else []
+        # Nonregression's own --min-pairs (min(12, half the pairs)) and
+        # threshold apply; each pair is judged once, the order alternating.
         done = _eval(["compare", "--mode", "nonregression", "--tasks", ",".join(tasks), "--judge-root",
-                      str(judge_root(self.src, cand["base"], self.gdir)), *judge, str(base_view), str(run),
+                      str(judge_root(self.src, cand["base"], self.gdir)), *judge, str(baseline.folder), str(run),
                       str(compare)], self._env(base_env, share))
-        if done.returncode not in (0, 2) or not (compare / "report.json").is_file():
+        # 0 pass, 2 regressed or inconclusive, 3 unmeasurable, 1 an error.
+        if done.returncode not in (0, 2, 3) or not (compare / "report.json").is_file():
             raise EvolveError(f"the compare failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
         return json.loads((compare / "report.json").read_text(encoding="utf-8"))
 
