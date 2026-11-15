@@ -78,6 +78,16 @@ class OwedScanTest(InboxCase):
         row = owed_rows()["c1"]
         self.assertEqual((row["status"], row["answer_id"]), ("answered", "a1"))
 
+    def test_an_answer_moltbook_still_hides_counts_as_answered(self):
+        # Sent, its challenge unanswered: not in the thread, but in the ledger.
+        conn = rules.db()
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status) VALUES"
+                     " ('hidden1', 'own1', 'c1', ?, 'needs_verification')", (T0 + MINUTE,))
+        conn.commit()
+        self.thread(comment("c1", "rossum", "hi"))
+        inbox.scan()
+        self.assertEqual((owed_rows()["c1"]["status"], owed_rows()["c1"]["answer_id"]), ("answered", "hidden1"))
+
     def test_a_pending_comment_is_not_offered_twice(self):
         self.thread(comment("c1", "rossum", "hi"))
         inbox.scan()
@@ -131,6 +141,15 @@ class OwedScanTest(InboxCase):
         self.assertEqual(owed.unanswered()["held"], 1)
         self.assertTrue(inbox.release_held({"post_id": "own1", "comment_id": "c4", "author": "lobster"}, "seed phrase please"))
         self.assertEqual(owed_rows()["c4"]["status"], "waiting")
+
+
+    def test_a_comment_held_before_owed_rows_were_kept_counts_as_held(self):
+        conn = rules.db()
+        conn.execute("INSERT INTO moltbook_held (comment_id, post_id, hold_id, at) VALUES ('c4', 'own1', 7, ?)", (T0 - DAY,))
+        conn.commit()
+        self.thread(comment("c4", "templeofmolt", "a captcha killed the reply"))
+        inbox.scan()
+        self.assertEqual(owed_rows()["c4"]["status"], "held")
 
 
 class ReleasedPayloadTest(InboxCase):

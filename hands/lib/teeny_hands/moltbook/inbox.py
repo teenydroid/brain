@@ -80,6 +80,12 @@ def _known(conn, inbox, cid: str) -> bool:
     return inbox.execute("SELECT 1 FROM stimuli WHERE id = ?", (f"moltbook:comment:{cid}",)).fetchone() is not None
 
 
+def _held_only(conn, inbox, cid: str) -> bool:
+    """Held, and not (yet) released into the inbox."""
+    return (conn.execute("SELECT 1 FROM moltbook_held WHERE comment_id = ?", (cid,)).fetchone() is not None
+            and inbox.execute("SELECT 1 FROM stimuli WHERE id = ?", (f"moltbook:comment:{cid}",)).fetchone() is None)
+
+
 def _keep_held(conn, cid: str, post_id: str, hold_id: int | None, payload: Json) -> None:
     with hand.transaction(conn):
         conn.execute("INSERT OR IGNORE INTO moltbook_held (comment_id, post_id, hold_id, at, payload) VALUES (?, ?, ?, ?, ?)",
@@ -107,6 +113,15 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None, max_own
         for node, parent in tree:
             if parent is not None and str(node.get("id")) in mine and parent not in answers:
                 answers[parent] = (str(node.get("id")), owed._epoch(node.get("created_at")))
+        if own:
+            # An answer Moltbook hides until its challenge is answered is not in
+            # the thread, but the ledger has it (and the hand refuses a second).
+            for row in conn.execute(
+                f"SELECT parent_id, comment_id, at FROM moltbook_comments WHERE post_id = ? AND parent_id IS NOT NULL"
+                f" AND status IN ({','.join('?' * len(rules.COUNTED))}) ORDER BY at",
+                (post_id, *rules.COUNTED),
+            ):
+                answers.setdefault(str(row["parent_id"]), (row["comment_id"], float(row["at"])))
         for node, parent in tree:
             author = _author(node) or ""
             cid = node.get("id")
@@ -130,7 +145,9 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None, max_own
                 if cid in answers:
                     owed.answered(conn, cid, *answers[cid])
             if _known(conn, known, cid):
-                if own and owed.offer_again(conn, known, cid):
+                if own and _held_only(conn, known, cid):
+                    owed.held(conn, cid)  # held before its owed row was kept
+                elif own and owed.offer_again(conn, known, cid):
                     again += 1
                 continue
             verdict = _screen(text, {"post_id": post_id, "comment_id": cid, "author": author})
