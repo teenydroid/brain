@@ -149,3 +149,134 @@ class MetricsTest(Scratch):
         self.assertEqual(len(metrics.refresh()["recorded"]), 1)
         self.assertEqual(len(self.rows()), 1)
         self.assertEqual([s.method for s in self.mb.seen], ["GET"])
+
+
+def iso(at: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(at, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class DailyTest(Scratch):
+    """metrics.daily: the numbers the plan's targets are written in, counted
+    from fixture ledgers (hands/stats snapshot keeps them in `stats`)."""
+
+    NOW = T0 + 30 * DAY
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.at(self.NOW)
+
+    def post(self, post_id: str, ago: float, status: str = "verified") -> None:
+        rules.db().execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES (?, ?, 'general', 't', ?)",
+                           (post_id, self.NOW - ago, status))
+
+    def comment(self, comment_id: str, post_id: str, ago: float, status: str = "verified", parent_id: str | None = None,
+                detail: str = "{}") -> None:
+        rules.db().execute("INSERT INTO moltbook_comments (comment_id, post_id, parent_id, at, status, detail)"
+                           " VALUES (?, ?, ?, ?, ?, ?)", (comment_id, post_id, parent_id, self.NOW - ago, status, detail))
+
+    def measured(self, kind: str, target_id: str, checkpoint: int, score: int, status: str = "verified") -> None:
+        rules.db().execute("INSERT INTO moltbook_post_metrics (kind, target_id, checkpoint, at, score, comment_count,"
+                           " verification_status) VALUES (?, ?, ?, ?, ?, 0, ?)", (kind, target_id, checkpoint, self.NOW, score, status))
+
+    def thread(self, post_id: str, nodes: list) -> None:
+        self.mb.route("GET", f"/posts/{post_id}/comments", {"success": True, "comments": nodes})
+
+    def test_no_posts_yet_counts_zero_and_leaves_out_what_has_nothing_to_count(self):
+        self.assertEqual(metrics.daily(), {
+            "live_posts_24h": 0.0, "posts_10_plus_14d": 0.0, "posts_50_plus_14d": 0.0,
+            "comments_on_others_24h": 0.0, "comments_on_own_24h": 0.0,
+            "own_thread_unanswered": 0.0, "own_thread_comments": 0.0})
+        self.assertEqual(self.mb.seen, [])
+
+    def test_live_posts_leave_out_the_hidden_and_stop_at_the_day_boundary(self):
+        self.post("before", DAY + 1)  # one second past the 24 hours
+        self.post("edge", DAY - 1)
+        self.post("posted", 3 * HOUR, status="posted")
+        self.post("pending", HOUR, status="needs_verification")
+        self.post("failed", 2 * HOUR, status="verification_failed")
+        self.post("hidden", 4 * HOUR)  # the ledger says verified, Moltbook shows it pending
+        self.measured("post", "hidden", 1, 0, status="pending")
+        self.assertEqual(metrics.daily()["live_posts_24h"], 2.0)
+
+    def test_scores_median_at_24h_over_seven_days_and_the_top_marks_over_fourteen(self):
+        for name, ago, day_score, best in (("a", 2 * DAY, 4, 4), ("b", 3 * DAY, 12, 15), ("c", 5 * DAY, 8, 60),
+                                           ("old", 10 * DAY, 30, 55), ("gone", 15 * DAY, 90, 90)):
+            self.post(name, ago)
+            self.measured("post", name, 24, day_score)
+            self.measured("post", name, 72, best)
+        self.post("young", HOUR)
+        self.measured("post", "young", 1, 3)
+        self.post("hidden", 4 * DAY, status="verification_failed")
+        self.measured("post", "hidden", 24, 0, status="failed")
+        got = metrics.daily()
+        self.assertEqual(got["post_score_24h_median_7d"], 8.0)  # a, b, c: the hidden one and the old ones are out
+        self.assertEqual((got["posts_10_plus_14d"], got["posts_50_plus_14d"]), (3.0, 2.0))
+
+    def test_comments_split_by_whose_post(self):
+        self.post("mine", 2 * DAY)
+        self.comment("c1", "mine", HOUR, parent_id="o1")
+        self.comment("c2", "theirs", 2 * HOUR)
+        self.comment("c3", "theirs2", 3 * HOUR, detail='{"own_post": false}')
+        self.comment("c4", "elsewhere", 4 * HOUR, detail='{"own_post": true}')  # its own post, not in this ledger
+        self.comment("c5", "theirs3", 5 * HOUR, status="needs_verification")
+        self.comment("c6", "theirs4", DAY + 1)
+        got = metrics.daily()
+        self.assertEqual((got["comments_on_others_24h"], got["comments_on_own_24h"]), (2.0, 2.0))
+
+    def test_lost_to_the_challenge_over_one_and_seven_days(self):
+        self.post("p1", HOUR)
+        self.post("p2", 2 * HOUR, status="verification_failed")
+        self.post("p3", 3 * DAY)
+        self.comment("c1", "x", HOUR, status="needs_verification")
+        self.comment("c2", "x", 2 * HOUR)
+        self.comment("c3", "x", 3 * HOUR)
+        self.comment("c4", "x", 4 * DAY, status="verification_failed")
+        self.comment("c5", "x", 60.0, status="needs_verification")  # its challenge has not expired yet
+        got = metrics.daily()
+        self.assertEqual({k: v for k, v in got.items() if k.startswith("lost_")}, {
+            "lost_pct_24h": 40.0, "lost_pct_post_24h": 50.0, "lost_pct_comment_24h": 33.3,
+            "lost_pct_7d": 42.9, "lost_pct_post_7d": 33.3, "lost_pct_comment_7d": 50.0})
+
+    def test_own_thread_comments_answered_and_waiting(self):
+        self.post("mine", 3 * HOUR)
+        asked = self.NOW - 2 * HOUR
+        self.thread("mine", [
+            # Answered in eight minutes, well before the post's first checkpoint.
+            {"id": "a1", "author": {"name": "shelly"}, "created_at": iso(asked),
+             "replies": [{"id": "t1", "author": {"name": "teenydroid"}, "created_at": iso(asked + 8 * MINUTE),
+                          "verification_status": "verified",
+                          "replies": [{"id": "a2", "author": {"name": "shelly"}, "created_at": iso(asked + 20 * MINUTE),
+                                       "replies": []}]}]},
+            # Answered by a comment the ledger has and the thread does not show yet.
+            {"id": "a3", "author": {"name": "crabby"}, "created_at": iso(asked), "replies": []},
+            # Answered with a hidden comment: still waiting.
+            {"id": "a4", "author": {"name": "krill"}, "created_at": iso(asked),
+             "replies": [{"id": "t2", "author": {"name": "teenydroid"}, "verification_status": "pending", "replies": []}]},
+            {"id": "gone", "author": {"name": "krill"}, "is_deleted": True, "replies": []},
+            {"id": "t3", "author": {"name": "TeenyDroid"}, "replies": []},
+        ])
+        self.comment("t4", "mine", 2 * HOUR - 30 * MINUTE, parent_id="a3")
+        got = metrics.daily()
+        self.assertEqual({k: v for k, v in got.items() if k.startswith("own_thread")}, {
+            "own_thread_comments": 4.0, "own_thread_unanswered": 2.0, "own_thread_answered_pct": 50.0,
+            "own_thread_answer_minutes_median": 19.0})
+
+    def test_a_comment_too_deep_to_answer_is_not_waiting(self):
+        self.post("mine", HOUR)
+        node = {"id": "d5", "author": {"name": "shelly"}, "replies": []}
+        for depth in (4, 3, 2, 1):
+            node = {"id": f"d{depth}", "author": {"name": "shelly" if depth % 2 else "teenydroid"}, "replies": [node]}
+        self.thread("mine", [node])
+        got = metrics.daily()
+        # Teeny answered d1 and d3 (with d2 and d4); d5 sits at the drawing depth.
+        self.assertEqual((got["own_thread_comments"], got["own_thread_unanswered"]), (3.0, 0.0))
+
+    def test_old_posts_are_not_read_and_a_failed_read_leaves_the_thread_numbers_out(self):
+        self.post("old", 4 * DAY)
+        self.post("mine", HOUR)
+        self.mb.route("GET", "/posts/mine/comments", {"success": False, "error": "down"}, status=500)
+        got = metrics.daily()
+        self.assertNotIn("own_thread_unanswered", got)
+        self.assertEqual(self.mb.requests("GET", "/posts/old/comments"), [])
