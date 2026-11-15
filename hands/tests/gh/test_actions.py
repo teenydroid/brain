@@ -475,6 +475,7 @@ class SetStatusTest(Scratch):
                 "description": "pass: no regression on 3 task(s) it reaches", **more}
 
     def test_sets_the_status_on_an_own_repo_and_records_it(self):
+        self.me()
         self.gh.route("POST", f"/repos/teenydroid/brain/statuses/{self.SHA}",
                       {"id": 9, "state": "success", "context": "teeny/eval"}, status=201)
         out = actions.set_status(self.body())
@@ -493,6 +494,13 @@ class SetStatusTest(Scratch):
             actions.set_status(self.body(state="merged"))
         with self.assertRaises(hand.HandError):
             actions.set_status(self.body(sha="abc123"))
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_a_token_for_somebody_else_sets_nothing(self):
+        """A status from anyone but GITHUB_USER counts as missing to the babysitter."""
+        self.me("someone-else")
+        with self.assertRaises(hand.Refused):
+            actions.set_status(self.body())
         self.assertEqual(self.gh.writes(), [])
 
     def test_dry_run_sets_nothing(self):

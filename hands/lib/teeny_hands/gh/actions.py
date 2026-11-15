@@ -341,6 +341,8 @@ def set_status(body: Any, gh: GitHubApi | None = None) -> Json:
         return {"dry_run": True, "would_set_status": repo, "sha": sha, "state": state, "context": context,
                 "description": description}
     gh = gh or GitHubApi.from_settings()
+    # The babysitter counts a teeny/eval status only from GITHUB_USER.
+    _own_identity(gh)
     got = gh.set_status(owner, name, sha, state, context, description)
     _record("set-status", repo, False, sha, state=state, context=context)
     return {"status": repo, "sha": sha, "state": state, "context": context, "id": got.get("id")}

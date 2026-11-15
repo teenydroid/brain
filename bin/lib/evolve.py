@@ -1074,6 +1074,10 @@ class EvolverProposer:
     def propose(self, request: Json) -> Any:
         tree, folder = Path(request["tree"]), Path(request["gen_dir"]) / f"lab-{request['cand']}"
         port = self.cfg["EVOLVE_LAB_PORT"] + 10 + int(request["cand"])
+        with held_lock("eval"):
+            return self._propose(request, tree, folder, port)
+
+    def _propose(self, request: Json, tree: Path, folder: Path, port: int) -> Any:
         try:
             lab = lab_lib.start(f"evolver-{request['cand']}", tree, folder, port, secrets_dir(),
                                 self.cfg["EVOLVE_LAB_BOOT_SECS"], edit=True)
@@ -2667,9 +2671,19 @@ def new_branch(tree: Path, branch: str) -> str:
     return name
 
 
+#: The babysitter merges only these (hands/babysit's policy.EVOLVE_BRANCH):
+#: teeny/gen-<n> or teeny/gen-<n>-c<i>, digits only, so no -2 suffix.
+EVOLVE_BRANCH = re.compile(r"teeny/gen-\d+(-c\d+)?")
+
+
 def commit_branch(tree: Path, branch: str, title: str) -> str:
-    """Commits the candidate on a new BRANCH; returns the branch."""
-    branch = new_branch(tree, branch)
+    """Commits the candidate on BRANCH; returns it. A branch of that name
+    left in Teeny's clone by a try whose push failed is replaced, never
+    suffixed: the name is the babysitter's contract (the push itself is
+    never forced, so a branch already on GitHub refuses it)."""
+    if not EVOLVE_BRANCH.fullmatch(branch):
+        raise EvolveError(f"{branch} is not a teeny/gen-<n>-c<i> branch")
+    git(in_tree(tree), "switch", "-q", "-C", branch)
     stage(tree)
     git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
     return branch
@@ -2876,7 +2890,10 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
             record(cand)
             say(f"candidate {cand['cand']}: {cand['verdict']}")
 
-        evaluator.evaluate(pending, done)
+        # state/locks/eval.lock while any lab runs: the babysitter's deploy
+        # waits on it before it moves or restarts the live checkout.
+        with held_lock("eval"):
+            evaluator.evaluate(pending, done)
     ready = [c for c in cands if c["verdict"] in SHIPS]
     published = []
     for cand in [*queue, *ready]:
@@ -3266,6 +3283,19 @@ def run_lock(name: str = "evolve"):
             return
         try:
             yield True
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def held_lock(name: str):
+    """state/locks/NAME.lock, waited for and held for the block."""
+    locks = state_dir() / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    with open(locks / f"{name}.lock", "a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
