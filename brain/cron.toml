@@ -299,14 +299,15 @@ command = "bin/act bounty-winner"
 enabled = false
 
 # Open the week's Tiny Drop inside the season budget (giveaway-plan.md),
-# Tuesdays at 15:00, in the `take` slot: on a day a drop opens, the announce
-# is that day's take. The hand refuses while GIVEAWAYS is off, and this stays
+# Tuesdays at 14:50, ten minutes before the `take`: on a day a drop opens,
+# the announce takes that slot and the 15:00 take is refused by the 8-hour gap
+# (a refused post spends nothing). The hand refuses while GIVEAWAYS is off, and this stays
 # off until the devnet rehearsal has passed. The drop's countdown, judging
 # and reveal are drafted by giveaway-judge.md and giveaway-post.md, which the
 # pinned giveaway-settle job runs when `hands/giveaway announcements` owes
 # one (no slot here: brain jobs are capped at 24).
 [jobs.giveaway-plan]
-schedule = "0 15 * * 2"
+schedule = "50 14 * * 2"
 tz = "Asia/Kolkata"
 command = "bin/act giveaway-plan"
 enabled = false
