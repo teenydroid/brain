@@ -67,3 +67,13 @@ class CliTest(Scratch):
         code, out = self.run_hand("clear-backoff", "r/learnpython")
         self.assertEqual((code, out["cleared"]), (0, 1))
         self.assertEqual(self.run_hand("rules")[1]["backoffs"], [])
+
+    def test_metrics_and_study_verbs(self):
+        code, out = self.run_hand("metrics", "refresh")
+        self.assertEqual((code, out["recorded"]), (0, []))
+        code, out = self.run_hand("metrics", "list", "--days", "3")
+        self.assertEqual((code, out["metrics"]), (0, []))
+        self.rd.route("GET", "/r/learnpython/top", listing(t3("a")))
+        self.rd.route("GET", "/r/SideProject/top", listing())
+        code, out = self.run_hand("study")
+        self.assertEqual((code, out["subreddits"]["learnpython"]["top_week"][0]["id"]), (0, "a"))

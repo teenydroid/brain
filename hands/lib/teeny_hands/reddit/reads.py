@@ -30,6 +30,7 @@ CACHE = ReadCache(
         "user": HOUR,
         "subreddit": HOUR,
         "rules": HOUR,
+        "study": 6 * HOUR,
     },
     "REDDIT_CACHE_ENABLED",
 )
@@ -267,3 +268,25 @@ def inbox_items(max_results: int, api: client.Reddit | None = None) -> Iterator[
     for kid in _children(got):
         if isinstance(kid.get("data"), Mapping):
             yield {"kind": kid.get("kind"), **kid["data"]}
+
+
+#: What `things` keeps of each: enough to score a write and tell whether it
+#: is still there to see.
+_THING_KEYS = ("id", "name", "subreddit", "author", "score", "num_comments", "removed_by_category", "banned_by",
+               "removed", "spam", "selftext", "body", "created_utc")
+
+
+def things(fullnames: list[str], api: client.Reddit | None = None) -> list[Json]:
+    """Several posts and comments by fullname in one uncached read (Reddit
+    takes up to 100), each `{"kind": "t3"|"t1", ...}` trimmed to _THING_KEYS.
+    Reddit leaves out what it no longer has."""
+    if not fullnames:
+        return []
+    if len(fullnames) > 100:
+        raise hand.HandError("at most 100 things a read")
+    got = _api(api).call("GET", "/api/info", [("id", ",".join(fullnames))])
+    return [
+        {"kind": kid.get("kind"), **{k: kid["data"].get(k) for k in _THING_KEYS if k in kid["data"]}}
+        for kid in _children(got)
+        if isinstance(kid.get("data"), Mapping)
+    ]

@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS reddit_backoffs (
     cleared_at REAL
 );
 CREATE INDEX IF NOT EXISTS reddit_backoffs_scope ON reddit_backoffs (scope, cleared_at);
+CREATE TABLE IF NOT EXISTS reddit_post_metrics (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind          TEXT NOT NULL CHECK (kind IN ('post', 'comment')),
+    target_id     TEXT NOT NULL,
+    checkpoint    INTEGER NOT NULL,
+    at            REAL NOT NULL,
+    score         INTEGER,
+    comment_count INTEGER,
+    state         TEXT NOT NULL CHECK (state IN ('live', 'removed', 'deleted')),
+    UNIQUE (kind, target_id, checkpoint)
+);
+CREATE INDEX IF NOT EXISTS reddit_post_metrics_at ON reddit_post_metrics (at);
 """
 
 
