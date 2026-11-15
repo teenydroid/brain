@@ -24,7 +24,7 @@ class StudyTest(Scratch):
             t3("a", title="small win", score=50, num_comments=4, created_utc=T0 - 2 * DAY),
             t3("b", title="big win", score=120, num_comments=30, created_utc=T0 - 3 * DAY),
         ), when=week)
-        self.rd.route("GET", "/r/SideProject/top", listing(t3("s", subreddit="SideProject", score=7)), when=week)
+        self.rd.route("GET", "/r/sideproject/top", listing(t3("s", subreddit="SideProject", score=7)), when=week)
         ledger_post("p1", at=T0 - 3 * DAY, fmt="show")
         ledger_post("p2", at=T0 - 2 * DAY, fmt="show")
         ledger_comment("c1", sub="learnpython", at=T0 - DAY)
@@ -59,11 +59,11 @@ class StudyTest(Scratch):
         self.assertEqual(len(self.rd.requests("GET", "/r/learnpython/top")), 2)
 
     def test_a_429_answers_what_it_has_and_caches_nothing(self):
-        self.rd.route("GET", "/r/SideProject/top", {"message": "slow"}, status=429)
+        self.rd.route("GET", "/r/sideproject/top", {"message": "slow"}, status=429)
         got = study.study()
         self.assertTrue(got["rate_limited"])
         study.study()
-        self.assertEqual(len(self.rd.requests("GET", "/r/SideProject/top")), 2)
+        self.assertEqual(len(self.rd.requests("GET", "/r/sideproject/top")), 2)
 
     def test_an_empty_allowlist_studies_nothing(self):
         self.configure(REDDIT_SUBREDDITS="")

@@ -74,6 +74,6 @@ class CliTest(Scratch):
         code, out = self.run_hand("metrics", "list", "--days", "3")
         self.assertEqual((code, out["metrics"]), (0, []))
         self.rd.route("GET", "/r/learnpython/top", listing(t3("a")))
-        self.rd.route("GET", "/r/SideProject/top", listing())
+        self.rd.route("GET", "/r/sideproject/top", listing())
         code, out = self.run_hand("study")
         self.assertEqual((code, out["subreddits"]["learnpython"]["top_week"][0]["id"]), (0, "a"))
