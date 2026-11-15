@@ -335,3 +335,47 @@ class CountedTotalTest(unittest.TestCase):
     def test_a_plain_total_is_still_an_addition(self):
         self.assertEqual(solve("a lobster exerts twelve newtons with one claw and eight other, what is the total force"), "20.00")
         self.assertEqual(solve("a lobster lifts ten pebbles and a crab lifts four, total"), "14.00")
+
+
+class ShiftedSplitTest(unittest.TestCase):
+    """Live challenges the reader got wrong or could not read. Moltbook
+    breaks a word with a space or a stray "i." and sometimes moves a letter
+    of one word onto the next ("gAiN sE i. gGhT" is "gains eight")."""
+
+    #: 2026-11-15 11:48, a post left hidden: 32 newtons, and it gains 8 more.
+    GAINS_EIGHT = (
+        "A] lO b-S tEr HaS^ cLaW- FoR cE oF tH i. rTtYy tW]o NeW/ tOnS anD- gAiN sE i. gGhT~ mOrE, "
+        "HoW/ mAnY^ ToTaL- FoR cE? ummm lxobqstwer"
+    )
+
+    def test_live_a_letter_moved_onto_a_split_number_is_read_back(self):
+        self.assertEqual(solve(self.GAINS_EIGHT), "40.00")
+        # The model read may only use numbers the parser sees: eight is one now.
+        self.assertEqual(numbers_in(self.GAINS_EIGHT), {Decimal(32), Decimal(8)})
+
+    def test_a_moved_letter_counts_only_when_both_words_come_out_known(self):
+        self.assertEqual(solve("a lobster has twelve eggs and gain se ven more, total?"), "19.00")
+        # "lobster" + "s" is not a word this reader knows: no answer.
+        self.assertIsNone(solve("a lobster se ven and twelve, total?"))
+
+
+class NearMissNumberTest(unittest.TestCase):
+    """A number word with two letters swapped or one letter too many
+    ("TiHrTy", "TiWElVe") was skipped, and the numbers left gave a wrong
+    answer: never guess past one."""
+
+    #: 2026-11-15 06:08: answered 10.00 (five times two), and Moltbook said wrong.
+    THIRTY_FIVE = "A] ThIs LoOoObBbSsTtEr ClAw-^FoRcE Is [TiHrTy FiVe NooToNs~ * <TwO> Um LoB.oStErS, WhAt/ Is ToTaL| FoRcE?"
+    #: 2026-11-14 04:34, left pending: "tiwelve".
+    TWELVE = "A] LoOoB sT-Er^ ClAw] FoRcE/ Is ThIrTy TwO^ NeWtOnS~ AnD/ It ExErtS] TiWElVe Um{ lxQ} , WhAt Is ToTaL FoRcE<>?"
+
+    def test_live_a_misspelt_tens_word_is_no_answer_rather_than_a_wrong_one(self):
+        self.assertIsNone(solve(self.THIRTY_FIVE))
+        self.assertIsNone(numbers_in(self.THIRTY_FIVE))
+
+    def test_live_a_number_word_with_an_extra_letter_is_no_answer(self):
+        self.assertIsNone(solve(self.TWELVE))
+
+    def test_ordinary_words_are_not_near_misses(self):
+        self.assertEqual(solve("a lobster has twelve eggs and loses three"), "9.00")
+        self.assertEqual(solve("a lobster swims at twenty meters and slows by five"), "15.00")
