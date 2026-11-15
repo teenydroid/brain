@@ -1,4 +1,4 @@
-"""hands/x thread: two to five posts, the first an own post and each later one
+"""hands/x post-thread: two to five posts, the first an own post and each later one
 a reply to the one before it. Everything is checked before anything is sent;
 the thread counts once against the gap and the daily cap; a continuation is
 recorded with its own kind, measured like any post of Teeny's and counted as
@@ -293,7 +293,7 @@ class FailureTest(Threading):
         self.serve(fail_at=2)
         out = io.StringIO()
         with mock.patch("sys.stdin", io.StringIO(json.dumps(self.body()))), contextlib.redirect_stdout(out):
-            code = cli.main(["thread"])
+            code = cli.main(["post-thread"])
         result = json.loads(out.getvalue())
         self.assertEqual(code, 1)
         self.assertFalse(result["ok"])
@@ -304,7 +304,7 @@ class FailureTest(Threading):
         self.serve()
         out = io.StringIO()
         with mock.patch("sys.stdin", io.StringIO(json.dumps(self.body()))), contextlib.redirect_stdout(out):
-            code = cli.main(["thread"])
+            code = cli.main(["post-thread"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue())["ids"], ["101", "102", "103"])
 
