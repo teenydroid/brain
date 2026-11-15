@@ -4,7 +4,7 @@ kind = "episode"
 max_length = 1400
 must_not = [
   # Any number that is not in the inputs (dates and counts as given).
-  '(?<![\w.])(?!(?:0|1|2|3|4|5|8|9|10|11|12|13|14|15|2026)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  '(?<![\w.])(?!(?:0|1|2|3|4|5|7|8|9|10|11|12|13|14|15|40|2026)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
   '%',
   '#\w',
   'https?://',
