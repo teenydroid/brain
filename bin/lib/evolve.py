@@ -715,7 +715,7 @@ def learning_state(entries: Mapping[str, Json], item: Learning) -> tuple[str, in
         return "settled", 0
     if any(e.get("verdict") in IN_FLIGHT for e in tries):
         return "in-flight", 0
-    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED,))
+    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred"))
     return ("gave-up" if failed >= MAX_ATTEMPTS else "open"), failed
 
 
@@ -785,12 +785,13 @@ def diff_hash(patch: str) -> str:
 
 def archived_mutations(entries: Mapping[str, Json]) -> dict[str, set[str]]:
     """The changed lines of every archived candidate's own mutation. An
-    inconclusive one, or one a crash ended, is left out: nothing measured
-    it, so proposing it again is not a duplicate."""
+    inconclusive one, one a crash ended, and one parked or sent back for
+    another round are left out: nothing finished with it, so proposing it
+    again is a retry, not a duplicate."""
     out = {}
     for entry_id, entry in entries.items():
         rel = entry.get("mutation_patch")
-        if not rel or entry.get("verdict") in ("inconclusive", "crashed"):
+        if not rel or entry.get("verdict") in ("inconclusive", "crashed", "parked", "revising", "deferred"):
             continue
         try:
             out[entry_id] = changed_lines((evolve_dir() / rel).read_text(encoding="utf-8"))
@@ -1787,6 +1788,17 @@ MAX_LAST_PATCH_CHARS = 8000
 MAX_UNUSABLE_REVIEWS = 2
 
 
+class ReviewTurnFailed(EvolveError):
+    """The reviewer's turn never answered (the core does not know the agent,
+    the transport failed): unlike an unusable answer, nothing was judged."""
+
+
+#: A candidate whose reviewer turn failed: not settled, not in flight, and
+#: no failed try, so a deploy without the reviewer agent loaded cannot push
+#: every learning to gave-up. `bin/evolve status` lists them.
+DEFERRED = "deferred"
+
+
 class Reviewer(Protocol):
     """One review turn: a request in, {verdict, findings} out."""
 
@@ -1813,10 +1825,10 @@ class AskReviewer:
         try:
             done = subprocess.run(argv, input=render_review(request), capture_output=True, text=True,
                                   env=code_env(), timeout=900)
-        except subprocess.TimeoutExpired:
-            raise EvolveError("the reviewer's turn took over 900 s") from None
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ReviewTurnFailed(f"the reviewer's turn did not finish: {exc}"[:300]) from None
         if done.returncode != 0:
-            raise EvolveError(f"the reviewer's turn failed: {done.stderr.strip()[-300:]}")
+            raise ReviewTurnFailed(f"the reviewer's turn failed: {done.stderr.strip()[-300:]}")
         return first_json(done.stdout)
 
 
@@ -2439,8 +2451,8 @@ def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[
     sent back with them as findings)."""
     hard = hard_gate(tree, base, max_pct)
     hard_ok = all(c["ok"] for c in hard)
-    frozen_ok = all(c["ok"] for c in hard if c["check"] == "frozen paths")
-    rest = checks(tree, base, component, evidence, frozen_ok)
+    # A change the hard gate refused is final: nothing else of it runs.
+    rest = checks(tree, base, component, evidence) if hard_ok else []
     stats = numstat(tree, base)
     every = [*hard, *rest]
     return {"ok": all(c["ok"] for c in every), "hard_ok": hard_ok, "checks": every,
@@ -3329,7 +3341,8 @@ def round_line(rec: Mapping[str, Any]) -> str:
 
 def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: int, i: int, learning: Json,
                 parent: str, evidence: Json, siblings: list[str], mutations: dict[str, set[str]],
-                tried: Any = None, budget: SearchBudget | None = None, reviewer: Reviewer | None = None) -> Json:
+                tried: Any = None, budget: SearchBudget | None = None, *, reviewer: Reviewer,
+                same_learning: Iterable[str] = ()) -> Json:
     """Candidate I, for LEARNING: worktree, research (research_one: `already`
     and `not-worth` end it as a skip), then up to EVOLVE_REVISE_ROUNDS rounds
     of build, hard gate, checks and review. A frozen path, an oversized
@@ -3348,7 +3361,6 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                    "proposer": proposer.name, "at": iso(now()), "worktree": str(tree.relative_to(evolve_dir())),
                    "learning": learning}
     tried_of = tried if callable(tried) else (lambda files=None: list(tried or []))
-    reviewer = reviewer or FileReviewer(Path(os.devnull))
     remove_worktree(src, tree)
     add_worktree(src, tree, base)
     in_place = getattr(proposer, "edits_in_place", False)
@@ -3471,7 +3483,9 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             findings = [{"file": "", "problem": "the edits change nothing", "fix": "make the change the findings ask for"}]
             keep(rec, "empty", findings)
             continue
-        twin, sim = nearest(lines, {k: v for k, v in mutations.items() if k != entry["id"]})
+        # Earlier tries on this same learning are what it retries, not twins.
+        twin, sim = nearest(lines, {k: v for k, v in mutations.items()
+                                    if k != entry["id"] and k not in (same_learning or ())})
         if twin is not None and sim >= cfg["EVOLVE_DUP_THRESHOLD"]:
             entry.update(verdict="duplicate", duplicate_of=twin, similarity=round(sim, 4),
                          gate={"ok": False, "checks": [{"check": "near-duplicate", "ok": False,
@@ -3488,6 +3502,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 [c for c in entry["gate"]["checks"] if not c["ok"]], check_findings(entry["gate"]))]
             keep(rec, "checks", findings)
             continue
+        if not isinstance(rec.get("review"), dict) and len(full.encode("utf-8")) > MAX_REVIEW_DIFF_BYTES:
+            # The reviewer would see only part of it: never approvable, and
+            # no turn is spent on it.
+            rec["review"] = {"verdict": "revise", "note": "not sent to the reviewer: too big", "findings": [{
+                "file": "", "problem": f"the diff is {len(full.encode('utf-8'))} bytes, too big to review in one pass "
+                                       f"(the most is {MAX_REVIEW_DIFF_BYTES})",
+                "fix": "split it or make it smaller: only what the learning needs"}]}
+            save_rounds(gdir, i, learning, rounds)
         if not isinstance(rec.get("review"), dict):
             try:
                 review = check_review(reviewer.review({
@@ -3495,6 +3517,13 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                     "plan": (research or {}).get("plan") if research and not research.get("error") else None,
                     "proposal": {k: proposal.get(k) for k in ("title", "component", "expected_move", "hypothesis")},
                     "checks": entry["gate"]["checks"], "diff": full}))
+            except ReviewTurnFailed as exc:
+                # The turn never ran (an agent the core does not know, the
+                # transport): not the change's fault. Left open, and no try.
+                say(f"candidate {i}: the reviewer's turn failed ({str(exc)[:160]}); deferred")
+                entry.update(verdict=DEFERRED, reason=f"the reviewer's turn failed: {exc}"[:300],
+                             rounds=[round_line(r) for r in rounds if r.get("outcome")])
+                return entry
             except (EvolveError, OSError) as exc:
                 review = {"unusable": str(exc)[:300]}
             rec["review"] = review
@@ -3771,6 +3800,8 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
     rounds = load_rounds(gdir, i, cand.get("learning") or {})
     if not rounds or rounds[-1].get("outcome") != "approved" or len(rounds) >= cfg["EVOLVE_REVISE_ROUNDS"]:
         return False
+    if any(r.get("eval") for r in rounds):
+        return False  # once at most: a candidate is measured twice at most
     report: Json = {}
     if cand.get("report"):
         try:
@@ -3905,8 +3936,10 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         def tried(files: list[str] | None = None) -> list[Json]:
             return withhold(tried_before(entries, learning, files, held_ids), markers)
 
+        same = {e["id"] for e in entries.values() if isinstance(e.get("learning"), Mapping)
+                and e["learning"].get("id") == learning.get("id")}
         cand = propose_one(cfg, proposer, src, base, gen, i, withhold(learning, markers), parent, evidence,
-                           siblings, mutations, tried, budget, reviewer)
+                           siblings, mutations, tried, budget, reviewer=reviewer, same_learning=same)
         if cand["verdict"] == "skipped" and cand["skip"]["why"] == "frozen":
             cand["skip"]["issue"] = frozen_issue(cfg, cand, cand["skip"]["where"], cand["skip"]["note"], publisher)
         record(cand)
@@ -4333,6 +4366,9 @@ def status() -> Json:
                         **({"eval": (e.get("eval") or {}).get("verdict")} if e.get("eval") else {}),
                         **({"pr_url": e["pr_url"]} if e.get("pr_url") else {})}
                        for e in sorted([*current, *waits], key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))],
+        "deferred": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "reason": e.get("reason")}
+                     for e in sorted(entries.values(), key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))
+                     if e.get("verdict") == DEFERRED and e.get("gen") == latest],
         "summary": summary(entries),
     }
 
