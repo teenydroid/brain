@@ -16,7 +16,7 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
     python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT [--both-orders] [--tasks IDS] -- ASK...
                                                           -> OUT, a judged pair per line
-    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS [--mode M] [--tasks IDS]
+    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS|auto [--mode M] [--tasks IDS]
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
 canned, so both brains answer the same thing:
