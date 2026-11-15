@@ -1046,7 +1046,9 @@ class AskProposerTurn(EvolveCase):
                         + "'" + answer.replace("'", "'\\''") + "'\n")
         fake.chmod(0o755)
         os.environ["TEENY_OH"] = str(fake)
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        # Room for every playbook, so the check does not hang on how long the
+        # playbooks sorted ahead of morning.md happen to be.
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask", EVOLVE_CONTEXT_CHARS=400000)
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
         params = json.loads(calls.read_text().splitlines()[0])
@@ -1091,7 +1093,9 @@ class AskProposerTurn(EvolveCase):
         message = json.loads(calls.read_text().splitlines()[0])["message"]
         self.assertLess(message.index("What came of what you made"), message.index("The score, your builds"))
         self.assertIn("Anything aimed at money: never read", message)
-        self.assertNotIn("money, capability", message)  # money is not offered as a label
+        # money is not offered as a label (in the instructions: a playbook
+        # shown whole below them may list every component)
+        self.assertNotIn("money, capability", message.split("## file: ")[0])
         self.assertIn("Doing less of yourself to save money", message)
         self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
         self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)

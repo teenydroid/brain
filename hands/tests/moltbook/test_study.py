@@ -152,3 +152,22 @@ class StudyTest(Scratch):
         got = study.study()["own_summary"]
         self.assertEqual(got["7d"], {"posts": {"by_format": [], "by_submolt": []}, "comments": {"by_format": []}})
         self.assertEqual(study.summary_lines(got), [])
+
+    def test_own_posts_are_the_last_twenty_posts_alone_with_their_format(self):
+        self.feeds([])
+        conn = rules.db()
+        for n in range(22):
+            conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status, format, body) VALUES (?, ?, ?, ?, 'verified', ?, ?)",
+                         (f"p{n}", T0 - DAY + n * MINUTE, "memory" if n == 21 else "general", f"post {n}", "audit" if n == 21 else None,
+                          "shipped it: https://github.com/teenydroid/brain" if n == 20 else None))
+        for n in range(15):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, 'px', ?, 'posted')",
+                         (f"c{n}", T0 - HOUR + n * MINUTE))
+        conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES (NULL, ?, 'general', 'x', 'refused')", (T0,))
+        got = study.study()
+        self.assertEqual([o["kind"] for o in got["own"]], ["comment"] * 10)
+        posts = got["own_posts"]
+        self.assertEqual([p["id"] for p in posts], [f"p{n}" for n in range(21, 1, -1)])
+        self.assertEqual(posts[0], {"id": "p21", "title": "post 21", "submolt": "memory", "format": "audit", "linked": False,
+                                    "at": iso(T0 - DAY + 21 * MINUTE), "status": "verified", "metrics": None})
+        self.assertTrue(posts[1]["linked"])
