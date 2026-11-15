@@ -484,6 +484,19 @@ class PurposeChecks(EvolveCase):
                 {"path": "hands/tests/test_kettle.py", "old": "",
                  "new": "import unittest\n\nclass T(unittest.TestCase):\n    def test_it(self):\n        pass\n"}, *extra]
 
+    def test_a_new_hand_with_a_quoted_name_is_still_a_hand(self):
+        """git quotes a non-ASCII path; the diff readers must not take the quotes
+        for part of the name, or the hand is invisible and skips both checks."""
+        accents = [
+            {"path": "hands/naïve", "old": "", "new": "#!/bin/sh\necho n\n"},
+            {"path": "hands/lib/teeny_hands/naïve/__init__.py", "old": "", "new": "\"\"\"naïve\"\"\"\n"},
+        ]
+        out, checks = self.gated(accents)
+        self.assertFalse(checks["new hands have tests"]["ok"])
+        self.assertIn("naïve", checks["new hands have tests"]["detail"])
+        self.assertFalse(checks["new hands are called"]["ok"])
+        self.assertIn("hands/naïve", checks["new hands are called"]["detail"])
+
     def test_a_new_hand_nothing_calls_is_thrown_out(self):
         """g5c4: "new hand hands/notes ... hands_with_tests 21 -> 22"."""
         out, checks = self.gated(self.kettle(), component="capability")
