@@ -4,8 +4,8 @@ runs) is brought to the merge. Queued by the merge in
 state/deploy-pending.json and run by the sweep, last, every 20 minutes
 until it is done. Off with BABYSIT_SELF_MERGE.
 
-The steps, in bin/lib/live_checkout.py's order (the one bin/evolve's
-LiveRestarter takes on a promotion):
+The steps, in bin/lib/live_checkout.py's order (the order the evolve loop's
+restart took before it stopped merging):
 
   1 wait     while a generation, evolve-watch or an eval holds its run
              lock (state/locks/{evolve,evolve-watch,eval}.lock): a restart

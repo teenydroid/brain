@@ -86,6 +86,19 @@ class ReadsTest(Scratch):
         out = reads.pr("a/b", 7)["pr"]
         self.assertEqual((out["number"], out["head"], out["base"]), (7, "teenydroid:fix", "main"))
 
+    def test_a_merged_pr_says_when_and_at_which_commit(self):
+        """bin/evolve credit reads `merged_at`: a merged pull request is also
+        `closed` in the REST API, and without it credit took every merge for a
+        close."""
+        self.gh.route(
+            "GET",
+            "/repos/a/b/pulls/8",
+            {"number": 8, "state": "closed", "merged": True, "merged_at": "2026-11-15T10:00:00Z",
+             "merge_commit_sha": "c" * 40, "head": {"label": "teenydroid:teeny/gen-9-c1"}, "base": {"ref": "main"}},
+        )
+        out = reads.pr("a/b", 8)["pr"]
+        self.assertEqual((out["merged_at"], out["merge_sha"]), ("2026-11-15T10:00:00Z", "c" * 40))
+
     def test_activity_is_the_ship_log(self):
         self.gh.route(
             "GET",
