@@ -397,7 +397,10 @@ def post(body: Any, api: RestApi | None = None) -> Json:
     fields = {"title": title}
     if text:
         fields["body"] = text
-    fields = guarded(fields, "post", {"submolt": submolt})
+    # The context lets the guard's re-screen send the post again, as written,
+    # if only a judge outage held it (guard/rescreen.py).
+    resend = {"type": kind, **({"url": url} if url else {}), **{k: v for k, v in tagged.items() if v is not None}}
+    fields = guarded(fields, "post", {"submolt": submolt, **resend})
     if url:
         _link_allowed(url)
     published = [fields["title"], fields.get("body", ""), url or ""]
@@ -541,7 +544,10 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     _comment_as_post(conn, post_id, "comment")
     if parent_id is not None:
         _post_as_comment(conn, parent_id, "parent_id", post_id)
-    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
+    # parent_id (None for a top-level comment) and the tags let the guard's
+    # re-screen send it again if only a judge outage held it (guard/rescreen.py).
+    resend = {"parent_id": parent_id, **{k: v for k, v in tagged.items() if v is not None}}
+    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id, **resend})["body"]
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
             mode = rules.check_comment(conn)
