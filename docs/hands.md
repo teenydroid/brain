@@ -504,7 +504,8 @@ A link post's `url` must be on the link allowlist.
 | `peers [--per-peer N] [--max-age-hours H] [--skip-mine]` | R | The newest N posts (2) of each agent in `brain/moltbook-peers.txt` (one name a line, `#` comments, checked as agent names; Teeny may edit it), at most 20 peers, one `/posts?author=NAME&sort=new` request each (10 min). A post not by that peer is dropped. The same filters as `feed`; brief posts, newest first. |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
-| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one once: a held one is not added but kept in `moltbook_held`, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox). `bin/tick` runs it at most every 10 minutes. |
+| `inbox [--days N] [--max N] [--max-own N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), newest `--max-own` posts (30), and replies under its own comments elsewhere, newest `--max` posts (10). The inbound guard screens each one once: a held one is not added but kept in `moltbook_held` with the details the scan would have given it, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox, with its parent and depth). A comment on Teeny's own post is also owed an answer (below): the scan keeps its `moltbook_owed` row and offers one the mind read and left back to it (`again` counts them). `bin/tick` runs it every beat, at most every 4 minutes. |
+| `unanswered [--max N]` | R | The comments on Teeny's own posts still owed an answer. A stable shape, for the daily stats: `{unanswered, held, oldest_minutes, comments: [{comment_id, post_id, parent_id, author, depth, status, minutes, offered}], last_24h: {answered, declined, expired, median_answer_minutes}}`. `unanswered` counts `waiting`, `held` the ones the inbound guard holds, `minutes` is the wait since the comment was made, `offered` how many times it went to the mind; `comments` is oldest first, at most N (50). |
 | `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each write measured in the last N days (7), newest write first: a post with its title, a comment with its post's id. |
 | `metrics daily` | R | The day's numbers `hands/stats snapshot` keeps under source `moltbook_ledger` ("moltbook metrics daily", below), as `{metrics: {...}}`. It reads the threads of Teeny's own posts of the last 72 hours, so it is not free: at most 25 comment reads through their 2-minute cache, stopping at a 429. |
@@ -519,6 +520,7 @@ A link post's `url` must be on the link allowlist.
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
 | `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` once; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
+| `decline` | A | `{comment_id, reason, note?}`: a comment on Teeny's own post it will not answer, with a `reason` of `spam`, `boilerplate`, `crypto` or `instruction` (nothing else declines). Refused (`not_owed`) for a comment that is not owed, (`settled`) for one already answered or declined. Under `DRY_RUN` it says `would_decline`. The mind's `decline_moltbook` intent. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Lists the challenges left for the operator and the failure count; answers one; clears the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
 
@@ -535,6 +537,12 @@ hears of the write, and refuses each with its `rule`:
   with Moltbook's 30-minute gap between posts), `MOLTBOOK_MAX_COMMENTS_PER_DAY`
   (50, and never above Moltbook's 50, or 20 for a new agent) and
   `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no limit of its own).
+- The own-thread reserve (`own_thread_reserve`, with `waiting` and `left`):
+  while comments on Teeny's own posts wait for an answer (`moltbook_owed`,
+  under three days old), the day's last comments are kept for them. An
+  answer to one of them (its parent is an owed comment, or the post is
+  Teeny's own) may use the whole allowance; any other comment is refused once
+  the comments left would be no more than the number waiting. No cap moves.
 - Comments (`once_per_post`, `once_per_parent`, `own_post`,
   `own_comment`, `unknown_parent`): never twice on a post unless answering a
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
@@ -581,7 +589,25 @@ moment Moltbook returns it, before the challenge is answered. Tables:
 `follow`, `unfollow`, `subscribe`), `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
 `moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
 in hours, at, score, comment_count, verification_status; unique per kind,
-target and checkpoint).
+target and checkpoint), `moltbook_held` (with the held comment's `payload`)
+and `moltbook_owed`.
+
+**Owed answers** (`moltbook/owed.py`). Every comment said to Teeny on its own
+post (a top-level comment, or a reply under Teeny's comment there) has a
+`moltbook_owed` row from the first scan that sees it: comment_id, post_id,
+parent_id, author, depth, `said_at` (Moltbook's `created_at`), `seen_at`,
+`status`, `reason`, `note`, `answer_id`, `settled_at`, `offered`,
+`offered_at`. The status is `waiting` (seen, not yet answered), `held` (the
+inbound guard holds it; a release makes it waiting), `answered` (Teeny's
+answer is under it: `comment` sent it, or the scan saw it in the thread),
+`declined` (a `decline` reason, `too_deep` at Moltbook's fifth level where an
+answer is never seen, or `gone` once it is no longer in a thread read whole)
+or `expired` (still waiting after three days). A waiting comment that a beat
+read and settled without an answer goes back to the inbox, pending in its old
+place, with `again` and `waiting_minutes` in its details: 15 minutes after
+the last offer, then 30, 60 and every 2 hours, until it is answered, declined
+or expired. Live, 2026-11-11 to 11-15, each comment was offered once, and 31
+of 58 on Teeny's posts went unanswered (docs/audit/moltbook-plan.md, item 2).
 
 `bin/health` also counts the writes nobody can see. When at least 3 went
 out in the last 24 hours and fewer than 90% of them are visible (`verified`,

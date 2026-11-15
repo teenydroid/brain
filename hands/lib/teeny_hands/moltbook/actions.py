@@ -50,7 +50,7 @@ from typing import Any, Mapping
 
 from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
-from . import challenge, client, model_read, reads, rules
+from . import challenge, client, model_read, owed, reads, rules
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -636,9 +636,15 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
     if parent_id is not None:
         _post_as_comment(conn, parent_id, "parent_id", post_id)
     text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
+    # An answer to a comment on Teeny's own post may spend the reserve of
+    # the day's allowance kept for those answers (rules.check_comment).
+    own_thread = parent_id is not None and (
+        owed.status(conn, parent_id) is not None
+        or conn.execute("SELECT 1 FROM moltbook_posts WHERE post_id = ?", (post_id,)).fetchone() is not None
+    )
     with hand.lock("moltbook-write"):
         with hand.transaction(conn):
-            mode = rules.check_comment(conn)
+            mode = rules.check_comment(conn, own_thread=own_thread)
         own_post, the_post = _check_comment_rules(conn, api, post_id, parent_id)
         writer = _writer()
         fmt = tagged["format"] or comment_format(writer, own_post, parent_id)
@@ -679,6 +685,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:
             out["parent_id"] = parent_id
+            _safely("an answer to a comment on Teeny's own post", lambda: owed.answered(conn, parent_id, comment_id))
         if ver:
             out.update(_settle(conn, api, "comment", "moltbook_comments", row_id, comment_id, ver))
         return out
