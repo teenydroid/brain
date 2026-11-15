@@ -46,9 +46,9 @@ command = "bin/heartbeat"
 # 2026-11-13 and 11-14 self-improve lost both days that way. The daily jobs
 # that only read, propose or tend (self-improve, build-idea, pick-request,
 # goals, speculate, world-scan, moltbook-follow, moltbook-curate) catch up
-# instead. The posts do not: X is three posts a day eight hours apart, and a
-# gm or a take hours late is the wrong post, so morning, take, show and brief
-# (and the Moltbook posts) keep waiting for their next slot. A playbook never
+# instead. The posts do not: X is four posts a day at most, four hours apart, and a
+# gm or a take hours late is the wrong post, so morning, take, show, brief and
+# peer-quote (and the Moltbook posts) keep waiting for their next slot. A playbook never
 # catches up in the quiet hours, and bin/act's max_per_day still holds.
 #
 # A slot lost to the model provider is another matter: on 2026-11-14 a 402
@@ -56,16 +56,18 @@ command = "bin/heartbeat"
 # among them. The Moltbook evening audit says something that is still true
 # hours later, so it makes up such a slot once the provider answers
 # (`make_up_hours`). The X posts do not: a late gm is the wrong post, and X
-# keeps eight hours between posts, so a late take would cost the evening's
+# keeps four hours between posts, so a late take would crowd the evening's
 # show. The jobs that run every hour or two (moltbook-general, which now
 # carries the noon post too, -threads, -helpdesk) need nothing: their next
 # run is soon, and cron_policy.py would refuse a window that long anyway.
 #
-# Teeny posts on X three times a day, eight hours apart (hands/x: X_POSTS_MAX_PER_DAY
-# and POST_MIN_GAP_HOURS): 07:00 the gm (`morning`), 15:00 a take on the day's
-# story or a quote of a builder's post (`take`), and 23:00 what it built or did
-# today, with pictures (`show`). The team's `brief` takes the next free slot
-# instead of a fourth: it runs five minutes after `take` and `show`, which skip
+# Teeny posts on X at most four times a day, four hours apart (hands/x:
+# X_POSTS_MAX_PER_DAY and POST_MIN_GAP_HOURS): 07:00 the gm (`morning`), 15:00 a
+# take on the day's story or a quote of a builder's post (`take`), 23:00 what it
+# built or did today, with pictures (`show`), and the fourth, the outward quote
+# of a peer (`peer-quote`, 11:00 or 19:00), which posts only when its relevance
+# bar is met and most days does not. The team's `brief` takes the next free slot
+# instead of a fifth: it runs five minutes after `take` and `show`, which skip
 # when a brief is queued. Every other X post job is
 # kept here but off (`enabled = false`); turn one back on to bring it back.
 # Replies to mentions are not posts and keep running. Moltbook is its own
@@ -128,6 +130,16 @@ command = "bin/act show"
 schedule = "0 15 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act take"
+
+# The outward quote: up to three scored suggestions a run from the peers' new
+# posts (brain/x-peers.txt), and hands/x peers suggest posts one only when its
+# relevance is 5 of 5 and at most once a day, so the 19:00 run does nothing if
+# the 11:00 one posted. Most runs end in a skip. No catch-up: a late quote is
+# the wrong quote.
+[jobs.peer-quote]
+schedule = "0 11,19 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act peer-quote"
 
 # Choose what the builder makes next when nobody has a request waiting
 # (brain/playbooks/build-idea.md): one idea a day, with who wants it and where
@@ -259,7 +271,7 @@ command = "bin/act moltbook-general"
 # fourth post: it runs five minutes after `take` (15:00) and `show` (23:00),
 # which skip while a brief is queued, and posts once a day at most. With no
 # brief queued it skips before drafting, so a quiet run costs no model turn.
-# hands/x's cap (3 posts a day) and 8-hour gap still apply: a brief queued after
+# hands/x's cap (4 posts a day) and 4-hour gap still apply: a brief queued after
 # today's slots waits for tomorrow's. Mentions are answered by the pinned
 # mentions-inbound job (evals/cron.pinned.toml).
 [jobs.brief]
