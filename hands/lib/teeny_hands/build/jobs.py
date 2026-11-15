@@ -22,7 +22,14 @@
                     answer, never counted as a failure; its request goes back
                     as `skipped` with the reason
            shipped  pushed to GitHub as GITHUB_USER/<repo> (a self job: its
-                    branch pushed and a pull request opened, `pr_url`)
+                    branch pushed and a pull request opened, `pr_url`); the
+                    mind hears where (`builder · shipped` with the repo's
+                    URL, or the self and upstream kinds with the PR's)
+
+`repo` is the job's slug unless the builder's report names one; a request or
+daily report that names none ships under the name its summary leads with
+("statediff: ..."), when that is a plain name no other job or repository of
+the account has (`_name_from_summary`).
 
 A job's folder is state/workbench/<slug>/; the builder works only there, and
 `ship` pushes only that folder (hands/gh refuses any other). A self job's
@@ -422,6 +429,60 @@ def next_job() -> Json:
     return {**_offer(job), "abandoned": abandoned, **({"waiting": waiting} if waiting else {})}
 
 
+def _plain_repo(name: Any) -> bool:
+    """A plain repository name: no owner, no path, no .git."""
+    return (isinstance(name, str) and bool(_REPO_NAME.match(name)) and name not in (".", "..")
+            and not name.endswith(".git"))
+
+
+def _summary_name(summary: str | None) -> str | None:
+    """The name a summary leads with ("statediff: a referee CLI" names
+    statediff), when it is a plain repository name that is not Teeny's own
+    and starts with a letter or digit; None otherwise."""
+    first = (summary or "").strip().splitlines()[:1]
+    if not first or ":" not in first[0]:
+        return None
+    name = first[0].split(":", 1)[0].strip()
+    if not _plain_repo(name) or not name[0].isalnum() or name.lower() == selfclone.REPO_NAME:
+        return None
+    return name
+
+
+def _name_from_summary(job_id: int, slug: str, summary: str | None) -> None:
+    """A request or daily job whose report gave no repo ships under the name
+    its summary leads with rather than its slug (a dated slug is a poor
+    public name for a tool), unless another job already has that name or
+    the account already has a repository of it. When GitHub cannot say, the
+    slug stays: a name is never taken from something that may exist."""
+    from ..gh.client import GitHubApi, user
+
+    name = _summary_name(summary)
+    if name is None:
+        return
+    conn = db()
+    try:
+        taken = conn.execute("SELECT 1 FROM build_jobs WHERE lower(repo) = lower(?) AND id != ?",
+                             (name, job_id)).fetchone()
+    finally:
+        conn.close()
+    if taken is not None:
+        return
+    try:
+        if GitHubApi.from_settings().repo(user(), name) is not None:
+            return
+    except (hand.HandError, OSError, ValueError):
+        return
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            if conn.execute("SELECT 1 FROM build_jobs WHERE lower(repo) = lower(?) AND id != ?",
+                            (name, job_id)).fetchone() is None:
+                conn.execute("UPDATE build_jobs SET repo = ? WHERE id = ? AND status = 'ok' AND repo = ?",
+                             (name, job_id, slug))
+    finally:
+        conn.close()
+
+
 def _text(body: Mapping[str, Any], key: str, required: bool = True) -> str | None:
     value = body.get(key)
     if value is None and not required:
@@ -458,8 +519,7 @@ def done(body: Any) -> Json:
     summary = _text(body, "summary")
     tests = _tests(body.get("tests"))
     repo = body.get("repo")
-    if repo is not None and (not isinstance(repo, str) or not _REPO_NAME.match(repo) or repo in (".", "..")
-                             or repo.endswith(".git")):
+    if repo is not None and not _plain_repo(repo):
         raise hand.HandError('"repo" must be a plain repository name')
     if isinstance(repo, str) and repo.lower() == selfclone.REPO_NAME:
         # Teeny's own repository changes only through a self job's pull request.
@@ -498,6 +558,8 @@ def done(body: Any) -> Json:
                 _mark_request(conn, row["request_id"], "skipped", f"the builder gave up: {summary}")
     finally:
         conn.close()
+    if status == "ok" and repo is None and row["kind"] in ("request", "daily"):
+        _name_from_summary(job_id, row["repo"], summary)
     # The summary and tests ride along so the mind hears why, not just
     # "failed": the desk puts them in the report stimulus's text.
     return {"job_id": job_id, "status": status, "summary": summary, "tests": body.get("tests")}
@@ -506,9 +568,12 @@ def done(body: Any) -> Json:
 #: What the builder writes to state/workbench/desk/build-done.json.
 REPORT_SHAPE = (
     '{"job_id": <the job_id above>, "status": "ok", "failed" or "gave_up", "summary": "<one line first: what it is, '
-    'or why it failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<optional '
-    'better name>"}. "gave_up" is an honest answer when the job cannot be done: say why; it is never held against '
-    'you. "ok" is checked: the tests in workdir are run again before anything ships, and only a pass ships'
+    'or why it failed>", "tests": "<what you ran and what came of it>" (or a list of those), "repo": "<the '
+    'repository\'s name: a short name for the tool, like statediff or csvstat, never a date or the job\'s slug>"}. '
+    'Give "repo" for every ok build; without it the name before the first ":" of your summary is used when it is '
+    'free, or else the job\'s slug. "gave_up" is an honest answer when the job cannot be done: say why; it is never '
+    'held against you. "ok" is checked: the tests in workdir are run again before anything ships, and only a pass '
+    'ships'
 )
 
 
@@ -578,6 +643,22 @@ def _tell_the_mind(kind: str, job: Json, text: str, payload: Mapping[str, Any]) 
         stimuli.add("builder", kind, f"build:{job['id']}", text, payload=dict(payload))
     except (hand.HandError, OSError, ValueError) as exc:
         print(f"build: could not tell the mind about job {job['id']}: {exc}", file=__import__("sys").stderr)
+
+
+def _tell_shipped(job: Json, result: Mapping[str, Any]) -> None:
+    """A request or daily build is public: which build, what it is, and its
+    exact address, so the mind links that and never one guessed from the
+    build's name (`builder · shipped`). Once per job: the inbox keeps one
+    stimulus per (surface, kind, ref)."""
+    url = result["repo_url"]
+    summary = (job.get("summary") or "").strip().splitlines()[:1]
+    what = " ".join(summary[0].split())[:200] if summary else job["slug"]
+    _tell_the_mind("shipped", job,
+                   f"your build {job['repo']} (build {job['id']}, {what}) shipped and is public at {url}\n"
+                   "That is its exact address: when you post or reply about it, link it exactly as written above, "
+                   "never a link you guess from its name.",
+                   {"job_id": job["id"], "kind": job["kind"], "repo": job["repo"], "url": url,
+                    "repo_url": url, "commit_url": result.get("commit_url")})
 
 
 def _verify(job: Json) -> Json:
@@ -775,6 +856,8 @@ def ship(gh: Any = None) -> Json:
                     _tell_the_mind("pull_request", job, f"your change to yourself (job {job['id']}) is a pull request "
                                    f"now: {result.get('pr_url')}. The operator merges it or closes it.",
                                    {"job_id": job["id"], "pr_url": result.get("pr_url"), "branch": result["branch"]})
+                else:
+                    _tell_shipped(job, result)
             results.append(result)
     return {"shipped": [r for r in results if "commit" in r], "results": results,
             "dry_run": hand.dry_run()}
