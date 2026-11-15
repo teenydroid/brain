@@ -251,13 +251,14 @@ inflight() { # VAR=VALUE... -- CMD...: the most turns in flight while CMD ran
   cat "$scratch/room/max"
 }
 four="arc-progress,morning-post,reply-fud,humans-post"
+draft '{"text": "gm %TASK% from the base"}'
 check "a run keeps four turns in flight by default" test "$(inflight "$eval_bin" run --samples 2 --only "$four" "$runs/par")" = 4
 EVAL_CONCURRENCY=1 "$eval_bin" run --samples 2 --only "$four" "$runs/seq" >/dev/null 2>&1
 check "and writes its drafts in the same order as one at a time" \
   test "$(jq -c '[.task, .sample]' "$runs/par/drafts.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl")"
 check "EVAL_CONCURRENCY=1 runs one turn at a time" test "$(inflight EVAL_CONCURRENCY=1 "$eval_bin" run --samples 1 --only "$four" "$runs/one")" = 1
 check "EVAL_CONCURRENCY=3 keeps three" test "$(inflight EVAL_CONCURRENCY=3 "$eval_bin" run --samples 2 --only "$four" "$runs/three")" = 3
-draft '{"text": "gm from the CAND, %TASK% done"}'
+draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 --only "$four" "$runs/parc" >/dev/null 2>&1
 check "a compare judges four turns at once" \
   test "$(inflight FAKE_JUDGE=prefer:CAND "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" = 4
