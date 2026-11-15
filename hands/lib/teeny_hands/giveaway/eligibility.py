@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from ..guard import repeats
-from ..wallet import solana
+from ..wallet import caps as wallet_caps, solana
 from . import caps
 
 MIN_AGE_DAYS = 90
@@ -66,7 +66,7 @@ def never_bound() -> set[str]:
     """Addresses no entry binds: the mints and programs a reply might quote,
     and the giveaway wallet itself."""
     out = {caps.TINY_MINT, caps.REWARDS_PROGRAM, caps.TOKEN_2022, caps.TOKEN_PROGRAM,
-           *solana.caps.USDC_MINTS.values()}
+           *wallet_caps.USDC_MINTS.values()}
     from .. import hand
 
     authority = hand.setting("GIVEAWAY_AUTHORITY")
