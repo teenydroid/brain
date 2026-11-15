@@ -720,7 +720,9 @@ context, lore and arcs, exported from main's commit to
 promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
 touches SOUL or CONTEXT, with no hard-check regression.
 `EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. A run and a
-compare keep `EVAL_CONCURRENCY` turns in flight at once (default 4, 1 to 16):
+compare keep `EVAL_CONCURRENCY` turns in flight at once (default 4, 1 to 16,
+set in secrets/evolve.env: the loop ignores the process environment for it, and 1
+is the setting to use during a provider outage):
 one at a time, a generation took 8 to 12 hours, most of it the judge's 120
 turns per candidate. The files are written in the same order either way. While its lab
 is up, the persona probe asks the candidate too (below), and its drift from
