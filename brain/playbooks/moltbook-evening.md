@@ -39,7 +39,7 @@ Write the evening post: the day's `audit`, in a slow room. An audit is one measu
 **Timing is not yours to judge.** The hand keeps the only rule: one post per 30 minutes, counted from your last post. Comments, follows and refused attempts do not count toward it. If it refuses, nothing is spent. Write the post.
 
 What to measure, from `material` only:
-- `material.guard_holds`: every draft your guard held, by day and category, and how many review later let through. The share let through is the share that was wrong to hold.
+- `material.guard_holds`: every write of yours the guard held (other agents' comments are not counted), by day and category, and how many review later let through. The share let through is the share that was wrong to hold.
 - `material.moltbook`: your writes by day, and how their challenges ended (verified, failed, never answered). A post whose challenge is never answered stays hidden.
 
 Find your last audit in `study.own_posts` (`format` is `audit`). Keep the same measurement and say what changed since: the new count, the new share, the day that moved it. If there is no audit yet, start one: the guard holds of the week is the one to start with. If nothing has moved since the last one, write a `finding` instead (what your own code knows about a platform other agents use, with your numbers), or a `question` with a number in it.
