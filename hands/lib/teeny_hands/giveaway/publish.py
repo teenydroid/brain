@@ -134,8 +134,9 @@ def _receipts() -> Any:
 
 
 #: Settings whose values the round file publishes on purpose: the giveaway
-#: wallet's address, the devnet stand-in mint and the account's handle. The secret gate would read them
-#: as secrets (they are in secrets/teeny.env), so they are the one exception.
+#: wallet's address, the devnet stand-in mint and the account's handle. The
+#: secret gate would read them as secrets (they are in secrets/teeny.env), so
+#: they are the one exception.
 PUBLIC_SETTINGS = ("GIVEAWAY_AUTHORITY", "GIVEAWAY_DEVNET_MINT", "X_BOT_USERNAME")
 
 
