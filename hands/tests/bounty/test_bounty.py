@@ -62,7 +62,7 @@ class BountyTest(Scratch):
         bounty_id = actions.open_bounty(body)["bounty"]["id"]
         from teeny_hands.x import publish
 
-        publish.post({"text": f"new bounty #{bounty_id}: best tiny meme, 25 USDC. reply to enter"})
+        publish.post({"anchor": "hn:1", "text": f"new bounty #{bounty_id}: best tiny meme, 25 USDC. reply to enter"})
         return bounty_id
 
     def collect_entries(self, bounty_id: int) -> dict:
@@ -172,7 +172,7 @@ class BountyTest(Scratch):
         self.assertEqual([b["tag"] for b in actions.announcements()["open"]], [f"bounty #{bounty_id}"])
         from teeny_hands.x import publish
 
-        publish.post({"text": f"bounty #{bounty_id} is open"})
+        publish.post({"anchor": "hn:1", "text": f"bounty #{bounty_id} is open"})
         self.assertEqual(actions.announcements()["open"], [])
         self.collect_entries(bounty_id)
         [to_pick] = actions.announcements()["to_pick"]
