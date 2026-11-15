@@ -903,6 +903,13 @@ and `bin/evolve status` lists it under `deferred` with the error. A deploy
 that has not loaded the agent yet therefore cannot push every learning to
 `gave-up`; it only defers them until the agent answers.
 
+Nor does it pay for them over and over. When the newest generation deferred
+a candidate, the next run first asks the reviewer one tiny probe turn (no
+candidate in it, `reviewer_down`); if that fails too, no generation is made
+at all: no research, no search, no build. The run answers `kind:
+reviewer-down` with the error and tries again next time. The probe runs only
+after a deferral, so a healthy loop never pays for it.
+
 The reviewer is required: every generation reviews with the `reviewer`
 agent. Only when the operator passes `--proposals DIR` (their own
 proposals, for a test or by hand) do the reviews come from
