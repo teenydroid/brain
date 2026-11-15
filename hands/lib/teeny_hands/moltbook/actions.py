@@ -495,7 +495,7 @@ def comment_format(writer: str | None, own_post: bool, parent_id: str | None) ->
     agent's comment, `comment` on another agent's post."""
     if writer and writer != "mind":
         name = writer.removeprefix("moltbook-")
-        return name if tags.FORMAT.match(name) else None
+        return name if tags._FORMAT.match(name) else None
     if own_post:
         return "own-thread"
     return "reply" if parent_id else "comment"
