@@ -23,6 +23,8 @@ cat >"$scratch/fake-oh" <<'FAKE'
 set -euo pipefail
 printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
+# $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
+[ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
 # $FAKE_FIRST, when the file is there, answers the first call only.
 if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
   jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
@@ -237,6 +239,35 @@ printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/que
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
 
+# --- a draft turn the model provider failed -------------------------------------------
+# On 2026-11-14 every draft failed for three hours with HTTP 402, and cron
+# ran each failed run three times in twenty seconds. The line says it was the
+# provider, and which kind; a failure a retry cannot clear exits 0 (recorded
+# once, so cron does not retry it), and one that may clear still exits 1.
+reset
+book chatty post 1
+answer '{"action": "post", "text": "gm"}'
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 402 (insufficient_allowance): no allowance' run chatty)" && status=0 || status=$?
+line="$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")"
+check "a 402 draft failure is recorded as the provider's, class payment" \
+  jq -e '.ok == false and .failure == "provider" and .provider == "payment"' <<<"$line"
+check "and exits 0, so cron does not retry it at once" test "$status" = 0
+check "and spends nothing of the day" test ! -s "$scratch/state/act/chatty/$(date -u +%Y-%m-%d)"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 401 (invalid_api_key)' run chatty)" && status=0 || status=$?
+check "a refused key is class auth, and is not retried either" \
+  bash -c "[ '$status' = 0 ] && jq -e '.provider == \"auth\"' <<<'$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")' >/dev/null"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned: provider stream ended before a completion signal' run chatty)" && status=0 || status=$?
+check "a cut stream is class server" jq -e '.failure == "provider" and .provider == "server"' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1, keeping cron's retry" test "$status" = 1
+reset
+out="$(FAKE_ASK_ERROR='invalid params: message too long' run chatty)" && status=0 || status=$?
+check "a turn failure that is not the provider's is the playbook's" \
+  jq -e '.failure == "playbook" and (has("provider") | not)' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1" test "$status" = 1
+rm -f "$brain/playbooks/chatty.md"
+
 # --- an optional input that fails is left out; any other failure stops the run -------
 # A playbook that reads the outside world (Hacker News) must not lose its
 # post to somebody else's outage.
@@ -253,6 +284,7 @@ answer '{"action": "post", "text": "gm anyway"}'
 out="$(run outage)" && status=0 || status=$?
 check "an input that fails stops the run" test "$status" = 1
 check "and says which" test "$(jq -r .error <<<"$out")" = "input world failed"
+check "and that it is the playbook's failure, not the provider's" test "$(jq -r .failure <<<"$out")" = playbook
 check "before any draft" test ! -s "$FAKE_CALLS"
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\noptional = true\n[[inputs]]\nname = "feed"\nrun = "hands/x search gm"\n+++\npost it\n' >"$brain/playbooks/outage.md"
