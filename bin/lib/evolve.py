@@ -2009,7 +2009,7 @@ class TargetedEvaluator:
 
     def _saved_report(self, cand: Json, tasks: list[str]) -> Json | None:
         run, compare = self._paths(cand)
-        if not (compare / "report.json").is_file() or not _ran(run, tasks, samples, model_key()):
+        if not (compare / "report.json").is_file() or not _ran(run, tasks, self._samples(tasks), model_key()):
             return None
         try:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))

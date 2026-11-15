@@ -167,9 +167,9 @@ class LabCase(EvolveCase):
     def lab_config(self, **values):
         # One pair of budget keeps a task at EVOLVE_EVAL_SAMPLES (1) samples,
         # as every test here was written; a test of the budget asks for more.
-        values = {"EVOLVE_EVAL_PAIRS": 1, **values}
+        values = {"EVOLVE_EVAL_PAIRS": 1, "EVOLVE_EVAL_SAMPLES": 1, **values}
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_EVALUATOR="lab", EVOLVE_LAB_PORT=self.port,
-                    EVOLVE_LAB_BOOT_SECS=20, EVOLVE_EVAL_SAMPLES=1, EVOLVE_PROBE_SAMPLES=1,
+                    EVOLVE_LAB_BOOT_SECS=20, EVOLVE_PROBE_SAMPLES=1,
                     **values)
 
     def spines(self):
