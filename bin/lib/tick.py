@@ -1545,7 +1545,6 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                         entry["paced"] = paced
                     if paced and paced.get("deferred") and do in HELD_ONE and any(
                             i.get("do") == do for i in _load_deferred()):
-                        entry["paced"] = paced
                         out = {**out, "refused": f"{out.get('refused') or 'held'}; another {do} of yours is already held"
                                " for this and goes out first, so this one was not kept"}
                         _landed(entry, do, intent, code, out, parked, set_now)

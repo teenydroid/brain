@@ -2126,7 +2126,8 @@ class TickTest(unittest.TestCase):
         self.assertEqual({json.dumps(b, sort_keys=True) for b in posts}, {json.dumps(
             {"submolt": "general", "title": "a retry is not recovery", "body": "I retried it nine times.", "format": "claim"},
             sort_keys=True)})
-        self.assertEqual(len(self.chats()), 2)  # the held post cost no turn of its own
+        # The mind was asked for it once; it only hears that it went out.
+        self.assertEqual(sum("a retry is not recovery" in c["message"] for c in self.chats()), 0)
         self.assertIn("your post_moltbook: done", self.chats()[-1]["message"])
 
     def test_only_one_post_is_held_at_a_time(self):
