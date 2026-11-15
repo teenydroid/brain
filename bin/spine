@@ -273,6 +273,16 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
   else
     log "captcha: no TYPESAFE_API_KEY in $env_file; keeping the key the core already stores, if any"
   fi
+  # Surplus Intelligence, where the solver asks by default
+  # (TEENY_CAPTCHA_PROVIDER): its key is the core's `surplus` credential.
+  if [ -n "${SURPLUS_API_KEY:-}" ]; then
+    oh auth_store_provider_credentials "$(jq -cn --arg k "$SURPLUS_API_KEY" \
+      '{provider: "provider:surplus", token: $k, setActive: true}')" >/dev/null ||
+      die "captcha: the core did not store the Surplus key"
+    log "captcha: Surplus key stored"
+  else
+    log "captcha: no SURPLUS_API_KEY in $env_file; keeping the key the core already stores, if any"
+  fi
   if [ -n "${CORTEX_API_URL:-}" ]; then
     result="$(oh memory_engine_set "$(jq -cn --arg u "$CORTEX_API_URL" --arg k "${CORTEX_API_KEY:-}" \
       '{engine: "cortexdb", endpoint: $u} + (if $k != "" then {api_key: $k} else {} end)')")" ||

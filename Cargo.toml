@@ -66,7 +66,11 @@ tinystoragedrivers-secrets = { path = "vendor/openhuman/vendor/tinystoragedriver
 tinystoragedrivers-types = { path = "vendor/openhuman/vendor/tinystoragedrivers/crates/tinystoragedrivers-types" }
 
 [patch."https://github.com/tinyhumansai/tinyinference"]
-tinyinference-decisions = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
+# Not OpenHuman's copy: the spine builds TinyComputer's engine in-tree, which
+# OpenHuman (loading it as a release module) never does, so the Jev client
+# comes from TinyComputer's own pin, which is newer than TinyAgents' (Surplus,
+# Box emulation). It depends on no other tinyinference crate.
+tinyinference-decisions = { path = "vendor/openhuman/vendor/tinycomputer/vendor/tinyinference/crates/tinyinference-decisions" }
 tinyinference-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
 tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-embeddings" }
 tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-llm" }
