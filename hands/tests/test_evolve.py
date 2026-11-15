@@ -162,13 +162,11 @@ class EvolveCase(unittest.TestCase):
             (hands / name).write_text(FAKE_HAND)
             (hands / name).chmod(0o755)
         self.calls = self.root / "calls.log"
-        self.eval_calls = self.root / "eval.log"
         for k in ENV_KEYS:
             os.environ.pop(k, None)
         os.environ.update(TEENY_ROOT=str(self.root), TEENY_HANDS=str(hands), EVOLVE_GIT_DIR=str(self.src),
                           EVOLVE_BASE="main", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
-                          TEENY_OH=str(self.root / "no-core"),
-                          FAKE_EVAL_CALLS=str(self.eval_calls))
+                          TEENY_OH=str(self.root / "no-core"))
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24)
         self.props = self.root / "props"
         self.props.mkdir()

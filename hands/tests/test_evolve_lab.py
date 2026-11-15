@@ -1,8 +1,8 @@
 """bin/evolve offline: the lab spine (a stand-in that answers /health on
 its port), the targeted evaluation, the evolver, the last-good fallback's
 trigger, evolve-watch and the persona drift halt. No real core starts and
-nothing is merged: GitHub is a fake publisher, bin/eval is the real one, and the core is a stand-in
-(TEENY_OH)."""
+nothing is merged: GitHub is a fake publisher, bin/eval is the real one,
+and the core is a stand-in (TEENY_OH)."""
 
 from __future__ import annotations
 
