@@ -217,8 +217,8 @@ class CoreChain:
             quote = self._prepare(conn, attempt_id, built, debits)
             self._check_create(conn, attempt_id, quote, plan, built)
             self._check_simulation(conn, attempt_id, quote, debits)
-            tx = self._execute(conn, attempt_id, quote, f"round {round_id}'s distribution")
-            return _created(_attempt(conn, attempt_id)) if tx else {}
+            self._execute(conn, attempt_id, quote, f"round {round_id}'s distribution")
+            return _created(_attempt(conn, attempt_id))
         finally:
             conn.close()
 

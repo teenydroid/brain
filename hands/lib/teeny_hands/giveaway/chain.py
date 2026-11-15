@@ -1,4 +1,4 @@
-"""The on-chain step of a round: the interface PR 5b fills in.
+"""The on-chain step of a round: the interface, and which implementation runs.
 
 `settle` publishes the round's tree, then asks for its merkle distribution
 on the Solana Foundation Rewards program; `clawback` asks for it to be
@@ -6,13 +6,14 @@ closed once `clawback_at` has passed. Both are signed by the giveaway
 wallet, Solana index 1 (`m/44'/501'/1'/0'`), inside the core: the key never
 leaves it (docs/drops-schema.md, "The program"; the plan's PR 5).
 
-Until PR 5b lands there is no implementation, and both calls are refused
-with rule `chain_not_ready`: `settle` then leaves the round `drawn`, its JSON
-published with `distributor` and `vault` null, and nothing is signed. A test
-injects a fake with `use`.
+The implementation is onchain.CoreChain (the core signs with Solana index 1
+under `[wallet_policy.accounts.solana_1]`; the spine builds the transaction).
+`NOT_READY` refuses both calls with rule `chain_not_ready`, as onchain does
+when there is no spine binary: `settle` then leaves the round `drawn`, its
+JSON published with `distributor` and `vault` null, and nothing is signed.
+A test puts a fake (or NOT_READY) in front with `use`.
 
-PR 5b implements `Chain` (and calls `use` with it at import, or replaces
-`_default`):
+The interface:
 
     create_distribution(plan) -> {"distribution_seed": base58, "distributor": base58,
                                   "vault": base58, "txs": {"create": sig, "fund"?: sig}}
@@ -50,7 +51,7 @@ class Chain(Protocol):
     def close_distribution(self, plan: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
-class _NotReady:
+class NotReady:
     def _refuse(self) -> Mapping[str, Any]:
         raise hand.Refused(
             "the on-chain step is not built yet (PR 5b: the core signing with wallet index 1); nothing was signed",
@@ -64,8 +65,9 @@ class _NotReady:
         return self._refuse()
 
 
-_default: Chain = _NotReady()
+NOT_READY: Chain = NotReady()
 _impl: Chain | None = None
+_default: Chain | None = None
 
 
 def use(impl: Chain | None) -> None:
@@ -75,7 +77,14 @@ def use(impl: Chain | None) -> None:
 
 
 def _chain() -> Chain:
-    return _impl if _impl is not None else _default
+    global _default
+    if _impl is not None:
+        return _impl
+    if _default is None:
+        from .onchain import CoreChain
+
+        _default = CoreChain()
+    return _default
 
 
 def create_distribution(plan: Mapping[str, Any]) -> Mapping[str, Any]:
