@@ -1750,7 +1750,7 @@ def gate(tree: Path, base: str, component: str | None = None, evidence: Mapping[
 # it reaches, and asked one question: did anything get worse? `bin/eval
 # affected` names the tasks, `bin/eval run --tasks` drafts them, and `bin/eval
 # compare --mode nonregression` answers pass, regressed, inconclusive or
-# unmeasurable (docs/evals.md).
+# unmeasurable (docs/evolve.md, "Evals").
 
 #: The verdicts of a targeted eval, and the ones a pull request may open on.
 EVAL_VERDICTS = ("pass", "regressed", "inconclusive", "unmeasurable")
