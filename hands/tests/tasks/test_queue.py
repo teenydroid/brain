@@ -385,6 +385,25 @@ class UnreportedRunTest(Scratch):
         self.assertEqual((offer["task_id"], offer["resumed"]), (tid, True))
         self.assertEqual(self.row(tid)["attempts"], 1)
 
+    def test_a_report_the_desk_turned_away_keeps_the_claim_open_and_resumed(self):
+        # The run wrote its report, the desk refused it, and the run has
+        # ended. That is not an unreported run: the claim stays with the
+        # operator, resumed, with the reason, and is not released.
+        tid = self.add()["task_id"]
+        queue.desk()
+        desk = self.root / "state" / "workbench" / "desk"
+        for n in (1, 2):
+            self.run_ended(T0 + 60 * n)
+            (desk / "task-done.json").write_text(json.dumps({"task_id": tid + 7, "outcome": "ok", "notes": "n"}))
+            os.environ["TEENY_NOW"] = str(T0 + 15 * 60 * n)
+            out = queue.desk()
+            self.assertEqual(out["rejected"], "unknown task")
+            offer = json.loads((desk / "task.json").read_text())
+            self.assertEqual((offer["task"]["task_id"], offer["task"]["resumed"]), (tid, True))
+            self.assertEqual(offer["last_report_rejected"], "unknown task")
+            self.assertEqual((self.row(tid)["status"], self.row(tid)["attempts"]), ("claimed", 1))
+        self.assertNotIn("ended without a report", self.row(tid)["notes"] or "")
+
     def test_no_storage_leaves_the_claim_to_the_stale_cutoff(self):
         tid = self.claimed()
         self.db.close()
