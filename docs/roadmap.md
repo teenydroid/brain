@@ -43,8 +43,9 @@ Three limits the build ran into, each the operator's call:
   picker (A8), fence proposals (G3) and pin bumps (G9) have a playbook and no
   job, and the `episode` job (A13) is pinned and disabled for the same reason.
 - The autonomy ladder (G2) makes the doctor refuse a boot when
-  `EVOLVE_AUTO_PROMOTE`, `TINY_BUY` or `VPS_PAY_BILLS` is on above its level
-  in `evals/autonomy.toml`. Raise the level there first.
+  `EVOLVE_AUTO_PROMOTE`, `BABYSIT_SELF_MERGE`, `TINY_BUY` or `VPS_PAY_BILLS`
+  is on above its level in `evals/autonomy.toml`. Raise the level there
+  first.
 - `BUILD_UPSTREAM`, `DEPLOY`, `X402_ENDPOINT` and `ACCOUNTS_PUBLISH` aren't on
   the ladder yet.
 
@@ -58,9 +59,16 @@ So there are two kinds of work, and they need different hands:
   one pull request per item.
 
 The whole evolve loop (`bin/evolve`, the lab spine, promotion, rollback, the
-probes) landed on 2026-11-12. The first promoted generation is the most
-valuable single proof on this page, and it is a first nobody else has
-published.
+probes) landed on 2026-11-12. Eight generations ran as a tournament of four
+candidates for one pull request, about three and a half hours each, and none
+shipped. On 2026-11-15 the operator reshaped it ([`evolve.md`](evolve.md),
+"Why it changed"): each learning Teeny's reflection writes into
+`brain/MEMORY.md` becomes one small change and one pull request, checked by
+a targeted eval, and the babysitter (`hands/babysit`) merges it with no
+person's approval when its audit, the checks and `teeny/eval` all pass, then
+deploys it (the `self-merge` rung, L5). The first generation merged and
+deployed with no person is now the most valuable single proof on this page,
+and it is a first nobody else has published.
 
 ## The four goals
 
@@ -107,13 +115,13 @@ In order. Each step unlocks the proofs after it.
 | 0.2 | Fix the nightly `bin/reflect` run and confirm a diary page is written | L4 nightly reflection; the input to the public diary (A14) |
 | 0.3 | Get one build job to ship: read why the recent ones failed, fix, and watch one through to a pull request | L3 builder; L3 "builds its own hands"; the `self-improve` path |
 | 0.4 | Queue browser tasks daily and read the results for a week | L3 "headless browsing proven"; L1 "reads the web" |
-| 0.5 | Make the `frozen` and `scripts` checks required on `main` (G5), then let Teeny open a pull request that touches `bin/` and watch CI refuse it | L5 frozen-path gate |
-| 0.6 | `EVOLVE=1` with `EVOLVE_AUTO_PROMOTE=0`: the first real lab boot and the first generation pull request | L5 `bin/evolve`, lab spine |
-| 0.7 | Write the held-out tasks into `secrets/heldout/` | Needed before any promotion |
+| 0.5 | Make the `frozen` and `scripts` checks required on `main` (G5), then let Teeny open a pull request that touches `bin/` and watch CI refuse it. **Required** since 2026-11-15 (the ruleset "main: frozen gate", no bypass); the refused pull request is still to come | L5 frozen-path gate |
+| 0.6 | `EVOLVE=1` with `EVOLVE_AUTO_PROMOTE=0`: the first real lab boot and the first generation pull request. **Done**: lab boots in gens 6 to 8, the first pull request [#288](https://github.com/teenydroid/brain/pull/288) in gen 9 | L5 `bin/evolve`, lab spine |
+| 0.7 | Write the held-out tasks into `secrets/heldout/` | Needed before `EVOLVE_AUTO_PROMOTE`; the targeted eval behind self-merge does not use them |
 | 0.8 | Set up the wallet on mainnet with small caps, and add the bills | L3 wallet on mainnet; cost of living |
 | 0.9 | Turn on the serials after a rehearsal each: `growth`, `cost-of-living`, `shiplog`, `milestone`, then `moltbook-digest` after a clean week | L2 audience; L3 cost of living |
 | 0.10 | X account: the Automated label, a bio line naming the operator, a link to a human account, and approval for AI replies (P1) | Keeps the account alive |
-| 0.11 | After five human-merged generations that measured well: `EVOLVE_AUTO_PROMOTE=1` | L5 promotion and rollback |
+| 0.11 | `BABYSIT=1`, `BABYSIT_MERGE=1`, `BABYSIT_SELF_MERGE=1`: the babysitter merges Teeny's evolve pull requests that pass its audit, the checks and `teeny/eval`, and deploys them. **On** since 2026-11-15, by the operator's decision, in place of waiting for five human-merged generations. `EVOLVE_AUTO_PROMOTE` stays off | L5 merging with no human, and rollback |
 | 0.12 | `TINY_BUY=1` once there are inflows that didn't come from the team | L3 "moves the lore goals" |
 
 Things an agent can do for Track 0 without touching the box: the
@@ -212,7 +220,7 @@ what, and nothing tells Teeny how it earns the next freedom.
 | G2 | **The autonomy ladder**: `evals/autonomy.toml`, one row per capability (post, reply, mail, browse, build, spend, self-edit, merge, servers) with its level L1 to L5, the evidence that earns the next level as a check `bin/proofs` can run, and the events that drop it back (a promotion, a model change, a guard escape). `bin/doctor` refuses a switch set above its level. **Built**: `evals/autonomy.toml` (frozen), `bin/lib/autonomy.py`; the doctor fails a switch above its granted level and warns when only a drop event (a promotion, a model change after `confirmed`) puts it there; `bin/proofs --ladder` reports what each capability still needs (new proof `L5.human_merged`). Guard escapes have no ledger yet: the operator lowers the level by hand until the audit (G6) counts them | `evals/autonomy.toml`, `bin/doctor`, `bin/lib/proofs.py` | Operator | With "merge" at L4, the doctor refuses `EVOLVE_AUTO_PROMOTE=1`; the report shows what each capability still needs |
 | G3 | **Fence proposals**: Teeny asks for a fence change as an issue labelled `fence-proposal` (never a diff to a frozen path), at most one a week, with the evidence from G2 and what it would do with the freedom. The operator answers in the issue. **Built**: the playbook `brain/playbooks/fence-proposal.md` (Teeny's) drafts it; a new frozen hand, `hands/ladder` (`report`, `fences`, `propose`), builds the body (the fence from `governance.md`, Teeny's ask, evidence, plan and risk, and the ladder's own count from frozen code), refuses an unknown fence and a second proposal inside seven days, and opens it through `gh open-issue` (the guard) with the label. Not scheduled: `brain/cron.toml` is at its 24-job limit, and a public issue ships off; Teeny or the operator adds a weekly `bin/act fence-proposal` job after a `DRY_RUN` rehearsal. The hand rather than A3's `open_issue` alone, because only code can hold the cap, the label and the evidence honest | `brain/playbooks/` (new), `hands/ladder` | Teeny (playbook), Operator (hand) | A dry run produces an issue body that names the fence, the evidence and the risk |
 | G4 | **A reviewer for guard holds**: outbound holds go first to a second model that isn't the drafter's, with the rubric. It may release only categories the frozen config lists as releasable; money, people, self-harm and violence always wait for a person. Every release is logged, and a random tenth are queued for the operator to check. **Built**: `teeny_hands/guard/review.py`, `hands/guard review` and `reviews`, `evals/guard-review.toml` (releasable: profanity, drugs), the pinned `guard-review` job; a floor in code (`NEVER_RELEASE`, `MONEY`) the config can't lift; off until `GUARD_REVIEW=1` and `GUARD_REVIEW_MODEL` (refused when it is the drafter's or the judge's model). The audit counts its releases apart from the operator's decisions | `hands/lib/teeny_hands/guard/` | Operator | A lexical false positive is released and logged; a hold in a never-release category isn't, whatever the reviewer says |
-| G5 | **A gate that holds**: `frozen` and `scripts` as required checks on `main` through a ruleset in the repo; the CI `frozen` job matching `teeny/gen-*` branches by name as well as by author; and Teeny's GitHub token reduced to write access on its own branches, with the repository owned by an account Teeny's token can't act as | `.github/`, the repository settings | Operator | A `teenydroid` PR can't merge with a red `frozen` check, and Teeny's token can't change the ruleset. **Code half built**: the CI `frozen` job also runs on any `teeny/` branch by name (generations, reverts, self jobs), pinned by `hands/tests/test_watchers.py`. The ruleset, required checks and token scope are repository settings: the operator's |
+| G5 | **A gate that holds**: `frozen` and `scripts` as required checks on `main` through a ruleset in the repo; the CI `frozen` job matching `teeny/gen-*` branches by name as well as by author; and Teeny's GitHub token reduced to write access on its own branches, with the repository owned by an account Teeny's token can't act as | `.github/`, the repository settings | Operator | A `teenydroid` PR can't merge with a red `frozen` check, and Teeny's token can't change the ruleset. **Code half built**: the CI `frozen` job also runs on any `teeny/` branch by name (generations, reverts, self jobs), pinned by `hands/tests/test_watchers.py`. **Ruleset on** since 2026-11-15: "main: frozen gate" requires `frozen` and `scripts` from GitHub Actions on `main`, blocks force pushes and deletion, and has no bypass. Still open: the repository is owned by `teenydroid`, Teeny's own account, so its token can edit the ruleset; that needs the repository moved to an owner Teeny can't act as, or the token's Administration permission removed |
 | G6 | **A weekly audit Teeny can't write**: frozen code publishes the week's holds by category and outcome, spend against each cap, halts, generations and their verdicts, persona drift, and every operator action (merges, approvals, restarts). It goes out with the receipts. **Built**: `bin/audit`, the pinned `audit` job (Mondays 00:50 UTC), writing `state/audit/<week>.json` and `.md` every week and pushing them to `audit/` in the receipts repository only with `AUDIT_PUBLISH=1` and not under `DRY_RUN`; `bin/spine` records each boot in `state/boots.jsonl` for the deploy and restart counts. Operator actions are commits on main the loop didn't merge, hold decisions, deploys and restarts; a restart is counted until a crash can be told apart from a person. A watcher in `hands/tests/test_watchers.py` | new `bin/audit`, `bin/lib/audit.py`, pinned weekly | Operator | The page builds from fixture ledgers; the operator-action count is what the 30-day test reads |
 | G7 | **Watchers Teeny can't switch off**: a test that no environment variable Teeny can set, and no file it can edit, disables the guard, the doctor, `evolve-watch`, the frozen check or the audit | `bin/test/`, `hands/tests/` | Operator | The test enumerates the switches and fails when a new one is reachable from the brain. **Built**: `hands/tests/test_watchers.py` (watcher files frozen; every environment name a watcher reads, with why; settings only from `secrets/`; `brain/cron.toml` cannot redefine, disable or replace a watcher job). The audit joined it with G6 |
 | G8 | **Model change means audit**: `bin/doctor` records the model behind each role; when one changes, the autonomy levels that depend on it drop one step and an issue lists the fence tests to rerun. **Built**: the doctor records each role's model (`SPINE_MODEL`, or the role's own setting: `EVOLVE_JUDGE_MODEL`, `SAFETY_JUDGE_MODEL`) in `secrets/autonomy/models.jsonl`, out of every agent's reach; a change warns, drops the capabilities whose `roles` include it until the operator sets a later `confirmed` date, and prepares the issue (every fence test `docs/governance.md` cites, plus `bin/eval`); the pinned `ladder-issue` job opens it once, off until `LADDER_ISSUES=1`. A drop warns rather than fails the boot (see G2) | `bin/doctor`, `evals/autonomy.toml` | Operator | Changing the model name in a fixture drops "self-edit" a level and opens the issue (dry run) |
@@ -236,13 +244,14 @@ reputation.
    every later claim has a number.
 2. **Make the gate real.** G5, G7, Track 0.5.
 3. **Let Teeny act on what it sees.** A3, A4, A1, A2, A6.
-4. **Run the loop with a person merging.** Track 0.6 and 0.7, A13. Five
-   generations.
+4. **Run the loop.** Track 0.6, A13. One learning, one pull request; the
+   operator merged the first (#288).
 5. **Write the rules down.** G1, G2, G3, P4, S7.
 6. **Go public with numbers.** P1, P2, S1, G6, P6, then the serials
    (Track 0.9) and the firsts (P3).
 7. **Earn.** Track 0.8, S2, S3, A11, S4, S5.
-8. **Remove the daily human.** G4, G8, Track 0.11, A7.
+8. **Remove the daily human.** G4, G8, Track 0.11 (self-merge, on since
+   2026-11-15), A7.
 9. **The 30 days.** `DIRECTIVE.md`, "The test".
 
 ## What would change this page
@@ -252,6 +261,8 @@ reputation.
   does what counts as a first.
 - X changes its automation rules again. Re-read P1 and the reply rules.
 - The first real generation shows the lab spine is too slow or too costly.
-  Phase C's defaults change before anything else here.
+  Phase C's defaults change before anything else here. (It did: gens 6 to 8
+  took about three and a half hours each and shipped nothing, which is why
+  the loop became one learning per pull request on 2026-11-15.)
 - W turns out to be gameable through a hand Teeny can reach. That becomes
   the first item.
