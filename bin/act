@@ -29,6 +29,9 @@
 #    inputs. A draft with no anchor, one the judge does not find anchored, or
 #    a judge that cannot answer is a skip ("not anchored: ..."): nothing is
 #    sent, no picture made, no budget spent, and the draft is never rewritten.
+#    A playbook's own hand gets the same judge, on its title, text and body
+#    joined, whenever the draft carries an `anchor` field (hands/reddit post);
+#    a draft without one (a comment) is not judged.
 #
 # Prints one JSON summary; every run is appended to state/act/<name>/runs.jsonl.
 # A failed run's line says whose failure it was: `failure: "provider"` with
@@ -365,6 +368,25 @@ attach_shots() { # ITEM -> adds to media_ids, sets shots_note (JSON or null)
 
 # --- the actions ---------------------------------------------------------------
 results='[]'
+
+# The anchor judge (hands/guard anchor) on DRAFT and ANCHOR: anything but its
+# clear yes records a skip ("not anchored: ...", with the draft), which is
+# free, and returns 0 so the caller moves on; a clear yes returns 1.
+unanchored() { # DRAFT ANCHOR
+  local draft="$1" anchor="$2" why="" judged=""
+  if [ -z "$anchor" ]; then
+    why="the draft names no anchor"
+  elif ! judged="$(printf '%s' "$inputs" | jq -c --arg t "$draft" --arg a "$anchor" '{text: $t, anchor: $a, inputs: .}' |
+    (cd "$TEENY_ROOT" && "$hands/guard" anchor))" || ! jq -e '.anchored == true' <<<"$judged" >/dev/null 2>&1; then
+    why="$(jq -r '(.reason // .error // empty) | tostring' <<<"${judged:-}" 2>/dev/null || true)"
+    why="${why:-the anchor judge did not answer}"
+  fi
+  [ -n "$why" ] || return 1
+  results="$(jq -c --arg r "not anchored: ${why:0:300}" --arg a "$anchor" --arg t "$draft" \
+    '. + [{action: "skip", reason: $r, draft: $t} + (if $a == "" then {} else {anchor: $a} end)]' <<<"$results")"
+  return 0
+}
+
 expected="$output"
 case "$output" in hand:*) expected=hand ;; none) expected=note ;; esac
 while IFS= read -r item; do
@@ -395,21 +417,8 @@ while IFS= read -r item; do
       anchor="$(jq -r 'if (.anchor | type) == "string" then .anchor | gsub("^\\s+|\\s+$"; "")
         elif (.anchor | type) == "number" then .anchor | tostring else "" end' <<<"$item")"
       [ -n "$anchor" ] || anchor="$quote"
-      # The anchor judge, before any picture is made: anything but its clear
-      # yes is a skip, and a skip is free.
-      why=""
-      if [ -z "$anchor" ]; then
-        why="the draft names no anchor"
-      elif ! judged="$(printf '%s' "$inputs" | jq -c --arg t "$text" --arg a "$anchor" '{text: $t, anchor: $a, inputs: .}' |
-        (cd "$TEENY_ROOT" && "$hands/guard" anchor))" || ! jq -e '.anchored == true' <<<"$judged" >/dev/null 2>&1; then
-        why="$(jq -r '(.reason // .error // empty) | tostring' <<<"${judged:-}" 2>/dev/null || true)"
-        why="${why:-the anchor judge did not answer}"
-      fi
-      if [ -n "$why" ]; then
-        results="$(jq -c --arg r "not anchored: ${why:0:300}" --arg a "$anchor" --arg t "$text" \
-          '. + [{action: "skip", reason: $r, draft: $t} + (if $a == "" then {} else {anchor: $a} end)]' <<<"$results")"
-        continue
-      fi
+      # The anchor judge, before any picture is made.
+      unanchored "$text" "$anchor" && continue
       attach_media "$item"
       fmt="$(jq -r 'if (.format | type) == "string" then .format else "" end' <<<"$item")"
       result="$(jq -cn --arg t "$text" --argjson m "$media_ids" --arg q "$quote" --arg f "$fmt" --arg a "$anchor" '{text: $t}
@@ -441,6 +450,13 @@ while IFS= read -r item; do
       # carries, so the guard reads its words here first, and what goes to
       # the hand is the guard's rewrite, never the model's draft.
       body="$(jq -c 'del(.action, .image, .images, .video, .shots)' <<<"$item")"
+      # A draft that names an anchor (hands/reddit post) meets the same judge
+      # as a post on X, on its title, text and body joined, before the guard.
+      if jq -e 'has("anchor")' <<<"$body" >/dev/null; then
+        anchor="$(jq -r 'if (.anchor | type) == "string" then .anchor | gsub("^\\s+|\\s+$"; "")
+          elif (.anchor | type) == "number" then .anchor | tostring else "" end' <<<"$body")"
+        unanchored "$(jq -r '[.title, .text, .body | strings | select(. != "")] | join("\n\n")' <<<"$body")" "$anchor" && continue
+      fi
       fields="$(jq -r '[("title", "body", "subject") as $f | select(has($f) and (.[$f] | type) == "string") | $f] | join(",")' <<<"$body")"
       if [ -n "$text" ]; then
         verdict="$(jq -cn --arg t "$text" --arg s "$surface" '{text: $t, surface: $s}' | (cd "$TEENY_ROOT" && "$hands/guard" check))" || status=$?
