@@ -66,13 +66,10 @@ class LoopCase(EvolveCase):
             return evolve.run_generation(evolve.load_config(), n, None, publisher=kw.pop("publisher", FakePublisher()),
                                          **kw)
 
-    def calls(self):
-        if not self.calls_path().exists():
+    def hand_calls(self):
+        if not self.calls.exists():
             return []
-        return [json.loads(line) for line in self.calls_path().read_text().splitlines()]
-
-    def calls_path(self):
-        return Path(os.environ["FAKE_CALLS"])
+        return [json.loads(line) for line in self.calls.read_text().splitlines()]
 
     def x402(self):
         path = Path(os.environ["TEENY_HANDS"]) / "x402"
@@ -229,7 +226,7 @@ class ResearchOnTheWeb(LoopCase):
         self.live()
 
     def searches(self):
-        return [c for c in self.calls() if c[0] == "x402"]
+        return [c for c in self.hand_calls() if c[0] == "x402"]
 
     def test_no_search_runs_by_default(self):
         self.one_learning()

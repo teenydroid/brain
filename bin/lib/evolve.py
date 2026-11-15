@@ -2998,7 +2998,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                     # The files research named come first in what the build is shown.
                     editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
                     request.update(editable=editable, files={} if in_place else files)
-                request["research"] = research
+                if not research.get("error"):
+                    request["research"] = research
             proposal = check_proposal(proposer.propose(request))
             if not in_place:
                 try:
