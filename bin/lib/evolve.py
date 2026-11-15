@@ -1280,6 +1280,13 @@ def render_request(request: Json) -> str:
     if request.get("omitted"):
         parts.append("## files left out to fit the message\n\nThese are editable but not shown; change them only "
                      "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
+    rejected = request.get("rejected")
+    if rejected:
+        parts.append("## your last edits did not apply\n\n"
+                     f"Nothing was changed: {rejected['error']}. Each old text is copied character for character "
+                     "from the file above and occurs in it once; a line you quote is quoted whole. Your last "
+                     "edits, as JSON:\n\n```json\n" + json.dumps(rejected.get("edits"), ensure_ascii=False)[:4000]
+                     + "\n```")
     parts.append(_answer(with_edits=True))
     return "\n\n".join(parts)
 
@@ -2574,12 +2581,22 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                        "gen_dir": str(gdir)}
             proposal = check_proposal(proposer.propose(request))
             if not in_place:
-                # Kept at once: a restart that cuts the run off later loses
-                # the turn that wrote it, not the proposal.
+                try:
+                    apply_edits(tree, proposal.get("edits"))
+                except EvolveError as exc:
+                    # Once more, shown why (gen 9: an old text that left a
+                    # sentence out of the line it quoted). apply_edits writes
+                    # nothing until every edit applies, so the tree is clean.
+                    say(f"candidate {i}: the edits did not apply ({str(exc)[:120]}); asking once more")
+                    proposal = check_proposal(proposer.propose(
+                        {**request, "rejected": {"error": str(exc)[:500], "edits": proposal.get("edits")}}))
+                    apply_edits(tree, proposal.get("edits"))
+                # Kept once it applies: a restart that cuts the run off
+                # later loses the turn that wrote it, not the proposal.
                 write_json(gdir / f"cand-{i}.proposal.json", {"learning": learning, "proposal": proposal})
             # An editing proposer has written its change already; edits in
             # its answer, if any, are applied on top, by the same rules.
-            if not in_place or proposal.get("edits"):
+            elif proposal.get("edits"):
                 apply_edits(tree, proposal.get("edits"))
     except Skipped as skip:
         entry.update(verdict="skipped", skip={"why": skip.why, "where": skip.where, "note": skip.note},

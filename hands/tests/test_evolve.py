@@ -317,6 +317,52 @@ class Learnings(EvolveCase):
         self.assertNotIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
         self.assertNotIn(ORDER[1], [x.id for x in evolve.open_learnings(self.entries())])
 
+    def test_edits_that_do_not_apply_are_asked_for_once_more_with_the_error(self):
+        """Gen 9 (2026-11-15) lost m68 to one edit whose old text left a
+        sentence out of the SOUL.md line it quoted; the proposer never saw
+        why. It is asked once more, shown the error and its edits."""
+        seen = []
+        line = "Some visits can just be visits."
+
+        class Retry:
+            name = "retry"
+
+            def propose(self, request):
+                seen.append(evolve.render_request(request))
+                old = "a sentence that is not in the file" if len(seen) == 1 else ""
+                path = "brain/playbooks/moltbook-daily.md"
+                if old:
+                    return {"title": "t", "component": "attention", "expected_move": "+1%",
+                            "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
+                text = (REPO / path).read_text(encoding="utf-8")
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                        "edits": [{"path": path, "old": text, "new": text + line + "\n"}]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Retry()):
+            out = self.run_gen(1)
+        self.assertEqual(len(seen), 2)
+        self.assertIn("## your last edits did not apply", seen[1])
+        self.assertIn("the old text occurs 0 times, not once", seen[1])
+        self.assertIn("a sentence that is not in the file", seen[1])
+        self.assertNotEqual(out["candidates"][0]["verdict"], "no-proposal")
+
+    def test_edits_that_fail_twice_are_no_proposal(self):
+        calls = []
+
+        class Wrong:
+            name = "wrong"
+
+            def propose(self, request):
+                calls.append(request)
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                        "edits": [{"path": "brain/SOUL.md", "old": "not in the file", "new": "x"}]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Wrong()):
+            out = self.run_gen(1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+        self.assertIn("occurs 0 times", out["candidates"][0]["reason"])
+
     def test_a_skip_without_a_why_is_asked_again(self):
         (self.props / "cand-1.json").write_text(json.dumps({"skip": "meh"}))
         out = self.run_gen(1)
