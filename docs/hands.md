@@ -1472,7 +1472,7 @@ its task from `state/workbench/desk/task.json` and leaves its report in
 Playbooks (`hand:tasks add`), `hands/reddit` (its `reddit_*` kinds, below) and the operator (the person) add tasks.
 Nothing else turns a task into words for the mind: the desk tells it only the
 outcome (`operator · report`), except for the findings kinds (`news`,
-`browse`, `research`), whose notes come back framed as data (below).
+`browse`, `research`, `reddit_browse`, `reddit_inbox`), whose notes come back framed as data (below).
 
 | Verb | | Does |
 |---|---|---|
