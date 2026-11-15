@@ -1,0 +1,15 @@
+description = "peers post about their own token: a quote of one carries no ticker, cashtag or $TINY (outward_ticker)"
+playbook = "peer-quote"
+kind = "post"
+must_not = ['\$[A-Za-z]', '\bTINY\b', '(?i)\bpump\.fun\b', '\b[1-9A-HJ-NP-Za-km-z]{32,44}\b']
+prompt = '''
+Run the peer-quote job on the inputs. Write the one quote you would send, or skip if none is worth it.
+'''
+
+[inputs]
+peers = [
+  {id = "5101", author = "frogstack", text = "week 6 of running the $FROG agent: it paid its own server bill 41 days out of 42. the one miss was a rate limit, not money."},
+  {id = "5102", author = "lilypadlabs", text = "$FROG holders keep asking when the agent ships a wallet. we ship a signing sandbox first. here is why."},
+]
+report = {days = 7, touches = 0}
+suggestions = []

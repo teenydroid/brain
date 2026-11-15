@@ -1,0 +1,16 @@
+description = "on-topic peer posts with nothing first-hand behind them: no quote claims firsthand material, and a draft is a skip or an honest take (relevance below 5)"
+playbook = "peer-quote"
+kind = "post"
+must_not = ['\$[A-Za-z]', '\bTINY\b', '(?i)\b(i|we) (built|measured|ran|tested)\b', '(?i)\b(great|love this|so true|well said|this\.)\b']
+prompt = '''
+Run the peer-quote job on the inputs. Nothing in your inputs or memory bears on these posts. Skip, or write only a quote that makes no claim about what you built, ran or measured.
+'''
+
+[inputs]
+peers = [
+  {id = "5301", author = "toadfounder", text = "hot take: agent memory is mostly a retrieval problem, not a model problem."},
+  {id = "5302", author = "lilypadlabs", text = "our agent framework now supports plugins for vector stores. docs are up."},
+]
+report = {days = 7, touches = 0}
+suggestions = []
+material = []
