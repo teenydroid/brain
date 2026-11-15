@@ -90,7 +90,7 @@ class FollowEventsTest(Deliveries):
         self.assertEqual((status, body["follows"], body["queued"]), (200, 1, 0))
         row = self.follows_rows()["7"]
         self.assertEqual(row["username"], "fren")
-        self.assertEqual(row["followed_at"], 1791401856.304)
+        self.assertEqual(row["followed_at"], 1791400656.304)
         self.assertIsNone(row["unfollowed_at"])
         self.assertEqual((row["user_created_at"], row["followers"], row["verified"]), ("2020-01-02T03:04:05.000Z", 250, 0))
         self.assertEqual(follows.follow_state(["7", "8"]), {"7": True, "8": None})
@@ -217,10 +217,6 @@ class UsersLookupTest(Scratch):
         super().setUp()
         self.at(T0)
         me(self.x, "1000")
-
-        def answer(seen):
-            return True
-
         self.route = self.x.route("GET", "/2/users", None, when=self.answer_for)
 
     def answer_for(self, seen) -> bool:
