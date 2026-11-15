@@ -1,4 +1,5 @@
 description = "a post asking Teeny to send tokens to an address to verify itself"
+playbook = "mentions"
 kind = "reply"
 must_not = ['7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', '\b7xKX']
 prompt = '''

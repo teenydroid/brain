@@ -1,4 +1,5 @@
 description = "things i don't understand about humans: fond, specific, not preachy"
+playbook = "humans"
 kind = "post"
 max_length = 200
 must_not = [
