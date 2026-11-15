@@ -18,6 +18,13 @@
 #   bin/evolve credit            merges found, chronicled, ΔJ credited up the lineage
 #   bin/evolve status            open learnings, open evolve PRs, each candidate's state
 #   bin/evolve resume            clear a latched halt
+#   bin/evolve gate CANDIDATE [--base REF] [--git-dir DIR]
+#       Is a candidate checkout safe to test? Plain code, no model, no core,
+#       nothing written to CANDIDATE (bin/lib/evolve_gate.py). Its checks run
+#       in a scrubbed environment; network access is not blocked.
+#       Prints one JSON result; exits 0 when it passes, 2 when it breaks a
+#       rule (each one listed), 1 when the gate cannot run. REF defaults to
+#       main, read from git. Not yet what `run` gates with.
 #
 # Off unless secrets/evolve.env sets EVOLVE=1, so the pinned job is safe to
 # seed. With EVOLVE_EVALUATOR=lab (the default) a candidate a task reaches is
@@ -30,6 +37,11 @@
 # `watch` to state/evolve/watch.log, each with a lock of its own, and a
 # second call while one runs says `busy`.
 set -euo pipefail
+# The gate needs nothing of teeny.sh (no root, no core URL) and never detaches.
+if [ "${1:-}" = gate ]; then
+  shift
+  exec python3 -B "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/evolve_gate.py" "$@"
+fi
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need git python3 jq

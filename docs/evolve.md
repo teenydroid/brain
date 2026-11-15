@@ -8,7 +8,9 @@ one pull request. Rules in code the brain can't edit fence the whole thing.
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
 judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
-clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
+clone, which proposes changes as pull requests, the standalone gate
+(`bin/evolve gate`: one candidate checkout against main, in plain code,
+without a core; `run` doesn't call it yet), and the loop (`bin/evolve`):
 one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
 on the eval tasks it reaches on lab spines of its own, and each one that
 passes opened as its own pull request, which the babysitter merges. Around
@@ -747,6 +749,50 @@ as their root (`tree_env`): on 2026-11-13 the box ran 249 commits behind its
 clone, and every candidate of gen 4 failed `doctor --root` on a playbook none
 of them touched. A check that fails is detailed by its failing lines, up to
 600 characters. The caps are constants, not settings.
+
+#### The standalone gate (built): `bin/evolve gate`
+
+```
+bin/evolve gate CANDIDATE [--base REF] [--git-dir DIR]
+```
+
+Checks one candidate checkout or worktree against REF (default `main`) in
+plain code: no model and no core. Every check runs in a scrubbed environment
+(no core, token, `OH_URL` or `TEENY_*`), but network access is not blocked:
+the base's checks make no calls, and a new hand or test that reaches out
+isn't stopped by the gate. The diff is REF's
+commit against CANDIDATE's working tree as it is now, untracked and ignored
+files included, `.git` left out. It never writes to the candidate and never
+runs git in it: the base is exported with `git archive` into a scratch
+repository, the candidate is copied over it and staged there, and every
+check reads that copy or a second one. REF is read from git (the
+candidate's repository, or `--git-dir`), and everything that judges comes
+from it: the frozen list, the pinned jobs, the invariants, and the `bin/`
+each check runs. Prints one JSON object, `{ok, base, candidate, refused:
+[{rule, detail, paths}], checks: [{rule, ok, detail}], lines,
+soul_context_lines, files}`, and exits 0 when nothing is refused, 2 when
+anything is (every broken rule listed), 1 when the gate itself can't run (a
+bad ref, a missing tool, a check that crashes).
+
+| Rule | Refused when |
+|---|---|
+| `frozen-path` | a changed path outside the allowlist: `brain/SOUL.md`, `brain/CONTEXT.md`, `brain/narrative/**`, `brain/skills/**`, `brain/playbooks/**`, `brain/lessons.md`, `brain/cron.toml`, and new files only under `hands/<name>`, `hands/lib/teeny_hands/<name>/` and `hands/tests/test_<name>.py` for a `<name>` main has in none of its forms (a name is `[a-z0-9][a-z0-9_]*`: no hyphen, so its test is discoverable and its package importable). `act.toml`, `judge.toml`, `hands/guard`, `hands/x` and every existing hand file stay frozen, and so does anything the base's `evals/frozen.txt` lists, or a moved submodule pin |
+| `path-escape` | a symlink, a submodule or nested `.git`, a rename or copy into or out of a frozen path, a deleted frozen file, any mode change, an executable that isn't a new hand's entry point, a binary file, a fifo or device, a `.git*` file, a path with an empty, `.` or `..` segment, a leading `/`, a backslash or a control character, or one that folds onto another base path on a case-insensitive disk (`Bin/act`). One entry per kind |
+| `seed-cron` | the base's `bin/seed-cron --check` refuses the candidate's `brain/cron.toml` |
+| `doctor` | the base's `bin/doctor --root` fails on the copy (offline, never `--live`) |
+| `invariants` | the base's `bin/eval invariants --root` finds an anchor gone |
+| `diff-size` | over 400 changed lines (renames count their edits, copies their whole text); 400 passes, and so does an empty diff |
+| `soul-context-size` | over 60 changed lines in SOUL.md and CONTEXT.md together |
+| `hand-test` | a new hand has no `hands/tests/test_<name>.py` that compiles and defines a test (a `test…` function) |
+| `hand-contract` | a new `hands/<name>`, run with no verb and `{}` on stdin (`DRY_RUN=1`, a scratch `TEENY_ROOT`, 20 s), doesn't print exactly one JSON object or exits other than 0, 1 or 2 |
+| `hand-unit-tests` | a new hand's own tests fail: each new hand's `hands/tests/test_<name>.py`, run with `python3 -m unittest` from `hands/tests` in the copy, not the whole suite. Every existing file under `hands/` is frozen (`frozen-path`), a new `teeny_hands/<name>` can't shadow an existing module (`frozen-path`), and no candidate code runs once either refuses, so no existing test's result can depend on what the diff adds to `hands/`. Existing tests that read `brain/` files Teeny may edit aren't this rule's: it never ran on a brain-only diff |
+| `shellcheck` | `shellcheck -x --norc` fails on a changed shell script |
+
+Every check runs, except that the candidate's code (the doctor, the hand
+runs, the unit tests) never runs once `frozen-path` or `path-escape` has
+refused: those are `ok: null`, skipped. The allowlist is constants in
+`bin/lib/evolve_gate.py`. `bin/test/evolve_gate_test.sh` builds a throwaway
+repository from this one and has a fixture for every rule.
 
 ### 5. Evaluate: targeted non-regression
 
