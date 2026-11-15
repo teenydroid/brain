@@ -4,9 +4,11 @@ import {
   associatedTokenAddress,
   buildTree,
   bytesToHex,
-  distributorPda,
-  JITO_DISTRIBUTOR_PROGRAM_ID,
+  checkRoundAccounts,
+  distributionPda,
   leafHash,
+  REWARDS_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   verifyClaimProof,
 } from "./distributor"
 import {
@@ -23,7 +25,9 @@ import {
   type Round,
 } from "./drops"
 
-const MINT = "So11111111111111111111111111111111111111112"
+const MINT = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
+const AUTHORITY = new PublicKey("B2nP9ufqx8e2ER5hYKc5zy6CiXwHmyTYAbwC6rxnWKhE")
+const DIST_SEED = new PublicKey("Fq1o1MkiE3ae9gNXgQhfJb1vuuMCDT4emUbwp8bPGBYf")
 const BLOCKHASH = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn"
 const ALICE = new PublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
 const CAROL = new PublicKey("HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH")
@@ -37,9 +41,9 @@ function settled(): Record<string, unknown> {
     { handle: "carol", kind: "random", address: CAROL, amount: 60_000_000_000n },
     { handle: "alice", kind: "best_reply", address: ALICE, amount: 40_000_000_000n },
   ]
-  const tree = buildTree(leaves.map((l) => leafHash(l.address, l.amount, 0n)))
-  const program = new PublicKey(JITO_DISTRIBUTOR_PROGRAM_ID)
-  const distributor = distributorPda(program, new PublicKey(MINT), 7n)
+  const tree = buildTree(leaves.map((l) => leafHash(l.address, l.amount)))
+  const program = new PublicKey(REWARDS_PROGRAM_ID)
+  const [distributor] = distributionPda(program, new PublicKey(MINT), AUTHORITY, DIST_SEED)
   return {
     id: 7,
     tag: "drop #7",
@@ -55,9 +59,12 @@ function settled(): Record<string, unknown> {
     cluster: "devnet",
     mint: MINT,
     decimals: 6,
-    program_id: JITO_DISTRIBUTOR_PROGRAM_ID,
+    token_program: TOKEN_2022_PROGRAM_ID.toBase58(),
+    program_id: REWARDS_PROGRAM_ID,
+    authority: AUTHORITY.toBase58(),
+    distribution_seed: DIST_SEED.toBase58(),
     distributor: distributor.toBase58(),
-    vault: associatedTokenAddress(distributor, new PublicKey(MINT)).toBase58(),
+    vault: associatedTokenAddress(distributor, new PublicKey(MINT), TOKEN_2022_PROGRAM_ID).toBase58(),
     merkle_root: bytesToHex(tree.root),
     clawback_at: "2026-12-20T18:00:00Z",
     seed: { slot: 123456789, blockhash: BLOCKHASH, sha256: seed },
@@ -116,8 +123,9 @@ describe("giveaways/index.json", () => {
 })
 
 describe("giveaways/drop-<id>.json", () => {
-  it("reads a settled round whose every proof checks against its root", () => {
+  it("reads a settled round whose every proof checks against its root and whose accounts the program derives", () => {
     const round = parse(settled())
+    expect(checkRoundAccounts(round)).toBe(true)
     expect(round.tag).toBe("drop #7")
     expect(round.claims).toHaveLength(2)
     for (const c of round.claims) expect(verifyClaimProof(round.merkle_root!, c.address, c.amount_atomic, c.proof)).toBe(true)
@@ -154,6 +162,8 @@ describe("giveaways/drop-<id>.json", () => {
     ["one account entered twice", (r) => (r.entrants as unknown[]).push({ handle: "alice", eligible: true, reason: "ok" })],
     ["a post url for another post", (r) => (r.post_url = "https://x.com/teenydroid/status/1")],
     ["a settled round with no distributor", (r) => (r.distributor = null)],
+    ["a settled round with no distribution seed", (r) => (r.distribution_seed = null)],
+    ["a token program that is not SPL Token or Token-2022", (r) => (r.token_program = "11111111111111111111111111111111")],
     ["a drawn round with no seed", (r) => (r.seed = null)],
     ["a seed that is not hex", (r) => (r.seed = { slot: 1, blockhash: BLOCKHASH, sha256: "zz" })],
     ["an unknown cluster", (r) => (r.cluster = "testnet")],
