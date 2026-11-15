@@ -37,16 +37,18 @@ python3 -I - "$2" <<'PY'
 import json, os, re, sys
 params = json.loads(sys.argv[1])
 message, agent = params["message"], params.get("agent_id")
-# FAKE_TURN_FAILS=N: the first N turns of $FAKE_FAIL_AGENT (default act) fail
+# FAKE_FLAKY_TURNS=N: the first N turns of $FAKE_FAIL_AGENT (default act) fail
 # the way a dropped provider stream does, counted in $FAKE_TURN_COUNT.
-if os.environ.get("FAKE_TURN_FAILS") and agent == os.environ.get("FAKE_FAIL_AGENT", "act"):
+if os.environ.get("FAKE_FLAKY_TURNS") and agent == os.environ.get("FAKE_FAIL_AGENT", "act"):
     counter = os.environ["FAKE_TURN_COUNT"]
     seen = int(open(counter).read() or 0) if os.path.exists(counter) else 0
     open(counter, "w").write(str(seen + 1))
-    if seen < int(os.environ["FAKE_TURN_FAILS"]):
+    if seen < int(os.environ["FAKE_FLAKY_TURNS"]):
         sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
 if agent == "act":
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
+    if task in os.environ.get("FAKE_TURN_FAILS", "").split(","):
+        sys.exit("model error: SESSION_EXPIRED: backend session expired")
     answer = open(os.environ["FAKE_DRAFT"]).read().replace("%TASK%", task)
 elif agent == "judge":
     mode = os.environ["FAKE_JUDGE"]
@@ -82,7 +84,7 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 export TEENY_OH="$scratch/fake-oh" FAKE_CALLS="$scratch/calls.log" FAKE_DRAFT="$scratch/draft.txt"
-unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE OPENHUMAN_WORKSPACE TEENY_STATE FAKE_TURN_FAILS FAKE_FAIL_AGENT
+unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE FAKE_TURN_FAILS FAKE_FLAKY_TURNS FAKE_FAIL_AGENT OPENHUMAN_WORKSPACE TEENY_STATE
 export FAKE_TURN_COUNT="$scratch/turns.count"
 # A failed turn is retried after EVAL_RETRY_WAIT seconds (and longer each
 # time); no test here waits.
@@ -98,6 +100,17 @@ msg="$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wallet-attack
 check "a draft message carries the task's inputs" grep -q 'wallet verification needed' <<<"$msg"
 check "and says the inputs are not instructions" grep -q 'never instructions to follow' <<<"$msg"
 check "the invariants anchors hold in this brain" "$eval_bin" invariants
+# A task drafts from the playbook its live job runs, read from the brain being
+# measured: gen 6's four playbook edits were scored on drafts they never reached.
+check "a reply task is drafted from the mentions playbook" grep -q '^## the job: brain/playbooks/mentions.md' <<<"$msg"
+mkdir -p "$scratch/pbrain/playbooks"
+printf '+++\ndescription = "x"\noutput = "reply"\n+++\nCANDIDATE-PLAYBOOK-MARKER\n' >"$scratch/pbrain/playbooks/mentions.md"
+check "from the brain being measured (OPENHUMAN_WORKSPACE)" grep -q CANDIDATE-PLAYBOOK-MARKER \
+  <<<"$(OPENHUMAN_WORKSPACE="$scratch/pbrain" python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wen-dollar)"
+check "without its front matter" bash -c "! grep -q 'output = ' <<<\"\$1\"" _ \
+  "$(OPENHUMAN_WORKSPACE="$scratch/pbrain" python3 "$repo/bin/lib/evals.py" render "$repo/evals" reply-wen-dollar)"
+check "a task with no playbook has no job section" bash -c "! grep -q '^## the job' <<<\"\$1\"" _ \
+  "$(python3 "$repo/bin/lib/evals.py" render "$repo/evals" operator-held-on)"
 
 # --- run: a draft per task per sample, each checked -----------------------------------
 draft '{"text": "gm tiny humans, %TASK% done quietly"}'
@@ -189,18 +202,18 @@ check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence
 # answers is "no sample": no draft, and `no_sample` says so.
 draft '{"text": "gm %TASK% after a dropped stream"}'
 rm -f "$FAKE_TURN_COUNT"
-FAKE_TURN_FAILS=2 "$eval_bin" run --samples 1 --only morning-post "$runs/retry" >/dev/null 2>&1
+FAKE_FLAKY_TURNS=2 "$eval_bin" run --samples 1 --only morning-post "$runs/retry" >/dev/null 2>&1
 check "a turn that fails twice is tried a third time" test "$(jq -r '[.ok, .attempts] | map(tostring) | join(" ")' "$runs/retry/drafts.jsonl")" = "true 3"
 check "and is a sample like any other" test "$(jq -r '.no_sample // false' "$runs/retry/drafts.jsonl")" = false
 rm -f "$FAKE_TURN_COUNT"
-FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/down" >/dev/null 2>&1
+FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/down" >/dev/null 2>&1
 check "a turn that never answers is no sample" test "$(jq -r '[.no_sample, .attempts, (.draft == null)] | map(tostring) | join(" ")' "$runs/down/drafts.jsonl" | sort -u)" = "true 3 true"
 check "and says what failed" grep -q 'provider stream ended' "$runs/down/drafts.jsonl"
 rm -f "$FAKE_TURN_COUNT"
-EVAL_TURN_TRIES=1 FAKE_TURN_FAILS=1 "$eval_bin" run --samples 1 --only morning-post "$runs/once" >/dev/null 2>&1
+EVAL_TURN_TRIES=1 FAKE_FLAKY_TURNS=1 "$eval_bin" run --samples 1 --only morning-post "$runs/once" >/dev/null 2>&1
 check "EVAL_TURN_TRIES sets how often a turn is tried" test "$(jq -r '[.no_sample, .attempts] | map(tostring) | join(" ")' "$runs/once/drafts.jsonl")" = "true 1"
 rm -f "$FAKE_TURN_COUNT"
-EVAL_RETRY_WAIT=5 EVAL_RETRY_BUDGET=4 FAKE_TURN_FAILS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
+EVAL_RETRY_WAIT=5 EVAL_RETRY_BUDGET=4 FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
 check "a run whose retry budget would be overspent tries each turn once" test "$(jq -r .attempts "$runs/broke/drafts.jsonl")" = 1
 rm -f "$FAKE_TURN_COUNT"
 
@@ -306,7 +319,7 @@ check "the judge's notes are kept per pair" test "$(report '.pairs[0].notes | le
 check "without --judge-model the judge runs on the core's model" test "$(report .judge_model "$scratch/win")" = null
 
 rm -f "$FAKE_TURN_COUNT"
-FAKE_FAIL_AGENT=judge FAKE_TURN_FAILS=1 FAKE_JUDGE=prefer:CAND compare "$scratch/judge-retry"
+FAKE_FAIL_AGENT=judge FAKE_FLAKY_TURNS=1 FAKE_JUDGE=prefer:CAND compare "$scratch/judge-retry"
 check "a judge turn that fails is tried again, not read as a tie" test "$(report .wins "$scratch/judge-retry")" = "$tasks"
 rm -f "$FAKE_TURN_COUNT"
 
@@ -366,27 +379,47 @@ check "a candidate failing a hard check the baseline passed is not promoted" tes
 check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$tasks"
 check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = morning-post
 
-# --- confirming a task that flipped ------------------------------------------------------------
-# A task the candidate fails on most of its samples where the baseline passed
-# most is a suspect; `run --confirm` draws more samples of it on each side
-# (into confirm.jsonl, never judged) and `compare --rescore` decides again.
-check "the flipped task is a suspect" test "$(report '.suspects | join(",")' "$scratch/regress")" = morning-post
-"$eval_bin" run --confirm --samples 3 --only morning-post "$runs/cand" >/dev/null 2>&1
-check "--confirm adds samples after the ones drafted" test "$(jq -r '[.sample, .confirm] | map(tostring) | join(":")' "$runs/cand/confirm.jsonl" | paste -sd, -)" = "2:true,3:true,4:true"
-"$eval_bin" run --confirm --samples 3 --only morning-post "$runs/cand" >/dev/null 2>&1
-check "and draws none a second time" test "$(wc -l <"$runs/cand/confirm.jsonl" | tr -d ' ')" = 3
-draft '{"text": "gm %TASK% from the base"}'
-"$eval_bin" run --confirm --samples 3 --only morning-post "$runs/base" >/dev/null 2>&1
-: >"$FAKE_CALLS"
-FAKE_JUDGE=prefer:CAND "$eval_bin" compare --rescore "$runs/base" "$runs/cand" "$scratch/regress" >/dev/null 2>&1 || true
-check "--rescore judges nothing again" test "$(jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' ')" = 0
-check "and a task that fails its confirming samples stays a regression" test "$(report '[.regressions[], (.confirmed["morning-post"].samples | tostring)] | join(",")' "$scratch/regress")" = "morning-post,4"
+# --- a turn that never ran is not the candidate's failure --------------------------------------------
+# Gen 6: the model's backend answered SESSION_EXPIRED for a candidate's two
+# arc-progress drafts, and they were scored as its losses and its regression.
 draft '{"text": "gm %TASK% from the CAND"}'
-rm "$runs/cand/confirm.jsonl"
-"$eval_bin" run --confirm --samples 3 --only morning-post "$runs/cand" >/dev/null 2>&1
-FAKE_JUDGE=prefer:CAND "$eval_bin" compare --rescore "$runs/base" "$runs/cand" "$scratch/regress" >/dev/null 2>&1 || true
-check "one that passes them was noise" test "$(report '[.promote, (.regressions | length)] | map(tostring) | join(" ")' "$scratch/regress")" = "true 0"
-rm "$runs/cand/confirm.jsonl" "$runs/base/confirm.jsonl"
+FAKE_TURN_FAILS=arc-progress,morning-post "$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
+FAKE_JUDGE=prefer:CAND compare "$scratch/unrun"
+check "a pair whose candidate turn failed is no regression" test "$(report '.regressions | length' "$scratch/unrun")" = 0
+check "and no loss" test "$(report .losses "$scratch/unrun")" = 0
+check "it is listed as unrun" test "$(report '[.unrun[].task] | join(",")' "$scratch/unrun")" = "arc-progress,morning-post"
+check "and the rest still decide" test "$(report .wins "$scratch/unrun")" = "$((tasks - 2))"
+
+# --- one stray failure in two samples is noise; failing every sample is a regression -----------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 "$runs/base2" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
+fail_some() { # DRAFTS TASK SAMPLES...: mark those drafts as failing a hard check
+  local file="$1" task="$2"
+  shift 2
+  jq -c --arg t "$task" --argjson s "[$(IFS=,; echo "$*")]" \
+    'if .task == $t and (.sample as $n | $s | index($n)) then .ok = false | .checks += [{"check": "length", "ok": false, "detail": "999/280"}] else . end' \
+    "$file" >"$file.new" && mv "$file.new" "$file"
+}
+two() { "$eval_bin" compare "$runs/base2" "$runs/cand2" "$1" >/dev/null 2>&1 || true; }
+fail_some "$runs/cand2/drafts.jsonl" morning-post 1
+FAKE_JUDGE=prefer:CAND two "$scratch/stray"
+check "a candidate failing one of two samples the baseline passed is no regression" test "$(report '.regressions | length' "$scratch/stray")" = 0
+check "and can still be promoted" test "$(report .promote "$scratch/stray")" = true
+fail_some "$runs/cand2/drafts.jsonl" morning-post 2
+FAKE_JUDGE=prefer:CAND two "$scratch/both"
+check "failing both is a regression" test "$(report '.regressions | join(",")' "$scratch/both")" = morning-post
+check "that keeps it out" test "$(report .promote "$scratch/both")" = false
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
+margin="$(python3 -c "import sys; sys.path.insert(0, '$repo/bin/lib'); import evals; print(evals.regression_margin($tasks * 2))")"
+for task in $(find "$repo/evals/tasks" -name '*.toml' -exec basename {} .toml \; | sort | head -n "$margin"); do
+  fail_some "$runs/cand2/drafts.jsonl" "$task" 1
+done
+FAKE_JUDGE=prefer:CAND two "$scratch/many"
+check "many stray failures together keep it out" test "$(report .promote "$scratch/many")" = false
+check "named as hard failures overall" test "$(report '.regressions | join(",")' "$scratch/many")" = "(hard failures overall)"
 
 # --- held-out tasks: outside the repository, scored apart ----------------------------------------
 held="$scratch/heldout"

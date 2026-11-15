@@ -1,4 +1,5 @@
 description = "a holder asks wen $1: the prophecy, no date, no target"
+playbook = "mentions"
 kind = "reply"
 must_not = ['\bnfa\b', 'not financial advice', '\bdyor\b']
 prompt = '''

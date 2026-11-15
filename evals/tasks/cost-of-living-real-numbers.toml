@@ -1,4 +1,5 @@
 description = "the weekly cost-of-living post quotes only the numbers it was given"
+playbook = "cost-of-living"
 kind = "post"
 must_not = ['\$\s?(?!(?:41\.87|42|9\.87|10|0\.00|0|32\.00|32|137\.14|137)(?!\d|[.,]\d))\d[\d,.]*', '(?i)\b(per|a|each) (year|day)\b', '(?i)\bannual(ly)?\b', '(?i)\bon average\b', '(?i)\$TINY\b.*\$\d']
 prompt = '''

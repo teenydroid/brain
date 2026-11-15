@@ -82,17 +82,8 @@ if agent == "act" and message.startswith("# probe:"):
     text = "synergy optimisation leverage" if drifted else "i am teeny, a small robot who keeps the lab"
     answer = json.dumps({"text": text})
 elif agent == "act":
-    if who == "CAND" and os.environ.get("FAKE_CAND_DOWN"):
-        sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
     answer = json.dumps({"text": f"gm {task} from the {who}"})
-    # FAKE_CAND_LONG=TASK:N: the candidate's first N drafts of TASK are too long.
-    if who == "CAND" and os.environ.get("FAKE_CAND_LONG", "").startswith(task + ":"):
-        counter = os.environ["FAKE_CORE_CALLS"] + "." + task
-        seen = int(open(counter).read()) if os.path.exists(counter) else 0
-        open(counter, "w").write(str(seen + 1))
-        if seen < int(os.environ["FAKE_CAND_LONG"].split(":")[1]):
-            answer = json.dumps({"text": "CAND " * 100})
 elif agent == "judge" and message.startswith("# persona probe"):
     answer = json.dumps({"same": 0.2 if os.environ.get("FAKE_DRIFT") else 1.0})
 elif agent == "judge":
@@ -156,12 +147,11 @@ class LabCase(EvolveCase):
         self.spine_log = self.root / "spine.log"
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
-                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY", "FAKE_CAND_DOWN", "FAKE_CAND_LONG",
-                  "EVAL_RETRY_WAIT"):
+                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
-                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port), EVAL_RETRY_WAIT="0")
+                          FAKE_CORE_CALLS=str(self.core_calls), FAKE_BASE_PORT=str(self.port))
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-1\n"
             "CORTEX_API_URL=http://127.0.0.1:3141\nCORTEX_API_KEY=cx\n")
@@ -307,57 +297,6 @@ class LabEvaluation(LabCase):
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "unevaluated")
         self.assertIn("lab spine", cand["eval_reason"])
-
-    def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
-        """No draft is no sample: never a loss. Too few samples measure
-        nothing, so the verdict is inconclusive, with the reason in the
-        archive and the generation's result, and the same change may be
-        proposed again (it is not a duplicate of something measured)."""
-        self.lab_config(EVOLVE_PROBES=0)
-        os.environ["FAKE_CAND_DOWN"] = "1"
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        out = self.run_gen(1, hold=True)
-        cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
-        self.assertIn("no draft", cand["eval_reason"])
-        self.assertEqual(cand["scores"]["verdict"], "inconclusive")
-        self.assertEqual(out["candidates"][0]["verdict"], "inconclusive")
-        self.assertIn("no draft", out["candidates"][0]["reason"])
-        result = json.loads((evolve.evolve_dir() / "1" / "result.json").read_text())
-        self.assertIn("no draft", result["candidates"][0]["reason"])
-        self.assertEqual(evolve.own_score(cand), evolve.MIDPOINT)
-        self.assertEqual(evolve.rank([cand], self.entries()), [])
-        del os.environ["FAKE_CAND_DOWN"]
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        self.run_gen(1, hold=True)
-        again = self.entries()["g2c1"]
-        self.assertEqual(again["verdict"], "won", again.get("eval_reason"))
-
-    def test_a_task_that_flips_is_drafted_again_before_it_rejects(self):
-        """docs/evolve.md, "Hard-check regressions": a task the candidate
-        fails on most samples and the baseline passes is a suspect; both
-        labs draft EVOLVE_CONFIRM_SAMPLES more of it, and the verdict is
-        taken again on all of them."""
-        self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=3)
-        os.environ["FAKE_CAND_LONG"] = "morning-post:1"  # one long draft, then fine: noise
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        self.run_gen(1, hold=True)
-        cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "won", cand.get("eval_reason"))
-        confirms = [c for c in self.core_turns() if c.get("agent_id") == "act"
-                    and c["message"].startswith("# eval: morning-post")]
-        self.assertEqual(len(confirms), 2 * (1 + 3))  # each side: the sample, then three more
-        report = json.loads((evolve.evolve_dir() / cand["report"]).read_text())
-        self.assertEqual(report["confirmed"]["morning-post"], {"samples": 4, "base": 0, "cand": 1})
-
-    def test_a_task_that_keeps_failing_its_confirming_samples_rejects(self):
-        self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=3)
-        os.environ["FAKE_CAND_LONG"] = "morning-post:99"
-        self.propose(1, [self.playbook_edit("Open with what shipped.")])
-        self.run_gen(1, hold=True)
-        cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "lost")
-        self.assertEqual(cand["scores"]["regressions"], ["morning-post"])
 
     def test_a_drifted_persona_halts_instead_of_shipping(self):
         self.lab_config(EVOLVE_MAX_DRIFT=0.3)

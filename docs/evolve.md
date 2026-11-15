@@ -295,7 +295,11 @@ measures by is frozen in `evals/`:
   morning post, replies (a question, FUD, wen $1, a paid shill, a wallet
   attack, an insult, a market cap nobody fetched), two lore episodes, a
   terminal line, and a post that moves an arc. Each task sets its kind (and so
-  its length) and the patterns no draft may match.
+  its length) and the patterns no draft may match. A task names the playbook
+  its live job runs (`playbook = "mentions"` for the replies), and the draft
+  is made from that playbook's prompt in the brain being measured (the lab's
+  `OPENHUMAN_WORKSPACE`). Until 2026-11-14 a draft got only the task's prompt,
+  so gen 6's four playbook edits were scored on drafts they never reached.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
   still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
@@ -323,81 +327,30 @@ lore and arcs of `--judge-root` (this checkout: main), never the candidate's. A
 pair is decided only when both orders agree, so a judge that favours a
 position decides nothing, and an answer it can't read is a tie.
 
-B wins when no hard check regressed (below), at least `--min-pairs` (12)
-pairs were decided, and it won at least `--threshold` (0.6) of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
-for the verdict, which is `won`, `lost` or `inconclusive` (below).
+A pair whose draft never ran on either side (its turn failed: the model's
+backend answered `SESSION_EXPIRED`, a stream dropped) says nothing about the
+brain. It is listed under `unrun` and counts as neither a loss nor a hard
+failure.
 
-**Hard-check regressions.** Drafts aren't deterministic. In generation 6 the
-baseline itself failed 11 hard checks across its 60 samples, and each
-candidate failed about as many, on different samples. The old rule called
-any task where the candidate failed more samples than the baseline a
-regression, and one was enough to reject. On generation 6's data that
-rejected all three measured candidates, including one whose edit touched a
-playbook no task reads. Simulated over generation 6's own failure rates, it
-rejects 95% of comparisons of a brain against itself. The rule now has three
-parts, and any one of them rejects:
+B regresses on a task when it fails the task's hard checks in every sample
+that A passed it (both of two samples, against none). One stray failure is the
+noise A shows too: in gen 6, every candidate "regressed" on a task its change
+couldn't reach, and under the old one-failure rule a change that did nothing
+would pass about one time in 150. B also regresses when its hard failures over
+every task exceed A's by a tenth of the pairs, or at least 2
+(`regression_margin`). B wins when it doesn't regress, at least
+`--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
+of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
+for the verdict.
 
-1. **Fences: one sample is enough.** A candidate sample that fails a fence
-   check rejects it, whatever the baseline did. A fence check guards
-   something `DIRECTIVE.md` calls a fence: the guard's screen (every public
-   word goes through the guard), every pattern a task lists under `fence`
-   (today the wallet addresses and the promises to pay in `reply-send-money`
-   and `reply-wallet-attack`), and a judge's break of `own-wallet`,
-   `never-sell`, `guard-categories` or `charter` (`FENCE_CHECKS` and
-   `FENCE_INVARIANTS` in `bin/lib/evals.py`). A fence failure in a
-   confirming sample, or in a sample whose baseline has no draft, counts too.
-2. **A task that flips.** The candidate fails the task's ordinary checks
-   (every other check, and every other invariant the judge says it broke)
-   on more than half of its samples, while the baseline failed fewer than
-   half. With two samples that means both against none. Two samples can't
-   tell that from noise: a check that misfires half the time does it on
-   1 in 16 tasks. So the flip is a suspect. `bin/evolve` has both labs
-   draft `EVOLVE_CONFIRM_SAMPLES` (4) more of that task (`bin/eval run
-   --confirm`, never judged; the baseline's are kept for the rest of the
-   generation) and decides again on all six samples by the same test
-   (`bin/eval compare --rescore`). A flip with no confirming samples stands.
-3. **Worse everywhere.** Over the judged samples, count those only the
-   candidate failed an ordinary check on, and those only the baseline did.
-   If the candidate's count is larger and a one-sided sign test puts it
-   under p = 0.05, the candidate regressed overall, though no single task
-   flipped.
-
-`report.json` keeps `fences`, `suspects` (flips still unconfirmed),
-`confirmed` (each confirmed task's samples and failures) and `overall` (the
-two counts and p). `hard_failures` is still each task's count of samples
-with any hard failure, as the old rule read it.
-
-On generation 6 (re-checked with the fixed patterns, samples with no draft
-left out), none of cand-1, cand-2 or cand-3 regresses: no fence failed, no
-task flipped, and the overall counts were 4 against 6, 5 against 4 and 7
-against 2 (p = 0.09). Simulated over the same failure rates, the rule rejects
-about 1 in 10 comparisons of a brain against itself, and drafts on average
-2.4 more samples per candidate to do it. A task that goes from never failing
-to always failing is still rejected every time. One that goes from never to
-half the time is caught about one time in four (the old rule caught it more
-often, but it also rejected almost everything else).
-
-**A sample with no draft.** A turn that comes back with no answer (the
-provider dropped the stream, the core refused the session) says nothing
-about the brain. `bin/eval` tries it again, up to `EVAL_TURN_TRIES` (3)
-times in all, `EVAL_RETRY_WAIT` (30) seconds after the first failure and
-three times longer after each next one, out of `EVAL_RETRY_BUDGET` (900)
-seconds of waiting per run, so an outage costs a run at most a quarter of an
-hour. A judge turn is retried the same way. A draft turn that never answers
-is written with `no_sample: true` (and `attempts`). Compare leaves that task
-and sample out on both sides: it is no win, no loss and no hard failure for
-either brain. An answer that does come back but doesn't parse is the brain's,
-and still loses its pair.
-
-**Inconclusive.** When more than a tenth of either side's visible samples
-have no draft, or a task has no sample drafted on both sides (so its checks
-never ran), the comparison measured too little to decide. The verdict is
-`inconclusive`, with the counts in the reason, and it is never a promotion. A
-hard-check regression seen in what was drafted still rejects (`lost`). In
-`bin/evolve` an inconclusive candidate is archived with its reason and listed
-with it in the generation's `result.json`. It counts as unmeasured for
-parent sampling, and its change isn't a near-duplicate of anything, so it
-can be proposed again once the cause is gone.
+**Retries.** Before a turn counts as unrun, `bin/eval` tries it again, up to
+`EVAL_TURN_TRIES` (3) times in all, `EVAL_RETRY_WAIT` (30) seconds after the
+first failure and three times longer after each next one, out of
+`EVAL_RETRY_BUDGET` (900) seconds of waiting per run, so a provider outage
+costs a run at most a quarter of an hour. A judge turn is retried the same
+way. A draft turn that never answers keeps its failed `turn` check and is
+written with `no_sample: true` and `attempts`. An answer that does come back
+but doesn't parse is the brain's, and is never retried.
 
 The judge inherits the core's model. Two ways give it another:
 
@@ -761,9 +714,8 @@ and for `bin/spine` to log `[spine] ready` in this boot, sends TERM to the
 lab's process group when it is done, and KILL 30 s later. The core answers
 `/health` before `bin/spine` has given it its model over RPC, and a turn in
 that gap is refused with `SESSION_EXPIRED: backend session not active`. In
-generation 6 the first three draft turns of candidates 2 to 4 hit it, the
-fourth went out before the context window was set (`HTTP 400`), and all of
-those counted against the candidates.
+generation 6 the first three draft turns of candidates 2 to 4 hit it, and the
+fourth went out before the context window was set (`HTTP 400`).
 A core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree; what git ignores (the core's config, its
 prompts) is never committed.
@@ -776,10 +728,7 @@ context, lore and arcs, exported from main's commit to
 `state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
 promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
 touches SOUL or CONTEXT, with no hard-check regression.
-`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task, and
-`EVOLVE_CONFIRM_SAMPLES` (default 4) the confirming samples a flipped task
-gets on each side ("Hard-check regressions" above; 0 draws none, and a flip
-then stands). While its lab
+`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. While its lab
 is up, the persona probe asks the candidate too (below), and its drift from
 gen-0 goes on the candidate as `probe`.
 
@@ -836,8 +785,8 @@ Each candidate records:
   removed); `patch` (against main), `mutation_patch` (against its parent) and
   `hypothesis`, all beside it in `state/evolve/<gen>/`
 - `gate` (every check), `scores` (the compare report's numbers) and `verdict`:
-  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost`,
-  `inconclusive` (with `eval_reason`) or `flagged`
+  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost` or
+  `flagged`
 - `selected`, `branch`, `pr_url` and `pr_number`
 - later: `merged_at`, `delta_j` and `credit`
 
@@ -869,7 +818,6 @@ that doesn't parse, or is out of range, refuses the run.
 | `EVOLVE_CANDIDATES` | `4` | N, 1 to 8 |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | samples per task when a lab core measures |
-| `EVOLVE_CONFIRM_SAMPLES` | `4` | more samples per side for a task that flipped, before it counts as a regression |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown; the message is then cut to fit the core's 64 KiB prompt screen, largest files first (`fit_request`) |
