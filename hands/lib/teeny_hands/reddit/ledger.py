@@ -85,11 +85,10 @@ def _items(conn: sqlite3.Connection, task_id: int, items: Any) -> int:
     return kept
 
 
-def _account(conn: sqlite3.Connection, report: Mapping[str, Any]) -> bool:
+def _account(conn: sqlite3.Connection, report: Mapping[str, Any], found: Json | None) -> bool:
     karma = report.get("karma")
     if not isinstance(karma, Mapping) and report.get("age_days") is None:
         return False
-    found = rules.account()
     handle = report.get("handle") if isinstance(report.get("handle"), str) else None
     try:
         handle = rules.username(handle) if handle else (found or {}).get("handle")
@@ -113,6 +112,7 @@ def _account(conn: sqlite3.Connection, report: Mapping[str, Any]) -> bool:
 def settle(task_id: int, outcome: str, report: Mapping[str, Any], notes: str = "") -> Json:
     """Closes the task's rows and keeps what an ok report brought back."""
     report = report if isinstance(report, Mapping) else {}
+    found = rules.account() if outcome == "ok" else None
     conn = rules.db()
     try:
         rows = conn.execute("SELECT * FROM reddit_actions WHERE task_id = ? AND status = 'queued'",
@@ -145,7 +145,7 @@ def settle(task_id: int, outcome: str, report: Mapping[str, Any], notes: str = "
                         (browse["subreddit"], said.strip()[:RULES_KEEP_CHARS], task_id, hand.now()),
                     )
                     out["rules"] = browse["subreddit"]
-                if _account(conn, report):
+                if _account(conn, report, found):
                     out["account"] = True
         out["status"] = status
         if link and any(r["verb"] in ("comment", "reply", "post") for r in rows):
