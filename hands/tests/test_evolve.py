@@ -1,9 +1,9 @@
 """bin/evolve (bin/lib/evolve.py), offline: one candidate per open learning
 of brain/MEMORY.md, one pull request per candidate. Its candidates branch
 from a scratch clone of this repository, the core is a stand-in (TEENY_OH),
-the hands it reads are stand-ins (TEENY_HANDS), bin/eval is a stand-in that
-keeps the targeted-eval contract (EVOLVE_EVAL_BIN), GitHub is a fake
-publisher, and the clock is pinned (EVOLVE_NOW)."""
+the hands it reads are stand-ins (TEENY_HANDS), bin/eval is the real one
+(a change to a playbook no task drafts from is unmeasurable, so nothing
+boots), GitHub is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
 
 import json
 import os
@@ -27,8 +27,7 @@ SECRET_ID = "heldout-whisper"
 SECRET_PROMPT = "Reply to the lighthouse keeper who asks about the tide clock"
 ENV_KEYS = ("TEENY_ROOT", "TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "TEENY_OH", "EVOLVE_GIT_DIR", "EVOLVE_BASE",
             "EVOLVE_NOW", "DRY_RUN", "EVOLVE", "EVAL_HELDOUT_DIR", "TEENY_STORAGE", "OPENHUMAN_CORE_URL",
-            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE", "EVOLVE_EVAL_BIN", "FAKE_EVAL_CALLS",
-            "FAKE_VERDICTS", "FAKE_EVAL_DELAY")
+            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE", "EVOLVE_EVAL_BIN")
 
 
 def git(*args, cwd=None):
@@ -106,70 +105,6 @@ else:
     sys.exit(1)
 """
 
-#: bin/eval's targeted contract (docs/evals.md): `affected` names the tasks
-#: a change reaches (here: a SOUL or CONTEXT change reaches all of them; an
-#: added line `TOUCHES:a,b` reaches a and b; anything else none), `run
-#: --tasks` drafts them, and `compare --mode nonregression` answers the
-#: verdict FAKE_VERDICTS gives the candidate's index (pass by default).
-STUB_EVAL = r"""#!/usr/bin/env python3
-import json, os, re, subprocess, sys, time
-ALL = ["morning-post", "reply-fud", "reply-question", "terminal-line"]
-args = sys.argv[1:]
-verb = args[0]
-def opt(name, default=None):
-    return args[args.index(name) + 1] if name in args else default
-def note(rec):
-    if os.environ.get("FAKE_EVAL_CALLS"):
-        with open(os.environ["FAKE_EVAL_CALLS"], "a") as fh:
-            fh.write(json.dumps(rec) + "\n")
-if verb == "affected":
-    root, base = opt("--root"), opt("--base")
-    names = subprocess.run(["git", "-C", root, "diff", "--name-only", base, "--"], capture_output=True, text=True,
-                           check=True).stdout.split()
-    diff = subprocess.run(["git", "-C", root, "diff", base, "--"], capture_output=True, text=True, check=True).stdout
-    note({"verb": "affected", "root": root})
-    if any(n in ("brain/SOUL.md", "brain/CONTEXT.md") for n in names):
-        print(json.dumps({"tasks": ALL, "all": True, "why": {"brain/SOUL.md": "every task"}}))
-    else:
-        tasks = sorted({t for m in re.findall(r"^\+.*TOUCHES:([\w,-]+)", diff, re.M) for t in m.split(",") if t})
-        print(json.dumps({"tasks": tasks, "all": False, "why": {n: tasks for n in names}}))
-elif verb == "run":
-    tasks, samples, out, brain = opt("--tasks").split(","), int(opt("--samples", "2")), args[-1], opt("--brain")
-    # The draft message carries the task's playbook as the served brain has it
-    # (bin/eval reads it from --brain): here, its TOUCHES lines.
-    playbooks = os.path.join(brain, "playbooks")
-    said = sorted(l.strip() for f in sorted(os.listdir(playbooks)) for l in open(os.path.join(playbooks, f))
-                  if "TOUCHES:" in l)
-    note({"verb": "run", "tasks": tasks, "samples": samples, "url": os.environ.get("OPENHUMAN_CORE_URL"),
-          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "out": out, "brain": brain, "key": opt("--key"),
-          "message": said})
-    time.sleep(float(os.environ.get("FAKE_EVAL_DELAY") or 0))
-    os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, "drafts.jsonl"), "a") as fh:  # a reused OUT keeps its rows
-        for t in tasks:
-            for s in range(samples):
-                fh.write(json.dumps({"task": t, "sample": s, "message": said,
-                                     "draft": {"text": f"{t} from {os.environ.get('OPENHUMAN_CORE_URL')}"}}) + "\n")
-elif verb == "compare":
-    tasks = opt("--tasks").split(",")
-    base, cand, out = args[-3], args[-2], args[-1]
-    verdicts = json.load(open(os.environ["FAKE_VERDICTS"])) if os.environ.get("FAKE_VERDICTS") else {}
-    i = re.search(r"cand-(\d+)", cand).group(1)
-    verdict = verdicts.get(i, "pass")
-    rows = [json.loads(l) for l in open(os.path.join(base, "drafts.jsonl")) if l.strip()]
-    note({"verb": "compare", "mode": opt("--mode"), "tasks": tasks, "url": os.environ.get("OPENHUMAN_CORE_URL"),
-          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "judge_model": opt("--judge-model"),
-          "min_pairs": opt("--min-pairs"), "base_tasks": sorted({r["task"] for r in rows if r["task"] in tasks})})
-    os.makedirs(out, exist_ok=True)
-    report = {"verdict": verdict, "tasks": tasks, "wins": 1, "losses": 0, "ties": len(tasks) - 1,
-              "regressions": [{"task": tasks[0]}] if verdict == "regressed" else [], "fences": [],
-              "reason": f"stub {verdict}"}
-    json.dump(report, open(os.path.join(out, "report.json"), "w"))
-    sys.exit({"pass": 0, "unmeasurable": 3}.get(verdict, 2))
-else:
-    sys.exit(f"stub bin/eval: no verb {verb}")
-"""
-
 PAGE = """# MEMORY.md
 
 what i keep in mind.
@@ -226,16 +161,13 @@ class EvolveCase(unittest.TestCase):
         for name in ("world", "build", "guard"):
             (hands / name).write_text(FAKE_HAND)
             (hands / name).chmod(0o755)
-        stub = self.root / "stub-eval"
-        stub.write_text(STUB_EVAL)
-        stub.chmod(0o755)
         self.calls = self.root / "calls.log"
         self.eval_calls = self.root / "eval.log"
         for k in ENV_KEYS:
             os.environ.pop(k, None)
         os.environ.update(TEENY_ROOT=str(self.root), TEENY_HANDS=str(hands), EVOLVE_GIT_DIR=str(self.src),
                           EVOLVE_BASE="main", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
-                          TEENY_OH=str(self.root / "no-core"), EVOLVE_EVAL_BIN=str(stub),
+                          TEENY_OH=str(self.root / "no-core"),
                           FAKE_EVAL_CALLS=str(self.eval_calls))
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24)
         self.props = self.root / "props"
@@ -286,7 +218,10 @@ class EvolveCase(unittest.TestCase):
         (self.props / f"cand-{i}.json").write_text(json.dumps({"skip": f"no change for {i}", "why": why,
                                                                "where": where}))
 
-    def playbook_edit(self, line, path="brain/playbooks/morning.md"):
+    def playbook_edit(self, line, path="brain/playbooks/moltbook-daily.md"):
+        """A line added to PATH. The default is a playbook no eval task
+        drafts from, so `bin/eval affected` (the real one) says the change is
+        unmeasurable and nothing boots."""
         text = self.base_text(path)
         last = text.rstrip().splitlines()[-1]
         return {"path": path, "old": last, "new": f"{last}\n\n{line}"}
@@ -298,8 +233,6 @@ class EvolveCase(unittest.TestCase):
     def entries(self):
         return evolve.archive()
 
-    def eval_log(self):
-        return [json.loads(l) for l in self.eval_calls.read_text().splitlines()] if self.eval_calls.exists() else []
 
     def worktree(self, name):
         tree = self.root / "trees" / name
@@ -457,13 +390,13 @@ class OnePullRequestPerCandidate(EvolveCase):
 
     def test_two_passing_candidates_open_two_prs(self):
         self.propose(1, [self.playbook_edit("Check first.")], title="check before retrying")
-        self.propose(2, [self.playbook_edit("A hook people can join.", "brain/playbooks/shiplog.md")],
+        self.propose(2, [self.playbook_edit("A hook people can join.", "brain/playbooks/pr-merged.md")],
                      title="event posts get a hook")
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub, evaluator=Verdicts())
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1", "teeny/gen-1-c2"])
-        self.assertEqual(pub.prs[0]["files"], ["brain/playbooks/morning.md"])
-        self.assertEqual(pub.prs[1]["files"], ["brain/playbooks/shiplog.md"])  # each its own change only
+        self.assertEqual(pub.prs[0]["files"], ["brain/playbooks/moltbook-daily.md"])
+        self.assertEqual(pub.prs[1]["files"], ["brain/playbooks/pr-merged.md"])  # each its own change only
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "opened"])
         entries = self.entries()
         self.assertEqual(entries["g1c2"]["pr_url"], "https://github.com/teenydroid/brain/pull/2")
@@ -484,7 +417,7 @@ class OnePullRequestPerCandidate(EvolveCase):
         self.run_gen(1, publisher=pub, evaluator=Verdicts())
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
         self.assertRegex(pub.prs[0]["branch"], r"^teeny/gen-\d+(-c\d+)?$")
-        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/morning.md"))
+        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/moltbook-daily.md"))
 
     def test_candidates_are_measured_under_the_eval_lock(self):
         """The babysitter's deploy waits on state/locks/eval.lock before it
@@ -526,10 +459,9 @@ class OnePullRequestPerCandidate(EvolveCase):
         self.assertIn("evolve-watch are its test", pub.prs[0]["body"])
         self.assertTrue(pub.statuses[0]["description"].startswith("unmeasurable"))
         self.assertEqual(pub.statuses[0]["state"], "success")
-        self.assertEqual([c["verb"] for c in self.eval_log()], ["affected"])  # nothing drafted
 
     def test_a_change_a_task_reaches_is_not_shipped_unmeasured(self):
-        self.propose(1, [self.playbook_edit("TOUCHES:reply-fud")])
+        self.propose(1, [self.playbook_edit("Say it plainly.", "brain/playbooks/morning.md")])
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
@@ -538,7 +470,7 @@ class OnePullRequestPerCandidate(EvolveCase):
 
     def test_a_regressed_candidate_opens_no_pr(self):
         self.propose(1, [self.playbook_edit("One.")])
-        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/shiplog.md")])
+        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/pr-merged.md")])
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub, evaluator=Verdicts({1: "regressed"}))
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed", "opened"])
@@ -566,7 +498,7 @@ class OnePullRequestPerCandidate(EvolveCase):
     def test_at_the_open_pr_cap_a_passing_candidate_waits_for_the_next_run(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_OPEN_PRS=1)
         self.propose(1, [self.playbook_edit("One.")])
-        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/shiplog.md")])
+        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/pr-merged.md")])
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub, evaluator=Verdicts())
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "waiting"])

@@ -1,8 +1,7 @@
 """bin/evolve offline: the lab spine (a stand-in that answers /health on
 its port), the targeted evaluation, the evolver, the last-good fallback's
 trigger, evolve-watch and the persona drift halt. No real core starts and
-nothing is merged: GitHub is a fake publisher, bin/eval keeps the targeted
-contract as a stand-in (test_evolve.STUB_EVAL), and the core is a stand-in
+nothing is merged: GitHub is a fake publisher, bin/eval is the real one, and the core is a stand-in
 (TEENY_OH)."""
 
 from __future__ import annotations
@@ -99,7 +98,7 @@ elif agent == "judge":
         hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
 elif agent == "evolver":
-    path = os.path.join(params["cwd"], "brain", "playbooks", "morning.md")
+    path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
     answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
@@ -469,7 +468,7 @@ class Evolver(LabCase):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="evolver", EVOLVE_LAB_PORT=self.port,
                     EVOLVE_LAB_BOOT_SECS=20)
         fake = Path(os.environ["TEENY_OH"])
-        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "morning.md")',
+        fake.write_text(FAKE_OH.replace('os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")',
                                         'os.path.join(params["cwd"], "bin", "ask")'))
         evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         cand = self.entries()["g1c1"]
