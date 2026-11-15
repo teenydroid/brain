@@ -395,18 +395,18 @@ def next_task(turned_away: bool = False) -> Json:
                     ended = ended_by[tid]
                     if ended is None and since >= cutoff:
                         continue
-                    shots = _captured(row["id"], float(row["claimed_at"] or 0), BROWSE_MAX_SCREENSHOTS)
-                    if row["attempts"] >= 2:
+                    shots = _captured(tid, since, BROWSE_MAX_SCREENSHOTS)
+                    if attempts >= 2:
                         why = (f"the operator's runs ended without a report, twice; the last said: {ended}"
                                if ended is not None else "abandoned twice: the operator never reported back")
                         conn.execute(
                             "UPDATE browser_tasks SET status = 'failed', finished_at = ?, notes = ?, screenshots = ?"
                             " WHERE id = ?",
-                            (hand.now(), why, json.dumps(shots), row["id"]),
+                            (hand.now(), why, json.dumps(shots), tid),
                         )
                     else:
                         conn.execute("UPDATE browser_tasks SET status = 'pending', claimed_at = NULL, screenshots = ?"
-                                     " WHERE id = ?", (json.dumps(shots), row["id"]))
+                                     " WHERE id = ?", (json.dumps(shots), tid))
                 open_claim = conn.execute(
                     "SELECT * FROM browser_tasks WHERE status = 'claimed' ORDER BY id LIMIT 1"
                 ).fetchone()
