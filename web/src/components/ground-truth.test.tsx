@@ -1,11 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { ReceiptsCounter } from "@/components/receipts-counter"
+import { LiveRound, RewardsView } from "@/components/rewards/rewards-view"
 import { Hero } from "@/components/sections/hero"
 import { HomeBrain } from "@/components/sections/home-brain"
 import { ReceiptsSection } from "@/components/sections/receipts"
 import { XSpotlight } from "@/components/sections/x-spotlight"
 import type { BrainAnatomy, RepoInfo } from "@/lib/brain-repo"
+import type { Drops, Round } from "@/lib/drops"
 import type { MindFeed } from "@/lib/mind"
 import { BRAIN_URL, PRESENCE, WALLET } from "@/lib/presence"
 import type { Receipts } from "@/lib/receipts"
@@ -163,5 +165,45 @@ describe("where Teeny is", () => {
     expect(PRESENCE.find((p) => p.kind === "github")?.href).toBe("https://github.com/teenydroid")
     const html = renderToStaticMarkup(<Hero receipts={LIVE} />)
     expect(html).toContain(`href="${BRAIN_URL}"`)
+  })
+})
+
+describe("/rewards", () => {
+  const url = "https://github.com/teenydroid/diary/tree/main/giveaways"
+  const NOW = Date.parse("2026-11-15T00:00:00Z")
+
+  it("says plainly that no round is open when the diary has never had one, with no number in its place", () => {
+    const drops: Drops = { source: "missing", url }
+    expect(text(renderToStaticMarkup(<LiveRound drops={drops} />))).toMatch(/no round is open right now/)
+    expect(text(renderToStaticMarkup(<LiveRound drops={drops} />))).not.toMatch(/\d/)
+    const page = text(renderToStaticMarkup(<RewardsView drops={drops} now={NOW} />))
+    expect(page).not.toMatch(/\$TINY \d|\d[\d,.]* \$TINY|drop #\d|pool \d/)
+    expect(page).toMatch(/free to enter/)
+    expect(page).toMatch(/void where prohibited/)
+    expect(page).toMatch(/TinyHumans \(@senamakel on x\)/)
+  })
+
+  it("says the rounds could not be read when GitHub does not answer, never a sample round", () => {
+    const drops: Drops = { source: "unavailable", url }
+    const live = text(renderToStaticMarkup(<LiveRound drops={drops} />))
+    expect(live).toMatch(/could not be read/)
+    expect(live).not.toMatch(/\d/)
+    const page = text(renderToStaticMarkup(<RewardsView drops={drops} now={NOW} />))
+    expect(page).not.toMatch(/\d[\d,.]* \$TINY|drop #\d|did i win/)
+  })
+
+  it("shows an open round's own prompt, pool and deadline, and a claim for nothing", () => {
+    const round: Round = {
+      id: 3, tag: "drop #3", status: "open", format: "drop", pool_tiny: "250000", winners: 5, best_reply_tiny: "50000",
+      prompt: "what should i build next?", deadline: "2026-11-20T18:00:00Z", post_id: "1990000000000000003",
+      post_url: "https://x.com/teenydroid/status/1990000000000000003", cluster: "mainnet",
+      mint: "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump", decimals: 6, program_id: "mERKcfxMC5SqJn4Ld4BUris3WKZZ1ojjWJ3A3J5CKxv",
+      distributor: null, vault: null, merkle_root: null, clawback_at: null, seed: null, entrants: [], draw_order: [], claims: [], txs: {},
+    }
+    const page = text(renderToStaticMarkup(<RewardsView drops={{ source: "live", url, rounds: [round], skipped: 0 }} now={NOW} />))
+    expect(page).toContain("what should i build next?")
+    expect(page).toContain("250,000 $TINY")
+    expect(page).toContain("2026-11-20 18:00 UTC")
+    expect(page).not.toMatch(/did i win/)
   })
 })
