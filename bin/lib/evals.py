@@ -47,6 +47,7 @@ import re
 import subprocess
 import uuid
 import sys
+from concurrent.futures import ThreadPoolExecutor
 import tomllib
 from pathlib import Path
 
@@ -60,9 +61,32 @@ ANCHOR = re.compile(r"^- ([a-z0-9-]+) \| ([^|]+?) \| (.+)$")
 #: Names the folder of held-out tasks; unset, none is loaded or scored.
 HELDOUT_ENV = "EVAL_HELDOUT_DIR"
 
+#: How many model turns a run or a compare keeps in flight at once. Each turn
+#: is a fresh thread on its own, so they do not share anything but the core;
+#: one at a time made a generation take 8 to 12 hours (gen 6, gen 7).
+CONCURRENCY_ENV = "EVAL_CONCURRENCY"
+DEFAULT_CONCURRENCY = 4
+MAX_CONCURRENCY = 16
+
 
 class EvalError(Exception):
     pass
+
+
+def concurrency() -> int:
+    """EVAL_CONCURRENCY as 1 to MAX_CONCURRENCY; unset or unreadable, the default."""
+    try:
+        value = int(os.environ.get(CONCURRENCY_ENV, "").strip())
+    except ValueError:
+        return DEFAULT_CONCURRENCY
+    return max(1, min(MAX_CONCURRENCY, value))
+
+
+def _in_flight(fn, jobs: list):
+    """fn over jobs, up to concurrency() at once, yielding results in the
+    jobs' order (so the files read the same as a one-at-a-time run)."""
+    with ThreadPoolExecutor(max_workers=concurrency()) as pool:
+        yield from pool.map(fn, jobs)
 
 
 def heldout_dir() -> Path | None:
@@ -250,21 +274,25 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
     tasks = [load_task(evals, task_id) for task_id in ids]
     drafted = passed = 0
     brain = drafting_brain(evals)
+    jobs = [(task, render(task, brain), sample) for task in tasks for sample in range(1, samples + 1)]
+
+    def one(job: tuple) -> dict:
+        task, message, sample = job
+        turn = subprocess.run(fresh(ask), input=message, capture_output=True, text=True)
+        if turn.returncode == 0:
+            result = check(task, turn.stdout, hands_lib)
+        else:
+            result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
+        return {"task": task["id"], "sample": sample, "heldout": task["heldout"], "answer": turn.stdout[:4000], **result}
+
     with out.open("w", encoding="utf-8") as fh:
-        for task in tasks:
-            message = render(task, brain)
-            for sample in range(1, samples + 1):
-                turn = subprocess.run(fresh(ask), input=message, capture_output=True, text=True)
-                if turn.returncode == 0:
-                    result = check(task, turn.stdout, hands_lib)
-                else:
-                    result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
-                fh.write(json.dumps({"task": task["id"], "sample": sample, "heldout": task["heldout"],
-                                     "answer": turn.stdout[:4000], **result}, ensure_ascii=False) + "\n")
-                failed = [c["check"] for c in result["checks"] if not c["ok"]]
-                print(f"[eval] {task['id']} #{sample}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
-                drafted += 1
-                passed += result["ok"]
+        for record in _in_flight(one, jobs):
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            fh.flush()
+            failed = [c["check"] for c in record["checks"] if not c["ok"]]
+            print(f"[eval] {record['task']} #{record['sample']}: {'FAIL ' + ', '.join(failed) if failed else 'ok'}", file=sys.stderr)
+            drafted += 1
+            passed += record["ok"]
     return {"drafts": drafted, "ok": passed}
 
 
@@ -381,18 +409,28 @@ def pairs(base_path: Path, cand_path: Path) -> list[dict]:
 def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str]) -> int:
     """Every pair, judged twice by `ask` (bin/ask --agent judge): the
     baseline shown as draft 1, then the candidate. A turn that fails is an
-    unusable answer, so a tie."""
+    unusable answer, so a tie. Both orderings of every pair are judged
+    side by side, up to EVAL_CONCURRENCY turns at once."""
+    jobs = []
+    for pair in pairs(base_path, cand_path):
+        task = load_task(evals, pair["task"])
+        for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
+            jobs.append((pair, judge_message(evals, brain, task, drafts)))
+
+    def one(job: tuple) -> dict:
+        turn = subprocess.run(fresh(ask), input=job[1], capture_output=True, text=True)
+        got = verdict(turn.stdout if turn.returncode == 0 else "")
+        if turn.returncode != 0:
+            got["notes"] = f"the judge's turn failed: {turn.stderr.strip()[-300:]}"
+        return got
+
     count = 0
+    results = _in_flight(one, jobs)
     with out.open("w", encoding="utf-8") as fh:
-        for pair in pairs(base_path, cand_path):
-            task = load_task(evals, pair["task"])
-            verdicts = []
-            for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
-                turn = subprocess.run(fresh(ask), input=judge_message(evals, brain, task, drafts), capture_output=True, text=True)
-                verdicts.append(verdict(turn.stdout if turn.returncode == 0 else ""))
-                if turn.returncode != 0:
-                    verdicts[-1]["notes"] = f"the judge's turn failed: {turn.stderr.strip()[-300:]}"
-            fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": verdicts[0], "second": verdicts[1]}, ensure_ascii=False) + "\n")
+        for pair, _ in jobs[::2]:
+            first, second = next(results), next(results)
+            fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": first, "second": second}, ensure_ascii=False) + "\n")
+            fh.flush()
             print(f"[eval] {pair['task']} #{pair['sample']} judged", file=sys.stderr)
             count += 1
     return count
