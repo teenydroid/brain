@@ -275,26 +275,37 @@ check "and keeps each pair's orderings apart and its own verdict (both samples a
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
-# A caller that raises while it reads the turns (judge's file write, say) must
-# not leave the rest of the queue running: the turns not yet started are
-# cancelled, so the caller is not held for the whole queue.
-check "an exception in the caller cancels the turns not yet started" python3 -I - "$repo/bin/lib" <<'PY'
-import contextlib, os, sys, time
+# judge() raising while it writes (a full disk, say) must not leave its queue
+# running: the turns not yet started are cancelled once the error is raised,
+# and the traceback (which the process keeps) does not hold the pool open.
+check "a judge that fails mid-write stops its queue" python3 -I - "$repo/bin/lib" "$scratch/judge-fail.jsonl" <<'PY'
+import json, os, sys, time, types
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 os.environ["EVAL_CONCURRENCY"] = "1"
 import evals
 started = []
-def one(job):
-    started.append(job)
+def fake_run(cmd, input=None, capture_output=None, text=None):
+    started.append(1)
     time.sleep(0.05)
-    return job
+    return types.SimpleNamespace(returncode=0, stdout='{"better": "tie", "breaks": {}, "notes": ""}', stderr="")
+evals.subprocess.run = fake_run
+evals.fresh = lambda ask: ["true"]
+evals.pairs = lambda base, cand: [{"task": "t", "sample": i, "base": {}, "cand": {}} for i in range(60)]
+evals.load_task = lambda root, task_id: {}
+evals.judge_message = lambda *args: "message"
+real_dumps = json.dumps
+def failing_dumps(obj, *args, **kwargs):
+    raise OSError("disk full")
+json.dumps = failing_dumps
+held = None
 try:
-    with contextlib.closing(evals._in_flight(one, list(range(60)))) as results:
-        next(results)
-        raise RuntimeError("the caller fails mid-queue")
-except RuntimeError:
-    pass
-sys.exit(0 if len(started) <= 5 else 1)
+    evals.judge(Path("."), Path("."), Path("."), Path("."), Path(sys.argv[2]), ["ask"])
+except OSError as err:
+    held = err  # the traceback stays alive, as the process's last traceback does
+time.sleep(1.0)
+json.dumps = real_dumps
+sys.exit(0 if len(started) <= 6 else 1)
 PY
 
 # --- a candidate that wins ------------------------------------------------------------------
