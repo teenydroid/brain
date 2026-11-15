@@ -77,11 +77,11 @@ def guard_holds(since: float) -> Json:
             rows = conn.execute(
                 "SELECT substr(at, 1, 10) AS day,"
                 " CASE WHEN reason LIKE ? THEN 'judge unreachable' ELSE category END AS what, count(*)"
-                " FROM guard_holds WHERE at >= ? GROUP BY day, what ORDER BY day DESC, what",
+                " FROM guard_holds WHERE at >= ? AND direction != 'inbound' GROUP BY day, what ORDER BY day DESC, what",
                 (JUDGE_UNREACHABLE, stamp),
             ).fetchall()
             passed = dict(conn.execute(
-                f"SELECT substr(at, 1, 10) AS day, count(*) FROM guard_holds WHERE at >= ?"
+                f"SELECT substr(at, 1, 10) AS day, count(*) FROM guard_holds WHERE at >= ? AND direction != 'inbound'"
                 f" AND status IN ({','.join('?' * len(LET_THROUGH))}) GROUP BY day",
                 (stamp, *LET_THROUGH),
             ).fetchall())
