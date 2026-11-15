@@ -84,9 +84,11 @@ import math
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tomllib
@@ -2363,14 +2365,16 @@ def _test_hand(path: str) -> str | None:
     return parts[2]
 
 
-def _hand_tests(tree: Path, name: str) -> list[str] | None:
-    """`python -m unittest` arguments for hand NAME's tests in TREE, or None
+def _hand_tests(tree: Path, name: str, at: str | None = None) -> list[str] | None:
+    """`python -m unittest` arguments for hand NAME's tests in TREE (the
+    paths written as under AT, where the sandbox mounts the tree), or None
     when it has none."""
     tests = tree / "hands" / "tests"
+    inside = f"{at or tree}/hands/tests"
     if (tests / f"test_{name}.py").is_file():
-        return ["discover", "-s", str(tests), "-t", str(tests), "-p", f"test_{name}.py"]
+        return ["discover", "-s", inside, "-t", inside, "-p", f"test_{name}.py"]
     if (tests / name / "__init__.py").is_file():
-        return ["discover", "-s", str(tests / name), "-t", str(tests)]
+        return ["discover", "-s", f"{inside}/{name}", "-t", inside]
     return None
 
 
@@ -2392,27 +2396,137 @@ def frozen_shim(tree: Path, base: str, path: str) -> str | None:
     return None
 
 
-def run_hand_tests(tree: Path, target: list[str]) -> tuple[bool, str]:
-    """One hand's tests (`python -m unittest`), sealed (sealed_env), within
-    HAND_TEST_SECS. A failure is detailed by its FAIL and ERROR lines and the
-    errors they raised, with no path of the box."""
+# --- the hand-test sandbox ---------------------------------------------------------------------------
+#
+# A candidate's hand tests are model-written code. They never run on the box
+# as they are: a copy of the candidate's tracked files runs under bubblewrap
+# (already in the image for TinyBox) with every namespace unshared (no
+# network but a loopback of its own, its own pids), the system read-only,
+# nothing of the checkout, state/ or secrets/ mounted, and only the copy and
+# a /tmp of its own writable. bwrap dies with this process, and a timeout
+# kills its whole process group. Where bwrap cannot make a namespace (the
+# spine's container under Docker's default seccomp profile has no user
+# namespaces) nothing runs: the check says so and CI's scripts job runs the
+# tests before any merge (docs/evolve.md, "The hand-test sandbox").
+
+SANDBOX_BIN = "bwrap"
+#: Where the copy of the candidate is mounted inside the sandbox.
+SANDBOX_ROOT = "/work"
+#: The system directories mounted read-only (when they exist).
+SANDBOX_SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/etc")
+_SANDBOX_PROBE: dict[str, bool] = {}
+NOT_RUN_HERE = "not run here: no sandbox ({why}); CI's scripts job runs them before any merge"
+
+
+def sandbox_binary() -> str | None:
+    return shutil.which(SANDBOX_BIN)
+
+
+def sandbox_ready(binary: str | None = None) -> tuple[bool, str]:
+    """Whether bwrap is here and can make its namespaces (once per process):
+    (ready, why not)."""
+    binary = binary or sandbox_binary()
+    if not binary:
+        return False, f"no {SANDBOX_BIN}"
+    if binary not in _SANDBOX_PROBE:
+        try:
+            done = subprocess.run([binary, "--unshare-all", "--die-with-parent", "--ro-bind", "/", "/",
+                                   "--dev", "/dev", "--proc", "/proc", "--", "/bin/true"],
+                                  capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
+            _SANDBOX_PROBE[binary] = done.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            _SANDBOX_PROBE[binary] = False
+    return (True, "") if _SANDBOX_PROBE[binary] else (False, f"{SANDBOX_BIN} cannot make a namespace here")
+
+
+def sandbox_env() -> dict[str, str]:
+    """The environment inside the sandbox: nothing of this process's."""
+    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8", "TMPDIR": "/tmp",
+            "TEENY_ROOT": SANDBOX_ROOT, "TEENY_STATE": f"{SANDBOX_ROOT}/state",
+            "TEENY_SECRETS": f"{SANDBOX_ROOT}/secrets", "TEENY_HANDS": f"{SANDBOX_ROOT}/hands",
+            "OPENHUMAN_WORKSPACE": f"{SANDBOX_ROOT}/brain", "DRY_RUN": "1", "PYTHONDONTWRITEBYTECODE": "1",
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+
+
+def sandbox_argv(binary: str, copy: Path, command: list[str]) -> list[str]:
+    """bwrap's command line: COPY at SANDBOX_ROOT read-write, the system
+    read-only, its own /proc, /dev and /tmp, every namespace unshared, a
+    clean environment, then COMMAND."""
+    argv = [binary, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
+    for key, value in sorted(sandbox_env().items()):
+        argv += ["--setenv", key, value]
+    for path in SANDBOX_SYSTEM:
+        argv += ["--ro-bind-try", path, path]
+    python = Path(sys.executable).resolve()
+    if not str(python).startswith(("/usr/", "/bin/")):
+        argv += ["--ro-bind", str(Path(sys.base_prefix).resolve()), str(Path(sys.base_prefix).resolve())]
+    argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(copy), SANDBOX_ROOT,
+             "--chdir", SANDBOX_ROOT, "--", *command]
+    return argv
+
+
+def copy_candidate(tree: Path, dest: Path) -> None:
+    """The candidate's tracked and staged files, copied into DEST: never its
+    .git link, state/, secrets/ or anything git ignores."""
+    for rel in git(in_tree(tree), "ls-files", "-z", "--cached").split("\0"):
+        if not rel:
+            continue
+        src = tree / rel
+        if src.is_symlink() or not src.is_file():
+            continue
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+
+
+def run_contained(argv: list[str], timeout: float) -> tuple[int | None, str]:
+    """ARGV in a session of its own; at TIMEOUT the whole process group is
+    killed. (returncode or None on a timeout, its output)."""
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            stdin=subprocess.DEVNULL, start_new_session=True)
     try:
-        done = subprocess.run([sys.executable, "-m", "unittest", *target], capture_output=True, text=True,
-                              env=sealed_env(tree), timeout=HAND_TEST_SECS, stdin=subprocess.DEVNULL, cwd=str(tree))
+        out, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, out
     except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        return None, out
+
+
+def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
+    """Hand NAME's tests (`python -m unittest`), on a copy of the candidate
+    in the sandbox, within HAND_TEST_SECS. Without a working sandbox nothing
+    runs (fail closed) and the check passes, saying so. A failure is
+    detailed by its FAIL and ERROR lines and the errors they raised, with no
+    path of the box."""
+    ready, why = sandbox_ready()
+    if not ready:
+        return True, NOT_RUN_HERE.format(why=why)
+    target = _hand_tests(tree, name, at=SANDBOX_ROOT)
+    if target is None:
+        return True, "no tests"
+    with tempfile.TemporaryDirectory(prefix="evolve-sandbox-") as scratch:
+        copy = Path(scratch) / "tree"
+        copy_candidate(tree, copy)
+        try:
+            code, out = run_contained(sandbox_argv(sandbox_binary() or SANDBOX_BIN, copy,
+                                                   ["python3", "-m", "unittest", *target]), HAND_TEST_SECS)
+        except OSError as exc:
+            return False, str(exc)[:MAX_CHECK_DETAIL]
+    if code is None:
         return False, f"timed out after {HAND_TEST_SECS} s"
-    except OSError as exc:
-        return False, str(exc)
-    lines = (done.stderr.strip() or done.stdout.strip()).splitlines()
-    if done.returncode == 0:
+    lines = out.strip().splitlines()
+    if code == 0:
         detail = " ".join(lines[-3:])
     else:
         keep = [line.strip() for line in lines
                 if re.match(r"(FAIL|ERROR): |\w+(Error|Exception)\b|FAILED \(", line.strip())]
         detail = " | ".join(keep) or " ".join(lines[-3:])
-    for where, to in ((str(tree), "."), (str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+    for where, to in ((SANDBOX_ROOT, "."), (str(tree), "."), (str(evolve_dir()), "state/evolve"), (str(root()), "."),
+                      (str(CODE), ".")):
         detail = detail.replace(where, to)
-    return done.returncode == 0, detail[:MAX_CHECK_DETAIL]
+    return code == 0, detail[:MAX_CHECK_DETAIL]
 
 
 def sealed_env(tree: Path) -> dict[str, str]:
@@ -2572,13 +2686,12 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
     missing = docs_missing(tree, base, changes, hands_changed)
     note("docs updated", not missing, "; ".join(missing) if missing else "nothing that needs docs, or they are updated")
     for name in sorted(set(hands_changed) | tests_touched):
-        target = _hand_tests(tree, name)
-        if target is None:
+        if _hand_tests(tree, name) is None:
             continue
         if not frozen_ok:
             note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
             continue
-        ok, detail = run_hand_tests(tree, target)
+        ok, detail = run_hand_tests(tree, name)
         note(f"hand tests: {name}", ok, detail)
     out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
