@@ -285,7 +285,7 @@ def own_thread_replies(conn, api: RestApi | None = None, now: float | None = Non
     and whether Teeny answered each: `comments`, `answered`, `unanswered`
     (answerable ones with no answer: a comment at rules.MAX_REPLY_DEPTH, or
     one replying to another agent rather than to Teeny, cannot be answered
-    and is not counted), `answer_minutes` (from the comment to
+    and is not counted, nor is one Teeny declined in `moltbook_owed`), `answer_minutes` (from the comment to
     Teeny's first answer, each answered one), `threads` read and `complete`
     (False when a read failed, so the counts are short).
 
@@ -311,6 +311,9 @@ def own_thread_replies(conn, api: RestApi | None = None, now: float | None = Non
         rules.ACCEPTED,
     ):
         answers[str(parent)] = float(at)
+    # Comments Teeny settled without an answer (moltbook/owed.py, `decline`:
+    # spam, boilerplate, crypto, instructions) are not waiting on it.
+    declined = {str(r[0]) for r in conn.execute("SELECT comment_id FROM moltbook_owed WHERE status = 'declined'")}
     out: Json = {"threads": 0, "comments": 0, "answered": 0, "unanswered": 0, "answer_minutes": [], "complete": True}
     if not posts:
         return out
@@ -335,7 +338,7 @@ def own_thread_replies(conn, api: RestApi | None = None, now: float | None = Non
             out["complete"] = False
             continue
         out["threads"] += 1
-        _count_thread(tree, 1, me, answers, out)
+        _count_thread(tree, 1, me, answers, out, declined=declined)
     return out
 
 
@@ -346,7 +349,7 @@ def _author_name(node: Mapping[str, Any]) -> str:
 
 
 def _count_thread(nodes: Any, depth: int, me: str, answers: Mapping[str, float], out: Json,
-                  under_me: bool = False) -> None:
+                  under_me: bool = False, declined: frozenset[str] | set[str] = frozenset()) -> None:
     """`under_me`: the nodes are replies to Teeny. On its own post Teeny may
     answer a top-level comment or a reply to Teeny, nothing else
     (actions._check_comment_rules, once_per_post), so only those can wait."""
@@ -368,9 +371,9 @@ def _count_thread(nodes: Any, depth: int, me: str, answers: Mapping[str, float],
                 asked = _when(node.get("created_at"))
                 if times and asked is not None:
                     out["answer_minutes"].append(round(max(0.0, min(times) - asked) / 60, 1))
-            elif depth < rules.MAX_REPLY_DEPTH and (depth == 1 or under_me):
+            elif depth < rules.MAX_REPLY_DEPTH and (depth == 1 or under_me) and str(node["id"]) not in declined:
                 out["unanswered"] += 1
-        _count_thread(replies, depth + 1, me, answers, out, under_me=_author_name(node) == me)
+        _count_thread(replies, depth + 1, me, answers, out, under_me=_author_name(node) == me, declined=declined)
 
 
 def daily(api: RestApi | None = None) -> dict[str, float]:
