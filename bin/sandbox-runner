@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""bin/sandbox-runner: the hand-test sandbox's runner (docs/evolve.md, "The
+hand-test sandbox"). The `sandbox` compose service runs it with no network,
+a read-only root, no capabilities and only state/sandbox/ of the checkout
+mounted (at JOBS_DIR): it runs each job bin/evolve leaves there, a
+candidate's hand tests on a copy in WORK_DIR, kills whatever they left
+behind, and writes the result beside it.
+
+    bin/sandbox-runner JOBS_DIR WORK_DIR
+"""
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))  # beside sandbox.py in the service
+
+import sandbox  # noqa: E402
+
+if len(sys.argv) != 3:
+    sys.exit("usage: bin/sandbox-runner JOBS_DIR WORK_DIR")
+sandbox.serve(Path(sys.argv[1]), Path(sys.argv[2]), reap=True)
