@@ -714,8 +714,7 @@ class HandEdits(LoopCase):
                                    "new": text.splitlines()[0] + " "}])
         self.assertFalse(out["hard_ok"])
         self.assertIn("hands/lib/teeny_hands/x/__init__.py", checks["frozen paths"]["detail"])
-        self.assertNotIn("hand tests: x", {k for k, c in checks.items() if c["ok"]})
-        self.assertIn("not run", checks["hand tests: x"]["detail"])  # its code never runs
+        self.assertNotIn("hand tests: x", checks)  # a refused change runs no other check: its code never runs
 
     def test_a_new_playbook_needs_a_line_where_its_siblings_are_listed(self):
         book = {"path": "brain/playbooks/kettle.md", "old": "",
