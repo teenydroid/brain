@@ -1,6 +1,6 @@
 +++
 description = "the outward quote: score up to three peer posts, and quote one only when I hold first-hand material the author did not have"
-output = "hand:x peers suggest"
+output = "hand:x peer-suggest"
 surface = "x"
 max_per_day = 6
 media = ["image"]
