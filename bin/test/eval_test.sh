@@ -267,13 +267,35 @@ draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 --only "$four" "$runs/parc" >/dev/null 2>&1
 # The judge's verdict differs per task, so a pairing mix-up shows: arc-progress
 # and reply-fud prefer the candidate, morning-post and humans-post the baseline.
-# A pair is judged 21 when the candidate wins both orderings (draft 2 both
-# times is the baseline in the swapped one), 12 when the baseline does.
+# 21: the candidate wins both orderings (draft 2 in the first, draft 1 in the
+# second); 12: the baseline wins both. A split verdict would be 11 or 22.
 capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
 check "and keeps each pair's orderings apart and its own verdict" \
   test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
+
+# A caller that raises while it reads the turns (judge's file write, say) must
+# not leave the rest of the queue running: the turns not yet started are
+# cancelled, so the caller is not held for the whole queue.
+check "an exception in the caller cancels the turns not yet started" python3 -I - "$repo/bin/lib" <<'PY'
+import contextlib, os, sys, time
+sys.path.insert(0, sys.argv[1])
+os.environ["EVAL_CONCURRENCY"] = "1"
+import evals
+started = []
+def one(job):
+    started.append(job)
+    time.sleep(0.05)
+    return job
+try:
+    with contextlib.closing(evals._in_flight(one, list(range(60)))) as results:
+        next(results)
+        raise RuntimeError("the caller fails mid-queue")
+except RuntimeError:
+    pass
+sys.exit(0 if len(started) <= 5 else 1)
+PY
 
 # --- a candidate that wins ------------------------------------------------------------------
 FAKE_JUDGE=prefer:CAND compare "$scratch/win"
