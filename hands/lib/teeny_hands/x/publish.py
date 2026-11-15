@@ -72,11 +72,11 @@ def _guarded(text: str, kind: str, replying_to: str | None = None, context: Mapp
 
 def _draft(body: Any, *, quote: bool) -> tuple[str, list[str], str | None, str | None]:
     """The stdin body: text, media ids, a Giphy id, and for an own post the
-    post it quotes. Anything else in it is refused, so a URL cannot ride in
-    under a field this hand ignores."""
+    post it quotes and its anchor (read by `post`). Anything else in it is
+    refused, so a URL cannot ride in under a field this hand ignores."""
     if not isinstance(body, Mapping):
         raise hand.HandError('stdin must be a JSON object with "text"')
-    allowed = {"text", "media_ids", "gif_id"} | ({"quote_of"} if quote else set())
+    allowed = {"text", "media_ids", "gif_id"} | ({"quote_of", "anchor"} if quote else set())
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
@@ -110,16 +110,31 @@ def link_budget() -> Json:
     return rules.link_budget(_db())
 
 
+def slot() -> Json:
+    """Whether an own post would pass the gap and the day's cap now: {open:
+    true}, or {why} with the refusal it would get. A read of the ledger: it
+    writes nothing and calls no one. A post job reads it as a required input,
+    so a shut slot skips the run before the model turn (bin/act)."""
+    conn = _db()
+    try:
+        rules.check_gap(conn)
+        rules.check_daily_cap(conn)
+    except hand.Refused as refused:
+        return {"why": refused.reason}
+    return {"open": True}
+
+
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
-    """An own post, or a quote: guard, 280, attachments, then the gap under
-    the process-wide posting lock, so two jobs firing in the same minute
-    cannot both read the ledger before either is recorded. `approved`: a
-    released hold, which skips the guard only."""
+    """An own post, or a quote: its anchor, guard, 280, attachments, then the
+    gap under the process-wide posting lock, so two jobs firing in the same
+    minute cannot both read the ledger before either is recorded. `approved`:
+    a released hold, which skips the guard only (the anchor still holds)."""
     body, tagged = tags.split(body)
     text, media_ids, gif_id, quote_of = _draft(body, quote=True)
+    anchor = rules.check_anchor(body.get("anchor"), quote_of)
     kind = "quote" if quote_of else "post"
     if not approved:
-        text = _guarded(text, kind)
+        text = _guarded(text, kind, context={"anchor": anchor})
     rules.check_length(text)
     live = not hand.dry_run()
     conn = _db()
@@ -140,7 +155,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
-            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, **tagged)
+            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor, **tagged)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}

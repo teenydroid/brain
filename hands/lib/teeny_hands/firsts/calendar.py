@@ -231,7 +231,7 @@ def announce(body: Any) -> Json:
         if stray:
             raise hand.Refused(f"the text quotes {', '.join(str(_plain(n)) for n in stray)}, which the ledger does not "
                                f"hold for this; only {', '.join(str(_plain(n)) for n in sorted(allowed))}", rule="number")
-        posted = xpost.post(text)
+        posted = xpost.post(text, anchor=item["key"])
         out: Json = {"key": item["key"], "post": posted}
         if posted.get("dry_run") or not posted.get("id"):
             out["recorded"] = False

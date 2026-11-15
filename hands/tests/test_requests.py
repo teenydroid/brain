@@ -337,6 +337,8 @@ class VoteTest(Scratch):
         self.at(T0 + 7 * 86400 + 1)
         # once it has closed, the next week's vote opens
         self.assertTrue(self.votes.open_vote({"text": self.TEXT, "options": [self.ids[0], self.ids[3]]})["opened"])
+        calls = [json.loads(line) for line in (self.root / "x-calls.jsonl").read_text().splitlines()]
+        self.assertEqual(calls[-1]["body"]["anchor"], "requests:" + ",".join(str(i) for i in (self.ids[0], self.ids[3])))
 
     def test_the_cli(self):
         env = dict(os.environ)

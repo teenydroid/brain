@@ -3,6 +3,19 @@ description = "the weekly growth diary: my world score W in real numbers, what g
 output = "post"
 max_per_day = 1
 
+# Whether an own post would pass the gap and the day's cap now (hands/x slot):
+# shut, the run skips before the model turn.
+[[inputs]]
+name = "slot"
+run = "hands/x slot"
+required = true
+
+# It takes the Sunday 15:00 slot from `take`; a queued brief has it instead.
+[[inputs]]
+name = "brief"
+run = "hands/brief next"
+optional = true
+
 [[inputs]]
 name = "world"
 run = "hands/world report --days 7"
@@ -12,6 +25,8 @@ required = true
 name = "stats"
 run = "hands/stats report --days 7"
 +++
+If `brief` holds a queued ask from the team, skip and say so: the brief job posts it in this slot, five minutes after this runs.
+
 Write this week's growth diary: one post about how your world grew, told straight, the misses included. It is a serial; people come back to watch the numbers move.
 
 The numbers come from two inputs and nowhere else:
@@ -26,4 +41,6 @@ Say what failed as plainly as what grew. A flat week is a diary entry too, and t
 
 $TINY appears only as how many tokens you hold (the `tiny` component, in tokens). Never its price, its market cap, a prediction, or anything that tells anyone to buy, hold or sell. No buy calls, ever.
 
-One post, under 260 characters, lowercase, plain, in the voice SOUL.md describes. No hashtags, no links. If both inputs are empty, skip.
+The diary is anchored on the one number that moved most: put that component's name (as `world.components` names it, or the `stats` metric) in "anchor". A week where no number moved and nothing failed worth saying is a skip, with the reason.
+
+One post, under 260 characters, lowercase, plain, in the voice SOUL.md describes. No hashtags, no links. If both inputs are empty, skip. Answer {"action": "post", "anchor": "<the component or metric>", "text": "..."} or {"action": "skip", "reason": "..."}.

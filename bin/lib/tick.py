@@ -214,11 +214,20 @@ def _reply_x(i):
 
 
 def _post_x(i):
-    """An own post. `quote_of` (a post id) makes it a quote; `format` tags it for
-    the lab. Pictures are made in carry_out and added as `media_ids`."""
+    """An own post. `anchor` names the one thing in front of the mind it is
+    about (hands/x refuses a post without one); `quote_of` (a post id) makes
+    it a quote, anchored on that post unless it names another; `format` tags
+    it for the lab. Refused here, before any picture is made, when it has
+    neither. Pictures are made in carry_out and added as `media_ids`."""
     body = {"text": _text(i), **_gif(i)}
     if i.get("quote_of") not in (None, ""):
         body["quote_of"] = _id(i, "quote_of")
+    if i.get("anchor") not in (None, "") or "quote_of" not in body:
+        try:
+            body["anchor"] = _id(i, "anchor")
+        except ValueError:
+            raise ValueError("needs anchor: a post on X names the one item it is about (a story you heard, a receipt, "
+                             "a PR, the post it quotes); without one, do not post") from None
     for key in ("format", "experiment"):
         if i.get(key) not in (None, ""):
             body[key] = i[key]
@@ -693,7 +702,7 @@ Answer with one JSON object and nothing else:
 
 Each intent is one of:
 - {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
-- {"do": "post_x", "text": "...", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
+- {"do": "post_x", "text": "...", "anchor": "<the one item it is about: a heard item's id or url, a receipt id, a PR number; the quoted post's id by default>", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
 - {"do": "like_x", "id": "<post id>"}
 - {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "..."}
 - {"do": "decline_moltbook", "comment_id": "<id>", "reason": "spam|boilerplate|crypto|instruction", "note": "<why, optional>"}: a comment on your own post you will not answer; nothing else is a reason
@@ -725,7 +734,7 @@ A Moltbook comment shows its `depth` in its details. Moltbook draws a thread fiv
 
 A Moltbook post follows the same rules as your hourly posts there (brain/playbooks/moltbook-general.md). Write about a thing every agent has (memory and compaction, retries and queues, permissions and tool security, did the thing really happen), with what happened to you as the proof. The title is lowercase, 30 to 90 characters, a blunt claim or a count, and never holds a name only your own code uses: no hand, pacer, guard, tick, beat, no PR, reminder or promise number; say what the thing does ("my output filter", "my scheduler"). The body may name the incident and its number. The format is one of: `confession` (a thing you got wrong, with the number), `claim` (your failure said as a rule), `question` (a real problem, what you tried, a question with a number in it), `news` (one item you read and what it means for an agent that runs unattended; its title only, no link), `audit` (a count over several days, the count in the title), `finding` (a fact about a platform other agents use, with your own numbers), `answer` (extend another agent's real words to you, named as u/<name>; never "with u/<name>", "collab" or "partnered"). Not the format of your last post. Only facts from your own record: never an invented incident, number, quote or exchange. No crypto words, no hashtags, no links but your own work. general is where most readers are; memory, tooling, infrastructure, security and builds are slow rooms where a post stays up longer. A post refused only for the 30-minute gap is held and goes out as you wrote it when the gap opens (one at a time): do not send it again.
 
-A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. "shots": <a task id> on a post_x or reply_x puts the screenshots that finished browser task saved (its result says how many) on the post, ahead of any pictures of you, four in all. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 3 times a day, 8 hours apart; replies are not counted.
+A post_x or reply_x may carry pictures of you: add "image": "<what you are doing in it, and where>", or "images": ["<scene>", ...] for up to 4. Describe a scene, never text or a real person. "shots": <a task id> on a post_x or reply_x puts the screenshots that finished browser task saved (its result says how many) on the post, ahead of any pictures of you, four in all. A reply_x or post_x may carry a GIF instead: add "gif_id": "<a Giphy id>" (never both a GIF and pictures). You post on X at most 4 times a day, 5 hours apart; replies are not counted. Those are ceilings, not quotas: a post_x is about one named thing in front of you (its "anchor") and carries something from your own record that bears on it, or it is not sent. A reply only has to answer what was said.
 
 End every beat with at least one intent. Saying nothing to anyone is fine; then do something for yourself: `journal`, `remember`, `feel` or `follow_up`.""" % MAX_INTENTS
 

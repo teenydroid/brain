@@ -449,7 +449,7 @@ def pick(body: Any) -> Json:
                 raise hand.Refused("Teeny cannot win its own bounty", rule="own")
             from ..x import publish
 
-            posted = publish.post({"text": text})
+            posted = publish.post({"text": text, "anchor": f"bounty:{bounty_id}"})
             if posted.get("dry_run"):
                 return {"dry_run": True, "would_pick": {"bounty_id": bounty_id, "entry_id": entry_id, "author": entry["author"], "reasons": reasons.strip()}, "would_post": posted.get("would_post")}
             now = hand.now()

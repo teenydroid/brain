@@ -10,8 +10,15 @@ Teeny is doing, worked out in code so no model does arithmetic.
   moltbook_daily  the newest snapshot's Moltbook numbers counted from the
             ledger (collect.py, source moltbook_ledger): live posts,
             unanswered own-thread comments, writes lost to the challenge
-  lines     the same in three short lines, for a prompt, and a fourth for
-            moltbook_daily once a snapshot has it
+  playbooks per bin/act playbook over the last N days, from
+            state/act/<name>/runs.jsonl: runs, own posts that went out, skips
+            (the draft's skips, the anchor judge's "not anchored" among them,
+            and runs skipped before the draft for an empty input or a shut
+            slot; never a spent budget or a run already going), and how many
+            of the skips were "not anchored"
+  lines     the same in three short lines, for a prompt, a fourth for
+            moltbook_daily once a snapshot has it, and a last one for the
+            playbooks once any ran
 
 For each surface: the five best and five worst writes, and the average
 result per format (the lab tag on the write; an untagged write counts under
@@ -25,6 +32,7 @@ Reads only. A table that does not exist yet reads as empty.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -113,6 +121,57 @@ def moltbook_daily(conn: sqlite3.Connection) -> Json:
 def _daily_line(daily: Json) -> str | None:
     said = [text.format(daily[name]) for name, text in DAILY if name in daily]
     return _line(f"Moltbook on {daily['date']}: " + ", ".join(said)) if said else None
+
+
+#: Runs bin/act skipped that were never a decision about what to say.
+NOT_A_SKIP = ("daily budget spent", "already running")
+
+
+def _at(text: Any) -> float | None:
+    try:
+        return datetime.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def playbooks(since: float) -> list[Json]:
+    """Per playbook, its bin/act runs since `since` (state/act/<name>/runs.jsonl,
+    one JSON line a run): runs, posts that went out, skips, and the skips the
+    anchor judge made. Unreadable lines are passed over. Most posts first."""
+    out = []
+    for path in sorted((hand.state_dir() / "act").glob("*/runs.jsonl")):
+        runs = posts = skips = not_anchored = 0
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            at = _at(record.get("at")) if isinstance(record, dict) else None
+            if at is None or at < since:
+                continue
+            runs += 1
+            skipped = record.get("skipped")
+            if isinstance(skipped, str) and skipped not in NOT_A_SKIP:
+                skips += 1
+            for action in record.get("actions") or []:
+                if not isinstance(action, dict):
+                    continue
+                if action.get("action") == "post" and action.get("status") == "done":
+                    posts += 1
+                elif action.get("action") == "skip":
+                    skips += 1
+                    if str(action.get("reason") or "").startswith("not anchored"):
+                        not_anchored += 1
+        if runs:
+            out.append({"playbook": path.parent.name, "runs": runs, "posts": posts, "skips": skips,
+                        "not_anchored": not_anchored})
+    return sorted(out, key=lambda p: (-p["posts"], -p["skips"], p["playbook"]))
+
+
+def _playbooks_line(days: int, rows: list[Json]) -> str:
+    said = ", ".join(f"{r['playbook']} {r['runs']}/{r['posts']}/{r['skips']}"
+                     + (f" ({r['not_anchored']} not anchored)" if r["not_anchored"] else "") for r in rows)
+    return _line(f"Playbooks last {days}d (runs/posts/skips): {said}")
 
 
 def x_writes(conn: sqlite3.Connection, since: float, until: float | None = None) -> list[Json]:
@@ -281,6 +340,7 @@ def board(days: int = 7) -> Json:
         daily = moltbook_daily(conn)
     finally:
         conn.close()
+    runs = playbooks(since)
     said = "; ".join(
         f"{a['metric']} {a['value']}"
         + (" (" + ", ".join(f"{k} {_signed(a[k])}" for k in ("d1", "d7") if k in a) + ")" if "d1" in a or "d7" in a else "")
@@ -297,5 +357,8 @@ def board(days: int = 7) -> Json:
     # Only once Reddit has a measured write: most boxes have no Reddit account.
     if reddit["measured"]:
         lines.append(_surface_line("Reddit", days, reddit))
+    if runs:
+        lines.append(_playbooks_line(days, runs))
     return {"days": days, "at": datetime.fromtimestamp(hand.now(), timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-            "audience": people, "x": x, "moltbook": moltbook, "reddit": reddit, "moltbook_daily": daily, "lines": lines}
+            "audience": people, "x": x, "moltbook": moltbook, "reddit": reddit, "moltbook_daily": daily,
+            "playbooks": runs, "lines": lines}

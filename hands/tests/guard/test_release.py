@@ -22,10 +22,26 @@ class ReleaseTest(Scratch):
         self.at(T0)
         self.created = self.x.route("POST", "/2/tweets", {"data": {"id": "500"}}, status=201)
 
-    def held_post(self, text="this is fucking great"):
-        verdict = gate.check_outbound(text)
+    def held_post(self, text="this is fucking great", context=None):
+        verdict = gate.check_outbound(text, context=context)
         self.assertEqual(verdict.kind, "hold")
         return verdict.hold_id
+
+    def ledger_anchor(self) -> str:
+        from teeny_hands.x import posting_rules
+
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        return conn.execute("SELECT anchor FROM x_posts").fetchone()["anchor"]
+
+    def test_a_released_post_keeps_the_anchor_it_was_held_with(self):
+        release(self.held_post(context={"anchor": "listen:4471"}))
+        self.assertEqual(self.ledger_anchor(), "listen:4471")
+
+    def test_a_post_held_before_anchors_is_anchored_on_its_hold(self):
+        hold_id = self.held_post()
+        release(hold_id)
+        self.assertEqual(self.ledger_anchor(), f"hold:{hold_id}")
 
     def test_publishes_an_approved_post_once(self):
         hold_id = self.held_post()
