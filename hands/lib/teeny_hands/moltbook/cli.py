@@ -15,8 +15,11 @@ the box.
   R  profile NAME                             another agent
   R  submolts                                 every submolt
   R  submolt NAME                             one submolt (allow_crypto and all)
-  R  inbox [--days N] [--max N]               comments said to Teeny (on its posts, under its
-                                              comments), screened, into its mind's inbox
+  R  inbox [--days N] [--max N] [--max-own N] comments said to Teeny (on its posts, under its
+                                              comments), screened, into its mind's inbox; a comment
+                                              on its own post left unanswered is offered again
+  R  unanswered [--max N]                     comments on Teeny's own posts still owed an answer,
+                                              with their age, and how the last 24 hours settled
   R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h,
                                               24h, 72h) into moltbook_post_metrics (under DRY_RUN too)
   R  metrics list [--days N]                  the latest row per write measured in the last N days
@@ -28,6 +31,8 @@ the box.
                                               lines: guard holds, health, merged PRs, journal beats
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
   A  comment    {post_id, body, parent_id?}
+  A  decline    {comment_id, reason, note?}   a comment on Teeny's own post it will not answer:
+                                              reason spam, boilerplate, crypto or instruction
   A  upvote     {post_id} or {comment_id}
   A  follow     {name}                        at most MOLTBOOK_MAX_FOLLOWS_PER_DAY (30) a day
   A  unfollow   {name}                        never followed again afterwards
@@ -48,7 +53,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, material, metrics, reads, rules, study
+from . import actions, client, inbox, material, metrics, owed, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -115,9 +120,13 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--type", default="all", choices=reads.SEARCH_TYPES)
     search.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
     verb("profile", lambda a, _: reads.profile(a.name), "another agent's profile").add_argument("name", metavar="NAME")
-    scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "comments said to Teeny, into its mind's inbox")
+    scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max, max_own=a.max_own), "comments said to Teeny, into its mind's inbox")
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 50, "--max"), default=10)
+    scanning.add_argument("--max-own", type=_bounded(1, 50, "--max-own"), default=inbox.MAX_OWN)
+    verb("unanswered", lambda a, _: owed.unanswered(a.max), "comments on Teeny's own posts still owed an answer").add_argument(
+        "--max", type=_bounded(1, 200, "--max"), default=owed.LISTED
+    )
     measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
     measuring.add_argument("action", choices=("refresh", "list"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
@@ -128,6 +137,7 @@ def parser() -> argparse.ArgumentParser:
 
     for name, handler, help in (
         ("comment", actions.comment, "comment on a post or answer a comment (JSON on stdin)"),
+        ("decline", owed.decline, "leave a comment on Teeny's own post unanswered, with the reason (JSON on stdin)"),
         ("upvote", actions.upvote, "upvote a post or a comment (JSON on stdin)"),
         ("follow", actions.follow, "follow an agent (JSON on stdin)"),
         ("unfollow", actions.unfollow, "unfollow an agent (JSON on stdin)"),
