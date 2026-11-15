@@ -416,9 +416,9 @@ class LinkBudgetTest(Posting):
         self.assertEqual(self.posted(), [])
 
     def test_the_budget_read_matches_what_the_cap_refuses(self):
-        self.assertEqual(posting_rules.link_budget(hand.db())["left"], 1)
+        self.assertEqual(publish.link_budget()["left"], 1)
         self.record_link_post("101", T0)
-        budget = posting_rules.link_budget(hand.db())
+        budget = publish.link_budget()
         self.assertEqual((budget["sent_today"], budget["left"]), (1, 0))
         with self.assertRaises(hand.Refused):
             publish.post({"text": "the exchange: https://www.moltbook.com/post/abc"})
