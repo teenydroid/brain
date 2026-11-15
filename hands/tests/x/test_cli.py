@@ -202,7 +202,7 @@ class WriteVerbsTest(Cli):
         self.assertEqual(self.x.writes(), [])
 
     def test_reply(self):
-        self.x.route("GET", "/2/tweets/5", {"data": {"id": "5", "text": "gm", "author_id": "42"}})
+        self.x.route("GET", "/2/tweets/5", {"data": {"id": "5", "text": "@teenydroid gm", "author_id": "42"}})
         self.x.route("POST", "/2/tweets", {"data": {"id": "99"}}, status=201)
         code, out, _ = self.run_x("reply", "--to", "5", stdin='{"text":"hi"}', guarded=True)
         self.assertEqual((code, out), (0, {"ok": True, "id": "99", "in_reply_to": "5", "kind": "reply", "text": "hi"}))

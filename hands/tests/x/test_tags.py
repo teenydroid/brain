@@ -33,7 +33,7 @@ class TagsTest(Scratch):
 
     def test_a_reply_records_its_format(self):
         me(self.x)
-        self.x.route("GET", "/2/tweets/55", {"data": {"id": "55", "text": "hi", "author_id": "9"}})
+        self.x.route("GET", "/2/tweets/55", {"data": {"id": "55", "text": "@teenydroid hi", "author_id": "9"}})
         publish.reply("55", {"text": "a reply", "format": "answer"})
         row = self.ledger()[0]
         self.assertEqual((row["kind"], row["format"], row["experiment"]), ("reply", "answer", None))

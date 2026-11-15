@@ -223,7 +223,7 @@ class GiphyTest(Uploading):
         from .support import me
 
         me(self.x, "1000")
-        self.x.route("GET", "/2/tweets/5", {"data": {"id": "5", "text": "hi", "author_id": "42"}})
+        self.x.route("GET", "/2/tweets/5", {"data": {"id": "5", "text": "@teenydroid hi", "author_id": "42"}})
         self.x.route("GET", "/v1/gifs/abc123", {"message": "down"}, status=500)
         with self.assertRaises(hand.HandError):
             publish.reply("5", {"text": "gm", "gif_id": "abc123"})
