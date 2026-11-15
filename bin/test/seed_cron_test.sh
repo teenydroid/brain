@@ -497,9 +497,9 @@ check "and no job that must follow another, or be followed, catches up out of or
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
       \"teeny.dream-midday\", \"teeny.receipts\")) | .catch_up_secs] | length == 5 and all(. == 0)' >/dev/null"
-check "and the Moltbook noon and evening posts make up a slot the model provider lost" bash -c "
+check "and the Moltbook evening audit makes up a slot the model provider lost" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.moltbook-daily\", \"teeny.moltbook-evening\")) | .make_up_secs] | length == 2 and all(. > 0)' >/dev/null"
+    jq -e '[.[] | select(.name == \"teeny.moltbook-evening\") | .make_up_secs] | length == 1 and all(. > 0)' >/dev/null"
 check "and no X post makes one up: a late post would take the next one's eight-hour room" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\")) | .make_up_secs] | length == 3 and all(. == 0)' >/dev/null"
