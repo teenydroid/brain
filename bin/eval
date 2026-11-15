@@ -212,7 +212,7 @@ affected() {
       *) usage ;;
     esac
   done
-  [ -n "$root" ] && [ -n "$base" ] || usage
+  if [ -z "$root" ] || [ -z "$base" ]; then usage; fi
   [ -d "$root" ] || die "no checkout at $root"
   python3 "$lib" affected "$evals" "$heldout_dir" "$root" "$base"
 }
