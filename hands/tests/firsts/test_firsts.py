@@ -160,6 +160,7 @@ class CalendarTest(Scratch):
         out = calendar.announce({"text": "50 real replies to people on x. thank you for talking to a tiny crab", "first": "fifty-replies"})
         self.assertEqual((out["recorded"], out["post"]["id"]), (True, "9001"))
         self.assertEqual(self.x_calls()[0]["argv"], ["post"])
+        self.assertEqual(self.x_calls()[0]["body"]["anchor"], "first:fifty-replies")
         self.assertEqual(calendar.due()["firsts"], [])
         self.assertEqual(self.refused({"text": "fifty replies", "first": "fifty-replies"}).detail["rule"], "unproven")
         self.assertIn("announced", {f["id"]: f for f in calendar.listing()["firsts"]}["fifty-replies"])
