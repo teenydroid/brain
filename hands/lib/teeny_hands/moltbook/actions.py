@@ -589,10 +589,7 @@ def comment(body: Any, api: RestApi | None = None) -> Json:
         out: Json = {"commented": comment_id, "post_id": post_id}
         if parent_id:
             out["parent_id"] = parent_id
-            try:
-                owed.answered(conn, parent_id, comment_id)
-            except sqlite3.Error as exc:  # sent already: logged, never raised
-                print(f"moltbook: comment {comment_id} sent, but marking {parent_id} answered failed: {exc}", file=sys.stderr)
+            _safely("an answer to a comment on Teeny's own post", lambda: owed.answered(conn, parent_id, comment_id))
         if ver:
             out.update(_settle(conn, api, "comment", "moltbook_comments", row_id, comment_id, ver))
         return out
