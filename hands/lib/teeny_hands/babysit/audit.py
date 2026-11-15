@@ -367,11 +367,13 @@ class _Audit:
                 verdict = "needs_review"
             elif "wait" in severities:
                 verdict = "waiting"
+            elif not approved and self.eval_state != "success":
+                # A self-merge candidate merges unapproved only on a passed
+                # teeny/eval, whatever else its status says.
+                verdict = "needs_review"
             else:
                 verdict = "ready"
-                # Ready with no approval only through the eval (the wait
-                # findings above hold it until teeny/eval passed).
-                self_merge = not approved and self.evolve and self.eval_state == "success"
+                self_merge = not approved
         title_hit = any(f["where"] == "title" for f in self.findings)
         result: Json = {
             "repo": self.repo,
