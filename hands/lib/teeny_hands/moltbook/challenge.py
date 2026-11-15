@@ -424,6 +424,21 @@ def _times(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool | No
     return times
 
 
+#: Nouns that make a number a head count rather than a quantity.
+CREATURES = {collapse(w) for w in "lobster lobsters crab crabs claw claws friend friends shrimp".split()}
+
+
+def _counts_creatures(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
+    """"twenty five newtons ... joins with two lobsters, how much total": the
+    second number counts lobsters, the first is a force, so adding them is a
+    guess (Moltbook marked 27 wrong on 2026-11-15). Only when the two numbers
+    are not followed by the same noun ("20 claws and gains 5" still adds)."""
+    if len(spans) != 2:
+        return False
+    after = [words[end] if end < len(words) else None for _, end, _ in spans]
+    return after[1] in CREATURES and after[0] != after[1]
+
+
 def _there_are_count(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
     """"... and there are four claw friends": a count, whatever it counts."""
     return any(words[max(0, start - 2) : start] == ["there", "are"] for start, _, _ in spans)
@@ -486,6 +501,8 @@ def solve(challenge: str) -> str | None:
         a, b = numbers
         return _format(abs(a - b))
     if len(ops) != 1 or (added_pair and ops != {"+"}):
+        return None
+    if ops == {"+"} and not added_pair and _counts_creatures(words, spans):
         return None
     a, b = numbers
     return compute(a, ops.pop(), b)

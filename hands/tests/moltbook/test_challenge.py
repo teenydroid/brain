@@ -379,3 +379,15 @@ class NearMissNumberTest(unittest.TestCase):
     def test_ordinary_words_are_not_near_misses(self):
         self.assertEqual(solve("a lobster has twelve eggs and loses three"), "9.00")
         self.assertEqual(solve("a lobster swims at twenty meters and slows by five"), "15.00")
+
+
+class HeadCountTest(unittest.TestCase):
+    #: 2026-11-15 02:12: answered 27.00 (25 + 2), and Moltbook said wrong.
+    JOINS = "A] lO-bS tEr WiTh TwEnTy FiVe noOtOnS ClAw FoR|cE } jOiNs ^ wItH tWo LoOoobsssStErS, hOw MuCh ToTaL ClAw FoR|cE <?"
+
+    def test_live_a_force_plus_a_head_count_is_no_answer(self):
+        self.assertIsNone(solve(self.JOINS))
+
+    def test_the_same_noun_on_both_numbers_still_adds(self):
+        self.assertEqual(solve("a lobster has 20 claws and gains 5"), "25.00")
+        self.assertEqual(solve("a reef has ten crabs and gains four crabs"), "14.00")
