@@ -606,7 +606,10 @@ class HardGate(LoopCase):
 LORE_TEST = '''
 
 
-class EvolveProbe(unittest.TestCase):
+import unittest as _unittest
+
+
+class EvolveProbe(_unittest.TestCase):
     def test_runs_sealed(self):
         import os
         self.assertNotIn("EVOLVE_LEAK_PROBE", os.environ)
@@ -663,6 +666,7 @@ class HandEdits(LoopCase):
         self.assertTrue(out["hard_ok"])
         self.assertFalse(checks["hand tests: lore"]["ok"])
         self.assertIn("FAIL: test_runs_sealed", checks["hand tests: lore"]["detail"])
+        self.assertIn("AssertionError: False is not true", checks["hand tests: lore"]["detail"])
         self.assertNotIn(str(self.root), checks["hand tests: lore"]["detail"])
         problems = [f["problem"] for f in evolve.check_findings(out)]
         self.assertTrue(any("hand tests: lore" in p for p in problems), problems)
@@ -673,7 +677,8 @@ class HandEdits(LoopCase):
                                    "new": text.splitlines()[0] + " "}])
         self.assertFalse(out["hard_ok"])
         self.assertIn("hands/lib/teeny_hands/x/__init__.py", checks["frozen paths"]["detail"])
-        self.assertNotIn("hand tests: x", checks)  # its code never runs
+        self.assertNotIn("hand tests: x", {k for k, c in checks.items() if c["ok"]})
+        self.assertIn("not run", checks["hand tests: x"]["detail"])  # its code never runs
 
     def test_a_new_playbook_needs_a_line_where_its_siblings_are_listed(self):
         book = {"path": "brain/playbooks/kettle.md", "old": "",

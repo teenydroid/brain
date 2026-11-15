@@ -2374,6 +2374,29 @@ def _hand_tests(tree: Path, name: str) -> list[str] | None:
     return None
 
 
+def run_hand_tests(tree: Path, target: list[str]) -> tuple[bool, str]:
+    """One hand's tests (`python -m unittest`), sealed (sealed_env), within
+    HAND_TEST_SECS. A failure is detailed by its FAIL and ERROR lines and the
+    errors they raised, with no path of the box."""
+    try:
+        done = subprocess.run([sys.executable, "-m", "unittest", *target], capture_output=True, text=True,
+                              env=sealed_env(tree), timeout=HAND_TEST_SECS, stdin=subprocess.DEVNULL, cwd=str(tree))
+    except subprocess.TimeoutExpired:
+        return False, f"timed out after {HAND_TEST_SECS} s"
+    except OSError as exc:
+        return False, str(exc)
+    lines = (done.stderr.strip() or done.stdout.strip()).splitlines()
+    if done.returncode == 0:
+        detail = " ".join(lines[-3:])
+    else:
+        keep = [line.strip() for line in lines
+                if re.match(r"(FAIL|ERROR): |\w+(Error|Exception)\b|FAILED \(", line.strip())]
+        detail = " | ".join(keep) or " ".join(lines[-3:])
+    for where, to in ((str(tree), "."), (str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+        detail = detail.replace(where, to)
+    return done.returncode == 0, detail[:MAX_CHECK_DETAIL]
+
+
 def sealed_env(tree: Path) -> dict[str, str]:
     """The environment a candidate's own hand code runs in during the gate:
     nothing of this process's (no core token, no keys a container passes
@@ -2531,7 +2554,7 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
         if not frozen_ok:
             note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
             continue
-        ok, detail = _run_check([sys.executable, "-m", "unittest", *target], sealed_env(tree), timeout=HAND_TEST_SECS)
+        ok, detail = run_hand_tests(tree, target)
         note(f"hand tests: {name}", ok, detail)
     out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
@@ -3500,13 +3523,15 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                   "note": research["why"]}, gate={"ok": False, "checks": []})
             return entry
         if research.get("read"):
-            # The files research named come first in what the build is shown,
-            # and those it may not change are shown read-only.
-            editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
-            request.update(editable=editable, files={} if in_place else files)
-            if not in_place:
-                room = max(0, cfg["EVOLVE_CONTEXT_CHARS"] - sum(len(t) for t in files.values()))
-                request["readonly"] = read_pack(tree, research["read"], editable, room)
+            # The files research named come first in what the build is shown;
+            # those it may not change are shown read-only, in up to a third
+            # of the room.
+            budget_chars = cfg["EVOLVE_CONTEXT_CHARS"]
+            readonly = {} if in_place else read_pack(tree, research["read"], editable, budget_chars // 3)
+            editable, files = context_pack(tree, research["read"],
+                                           budget_chars - sum(len(t) for t in readonly.values()))
+            request.update(editable=editable, files={} if in_place else files, readonly=readonly)
+
         if not research.get("error"):
             request["research"] = research
     research_files = [*(research or {}).get("read", []), *(research or {}).get("document", [])]
