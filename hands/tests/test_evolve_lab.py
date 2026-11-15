@@ -296,6 +296,27 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(self.spines(), [])
         self.assertEqual(self.drafts(), [])
 
+    def test_a_regression_is_sent_back_and_measured_afresh_each_round(self):
+        """With rounds left a regressed change goes back to the builder, and
+        what it builds is measured again from a clean eval folder; the
+        operator's file proposal is the same each round, so it regresses
+        each time and the last round's regression is final."""
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_REVISE_ROUNDS=2)
+        self.edit(1, "shiplog")
+        os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
+        self.live()
+        out = self.run_gen(1)
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
+        eval_dir = evolve.evolve_dir() / "1" / "eval"
+        self.assertTrue((eval_dir / "cand-1.round-1" / "compare" / "report.json").is_file())
+        self.assertTrue((eval_dir / "cand-1" / "compare" / "report.json").is_file())
+        rounds = json.loads((evolve.evolve_dir() / "1" / "cand-1.rounds.json").read_text())["rounds"]
+        self.assertEqual(len(rounds), 2)
+        self.assertEqual(rounds[0]["eval"]["verdict"], "regressed")
+        self.assertIn("main's draft won", " ".join(f["problem"] for f in rounds[0]["eval"]["findings"]))
+        self.assertEqual(self.entries()["g1c1"]["rounds"][-1], "round 2: approved by the reviewer")
+        self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
+
     def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
         # One round: a regression is final here (a regression sent back for
         # another round is test_evolve_loop's).
