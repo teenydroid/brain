@@ -25,8 +25,9 @@ done had the judge answered:
   which runs the guard again and keeps every posting rule; the hold is
   `cleared` with where it went. A real verdict is written on the hold, which
   keeps holding. Another failure leaves it for the next run. A re-send the
-  hand refuses (its gap, its caps, already answered) or the guard holds
-  again closes the hold as `expired`, and is never tried again.
+  hand refuses (its gap, its caps, already answered), a post when Teeny
+  has posted on Moltbook since the hold, or one the guard holds again
+  closes the hold as `expired`, and is never tried again.
 - any other draft of the account's own `expired`: it was written for a
   moment that has passed, and is never sent late. Teeny drafts afresh.
 
