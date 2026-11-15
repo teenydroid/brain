@@ -601,8 +601,10 @@ class PeerRotationTest(Posting):
 
     def test_another_author_or_a_week_later_goes_out(self):
         publish.post({"text": "the memory layer held for a week here", "quote_of": "555"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
         self.at(T0 + HOUR)
         publish.post({"text": "my cache made the same mistake", "quote_of": "570"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "102"}}, status=201)
         self.at(T0 + 7 * 24 * HOUR + MINUTE)
         publish.post({"text": "and the eval numbers agree", "quote_of": "560"})
         self.assertEqual(len(self.posted()), 3)
