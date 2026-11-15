@@ -285,6 +285,134 @@ class BrowserPicturesTest(Scratch):
         self.assertIn(f'"shots": {task["task_id"]}', text)
 
 
+class UnreportedRunTest(Scratch):
+    """An operator run that ends without a report (on 2026-11-15 a click to
+    another site stopped every run before the agent could write one) frees
+    the queue at the next desk: the claim goes back to pending once, then
+    fails with what it has, instead of holding the queue for the two-hour
+    stale cutoff, twice. The runs are read from the core's storage.db, as
+    bin/crons reads them."""
+
+    OPERATOR = "job-operator"
+
+    def setUp(self):
+        super().setUp()
+        self.storage = self.root / "brain" / "storage.db"
+        self.storage.parent.mkdir(parents=True, exist_ok=True)
+        os.environ["TEENY_STORAGE"] = str(self.storage)
+        import sqlite3
+
+        self.db = sqlite3.connect(self.storage)
+        self.db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                        " updated_ms integer default 0, deleted integer default 0, body text)")
+        for job_id, name in ((self.OPERATOR, "teeny.operator"), ("job-other", "teeny.tick")):
+            self.db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)",
+                            (job_id, json.dumps({"name": name})))
+        self.db.commit()
+        self.seq = 0
+
+    def tearDown(self):
+        self.db.close()
+        super().tearDown()
+
+    def run_ended(self, started, finished=True, job=None, output="I stopped this turn early because I don't have "
+                  "permission for a step this needs."):
+        self.seq += 1
+        body = {"job_id": job or self.OPERATOR, "seq": self.seq, "started_ms": int(started * 1000),
+                "status": "ok", "output": output}
+        if finished:
+            body["finished_ms"] = int(started * 1000) + 60_000
+        self.db.execute("insert into docs (coll, id, body) values ('cron.runs', ?, ?)",
+                        (f"{self.seq:08}", json.dumps(body)))
+        self.db.commit()
+
+    def claimed(self, **more):
+        tid = self.add(**more)["task_id"]
+        self.assertEqual(queue.next_task()["task"]["task_id"], tid)
+        return tid
+
+    def row(self, tid):
+        return [t for t in queue.listing()["tasks"] if t["id"] == tid][0]
+
+    def test_a_run_that_ended_without_a_report_releases_the_claim_once_then_fails_it(self):
+        first = self.claimed()
+        waiting = self.add(goal="the next one")["task_id"]
+        self.run_ended(T0 + 60)
+        os.environ["TEENY_NOW"] = str(T0 + 15 * 60)
+        # The first unreported run: back to pending, and claimed again (it is
+        # the oldest), as a stale claim would be after two hours.
+        self.assertEqual(queue.next_task()["task"]["task_id"], first)
+        self.assertEqual(self.row(first)["attempts"], 2)
+        self.run_ended(T0 + 20 * 60)
+        os.environ["TEENY_NOW"] = str(T0 + 30 * 60)
+        # The second: it fails with the reason, and the queue moves on.
+        offer = queue.next_task()["task"]
+        self.assertEqual(offer["task_id"], waiting)
+        failed = self.row(first)
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("ended without a report", failed["notes"])
+        self.assertIn("permission for a step", failed["notes"])
+
+    def test_the_pictures_the_runs_took_are_kept(self):
+        tid = self.claimed()
+        self.row(tid)  # claimed at T0
+        self.add(goal="the next one")
+        queue.next_task()
+        shots = self.root / "state" / "browser" / "screenshots"
+        shots.mkdir(parents=True, exist_ok=True)
+        shot = shots / "1789369260000-000001.png"
+        shot.write_bytes(PNG)
+        os.utime(shot, (T0 + 90, T0 + 90))
+        conn = queue.db()
+        conn.execute("UPDATE browser_tasks SET attempts = 2 WHERE id = ?", (tid,))
+        conn.commit()
+        conn.close()
+        self.run_ended(T0 + 60)
+        os.environ["TEENY_NOW"] = str(T0 + 15 * 60)
+        queue.next_task()
+        failed = self.row(tid)
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["screenshots"], [f"state/media/tasks/{tid}/page-1789369260000-000001.png"])
+        self.assertTrue((self.root / failed["screenshots"][0]).is_file())
+
+    def test_only_a_finished_operator_run_since_the_claim_counts(self):
+        tid = self.claimed()
+        self.run_ended(T0 - 600)                    # before the claim
+        self.run_ended(T0 + 60, finished=False)     # still running
+        self.run_ended(T0 + 60, job="job-other")    # another job
+        os.environ["TEENY_NOW"] = str(T0 + 15 * 60)
+        offer = queue.next_task()["task"]
+        self.assertEqual((offer["task_id"], offer["resumed"]), (tid, True))
+        self.assertEqual(self.row(tid)["attempts"], 1)
+
+    def test_a_report_the_desk_turned_away_keeps_the_claim_open_and_resumed(self):
+        # The run wrote its report, the desk refused it, and the run has
+        # ended. That is not an unreported run: the claim stays with the
+        # operator, resumed, with the reason, and is not released.
+        tid = self.add()["task_id"]
+        queue.desk()
+        desk = self.root / "state" / "workbench" / "desk"
+        for n in (1, 2):
+            self.run_ended(T0 + 60 * n)
+            (desk / "task-done.json").write_text(json.dumps({"task_id": tid + 7, "outcome": "ok", "notes": "n"}))
+            os.environ["TEENY_NOW"] = str(T0 + 15 * 60 * n)
+            out = queue.desk()
+            self.assertEqual(out["rejected"], "unknown task")
+            offer = json.loads((desk / "task.json").read_text())
+            self.assertEqual((offer["task"]["task_id"], offer["task"]["resumed"]), (tid, True))
+            self.assertEqual(offer["last_report_rejected"], "unknown task")
+            self.assertEqual((self.row(tid)["status"], self.row(tid)["attempts"]), ("claimed", 1))
+
+    def test_no_storage_leaves_the_claim_to_the_stale_cutoff(self):
+        tid = self.claimed()
+        self.db.close()
+        self.storage.unlink()
+        self.db = __import__("sqlite3").connect(":memory:")
+        os.environ["TEENY_NOW"] = str(T0 + 15 * 60)
+        offer = queue.next_task()["task"]
+        self.assertEqual((offer["task_id"], offer["resumed"]), (tid, True))
+
+
 class AccountsTest(Scratch):
     """A12: a finished signup task writes one accounts row with its reason; only
     the handle is taken, and only from a signup that ended ok."""

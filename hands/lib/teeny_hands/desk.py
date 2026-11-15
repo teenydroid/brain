@@ -57,12 +57,14 @@ def _write(path: Path, payload: Mapping[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[], Mapping[str, Any]],
+def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[bool], Mapping[str, Any]],
         shape: str, present: Callable[[dict[str, Any]], dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Settles `<name>-done.json` with `settle`, then writes `claim()` to
-    `<name>.json`, telling the agent where and how to report. `present`,
-    when given, rewrites the offer into what the agent is shown (the
-    builder gets its paths relative to its own root)."""
+    """Settles `<name>-done.json` with `settle`, then writes `claim(turned_away)`
+    to `<name>.json`, telling the agent where and how to report. `turned_away`
+    is True when this pass refused the report the run left: that run did
+    report, so its claim is still the agent's to resume. `present`, when
+    given, rewrites the offer into what the agent is shown (the builder gets
+    its paths relative to its own root)."""
     desk = folder()
     offer_path, report_path = desk / f"{name}.json", desk / f"{name}-done.json"
     rejected_path = desk / f"{name}-done.rejected.json"
@@ -83,7 +85,7 @@ def run(name: str, settle: Callable[[Any], Mapping[str, Any]], claim: Callable[[
             os.replace(report_path, rejected_path)
             _write(desk / f"{name}-done.rejected.reason.json", {"reason": rejected})
     _tell_the_mind(name, settled, rejected)
-    offer = dict(claim())
+    offer = dict(claim(rejected is not None))
     offer["report_to"] = _relative(report_path)
     # The same file, absolute: an agent rooted elsewhere (the builder works
     # from state/workbench/) resolves no checkout-relative path.

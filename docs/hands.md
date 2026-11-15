@@ -1194,8 +1194,9 @@ write on it reaches only the tool-less mind (`gh ingest`), never the builder.
 The browser operator (`brain/agents/operator.toml`, the pinned `operator`
 agent job, every 20 minutes) does one task at a time in OpenHuman's browser,
 on the open web: any public https page except the operator's
-`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1`;
-`deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
+`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1` and
+`OPENHUMAN_BROWSER_DENY_FILE` to that list, which OpenHuman enforces on every
+connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
@@ -1206,7 +1207,7 @@ outcome (`operator · report`), except for the findings kinds (`news`,
 | Verb | | Does |
 |---|---|---|
 | `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim older than 2 hours goes back to `pending` once, then fails. |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
 | `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
@@ -1242,6 +1243,20 @@ JPEG, WebP or GIF of at most 5 MB (what X takes for a still image), copied
 to `state/media/tasks/<id>/` as `page-<time>.png`; the rest of the folder
 is emptied. A `browser` `task` action runs in TinyComputer's own session
 and is not pictured.
+
+**Links to other sites.** A browser session stays on the site it was
+opened on. A click, key press or redirect that leads to another site
+answers `left_for_another_site` with that page's normalized URL instead of
+failing the turn, and says the page is on another site and that going there
+is a decision under the task's rules. The core never follows such a link by
+itself. The operator opens it with the browser's `open` action only if its
+rules let it, and a host on `deploy/browser-deny.txt` is refused by the
+browser itself: OpenHuman reads that list from `OPENHUMAN_BROWSER_DENY_FILE`
+and refuses a connection to a listed host before its request is sent (a click, a
+redirect, a task's own navigation, and the `open`, `task` and `browser_open`
+actions alike), whatever
+`OPENHUMAN_BROWSER_ALLOW_ALL` says, and refuses every page if it cannot read
+the list. The operator's prompt says the same.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended

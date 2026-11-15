@@ -661,7 +661,7 @@ def desk() -> Json:
     """The builder's desk (teeny_hands.desk): settle its report, then put
     its next job on state/workbench/desk/build.json, its paths relative to
     the workbench (`_present`)."""
-    return _desk.run("build", done, next_job, REPORT_SHAPE, _present)
+    return _desk.run("build", done, lambda _turned_away: next_job(), REPORT_SHAPE, _present)
 
 
 def listing(status: str | None = None, limit: int = 50) -> Json:
