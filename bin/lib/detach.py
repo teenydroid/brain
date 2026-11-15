@@ -19,6 +19,12 @@ outcome never reaches cron history. So `bin/tick --detach` and `bin/reflect
   starts: it prints `{"ok": true, "kind": "busy", ...}`. COMMAND must take
   that lock itself (bin/lib/tick.py and bin/lib/reflect.py do), so one
   started in the moment before the other took it still finds it held.
+- TMPDIR, TEMP and TMP point at state/tmp/<--log without .log>, created if
+  missing. TinyBox points them at a scratch dir of the cron call's own and
+  deletes it when the call returns, which a detached job outlives; inherited,
+  every mktemp in the job fails. With --lock the dir is emptied first (the
+  lock means no earlier run of this job still uses it); without, it is left
+  alone, since a concurrent run of the same job may be using it.
 
 The job's own record (state/tick/runs.jsonl for a beat, the log for the
 rest) is where its outcome lands.
@@ -29,6 +35,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,18 +70,28 @@ def _open_log(path: Path):
     return open(path, "a", encoding="utf-8")
 
 
+def _tmpdir(state: Path, log: str, empty: bool) -> Path:
+    path = state / "tmp" / Path(log).with_suffix("")
+    if empty:
+        shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def start(log: str, command: list[str], lock: str | None = None) -> dict:
     state = hand.state_dir()
     path = state / log
     shown = str(path.relative_to(state.parent)) if path.is_relative_to(state.parent) else str(path)
     if lock and _held(lock):
         return {"ok": True, "kind": "busy", "skipped": f"the last {lock} is still running", "log": shown}
+    tmp = str(_tmpdir(state, log, empty=bool(lock)))
+    env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp)
     with _open_log(path) as fh:
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fh.write(f"--- {stamp} {' '.join(command)}\n")
         fh.flush()
         proc = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
-                                start_new_session=True, close_fds=True)
+                                env=env, start_new_session=True, close_fds=True)
     return {"ok": True, "kind": "started", "pid": proc.pid, "log": shown}
 
 
