@@ -837,7 +837,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 |---|---|
 | frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
 | existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
-| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 6,500 today), or none |
+| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
 | no binary files | the diff adds or changes a binary file |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
