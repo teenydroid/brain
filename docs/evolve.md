@@ -814,7 +814,7 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 2. **hard gate** (`hard_gate`): a frozen path, a change bigger than
    `EVOLVE_MAX_CHANGE_PCT` of the repository (a mass refactor), or
    SOUL+CONTEXT past its 60 lines. Any one is final: `rejected`, no next
-   round. A near-duplicate of the archive is dropped as before;
+   round, and none of the other checks runs on it. A near-duplicate of the archive is dropped as before;
 3. **checks** (`checks`): every other check below. A failed one is a finding
    (`{file, problem, fix}`, with the check's detail) and the round ends; the
    reviewer is not asked about a change that fails a check;
