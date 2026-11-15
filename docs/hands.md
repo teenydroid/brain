@@ -1346,9 +1346,9 @@ minutes, skips without a model turn when nothing is queued (its input is
 
 | Verb | | Does |
 |---|---|---|
-| `add [--surface x\|moltbook] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a Moltbook lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. A lead is never an X brief. |
+| `add [--surface x\|moltbook\|reddit] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` (or `reddit`) queues a Moltbook (or Reddit) lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. A lead is never an X brief. |
 | `next` | R | The oldest open X brief, `{brief: {id, text}}`, or `{brief: null}`. |
-| `leads` | R | The open Moltbook leads of the last 48 hours, newest first (at most 10): `{leads: [{id, text, created_at}]}`. The Moltbook playbooks read them and decide for themselves whether one is worth a post or a comment, under the same guard and caps. A lead is never marked used; it drops out after 48 hours or when cancelled. |
+| `leads [--surface moltbook\|reddit]` | R | The open Moltbook (default) or Reddit leads of the last 48 hours, newest first (at most 10): `{leads: [{id, text, created_at}]}`. The Moltbook playbooks read them and decide for themselves whether one is worth a post or a comment, under the same guard and caps. A lead is never marked used; it drops out after 48 hours or when cancelled. |
 | `list [--max N]` | R | The briefs, newest first (20), with status `open`, `posted` or `cancelled`. |
 | `post` | A | `{id, text}`: Teeny's draft of brief `id`, already through the guard (bin/act). Sends `{text}` to `hands/x post`, which keeps its own rules, pacing and `DRY_RUN`. The brief is marked `posted` (with the post id) only when X took the post. A dry run leaves it `open`. A refusal from hands/x is a refusal here (exit 2) and an error is an error; either way the brief stays `open` for the next run. Refused when the brief is not `open`. |
 | `cancel ID` | O | Drops an open brief. |
@@ -2719,7 +2719,7 @@ is scored is not Teeny's to change.
 
 | Verb | | Does |
 |---|---|---|
-| `propose [--source S]` | A | `{surface: x\|moltbook, hypothesis, format, metric?, posts, deadline_days \| deadline: YYYY-MM-DD}`. The hypothesis is one line, at most 300 characters. Refused: `too_many_open` at 5 open, `duplicate` while another open experiment tests the same format on the same surface. |
+| `propose [--source S]` | A | `{surface: x\|moltbook\|reddit, hypothesis, format, metric?, posts, deadline_days \| deadline: YYYY-MM-DD}`. The hypothesis is one line, at most 300 characters. Refused: `too_many_open` at 5 open, `duplicate` while another open experiment tests the same format on the same surface. |
 | `score [--id N]` | J | For each open experiment (or one): its measured writes between the proposal and the deadline (`n`, `avg`) against the surface's other measured writes of the same kinds in the same period (`baseline_n`, `baseline_avg`), from the rows `hands/stats board` reads. Recorded on the row. `due` once the planned posts are measured or the deadline has passed. |
 | `conclude` | A | `{id, verdict: works\|fails\|unclear, lesson}`, the lesson one line of at most 200 characters. Scores the experiment once more first. `works` or `fails` is refused (`too_few_posts`) until the planned posts are measured; `unclear` is always allowed. Refused: `concluded`, `unknown`. |
 | `list [--status open\|concluded\|all] [--limit N]` | R | The experiments, newest first, open ones by default, each open one with its numbers as of now (computed, not stored) and `due`. |
