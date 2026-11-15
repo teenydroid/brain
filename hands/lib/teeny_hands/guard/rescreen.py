@@ -18,7 +18,8 @@ done had the judge answered:
   reason, and is never asked about again. Another failure leaves the hold as
   it was, for the next run; an unreachable judge ends the run there.
 - the account's own draft (any direction but inbound) on a surface that
-  can send it again (RESENDERS: Moltbook posts and comments), younger than
+  can send it again (RESENDERS: Moltbook posts and comments, Reddit posts,
+  comments and replies, which go back on the browser desk), younger than
   RESEND_SECS, whose hold says how to send it: judged again the same way
   (the links, the lexicon, the judge, on each stored field). A fresh
   `clean` sends it through its hand (`hands/moltbook post` or `comment`),
