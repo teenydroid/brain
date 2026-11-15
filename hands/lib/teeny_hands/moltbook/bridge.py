@@ -106,31 +106,51 @@ def _clip(text: Any, limit: int) -> str:
 # --- highlight ------------------------------------------------------------------------------
 
 
-def _heard(since: float, me: str) -> dict[str, list[Json]]:
-    """post id -> the counting comments heard on it, oldest first."""
+def heard(surface: str, since: float, me: str) -> list[Json]:
+    """Every comment said to Teeny on `surface` (`moltbook`, `reddit`) that
+    counts: by someone other than `me`, MIN_CHARS or longer, heard since
+    `since`, oldest first, each {comment_id (the inbox ref), who, text, at,
+    payload}. It reads the inbox and nothing else, and a comment is in the
+    inbox only when the inbound guard let it through, so whatever it returns
+    has passed the guard and is exactly what the guard read. Shared by
+    hands/reddit highlight."""
     conn = stimuli.db()
     try:
         rows = conn.execute(
-            "SELECT ref, who, text, payload, at FROM stimuli WHERE surface = 'moltbook' AND kind = 'comment' AND at >= ?"
+            "SELECT ref, who, text, payload, at FROM stimuli WHERE surface = ? AND kind = 'comment' AND at >= ?"
             " ORDER BY at, rowid",
-            (since,),
+            (surface, since),
         ).fetchall()
     finally:
         conn.close()
-    out: dict[str, list[Json]] = {}
+    out: list[Json] = []
     for row in rows:
         try:
             payload = json.loads(row["payload"] or "{}")
         except ValueError:
             continue
-        post_id = payload.get("post_id") if isinstance(payload, Mapping) else None
         who = row["who"] or ""
-        if not post_id or not who or who.lower() == me or len(_flat(row["text"])) < MIN_CHARS:
+        if not isinstance(payload, Mapping) or not who or who.lower() == me or len(_flat(row["text"])) < MIN_CHARS:
             continue
-        out.setdefault(str(post_id), []).append({
-            "comment_id": row["ref"], "agent": who, "text": row["text"], "at": row["at"],
-            "parent_id": payload.get("parent_id"),
-        })
+        out.append({"comment_id": row["ref"], "who": who, "text": row["text"], "at": row["at"], "payload": payload})
+    return out
+
+
+def quoted(text: str) -> str:
+    """Another's words as `their_words` carries them: unchanged, cut at QUOTE_CHARS."""
+    return text[:QUOTE_CHARS] + ("…" if len(text) > QUOTE_CHARS else "")
+
+
+def _heard(since: float, me: str) -> dict[str, list[Json]]:
+    """post id -> the counting comments heard on it, oldest first."""
+    out: dict[str, list[Json]] = {}
+    for c in heard(SOURCE, since, me):
+        post_id = c["payload"].get("post_id")
+        if post_id:
+            out.setdefault(str(post_id), []).append({
+                "comment_id": c["comment_id"], "agent": c["who"], "text": c["text"], "at": c["at"],
+                "parent_id": c["payload"].get("parent_id"),
+            })
     return out
 
 
@@ -221,7 +241,7 @@ def highlight(hours: int = 24, api: RestApi | None = None) -> Json:
             "agent": c["agent"],
             "karma": c["karma"],
             "comment_id": c["comment_id"],
-            "their_words": c["text"][:QUOTE_CHARS] + ("…" if len(c["text"]) > QUOTE_CHARS else ""),
+            "their_words": quoted(c["text"]),
             "answering": "your comment" if mine(parent) else "your post" if own and not c.get("parent_id") else "a comment",
         }
         if mine(parent):

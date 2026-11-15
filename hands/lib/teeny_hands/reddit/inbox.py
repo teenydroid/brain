@@ -5,7 +5,8 @@ Reddit keeps an inbox for the account: replies to its posts and comments,
 and mentions of u/<Teeny> anywhere. `scan` reads the newest of it and adds
 each comment by someone else from the last N days to the stimuli inbox
 once: `reddit · comment`, ref the comment's fullname (`t1_…`), with the
-post and comment ids `comment_reddit` needs to answer and whether the
+post and comment ids `comment_reddit` needs to answer, what it answers
+(`parent_id`, a fullname: `t3_` Teeny's post, `t1_` a comment), and whether the
 subreddit is one Teeny may write in at all (`can_answer`). Each is screened
 by the inbound guard first, and a held one is not added.
 
@@ -42,9 +43,11 @@ def _payload(item: Mapping[str, Any]) -> Json:
     link = str(item.get("link_id") or "")
     found = _POST_IN_PERMALINK.search(str(item.get("context") or ""))
     post_id = link[3:] if link.startswith("t3_") else found.group(1) if found else None
+    parent = item.get("parent_id")
     return {
         "post_id": post_id,
         "comment_id": str(item.get("id")),
+        "parent_id": str(parent) if parent else None,
         "subreddit": sub,
         "type": item.get("type"),
         "post_title": item.get("link_title"),
@@ -76,7 +79,7 @@ def scan(days: int = 7, max_items: int = 50, api: client.Reddit | None = None) -
         seen += 1
         payload = _payload(item)
         context = {"post_id": payload["post_id"], "comment_id": payload["comment_id"], "author": author,
-                   "subreddit": payload["subreddit"]}
+                   "subreddit": payload["subreddit"], "parent_id": payload["parent_id"]}
         verdict = _screen(text, context)
         if verdict.kind != "allow":
             held += 1
@@ -94,6 +97,7 @@ def release_held(context: Mapping[str, Any], text: str) -> bool:
     payload: Json = {
         "post_id": context.get("post_id"),
         "comment_id": str(context["comment_id"]),
+        "parent_id": context.get("parent_id"),
         "subreddit": sub,
         "can_answer": bool(sub) and sub.lower() in rules.allowed_subreddits(),
     }

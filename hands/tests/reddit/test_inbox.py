@@ -50,12 +50,16 @@ class InboxTest(Scratch):
         self.assertEqual(sorted(got), ["t1_r1", "t1_r2"])
         self.assertEqual(got["t1_r1"]["payload"]["post_id"], "post1")
         self.assertEqual(got["t1_r1"]["payload"]["comment_id"], "r1")
+        # What it answers, so hands/reddit highlight can tell a reply to Teeny's comment from one on its post.
+        self.assertEqual(got["t1_r1"]["payload"]["parent_id"], "t1_c2")
         self.assertTrue(got["t1_r1"]["payload"]["can_answer"])
         # A mention somewhere Teeny may not write is shown, marked unanswerable.
         self.assertFalse(got["t1_r2"]["payload"]["can_answer"])
         self.assertEqual(inbox.scan()["added"], 0)
 
     def test_a_released_hold_goes_into_the_inbox(self):
-        self.assertTrue(inbox.release_held({"post_id": "post1", "comment_id": "r3", "author": "eve", "subreddit": "learnpython"}, "fine now"))
+        self.assertTrue(inbox.release_held({"post_id": "post1", "comment_id": "r3", "author": "eve", "subreddit": "learnpython",
+                                            "parent_id": "t3_post1"}, "fine now"))
+        self.assertEqual(self.batch()["t1_r3"]["payload"]["parent_id"], "t3_post1")
         self.assertFalse(inbox.release_held({"post_id": "post1", "comment_id": "r3", "author": "eve", "subreddit": "learnpython"}, "fine now"))
         self.assertIn("t1_r3", self.batch())
