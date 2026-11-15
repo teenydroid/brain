@@ -64,8 +64,12 @@ GEN_ID = re.compile(r"gen-\d{1,6}")
 #: "unknown"), a draft that was only a disallowed link, and a reply after a
 #: rejection (P4). Anything else is counted as "other".
 HOLD_CATEGORIES = tuple(dict.fromkeys(lexicon.CATEGORIES + ("links", "rejection", "unknown", "none")))
-VERDICTS = ("won", "lost", "unevaluated", "duplicate", "no-proposal", "gated", "seed", "refused")
-HALT_KINDS = ("generations", "winrate-jump", "j-rise", "persona-drift", "doctor", "fallback", "watch-revert")
+#: The tournament's verdicts (until 2026-11-15) and the learning loop's.
+VERDICTS = ("won", "lost", "unevaluated", "duplicate", "no-proposal", "gated", "seed", "refused", "rejected",
+            "pending", "pass", "unmeasurable", "regressed", "inconclusive", "flagged", "skipped", "waiting",
+            "opened", "pr-error", "crashed", "dry-run", "stale")
+HALT_KINDS = ("generations", "winrate-jump", "j-rise", "persona-drift", "doctor", "fallback", "watch-revert",
+              "frozen-learning")
 AUDIT_DIR = "audit"
 
 

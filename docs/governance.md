@@ -76,8 +76,8 @@ switch off, never on (`hands/tests/test_watchers.py`).
 |---|---|---|---|
 | Stop the container | the box (`docker compose stop spine`) | everything | n/a |
 | `DRY_RUN` | `secrets/teeny.env`, or `DRY_RUN=1` in the environment | every outside write by every hand: posts, mail, pushes, payments | on (rehearsal) unless `0` |
-| `EVOLVE` | `secrets/evolve.env` | the whole evolve loop | `0` |
-| `EVOLVE_AUTO_PROMOTE` | `secrets/evolve.env` | merges, tags and restarts by the loop | `0` |
+| `EVOLVE` | `secrets/evolve.env` | the whole evolve loop: no learning becomes a pull request | `0` |
+| `EVOLVE_MAX_OPEN_PRS` | `secrets/evolve.env` | not a switch: the most evolve pull requests open at once; past it a passing candidate waits | `4` |
 | `bin/evolve` halts | `state/evolve/halt.json` | every later generation, until `bin/evolve resume` | latched by the loop |
 | `TINY_BUY` | `secrets/teeny.env` | the pinned `$TINY` buy | off |
 | `WALLET_MIND_ACTIONS` | `secrets/teeny.env` | the mind's wallet intents | off |
@@ -158,6 +158,15 @@ for each:
 | merge | L4 | `EVOLVE_AUTO_PROMOTE` (L5), `BABYSIT_MERGE` (L4) | five generations a person merged, each kept by `evolve-watch` |
 | self-merge | L5 | `BABYSIT_SELF_MERGE` (L5) | none: granted by the operator on 2026-11-15 |
 | servers | L1 | none | a fixture invoice paid once (S5), spend at L4 |
+
+Who merges what Teeny evolves: since 2026-11-15 `bin/evolve` merges nothing.
+Each learning's change opens its own pull request (`teeny/gen-<n>-c<i>`) with
+a `teeny/eval` commit status, and the babysitter (`hands/babysit`, behind
+`BABYSIT_MERGE`) merges it once its audit and CI pass and that status is
+success, or a person merges or closes it. `EVOLVE_AUTO_PROMOTE` is no longer
+read by the loop; the ladder above still refuses it while `merge` is at L4,
+and `promoted_at`, which nothing writes any more, no longer drops a level
+([`evolve.md`](evolve.md), "Publish").
 
 Teeny can read its levels in this page and in the report, and can never
 raise one: the file is frozen, and a fence proposal (G3) is how it asks.

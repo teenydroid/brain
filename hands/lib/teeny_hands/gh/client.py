@@ -222,6 +222,11 @@ class GitHubApi:
         got = self.call("POST", self._path("repos", owner, name, "issues"), body={"title": title, "body": body})
         return {"number": got.get("number"), "html_url": got.get("html_url")}
 
+    def set_status(self, owner: str, name: str, sha: str, state: str, context: str, description: str) -> Json:
+        got = self.call("POST", self._path("repos", owner, name, "statuses", sha),
+                        body={"state": state, "context": context, "description": description})
+        return {"id": got.get("id"), "state": got.get("state"), "context": got.get("context")}
+
     def close_issue(self, owner: str, name: str, number: int) -> Json:
         got = self.call(
             "PATCH", self._path("repos", owner, name, "issues", str(number)),
@@ -288,6 +293,8 @@ def to_pr(got: Any) -> Json:
         "state": got.get("state"),
         "draft": got.get("draft"),
         "merged": got.get("merged"),
+        "merged_at": got.get("merged_at"),
+        "merge_sha": got.get("merge_commit_sha") if got.get("merged") else None,
         "user": _login(got.get("user")),
         "head": head.get("label"),
         "head_ref": head.get("ref"),
