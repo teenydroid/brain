@@ -410,6 +410,36 @@ def check_not_own(target: Mapping[str, Any], account_id: str) -> None:
         raise hand.Refused("refused: the account wrote this post; never reply to it", rule="self")
 
 
+def check_engaged_first(
+    conn: sqlite3.Connection, target: Mapping[str, Any], account: Mapping[str, Any], author_of: Any
+) -> None:
+    """A reply answers somebody who engaged first: the target is a stored
+    mention (`x_mentions`), tags the account, replies to it, or sits in the
+    conversation under one of its own posts (the ledger's, else the root's
+    author, looked up with `author_of(post_id)`). Anything else is
+    unsolicited, which X refuses from the API anyway."""
+    post_id = str(target.get("id") or "")
+    if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
+        return
+    if account.get("id") and target.get("inReplyToUserId") == account["id"]:
+        return
+    username = account.get("username")
+    if username and re.search(rf"(?<![A-Za-z0-9_])@{re.escape(username)}(?![A-Za-z0-9_])", str(target.get("text") or ""),
+                              re.IGNORECASE):
+        return
+    root = target.get("conversationId")
+    if root and root != post_id:
+        if conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (root,)).fetchone():
+            return
+        if account.get("id") and author_of(root) == account["id"]:
+            return
+    raise hand.Refused(
+        f"post {post_id} never engaged the account (not a mention, not a reply to it, not under one of its posts); "
+        "a reply answers only somebody who spoke first. Nothing was published.",
+        rule="unsolicited",
+    )
+
+
 def check_not_replied(conn: sqlite3.Connection, in_reply_to: str) -> None:
     """A post gets one reply. A row with a reply id is answered; a row
     without one is a reply whose fate is unknown (X timed out or failed

@@ -21,7 +21,7 @@ from typing import Any, Mapping
 
 from .. import hand, tags
 from . import open_db, twitr
-from . import cache, media
+from . import cache, media, mentions
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 
@@ -217,7 +217,8 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     rules.check_length(text)
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()
-    conn = _db()
+    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
+    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id))
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)
