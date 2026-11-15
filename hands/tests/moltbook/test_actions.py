@@ -811,12 +811,12 @@ class PostSlotTest(Scratch):
         # gap; moltbook-general drafted at 12:13 and the hand refused it (wait
         # 329s). The gate says so before any draft, and its answer is empty but
         # for `why`, which bin/act reads as a skip.
-        self.post_at(T0 - 25 * MINUTE + 1, status="needs_verification")
+        self.post_at(T0 - 25 * MINUTE, status="needs_verification")
         slept = []
         out = rules.post_slot(wait=0, sleep=slept.append)
         self.assertEqual(set(out), {"why"})
         self.assertIn("rate_limit", out["why"])
-        self.assertIn("wait 300s", out["why"])
+        self.assertIn("wait 301s", out["why"])
         self.assertEqual(slept, [])
 
     def test_a_short_wait_is_sat_out_and_then_the_slot_is_open(self):
