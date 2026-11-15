@@ -1168,6 +1168,32 @@ def frozen_patterns() -> list[str]:
     return frozen.parse_patterns((CODE / frozen.LIST_PATH).read_text(encoding="utf-8"))
 
 
+#: Where a candidate may change files (less the frozen paths): docs/ since
+#: 2026-11-15, so a change can carry its own documentation.
+EDITABLE_ROOTS = ("brain/", "hands/", "docs/")
+
+
+def read_pack(tree: Path, read: Iterable[str], editable: Iterable[str], budget: int) -> dict[str, str]:
+    """The files research named to read that the candidate may not change
+    (a frozen hand's code, bin/), shown whole and read-only, while they fit
+    BUDGET. check_research already held each to a tracked, non-secret path."""
+    can = set(editable)
+    out: dict[str, str] = {}
+    used = 0
+    for rel in read:
+        if rel in can or rel in out:
+            continue
+        try:
+            text = (tree / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if used + len(text) > budget:
+            continue
+        out[rel] = text
+        used += len(text)
+    return out
+
+
 def context_pack(tree: Path, touched: Iterable[str], budget: int) -> tuple[list[str], dict[str, str]]:
     """The paths the candidate may change, and the files it is shown whole
     (it can edit only what it was shown, or add new files): the parent's
@@ -1175,7 +1201,7 @@ def context_pack(tree: Path, touched: Iterable[str], budget: int) -> tuple[list[
     prompts and the skills, while they fit."""
     patterns = frozen_patterns()
     tracked = [p for p in git(in_tree(tree), "ls-files").splitlines() if p]
-    editable = [p for p in tracked if frozen.frozen_pattern(p, patterns) is None and p.startswith(("brain/", "hands/"))]
+    editable = [p for p in tracked if frozen.frozen_pattern(p, patterns) is None and p.startswith(EDITABLE_ROOTS)]
     order = [*touched, "brain/cron.toml", "brain/narrative/ARCS.md"]
     order += sorted(p for p in editable if p.startswith("brain/playbooks/"))
     order += sorted(p for p in editable if p.startswith("brain/agents/") and p.endswith(".md"))
@@ -1315,10 +1341,13 @@ def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: A
     render = render or render_request
     if len(render(request).encode("utf-8")) <= limit:
         return request
-    fitted = dict(request, files=dict(request["files"]), omitted=list(request.get("omitted", [])))
-    for rel in sorted(fitted["files"], key=lambda r: len(fitted["files"][r].encode("utf-8")), reverse=True):
-        del fitted["files"][rel]
-        fitted["omitted"].append(rel)
+    fitted = dict(request, files=dict(request["files"]), readonly=dict(request.get("readonly") or {}),
+                  omitted=list(request.get("omitted", [])))
+    shown = [("readonly", r) for r in fitted["readonly"]] + [("files", r) for r in fitted["files"]]
+    for key, rel in sorted(shown, key=lambda kr: len(fitted[kr[0]][kr[1]].encode("utf-8")), reverse=True):
+        del fitted[key][rel]
+        if key == "files":
+            fitted["omitted"].append(rel)
         if len(render(fitted).encode("utf-8")) <= limit:
             break
     return fitted
@@ -1352,6 +1381,8 @@ def render_request(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     for rel, text in request["files"].items():
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
+    for rel, text in (request.get("readonly") or {}).items():
+        parts.append(f"## file (read only, not yours to change): {rel}\n\n````text\n{text}\n````")
     if request.get("omitted"):
         parts.append("## files left out to fit the message\n\nThese are editable but not shown; change them only "
                      "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
@@ -2305,6 +2336,96 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     return checks
 
 
+#: How long one hand's tests may run in the gate.
+HAND_TEST_SECS = 300
+#: Where a new playbook or job of Teeny's is listed beside its siblings.
+SIBLING_DOCS = ("docs/architecture.md", "docs/hands.md")
+
+
+def _test_hand(path: str) -> str | None:
+    """The hand whose tests PATH is: hands/tests/test_<name>.py or
+    hands/tests/<name>/..."""
+    parts = path.split("/")
+    if parts[:2] != ["hands", "tests"] or len(parts) < 3:
+        return None
+    if len(parts) == 3:
+        match = re.fullmatch(r"test_(\w+)\.py", parts[2])
+        return match.group(1) if match else None
+    return parts[2]
+
+
+def _hand_tests(tree: Path, name: str) -> list[str] | None:
+    """`python -m unittest` arguments for hand NAME's tests in TREE, or None
+    when it has none."""
+    tests = tree / "hands" / "tests"
+    if (tests / f"test_{name}.py").is_file():
+        return ["discover", "-s", str(tests), "-t", str(tests), "-p", f"test_{name}.py"]
+    if (tests / name / "__init__.py").is_file():
+        return ["discover", "-s", str(tests / name), "-t", str(tests)]
+    return None
+
+
+def sealed_env(tree: Path) -> dict[str, str]:
+    """The environment a candidate's own hand code runs in during the gate:
+    nothing of this process's (no core token, no keys a container passes
+    in), its root, state and secrets inside the worktree, DRY_RUN on. It
+    still runs as this user, on this box's network and filesystem."""
+    home = tree / "state" / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home), "LANG": "C.UTF-8",
+            "TEENY_ROOT": str(tree), "TEENY_STATE": str(tree / "state"), "TEENY_SECRETS": str(tree / "secrets"),
+            "TEENY_HANDS": str(tree / "hands"), "OPENHUMAN_WORKSPACE": str(tree / "brain"), "DRY_RUN": "1",
+            "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+
+
+def hand_section(text: str | None, name: str) -> str | None:
+    """Hand NAME's section of docs/hands.md: from its `## \`name\`` heading
+    to the next `## ` heading, or None."""
+    if text is None:
+        return None
+    lines, start = text.splitlines(), None
+    for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            if start is not None:
+                return "\n".join(lines[start:idx])
+            if f"`{name}`" in line:
+                start = idx
+    return "\n".join(lines[start:]) if start is not None else None
+
+
+def docs_missing(tree: Path, base: str, changes: list[tuple[str, str]], hands_changed: list[str]) -> list[str]:
+    """The docs rule: a new or changed hand touches its own section of
+    docs/hands.md; a new playbook or cron job of Teeny's is named on an added
+    line where its siblings are listed (SIBLING_DOCS)."""
+    missing = []
+    before = git(in_tree(tree), "show", f"{base}:docs/hands.md", check=False) or None
+    try:
+        after = (tree / "docs" / "hands.md").read_text(encoding="utf-8")
+    except OSError:
+        after = None
+    for name in hands_changed:
+        now_ = hand_section(after, name)
+        if now_ is None:
+            missing.append(f"docs/hands.md has no section for hands/{name} (a `## \`{name}\`` heading)")
+        elif now_ == hand_section(before, name):
+            missing.append(f"hands/{name} changed but its section in docs/hands.md did not")
+    new_books = [Path(p).stem for s, p in changes if s == "A" and p.startswith("brain/playbooks/") and p.endswith(".md")]
+    jobs_before = _jobs_of(git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False) or None) or {}
+    try:
+        jobs_after = _jobs_of((tree / "brain" / "cron.toml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        jobs_after = {}
+    new_jobs = sorted(set(jobs_after) - set(jobs_before))
+    added = added_lines(staged_patch(tree, base))
+    doc_lines = [line for rel in SIBLING_DOCS for line in added.get(rel, [])]
+    for kind, names in (("playbook", new_books), ("cron job", new_jobs)):
+        for name in names:
+            if not any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", line) for line in doc_lines):
+                missing.append(f"the new {kind} `{name}` is named on no added line of {' or '.join(SIBLING_DOCS)}, "
+                               "where its siblings are listed")
+    return missing
+
+
 #: The checks whose failure is final (docs/evolve.md, "4. Gate"): a frozen
 #: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository, and
 #: SOUL+CONTEXT past their cap. Every other check is a finding the builder
@@ -2367,10 +2488,6 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
         out.append({"check": name, "ok": ok, "detail": detail})
 
     changes = name_status(tree, base)
-    # bin/doctor --root runs the candidate's hands/git: an entry point that
-    # exists on main stays as it is (new hands are Teeny's to add).
-    touched_entry = [p for s, p in changes if _hand_name(p) and p.count("/") == 1 and s != "A"]
-    note("existing hand entry points", not touched_entry, ", ".join(touched_entry) or "none changed")
     binary = [p for a, r, p in numstat(tree, base) if a is None or r is None]
     note("no binary files", not binary, f"binary: {', '.join(binary)}" if binary else "none")
     new_hands = sorted({n for s, p in changes if s == "A" and (n := _hand_name(p))
@@ -2385,7 +2502,28 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
             untested.append(name)
     note("new hands have tests", not untested,
          f"no hands/tests/test_<name>.py that parses for: {', '.join(untested)}" if untested
-         else (f"{', '.join(new_hands)} (run by CI, never here)" if new_hands else "no new hand"))
+         else (f"{', '.join(new_hands)} (run below)" if new_hands else "no new hand"))
+    # Since 2026-11-15 an existing hand that is not frozen may change (the
+    # frozen ones are refused by the hard gate): with a test, and its docs.
+    hands_changed = sorted({n for _, p in changes if (n := _hand_name(p))})
+    edited = [n for n in hands_changed if n not in new_hands]
+    tests_touched = {n for _, p in changes if (n := _test_hand(p))}
+    no_test = [n for n in edited if n not in tests_touched]
+    note("changed hands have tests", not no_test,
+         f"changes {', '.join('hands/' + n for n in no_test)} with no change to its tests (hands/tests/test_<name>.py "
+         "or hands/tests/<name>/): a change to a hand changes or adds a test" if no_test
+         else (f"{', '.join(edited)}: tests changed too" if edited else "no existing hand changed"))
+    missing = docs_missing(tree, base, changes, hands_changed)
+    note("docs updated", not missing, "; ".join(missing) if missing else "nothing that needs docs, or they are updated")
+    for name in sorted(set(hands_changed) | tests_touched):
+        target = _hand_tests(tree, name)
+        if target is None:
+            continue
+        if not frozen_ok:
+            note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
+            continue
+        ok, detail = _run_check([sys.executable, "-m", "unittest", *target], sealed_env(tree), timeout=HAND_TEST_SECS)
+        note(f"hand tests: {name}", ok, detail)
     out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
     # own bin/ and evals/, which the frozen check just proved are main's.
@@ -2396,14 +2534,17 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
     # candidate that touches a frozen path is rejected already, and its own
     # scripts never run: this checkout's give the other checks their detail.
     code, env = (tree, tree_env(tree)) if frozen_ok else (CODE, code_env())
+    # bin/doctor --root runs the candidate's own hands/git: an existing hand
+    # the candidate changed runs with none of this process's environment.
+    doctor_env = sealed_env(tree) if edited else env
     ok, detail = _run_check([str(code / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
                              "--pinned", str(code / "evals" / "cron.pinned.toml")], env)
     note("seed-cron --check", ok, detail)
-    if frozen_ok and not touched_entry:
-        ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], env)
+    if frozen_ok:
+        ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], doctor_env)
         note("doctor --root", ok, detail)
     else:
-        note("doctor --root", False, "not run: the candidate touches a frozen path or a hand's entry point")
+        note("doctor --root", False, "not run: the candidate touches a frozen path")
     ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
     return out
@@ -3350,9 +3491,13 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                   "note": research["why"]}, gate={"ok": False, "checks": []})
             return entry
         if research.get("read"):
-            # The files research named come first in what the build is shown.
+            # The files research named come first in what the build is shown,
+            # and those it may not change are shown read-only.
             editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
             request.update(editable=editable, files={} if in_place else files)
+            if not in_place:
+                room = max(0, cfg["EVOLVE_CONTEXT_CHARS"] - sum(len(t) for t in files.values()))
+                request["readonly"] = read_pack(tree, research["read"], editable, room)
         if not research.get("error"):
             request["research"] = research
     research_files = [*(research or {}).get("read", []), *(research or {}).get("document", [])]
