@@ -510,6 +510,35 @@ def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
             "hard_failure_rise": rise}
 
 
+#: The share of a run's visible samples that may be unrun before the
+#: comparison measured too little to decide (docs/evolve.md, "Inconclusive").
+MAX_UNRUN = 0.1
+
+
+def _unmeasured(base: dict, cand: dict) -> dict:
+    """What the two runs could not compare: each side's visible samples that
+    never ran (or are missing), and the visible tasks with no sample drafted
+    on both sides, whose checks therefore never ran."""
+    keys = {k for k in set(base) | set(cand)
+            if not (base.get(k, {}).get("heldout") or cand.get(k, {}).get("heldout"))}
+    out = {side: [k for k in keys if k not in run or _unrun(run[k])] for side, run in (("base", base), ("cand", cand))}
+    ran = {k[0] for k in keys if k in base and k in cand and not _unrun(base[k]) and not _unrun(cand[k])}
+    out["tasks"] = sorted({k[0] for k in keys} - ran)
+    out["samples"] = len(keys)
+    return out
+
+
+def _inconclusive(unmeasured: dict) -> str | None:
+    """Why the comparison measured too little to decide, or None."""
+    total = unmeasured["samples"]
+    limit = int(MAX_UNRUN * total)
+    why = [f"{len(unmeasured[side])} of {total} {name} samples never ran (more than {limit})"
+           for side, name in (("cand", "candidate"), ("base", "baseline")) if len(unmeasured[side]) > limit]
+    if unmeasured["tasks"]:
+        why.append(f"no sample of {', '.join(unmeasured['tasks'])} ran on both sides")
+    return "inconclusive: " + "; ".join(why) if why else None
+
+
 def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int) -> dict:
     base, cand = _drafts(base_path), _drafts(cand_path)
     judged = {(r["task"], r["sample"]): r for r in _read_jsonl(judged_path)} if judged_path.is_file() else {}
@@ -558,16 +587,24 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     visible = _tally([p for p in pairs if not p["heldout"]], failures)
     wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
     win_rate, regressions = visible["win_rate"], visible["regressions"]
+    # A regression seen in what did run rejects however much did not; too
+    # little run otherwise decides nothing either way.
+    unmeasured = _unmeasured(base, cand)
+    unsure = None if regressions else _inconclusive(unmeasured)
     if regressions:
         reason = f"hard-check regression on {', '.join(regressions)}"
+    elif unsure:
+        reason = unsure
     elif decided < min_pairs:
         reason = f"{decided} decided pair(s), needs {min_pairs}"
     elif win_rate < threshold:
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
+    promote = not regressions and not unsure and decided >= min_pairs and win_rate >= threshold
     out = {
-        "promote": not regressions and decided >= min_pairs and win_rate >= threshold,
+        "promote": promote,
+        "verdict": "won" if promote else "inconclusive" if unsure else "lost",
         "reason": reason,
         "wins": wins,
         "losses": losses,
@@ -580,6 +617,7 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         "hard_failure_rise": visible["hard_failure_rise"],
         "hard_failures": failures,
         "unrun": unrun,
+        "unmeasured_tasks": unmeasured["tasks"],
         "pairs": pairs,
     }
     held = [p for p in pairs if p["heldout"]]

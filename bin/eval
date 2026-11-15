@@ -128,7 +128,7 @@ compare() {
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" |
     jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
-  jq -c '{promote, reason, wins, losses, ties, decided, win_rate, regressions}
+  jq -c '{promote, verdict, reason, wins, losses, ties, decided, win_rate, regressions}
          + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$out/report.json"
   [ "$(jq -r .promote "$out/report.json")" = true ] || exit 2
 }
