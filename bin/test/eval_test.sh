@@ -265,7 +265,7 @@ check "a compare judges four turns at once" \
 check "and keeps each pair's orderings apart: the baseline first, then the candidate" \
   test "$(jq -r '"\(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = 21
 check "every pair once, in order" \
-  test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl")"
+  test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
 # --- a candidate that wins ------------------------------------------------------------------
 FAKE_JUDGE=prefer:CAND compare "$scratch/win"
