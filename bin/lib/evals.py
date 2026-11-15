@@ -6,13 +6,17 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py heldout-tasks EVALS DIR       -> the held-out task ids in DIR
     python3 bin/lib/evals.py render EVALS TASK            -> the draft message
     python3 bin/lib/evals.py check EVALS TASK HANDS_LIB   < answer -> {draft, checks, ok}
-    python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS -- ASK...
+    python3 bin/lib/evals.py select EVALS HELDOUT_DIR WITH_HELDOUT IDS
+                                                          -> the ids of IDS to draft or judge
+    python3 bin/lib/evals.py affected EVALS HELDOUT_DIR ROOT BASE
+                                                          -> {tasks, all, why, paths}
+    python3 bin/lib/evals.py draft EVALS HANDS_LIB OUT SAMPLES IDS [--resume] [--key K] -- ASK...
                                                           -> OUT, a checked draft per line
     python3 bin/lib/evals.py invariants EVALS BRAIN       -> {ok, missing}
     python3 bin/lib/evals.py judge-message EVALS BRAIN TASK < {"1": draft, "2": draft}
-    python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT -- ASK...
-                                                          -> OUT, a verdict pair per line
-    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS
+    python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT [--both-orders] [--tasks IDS] -- ASK...
+                                                          -> OUT, a judged pair per line
+    python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS [--mode M] [--tasks IDS]
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
 canned, so both brains answer the same thing:
@@ -44,6 +48,7 @@ puts a held-out task, draft or judge note in what the proposer reads.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
