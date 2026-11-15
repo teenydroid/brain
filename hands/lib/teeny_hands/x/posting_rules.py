@@ -28,6 +28,15 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
+- A quote of somebody else's post lands in their community: it never names a
+  ticker (a cashtag, `TINY` in capitals), a Solana mint or EVM contract
+  address, or pump.fun (`check_outward`, rule `outward_ticker`), and no author
+  is quoted twice within `PEER_ROTATION_DAYS` (`check_peer_rotation`, rule
+  `peer_rotation`).
+- A reply answers somebody who engaged first (`check_engaged_first`, rule
+  `unsolicited`): a stored mention, a post that tags the account or replies
+  to it, or a post in the conversation under one of its own posts. X itself
+  allows API replies only there.
 
 Times are seconds since the epoch (`hand.now()`); what a caller reads is ISO
 8601, as the legacy ledger wrote it.
@@ -51,6 +60,10 @@ MAX_POST_LENGTH = 280
 #: (POST_MIN_GAP_HOURS): three slots and one outward quote, four hours apart.
 DEFAULT_POSTS_MAX_PER_DAY = 4
 DEFAULT_POST_MIN_GAP_HOURS = 4.0
+#: No second quote of one author inside this many days.
+PEER_ROTATION_DAYS = 7
+#: x_posts.quote_author: the id of the account a quote quoted.
+QUOTE_COLUMNS = {"quote_author": "TEXT"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
@@ -100,9 +113,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
-    """`format` and `experiment` on x_posts (teeny_hands/tags.py), added to
-    a ledger created before they existed."""
-    hand.add_columns(conn, "x_posts", tags.COLUMNS)
+    """`format` and `experiment` on x_posts (teeny_hands/tags.py), and the
+    quoted author, added to a ledger created before they existed."""
+    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **QUOTE_COLUMNS})
 
 
 def iso(seconds: float) -> str:
@@ -294,6 +307,64 @@ def check_repeat(conn: sqlite3.Connection, text: str) -> None:
     )
 
 
+# --- quotes of somebody else's post ----------------------------------------------------------
+
+
+#: What an outward quote never carries: a cashtag, `TINY` in capitals, a
+#: Solana mint (base58, 32 to 44 characters), an EVM contract address, or
+#: pump.fun. Teeny's own token is for its own posts and for whoever asks.
+_OUTWARD = (
+    ("a cashtag", re.compile(r"(?<![A-Za-z0-9_$])\$[A-Za-z][A-Za-z0-9_]{0,15}")),
+    ("TINY", re.compile(r"(?<![A-Za-z0-9_])TINY(?![A-Za-z0-9_])")),
+    ("a contract address", re.compile(r"(?<![A-Za-z0-9])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])")),
+    ("a mint address", re.compile(r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}(?![1-9A-HJ-NP-Za-km-z])")),
+    ("pump.fun", re.compile(r"pump\s*\.?\s*fun", re.IGNORECASE)),
+)
+
+
+def check_outward(text: str) -> None:
+    """A quote of somebody else's post goes out to their community, so it
+    names no ticker, address or launchpad: refused, with a rewrite asked
+    for, whatever the guard allowed."""
+    for what, pattern in _OUTWARD:
+        if pattern.search(text):
+            raise hand.Refused(
+                f"a quote of somebody else's post carries no ticker, address or launchpad, and this one has {what}. "
+                "Nothing was published; say it without.",
+                rule="outward_ticker",
+                found=what,
+                rewrite=True,
+            )
+
+
+def check_peer_rotation(conn: sqlite3.Connection, author_id: str, author_of: Any) -> None:
+    """No second quote of `author_id` inside PEER_ROTATION_DAYS. A quote
+    recorded before the ledger kept its author is looked up with
+    `author_of(post_id)` (the read cache: a quoted post was read before)."""
+    now = hand.now()
+    since = now - PEER_ROTATION_DAYS * 86400.0
+    add_tag_columns(conn)
+    rows = conn.execute(
+        "SELECT id, quote_of, quote_author, created_at FROM x_posts WHERE kind = 'quote' AND created_at >= ?"
+        " ORDER BY created_at DESC",
+        (since,),
+    ).fetchall()
+    for row in rows:
+        quoted = row["quote_author"]
+        if quoted is None and row["quote_of"]:
+            quoted = author_of(row["quote_of"])
+        if quoted == author_id:
+            posted_at, next_at = iso(row["created_at"]), iso(row["created_at"] + PEER_ROTATION_DAYS * 86400.0)
+            raise hand.Refused(
+                f"peer rotation: quote {row['id']} ({posted_at}) already quoted this author; the next quote of them "
+                f"may go out at {next_at}. Nothing was published; quote somebody else.",
+                rule="peer_rotation",
+                last_quote_id=row["id"],
+                last_quoted_at=posted_at,
+                next_at=next_at,
+            )
+
+
 def record_post(
     conn: sqlite3.Connection,
     post_id: str,
@@ -305,15 +376,17 @@ def record_post(
     created_at: float | None = None,
     format: str | None = None,
     experiment: int | None = None,
+    quote_author: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
-    and `experiment` are the lab tags (teeny_hands/tags.py)."""
+    and `experiment` are the lab tags (teeny_hands/tags.py); `quote_author`
+    is the id of the account a quote quoted (`check_peer_rotation`)."""
     add_tag_columns(conn)
     conn.execute(
-        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment,"
+        " quote_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment),
+         hand.now() if created_at is None else created_at, format, experiment, quote_author),
     )
 
 
