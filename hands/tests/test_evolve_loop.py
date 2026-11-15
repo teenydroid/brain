@@ -6,6 +6,7 @@ proposer is a stand-in that records what it was asked."""
 import json
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -812,7 +813,7 @@ class HandTestSandbox(LoopCase):
         self.assertEqual(writable, ["/work"])
         self.assertEqual(argv[-4:], ["--", "python3", "-m", "unittest"])
 
-    def test_without_a_sandbox_nothing_runs_and_a_hand_change_is_sent_back(self):
+    def test_without_a_sandbox_nothing_runs_and_the_check_says_so(self):
         tree = self.worktree("t")
         evolve.apply_edits(tree, HandEdits.lore_edit(self))
         base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
@@ -824,8 +825,8 @@ class HandTestSandbox(LoopCase):
         self.assertFalse(check["ok"])
         self.assertTrue(check["detail"].startswith("hand tests could not be run in a sandbox here (no bwrap; no "
                                                    "sandbox runner"), check["detail"])
+        self.assertTrue(check["no_sandbox"])
         self.assertTrue(out["hard_ok"])
-        self.assertIn("hand tests: lore", " ".join(f["problem"] for f in evolve.check_findings(out)))
 
     def test_the_sandbox_service_runs_a_job_on_its_own_copy(self):
         """No bwrap here: the job goes to the sandbox service's folder, and
@@ -1153,3 +1154,166 @@ class ReviewerDown(LoopCase):
         third = Recording(research=[BUILD], proposals=[self.proposal()])
         out = self.run_with(third, reviewer=down, evaluator=Verdicts())
         self.assertEqual(out["candidates"][0]["verdict"], "opened")
+
+
+
+NO_BOX = (unittest.mock.patch.object(evolve, "sandbox_ready", return_value=(False, "no bwrap")),
+          unittest.mock.patch.object(evolve, "run_contained", side_effect=AssertionError("ran unsandboxed")))
+
+
+class NoSandboxDefers(LoopCase):
+    """N4: with no sandbox a hand edit is deferred, never parked or shipped."""
+
+    def test_a_hand_edit_with_no_sandbox_is_deferred_and_not_paid_for_again(self):
+        self.one_learning()
+        whole = {**self.proposal(), "edits": HandEdits.lore_edit(self)}
+        proposer = Recording(research=[BUILD], proposals=[whole])
+        with NO_BOX[0], NO_BOX[1]:
+            out = self.run_with(proposer)
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        self.assertEqual(len(proposer.requests), 1)  # no second round
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["deferred_for"], "sandbox")
+        self.assertIn("could not be run in a sandbox", entry["reason"])
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+        self.assertEqual(evolve.status()["deferred"][0]["id"], "g1c1")
+        # Still no sandbox: the next run pays for no research or build on it.
+        again = Recording(research=[BUILD], proposals=[whole])
+        with NO_BOX[0], NO_BOX[1]:
+            out = self.run_with(again)
+        self.assertEqual((again.research_requests, again.requests), ([], []))
+        self.assertIn("no open learnings", out["skipped"])
+
+
+class SidecarTrust(LoopCase):
+    """N1 and N2: what the runner answers is trusted only when it is the
+    runner's, for this job, and the folders are what they should be."""
+
+    def jobs(self):
+        jobs = evolve.sandbox_jobs()
+        (jobs / "jobs").mkdir(parents=True, exist_ok=True)
+        (jobs / "done").mkdir(parents=True, exist_ok=True)
+        (jobs / "ready").touch()
+        return jobs
+
+    def forge(self, jobs, act):
+        """Submits a job and lets ACT play the runner (or an attacker) on it."""
+        def fill(dest):
+            dest.mkdir(parents=True)
+
+        def wait(_):
+            folder = next((jobs / "jobs").iterdir())
+            act(jobs, folder.name, folder)
+            time.sleep(0.01)
+
+        with unittest.mock.patch.object(evolve.sandbox_lib, "PICKUP_SECS", 2):
+            return evolve.sandbox_lib.submit(jobs, fill, ["discover"], 1, wait=wait)
+
+    def test_a_result_before_the_runner_took_the_job_is_refused(self):
+        jobs = self.jobs()
+
+        def forger(jobs, job_id, folder):
+            (jobs / "done" / f"{job_id}.json").write_text(json.dumps({"id": job_id, "code": 0, "output": "OK"}))
+
+        code, out, why = self.forge(jobs, forger)
+        self.assertIsNone(code)
+        self.assertIn("before the sandbox runner took the job", why)
+
+    def test_a_result_without_the_runners_token_is_refused(self):
+        jobs = self.jobs()
+
+        def forger(jobs, job_id, folder):
+            if not (folder / "ack.json").exists():
+                (folder / "ack.json").write_text(json.dumps({"token": "the-runners"}))
+                return
+            (jobs / "done" / f"{job_id}.json").write_text(json.dumps({"id": job_id, "token": "guessed", "code": 0}))
+
+        code, _, why = self.forge(jobs, forger)
+        self.assertIsNone(code)
+        self.assertIn("token", why)
+
+    def test_a_runner_that_dies_during_the_job_fails_it(self):
+        jobs = self.jobs()
+
+        def dies(jobs, job_id, folder):
+            (folder / "ack.json").write_text(json.dumps({"token": "t"}))
+            os.utime(jobs / "ready", (time.time() - 600, time.time() - 600))
+
+        code, _, why = self.forge(jobs, dies)
+        self.assertIsNone(code)
+        self.assertIn("stopped during the job", why)
+
+    def test_a_linked_or_foreign_folder_is_refused_before_anything_is_written(self):
+        jobs = self.jobs()
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        (jobs / "done").rmdir()
+        (jobs / "done").symlink_to(elsewhere)
+        with self.assertRaises(evolve.sandbox_lib.SandboxError):
+            evolve.sandbox_lib.submit(jobs, lambda d: d.mkdir(), ["x"], 1)
+        (jobs / "done").unlink()
+        (jobs / "done").mkdir()
+        (jobs / "jobs").rmdir()
+        (jobs / "jobs").symlink_to(elsewhere)
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, HandEdits.lore_edit(self))
+        evolve.stage(tree)
+        with NO_BOX[0], NO_BOX[1]:
+            ok, detail = evolve.run_hand_tests(tree, "lore")
+        self.assertFalse(ok)
+        self.assertIn("not as it should be", detail)
+        self.assertEqual(list(elsewhere.iterdir()), [])  # nothing written through the link
+        with self.assertRaises(evolve.sandbox_lib.SandboxError):
+            evolve.sandbox_lib.check_folders(jobs, owner=os.geteuid() + 1)
+
+    def test_a_test_that_forges_its_own_result_or_kills_its_runner_fails(self):
+        """The runner in a process of its own (no uid split: that needs
+        root, below); a candidate's test that writes its own result without
+        the token, and one that kills its parent, both leave the check
+        failed."""
+        for attack in ("forge", "kill"):
+            with self.subTest(attack=attack):
+                jobs = self.jobs()
+                work = self.root / f"work-{attack}"
+                runner = subprocess.Popen(
+                    [sys.executable, "-c",
+                     "import sys, pathlib; sys.path.insert(0, sys.argv[1]); import sandbox; "
+                     "sandbox.HEARTBEAT_SECS = 0.2; sandbox.serve(pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]))",
+                     str(evolve.CODE / "bin" / "lib"), str(jobs), str(work)])
+                self.addCleanup(runner.kill)
+                tree = self.worktree(f"t-{attack}")
+                done = str(jobs / "done")
+                body = (f"open({done!r} + '/' + os.path.basename(os.getcwd()) + '.json', 'w').write("
+                        "json.dumps({'id': os.path.basename(os.getcwd()), 'code': 0, 'output': 'OK'}))"
+                        if attack == "forge" else "os.kill(os.getppid(), 9)")
+                evolve.apply_edits(tree, [{"path": "hands/tests/test_probe.py", "old": "",
+                                           "new": f"import json, os, time, unittest\n\n\nclass T(unittest.TestCase):\n"
+                                                  f"    def test_it(self):\n        {body}\n        time.sleep(3)\n"
+                                                  "        self.fail('forged')\n"}])
+                evolve.stage(tree)
+                with NO_BOX[0], unittest.mock.patch.object(evolve.sandbox_lib, "READY_SECS", 2):
+                    ok, detail = evolve.run_hand_tests(tree, "probe")
+                self.assertFalse(ok, detail)
+                runner.kill()
+                runner.wait()
+
+    @unittest.skipUnless(os.geteuid() == 0, "the uid split needs root (the sandbox service runs as root)")
+    def test_as_root_the_tests_run_as_another_uid_that_reaches_nothing(self):  # pragma: no cover - root only
+        jobs = self.jobs()
+        os.chmod(jobs, 0o700)
+        drop = evolve.sandbox_lib.Drop(os.getuid(), os.getgid(), 65534, 65534)
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, [{"path": "hands/tests/test_probe.py", "old": "", "new":
+            "import os, unittest\n\n\nclass T(unittest.TestCase):\n"
+            f"    def test_no_jobs(self):\n        self.assertRaises(OSError, os.listdir, {str(jobs)!r})\n"
+            "    def test_no_runner(self):\n        self.assertRaises(OSError, os.kill, os.getppid(), 0)\n"
+            "        self.assertRaises(OSError, open, f'/proc/{os.getppid()}/environ')\n"}])
+        evolve.stage(tree)
+        stop = threading.Event()
+        threading.Thread(target=lambda: [evolve.sandbox_lib.serve_one(jobs, self.root / "work", drop=drop)
+                                         or time.sleep(0.05) for _ in iter(stop.is_set, True)], daemon=True).start()
+        self.addCleanup(stop.set)
+        with NO_BOX[0]:
+            ok, detail = evolve.run_hand_tests(tree, "probe")
+        self.assertTrue(ok, detail)
