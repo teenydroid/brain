@@ -945,6 +945,17 @@ memory store. It is up only once `/health` answers and `bin/spine` logs
 core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree.
 
+#### A regression goes back once more
+
+The eval runs once, after the reviewer approves. A `regressed` verdict with a
+round left, and no fence broken (the report's `fences`, visible or held
+out), sends the change back (`send_back`): the eval's reason and each pair
+it lost to main, with the judge's notes (visible tasks only), become the
+findings of the next round, the candidate is `revising` meanwhile, its
+`eval/cand-<i>` folder moves aside to `eval/cand-<i>.round-<n>`, and what
+the next round builds (and the reviewer approves) is measured afresh. A
+fence broken, or a regression in the last round, is final: `regressed`.
+
 ### 6. Publish: one pull request per candidate
 
 Every candidate whose gate passed and whose eval is `pass` or

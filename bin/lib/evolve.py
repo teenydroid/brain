@@ -30,8 +30,13 @@ one per open learning:
                or {skip, why: already|frozen|not-actionable, where}. A skip is
                archived with the learning's hash; `frozen` also opens one issue
                for the operator. A near-duplicate of the archive is dropped.
-  3 gate       in code, every check as before (frozen paths, entry points,
-               sizes, tests, purpose checks, seed-cron, doctor, invariants).
+  3 rounds     up to EVOLVE_REVISE_ROUNDS of build, hard gate (frozen paths,
+               EVOLVE_MAX_CHANGE_PCT of the repository, SOUL+CONTEXT: final),
+               checks (entry points, tests, purpose checks, seed-cron,
+               doctor, invariants) and review (the `reviewer` agent, rubric
+               evals/review.md). A failed check or a revision goes back to
+               the builder as findings; still failing after the last round
+               is `parked`, its learning open again.
   4 evaluate   targeted non-regression (`TargetedEvaluator`): `bin/eval
                affected` names the tasks the change reaches; none is
                `unmeasurable` and boots nothing; else a lab over the candidate
