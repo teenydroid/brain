@@ -709,16 +709,18 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _drafts(path: Path) -> dict:
-    """A run's drafts by (task, sample). Held-out ones only while
-    EVAL_HELDOUT_DIR is set: without it they are not judged or scored."""
+def _drafts(path: Path, tasks: set[str] | None = None) -> dict:
+    """A run's drafts by (task, sample), of TASKS only when given. Held-out
+    ones only while EVAL_HELDOUT_DIR is set: without it they are not judged
+    or scored."""
     keep = heldout_dir() is not None
-    return {(r["task"], r["sample"]): r for r in _read_jsonl(path) if keep or not r.get("heldout")}
+    return {(r["task"], r["sample"]): r for r in _read_jsonl(path)
+            if (keep or not r.get("heldout")) and (tasks is None or r["task"] in tasks)}
 
 
-def pairs(base_path: Path, cand_path: Path) -> list[dict]:
-    """The pairs the judge reads: every task and sample both runs drafted."""
-    base, cand = _drafts(base_path), _drafts(cand_path)
+def pairs(base_path: Path, cand_path: Path, tasks: set[str] | None = None) -> list[dict]:
+    """The pairs the judge reads: every task (of TASKS) and sample both runs drafted."""
+    base, cand = _drafts(base_path, tasks), _drafts(cand_path, tasks)
     return [
         {"task": k[0], "sample": k[1], "base": base[k]["draft"], "cand": cand[k]["draft"]}
         for k in sorted(set(base) & set(cand))
@@ -726,16 +728,31 @@ def pairs(base_path: Path, cand_path: Path) -> list[dict]:
     ]
 
 
-def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str]) -> int:
-    """Every pair, judged twice by `ask` (bin/ask --agent judge): the
-    baseline shown as draft 1, then the candidate. A turn that fails is
-    tried again (Retrier); one that never answers is an unusable answer, so
-    a tie. Both orderings of every pair are judged side by side, up to
-    EVAL_CONCURRENCY turns at once."""
+def orders(sample: int, both: bool) -> tuple[str, ...]:
+    """Which way round a pair is shown: "first" puts the baseline as draft
+    1, "second" the candidate. Once per pair, alternating by sample (odd:
+    the baseline first, even: the candidate first), so a judge that favours
+    a position favours each side equally often; or both, with BOTH."""
+    if both:
+        return ("first", "second")
+    return ("first",) if sample % 2 else ("second",)
+
+
+def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str],
+          both_orders: bool = False, tasks: set[str] | None = None) -> int:
+    """Every pair (of TASKS, when given), judged by `ask` (bin/ask --agent
+    judge) once, the way round orders() says, or twice with BOTH_ORDERS
+    (the baseline shown as draft 1, then the candidate). A turn that fails
+    is tried again (Retrier); one that never answers is an unusable answer,
+    so a tie. Up to EVAL_CONCURRENCY turns at once."""
     jobs = []
-    for pair in pairs(base_path, cand_path):
+    plan = []
+    for pair in (pairs(base_path, cand_path) if tasks is None else pairs(base_path, cand_path, tasks)):
         task = load_task(evals, pair["task"])
-        for drafts in ({"1": pair["base"], "2": pair["cand"]}, {"1": pair["cand"], "2": pair["base"]}):
+        shown = orders(pair["sample"], both_orders)
+        plan.append((pair, shown))
+        for way in shown:
+            drafts = {"1": pair["base"], "2": pair["cand"]} if way == "first" else {"1": pair["cand"], "2": pair["base"]}
             jobs.append((pair, judge_message(evals, brain, task, drafts)))
     retrier = Retrier()
 
@@ -750,25 +767,37 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     # closing(): a raise while writing closes the queue at once, cancelling the
     # turns not yet started, rather than when the traceback is let go.
     with contextlib.closing(_in_flight(one, jobs)) as results, out.open("w", encoding="utf-8") as fh:
-        for pair, _ in jobs[::2]:
-            first, second = next(results), next(results)
-            fh.write(json.dumps({"task": pair["task"], "sample": pair["sample"], "first": first, "second": second}, ensure_ascii=False) + "\n")
+        for pair, shown in plan:
+            record = {"task": pair["task"], "sample": pair["sample"]}
+            for way in shown:
+                record[way] = next(results)
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             fh.flush()
             count += 1
     return count
 
 
-def pair_outcome(first: dict, second: dict) -> dict:
-    """Two verdicts on one pair: `first` showed the baseline as draft 1,
-    `second` showed the candidate as draft 1. They must agree to decide."""
+def pair_outcome(first: dict | None, second: dict | None) -> dict:
+    """A pair's verdicts: `first` showed the baseline as draft 1, `second`
+    showed the candidate as draft 1. With both, they must agree to decide
+    (`consistent`); with one, it decides alone (`consistent` is None: the
+    alternation across samples controls for position, not agreement)."""
     side = {"1": "base", "2": "cand", "tie": "tie"}
     swapped = {"1": "cand", "2": "base", "tie": "tie"}
-    a, b = side[first["better"]], swapped[second["better"]]
-    breaks = {
-        "base": sorted(set(first["breaks"]["1"]) | set(second["breaks"]["2"])),
-        "cand": sorted(set(first["breaks"]["2"]) | set(second["breaks"]["1"])),
-    }
-    return {"winner": a if a == b else "tie", "consistent": a == b, "breaks": breaks}
+    if first is not None and second is not None:
+        a, b = side[first["better"]], swapped[second["better"]]
+        breaks = {
+            "base": sorted(set(first["breaks"]["1"]) | set(second["breaks"]["2"])),
+            "cand": sorted(set(first["breaks"]["2"]) | set(second["breaks"]["1"])),
+        }
+        return {"winner": a if a == b else "tie", "consistent": a == b, "breaks": breaks}
+    if first is not None:
+        return {"winner": side[first["better"]], "consistent": None,
+                "breaks": {"base": sorted(first["breaks"]["1"]), "cand": sorted(first["breaks"]["2"])}}
+    if second is not None:
+        return {"winner": swapped[second["better"]], "consistent": None,
+                "breaks": {"base": sorted(second["breaks"]["2"]), "cand": sorted(second["breaks"]["1"])}}
+    return {"winner": "tie", "consistent": None, "breaks": {"base": [], "cand": []}}
 
 
 def _unrun(record: dict) -> bool:
