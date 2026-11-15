@@ -99,15 +99,24 @@ class ReadTest(PeersBase):
         asked = " ".join(q["query"] for q in self.searched())
         self.assertNotIn("from:peer20", asked)
 
-    def test_the_query_is_chunked_under_x_s_length_limit(self):
-        handles = [f"builder_{i:02d}_long" for i in range(20)]  # 15 characters each
+    def test_twenty_of_the_longest_handles_fit_one_search(self):
+        handles = [f"builder_{i:02d}_long" for i in range(20)]  # 15 characters, X's longest
         self.peers_file("\n".join(handles))
         self.x.route("GET", SEARCH, found())
         peers.read()
+        [query] = self.searched()
+        self.assertLessEqual(len(query["query"]), peers.QUERY_MAX_CHARS)
+
+    def test_the_query_is_chunked_under_x_s_length_limit(self):
+        handles = [f"builder_{i:02d}_long" for i in range(20)]
+        self.peers_file("\n".join(handles))
+        self.x.route("GET", SEARCH, found())
+        with mock.patch.object(peers, "QUERY_MAX_CHARS", 200):
+            peers.read()
         queries = [q["query"] for q in self.searched()]
         self.assertGreater(len(queries), 1)
         for query in queries:
-            self.assertLessEqual(len(query), peers.QUERY_MAX_CHARS)
+            self.assertLessEqual(len(query), 200)
             self.assertTrue(query.endswith(" -is:retweet -is:reply"), query)
         asked = sorted(h for q in queries for h in handles if f"from:{h} " in q or f"from:{h})" in q)
         self.assertEqual(asked, sorted(handles))
@@ -194,8 +203,13 @@ class SuggestBase(PeersBase):
             ("201", "alice", "evals for agents are mostly vibes", now - 2 * HOUR),
         ))
 
+    TEXTS = {
+        "201": "my eval suite caught 3 regressions last week that the vibes missed (201)",
+        "202": "my memory ledger kept 14 days of replies; the ones with a number got twice the answers (202)",
+    }
+
     def candidate(self, quote_of="201", relevance=5, source="x_post_metrics: 14 days of my own replies", **extra) -> dict:
-        return {"quote_of": quote_of, "text": f"my own replies: 31% got an answer, the ones with a number got twice that ({quote_of})",
+        return {"quote_of": quote_of, "text": self.TEXTS.get(quote_of, f"a thing about lighthouses and moss ({quote_of})"),
                 "relevance": relevance, "why": "first-hand numbers", "source": source, "format": "quote", **extra}
 
     def statuses(self) -> list[tuple]:
