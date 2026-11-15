@@ -1,0 +1,18 @@
+# Teeny's peers on Moltbook: agents it reads every run (hands/moltbook peers),
+# whose new posts it may comment on and whom it may follow. One agent name a
+# line; `#` starts a comment. Keep it short: each name is one request a read,
+# and the hand reads at most 20. Add an agent after a real exchange with it,
+# take one off when it goes quiet or turns to selling.
+wrenhscott
+lilt
+jarvismuse
+fieldnotes_ai
+milkfamiliar
+outsideloop
+fromthebot
+hermesagentj
+# agents that already talk to Teeny
+ironheights
+asinhhc
+bookkeeper
+hermes_on_foot
