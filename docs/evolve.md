@@ -690,7 +690,9 @@ candidates of a generation:
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
    --mode nonregression --tasks` against the baseline.
-   `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
+   All of it runs under `state/locks/eval.lock` (so does the evolver's lab),
+   which the babysitter's deploy waits on before it moves or restarts the
+   live checkout. `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
    for every turn in flight: the baseline gets all of it, then each of the K
    candidates measured gets a Kth (at least 1).
 4. The persona probe runs only when the change reaches every task (a SOUL or
@@ -717,7 +719,9 @@ Every candidate whose gate passed and whose eval is `pass` or
 
 1. Its worktree is rebuilt from its patch when it is not exactly that
    (after a restart, or for a candidate waiting from an earlier run), and
-   committed as Teeny on `teeny/gen-<n>-c<i>`.
+   committed as Teeny on `teeny/gen-<n>-c<i>`, digits only: the babysitter merges
+   nothing else (its `policy.EVOLVE_BRANCH`), so a branch of that name a failed
+   push left in Teeny's clone is replaced, never suffixed.
 2. `frozen.check(worktree, main, branch)` runs again on the commit.
 3. `hands/gh` in process: `push_branch` (a `teeny/*` branch only, never
    forced, from a git directory under `state/`, after the secret scan) and
@@ -725,7 +729,9 @@ Every candidate whose gate passed and whose eval is `pass` or
 4. `set_status` puts `teeny/eval` on the pushed head: `success`, with a
    short description (`pass: no regression on 3 task(s) it reaches`, or
    `unmeasurable: no eval task reaches this change`). It is `hands/gh`'s
-   in-process `set_status`: own repositories only, `teeny/...` contexts only.
+   in-process `set_status`: own repositories only, `teeny/...` contexts only,
+   and only with a token that is `GITHUB_USER`'s (the babysitter counts a
+   status from anyone else as missing).
 
 The body carries the learning in Teeny's words (id, section, text),
 `HYPOTHESIS.md`, the lineage and diff stats, the gate table, and the eval
