@@ -150,3 +150,30 @@ class LabTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedditLabTest(LabTest):
+    def test_a_reddit_experiment_is_scored_from_reddits_writes(self):
+        from teeny_hands.reddit import rules as reddit_rules
+
+        out = ledger.propose(body(surface="reddit", format="answer", posts=1))
+        conn = reddit_rules.db()
+        for cid, fmt, score in (("c1", "answer", 9), ("c2", None, 1)):
+            conn.execute("INSERT INTO reddit_comments (comment_id, post_id, subreddit, at, status, format)"
+                         " VALUES (?, 'p', 'learnpython', ?, 'posted', ?)", (cid, T0 + 60, fmt))
+            conn.execute("INSERT INTO reddit_post_metrics (kind, target_id, checkpoint, at, score, state)"
+                         " VALUES ('comment', ?, 24, ?, ?, 'live')", (cid, T0 + DAY, score))
+        conn.close()
+        exp = ledger.db().execute("SELECT * FROM experiments WHERE id = ?", (out["experiment"]["id"],)).fetchone()
+        got = ledger.measure(ledger.db(), exp)
+        self.assertEqual((got["n"], got["avg"], got["baseline_n"], got["baseline_avg"]), (1, 9, 1, 1))
+
+    def test_views_are_xs_alone(self):
+        self.refused(ledger.propose, body(surface="reddit", metric="views"), rule=None)
+
+    def test_a_ledger_from_before_reddit_takes_a_reddit_experiment(self):
+        conn = hand.db()
+        conn.executescript(ledger.SCHEMA.replace("('x', 'moltbook', 'reddit')", "('x', 'moltbook')"))
+        conn.close()
+        ledger.propose(body(surface="moltbook", format="gm"))
+        ledger.propose(body(surface="reddit", format="gm"))

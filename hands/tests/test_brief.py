@@ -177,7 +177,26 @@ class BriefTest(unittest.TestCase):
 
     def test_an_unknown_surface_is_refused(self):
         with self.assertRaises(hand.Refused):
-            briefs.add("hello", surface="reddit")
+            briefs.add("hello", surface="myspace")
+
+    def test_a_reddit_lead_is_offered_on_its_own(self):
+        briefs.add("a thread", surface="moltbook")
+        reddit = briefs.add("r/learnpython thread on tracebacks", surface="reddit")["brief"]["id"]
+        self.assertEqual([lead["id"] for lead in briefs.leads("reddit")["leads"]], [reddit])
+        self.assertEqual(len(briefs.leads()["leads"]), 1)
+
+    def test_a_ledger_from_before_reddit_takes_a_reddit_brief(self):
+        conn = hand.db()
+        conn.executescript(
+            "CREATE TABLE briefs (id INTEGER PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open'"
+            " CHECK (status IN ('open', 'posted', 'cancelled')), created_at REAL NOT NULL, post_id TEXT, post_text TEXT,"
+            " done_at REAL, surface TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook')));"
+            "INSERT INTO briefs (text, created_at) VALUES ('old one', 1.0);"
+        )
+        conn.close()
+        briefs.add("a reddit lead", surface="reddit")
+        self.assertEqual([(b["text"], b["surface"]) for b in briefs.listing(10)["briefs"]],
+                         [("a reddit lead", "reddit"), ("old one", "x")])
 
     def test_a_ledger_from_before_surfaces_is_read_as_x(self):
         conn = hand.db()

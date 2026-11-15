@@ -232,3 +232,19 @@ class RunContractTest(Scratch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RebuildTableTest(Scratch):
+    def test_a_table_is_rebuilt_to_a_new_check_and_keeps_its_rows_and_indexes(self):
+        old = ("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, s TEXT NOT NULL CHECK (s IN ('a')));"
+               " CREATE INDEX IF NOT EXISTS t_s ON t (s);")
+        new = old.replace("('a')", "('a', 'b')")
+        conn = hand.open_db(old)
+        conn.execute("INSERT INTO t (s) VALUES ('a')")
+        hand.rebuild_table(conn, "t", new)
+        conn.execute("INSERT INTO t (s) VALUES ('b')")
+        self.assertEqual([tuple(r) for r in conn.execute("SELECT id, s FROM t ORDER BY id")], [(1, "a"), (2, "b")])
+        self.assertIsNotNone(conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 't_s'").fetchone())
+        hand.rebuild_table(conn, "t", new)  # already as it should be: nothing to do
+        self.assertEqual(conn.execute("SELECT count(*) FROM t").fetchone()[0], 2)
+        conn.close()

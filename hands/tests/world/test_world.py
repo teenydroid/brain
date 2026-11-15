@@ -338,6 +338,12 @@ class PeopleInAttentionTest(Scratch):
         self.assertEqual(collect.classify("gh", "dependabot[bot]"), "agent")
         self.assertEqual(collect.classify("gh", "octocat"), "unknown")
         self.assertEqual(collect.classify("x", "definitely_a_human"), "unknown")
+        self.assertEqual(collect.classify("reddit", "ana_dev"), "unknown")  # people, but bots post there too
+        self.assertIn("reddit", collect.ENGAGED_SURFACES)
+        self.assertNotIn("reddit", collect.V1_SURFACES)
+        self.assertEqual(collect.CHANNELS["reddit"], ("REDDIT_CLIENT_ID", "REDDIT_USERNAME"))
+        self.assertEqual(score.STAT_CLASSES["reddit.karma"], "unknown")
+        self.assertIn(("reddit", "karma"), collect.ATTENTION_STATS)
         self.assertEqual(collect.classify("x", "gpt_bot_9000"), "unknown")  # a name is not evidence
         self.assertEqual(collect.classify("mail", "Ann <ann@example.org>"), "unknown")
 

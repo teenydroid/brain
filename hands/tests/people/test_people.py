@@ -229,3 +229,12 @@ class CliTest(Scratch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RedditPeopleTest(Scratch):
+    def test_someone_who_wrote_on_reddit_has_a_record(self):
+        self.said("reddit", "ana_dev", "t1_r1", "this helped, thanks", T0 - DAY)
+        self.said("reddit", "ana_dev", "t1_r2", "one more question", T0 - 2 * DAY)
+        rec = records.record("reddit", "ana_dev")
+        self.assertEqual(len(rec["messages"]), 2)
+        self.assertIn(("reddit", "ana_dev"), [(p["surface"], p["who"]) for p in records.listing()["people"]])
