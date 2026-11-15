@@ -6,8 +6,10 @@
   by_submolt  the PER_SUBMOLT best of each of SUBMOLTS, the same way
   own         Teeny's own last OWN posts and comments (the ledger), each
               with its latest `moltbook_post_metrics` row
-  own_posts   Teeny's own last OWN_POSTS posts alone, with their `format`
-              and latest metrics: at eight posts a day and dozens of
+  own_posts   Teeny's own last OWN_POSTS posts alone, with their `format`,
+              whether the body carried a link (`linked`, so the one link
+              post a day can be counted) and latest metrics: at eight
+              posts a day and dozens of
               comments, `own` alone shows few posts, and a post must not
               repeat a claim or a format it can no longer see
 
@@ -161,12 +163,13 @@ def _own_posts() -> list[Json]:
     conn = rules.db()
     try:
         rows = conn.execute(
-            f"SELECT post_id, title, submolt, format, at, status FROM moltbook_posts"
+            f"SELECT post_id, title, submolt, format, at, status, body FROM moltbook_posts"
             f" WHERE post_id IS NOT NULL AND status IN ({counted}) ORDER BY at DESC LIMIT ?",
             (*rules.COUNTED, OWN_POSTS),
         ).fetchall()
         return [{"id": r["post_id"], "title": r["title"], "submolt": r["submolt"], "format": r["format"],
-                 "at": _iso(r["at"]), "status": r["status"], "metrics": _latest(conn, "post", r["post_id"])}
+                 "linked": "://" in (r["body"] or ""), "at": _iso(r["at"]), "status": r["status"],
+                 "metrics": _latest(conn, "post", r["post_id"])}
                 for r in rows]
     finally:
         conn.close()
