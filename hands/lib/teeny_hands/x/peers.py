@@ -3,8 +3,9 @@ communities around other crypto-AI projects, kept rare and specific.
 
   peers           R  the newest original posts of the accounts in
                      brain/x-peers.txt, through the search cache, screened
-  peers suggest   A  up to 3 scored quote suggestions; all kept, the top one
-                     posted only when it clears every bar
+  peer-suggest    A  up to 3 scored quote suggestions; all kept, the top one
+                     posted only when it clears every bar (one word, as a
+                     playbook's `hand:x <verb>` output names it)
   peers suggestions  R  what was suggested, posted and skipped, and why
   peers report    R  per peer: touches, who then spoke to Teeny, how the
                      quote did
@@ -21,7 +22,7 @@ Tables, in state/hands.db:
   x_peer_touches     every quote of a peer that went out (`publish` writes
                      it, whichever playbook quoted)
 
-Under DRY_RUN `suggest` runs every bar and every posting rule and writes no
+Under DRY_RUN `peer-suggest` runs every bar and every posting rule and writes no
 row, as `publish` writes no ledger row.
 """
 

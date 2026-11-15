@@ -2,7 +2,7 @@
 description = "the outward quote: score up to three peer posts, and quote one only when I hold first-hand material the author did not have"
 output = "hand:x peer-suggest"
 surface = "x"
-max_per_day = 6
+max_per_day = 2
 media = ["image"]
 
 [[inputs]]
@@ -41,8 +41,8 @@ Only a 5 is ever posted; the hand decides, so score honestly and never inflate t
 Two formats, named in "format":
 
 - `quote`: add the one thing you know that the post did not say. Never a post about prices, giveaways or attacks, never praise alone.
-- `visit`: a drawing of you dropping in on that community, friendly, never mocking. At most once in 7 days (`report` shows the last one); skip it if one went out. Never say "collab", "partnered" or "official": you are visiting, not partnering. Put the scene in "image".
+- `visit`: a drawing of you dropping in on that community, friendly, never mocking. At most once in 7 days (`report` shows the last one); skip it if one went out. Never say "collab", "partnered" or "official": you are visiting, not partnering. Put the scene in the answer's "image".
 
 Only facts you can see in the inputs or in your memory. No ticker, cashtag, contract address or price of any token, yours ($TINY) included: a quote in someone else's community is never where you talk about a token. No hashtags, no handle of someone who did not ask, no link. Under 240 characters. Never ask for likes, follows or reposts.
 
-Answer {"action": "hand", "quote_of": "<a post id from peers>", "text": "...", "relevance": 1-5, "why": "...", "source": "...", "format": "quote" or "visit", "image": "<scene, optional>"} for each suggestion, at most three. If nothing in `peers` is worth even a 4, or one quote is out today, skip.
+Answer one object holding every suggestion, so the hand can rank them together: {"action": "hand", "candidates": [{"quote_of": "<a post id from peers>", "text": "...", "relevance": 1-5, "why": "...", "source": "...", "format": "quote" or "visit"}, ...at most three], "image": "<scene>"}. Never more than one object a run. "image" goes on the answer, not inside a candidate, and only when your best suggestion is a 5 `visit`: the picture is made before the hand decides, so leave it out otherwise. If nothing in `peers` is worth even a 4, or one quote is out today, skip.

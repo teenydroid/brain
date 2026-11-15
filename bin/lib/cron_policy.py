@@ -36,7 +36,7 @@ written here, in code it cannot edit:
   few times a day can have one. Its day fields must be numbers, and not
   both set (cron implementations read that differently). Never on a
   playbook that speaks in public (posts, replies, comments, announces:
-  POSTING_OUTPUTS, POSTING_VERBS), however the job is named, nor on the
+  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb), however the job is named, nor on the
   pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
   hours late is a different act, not a late one. That last rule reads the
   playbook, which Teeny edits apart from this file: under --strict
