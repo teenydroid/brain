@@ -17,6 +17,14 @@ loads. The shared contract (outcomes, exit codes, secrets, dry run, state, the
 core client) lives in `hands/lib/teeny_hands/hand.py`. To run every test:
 `python3 -m unittest discover -s hands/tests -t hands/tests`.
 
+**Changing a hand.** Teeny may add a hand, and, since 2026-11-15, make a
+small edit inside an existing one that is not frozen (`evals/frozen.txt`),
+through `bin/evolve` ([`evolve.md`](evolve.md), "The gate's checks"). Such a
+change carries a test (`hands/tests/test_<name>.py` or `hands/tests/<name>/`)
+and touches the hand's own section below (its `` ## `name` `` heading); the
+gate runs that hand's tests, sealed from the box's environment, and sends a
+failure back to the builder as a finding.
+
 **R** marks a read verb. **A** marks an acting verb, which only `bin/`
 scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
 operator (the person) call. **O** marks an operator-only verb. **J** marks a job

@@ -30,7 +30,8 @@ The research behind it is in [`research/`](research/README.md), starting with
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`) |
-| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
 | | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
 
@@ -778,6 +779,18 @@ editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 the tests). The answer is `{title, component, expected_move, hypothesis,
 edits}` or `{skip, why, where}`.
 
+**What the build is shown.** The paths it may change are every tracked file
+under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
+not `docs/governance.md`). The `ask` proposer is shown whole files: first
+the ones research named to read, then the schedule, the arcs, the
+playbooks, the agent prompts and the skills, while they fit
+`EVOLVE_CONTEXT_CHARS`. A file research named that the candidate may not
+change (a frozen hand's code, `bin/`) is shown read-only, in up to a third
+of that room (`read_pack`). The brief says a small edit inside an existing
+hand that is not frozen is allowed with its test, that docs go with the
+change (the docs rule below), and that no refactor the learning does not
+need is welcome.
+
 **Edits** are written by `bin/evolve` itself: each `{path, old, new}`
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
@@ -836,11 +849,13 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | Check | Fails when |
 |---|---|
 | frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
-| existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
-| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 6,500 today), or none |
+| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
 | no binary files | the diff adds or changes a binary file |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
-| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
+| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
+| changed hands have tests | the diff changes an existing hand (its `hands/<name>` or its code under `hands/lib/teeny_hands/`) and none of its tests (`hands/tests/test_<name>.py` or `hands/tests/<name>/`) |
+| hand tests: `<name>` | one per hand the diff touches (code or tests) that has tests: `python3 -m unittest` on them in the worktree, within 300 s, with none of `bin/evolve`'s environment (`sealed_env`: the worktree as root, state and secrets, `DRY_RUN=1`, a home inside it). A failure is detailed by its `FAIL`/`ERROR` lines and the errors they raised. Not run when the diff touches a frozen path |
+| docs updated | a new or changed hand whose section of `docs/hands.md` (its `` ## `name` `` heading) the diff leaves as it was, or does not have; a new playbook or a new job in `brain/cron.toml` named on no line the diff adds to `docs/architecture.md` or `docs/hands.md`, where its siblings are listed (`docs/architecture.md`, "6. Triggers", for Teeny's own jobs) |
 | aims at a component with a reading | the proposal names a W component the world report lists in `unread`. Passes when there is no world report |
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
@@ -848,6 +863,13 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
+
+Until 2026-11-15 an existing hand's entry point was off limits, because
+`bin/doctor --root` runs the candidate's `hands/git`. A hand that is not
+frozen may now change; the frozen ones (`evals/frozen.txt`: guard, x,
+wallet, babysit and the rest) are still refused by the hard gate, and their
+code never runs here. When the diff changes an existing hand, the doctor
+runs with the same sealed environment as the hand tests.
 
 The last three run the candidate's own frozen code (its `bin/` and
 `evals/`, which the frozen check just proved are main's) with the worktree
