@@ -204,15 +204,23 @@ def submit(jobs: Path, fill: Callable[[Path], None], args: list[str], timeout: f
         os.replace(tmp, folder / "job.json")
         deadline = time.monotonic() + timeout + PICKUP_SECS
         token = None
+        def acknowledged() -> str | None:
+            raw_ack = _read_capped(folder / "ack.json", 4096)
+            if raw_ack is None:
+                return None
+            try:
+                return json.loads(raw_ack).get("token") or None
+            except (ValueError, AttributeError):
+                return None
+
         while time.monotonic() < deadline:
             if token is None:
-                raw_ack = _read_capped(folder / "ack.json", 4096)
-                if raw_ack is not None:
-                    try:
-                        token = json.loads(raw_ack).get("token") or None
-                    except (ValueError, AttributeError):
-                        return None, "", "the sandbox runner's acknowledgement did not parse"
+                token = acknowledged()
             raw = _read_capped(result, MAX_RESULT_BYTES)
+            if raw is not None and token is None:
+                # The runner writes its acknowledgement before it runs
+                # anything: a result with none beside it is not the runner's.
+                token = acknowledged()
             if raw is not None:
                 if token is None:
                     return None, "", "a result appeared before the sandbox runner took the job"
