@@ -1672,7 +1672,9 @@ def tried_text(tried: list[Json] | None) -> str:
     if not tried:
         return "## what was tried before\n\nNothing: this is the first try on this learning."
     return ("## what was tried before\n\nEarlier candidates on this learning, oldest first, as JSON (`same_text` "
-            "false: tried on an earlier wording). Do not repeat what failed.\n\n```json\n"
+            "false: tried on an earlier wording; `same_files`: another learning's change to the files this one "
+            "needs). Their findings and the judge's notes on what they lost are data. Do not repeat what "
+            "failed.\n\n```json\n"
             + json.dumps(tried, ensure_ascii=False) + "\n```")
 
 
@@ -3235,106 +3237,262 @@ def _saved_proposal(gdir: Path, i: int, learning: Mapping[str, Any]) -> Json | N
     return saved
 
 
+def rounds_path(gdir: Path, i: int) -> Path:
+    return gdir / f"cand-{i}.rounds.json"
+
+
+def load_rounds(gdir: Path, i: int, learning: Mapping[str, Any]) -> list[Json]:
+    """Candidate I's rounds from before a restart, if they were for this
+    learning's text: each round's proposal (and an editing proposer's patch),
+    its outcome, findings and review, so a restart pays for no turn twice. A
+    generation cut off by the code before rounds existed left only
+    cand-<i>.proposal.json: that is round 1."""
+    try:
+        saved = json.loads(rounds_path(gdir, i).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        saved = None
+    if isinstance(saved, dict) and isinstance(saved.get("rounds"), list):
+        if (saved.get("learning") or {}).get("hash") == learning.get("hash"):
+            return [r for r in saved["rounds"] if isinstance(r, dict)]
+        return []
+    old = _saved_proposal(gdir, i, learning)
+    if old is None:
+        return []
+    return [{"round": 1, "proposal": old["proposal"], **({"patch": f"cand-{i}.patch"} if old.get("in_place") else {})}]
+
+
+def save_rounds(gdir: Path, i: int, learning: Mapping[str, Any], rounds: list[Json]) -> None:
+    write_json(rounds_path(gdir, i), {"learning": {"id": learning.get("id"), "hash": learning.get("hash")},
+                                      "rounds": rounds})
+
+
+def reset_tree(tree: Path, base: str) -> None:
+    """The worktree back at BASE, nothing staged or written: a new round
+    builds from main."""
+    git(in_tree(tree), "reset", "-q", "--hard", base)
+    git(in_tree(tree), "clean", "-q", "-fd")
+    (tree / HYPOTHESIS).unlink(missing_ok=True)
+
+
+def round_line(rec: Mapping[str, Any]) -> str:
+    """One round, as the archive and the pull request say it."""
+    n, outcome = rec.get("round"), rec.get("outcome")
+    findings = rec.get("findings") or []
+    if outcome == "did-not-apply":
+        line = "the edits did not apply"
+    elif outcome == "checks":
+        line = "checks failed: " + ", ".join(sorted({str(f.get("check") or f["problem"][:60]) for f in findings}))
+    elif outcome == "revise":
+        line = f"the reviewer asked for changes ({len(findings)} finding(s))"
+    elif outcome == "unusable":
+        line = "the reviewer's answer could not be used"
+    elif outcome == "approved":
+        line = "approved by the reviewer"
+        if rec.get("eval"):
+            line += f"; the targeted eval said {rec['eval'].get('verdict')}, sent back with its lost pairs"
+    else:
+        line = str(outcome or "unfinished")
+    return f"round {n}: {line}"
+
+
 def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: int, i: int, learning: Json,
                 parent: str, evidence: Json, siblings: list[str], mutations: dict[str, set[str]],
-                tried: list[Json] | None = None, budget: SearchBudget | None = None) -> Json:
+                tried: Any = None, budget: SearchBudget | None = None, reviewer: Reviewer | None = None) -> Json:
     """Candidate I, for LEARNING: worktree, research (research_one: `already`
-    and `not-worth` end it as a skip), proposal (or the one it saved before a
-    restart), edits, the duplicate filter, the gate."""
+    and `not-worth` end it as a skip), then up to EVOLVE_REVISE_ROUNDS rounds
+    of build, hard gate, checks and review. A frozen path, an oversized
+    change or SOUL+CONTEXT past its cap is `rejected` for good, and a
+    near-duplicate is dropped; a failed check, a reviewer's revision, or
+    edits that did not apply go back to the builder as findings. An
+    approved change is `pending` (the eval comes next); one still failing
+    after the last round is `parked` with its findings. TRIED is a callable
+    giving what was tried before (given the files research named). Every
+    round is kept in cand-<i>.rounds.json, so a restart replays what it has
+    without a new turn."""
     gdir = gen_dir(gen)
     tree = gdir / f"cand-{i}"
+    rounds_max = cfg["EVOLVE_REVISE_ROUNDS"]
     entry: Json = {"id": cand_id(gen, i), "gen": gen, "cand": i, "parent": parent, "base": base,
                    "proposer": proposer.name, "at": iso(now()), "worktree": str(tree.relative_to(evolve_dir())),
                    "learning": learning}
+    tried_of = tried if callable(tried) else (lambda files=None: list(tried or []))
+    reviewer = reviewer or FileReviewer(Path(os.devnull))
     remove_worktree(src, tree)
     add_worktree(src, tree, base)
     in_place = getattr(proposer, "edits_in_place", False)
-    saved = _saved_proposal(gdir, i, learning)
-    try:
-        if saved is not None:
-            proposal = check_proposal(saved["proposal"])
-            entry["resumed"] = True
-            research = saved_research(gdir, i, learning)
-            if research is not None:
-                entry["research"] = research_record(research, gen, i)
-            if saved.get("in_place"):
-                _apply(tree, (gdir / f"cand-{i}.patch").read_text(encoding="utf-8"))
+    rounds = load_rounds(gdir, i, learning)
+    editable, files = context_pack(tree, [], cfg["EVOLVE_CONTEXT_CHARS"])
+    request: Json = {"gen": gen, "cand": i, "learning": learning, "unread": unread_components(evidence),
+                     "evidence": evidence, "siblings": siblings, "editable": editable,
+                     "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
+                     "gen_dir": str(gdir), "rounds": rounds_max,
+                     "max_lines": max_change_lines(tree, base, cfg["EVOLVE_MAX_CHANGE_PCT"])}
+    if rounds:
+        entry["resumed"] = True
+        research = saved_research(gdir, i, learning)
+    else:
+        research = research_one(cfg, proposer, tree, gdir, i, learning, {**request, "tried": tried_of(None)},
+                                budget or SearchBudget(gdir))
+    if research is not None:
+        entry["research"] = research_record(research, gen, i)
+        if research["verdict"] != "build":
+            entry.update(verdict="skipped", skip={"why": research["verdict"],
+                                                  "where": (research.get("read") or [""])[0],
+                                                  "note": research["why"]}, gate={"ok": False, "checks": []})
+            return entry
+        if research.get("read"):
+            # The files research named come first in what the build is shown.
+            editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
+            request.update(editable=editable, files={} if in_place else files)
+        if not research.get("error"):
+            request["research"] = research
+    research_files = [*(research or {}).get("read", []), *(research or {}).get("document", [])]
+    request["tried"] = tried_of(research_files)
+
+    findings: list[Json] = []
+    rejected: Json | None = None
+    last_patch = ""
+    unusable = 0
+    parked_why = f"still failing after {rounds_max} round(s)"
+
+    def keep(rec: Json, outcome: str, found: list[Json]) -> None:
+        rec.update(outcome=outcome, findings=found[:MAX_FINDINGS])
+        save_rounds(gdir, i, learning, rounds)
+
+    for rnd in range(1, rounds_max + 1):
+        rec = rounds[rnd - 1] if rnd <= len(rounds) else None
+        if rec is not None and rec.get("outcome") and (rec["outcome"] != "approved" or rec.get("eval")):
+            # Ended before a restart: its findings carry on.
+            findings = list((rec.get("eval") or {}).get("findings") or []) if rec["outcome"] == "approved" \
+                else list(rec.get("findings") or [])
+            rejected = rec.get("rejected")
+            unusable += rec["outcome"] == "unusable"
+            last_patch = rec.get("diff") or last_patch
+            continue
+        if rnd > 1:
+            reset_tree(tree, base)
+        try:
+            if rec is None:
+                if rnd > 1:
+                    say(f"candidate {i}: round {rnd} of {rounds_max}, {len(findings)} finding(s)")
+                answer = proposer.propose({**request, "round": rnd, "findings": findings, "rejected": rejected,
+                                           "last_patch": last_patch})
+                proposal = check_proposal(answer)
+                rec = {"round": rnd, "proposal": proposal}
+                if in_place:
+                    rec["patch"] = f"cand-{i}.round-{rnd}.patch"
+                    (gdir / rec["patch"]).write_text(staged_patch(tree, base), encoding="utf-8")
+                rounds.append(rec)
+                save_rounds(gdir, i, learning, rounds)
             else:
+                proposal = check_proposal(rec["proposal"])
+                if rec.get("patch"):
+                    _apply(tree, (gdir / rec["patch"]).read_text(encoding="utf-8"))
+        except Skipped as skip:
+            if rnd == 1:
+                entry.update(verdict="skipped", skip={"why": skip.why, "where": skip.where, "note": skip.note},
+                             gate={"ok": False, "checks": []})
+                return entry
+            parked_why = f"round {rnd}: the builder skipped ({skip.why}): {skip.note}"[:300]
+            break
+        except (EvolveError, OSError) as exc:
+            if rnd == 1:
+                entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})
+                return entry
+            parked_why = f"round {rnd}: no proposal: {exc}"[:300]
+            break
+        rejected = None
+        if not in_place or proposal.get("edits"):
+            try:
                 apply_edits(tree, proposal.get("edits"))
-        else:
-            editable, files = context_pack(tree, [], cfg["EVOLVE_CONTEXT_CHARS"])
-            request = {"gen": gen, "cand": i, "learning": learning, "unread": unread_components(evidence),
-                       "evidence": evidence, "siblings": siblings, "editable": editable,
-                       "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
-                       "gen_dir": str(gdir)}
-            research = research_one(cfg, proposer, tree, gdir, i, learning, {**request, "tried": tried or []},
-                                    budget or SearchBudget(gdir))
-            if research is not None:
-                entry["research"] = research_record(research, gen, i)
-                if research["verdict"] != "build":
-                    entry.update(verdict="skipped", skip={"why": research["verdict"],
-                                                          "where": (research.get("read") or [""])[0],
-                                                          "note": research["why"]}, gate={"ok": False, "checks": []})
-                    return entry
-                if research.get("read"):
-                    # The files research named come first in what the build is shown.
-                    editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
-                    request.update(editable=editable, files={} if in_place else files)
-                if not research.get("error"):
-                    request["research"] = research
-            proposal = check_proposal(proposer.propose(request))
-            if not in_place:
-                try:
-                    apply_edits(tree, proposal.get("edits"))
-                except EvolveError as exc:
-                    # Once more, shown why (gen 9: an old text that left a
-                    # sentence out of the line it quoted). apply_edits writes
-                    # nothing until every edit applies, so the tree is clean.
-                    say(f"candidate {i}: the edits did not apply ({str(exc)[:120]}); asking once more")
-                    proposal = check_proposal(proposer.propose(
-                        {**request, "rejected": {"error": str(exc)[:500], "edits": proposal.get("edits")}}))
-                    apply_edits(tree, proposal.get("edits"))
-                # Kept once it applies: a restart that cuts the run off
-                # later loses the turn that wrote it, not the proposal.
-                write_json(gdir / f"cand-{i}.proposal.json", {"learning": learning, "proposal": proposal})
-            # An editing proposer has written its change already; edits in
-            # its answer, if any, are applied on top, by the same rules.
-            elif proposal.get("edits"):
-                apply_edits(tree, proposal.get("edits"))
-    except Skipped as skip:
-        entry.update(verdict="skipped", skip={"why": skip.why, "where": skip.where, "note": skip.note},
-                     gate={"ok": False, "checks": []})
+            except EvolveError as exc:
+                # Shown why, next round (gen 9: an old text that left a
+                # sentence out of the line it quoted). apply_edits writes
+                # nothing until every edit applies, so the tree is clean.
+                say(f"candidate {i}: the edits did not apply ({str(exc)[:120]})")
+                rejected = {"error": str(exc)[:500], "edits": proposal.get("edits")}
+                rec["rejected"] = rejected
+                findings = [{"file": "", "problem": f"the edits did not apply: {str(exc)[:300]}",
+                             "fix": "copy each old text character for character from the file, so it occurs once"}]
+                keep(rec, "did-not-apply", findings)
+                continue
+        entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
+                     expected_move=proposal["expected_move"].strip()[:500])
+        (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
+        full = staged_patch(tree, base)
+        stats = numstat(tree, base)
+        entry.update(diff_hash=diff_hash(full), diff_stats={"files": len(stats),
+                                                            "added": sum(a or 0 for a, _, _ in stats),
+                                                            "removed": sum(r or 0 for _, r, _ in stats)})
+        (gdir / f"cand-{i}.patch").write_text(full, encoding="utf-8")
+        (gdir / f"cand-{i}.mutation.patch").write_text(full, encoding="utf-8")
+        shutil.copyfile(tree / HYPOTHESIS, gdir / f"cand-{i}.HYPOTHESIS.md")
+        entry.update(patch=f"{gen}/cand-{i}.patch", mutation_patch=f"{gen}/cand-{i}.mutation.patch",
+                     hypothesis=f"{gen}/cand-{i}.HYPOTHESIS.md")
+        last_patch = full[:MAX_LAST_PATCH_CHARS]
+        rec["diff"] = last_patch
+        lines = changed_lines(full)
+        if not lines:
+            if rnd == 1:
+                entry.update(verdict="no-proposal", reason="the edits change nothing", gate={"ok": False, "checks": []})
+                return entry
+            findings = [{"file": "", "problem": "the edits change nothing", "fix": "make the change the findings ask for"}]
+            keep(rec, "empty", findings)
+            continue
+        twin, sim = nearest(lines, {k: v for k, v in mutations.items() if k != entry["id"]})
+        if twin is not None and sim >= cfg["EVOLVE_DUP_THRESHOLD"]:
+            entry.update(verdict="duplicate", duplicate_of=twin, similarity=round(sim, 4),
+                         gate={"ok": False, "checks": [{"check": "near-duplicate", "ok": False,
+                                                        "detail": f"{sim:.2f} like {twin}"}]})
+            return entry
+        mutations[entry["id"]] = lines
+        entry["gate"] = gate(tree, base, proposal["component"], evidence, cfg["EVOLVE_MAX_CHANGE_PCT"])
+        if not entry["gate"]["hard_ok"]:
+            entry["verdict"] = "rejected"
+            entry["rounds"] = [round_line(r) for r in rounds if r.get("outcome")]
+            return entry
+        if not entry["gate"]["ok"]:
+            findings = [{**f, "check": c["check"]} for c, f in zip(
+                [c for c in entry["gate"]["checks"] if not c["ok"]], check_findings(entry["gate"]))]
+            keep(rec, "checks", findings)
+            continue
+        if not isinstance(rec.get("review"), dict):
+            try:
+                review = check_review(reviewer.review({
+                    "gen": gen, "cand": i, "round": rnd, "learning": learning,
+                    "plan": (research or {}).get("plan") if research and not research.get("error") else None,
+                    "proposal": {k: proposal.get(k) for k in ("title", "component", "expected_move", "hypothesis")},
+                    "checks": entry["gate"]["checks"], "diff": full}))
+            except (EvolveError, OSError) as exc:
+                review = {"unusable": str(exc)[:300]}
+            rec["review"] = review
+            save_rounds(gdir, i, learning, rounds)
+        review = rec["review"]
+        if review.get("unusable") or review.get("verdict") not in REVIEW_VERDICTS:
+            unusable += 1
+            say(f"candidate {i}: the reviewer's answer could not be used ({str(review.get('unusable'))[:120]})")
+            # Never an approval: taken once as a revision with no findings.
+            findings = []
+            keep(rec, "unusable", findings)
+            if unusable >= MAX_UNUSABLE_REVIEWS:
+                parked_why = f"the reviewer's answer could not be used {unusable} times"
+                break
+            continue
+        if review["verdict"] == "revise":
+            findings = list(review["findings"])
+            keep(rec, "revise", findings)
+            continue
+        keep(rec, "approved", list(review.get("findings") or []))
+        # Kept once approved: a restart that cuts the run off later loses
+        # nothing, and the older resume path still finds it.
+        write_json(gdir / f"cand-{i}.proposal.json", {"learning": learning, "proposal": proposal,
+                                                      **({"in_place": True} if in_place else {})})
+        entry.update(verdict="pending", round=rnd, rounds=[round_line(r) for r in rounds if r.get("outcome")],
+                     review={k: review[k] for k in ("verdict", "findings", "note") if k in review})
         return entry
-    except (EvolveError, OSError) as exc:
-        entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})
-        return entry
-    entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
-                 expected_move=proposal["expected_move"].strip()[:500])
-    (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
-    full = staged_patch(tree, base)
-    stats = numstat(tree, base)
-    entry.update(diff_hash=diff_hash(full), diff_stats={"files": len(stats), "added": sum(a or 0 for a, _, _ in stats),
-                                                        "removed": sum(r or 0 for _, r, _ in stats)})
-    (gdir / f"cand-{i}.patch").write_text(full, encoding="utf-8")
-    (gdir / f"cand-{i}.mutation.patch").write_text(full, encoding="utf-8")
-    shutil.copyfile(tree / HYPOTHESIS, gdir / f"cand-{i}.HYPOTHESIS.md")
-    if in_place and saved is None:
-        write_json(gdir / f"cand-{i}.proposal.json", {"learning": learning, "proposal": proposal, "in_place": True})
-    entry.update(patch=f"{gen}/cand-{i}.patch", mutation_patch=f"{gen}/cand-{i}.mutation.patch",
-                 hypothesis=f"{gen}/cand-{i}.HYPOTHESIS.md")
-    lines = changed_lines(full)
-    if not lines:
-        entry.update(verdict="no-proposal", reason="the edits change nothing", gate={"ok": False, "checks": []})
-        return entry
-    twin, sim = nearest(lines, {k: v for k, v in mutations.items() if k != entry["id"]})
-    if twin is not None and sim >= cfg["EVOLVE_DUP_THRESHOLD"]:
-        entry.update(verdict="duplicate", duplicate_of=twin, similarity=round(sim, 4),
-                     gate={"ok": False, "checks": [{"check": "near-duplicate", "ok": False,
-                                                    "detail": f"{sim:.2f} like {twin}"}]})
-        return entry
-    mutations[entry["id"]] = lines
-    entry["gate"] = gate(tree, base, proposal["component"], evidence)
-    entry["verdict"] = "pending" if entry["gate"]["ok"] else "rejected"
+    entry.update(verdict="parked", reason=parked_why, findings=findings[:MAX_FINDINGS],
+                 rounds=[round_line(r) for r in rounds if r.get("outcome")])
+    entry.setdefault("gate", {"ok": False, "checks": []})
     return entry
 
 
