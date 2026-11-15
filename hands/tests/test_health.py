@@ -1,9 +1,9 @@
 """bin/health: the pinned check that notices Teeny's model is not answering
 (the 2026-11-11 outage: a revoked provider key, seven hours of failed turns
-and judge holds, and nobody told). It asks the model once through the core
-every run; two failures in a row raise one alarm, as a `health` stimulus
-and one issue on teenydroid/brain, and the first answer after that closes
-both. Against a fake core, a fake GitHub and a pinned clock."""
+and judge holds, and nobody told). It asks the model through the core every
+run (again, up to three attempts, after a failure that may pass); two
+failed checks in a row raise one alarm, as a `health` stimulus and one issue
+on teenydroid/brain, and the first answer after that closes both. Against a fake core, a fake GitHub and a pinned clock."""
 
 import json
 import os
@@ -13,13 +13,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent / "lib"))
 sys.path.insert(0, str(REPO / "bin" / "lib"))
 
-from guard.support import FakeCore, result  # noqa: E402
+from guard.support import FakeCore, error, result  # noqa: E402
 from x.support import FakeX  # noqa: E402
 from teeny_hands import hand, stimuli  # noqa: E402
 from teeny_hands.guard import holds  # noqa: E402
@@ -30,6 +31,8 @@ QUARTER = 900
 TOKEN = "ghp_FAKEtokenFAKEtokenFAKEtoken0000"
 DEAD = {"jsonrpc": "2.0", "id": 1, "error": {"message": "local-openai returned HTTP 401 (invalid_api_key)"}}
 ALIVE = result({"response": "ok"})
+# What the core said, live, when Surplus dropped the model's stream (2026-11-14).
+CUT = error("model error: local-openai returned: provider stream ended before a completion signal")
 ISSUES = "/repos/teenydroid/brain/issues"
 
 
@@ -56,6 +59,11 @@ class HealthTest(unittest.TestCase):
         # The judge on, as in production: a judged alarm would be held
         # exactly when it is needed.
         self.configure()
+        # The probe waits between its attempts; the fake core needs none.
+        self.slept: list[float] = []
+        sleep = mock.patch.object(health, "_sleep", self.slept.append, create=True)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def tearDown(self):
         os.environ.clear()
@@ -127,6 +135,75 @@ class HealthTest(unittest.TestCase):
         self.at(2 * QUARTER)
         self.assertEqual(health.check()["alarm"], None)
         self.assertEqual(self.inbox(), [])
+
+    # --- asking again within one probe (2026-11-14) ----------------------------------------
+
+    def test_a_probe_cut_once_then_answered_is_no_failure_and_says_it_was_asked_again(self):
+        # Surplus closes a stream now and then in a window of minutes; on
+        # 2026-11-14 two such probes in a row opened outage issue #256, which
+        # closed itself fifteen minutes later.
+        self.core.replies = [CUT, ALIVE]
+        out = health.check()
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (True, 0, None))
+        self.assertEqual(out["probe_attempts"], 2)
+        self.assertIn("provider stream ended", out["probe_retried"])
+        self.assertEqual(len(self.core.calls), 2)
+        self.assertEqual(self.slept, [health.PROBE_BACKOFFS[0]])
+        self.assertEqual(self.state()["probe_attempts"], 2)
+        self.assertEqual(self.state()["failures"], 0)
+
+    def test_a_probe_answered_at_once_says_one_attempt(self):
+        out = health.check()
+        self.assertEqual((out["probe_attempts"], out.get("probe_retried")), (1, None))
+        self.assertEqual(self.state()["probe_attempts"], 1)
+        self.assertEqual(self.slept, [])
+
+    def test_a_probe_cut_at_every_attempt_is_one_failure(self):
+        (out,) = self.outage(1, reply=CUT)
+        self.assertEqual((out["healthy"], out["failures"], out["alarm"]), (False, 1, None))
+        self.assertIn("provider stream ended", out["error"])
+        self.assertEqual(out["probe_attempts"], health.PROBE_ATTEMPTS)
+        self.assertEqual(len(self.core.calls), 3)
+        self.assertEqual(self.slept, list(health.PROBE_BACKOFFS))
+        self.assertEqual(self.state()["probe_attempts"], 3)
+
+    def test_an_outage_that_cuts_every_attempt_still_alarms_at_the_second_check(self):
+        first, second = self.outage(2, reply=CUT)
+        self.assertEqual((first["failures"], first["alarm"]), (1, None))
+        self.assertEqual((second["failures"], second["alarm"], second["issue"]), (2, "raised", 41))
+
+    def test_a_failure_that_will_not_pass_is_not_asked_again(self):
+        (out,) = self.outage(1)  # a refused key (HTTP 401)
+        self.assertEqual((out["failures"], out["probe_attempts"]), (1, 1))
+        self.assertEqual(len(self.core.calls), 1)
+        self.assertEqual(self.slept, [])
+
+    def test_the_attempts_together_never_take_longer_than_the_probe_budget(self):
+        # Every attempt times out, the worst case: each gets what is left of
+        # PROBE_BUDGET (at most PROBE_TIMEOUT), and one that would get less
+        # than MIN_PROBE_SECS is not made, so the check stays well inside the
+        # core's 300 s for a cron shell call.
+        clock = [1000.0]
+        timeouts: list[float] = []
+
+        def timed_out(method, params, timeout):
+            timeouts.append(timeout)
+            clock[0] += timeout
+            raise hand.CoreError("core unreachable: timed out")
+
+        def sleep(seconds):
+            self.slept.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(health, "_sleep", sleep), \
+                mock.patch.object(health.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(health.hand, "core", timed_out):
+            error_, attempts, errors = health.probe_until_answered()
+        self.assertIn("timed out", error_)
+        self.assertEqual(timeouts, [health.PROBE_TIMEOUT, health.PROBE_BUDGET - health.PROBE_TIMEOUT - health.PROBE_BACKOFFS[0]])
+        self.assertEqual((attempts, len(errors)), (2, 2))
+        self.assertLessEqual(clock[0] - 1000.0, health.PROBE_BUDGET)
+        self.assertEqual(health.PROBE_BUDGET, 90.0)
 
     # --- the alarm ------------------------------------------------------------------------
 
@@ -496,6 +573,85 @@ class HealthTest(unittest.TestCase):
         out = health.check()
         self.assertFalse(out["healthy"])
         self.assertEqual((out["rearmed"], out["cron_alarm"]), (["teeny.mail-inbound"], "raised"))
+
+    # --- a missed slot is caught up, not dropped (bin/lib/catch_up.py) -------------------
+    # 2026-11-14: a deploy at 11:31 cut off teeny.moltbook-follow's 11:30 run;
+    # the 11:45 check re-armed it and said "they run again at their next
+    # slot": the day's follows were dropped. self-improve's slot was dropped
+    # at boot by bin/seed-cron the same way, twice, and nothing said so.
+
+    def daily(self, jobs, leases=(), catch_up=()):
+        """storage.db with daily jobs `(id, name, "MM HH", next run in seconds
+        from T0)` (UTC), dead claims `(job id, seconds since renewed)` on their
+        next run, and the schedule files giving `catch_up` to the names listed."""
+        storage = self.root / "brain" / "storage.db"
+        storage.parent.mkdir(exist_ok=True)
+        storage.unlink(missing_ok=True)
+        db = sqlite3.connect(storage)
+        db.execute("create table docs (scope text default '', coll text, id text, created_ms integer default 0,"
+                   " updated_ms integer default 0, deleted integer default 0, body text)")
+        pinned = ""
+        next_ms = {}
+        for job_id, name, at, offset in jobs:
+            expr = f"{at} * * *"
+            next_ms[job_id] = int((T0 + offset) * 1000)
+            body = {"name": name, "enabled": True, "next_run_ms": next_ms[job_id], "expression": expr,
+                    "schedule": {"kind": "cron", "expr": expr, "tz": "UTC"}}
+            db.execute("insert into docs (coll, id, body) values ('cron.jobs', ?, ?)", (job_id, json.dumps(body)))
+            short = name.removeprefix("teeny.")
+            pinned += f'[jobs.{short}]\nschedule = "{expr}"\ncommand = "bin/heartbeat"\ntz = "UTC"\n'
+            pinned += "catch_up = true\n\n" if name in catch_up else "\n"
+        for job_id, renewed_ago in leases:
+            renewed = int((T0 - renewed_ago) * 1000)
+            body = {"holder": "token", "epoch": 1, "expires_ms": renewed + 7_200_000}
+            db.execute("insert into docs (coll, id, updated_ms, body) values ('tsd.leases', ?, ?, ?)",
+                       (f"cron/{job_id}%2F{next_ms[job_id]}", renewed, json.dumps(body)))
+        db.commit()
+        db.close()
+        (self.root / "brain" / "cron.toml").write_text("")
+        (self.root / "evals").mkdir(exist_ok=True)
+        (self.root / "evals" / "cron.pinned.toml").write_text(pinned)
+
+    def cron_runs(self) -> list[dict]:
+        return [c["params"] for c in self.core.calls if c["method"] == "openhuman.cron_run"]
+
+    def test_a_stuck_job_that_catches_up_runs_now_and_the_alarm_says_so(self):
+        # follow's 11:45 run was cut off at 11:46 by a restart; post's 11:40 too.
+        self.daily([("j1", "teeny.follow", "45 11", -900), ("j2", "teeny.post", "40 11", -1200)],
+                   leases=[("j1", 840), ("j2", 840)], catch_up=("teeny.follow",))
+        self.core.replies = [ALIVE, result({"job_id": "j1", "status": "queued"})]
+        out = health.check()
+        self.assertEqual(sorted(out["rearmed"]), ["teeny.follow", "teeny.post"])
+        self.assertEqual(out["caught_up"], [{"name": "teeny.follow", "slot": "2026-11-11T11:45:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.assertEqual(out["cron_alarm"], "raised")
+        (alarm,) = self.inbox()
+        self.assertIn("caught up now: teeny.follow (its 2026-11-11T11:45:00Z slot)", alarm["text"])
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
+        self.assertNotIn("teeny.follow waits", alarm["text"])
+        body = self.gh.requests("POST", ISSUES)[0].json()["body"]
+        self.assertIn("caught up now: teeny.follow", body)
+        self.assertIn("teeny.post waits for its next slot", body)
+
+    def test_a_slot_dropped_at_boot_is_caught_up_by_the_next_check(self):
+        # Boot re-armed it to tomorrow before any check saw it stale, and the
+        # boot's own catch-up did not run (an older spine): not stale, still missed.
+        self.daily([("j1", "teeny.self-improve", "40 11", 86400 - 1200)], catch_up=("teeny.self-improve",))
+        out = health.check()
+        self.assertEqual((out["stale_crons"], out["cron_alarm"]), ([], None))
+        self.assertEqual(out["caught_up"], [{"name": "teeny.self-improve", "slot": "2026-11-11T11:40:00Z"}])
+        self.assertEqual(self.cron_runs(), [{"job_id": "j1"}])
+        self.at(QUARTER)
+        self.assertEqual(health.check()["caught_up"], [])
+        self.assertEqual(len(self.cron_runs()), 1)
+
+    def test_a_job_without_catch_up_still_waits_for_its_next_slot(self):
+        self.daily([("j2", "teeny.post", "40 11", -1200)], leases=[("j2", 840)])
+        out = health.check()
+        self.assertEqual((out["rearmed"], out["caught_up"]), (["teeny.post"], []))
+        self.assertEqual(self.cron_runs(), [])
+        (alarm,) = self.inbox()
+        self.assertIn("teeny.post waits for its next slot", alarm["text"])
 
     # --- the re-screen -----------------------------------------------------------------------
 

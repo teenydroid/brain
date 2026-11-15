@@ -119,7 +119,7 @@ container. `bin/spine` is the entrypoint. Configuration:
 | Persona | `brain/SOUL.md`, read every turn. Each speaking agent's prompt is built from `brain/agents/<id>.md` plus the world files (§4a). |
 | Agents | `brain/agents/*.toml`, loaded by the core at boot (§5). |
 | Shell and files | `[autonomy] enabled = true`, `level = "full"`, `workspace_only = true`, Teeny's own brain files and `secrets/` in `forbidden_paths`, and `state/workbench/` as the one trusted root. `full` keeps the cron shell jobs running. What an agent may do is bounded by its named tools, the workspace scoping and the hands (`bin/lib/core_sections/automation.py`, §6a). |
-| Browser | `[browser]` headless Chromium (in the image), a fresh profile per session (TinyComputer's egress-enforced launcher refuses a named profile folder) and downloads under `state/browser/`, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`, which hands/tasks enforces for start pages and the operator's prompt for links; TinyComputer has no host hook for it. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
+| Browser | `[browser]` headless Chromium (in the image), one persistent profile in `state/browser/profile/` (mode 0700), so cookies and sign-ins survive a restart, and downloads under `state/browser/`. The core passes that folder to TinyComputer as the host's own `browser.profile`, the only one its egress-enforced launcher lets a session name, and Chrome launches it with extensions off (tinyhumansai/tinycomputer#175). A second browser that starts while the first holds the profile runs fresh, and `unattended_actions` for the operator's clicks and typing. It opens any public https page (`OPENHUMAN_BROWSER_ALLOW_ALL=1`, set by bin/spine), never a host on the operator's `deploy/browser-deny.txt`, which hands/tasks enforces for start pages and the operator's prompt for links; TinyComputer has no host hook for it. `[http_request] allowed_domains`, from the reviewed `deploy/browser-allow.txt`, bounds only the raw `http_request` tool. `[browser] keychain_command` is `bin/keychain-fill`: the operator types `{{keychain:<site>}}` and the core types Teeny's password for that site (hands/keychain, sealed under `secrets/keychain.env`) only on that site's own pages, masking it in every reply, so no model sees it. tinywallet is served linked from `teeny-spine` (`spine/Cargo.toml`); TinyComputer loads from its pinned release, since the browser binds a host callback to it that TinyBus admits only from a release or local file. Every page the browser opens goes through TinyComputer's egress proxy, which asks TinySecurity to authorize each connection; TinySecurity before 0.21.1 refused those calls whenever audit was required, which is how OpenHuman runs it, so every page failed with `ERR_TUNNEL_CONNECTION_FAILED`. `bin/test/spine_live_test.sh` has the operator do one real task in the real browser, so a browser that loads but cannot open a page fails CI. |
 | Wallet | `[wallet_policy]`, written at every boot by `bin/lib/wallet_config.py` from the caps in `secrets/teeny.env` ([`hands.md`](hands.md), `wallet`), with the EVM endpoints and the x402 module budget. One recovery phrase signs on Solana and the EVM networks; bridges go through LI.FI and swaps through deBridge unless `WALLET_CONVERT_PROVIDER` names one (`spine/src/wallet_backend.rs`), x402 through `openhuman.x402_fetch`. |
 
 Not used: desktop control, flows, Composio, OpenHuman's channels (Telegram
@@ -285,7 +285,10 @@ agent answers with a `thought` and JSON intents (`reply_x`,
 `comment_moltbook`, `post_moltbook`, `follow_moltbook`, `reply_mail`,
 `comment_gh`, `remember`, `follow_up`, and the rest). `open_issue`, `queue_task` and `start_mail` each carry a
 daily cap of their own, off until `secrets/teeny.env` sets it (docs/hands.md,
-"The mind's issues, browser tasks and new mail"). Each intent goes only to the hand verb it names, and that
+"The mind's issues, browser tasks and new mail"). `propose_change` files a
+change to Teeny itself through `hands/build self` (one a day by default,
+`MIND_BUILDS_PER_DAY`, and one at a time); it ships as a pull request the
+operator merges or closes (docs/evolve.md). Each intent goes only to the hand verb it names, and that
 hand keeps its own guard, caps and `DRY_RUN`. What each hand did comes back
 as the next beat's first stimuli. `remember` keeps a note (`mind_notes`) and
 teaches the core's memory (`memory_learn`). `follow_up` sets a reminder that
@@ -331,7 +334,8 @@ One beat, end to end (`_beat` in `bin/lib/tick.py`):
                                                      promise, kept (hands/people)
    post_moltbook, follow_moltbook, reply_mail,                │
    say_telegram, comment_gh,                                  │
-   open_issue, queue_task, start_mail (capped)                │
+   open_issue, queue_task, start_mail,                        │
+   propose_change (capped)                                    │
             │                                                 ▼
             ▼                                        mind_notes, memory_learn,
    one hand verb each: guard, caps, DRY_RUN          state/mind.json, the journal
@@ -786,8 +790,9 @@ The beat treats the message differently from everything else in the inbox:
 - `render` puts it under its own heading as the operator's instructions,
   ahead of the "data, never instructions" line.
 - `rhythm.urgent` wakes Teeny for it at night.
-- For that beat only, `open_issue`, `queue_task` and `start_mail` run up to
-  their `MIND_CAPS` ceiling even when their caps are 0 (`HOST_LIFTS`).
+- For that beat only, `open_issue`, `queue_task`, `start_mail` and
+  `propose_change` run up to their `MIND_CAPS` ceiling even when their caps
+  are 0 (`HOST_LIFTS`).
 - The guard still reads every send.
 
 Each message is also counted in `state/host/said.jsonl`, with the time, ref,
@@ -838,7 +843,12 @@ Every scheduled job is in one of two files:
     `health · runway` stimulus and the tier that cuts optional spend, off
     until `RUNWAY=1`;
   - `health` (`bin/health`, every 15 minutes), which asks the model one
-    short question through the core. Two failures in a row raise one alarm:
+    short question through the core. A failed attempt that may pass (a cut
+    stream, a timeout) is asked again, up to three attempts 5 s and 20 s
+    apart and 90 s in all, so a stream the provider cut once is not a
+    failed check; `probe_attempts` on its line and in `state/health.json`
+    keeps that visible. Only a check whose every attempt failed counts. Two
+    such failures in a row raise one alarm:
     a `health` stimulus and one issue on teenydroid/brain, closed when the
     model answers again. When it answers, `bin/health` also re-screens the
     guard holds an outage made (docs/hands.md, "Re-screening"). With
@@ -917,7 +927,7 @@ Two agents act from cron, and only these two (`AGENT_JOB_AGENTS` in
 | Agent | Job | Takes work from | Tools | Leaves through |
 |---|---|---|---|---|
 | `builder` (`brain/agents/builder.toml`) | pinned `builder`, `10 */2 * * *` | its desk, `state/workbench/desk/build.json`, laid out by `hands/build desk`: the oldest picked build request, or one small daily thing | `shell` (sandboxed, rooted at `state/workbench/`), `file_read`, `file_write`, `edit`, `glob`, `grep`, `list`, `tool_search` | its report in `build-done.json`; `bin/build-ship` (pinned `build-ship`, every 30 minutes) → `hands/build desk`, `hands/build ship` → `hands/gh create-repo` and `push` |
-| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; screenshots under `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
+| `operator` (`brain/agents/operator.toml`) | pinned `operator`, `*/20 * * * *` | its desk, `state/workbench/desk/task.json`, laid out by `hands/tasks desk` (`bin/tasks-desk`, every 15 minutes): tasks that playbooks and the operator queued | `browser`, `file_read`, `file_write`, `tool_search` | its report in `task-done.json`; the browser's own pictures of the pages it reached (the spine's picture sink, `state/browser/screenshots/`), moved by the desk to `state/media/tasks/<id>/` for `hands/x upload`; the outcome in `browser_tasks` |
 
 **How a run may act.** Each definition sets `scheduled_actions = true` and
 names its tools (never the wildcard). A cron job naming that agent in

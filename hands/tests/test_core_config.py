@@ -75,19 +75,38 @@ class CoreConfigTest(unittest.TestCase):
         self.assertIs(secrets["unattended_unlock"], True)
         self.assertIs(secrets["encrypt"], False)
 
-    def test_the_browser_starts_on_a_fresh_profile_the_egress_policy_admits(self):
-        # With TinySecurity's egress policy on, TinyComputer's enforced
-        # launcher refuses a launch that names a profile folder: "network
-        # policy refuses attached or externally managed browsers". A
-        # persistent profile is exactly that, so no session could start.
+    def test_the_browser_keeps_its_profile_so_cookies_survive_a_restart(self):
+        # Sign-ins and cookies live in a persistent profile under
+        # state/browser/profile (mounted from the checkout, so a restart keeps
+        # it). TinyComputer's egress-enforced launcher admits it because the
+        # core hands it over as the host's own profile (browser.profile,
+        # tinyhumansai/tinycomputer#175), launched with extensions off.
         browser = self.written()["browser"]
-        self.assertEqual(browser["profile_mode"], "fresh")
-        self.assertNotIn("profile_path", browser)
+        profile = self.root / "state" / "browser" / "profile"
+        self.assertEqual(browser["profile_mode"], "persistent")
+        self.assertEqual(browser["profile_path"], str(profile))
+        self.assertTrue(profile.is_dir())
+        # Cookies are credentials: the folder is the owner's alone.
+        self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
 
     def test_the_browser_fills_keychain_placeholders_from_bin_keychain_fill(self):
         browser = self.written()["browser"]
         self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
         self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
+
+    def test_the_browser_saves_its_own_pictures_where_the_task_desk_collects_them(self):
+        # Without it the operator's tasks ended with no screenshot: its
+        # browser tool has no screenshot action. The spine keeps the core's
+        # pictures in the folder bin/spine names (spine/src/browser_pictures.rs),
+        # and hands/tasks collects them from there (queue.CAPTURES).
+        self.written()
+        folder = self.root / "state" / "browser" / "screenshots"
+        self.assertTrue(folder.is_dir())
+        self.assertIn('export TEENY_BROWSER_PICTURES="$TEENY_STATE/browser/screenshots"',
+                      (REPO / "bin" / "spine").read_text())
+        from teeny_hands.tasks import queue
+
+        self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
 
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence

@@ -1,4 +1,5 @@
 description = "the ship log quotes only numbers that are in its inputs"
+playbook = "shiplog"
 kind = "post"
 must_not = [
   # Any number that is not in the inputs (or a count of what the inputs list).

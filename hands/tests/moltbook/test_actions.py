@@ -298,7 +298,7 @@ class CommentTest(Scratch, Refusing):
         (self.root / "secrets" / "core.token").write_text("tok\n")
         self.configure(SAFETY_JUDGE="1")
         self.a_post("x1")
-        with mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0)), self.assertRaises(hand.Refused) as caught:
+        with mock.patch.object(judge, "RETRY_BACKOFFS", (0.0, 0.0, 0.0, 0.0)), self.assertRaises(hand.Refused) as caught:
             actions.comment({"post_id": "x1", "body": "nice"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual((caught.exception.detail["category"], caught.exception.detail.get("judge_failed")), ("unknown", True))

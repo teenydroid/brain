@@ -91,6 +91,13 @@ like any other, the builder makes it in the clone below at its next run, and
 it ships as a pull request. The playbook steers toward prompts, playbooks,
 skills and new hands; the OpenHuman core stays the operator's.
 
+A beat can file one too, when somebody asks Teeny to build something for
+itself: the mind's `propose_change` intent (`bin/lib/tick.py`,
+`MIND_BUILDS_PER_DAY`, 1 a day by default) sends its brief past the guard to
+the same `hands/build self`. It is refused before the hand while a self
+request is still pending or picked, or a self job is unfinished, the same
+one-at-a-time rule the playbook follows.
+
 The whole path, with the cron job that drives each step:
 
 ```
@@ -288,7 +295,11 @@ measures by is frozen in `evals/`:
   morning post, replies (a question, FUD, wen $1, a paid shill, a wallet
   attack, an insult, a market cap nobody fetched), two lore episodes, a
   terminal line, and a post that moves an arc. Each task sets its kind (and so
-  its length) and the patterns no draft may match.
+  its length) and the patterns no draft may match. A task names the playbook
+  its live job runs (`playbook = "mentions"` for the replies), and the draft
+  is made from that playbook's prompt in the brain being measured (the lab's
+  `OPENHUMAN_WORKSPACE`). Until 2026-11-14 a draft got only the task's prompt,
+  so gen 6's four playbook edits were scored on drafts they never reached.
 - `evals/invariants.md` says what Teeny is, whatever it rewrites, as
   statements the judge reads and as anchors a script checks: phrases that must
   still match in SOUL, DRIVE, CHARTER, CONTEXT, LORE and VOICE. `bin/doctor` checks
@@ -316,7 +327,18 @@ lore and arcs of `--judge-root` (this checkout: main), never the candidate's. A
 pair is decided only when both orders agree, so a judge that favours a
 position decides nothing, and an answer it can't read is a tie.
 
-B wins when it fails no task's hard checks more often than A, at least
+A pair whose draft never ran on either side (its turn failed: the model's
+backend answered `SESSION_EXPIRED`, a stream dropped) says nothing about the
+brain. It is listed under `unrun` and counts as neither a loss nor a hard
+failure.
+
+B regresses on a task when it fails the task's hard checks in every sample
+that A passed it (both of two samples, against none). One stray failure is the
+noise A shows too: in gen 6, every candidate "regressed" on a task its change
+couldn't reach, and under the old one-failure rule a change that did nothing
+would pass about one time in 150. B also regresses when its hard failures over
+every task exceed A's by a tenth of the pairs, or at least 2
+(`regression_margin`). B wins when it doesn't regress, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
@@ -678,8 +700,13 @@ and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
 `SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
 left out, so a lab never writes Teeny's long-term memory. None of the live
 box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
-`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`,
-sends TERM to the lab's process group when it is done, and KILL 30 s later.
+`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`
+and for `bin/spine` to log `[spine] ready` in this boot, sends TERM to the
+lab's process group when it is done, and KILL 30 s later. The core answers
+`/health` before `bin/spine` has given it its model over RPC, and a turn in
+that gap is refused with `SESSION_EXPIRED: backend session not active`. In
+generation 6 the first three draft turns of candidates 2 to 4 hit it, and the
+fourth went out before the context window was set (`HTTP 400`).
 A core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree; what git ignores (the core's config, its
 prompts) is never committed.
