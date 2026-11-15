@@ -154,6 +154,13 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
                               quote_author=quoted["authorId"] if quoted else None, **tagged)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
+        # A quote of a peer (brain/x-peers.txt) is a touch, whoever quoted.
+        if quoted is not None:
+            try:
+                peers.record_touch(quoted, post_id, tagged.get("format"))
+            except Exception as exc:  # noqa: BLE001
+                print(f"hands/x: published {post_id} but could not record the peer touch: {type(exc).__name__}",
+                      file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
 
 
