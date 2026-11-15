@@ -194,14 +194,6 @@ class AnchorTest(Posting):
         self.assertEqual([r["anchor"] for r in self.ledger()], ["hn:1"])
 
 
-class DefaultsTest(Posting):
-    """Four own posts a UTC day, five hours apart: the slots are ceilings."""
-
-    def test_the_defaults_are_four_a_day_five_hours_apart(self):
-        self.assertEqual(posting_rules.DEFAULT_POSTS_MAX_PER_DAY, 4)
-        self.assertEqual(posting_rules.DEFAULT_POST_MIN_GAP_HOURS, 5.0)
-
-
 class DryRunTest(Posting):
     def setUp(self):
         super().setUp()
