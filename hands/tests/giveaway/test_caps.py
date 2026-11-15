@@ -7,7 +7,7 @@ import unittest
 
 from giveaway.support import CAPS, DAY, DEADLINE, HOUR, T0, GiveawayCase, iso
 from teeny_hands import hand
-from teeny_hands.giveaway import caps, rounds, store
+from teeny_hands.giveaway import caps, publish, rounds, store
 
 
 class CapsLoadTest(unittest.TestCase):
@@ -82,7 +82,7 @@ class OpenTest(GiveawayCase):
         self.refused("deadline", deadline=None, deadline_hours="48")
         self.refused("deadline", deadline=iso(DEADLINE), deadline_hours=48)
         out = rounds.open_round(self.open_body(deadline=None, deadline_hours=48))
-        self.assertEqual(out["round"]["deadline"], iso(T0 + 48 * 3600))
+        self.assertEqual(out["round"]["deadline"], publish.iso(T0 + 48 * HOUR))
 
     def test_open_posts_and_returns_the_tag(self):
         out = rounds.open_round(self.open_body())
