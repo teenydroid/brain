@@ -170,6 +170,56 @@ class DripsplanTest(unittest.TestCase):
             config.validate(doc)
         self.assertIn("whole number of percent points", ctx.exception.issues[0])
 
+    def test_the_same_address_in_two_cases_is_a_duplicate(self):
+        # Hex case is not part of an address: the same recipient twice.
+        upper = "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01"
+        lower = upper.lower()
+        doc = {"entries": [upper, lower], "weights": [50, 50]}
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.validate(doc)
+        self.assertIn("duplicate", "\n".join(ctx.exception.issues))
+
+    def test_the_same_repo_slug_in_two_cases_is_a_duplicate(self):
+        # GitHub owner and repo names are case-insensitive.
+        doc = {"entries": ["Owner/Repo", "owner/repo"], "weights": [50, 50]}
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.validate(doc)
+        self.assertIn("duplicate", "\n".join(ctx.exception.issues))
+
+    def test_a_yaml_block_list_of_weights_reads_as_numbers(self):
+        # The block form of the same list the inline form already accepts.
+        path = self.write("block.yaml",
+                          "entries:\n  - teenydroid/refusal-ledger\n"
+                          "  - teenydroid/csvstat\nweights:\n  - 70\n  - 30\n")
+        got = config.validate(config.read(path), path)
+        self.assertEqual(got["weights"], [70, 30])
+
+    def test_a_list_item_after_a_top_level_key_is_refused(self):
+        # `- c/two` belongs to no list once `note:` has begun a new key;
+        # it must not be silently appended to `entries`.
+        path = self.write("stale.yaml",
+                          "entries:\n  - a/one\nnote: hi\n  - c/two\n"
+                          "weights: [100]\n")
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.read(path)
+        self.assertIn("line 4", ctx.exception.issues[0])
+
+    def test_a_config_that_is_not_utf8_is_a_named_error(self):
+        path = self.dir / "latin1.json"
+        path.write_bytes(b'{"entries": ["a/b"], "weights": [100], "note": "caf\xe9"}')
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.read(str(path))
+        self.assertIn("not valid UTF-8", ctx.exception.issues[0])
+
+    def test_a_duplicate_json_key_is_refused(self):
+        # json.loads keeps the last value silently; a config must not.
+        path = self.write("dupe.json",
+                          '{"entries": ["a/b"], "weights": [100], '
+                          '"weights": [50]}')
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.read(path)
+        self.assertIn("'weights' given twice", ctx.exception.issues[0])
+
     # -- emit ----------------------------------------------------------
 
     def test_emit_is_byte_deterministic(self):
