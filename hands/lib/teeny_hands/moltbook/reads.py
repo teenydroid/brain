@@ -300,7 +300,7 @@ def feed(
     unknown = set(filters) - set(FILTERS)
     if unknown:
         raise TypeError(f"feed() got unknown filters {sorted(unknown)}")
-    filters = {k: v for k, v in filters.items() if v not in (None, False)}
+    filters = {k: v for k, v in filters.items() if v is not None and v is not False}
     asked = submolt if isinstance(submolt, list) else [submolt] if submolt else []
     names = list(dict.fromkeys(client.submolt_name(s, "--submolt") for s in asked))
     if len(names) > 1 or filters:
@@ -395,7 +395,7 @@ def peers(per_peer: int = 2, api: RestApi | None = None, brief: bool = True, **f
     unknown = set(filters) - set(FILTERS)
     if unknown:
         raise TypeError(f"peers() got unknown filters {sorted(unknown)}")
-    filters = {k: v for k, v in filters.items() if v not in (None, False)}
+    filters = {k: v for k, v in filters.items() if v is not None and v is not False}
     names, skipped = peer_names()
     out: Json = {"peers": names[:PEERS_MAX]}
     if len(names) > PEERS_MAX:
