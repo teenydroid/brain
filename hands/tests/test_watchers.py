@@ -81,6 +81,7 @@ ENVIRONMENT = {
     "EVOLVE_NOW": "a pinned clock for the tests",
     "EVOLVE_BASE": "the base ref a generation starts from (tests)",
     "EVOLVE_GIT_DIR": "Teeny's clone's git dir (tests)",
+    "EVOLVE_EVAL_BIN": "a stand-in bin/eval (tests); the targeted eval only measures, it switches nothing off",
     "EVOLVE_LAB_SPINE": "the lab spine's command (tests)",
     "EVAL_HELDOUT_DIR": "where the held-out tasks are (tests); under secrets/ by default",
     "SPINE_LAB": "marks a lab spine's own boot, which never runs the production jobs",
