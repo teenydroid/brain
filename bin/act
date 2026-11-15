@@ -411,27 +411,36 @@ while IFS= read -r item; do
           text="$(jq -r 'join("\n\n")' <<<"$posts")"
         fi
       fi
-      # The anchor judge, before any picture is made: anything but its clear
-      # yes is a skip, and a skip is free.
-      why=""
-      if [ -z "$anchor" ]; then
-        why="the draft names no anchor"
-      elif ! judged="$(printf '%s' "$inputs" | jq -c --arg t "$text" --arg a "$anchor" '{text: $t, anchor: $a, inputs: .}' |
-        (cd "$TEENY_ROOT" && "$hands/guard" anchor))" || ! jq -e '.anchored == true' <<<"$judged" >/dev/null 2>&1; then
-        why="$(jq -r '(.reason // .error // empty) | tostring' <<<"${judged:-}" 2>/dev/null || true)"
-        why="${why:-the anchor judge did not answer}"
+      if [ "$status" = 0 ]; then
+        # The anchor judge, before any picture is made: anything but its clear
+        # yes is a skip, and a skip is free.
+        why=""
+        if [ -z "$anchor" ]; then
+          why="the draft names no anchor"
+        elif ! judged="$(printf '%s' "$inputs" | jq -c --arg t "$text" --arg a "$anchor" '{text: $t, anchor: $a, inputs: .}' |
+          (cd "$TEENY_ROOT" && "$hands/guard" anchor))" || ! jq -e '.anchored == true' <<<"$judged" >/dev/null 2>&1; then
+          why="$(jq -r '(.reason // .error // empty) | tostring' <<<"${judged:-}" 2>/dev/null || true)"
+          why="${why:-the anchor judge did not answer}"
+        fi
+        if [ -n "$why" ]; then
+          results="$(jq -c --arg r "not anchored: ${why:0:300}" --arg a "$anchor" --arg t "$text" \
+            '. + [{action: "skip", reason: $r, draft: $t} + (if $a == "" then {} else {anchor: $a} end)]' <<<"$results")"
+          continue
+        fi
+        attach_media "$item"
+        fmt="$(jq -r 'if (.format | type) == "string" then .format else "" end' <<<"$item")"
+        if [ "$posts" = null ]; then
+          verb=post
+          draft="$(jq -cn --arg t "$text" '{text: $t}')"
+        else
+          verb=post-thread
+          draft="$(jq -cn --argjson p "$posts" '{posts: $p}')"
+        fi
+        result="$(jq -c --argjson m "$media_ids" --arg q "$quote" --arg f "$fmt" --arg a "$anchor" '
+          . + (if $m == [] then {} else {media_ids: $m} end) + (if $q == "" then {} else {quote_of: $q} end)
+          + (if $f == "" then {} else {format: $f} end) + {anchor: $a}' <<<"$draft" |
+          (cd "$TEENY_ROOT" && "$hands/x" "$verb"))" || status=$?
       fi
-      if [ -n "$why" ]; then
-        results="$(jq -c --arg r "not anchored: ${why:0:300}" --arg a "$anchor" --arg t "$text" \
-          '. + [{action: "skip", reason: $r, draft: $t} + (if $a == "" then {} else {anchor: $a} end)]' <<<"$results")"
-        continue
-      fi
-      attach_media "$item"
-      fmt="$(jq -r 'if (.format | type) == "string" then .format else "" end' <<<"$item")"
-      result="$(jq -cn --arg t "$text" --argjson m "$media_ids" --arg q "$quote" --arg f "$fmt" --arg a "$anchor" '{text: $t}
-        + (if $m == [] then {} else {media_ids: $m} end) + (if $q == "" then {} else {quote_of: $q} end)
-        + (if $f == "" then {} else {format: $f} end) + {anchor: $a}' |
-        (cd "$TEENY_ROOT" && "$hands/x" post))" || status=$?
       ;;
     reply)
       to="$(jq -r '.to // ""' <<<"$item")"
