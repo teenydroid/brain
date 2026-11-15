@@ -92,7 +92,7 @@ class OpenTest(GiveawayCase):
         conn.execute("UPDATE giveaway_rounds SET status = 'drawn'")
         conn.close()
         self.at(T0 + 4 * HOUR)
-        self.refused("weekly_cap", text="drop #3 go")
+        self.refused("weekly_cap", text="drop #3 go", pool_tiny="40000", winners=2, best_reply_tiny="0")
         self.at(T0 + 8 * DAY)
         self.refused("season_cap", text="drop #3 go", deadline=iso(T0 + 10 * DAY))
         self.assertEqual(rounds.status()["season"]["season_left_tiny"], "50000")
