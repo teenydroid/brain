@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { PresenceIcon } from "@/components/icons/brand"
 import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 
@@ -22,14 +23,14 @@ export function SiteFooter() {
       <div className="dot-grid">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 text-sm text-muted-foreground sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-6">
-            <a href="/#top" className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground hover:text-neon-yellow">
+            <Link href="/#top" className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground hover:text-neon-yellow">
               teeny <span className="text-neon-magenta">{"//"}</span> <span className="text-neon-cyan">open brain</span>
-            </a>
+            </Link>
             <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-xs uppercase tracking-[0.25em]">
               {SECTIONS.map((section) => (
-                <a key={section.href} href={section.href} className="transition-colors hover:text-neon-yellow">
+                <Link key={section.href} href={section.href} className="transition-colors hover:text-neon-yellow">
                   {section.label}
-                </a>
+                </Link>
               ))}
             </nav>
             <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">

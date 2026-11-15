@@ -20,7 +20,13 @@ export const metadata: Metadata = {
   twitter: { title: TITLE, description: DESCRIPTION },
 }
 
-export default async function Rewards() {
+/** The rounds, and the moment they were read: which rounds still pay out is decided against it. */
+async function load() {
   const drops = await loadDrops()
-  return <RewardsView drops={drops} now={Date.now()} />
+  return { drops, now: Date.now() }
+}
+
+export default async function Rewards() {
+  const { drops, now } = await load()
+  return <RewardsView drops={drops} now={now} />
 }

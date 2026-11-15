@@ -2,7 +2,7 @@
 
 import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base"
 import { ConnectionProvider, useWallet, WalletProvider } from "@solana/wallet-adapter-react"
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { rpcFor } from "@/lib/solana-rpc"
 
@@ -22,6 +22,8 @@ export function WalletShell({ children }: { children: ReactNode }) {
   )
 }
 
+const noop = () => () => {}
+
 export function shortKey(key: string): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`
 }
@@ -31,14 +33,15 @@ export function ConnectWallet() {
   const { wallets, wallet, select, connect, disconnect, connected, connecting, publicKey } = useWallet()
   const [wanted, setWanted] = useState<WalletName | null>(null)
   const [error, setError] = useState<string>()
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  // False while server-rendering and hydrating, true after: the wallet list exists only in the browser.
+  const mounted = useSyncExternalStore(noop, () => true, () => false)
 
   // select() lands on the next render; connect once the chosen wallet is the selected one.
   useEffect(() => {
     if (!wanted || wallet?.adapter.name !== wanted || connected || connecting) return
-    setWanted(null)
-    connect().catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : "the wallet said no"))
+    connect()
+      .catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : "the wallet said no"))
+      .finally(() => setWanted(null))
   }, [wanted, wallet, connected, connecting, connect])
 
   if (connected && publicKey) {
