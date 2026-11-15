@@ -123,7 +123,8 @@ class RefusalTest(Threading):
     def test_two_and_five_posts_are_enough(self):
         for n in (2, 5):
             with self.subTest(n=n):
-                texts = [f"a thread of {n}, post {i} says something new" for i in range(n)]
+                topics = ["compilers", "gardening", "sourdough", "telescopes", "bicycles"]
+                texts = [f"{topics[i]} {'flourish' if n == 2 else 'wither'} unexpectedly {i}" for i in range(n)]
                 self.serve(texts, first_id=200 + 10 * n)
                 self.assertEqual(publish.thread(self.body(texts))["sent"], n)
                 self.at(hand.now() + 6 * HOUR)
@@ -233,7 +234,7 @@ class RulesTest(Threading):
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "50", "post", " ".join(TEXTS), created_at=T0 - 6 * HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.thread(self.body(["a different opening line entirely", *TEXTS[1:]]))
+            publish.thread(self.body(["one: the build failed", *TEXTS[1:]]))
         self.assertEqual(caught.exception.detail["rule"], "repeat")
         self.assertEqual(caught.exception.detail["similar_to"], "50")
 
