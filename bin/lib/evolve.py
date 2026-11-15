@@ -1968,7 +1968,7 @@ class TargetedEvaluator:
         # folder per sample count (its folder name has it), each drafting the
         # union of the tasks of the candidates that count serves.
         key = model_key()
-        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]), key) for c in measured}
+        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]["tasks"]), key) for c in measured}
         try:
             try:
                 # A restart that finds every report it needs boots nothing.
@@ -1999,9 +1999,9 @@ class TargetedEvaluator:
         finally:
             self.close()
 
-    def _samples(self, plan: Json) -> int:
-        """Samples per task for a change reaching PLAN's tasks (eval_samples)."""
-        return eval_samples(self.cfg["EVOLVE_EVAL_PAIRS"], self.cfg["EVOLVE_EVAL_SAMPLES"], len(plan["tasks"]))
+    def _samples(self, tasks: list[str]) -> int:
+        """Samples per task for a change reaching TASKS (eval_samples)."""
+        return eval_samples(self.cfg["EVOLVE_EVAL_PAIRS"], self.cfg["EVOLVE_EVAL_SAMPLES"], len(tasks))
 
     def _paths(self, cand: Json) -> tuple[Path, Path]:
         folder = self.gdir / "eval" / f"cand-{cand['cand']}"
@@ -2054,7 +2054,7 @@ class TargetedEvaluator:
 
     def _measure(self, cand: Json, tasks: list[str], run: Path, compare: Path, baseline: Baseline,
                  cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
-        samples, key = self.cfg["EVOLVE_EVAL_SAMPLES"], model_key()
+        samples, key = self._samples(tasks), model_key()
         if not _ran(run, tasks, samples, key):
             # --brain: the task's playbook prompt is read from the brain the
             # lab serves, the candidate's worktree; without it bin/eval read
