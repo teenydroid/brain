@@ -32,7 +32,10 @@ cd "$TEENY_ROOT"
 
 status=0
 due="$("$hands/giveaway" due </dev/null)" || status=1
-jq -e . >/dev/null 2>&1 <<<"$due" || due='{"ok": false, "error": "hands/giveaway due answered no JSON"}'
+if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$due"; then
+  due='{"ok": false, "error": "hands/giveaway due answered no JSON"}'
+  status=1
+fi
 
 dispatched=()
 skipped=()
