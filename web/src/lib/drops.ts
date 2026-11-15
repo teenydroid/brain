@@ -60,9 +60,10 @@ export interface Entrant {
 
 /**
  * One leaf of the round's Merkle tree. The program's leaf is
- * (claimant, amount_unlocked, amount_locked); Tiny Drops locks nothing, so
- * amount_unlocked = amount_atomic and amount_locked = 0. One claim per
- * address: a person who wins twice in a round gets one leaf with the sum.
+ * (claimant, total_amount, vesting schedule); Tiny Drops always uses the
+ * Immediate schedule, so total_amount = amount_atomic is claimable at once. One
+ * claim per address: a person who wins twice in a round gets one leaf holding
+ * the sum.
  */
 export interface Claim {
   /** The leaf's position in the tree the hand built. */
@@ -106,15 +107,21 @@ export interface Round {
   cluster: Cluster
   mint: string
   decimals: number
-  /** The merkle-distributor program the round is paid through. */
+  /** The mint's token program: SPL Token or Token-2022. */
+  token_program: string
+  /** The Solana Foundation Rewards program the round is paid through. */
   program_id: string
-  /** The distributor PDA, once settled. */
+  /** The giveaway wallet: the distribution's authority, which funds it and claws it back. */
+  authority: string | null
+  /** The throwaway keypair's address that seeds the distribution PDA, once settled. */
+  distribution_seed: string | null
+  /** The merkle distribution PDA, once settled. */
   distributor: string | null
-  /** The distributor's token vault (its associated token account), once settled. */
+  /** The distribution's token vault (its associated token account), once settled. */
   vault: string | null
   /** 64 hex characters, once settled. */
   merkle_root: string | null
-  /** When unclaimed tokens go back to the giveaway wallet. */
+  /** The distribution's clawback_ts: from then on the giveaway wallet may close it and take back what is unclaimed. */
   clawback_at: string | null
   seed: Seed | null
   entrants: Entrant[]
@@ -146,6 +153,7 @@ const U64_MAX = (1n << 64n) - 1n
 const STATUSES: readonly RoundStatus[] = ['open', 'drawn', 'settled', 'clawed_back']
 const FORMATS: readonly RoundFormat[] = ['drop', 'milestone', 'challenge']
 const CLUSTERS: readonly Cluster[] = ['devnet', 'mainnet']
+const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'] as const
 
 type Obj = Record<string, unknown>
 
@@ -308,7 +316,10 @@ export function parseRound(text: string): Round {
     cluster: oneOf(o, 'cluster', CLUSTERS),
     mint: str(o, 'mint', BASE58_KEY),
     decimals,
+    token_program: oneOf(o, 'token_program', TOKEN_PROGRAMS),
     program_id: str(o, 'program_id', BASE58_KEY),
+    authority: nullable(o, 'authority', () => str(o, 'authority', BASE58_KEY)),
+    distribution_seed: nullable(o, 'distribution_seed', () => str(o, 'distribution_seed', BASE58_KEY)),
     distributor: nullable(o, 'distributor', () => str(o, 'distributor', BASE58_KEY)),
     vault: nullable(o, 'vault', () => str(o, 'vault', BASE58_KEY)),
     merkle_root: nullable(o, 'merkle_root', () => str(o, 'merkle_root', HEX32)),
@@ -321,8 +332,11 @@ export function parseRound(text: string): Round {
   }
   if (!round.post_url.endsWith(`/status/${round.post_id}`)) throw new DropsError('post_url: not the round post')
   if (round.status !== 'open' && !round.seed) throw new DropsError('seed: required once drawn')
-  if ((round.status === 'settled' || round.status === 'clawed_back') && (!round.distributor || !round.vault || !round.merkle_root || !round.clawback_at)) {
-    throw new DropsError('distributor, vault, merkle_root and clawback_at: required once settled')
+  if (
+    (round.status === 'settled' || round.status === 'clawed_back') &&
+    (!round.authority || !round.distribution_seed || !round.distributor || !round.vault || !round.merkle_root || !round.clawback_at)
+  ) {
+    throw new DropsError('authority, distribution_seed, distributor, vault, merkle_root and clawback_at: required once settled')
   }
   return round
 }
