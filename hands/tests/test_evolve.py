@@ -1040,7 +1040,8 @@ class Credit(EvolveCase):
         page = self.root / "brain" / "narrative" / "chronicle" / "gen-3.md"
         self.assertFalse(page.exists())
         # GitHub's REST API calls a merged pull request closed: `merged` decides.
-        pub.states = {5: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merge_sha": "e" * 40}}
+        pub.states = {5: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merge_sha": "e" * 40,
+                          "merged_by": "teenydroid"}}
         out = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(out["chronicled"], ["g3c1"])
         entry = self.entries()["g3c1"]
@@ -1060,6 +1061,27 @@ class Credit(EvolveCase):
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["chronicled"], [])
         self.assertEqual(page.read_text(), "kept\n")
+
+    def test_the_chronicle_names_a_person_who_merged_by_hand(self):
+        """A generation the operator merged is not credited to the babysitter."""
+        evolve.record({"id": "g4c1", "gen": 4, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 7, "title": "a playbook paragraph", "eval": {"verdict": "unmeasurable"}})
+        pub = FakePublisher()
+        pub.states = {7: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merged_by": "senamakel"}}
+        evolve.credit(evolve.load_config(), pub)
+        text = (self.root / "brain" / "narrative" / "chronicle" / "gen-4.md").read_text()
+        self.assertIn("- merged by: senamakel, by hand", text)
+        self.assertNotIn("babysitter", text)
+        self.assertEqual(self.entries()["g4c1"]["merged_by"], "senamakel")
+
+    def test_the_chronicle_does_not_guess_who_merged(self):
+        evolve.record({"id": "g4c1", "gen": 4, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 7})
+        pub = FakePublisher()
+        pub.states = {7: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY)}}
+        evolve.credit(evolve.load_config(), pub)
+        text = (self.root / "brain" / "narrative" / "chronicle" / "gen-4.md").read_text()
+        self.assertIn("- merged by: not recorded", text)
 
     def test_a_pull_request_closed_unmerged_is_closed(self):
         evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "gate": {"ok": True}, "pr_number": 1})

@@ -50,12 +50,13 @@ from teeny_hands.gh import actions as gh
 from teeny_hands.mail import actions as mail
 from teeny_hands.wallet import store
 from teeny_hands.moltbook import rules as moltbook
+from teeny_hands.babysit import ledger as babysit
 
 T = 1794484800.0
 DAY = 86400
 conn = sqlite3.connect(Path(__import__("os").environ["TEENY_ROOT"]) / "state" / "hands.db")
 for schema in (posting_rules.SCHEMA, queue.SCHEMA, jobs.SCHEMA, requests.SCHEMA, collect.SCHEMA, gh.SCHEMA,
-               mail.SCHEMA, store.SCHEMA, stimuli.SCHEMA, moltbook.SCHEMA):
+               mail.SCHEMA, store.SCHEMA, stimuli.SCHEMA, moltbook.SCHEMA, babysit.SCHEMA):
     conn.executescript(schema if isinstance(schema, str) else "".join(schema))
 
 # X: 52 replies (met), and a post a day for 31 days, all different (met).
@@ -124,6 +125,12 @@ conn.execute("INSERT INTO votes (post_id, options, opened_at, closes_at, status,
 for made, closed, status in ((T - 9 * DAY, T - DAY, "kept"), (T - DAY, T - DAY + 60, "kept"), (T - DAY, None, "open")):
     conn.execute("INSERT INTO people_promises (surface, who, what, made_at, due_at, status, closed_at) VALUES ('x', 'ana', 'w', ?, ?, ?, ?)",
                  (made, made + DAY, status, closed))
+# The babysitter self-merged gen 2's pull request (#2) with no person's approval;
+# its approved merge of #3 is a person's sign-off, and #4 is on another repo.
+for verb, repo, number in (("self_merge", "teenydroid/brain", 2), ("merge", "teenydroid/brain", 3),
+                           ("self_merge", "teenydroid/diary", 4)):
+    conn.execute("INSERT INTO babysit_actions (at, verb, repo, number, head_sha, detail) VALUES (?, ?, ?, ?, 'h', '{}')",
+                 (T - DAY, verb, repo, number))
 conn.commit()
 conn.close()
 
@@ -136,6 +143,9 @@ with open(root / "state" / "evolve" / "archive.jsonl", "w") as fh:
     fh.write(json.dumps({"id": "seed", "verdict": "seed"}) + "\n")
     fh.write(json.dumps({"id": "g1c0", "verdict": "won"}) + "\n")
     fh.write(json.dumps({"id": "g1c0", "pr_url": "https://github.com/teenydroid/brain/pull/1"}) + "\n")
+    # Gen 2 merged by the babysitter on its own (#2), gen 3 by a person (#3).
+    fh.write(json.dumps({"id": "g2c1", "gen": 2, "pr_number": 2, "merged_at": "2026-11-11T00:00:00Z"}) + "\n")
+    fh.write(json.dumps({"id": "g3c1", "gen": 3, "pr_number": 3, "merged_at": "2026-11-11T01:00:00Z"}) + "\n")
     fh.write("not json\n")
 (root / "brain" / "narrative" / "chronicle" / "gen-1.md").write_text("# gen 1\n")
 PY
@@ -176,11 +186,12 @@ expect L3.mainnet none 0
 expect L3.vendor none 0
 expect L3.bounty none 0
 expect L4.diary progress 12
-expect L5.generation_pr met 1
-expect L5.promoted none 0
+expect L5.generation_pr met 3
+expect L5.promoted met 1
+expect L5.human_merged progress 1
 expect L5.rollback met 1
 expect L5.chronicle met 1
-expect L5.ten_promoted none 0
+expect L5.ten_promoted progress 1
 
 check "every proof the code counts is in the report, once" python3 - "$repo" "$scratch/out.json" <<'PY'
 import json, sys
