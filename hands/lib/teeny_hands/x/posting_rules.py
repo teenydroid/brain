@@ -7,7 +7,7 @@ guard and before DRY_RUN; nothing else in the hand posts.
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
   minutes drawing before they post), is refused. Four hours by default:
   brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST) and one
-  outward quote at 11:00 or 19:00 IST (`peers suggest`). Posts an hour apart
+  outward quote at 11:00 or 19:00 IST (`peer-suggest`). Posts an hour apart
   are the repetitive-publishing shape the ranker demotes. Replies are never
   subject to it: they are conversations, not slots.
 - At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).

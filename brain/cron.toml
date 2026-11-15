@@ -132,7 +132,7 @@ tz = "Asia/Kolkata"
 command = "bin/act take"
 
 # The outward quote: up to three scored suggestions a run from the peers' new
-# posts (brain/x-peers.txt), and hands/x peers suggest posts one only when its
+# posts (brain/x-peers.txt), and hands/x peer-suggest posts one only when its
 # relevance is 5 of 5 and at most once a day, so the 19:00 run does nothing if
 # the 11:00 one posted. Most runs end in a skip. No catch-up: a late quote is
 # the wrong quote.

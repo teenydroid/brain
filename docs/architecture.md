@@ -764,8 +764,8 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is three own posts a day, eight hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), as three slots in IST: `morning` 07:00 (a gm that
+- X is at most four own posts a day, four hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), with three standing slots in IST (the fourth is the outward `peer-quote`, 11:00 or 19:00, posted only at relevance 5): `morning` 07:00 (a gm that
   reacts to something read; a habit the mind carries out), `take` 15:00 (a take
   or a quote of a builder's post) and `show` 23:00 (what was built, with up to
   four pictures). `brief` runs at 15:05 and 23:05, and `take` and `show` skip
