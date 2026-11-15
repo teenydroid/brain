@@ -194,6 +194,31 @@ class AnchorTest(Posting):
         self.assertEqual([r["anchor"] for r in self.ledger()], ["hn:1"])
 
 
+class SlotTest(Posting):
+    """`hands/x slot`: whether an own post would pass the gap and the day's cap
+    now, read only, so a post job skips before it drafts (or searches)."""
+
+    settings = {"POST_MIN_GAP_HOURS": "5"}
+
+    def test_open_with_nothing_posted(self):
+        self.assertEqual(publish.slot(), {"open": True})
+
+    def test_shut_inside_the_gap_with_the_reason_and_writes_nothing(self):
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.at(T0 + 2 * HOUR)
+        out = publish.slot()
+        self.assertEqual(set(out), {"why"})
+        self.assertIn("too soon after post 100", out["why"])
+        self.assertEqual(len(self.posted()), 1)
+        self.at(T0 + 5 * HOUR)
+        self.assertEqual(publish.slot(), {"open": True})
+
+    def test_shut_when_the_days_cap_is_spent(self):
+        self.configure(X_POSTS_MAX_PER_DAY="1", POST_MIN_GAP_HOURS="0")
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.assertIn("the cap is 1", publish.slot()["why"])
+
+
 class DryRunTest(Posting):
     def setUp(self):
         super().setUp()

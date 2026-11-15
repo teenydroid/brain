@@ -110,6 +110,20 @@ def link_budget() -> Json:
     return rules.link_budget(_db())
 
 
+def slot() -> Json:
+    """Whether an own post would pass the gap and the day's cap now: {open:
+    true}, or {why} with the refusal it would get. A read of the ledger: it
+    writes nothing and calls no one. A post job reads it as a required input,
+    so a shut slot skips the run before the model turn (bin/act)."""
+    conn = _db()
+    try:
+        rules.check_gap(conn)
+        rules.check_daily_cap(conn)
+    except hand.Refused as refused:
+        return {"why": refused.reason}
+    return {"open": True}
+
+
 def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: its anchor, guard, 280, attachments, then the
     gap under the process-wide posting lock, so two jobs firing in the same
