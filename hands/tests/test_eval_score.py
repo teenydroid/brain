@@ -221,6 +221,185 @@ class FenceVeto(ScoreCase):
 
 
 
+class OncePerPair(ScoreCase):
+    """The judge is ~80% of a candidate's half hour (glm-5.3-flash, ~48 s a
+    judge turn): each pair is judged once, the order alternating by sample,
+    and that one verdict decides it."""
+
+    def once(self, base: list[dict], cand: list[dict], picks: dict) -> dict:
+        """PICKS: {(task, sample): "1"|"2"|"tie"}, the draft the judge picked
+        in the one order orders() shows."""
+        for name, rows in (("base", base), ("cand", cand)):
+            (self.dir / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        judged = []
+        for r in cand:
+            key = (r["task"], r["sample"])
+            (way,) = evals.orders(r["sample"], False)
+            judged.append({"task": key[0], "sample": key[1], way: verdict(picks.get(key, "tie"))})
+        (self.dir / "judged.jsonl").write_text("".join(json.dumps(r) + "\n" for r in judged))
+        return evals.score(self.dir / "base.jsonl", self.dir / "cand.jsonl", self.dir / "judged.jsonl",
+                           0.5, None, mode="nonregression")
+
+    def test_the_order_alternates_by_sample(self):
+        self.assertEqual(evals.orders(1, False), ("first",))
+        self.assertEqual(evals.orders(2, False), ("second",))
+        self.assertEqual(evals.orders(3, False), ("first",))
+        self.assertEqual(evals.orders(2, True), ("first", "second"))
+
+    def test_one_verdict_decides_the_pair(self):
+        self.assertEqual(evals.pair_outcome(verdict("2"), None)["winner"], "cand")
+        self.assertEqual(evals.pair_outcome(None, verdict("2"))["winner"], "base")
+        got = evals.pair_outcome(None, verdict("1", {"1": ["never-sell"]}))
+        self.assertEqual(got["breaks"], {"base": [], "cand": ["never-sell"]})
+        self.assertIsNone(got["consistent"])
+
+    def test_both_orders_still_must_agree(self):
+        self.assertEqual(evals.pair_outcome(verdict("1"), verdict("1"))["winner"], "tie")
+
+    def test_a_position_biased_judge_splits_evenly_across_samples(self):
+        picks = {(r["task"], r["sample"]): "1" for r in clean_run()}
+        got = self.once(clean_run(), clean_run(), picks)
+        self.assertEqual((got["wins"], got["losses"]), (30, 30))
+
+    def test_a_judge_fence_break_in_the_one_verdict_still_rejects(self):
+        cand = clean_run()
+        (self.dir / "base.jsonl").write_text("".join(json.dumps(r) + "\n" for r in clean_run()))
+        (self.dir / "cand.jsonl").write_text("".join(json.dumps(r) + "\n" for r in cand))
+        rows = [{"task": r["task"], "sample": r["sample"], evals.orders(r["sample"], False)[0]: verdict("tie")}
+                for r in cand]
+        rows[1]["second"] = verdict("1", {"1": ["own-wallet"]})  # sample 2: the candidate shown as draft 1
+        (self.dir / "judged.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        got = evals.score(self.dir / "base.jsonl", self.dir / "cand.jsonl", self.dir / "judged.jsonl", 0.5, None,
+                          mode="nonregression")
+        self.assertEqual(got["verdict"], "regressed")
+        self.assertEqual(got["fences"][0]["check"], "break own-wallet")
+
+
+class NonRegression(ScoreCase):
+    """docs/evolve.md, "4. Evaluate": a candidate is a one-line edit to one
+    playbook, so it is checked for regression on the tasks that edit can
+    reach, not entered in a tournament on all thirty."""
+
+    def nr(self, base, cand, winners=None, tasks=None, threshold=0.5, min_pairs=None):
+        self.score(base, cand, winners=winners)  # writes the files, both orders agreeing
+        return evals.score(self.dir / "base.jsonl", self.dir / "cand.jsonl", self.dir / "judged.jsonl",
+                           threshold, min_pairs, mode="nonregression", tasks=tasks)
+
+    def test_no_worse_passes(self):
+        keys = [(t, s) for t in TASKS for s in (1, 2)]
+        got = self.nr(clean_run(), clean_run(), winners={k: ("cand" if i % 2 else "base") for i, k in enumerate(keys)})
+        self.assertEqual((got["verdict"], got["promote"]), ("pass", True))
+
+    def test_worse_has_regressed(self):
+        got = self.nr(clean_run(), clean_run(), winners={(TASKS[0], 1): "base", (TASKS[0], 2): "base"},
+                      tasks={TASKS[0]})
+        self.assertEqual((got["verdict"], got["promote"]), ("regressed", False))
+
+    def test_a_hard_check_regression_has_regressed_whatever_the_judge(self):
+        cand = clean_run()
+        cand[0], cand[1] = drafted(TASKS[0], 1, ("length",)), drafted(TASKS[0], 2, ("length",))
+        got = self.nr(clean_run(), cand, winners={(TASKS[0], 1): "cand", (TASKS[0], 2): "cand"}, tasks={TASKS[0]})
+        self.assertEqual(got["verdict"], "regressed")
+        self.assertEqual(got["regressions"], [TASKS[0]])
+
+    def test_one_task_is_enough_to_decide(self):
+        got = self.nr(clean_run(), clean_run(), winners={(TASKS[3], 1): "cand"}, tasks={TASKS[3]})
+        self.assertEqual(got["min_pairs"], 1)
+        self.assertEqual(got["decided"], 1)
+        self.assertEqual(got["verdict"], "pass")
+
+    def test_min_pairs_is_half_the_possible_at_most_twelve(self):
+        self.assertEqual([evals.auto_min_pairs(n) for n in (0, 1, 2, 3, 4, 10, 24, 60)], [1, 1, 1, 2, 2, 5, 12, 12])
+
+    def test_nothing_decided_is_inconclusive_not_regressed(self):
+        got = self.nr(clean_run(), clean_run(), tasks={TASKS[3]})
+        self.assertEqual(got["verdict"], "inconclusive")
+        self.assertFalse(got["promote"])
+
+    def test_the_unrun_rules_still_make_it_inconclusive(self):
+        cand = clean_run()
+        cand[0], cand[1] = no_sample(TASKS[0], 1), no_sample(TASKS[0], 2)
+        got = self.nr(clean_run(), cand, winners=winning(30))
+        self.assertEqual(got["verdict"], "inconclusive")
+
+    def test_a_selected_task_neither_run_drafted_is_inconclusive(self):
+        base = [r for r in clean_run() if r["task"] != TASKS[1]]
+        cand = [r for r in clean_run() if r["task"] != TASKS[1]]
+        got = self.nr(base, cand, winners=winning(30), tasks={TASKS[1], TASKS[29]})
+        self.assertEqual(got["verdict"], "inconclusive")
+        self.assertEqual(got["unmeasured_tasks"], [TASKS[1]])
+
+    def test_tasks_outside_the_selection_are_not_scored(self):
+        got = self.nr(clean_run(), clean_run(), winners={(TASKS[0], 1): "base", (TASKS[0], 2): "base",
+                                                         (TASKS[5], 1): "cand"}, tasks={TASKS[5]})
+        self.assertEqual({p["task"] for p in got["pairs"]}, {TASKS[5]})
+        self.assertEqual(got["verdict"], "pass")
+
+    def test_the_tournament_keeps_its_verdicts(self):
+        got = self.score(clean_run(), clean_run(), winners=winning(30))
+        self.assertEqual((got["mode"], got["verdict"]), ("tournament", "won"))
+
+
+class Affected(unittest.TestCase):
+    """bin/eval affected: what a diff can reach, from how a draft is built
+    (render(): the playbook prompt; the act prompt: SOUL, IDENTITY, AGENTS,
+    act.md, MEMORY, DRIVE, CHARTER, CONTEXT, LORE, ARCS)."""
+
+    def setUp(self):
+        self.tasks = [evals.load_task(REPO / "evals", t) for t in evals.task_ids(REPO / "evals")]
+
+    def test_a_playbook_no_task_uses_is_unmeasurable_not_lost(self):
+        # Gen 6: two of four candidates edited these, and lost on all 30 tasks' noise.
+        got = evals.affected_tasks(["brain/playbooks/moltbook-daily.md", "brain/playbooks/pr-merged.md"], self.tasks)
+        self.assertEqual((got["tasks"], got["all"]), ([], False))
+        report = evals.unmeasurable("nonregression", got["tasks"], 0.5)
+        self.assertEqual((report["verdict"], report["promote"], report["reason"]),
+                         ("unmeasurable", False, "no eval task reaches this change"))
+
+    def test_a_playbook_reaches_the_tasks_that_name_it(self):
+        got = evals.affected_tasks(["brain/playbooks/episode.md"], self.tasks)
+        self.assertEqual(got["tasks"], ["episode-night-shift", "episode-visitor"])
+        self.assertEqual(got["why"]["episode-visitor"], "drafted from brain/playbooks/episode.md")
+        mentions = evals.affected_tasks(["brain/playbooks/mentions.md"], self.tasks)["tasks"]
+        self.assertEqual(len(mentions), sum(t["playbook"] == "mentions" for t in self.tasks))
+
+    def test_what_every_act_prompt_carries_reaches_every_task(self):
+        for path in ("brain/SOUL.md", "brain/DRIVE.md", "brain/CHARTER.md", "brain/CONTEXT.md", "brain/MEMORY.seed.md",
+                     "brain/narrative/LORE.md", "brain/narrative/ARCS.md", "brain/agents/act.md", "brain/agents/act.toml",
+                     "brain/IDENTITY.md", "brain/AGENTS.md", "AGENTS.md", "bin/lib/prompts.py", "vendor/openhuman"):
+            got = evals.affected_tasks([path], self.tasks)
+            self.assertTrue(got["all"], path)
+            self.assertEqual(len(got["tasks"]), len(self.tasks), path)
+            self.assertIn(path, got["why"]["*"])
+
+    def test_what_no_draft_reads_reaches_no_task(self):
+        for path in ("hands/x", "hands/lib/teeny_hands/moltbook/rules.py", "brain/narrative/VOICE.md",
+                     "brain/narrative/EDITOR.md", "brain/skills/humor/SKILL.md", "brain/agents/teeny.md",
+                     "brain/cron.toml", "docs/evolve.md", "evals/judge.md", "brain/playbooks/not a playbook.txt"):
+            self.assertEqual(evals.affected_tasks([path], self.tasks)["tasks"], [], path)
+
+    def test_held_out_tasks_follow_the_same_rule(self):
+        held = {"id": "hold-roast", "playbook": "roast", "heldout": True}
+        got = evals.affected_tasks(["brain/playbooks/roast.md"], [*self.tasks, held])
+        self.assertEqual(got["tasks"], ["roast-asked", "hold-roast"])
+
+
+class Select(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.held = Path(self.tmp.name)
+        (self.held / "hold-x.toml").write_text('description = "x"\nkind = "post"\nprompt = "x"\n')
+
+    def test_a_held_out_id_is_kept_only_with_heldout(self):
+        evals_dir = REPO / "evals"
+        self.assertEqual(evals.select(evals_dir, self.held, False, ["morning-post", "hold-x"]), ["morning-post"])
+        self.assertEqual(evals.select(evals_dir, self.held, True, ["morning-post", "hold-x"]), ["morning-post", "hold-x"])
+        self.assertEqual(evals.select(evals_dir, self.held, False, []), [])
+        with self.assertRaises(evals.EvalError):
+            evals.select(evals_dir, self.held, True, ["nope"])
+
+
 class RetrierBudget(unittest.TestCase):
     """EVAL_RETRY_BUDGET is spent by every worker of a run at once, so the
     reservation is atomic: four turns failing together cannot each see the
