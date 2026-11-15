@@ -165,7 +165,10 @@ command = "bin/gh-inbound"
 # and logs every prompt-injection attempt it finds (rule and place, never
 # the text). Labels and an audit comment only with BABYSIT=1; a merge only
 # with BABYSIT_MERGE=1, of a pull request a person approved at its exact
-# head (evals/autonomy.toml, merge). Operator-owned: Teeny does not get to
+# head (evals/autonomy.toml, merge), or, with BABYSIT_SELF_MERGE=1 too, of
+# Teeny's own teeny/gen-* pull request whose teeny/eval passed at its head,
+# deployed to the live checkout after (evals/autonomy.toml, self-merge; a
+# deploy waits while a generation or an eval runs). Operator-owned: Teeny does not get to
 # switch off the thing that reviews its own pull requests.
 [jobs.babysit]
 schedule = "*/20 * * * *"

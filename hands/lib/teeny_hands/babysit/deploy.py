@@ -50,7 +50,7 @@ PENDING = "deploy-pending.json"
 #: The runs a restart must never cut off: a generation (bin/evolve run),
 #: evolve-watch, and the targeted eval of an evolve PR.
 BUSY_LOCKS = ("evolve", "evolve-watch", "eval")
-SEED_TIMEOUT = 240
+SEED_TIMEOUT = 120
 
 #: Read once, at boot, by bin/spine or the core it starts: a change restarts.
 #: bin/lib/prompts.py builds the speaking agents' prompts from the first six
