@@ -408,10 +408,8 @@ class DeskTest(Scratch):
         self.assertEqual(out["offer"], "state/workbench/desk/build.json")
         offer = json.loads(self.desk("build.json").read_text())
         self.assertEqual(offer["job"]["request"], "build me a coin flipper")
-        self.assertEqual(offer["report_to"], "state/workbench/desk/build-done.json")
-        # Absolute too: the builder works rooted at the workbench, where the
-        # checkout-relative report_to does not resolve.
-        self.assertEqual(offer["report_to_path"], str(self.desk("build-done.json").resolve()))
+        # Relative to the workbench, where the builder is rooted.
+        self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertIn("job_id", offer["report_shape"])
         self.assertIn("Work only inside workdir", offer["rules"])
         # Laying it out again before a report is the same claim, resumed.
@@ -424,7 +422,7 @@ class DeskTest(Scratch):
         request("build me a coin flipper")
         jobs.desk()
         job = json.loads(self.desk("build.json").read_text())["job"]
-        (self.root / job["workdir"] / "flip.py").write_text("import random\n")
+        (self.workbench() / job["workdir"] / "flip.py").write_text("import random\n")
         self.desk("build-done.json").write_text(json.dumps(
             {"job_id": job["job_id"], "status": "ok", "summary": "a coin flipper", "tests": "2 passed"}))
         out = jobs.desk()
@@ -494,6 +492,111 @@ class DeskTest(Scratch):
         self.assertIn('"job_id" must be the number', out["rejected"])
         self.assertIn('"job_id" must be the number',
                       json.loads(self.desk("build.json").read_text())["last_report_rejected"])
+
+    # --- the paths the builder is shown -------------------------------------------------
+    # The builder's shell and file tools are rooted at state/workbench/
+    # (brain/agents/builder.toml, scheduled_workspace). A checkout-relative
+    # "state/workbench/brain" there resolves to state/workbench/state/workbench/brain,
+    # which is where self job 7 wrote its files on the live box.
+
+    def workbench(self):
+        return self.root / "state" / "workbench"
+
+    def claim_self_job(self, slug="self-2-build-dripsplan"):
+        conn = jobs.db()
+        try:
+            with hand.transaction(conn):
+                cur = conn.execute(
+                    "INSERT INTO build_jobs (kind, slug, repo, text, workdir, claimed_at, branch)"
+                    " VALUES ('self', ?, 'brain', 'build dripsplan', 'state/workbench/brain', ?, ?)",
+                    (slug, hand.now(), "teeny/" + slug))
+                return cur.lastrowid
+        finally:
+            conn.close()
+
+    def assert_builder_paths(self, offer, workdir):
+        job = offer["job"]
+        self.assertEqual(job["workdir"], workdir)
+        self.assertTrue((self.workbench() / workdir).is_dir())
+        self.assertNotIn("workdir_path", job)
+        self.assertEqual(offer["report_to"], "desk/build-done.json")
+        self.assertNotIn("report_to_path", offer)
+        self.assertIn("relative to state/workbench/", offer["paths"])
+        shown = {k: v for k, v in job.items() if k not in ("request", "instructions")}
+        shown.update({k: v for k, v in offer.items() if k != "job"})
+        for key, value in shown.items():
+            if isinstance(value, str):
+                self.assertFalse(value.startswith("state/workbench/"), f"{key}: {value}")
+                self.assertNotIn(str(self.root), value, key)
+
+    def test_a_daily_job_is_shown_its_workdir_relative_to_the_workbench(self):
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertEqual(offer["job"]["kind"], "daily")
+        self.assert_builder_paths(offer, offer["job"]["workdir"])
+        self.assertRegex(offer["job"]["workdir"], r"^daily-\d{4}-\d{2}-\d{2}$")
+        # Internally the job keeps its checkout-relative folder.
+        row = jobs.listing()["jobs"][0]
+        self.assertEqual(row["workdir"], "state/workbench/" + offer["job"]["workdir"])
+
+    def test_a_self_job_is_shown_its_clone_as_brain(self):
+        job_id = self.claim_self_job()
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertEqual((offer["job"]["job_id"], offer["job"]["resumed"]), (job_id, True))
+        self.assert_builder_paths(offer, "brain")
+        self.assertNotIn("state/workbench/brain", offer["job"].get("instructions") or "")
+
+    def test_a_resumed_job_is_shown_the_same_workdir(self):
+        jobs.desk()
+        first = json.loads(self.desk("build.json").read_text())
+        jobs.desk()
+        again = json.loads(self.desk("build.json").read_text())
+        self.assertTrue(again["job"]["resumed"])
+        self.assert_builder_paths(again, first["job"]["workdir"])
+
+    def test_files_left_in_the_nested_mirror_are_named_on_the_resumed_job(self):
+        self.claim_self_job()
+        stray = self.workbench() / "state" / "workbench" / "brain" / "hands" / "lib" / "teeny_hands" / "dripsplan"
+        stray.mkdir(parents=True)
+        (stray / "__init__.py").write_text("x = 1\n")
+        jobs.desk()
+        offer = json.loads(self.desk("build.json").read_text())
+        note = offer["job"]["note"]
+        self.assertIn("state/workbench/brain/hands/lib/teeny_hands/dripsplan/__init__.py", note)
+        self.assertIn("your workdir is brain", note)
+        # Nothing is moved for it.
+        self.assertTrue((stray / "__init__.py").exists())
+        self.assertFalse((self.workbench() / "brain" / "hands").exists())
+
+    def test_no_note_without_a_nested_mirror(self):
+        self.claim_self_job()
+        jobs.desk()
+        self.assertNotIn("note", json.loads(self.desk("build.json").read_text())["job"])
+
+    def test_a_report_on_an_empty_workdir_with_files_in_the_mirror_says_where_they_went(self):
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        stray = self.workbench() / "state" / "workbench" / job["workdir"]
+        stray.mkdir(parents=True)
+        (stray / "tool.py").write_text("x = 1\n")
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "ok", "summary": "s", "tests": "t"}))
+        out = jobs.desk()
+        self.assertIn("workdir is empty", out["rejected"])
+        self.assertIn(f"state/workbench/{job['workdir']}/tool.py", out["rejected"])
+        self.assertIn(f"your workdir is {job['workdir']}", out["rejected"])
+        offer = json.loads(self.desk("build.json").read_text())
+        self.assertIn(f"state/workbench/{job['workdir']}/tool.py", offer["job"]["note"])
+
+    def test_an_unknown_report_field_names_the_allowed_ones(self):
+        jobs.desk()
+        job = json.loads(self.desk("build.json").read_text())["job"]
+        self.desk("build-done.json").write_text(json.dumps(
+            {"job_id": job["job_id"], "status": "failed", "summary": "s", "tests": "t", "details": "more"}))
+        reason = jobs.desk()["rejected"]
+        self.assertIn("details", reason)
+        self.assertIn("job_id, status, summary, tests, repo", reason)
 
     def test_bin_build_ship_runs_the_desk_then_ships(self):
         self.configure(DRY_RUN="1")

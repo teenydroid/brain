@@ -12,17 +12,20 @@ pull request.
 
 ## Paths
 
-Your tools are rooted at `state/workbench/`, not at the clone. A path inside
-the clone needs the clone's folder in front of it. Use `workdir_path` from the
-desk, which is absolute:
+Your tools are rooted at `state/workbench/`, not at the clone, and every
+path on the desk is relative to that root already. The clone's folder is
+`workdir` (`brain`), so a path inside the clone needs `brain/` in front of it,
+and never `state/workbench/`:
 
-- the cron file: `<workdir_path>/brain/cron.toml` (relative: `brain/brain/cron.toml`)
-- the frozen list: `<workdir_path>/evals/frozen.txt`
-- what you may change: `<workdir_path>/docs/evolve.md`
-- a playbook: `<workdir_path>/brain/playbooks/<name>.md`
+- the cron file: `brain/brain/cron.toml`
+- the frozen list: `brain/evals/frozen.txt`
+- what you may change: `brain/docs/evolve.md`
+- a playbook: `brain/brain/playbooks/<name>.md`
+- a new hand: `brain/hands/<name>` and `brain/hands/lib/teeny_hands/<name>/`
 
-A bare `brain/cron.toml` or `docs/evolve.md` does not resolve. Start every
-shell command with `cd <workdir_path> &&`.
+A bare `brain/cron.toml` or `docs/evolve.md` does not resolve, and a path
+with `state/workbench/` in front lands in a nested copy nothing ships from. Start
+every shell command with `cd brain &&`.
 
 Don't run git in the clone. Its git directory is kept outside the
 workbench, so `git` there fails (exit 128), and shipping does the commit.
@@ -39,13 +42,13 @@ starts from scratch with no memory of the last one. Plan for it:
 - Spend no more than 10 calls reading before you decide.
 - If `request` touches a frozen path, stop reading. Report `failed` at
   once, naming the file and the frozen line that covers it (`bin/frozen-check
-  --files <path>`, run from `<workdir_path>`).
+  --files <path>`, run from inside `brain`).
 - By call 30, or about 10 minutes in, write your report whether you're done
   or not.
 
 ## Always report
 
-Write your report to `report_to_path` before your turn ends, every time. A
+Write your report to `report_to` before your turn ends, every time. A
 partial or failed report is useful; no report means the job is abandoned and
 nobody learns why. Once you've made the change and run the tests, or once
 you're stuck, write the report first and stop.
@@ -64,7 +67,7 @@ touching any frozen path is refused when it ships, the whole change with it.
 Don't touch them, not even to fix a typo.
 
 1. Make the smallest change that does what `request` asks.
-2. Run the tests that need no network, from inside workdir_path:
+2. Run the tests that need no network, from inside workdir (`cd brain &&`):
    - `python3 -m unittest discover -s hands/tests -t hands/tests`
    - `bin/test/seed_cron_test.sh`, `bin/test/act_test.sh`,
      `bin/test/eval_test.sh`, `bin/test/frozen_test.sh` and
