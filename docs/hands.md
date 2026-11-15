@@ -617,8 +617,8 @@ item is never listed, and `item` answers it as missing.
 
 **As playbook inputs.** The story lists are free and need no key, so a
 playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
-`morning`, `take`, `moltbook-daily` and `moltbook-evening` (top, show), and
-`moltbook-general` (top). Beyond the front page, `hands/listen` (below)
+`morning`, `take` and `moltbook-evening` (top, show), and `moltbook-general`
+(top). Beyond the front page, `hands/listen` (below)
 searches HN for Teeny's names and its standing topics, and those playbooks
 read what it heard through `listen digest`. Each is marked `optional = true`, so an outage on Hacker News leaves
 that input out as `{"unavailable": true}` and the run goes on. The idle look
@@ -677,7 +677,7 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-daily`, `-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
