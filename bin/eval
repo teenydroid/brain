@@ -180,7 +180,7 @@ compare() {
   : >"$out/judged.jsonl"
   # No visible task selected: nothing to draft or judge, and nothing decided.
   if [ "$picked" = 1 ] &&
-    [ "$(python3 "$lib" select "$evals" "" 0 "$ids" | jq length)" = 0 ]; then
+    [ "$(python3 "$lib" select "$evals" "$heldout_dir" 0 "$ids" | jq length)" = 0 ]; then
     python3 "$lib" score /dev/null /dev/null "$out/judged.jsonl" "$threshold" "$min_pairs" --mode "$mode" "${selected[@]}" |
       jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
     mv "$out/report.json.tmp" "$out/report.json"
