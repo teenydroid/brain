@@ -753,7 +753,7 @@ class Gate(EvolveCase):
         self.assertFalse(out["ok"])
         self.assertFalse(checks["frozen paths"]["ok"])
         self.assertIn("bin/ask", checks["frozen paths"]["detail"])
-        self.assertIn("not run", checks["doctor --root"]["detail"])
+        self.assertNotIn("doctor --root", checks)  # a refused change runs no other check
 
     def test_an_existing_hands_entry_point_is_not_changed(self):
         text = self.base_text("hands/git")
