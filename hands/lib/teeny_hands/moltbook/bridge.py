@@ -183,18 +183,20 @@ def exchange(hours: int = 24, api: RestApi | None = None) -> Json:
     conn = rules.db()
     own_row = conn.execute("SELECT title, submolt FROM moltbook_posts WHERE post_id = ? ORDER BY at DESC LIMIT 1",
                            (best,)).fetchone()
+    post: Any = None
     try:
         post = reads.post(best, api).get("post")
     except (RestError, hand.HandError) as error:
-        post, _ = None, notes.append(f"the post could not be read now: {error}")
+        notes.append(f"the post could not be read now: {error}")
     post = post if isinstance(post, Mapping) else {}
     author = actions._author(post) if post else None
     own = own_row is not None or (author or "").lower() == me
     sub = post.get("submolt")
+    nodes: Any = None
     try:
         nodes = reads.comments(best, "new", 100, api).get("comments")
     except (RestError, hand.HandError) as error:
-        nodes, _ = None, notes.append(f"the thread could not be read now: {error}")
+        notes.append(f"the thread could not be read now: {error}")
     by_id, children = _index(nodes)
 
     def mine(node: Mapping[str, Any] | None) -> bool:
