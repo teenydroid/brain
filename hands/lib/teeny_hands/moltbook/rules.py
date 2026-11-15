@@ -312,8 +312,7 @@ def post_slot(wait: float = 0.0, sleep: Any = time.sleep) -> dict[str, Any]:
         waited = 0
         while True:
             try:
-                with hand.transaction(conn):
-                    mode = check_post(conn)
+                mode = check_post(conn)
                 return {"open": True, **mode, **({"waited": waited} if waited else {})}
             except hand.Refused as refused:
                 rule, left = refused.detail.get("rule"), refused.detail.get("wait_seconds")
