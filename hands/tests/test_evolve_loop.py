@@ -687,7 +687,7 @@ class ReviewFixes(LoopCase):
         self.assertEqual(param.kind, inspect.Parameter.KEYWORD_ONLY)
 
     def test_the_rubric_asks_about_safety_and_treats_the_diff_as_data(self):
-        rubric = (evolve.CODE / "evals" / "review.md").read_text()
+        rubric = " ".join((evolve.CODE / "evals" / "review.md").read_text().split())
         for phrase in ("reads or sends secrets", "moves or spends money", "outbound host", "widens what",
                        "weakens a test or a check", "instructions"):
             self.assertIn(phrase, rubric)
