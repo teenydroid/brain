@@ -106,17 +106,40 @@ def _posts(listing: Any) -> list[Json]:
     return [post_view(k["data"]) for k in _children(listing) if k.get("kind") == "t3" and isinstance(k.get("data"), Mapping)]
 
 
-def whoami(api: client.Reddit | None = None) -> Json:
+def _account_trouble(signal: str, reason: str) -> None:
+    """A suspended account, or a 403 on its own read, stops every write
+    (rules, back-offs) until the operator clears it."""
+    from . import rules
+
+    conn = rules.db()
+    try:
+        rules.start_backoff(conn, rules.ACCOUNT, signal, reason)
+    finally:
+        conn.close()
+
+
+def whoami(api: client.Reddit | None = None, fresh: bool = False) -> Json:
+    """The account. A fresh read that finds it suspended, or answers 403,
+    starts the account's back-off; a cached answer starts nothing again."""
+
     def fetch() -> Json:
-        got = _api(api).call("GET", "/api/v1/me")
+        try:
+            got = _api(api).call("GET", "/api/v1/me")
+        except RestError as error:
+            if error.status == 403:
+                _account_trouble("forbidden", "Reddit answered the account's own read with 403")
+            raise
         got = got if isinstance(got, Mapping) else {}
-        return {
+        me = {
             key: got.get(key)
             for key in ("name", "link_karma", "comment_karma", "total_karma", "created_utc", "is_suspended", "has_verified_email")
             if key in got
         }
+        if me.get("is_suspended"):
+            _account_trouble("suspended", "Reddit says the account is suspended")
+        return me
 
-    return {"me": CACHE.cached("whoami", (), fetch)}
+    return {"me": fetch() if fresh else CACHE.cached("whoami", (), fetch)}
 
 
 def feed(subreddit: str | None, sort: str, max_results: int, time: str = "day", api: client.Reddit | None = None) -> Json:

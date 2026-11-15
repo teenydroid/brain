@@ -10,10 +10,13 @@ the rules and DRY_RUN itself. Operator verbs (O) are for a person at the box.
   R  user NAME                                another account
   R  subreddit NAME                           a community's about page and its rules
   R  inbox [--days N] [--max N]               replies and mentions, screened, into Teeny's mind's inbox
-  A  post       {subreddit, title, body? | url?, flair_id?}
-  A  comment    {post_id, body, parent_id?}
+  R  slot --kind post|comment [--wait S]     whether a write would pass the caps, gaps and back-offs now:
+                                              {open: true} or {open: false, why, wait_seconds?}
+  A  post       {subreddit, title, anchor, body? | url?, flair_id?, format?, experiment?}
+  A  comment    {post_id, body, parent_id?, format?, experiment?}
   A  subscribe  {subreddit}
-  O  rules                                    the allowlist, caps and gaps in force
+  O  rules                                    the allowlist, caps, gaps and back-offs in force
+  O  clear-backoff [SUBREDDIT]                lift a subreddit's back-off or, with none named, the account's
   O  check                                    the credentials work: a token, the account, the allowlist
 """
 
@@ -93,7 +96,15 @@ def parser() -> argparse.ArgumentParser:
     ):
         verb(name, lambda args, body, handler=handler: handler(body), help, body=True)
 
-    verb("rules", lambda a, _: {"rules": rules.caps(), "dry_run": hand.dry_run()}, "the rules in force (operator)")
+    slot = verb("slot", lambda a, _: rules.slot(a.kind, a.wait), "whether a write would pass the limits now")
+    slot.add_argument("--kind", required=True, choices=("post", "comment"))
+    slot.add_argument("--wait", type=_bounded(0, rules.SLOT_MAX_WAIT, "--wait"), default=0,
+                      help="sit out a gap this short (seconds) once")
+
+    verb("rules", lambda a, _: {"rules": rules.caps(), "backoffs": rules.backoffs(), "dry_run": hand.dry_run()},
+         "the rules in force (operator)")
+    verb("clear-backoff", lambda a, _: rules.clear_backoff(a.subreddit), "lift a back-off (operator)").add_argument(
+        "subreddit", metavar="SUBREDDIT", nargs="?", help="default: the account's back-off")
     verb("check", _check, "check the credentials (operator)")
     return root
 

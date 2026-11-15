@@ -8,7 +8,18 @@ The comment rules, on top of the caps and the allowlist in `rules`:
   whose parent is Teeny's comment, or a top-level comment on Teeny's own
   post), and never twice to the same comment;
 - never a top-level comment on Teeny's own post: there it answers;
-- never on a locked, archived or NSFW post, and never to its own comment.
+- never on a locked, archived or NSFW post, and never to its own comment;
+- never an unasked comment (anything but an answer to a reply to Teeny) on a
+  post older than `REDDIT_MAX_COMMENT_AGE_HOURS` (`too_old`).
+
+A post names its `anchor`: the real, current thing it is about (a receipt id
+from `hands/moltbook material`, a PR number, a `listen` item). It is kept in
+the ledger, never published. Both verbs take the lab tags (`format`,
+`experiment`; teeny_hands.tags), kept beside the write.
+
+A back-off (rules, `reddit_backoffs`) is checked before anything is sent,
+and started here when Reddit answers a write with 403 or the community
+check finds Teeny banned (never under DRY_RUN).
 
 Under DRY_RUN nothing is written anywhere: Reddit or the ledger. The answer
 says what would have happened (`would_*`), after every rule ran. Reads a
@@ -26,7 +37,7 @@ import sqlite3
 import sys
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, tags
 from ..rest import RestError
 from . import client, reads, rules
 
@@ -42,6 +53,7 @@ except ImportError:  # the guard hand is not installed: nothing is published
 Json = dict[str, Any]
 _FLAIR = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _MINUTES = re.compile(r"(\d+)\s*(minute|second)", re.IGNORECASE)
+ANCHOR_CHARS = 200
 
 
 # --- the body ---------------------------------------------------------------------------------
@@ -112,16 +124,20 @@ def _rate_limited(wait: float | None, why: str) -> hand.Refused:
     return hand.Refused(f"Reddit says slow down ({why}); nothing was retried", **detail)
 
 
-def _call(api: client.Reddit, path: str, form: Mapping[str, str]) -> Mapping[str, Any]:
+def _call(api: client.Reddit, path: str, form: Mapping[str, str], subreddit: str) -> Mapping[str, Any]:
     """A write, and its `json.data`. Reddit answers a refused write with 200
-    and `json.errors`; each becomes a refusal naming Reddit's code."""
+    and `json.errors`; each becomes a refusal naming Reddit's code. A 403
+    starts a back-off on the subreddit."""
     try:
         got = api.call("POST", path, form=form)
     except RestError as error:
         if error.status == 429:
             raise _rate_limited(error.retry_after, "429") from None
         if error.status == 403:
-            raise hand.Refused("Reddit refused the write (403): banned, suspended, or the community is closed", rule="forbidden") from None
+            _safely("a back-off", lambda: rules.start_backoff(
+                rules.db(), subreddit, "forbidden", f"Reddit answered a write to r/{subreddit} with 403", path))
+            raise hand.Refused("Reddit refused the write (403): banned, suspended, or the community is closed",
+                               rule="forbidden", subreddit=subreddit) from None
         raise
     inner = got.get("json") if isinstance(got, Mapping) and isinstance(got.get("json"), Mapping) else got
     errors = inner.get("errors") if isinstance(inner, Mapping) else None
@@ -150,14 +166,36 @@ def _community(name: str, api: client.Reddit | None) -> Mapping[str, Any]:
     if about is None:
         raise hand.Refused(f"Reddit has no open community r/{name}", rule="subreddit", subreddit=name)
     if about.get("user_is_banned"):
+        if not hand.dry_run():
+            _safely("a back-off", lambda: rules.start_backoff(rules.db(), name, "banned", f"Teeny is banned from r/{name}"))
         raise hand.Refused(f"Teeny is banned from r/{name}", rule="banned", subreddit=name)
     if about.get("over18"):
         raise hand.Refused(f"r/{name} is NSFW; Teeny stays out", rule="nsfw", subreddit=name)
     return about
 
 
+def _anchor(body: Mapping[str, Any]) -> str:
+    value = body.get("anchor")
+    if not isinstance(value, str) or not value.strip():
+        raise hand.Refused(
+            'a post names its "anchor": the real, current thing it is about (a receipt id from hands/moltbook'
+            " material, a PR number, a listen item); a post tied to nothing is dropped",
+            rule="anchor",
+        )
+    value = " ".join(value.split())
+    if len(value) > ANCHOR_CHARS:
+        raise hand.HandError(f'"anchor" is at most {ANCHOR_CHARS} characters')
+    return value
+
+
+def _tagged(tagged: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in tagged.items() if v is not None}
+
+
 def post(body: Any, api: client.Reddit | None = None) -> Json:
-    body = _body(body, ("subreddit", "title"), ("body", "url", "flair_id"))
+    body, tagged = tags.split(body)
+    body = _body(body, ("subreddit", "title"), ("body", "url", "flair_id", "anchor"))
+    anchor = _anchor(body)
     sub = client.subreddit_name(body["subreddit"])
     rules.check_subreddit(sub)
     title = _string(body, "title")
@@ -171,7 +209,9 @@ def post(body: Any, api: client.Reddit | None = None) -> Json:
     fields = {"title": title}
     if text:
         fields["body"] = text
-    fields = guarded(fields, "post", {"subreddit": sub})
+    context = {"subreddit": sub, "post_kind": "post", "anchor": anchor, **_tagged(tagged),
+               **({"url": url} if url else {}), **({"flair_id": flair} if flair else {})}
+    fields = guarded(fields, "post", context)
     if url:
         _link_allowed(url)
     rules.check_crypto([fields["title"], fields.get("body", ""), url or ""], sub)
@@ -185,9 +225,11 @@ def post(body: Any, api: client.Reddit | None = None) -> Json:
     conn = rules.db()
     with hand.lock("reddit-write"):
         with hand.transaction(conn):
+            rules.check_backoff(conn, sub)
             rules.check_post(conn, sub)
         if hand.dry_run():
-            return {"dry_run": True, "would_post": {"subreddit": sub, "kind": kind, **fields, **({"url": url} if url else {})}}
+            would = {"subreddit": sub, "kind": kind, **fields, **({"url": url} if url else {}), "anchor": anchor, **_tagged(tagged)}
+            return {"dry_run": True, "would_post": would}
         form = {"sr": sub, "kind": kind, "title": fields["title"], "resubmit": "false", "sendreplies": "true"}
         if url:
             form["url"] = url
@@ -195,19 +237,38 @@ def post(body: Any, api: client.Reddit | None = None) -> Json:
             form["text"] = fields.get("body", "")
         if flair:
             form["flair_id"] = flair
-        data = _call(api or client.api(), "/api/submit", form)
+        data = _call(api or client.api(), "/api/submit", form, sub)
         post_id = str(data["id"]) if data.get("id") is not None else None
         _safely(
             "a post",
             lambda: conn.execute(
-                "INSERT INTO reddit_posts (post_id, at, subreddit, title, status) VALUES (?, ?, ?, ?, 'posted')",
-                (post_id, hand.now(), sub, fields["title"]),
+                "INSERT INTO reddit_posts (post_id, at, subreddit, title, status, anchor, format, experiment)"
+                " VALUES (?, ?, ?, ?, 'posted', ?, ?, ?)",
+                (post_id, hand.now(), sub, fields["title"], anchor, tagged["format"], tagged["experiment"]),
             ),
         )
         return {"posted": post_id, "subreddit": sub, "title": fields["title"], "url": data.get("url")}
 
 
 # --- comment -------------------------------------------------------------------------------------------
+
+
+def _check_age(the_post: Mapping[str, Any]) -> None:
+    """Refuses an unasked comment on a post past REDDIT_MAX_COMMENT_AGE_HOURS:
+    it lands under the rest, unread, and an old thread revived by a stranger
+    reads as spam."""
+    created = the_post.get("created_utc")
+    if isinstance(created, bool) or not isinstance(created, (int, float)):
+        return
+    age = (hand.now() - float(created)) / 3600
+    limit = rules.max_comment_age_hours()
+    if age > limit:
+        raise hand.Refused(
+            f"that post is {age:.0f} hours old; Teeny comments unasked only on posts under {limit} hours old",
+            rule="too_old",
+            age_hours=round(age, 1),
+            limit_hours=limit,
+        )
 
 
 def _check_comment_rules(conn: sqlite3.Connection, api: client.Reddit | None, post_id: str, parent_id: str | None) -> str:
@@ -234,6 +295,7 @@ def _check_comment_rules(conn: sqlite3.Connection, api: client.Reddit | None, po
             raise hand.Refused("on its own post Teeny answers the comments (parent_id), it does not add another", rule="own_post")
         if mine:
             raise hand.Refused("Teeny has already commented on this post; it answers replies, it does not comment twice", rule="once_per_post")
+        _check_age(the_post)
         return sub
     if any(row["parent_id"] == parent_id for row in mine):
         raise hand.Refused("Teeny has already answered that comment", rule="once_per_parent")
@@ -253,33 +315,42 @@ def _check_comment_rules(conn: sqlite3.Connection, api: client.Reddit | None, po
                 replying_to_teeny = above is not None and str(above.get("author") or "").lower() == me
         if not replying_to_teeny:
             raise hand.Refused("Teeny has already commented here; it only answers a reply to Teeny", rule="once_per_post")
+        return sub
+    # Not an answer to Teeny: into somebody else's thread, unasked.
+    _check_age(the_post)
     return sub
 
 
 def comment(body: Any, api: client.Reddit | None = None) -> Json:
+    body, tagged = tags.split(body)
     body = _body(body, ("post_id", "body"), ("parent_id",))
     post_id = client.base_id(body["post_id"], "post_id", "t3")
     parent_id = client.base_id(body["parent_id"], "parent_id", "t1") if body.get("parent_id") not in (None, "") else None
-    text = guarded({"body": _string(body, "body")}, "comment", {"post_id": post_id})["body"]
+    context = {"post_id": post_id, "post_kind": "comment", "parent_id": parent_id, **_tagged(tagged)}
+    text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
     conn = rules.db()
     with hand.lock("reddit-write"):
         with hand.transaction(conn):
+            rules.check_account(conn)
             rules.check_comment(conn)
         sub = _check_comment_rules(conn, api, post_id, parent_id)
+        rules.check_backoff(conn, sub)
         rules.check_crypto([text], sub)
         if hand.dry_run():
-            would = {"post_id": post_id, "subreddit": sub, "body": text, **({"parent_id": parent_id} if parent_id else {})}
+            would = {"post_id": post_id, "subreddit": sub, "body": text, **({"parent_id": parent_id} if parent_id else {}),
+                     **_tagged(tagged)}
             return {"dry_run": True, "would_comment": would}
         thing = f"t1_{parent_id}" if parent_id else f"t3_{post_id}"
-        data = _call(api or client.api(), "/api/comment", {"thing_id": thing, "text": text})
+        data = _call(api or client.api(), "/api/comment", {"thing_id": thing, "text": text}, sub)
         things = data.get("things") if isinstance(data.get("things"), list) else []
         made = things[0].get("data") if things and isinstance(things[0], Mapping) and isinstance(things[0].get("data"), Mapping) else {}
         comment_id = str(made["id"]) if made.get("id") is not None else None
         _safely(
             "a comment",
             lambda: conn.execute(
-                "INSERT INTO reddit_comments (comment_id, post_id, parent_id, subreddit, at, status) VALUES (?, ?, ?, ?, ?, 'posted')",
-                (comment_id, post_id, parent_id, sub, hand.now()),
+                "INSERT INTO reddit_comments (comment_id, post_id, parent_id, subreddit, at, status, format, experiment)"
+                " VALUES (?, ?, ?, ?, ?, 'posted', ?, ?)",
+                (comment_id, post_id, parent_id, sub, hand.now(), tagged["format"], tagged["experiment"]),
             ),
         )
         out: Json = {"commented": comment_id, "post_id": post_id, "subreddit": sub}
@@ -299,10 +370,11 @@ def subscribe(body: Any, api: client.Reddit | None = None) -> Json:
     with hand.lock("reddit-write"):
         if conn.execute("SELECT 1 FROM reddit_actions WHERE verb = 'subscribe' AND target = ?", (sub,)).fetchone():
             raise hand.Refused(f"already subscribed to r/{sub}", rule="duplicate")
+        rules.check_backoff(conn, sub)
         _community(sub, api)
         if hand.dry_run():
             return {"dry_run": True, "would_subscribe": sub}
-        _call(api or client.api(), "/api/subscribe", {"action": "sub", "sr_name": sub})
+        _call(api or client.api(), "/api/subscribe", {"action": "sub", "sr_name": sub}, sub)
         _safely(
             "a subscription",
             lambda: conn.execute("INSERT OR IGNORE INTO reddit_actions (at, verb, target) VALUES (?, 'subscribe', ?)", (hand.now(), sub)),
