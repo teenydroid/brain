@@ -65,9 +65,9 @@ bin/audit --json                   # last week's audit page (holds, spend, halts
 bin/eval run state/eval/now        # draft every eval task on the running spine
 bin/eval compare A B OUT           # judge two runs; exit 0 when B beats A
 bin/eval invariants                # does the brain still say what Teeny is?
-bin/evolve status                  # the evolve archive, the parent weights, any halt
-bin/evolve run --hold              # one generation, stopped after the gate (off until secrets/evolve.env says EVOLVE=1)
-bin/evolve watch                   # evolve-watch: the newest promotion, reverted when it hurts
+bin/evolve status                  # open learnings, open evolve PRs, each candidate's state, any halt
+bin/evolve run                     # one generation: a candidate and a PR per open learning (off until secrets/evolve.env says EVOLVE=1)
+bin/evolve watch                   # evolve-watch: the newest merge, reverted when it hurts
 bin/evolve probe --baseline        # record gen-0's persona and memory answers on the live core
 bin/evolve resume                  # clear a latched halt
 

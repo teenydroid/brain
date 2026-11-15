@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Tests for bin/evolve from the command line, offline: a scratch clone of this
 # repository for the candidates to branch from, stand-in hands that log every
-# call (hands/gh among them, which must never be called under DRY_RUN), and a
-# stand-in core whose `act` turns draft in the voice of whichever core URL
-# they reach and whose `judge` turns prefer the candidate's drafts. The logic
-# is unit-tested in hands/tests/test_evolve.py; this covers the wiring: the
-# kill switch, --detach, a dry-run generation, a held generation measured on a
-# "lab core" URL and then selected, the held-out tasks kept out of what is
-# published, and the pinned jobs.
+# call (hands/gh among them, which must never be called under DRY_RUN), a
+# page of learnings (brain/MEMORY.md), and the real bin/eval: the changes here
+# edit a playbook no eval task drafts from, so they are unmeasurable and no
+# lab boots. The logic is unit-tested in hands/tests/test_evolve.py;
+# this covers the wiring: the kill switch, --detach, a dry-run generation from
+# the page's learnings, a learning not asked about twice, nothing to do when
+# none is open, status, the halts, and the pinned jobs.
 #
 #   bin/test/evolve_test.sh
 set -euo pipefail
@@ -52,47 +52,35 @@ HAND
   chmod +x "$root/hands/$name"
 done
 
-cat >"$scratch/fake-oh" <<'FAKE'
-#!/usr/bin/env bash
-set -euo pipefail
-[ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
-printf '%s\n' "$2" >>"$FAKE_CORE_CALLS"
-python3 -I - "$2" <<'PY'
-import json, os, re, sys
-params = json.loads(sys.argv[1])
-message, agent = params["message"], params.get("agent_id")
-who = "CAND" if "lab" in os.environ.get("OH_URL", "") else "base"
-if agent == "act":
-    task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
-    answer = json.dumps({"text": f"gm {task} from the {who}"})
-elif agent == "judge":
-    drafts = dict(re.findall(r"^## draft ([12])\n\n```text\n(.*?)\n```", message, re.M | re.S))
-    hits = [k for k in ("1", "2") if "CAND" in drafts.get(k, "")]
-    answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {},
-                         "notes": "the CAND draft is warmer"})
-else:
-    sys.exit(f"unexpected agent {agent}")
-print(json.dumps({"response": answer}))
-PY
-FAKE
-chmod +x "$scratch/fake-oh"
+mkdir -p "$root/brain"
+cat >"$root/brain/MEMORY.md" <<'PAGE'
+# MEMORY.md
+
+## people
+
+- [m1] **ana** (x): builds a cli for crabs.
+
+## what i have decided
+
+- [m36] before retrying anything, check whether it already went through.
+- [m44] **no likes on X, ever**: X's rules don't allow automated likes.
+PAGE
 
 unset OPENHUMAN_CORE_URL OPENHUMAN_WORKSPACE TEENY_STATE TEENY_SECRETS EVAL_HELDOUT_DIR EVOLVE
 export TEENY_ROOT="$root" TEENY_HANDS="$root/hands" EVOLVE_GIT_DIR="$src" EVOLVE_BASE=main \
-  FAKE_CALLS="$scratch/calls.log" FAKE_CORE_CALLS="$scratch/core.log" TEENY_OH="$scratch/fake-oh" DRY_RUN=1
+  FAKE_CALLS="$scratch/calls.log" TEENY_OH="$scratch/no-core" DRY_RUN=1
 : >"$FAKE_CALLS"
-: >"$FAKE_CORE_CALLS"
 
-# A proposal: one more line at the end of the morning playbook.
+# A proposal: one more line at the end of the moltbook-daily playbook (no eval task drafts from it).
 propose() { # I LINE
   python3 - "$src" "$root/props/cand-$1.json" "$2" <<'PY'
 import json, subprocess, sys
-text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/playbooks/morning.md"],
+text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/playbooks/moltbook-daily.md"],
                       check=True, capture_output=True, text=True).stdout
 last = text.rstrip().splitlines()[-1]
 json.dump({"title": f"morning: {sys.argv[3][:30]}", "component": "attention", "expected_move": "+1% engaged reach",
            "hypothesis": "The morning post opens the same way every day.",
-           "edits": [{"path": "brain/playbooks/morning.md", "old": last, "new": f"{last}\n\n{sys.argv[3]}"}]},
+           "edits": [{"path": "brain/playbooks/moltbook-daily.md", "old": last, "new": f"{last}\n\n{sys.argv[3]}"}]},
           open(sys.argv[2], "w"))
 PY
 }
@@ -112,61 +100,38 @@ done
 check "and the detached run found the loop off" grep -q 'EVOLVE=0' "$root/state/evolve/evolve.log"
 
 # --- a dry-run generation -----------------------------------------------------------------
-# No lab spine boots here (the unit tests cover it with a stand-in): a
-# candidate is measured only on the "lab core" URL given below.
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVAL_SAMPLES=1\nEVOLVE_MAX_WINRATE_JUMP=0.6\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\n' >"$root/secrets/evolve.env"
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=24\nEVOLVE_EVALUATOR=none\nEVOLVE_PROBES=0\n' >"$root/secrets/evolve.env"
 propose 1 "Open with what shipped, never with the weather."
-propose 2 "Name the person who shipped it."
+propose 2 "Name the person who shipped it, and check it went out."
 out="$("$evolve" run --candidates 2 --proposals "$root/props" 2>"$scratch/err")"
 check "a generation runs" test "$(jq -r .gen <<<"$out")" = 1
-check "both candidates pass the gate, unevaluated" test "$(jq -r '[.candidates[].verdict] | join(",")' <<<"$out")" = "unevaluated,unevaluated"
+check "one candidate per open learning, the newest first" test "$(jq -r '[.candidates[].learning] | join(",")' <<<"$out")" = "m44,m36"
+check "never one for a person on the page" bash -c "! grep -q '\"m1\"' '$root/state/evolve/archive.jsonl'"
+check "both pass the gate, unmeasurable, and would open" test "$(jq -r '[.candidates[].verdict] | join(",")' <<<"$out")" = "dry-run,dry-run"
 check "the evidence is written" test -s "$root/state/evolve/1/evidence.json"
-check "every candidate is archived" test "$(grep -c '"id": "g1c' "$root/state/evolve/archive.jsonl")" = 2
-check "DRY_RUN opens no pull request" test "$(jq -r .dry_run <<<"$out")" = true
-check "but says which it would" test "$(jq -r .would_open_pr.branch <<<"$out")" = teeny/gen-1
+check "every candidate is archived with its learning" test "$(grep -c '"learning": {' "$root/state/evolve/archive.jsonl")" -ge 2
+check "DRY_RUN says which pull request each would open" test "$(jq -r .would_open_pr.branch "$root/state/evolve/1/cand-2.pr.json")" = teeny/gen-1-c2
+check "with its teeny/eval status" test "$(jq -r .would_set_status.context "$root/state/evolve/1/cand-1.pr.json")" = teeny/eval
+check "and its learning in Teeny's words" grep -q 'no likes on X, ever' <<<"$(jq -r .body "$root/state/evolve/1/cand-1.pr.json")"
+check "and says it is unmeasurable" grep -q 'Unmeasurable' <<<"$(jq -r .body "$root/state/evolve/1/cand-1.pr.json")"
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 check "and pushes no branch" test -z "$(git --git-dir "$src" branch --list 'teeny/*')"
-check "the pull request says it is unevaluated" grep -q 'Unevaluated' <<<"$(jq -r .body <<<"$out")"
+check "and no worktree is left behind" test -z "$(find "$root/state/evolve/1" -maxdepth 1 -type d -name 'cand-*')"
 
-# --- a held generation, measured on a lab core ------------------------------------------------
-mkdir -p "$root/secrets/heldout"
-cat >"$root/secrets/heldout/hold-lighthouse.toml" <<'TOML'
-description = "a held-out reply about the lighthouse"
-kind = "reply"
-prompt = '''Reply to the keeper asking about the tide clock.'''
-[inputs]
-mention = {id = "9", author = "keeper", text = "tide?"}
-TOML
-propose 1 "Thank one person by name."
-out="$("$evolve" run --candidates 1 --proposals "$root/props" --hold 2>"$scratch/err")"
-check "--hold stops after the gate" test "$(jq -r '.held | length > 0' <<<"$out")" = true
-check "and keeps the candidate's worktree" test -d "$root/state/evolve/2/cand-1/brain"
-out="$("$evolve" evaluate 2 1 --oh-url-candidate http://lab.invalid:7788 2>"$scratch/err")"
-check "evaluate measures it on the lab core" test "$(jq -r .verdict <<<"$out")" = won
-check "with the visible tasks' win rate" test "$(jq -r '.scores.win_rate == 1' <<<"$out")" = true
-check "and the held-out tasks apart" test "$(jq -r .scores.heldout.wins <<<"$out")" = 1
-check "the baseline drafted on the live core" test "$(jq -r .draft.text "$root/state/evolve/2/eval/base/drafts.jsonl" | grep -c 'from the base')" -gt 0
-check "the candidate on the lab core" test "$(jq -r .draft.text "$root/state/evolve/2/eval/cand-1/drafts.jsonl" | grep -c 'from the CAND')" -gt 0
-check "and the judge read main's soul" test -s "$root/state/evolve/2/judge-root/brain/SOUL.md"
-out="$("$evolve" select 2 2>"$scratch/err")"
-body="$(jq -r .body <<<"$out")"
-check "select picks the measured winner" test "$(jq -r .selected <<<"$out")" = g2c1
-check "its pull request carries the compare report" grep -q 'Compare report' <<<"$body"
-check "and the held-out totals" grep -q 'Held-out tasks' <<<"$body"
-check "but never a held-out task" bash -c "! grep -qiE 'lighthouse|hold-lighthouse|tide clock' <<<\"\$1\"" _ "$body"
-check "select twice opens nothing more" grep -q 'already opened' <<<"$("$evolve" select 2 2>/dev/null)"
-check "and no promotion was asked for" test "$(jq -r .would_promote <<<"$out")" = false
-check "promote with EVOLVE_AUTO_PROMOTE off merges nothing" grep -q 'EVOLVE_AUTO_PROMOTE=0' <<<"$("$evolve" promote 2 2>/dev/null)"
-
-# --- the next generation's evidence ----------------------------------------------------------
-"$evolve" run --candidates 1 --proposals "$root/props" >/dev/null 2>&1 || true
-evidence="$root/state/evolve/3/evidence.json"
-check "the next evidence carries the judge's notes" grep -q 'the CAND draft is warmer' "$evidence"
-check "and none about a held-out task" bash -c "! grep -qiE 'lighthouse|tide clock' '$evidence'"
+# --- the same learnings are not asked about again --------------------------------------------
+out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
+check "with every learning carried out, a run does nothing" grep -q 'no open learnings' <<<"$(jq -r .skipped <<<"$out")"
+check "and makes no generation" test ! -e "$root/state/evolve/2"
+cat >>"$root/brain/MEMORY.md" <<'PAGE'
+- [m57] no dotted tokens in outbound telegram text.
+PAGE
+propose 1 "Write telegram names without dots."
+out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
+check "a new learning is taken up at the next run" test "$(jq -r '[.candidates[].learning] | join(",")' <<<"$out")" = m57
 
 # --- evolve-watch -------------------------------------------------------------------------------
 out="$("$evolve" watch 2>/dev/null)"
-check "evolve-watch with nothing promoted watches nothing" test "$(jq -r .watching <<<"$out")" = null
+check "evolve-watch with nothing merged watches nothing" test "$(jq -r .watching <<<"$out")" = null
 out="$("$evolve" watch --detach 2>/dev/null)"
 check "evolve-watch --detach logs to state/evolve/watch.log" test "$(jq -r .log <<<"$out")" = state/evolve/watch.log
 for _ in $(seq 1 50); do
@@ -177,8 +142,13 @@ check "and the detached watch ran" grep -q '"watching": null' "$root/state/evolv
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 
 # --- status, halts, resume --------------------------------------------------------------------
+cat >>"$root/brain/MEMORY.md" <<'PAGE'
+- [m61] reach is a wave, commitment is a drip.
+PAGE
 out="$("$evolve" status 2>/dev/null)"
-check "status lists the parent weights" test "$(jq -r '.weights | has("main")' <<<"$out")" = true
+check "status lists the open learnings" test "$(jq -r '[.learnings.open[].id] | join(",")' <<<"$out")" = m61
+check "and each candidate's state" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
+check "and the open evolve pull requests" test "$(jq -r '.open_prs | length' <<<"$out")" = 0
 printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
 out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
 check "too many generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
@@ -189,7 +159,8 @@ check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n'
 
 # --- the pinned jobs -------------------------------------------------------------------------------
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"
-check "evolve is pinned, daily and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.command)|\(.enabled)"' <<<"$jobs")" = "30 3 * * *|bin/evolve run --detach|true"
+check "evolve is pinned, after each dream, and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.tz)|\(.command)|\(.enabled)"' <<<"$jobs")" = "40 2,14 * * *|Asia/Kolkata|bin/evolve run --detach|true"
+check "each dream comes before it" test "$(jq -r '[.[] | select(.name == "teeny.dream" or .name == "teeny.dream-midday") | .expr] | sort | join(";")' <<<"$jobs")" = "0 14 * * *;0 2 * * *"
 check "evolve-credit is pinned, daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
 check "evolve-watch is pinned, hourly and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve-watch") | "\(.expr)|\(.command)"' <<<"$jobs")" = "20 * * * *|bin/evolve watch --detach"
 check "and the schedule passes seed-cron --check" env -u TEENY_ROOT "$repo/bin/seed-cron" --check --file "$repo/brain/cron.toml"

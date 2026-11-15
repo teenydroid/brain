@@ -1,6 +1,7 @@
 """Moving the live checkout (the one bin/spine runs) forward, and asking
-whether it is safe to: the steps bin/evolve's `LiveRestarter` takes on a
-promotion and hands/babysit's deploy takes after a self-merge, in one place
+whether it is safe to: the steps the evolve loop's restart took before it
+stopped merging (bin/evolve no longer restarts anything) and hands/babysit's
+deploy takes after a self-merge, in one place
 so the two never drift (docs/evolve.md, restart; docs/hands.md, "babysit").
 
 The order, which both follow:
