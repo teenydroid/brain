@@ -192,6 +192,21 @@ class HelpdeskTest(Scratch):
         self.assertEqual(out["comment_refused"]["rule"], "once_per_post")
         self.assertEqual(out["filed"]["status"], "pending")
 
+    def test_an_answer_that_errors_still_reports_the_pain_it_filed(self):
+        # Moltbook failing the comment (a 500, a timeout) is an error, not a
+        # refusal; the pain was already written, so the call must say so
+        # instead of failing as if nothing happened.
+        self.a_post(THEIRS, author="ana")
+        self.mb.route("POST", f"/posts/{THEIRS}/comments", {"success": False, "error": "internal"}, status=500)
+        out = bridge.helpdesk({"post_id": THEIRS, "body": "check the id length before the call: 36 characters.",
+                               "pain": PAIN})
+        self.assertEqual(out["filed"]["status"], "pending")
+        self.assertIn("error", out["comment_error"])
+        self.assertEqual(len(self.requests()), 1)
+        # With nothing filed, the answer's error is the call's error.
+        with self.assertRaises(hand.HandError):
+            bridge.helpdesk({"post_id": THEIRS, "body": "check the id length before the call: 36 characters."})
+
     def test_a_dry_run_files_the_pain_and_sends_nothing(self):
         self.configure(DRY_RUN="1")
         self.a_post(THEIRS, author="ana")
