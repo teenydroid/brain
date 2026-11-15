@@ -599,3 +599,136 @@ class HardGate(LoopCase):
         out = evolve.gate(tree, base)
         self.assertTrue(out["ok"] and out["hard_ok"], out)
         self.assertFalse(any(c.get("hard") for c in out["checks"] if c["check"] not in evolve.HARD_CHECKS))
+
+
+#: A test appended to hands/tests/test_lore.py by a candidate: it fails when
+#: the process environment leaked in (sealed_env), or when told to.
+LORE_TEST = '''
+
+
+class EvolveProbe(unittest.TestCase):
+    def test_runs_sealed(self):
+        import os
+        self.assertNotIn("EVOLVE_LEAK_PROBE", os.environ)
+        self.assertEqual(os.environ.get("DRY_RUN"), "1")
+        self.assertTrue(%s)
+'''
+
+
+class HandEdits(LoopCase):
+    """Since 2026-11-15 an existing hand that is not frozen may change, with
+    a test and its docs (docs/evolve.md, "The gate's checks")."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["EVOLVE_LEAK_PROBE"] = "a secret of the box"
+        self.addCleanup(os.environ.pop, "EVOLVE_LEAK_PROBE", None)
+
+    def lore_edit(self, passes=True, test=True, docs=True):
+        edits = [{"path": "hands/lib/teeny_hands/lore/__init__.py", "old": "Reads only.",
+                  "new": "Reads only, never writes."}]
+        if test:
+            text = self.base_text("hands/tests/test_lore.py")
+            last = text.rstrip().splitlines()[-1]
+            edits.append({"path": "hands/tests/test_lore.py", "old": last,
+                          "new": last + LORE_TEST % ("True" if passes else "False")})
+        if docs:
+            edits.append({"path": "docs/hands.md", "old": "Teeny's own hand (docs/roadmap.md, A13). Reads only;",
+                          "new": "Teeny's own hand (docs/roadmap.md, A13). Reads only, never writes;"})
+        return edits
+
+    def gated(self, edits):
+        tree = self.worktree(f"t{len(list((self.root / 'trees').glob('*'))) if (self.root / 'trees').exists() else 0}")
+        evolve.apply_edits(tree, edits)
+        out = evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
+        return out, {c["check"]: c for c in out["checks"]}
+
+    def test_an_existing_hand_edit_with_its_tests_and_docs_passes(self):
+        out, checks = self.gated(self.lore_edit())
+        self.assertTrue(out["ok"], [c for c in out["checks"] if not c["ok"]])
+        self.assertNotIn("existing hand entry points", checks)
+        self.assertTrue(checks["hand tests: lore"]["ok"])
+        self.assertIn("lore: tests changed too", checks["changed hands have tests"]["detail"])
+
+    def test_without_its_docs_or_a_test_it_comes_back_as_findings_not_a_rejection(self):
+        out, checks = self.gated(self.lore_edit(test=False, docs=False))
+        self.assertTrue(out["hard_ok"])
+        self.assertFalse(out["ok"])
+        self.assertIn("hands/lore changed but its section in docs/hands.md did not", checks["docs updated"]["detail"])
+        self.assertIn("hands/lore with no change to its tests", checks["changed hands have tests"]["detail"])
+        self.assertTrue(checks["hand tests: lore"]["ok"])  # its existing tests still run
+
+    def test_a_failing_hand_test_is_a_finding_with_its_output(self):
+        out, checks = self.gated(self.lore_edit(passes=False))
+        self.assertTrue(out["hard_ok"])
+        self.assertFalse(checks["hand tests: lore"]["ok"])
+        self.assertIn("FAIL: test_runs_sealed", checks["hand tests: lore"]["detail"])
+        self.assertNotIn(str(self.root), checks["hand tests: lore"]["detail"])
+        problems = [f["problem"] for f in evolve.check_findings(out)]
+        self.assertTrue(any("hand tests: lore" in p for p in problems), problems)
+
+    def test_a_frozen_hand_is_still_refused_for_good(self):
+        text = self.base_text("hands/lib/teeny_hands/x/__init__.py")
+        out, checks = self.gated([{"path": "hands/lib/teeny_hands/x/__init__.py", "old": text.splitlines()[0],
+                                   "new": text.splitlines()[0] + " "}])
+        self.assertFalse(out["hard_ok"])
+        self.assertIn("hands/lib/teeny_hands/x/__init__.py", checks["frozen paths"]["detail"])
+        self.assertNotIn("hand tests: x", checks)  # its code never runs
+
+    def test_a_new_playbook_needs_a_line_where_its_siblings_are_listed(self):
+        book = {"path": "brain/playbooks/kettle.md", "old": "",
+                "new": self.base_text("brain/playbooks/moltbook-daily.md")}
+        _, checks = self.gated([book])
+        self.assertIn("the new playbook `kettle`", checks["docs updated"]["detail"])
+        line = "Teeny's own: the heartbeat, `morning`, `brief`, the"
+        _, checks = self.gated([book, {"path": "docs/architecture.md", "old": line,
+                                       "new": line.replace("`brief`,", "`brief`, `kettle`,")}])
+        self.assertTrue(checks["docs updated"]["ok"], checks["docs updated"])
+
+    def test_a_new_cron_job_needs_a_line_too(self):
+        tail = "\n".join(self.base_text("brain/cron.toml").rstrip().splitlines()[-4:])
+        job = {"path": "brain/cron.toml", "old": tail,
+               "new": tail + '\n\n[jobs.kettle-brew]\nschedule = "5 9 * * *"\ncommand = "bin/heartbeat"\nenabled = false\n'}
+        _, checks = self.gated([job])
+        self.assertIn("the new cron job `kettle-brew`", checks["docs updated"]["detail"])
+
+    def test_the_builder_is_sent_back_for_the_missing_test_and_docs(self):
+        self.one_learning()
+        bare = {**self.proposal(), "edits": self.lore_edit(test=False, docs=False)}
+        whole = {**self.proposal(), "edits": self.lore_edit()}
+        proposer = Recording(research=[BUILD], proposals=[bare, whole])
+        out = self.run_with(proposer)
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        checks = {f["check"] for f in proposer.requests[1]["findings"]}
+        self.assertEqual(checks, {"docs updated", "changed hands have tests"})
+
+
+class ShownToTheBuilder(LoopCase):
+    def test_docs_are_editable_except_the_frozen_ones(self):
+        tree = self.worktree("t")
+        editable, _ = evolve.context_pack(tree, [], 1000)
+        self.assertIn("docs/hands.md", editable)
+        self.assertIn("docs/evolve.md", editable)
+        self.assertNotIn("docs/governance.md", editable)
+        self.assertNotIn("bin/lib/evolve.py", editable)
+
+    def test_files_research_named_that_it_may_not_change_are_shown_read_only(self):
+        self.one_learning()
+        research = {**BUILD, "read": ["hands/lib/teeny_hands/x/__init__.py", "brain/playbooks/moltbook-daily.md"]}
+        proposer = Recording(research=[research], proposals=[self.proposal()])
+        self.run_with(proposer)
+        request = proposer.requests[0]
+        self.assertIn("hands/lib/teeny_hands/x/__init__.py", request["readonly"])
+        self.assertNotIn("hands/lib/teeny_hands/x/__init__.py", request["files"])
+        self.assertEqual(next(iter(request["files"])), "brain/playbooks/moltbook-daily.md")
+        message = evolve.render_request(request)
+        self.assertIn("## file (read only, not yours to change): hands/lib/teeny_hands/x/__init__.py", message)
+        fitted = evolve.fit_request(request, limit=len(message.encode()) - 10)
+        self.assertNotIn("hands/lib/teeny_hands/x/__init__.py", fitted["readonly"])  # the biggest goes first
+
+    def test_the_brief_carries_the_hand_docs_and_refactor_rules(self):
+        message = "\n".join(evolve.brief({"learning": {"id": "m1", "section": "s", "text": "t"}, "frozen": ["bin/**"]},
+                                         edits_in_place=False))
+        self.assertIn("A small edit inside an existing hand that is not frozen is yours to make", message)
+        self.assertIn("its own section of docs/hands.md", message)
+        self.assertIn("No refactor the learning does not need", message)
