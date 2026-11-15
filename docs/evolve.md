@@ -908,15 +908,31 @@ that copy in one of two sandboxes, tried in order:
    no user namespaces, so bubblewrap cannot start there (the builder's shell
    falls back to Landlock for the same reason, docs/architecture.md). The
    service is the same image with `network_mode: none`, a read-only root,
-   `cap_drop: ALL`, `no-new-privileges`, a pid and memory limit, and nothing
-   of the checkout mounted but `state/sandbox/` and the runner's two frozen
-   files, read-only. `bin/evolve` leaves a job there (`jobs/<id>/tree`, the
-   copy, and `job.json`, the unittest arguments and time limit); the runner
-   copies it into its `/work` tmpfs, runs it, kills every process its user
-   has left (a daemon a test started cannot write over the result), and
-   writes `done/<id>.json`, which `bin/evolve` reads without following a
-   link and never past 272 KiB. `state/sandbox/ready`, touched every 10 s,
-   says the runner is there.
+   `no-new-privileges`, a pid and memory limit, and nothing of the checkout
+   mounted but `state/sandbox/` and the runner's two frozen files,
+   read-only.
+
+   **Three uids.** The runner starts as root with only `SETUID`, `SETGID`,
+   `CHOWN` and `KILL`. Every read and write of `state/sandbox/` it makes as
+   the checkout's owner (`SANDBOX_UID`; the folder is kept `0700`, theirs),
+   and it runs the tests as a third uid (`SANDBOX_TEST_UID`, 65534) on a
+   copy in its `/work` tmpfs, chowned to that uid. The tests can reach
+   neither `state/sandbox/` nor the runner: they cannot write a result,
+   signal the runner or read its memory or environment. After each job the
+   runner kills every process of the test uid. It refuses to start without
+   root, or with the two uids the same: tests running as the runner's own
+   uid could forge their result.
+
+   **The protocol.** `bin/evolve` checks first that `state/sandbox/`,
+   `jobs/` and `done/` are real folders it owns (never a link), creates the
+   job folder without following links, and leaves `jobs/<id>/tree` (the
+   copy) and `job.json` (the unittest arguments and time limit). The runner
+   writes `ack.json`, with a fresh token, before it runs anything, then
+   `done/<id>.json` with the same token. A result with no acknowledgement
+   beside it, with another token, or not a regular file (read without
+   following a link, never past 272 KiB) is refused, and so is a runner that
+   stops touching `state/sandbox/ready` (every 10 s, from a process of its
+   own) during the job. Any of these fails the check.
 
 Either way the run is killed with its whole process group at 300 s, or once
 it has written more than 256 KiB. The copy is the only thing a test can
@@ -925,13 +941,15 @@ write, so it cannot touch the worktree, `cand-<i>.patch`,
 last check of a round, after `seed-cron`, `doctor` and the invariants, which
 run the candidate's frozen scripts from the worktree.
 
-**It fails closed.** With neither sandbox working, nothing runs, and the
-check fails: "hand tests could not be run in a sandbox here (...); a change
-to hand code does not ship without them". That is a finding, so a change to
-hand code is sent back and, round after round, parked: hand edits do not
-ship from a box without a sandbox. A change that touches no hand runs no
-hand tests and is not affected. `bin/doctor` reports which sandbox works
-(`hand-test sandbox`: `bwrap`, `sidecar`, or a warning).
+**It fails closed, and defers.** With neither sandbox working, nothing
+runs (never unsandboxed). The candidate is not the cause, so it is not sent
+back or parked: it is **`deferred`** (`deferred_for: sandbox`), its learning
+stays open with no failed try, and `bin/evolve status` lists it with the
+reason. While there is still no sandbox, later generations skip that
+learning instead of paying for its research and build again
+(`sandbox_deferred`). A change that touches no hand runs no hand tests and
+is not affected. `bin/doctor` reports which sandbox works (`hand-test
+sandbox`: `bwrap`, `sidecar`, or a warning).
 
 **At deploy** (the operator): create the jobs folder as the checkout's
 owner, then bring the service up with the rest:
@@ -943,8 +961,11 @@ docker compose -f deploy/compose.yaml exec spine bin/doctor   # hand-test sandbo
 ```
 
 No image rebuild is needed: the service runs the spine's image
-(`teeny-spine:current`). If `state/sandbox/` is missing at the first `up`,
-Docker creates it as root, the runner cannot write it, and the doctor warns.
+(`teeny-spine:current`). `state/sandbox/` must belong to the checkout's
+owner (`TEENY_UID`, the uid the spine runs as): if it is missing at the
+first `up`, Docker creates it as root, the runner cannot write it, the
+doctor warns, and hand edits are deferred. The test uid (65534) needs no
+account in the image.
 
 **The doctor.** When the diff changes an existing hand, `doctor --root`
 runs with none of `bin/evolve`'s environment (`sealed_env`). It runs no code
