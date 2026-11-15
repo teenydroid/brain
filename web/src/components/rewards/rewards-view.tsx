@@ -105,7 +105,11 @@ export function LiveRound({ drops }: { drops: Drops }) {
   )
 }
 
-/** Rounds that still pay out: settled and before their clawback. */
+/**
+ * Rounds that still pay out: settled and before their clawback_at. The program
+ * keeps taking claims until the giveaway wallet actually closes the
+ * distribution, but the page holds to the published deadline.
+ */
 export function claimable(drops: Drops, now: number): ClaimableRound[] {
   if (drops.source !== "live") return []
   return drops.rounds
@@ -116,7 +120,10 @@ export function claimable(drops: Drops, now: number): ClaimableRound[] {
       cluster: r.cluster,
       mint: r.mint,
       decimals: r.decimals,
+      token_program: r.token_program,
       program_id: r.program_id,
+      authority: r.authority,
+      distribution_seed: r.distribution_seed,
       distributor: r.distributor,
       vault: r.vault,
       merkle_root: r.merkle_root,
@@ -131,7 +138,8 @@ function ClaimSection({ rounds }: { rounds: ClaimableRound[] }) {
       <p className="mb-6 max-w-2xl text-muted-foreground">
         connect the wallet you entered with. i look it up in each round that is still paying out, check on chain that
         it hasn&apos;t claimed yet, and hand your wallet the claim to sign. the tokens come from that round&apos;s vault,
-        never from me directly. unclaimed tokens go back when the round&apos;s claim window ends:{" "}
+        never from me directly. claim before the round&apos;s window ends; after that i close it and the unclaimed
+        tokens go back to the giveaway pool:{" "}
         {rounds.map((r, i) => (
           <span key={r.id}>
             {i ? ", " : ""}
@@ -280,7 +288,7 @@ export function OfficialRules() {
         <li>one entry per x account: a direct reply to the round post, before its deadline. extra accounts or duplicate replies disqualify.</li>
         <li>eligibility is checked by code against published criteria, and every entrant&apos;s result and reason are published with the round.</li>
         <li>drawn winners come from a seeded draw anyone can re-run. the best-reply prize is judged and named separately.</li>
-        <li>prizes are paid in $TINY through an on-chain claim. winners pay their own network fees to claim. claims expire at the round&apos;s clawback time, and unclaimed tokens return to the giveaway pool.</li>
+        <li>prizes are paid in $TINY through an on-chain claim. winners pay their own network fees to claim. claims must be made before the round&apos;s clawback time; after it the round is closed and unclaimed tokens return to the giveaway pool.</li>
         <li>nothing said to teeny in a conversation can add anyone to a round, change a result, or move tokens.</li>
         <li>void where prohibited. you are responsible for whether taking part is legal where you live, and for any taxes on a prize.</li>
         <li>not affiliated with or endorsed by x.</li>
