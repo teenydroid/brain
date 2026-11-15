@@ -205,6 +205,11 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # Paid web searches (hands/x402, Exa) a learning's research may run;
     # 0, the default, runs none; the operator turns it on (the box runs 3).
     "EVOLVE_RESEARCH_SEARCHES": ("0", int, 0, 5),
+    # Rounds of build, checks and review a candidate gets before it is parked.
+    "EVOLVE_REVISE_ROUNDS": ("3", int, 1, 6),
+    # The biggest change, as a share of every line the repository tracks;
+    # past it a candidate is rejected for good (a mass refactor).
+    "EVOLVE_MAX_CHANGE_PCT": ("5", float, 0.1, 100.0),
     "EVOLVE_JUDGE_MODEL": ("", str, None, None),
     "EVOLVE_PROBES": ("1", int, 0, 1),
     "EVOLVE_PROBE_SAMPLES": ("2", int, 1, 5),
