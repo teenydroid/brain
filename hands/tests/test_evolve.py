@@ -475,6 +475,32 @@ class OnePullRequestPerCandidate(EvolveCase):
         log = git("--git-dir", str(self.src), "log", "-1", "--format=%an", "teeny/gen-1-c1").strip()
         self.assertEqual(log, "Teeny")
 
+    def test_a_branch_left_by_a_failed_push_is_replaced_never_suffixed(self):
+        """The babysitter merges only teeny/gen-<n> or teeny/gen-<n>-c<i>,
+        digits only: a `-2` suffix would never merge."""
+        git("--git-dir", str(self.src), "branch", "teeny/gen-1-c1", "main")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertRegex(pub.prs[0]["branch"], r"^teeny/gen-\d+(-c\d+)?$")
+        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/morning.md"))
+
+    def test_candidates_are_measured_under_the_eval_lock(self):
+        """The babysitter's deploy waits on state/locks/eval.lock before it
+        moves or restarts the live checkout a lab was booted from."""
+        seen = []
+
+        class Watching(Verdicts):
+            def evaluate(self, cands, done):
+                seen.append(evolve.running("eval"))
+                super().evaluate(cands, done)
+
+        self.propose(1, [self.playbook_edit("Check first.")])
+        self.run_gen(1, evaluator=Watching())
+        self.assertEqual(seen, [True])
+        self.assertFalse(evolve.running("eval"))
+
     def test_the_body_carries_the_learning_in_teenys_words_the_hypothesis_the_gate_and_the_eval(self):
         self.propose(1, [self.playbook_edit("Check first.")], title="check before retrying")
         pub = FakePublisher()
