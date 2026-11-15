@@ -314,6 +314,38 @@ def open_pr(body: Any, gh: GitHubApi | None = None) -> Json:
     return {"opened": repo, "number": opened.get("number"), "html_url": opened.get("html_url"), "external": external}
 
 
+#: The commit statuses Teeny sets, and on what: only its own repositories,
+#: only a `teeny/...` context (bin/evolve's `teeny/eval`).
+STATUS_STATES = ("success", "failure", "pending", "error")
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def set_status(body: Any, gh: GitHubApi | None = None) -> Json:
+    """A commit status on SHA of an own repository: bin/evolve's `teeny/eval`
+    on a candidate's head, which the babysitter reads before it merges.
+    In-process only (no verb sets one): the description is fixed text of
+    an operator script, so the guard has nothing of a model's to read."""
+    body = _body(body, ("repo", "sha", "state", "context", "description"))
+    owner, name, repo = _own_repo(body["repo"], "sets commit statuses")
+    sha = _string(body, "sha").lower()
+    if not _SHA.match(sha):
+        raise hand.HandError("a commit status needs a full 40-character sha")
+    state = _string(body, "state")
+    if state not in STATUS_STATES:
+        raise hand.HandError(f"a commit status is one of {', '.join(STATUS_STATES)}, not {state!r}")
+    context = _string(body, "context")
+    if not context.startswith(PR_BRANCH_PREFIX):
+        raise hand.Refused(f"Teeny sets only its own {PR_BRANCH_PREFIX}... statuses, not {context}", rule="context")
+    description = _string(body, "description")[:140]
+    if hand.dry_run():
+        return {"dry_run": True, "would_set_status": repo, "sha": sha, "state": state, "context": context,
+                "description": description}
+    gh = gh or GitHubApi.from_settings()
+    got = gh.set_status(owner, name, sha, state, context, description)
+    _record("set-status", repo, False, sha, state=state, context=context)
+    return {"status": repo, "sha": sha, "state": state, "context": context, "id": got.get("id")}
+
+
 def rejection(owner: str, name: str, number: int, gh: GitHubApi) -> Json | None:
     """When `number` on someone else's repository is a pull request of
     Teeny's that was closed without being merged, the guard context that
