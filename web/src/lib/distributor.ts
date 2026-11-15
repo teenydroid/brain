@@ -4,9 +4,11 @@
  *
  * Source: github.com/solana-foundation/rewards (MIT). The audited-through commit
  * (OtterSec; audits/AUDIT_STATUS.md) is aa1cfd9276375e44e57d1917d110ff095fb6d475.
- * The last mainnet upgrade (2026-05-27) most likely came from 5f2746d. Every
- * fact below is the same at both commits, unless it is marked [post-audit].
- * Files are under program/src/.
+ * The program was last upgraded on mainnet on 2026-05-27, and its binary does
+ * not match a reproducible build of any commit tried (docs/drops-schema.md has
+ * the details). Every fact below is the same at the audited commit, at 5f2746d
+ * (the commit current at that upgrade) and at main dc88bfd, unless it is marked
+ * [post-audit]. Files are under program/src/.
  *
  *   program id     REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi (lib.rs declare_id!; on mainnet and devnet)
  *   distribution   PDA ["merkle_distribution", mint, authority, seed]
