@@ -106,7 +106,10 @@ def seed_slot(deadline: float) -> dict[str, Any]:
     tip = rpc("getSlot", [FINALIZED])
     if not isinstance(tip, int):
         raise hand.HandError("the giveaway RPC did not say its finalized slot")
-    tip_slot = _produced_from(tip, tip) or tip
+    recent = rpc("getBlocks", [max(0, tip - WINDOW), tip, FINALIZED]) or []
+    if not recent:
+        raise hand.HandError("the giveaway RPC has no finalized block near its tip")
+    tip_slot = int(max(recent))
     tip_time = _time(tip_slot)
     if tip_time < deadline:
         raise NotFinal("no finalized block after the deadline yet")
