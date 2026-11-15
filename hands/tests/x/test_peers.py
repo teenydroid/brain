@@ -263,6 +263,18 @@ class SuggestTest(SuggestBase):
         self.at(T0 + 17 * HOUR + MINUTE)  # past midnight UTC
         self.assertEqual(peers.suggest({"candidates": [self.candidate("201", 5)]})["posted"]["id"], "300")
 
+    def test_a_quote_whose_fate_is_unknown_counts_for_the_day(self):
+        # A run that died between claiming the post and recording it may
+        # have quoted already: the day's one quote is not risked twice.
+        conn = hand.db()
+        conn.executescript(peers.SCHEMA)
+        conn.execute("INSERT INTO x_peer_candidates (batch, rank, quote_of, text, relevance, format, status, at)"
+                     " VALUES ('b', 0, '202', 't', 5, 'quote', 'posting', ?)", (T0 - HOUR,))
+        conn.commit()
+        out = peers.suggest({"candidates": [self.candidate("201", 5)]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "daily"))
+        self.assertEqual(self.posted(), [])
+
     def test_the_daily_number_is_a_setting(self):
         self.configure(PEER_QUOTES_MAX_PER_DAY="2", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
         peers.suggest({"candidates": [self.candidate("202", 5)]})
