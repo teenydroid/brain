@@ -393,7 +393,7 @@ def next_task() -> Json:
                         continue
                     shots = _captured(row["id"], float(row["claimed_at"] or 0), BROWSE_MAX_SCREENSHOTS)
                     if row["attempts"] >= 2:
-                        why = (f"the operator's run ended twice without a report; the last said: {ended}"
+                        why = (f"the operator's runs ended without a report, twice; the last said: {ended}"
                                if ended is not None else "abandoned twice: the operator never reported back")
                         conn.execute(
                             "UPDATE browser_tasks SET status = 'failed', finished_at = ?, notes = ?, screenshots = ?"
