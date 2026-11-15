@@ -7,11 +7,14 @@ import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   checkRoundAccounts,
-  claimStatusPda,
+  claimMerkleInstruction,
+  claimPda,
   createAtaIdempotentInstruction,
   hexToBytes,
-  newClaimInstruction,
-  TOKEN_PROGRAM_ID,
+  parseClaimedAmount,
+  parseDistribution,
+  refusedMint,
+  revocationPda,
   verifyClaimProof,
 } from "@/lib/distributor"
 import { findClaim, formatTiny, solscan, type Round } from "@/lib/drops"
@@ -21,17 +24,28 @@ import { ConnectWallet } from "./wallet"
 /** What the claim panel needs of a round: no entrant list, no draw. */
 export type ClaimableRound = Pick<
   Round,
-  "id" | "tag" | "cluster" | "mint" | "decimals" | "program_id" | "distributor" | "vault" | "merkle_root" | "clawback_at" | "claims"
+  | "id"
+  | "tag"
+  | "cluster"
+  | "mint"
+  | "decimals"
+  | "token_program"
+  | "program_id"
+  | "authority"
+  | "distribution_seed"
+  | "distributor"
+  | "vault"
+  | "merkle_root"
+  | "clawback_at"
+  | "claims"
 >
-
-/** Byte offset of `clawed_back` in a MerkleDistributor account (8-byte discriminator, then borsh fields). */
-const CLAWED_BACK_OFFSET = 8 + 1 + 8 + 32 + 32 + 32 + 8 * 4 + 8 * 3 + 32 + 32
 
 type State =
   | { step: "checking" }
   | { step: "lost" }
   | { step: "broken"; why: string }
   | { step: "claimed" }
+  | { step: "revoked" }
   | { step: "expired" }
   | { step: "ready" }
   | { step: "sending" }
@@ -61,19 +75,25 @@ function RoundClaim({ round, owner }: { round: ClaimableRound; owner: PublicKey 
       if (!verifyClaimProof(round.merkle_root, claim.address, claim.amount_atomic, claim.proof)) {
         return set({ step: "broken", why: "your proof doesn't check against the round's root, so the program would refuse it." })
       }
-      if (round.clawback_at && Date.parse(round.clawback_at) <= Date.now()) return set({ step: "expired" })
       const program = new PublicKey(round.program_id)
       const distributor = new PublicKey(round.distributor!)
-      const [status, mint, dist] = await connection.getMultipleAccountsInfo([
-        claimStatusPda(program, owner, distributor),
+      const [claimInfo, revoked, mint, dist] = await connection.getMultipleAccountsInfo([
+        claimPda(program, distributor, owner)[0],
+        revocationPda(program, distributor, owner),
         new PublicKey(round.mint),
         distributor,
       ])
-      if (status) return set({ step: "claimed" })
-      if (!dist) return set({ step: "broken", why: "the round's distributor isn't on chain." })
-      if (dist.data[CLAWED_BACK_OFFSET] === 1) return set({ step: "expired" })
-      if (!mint || !mint.owner.equals(TOKEN_PROGRAM_ID)) {
-        return set({ step: "broken", why: "the distributor program pays classic spl tokens only, and this round's mint is not one." })
+      const state = dist && dist.owner.equals(program) ? parseDistribution(dist.data) : undefined
+      // Claims stay open until the giveaway wallet closes the distribution, which it may do from clawback_at on.
+      if (!dist || state?.closed) return set({ step: "expired" })
+      if (!state) return set({ step: "broken", why: "the round's distribution on chain isn't one the program wrote." })
+      if (state.root !== round.merkle_root) return set({ step: "broken", why: "the root on chain is not the root in the round's file." })
+      const claimed = claimInfo ? parseClaimedAmount(claimInfo.data) : undefined
+      if (claimed !== undefined && claimed >= BigInt(claim.amount_atomic)) return set({ step: "claimed" })
+      if (revoked) return set({ step: "revoked" })
+      const refused = mint ? refusedMint(mint.owner, mint.data) : "is missing"
+      if (refused || !mint!.owner.equals(new PublicKey(round.token_program))) {
+        return set({ step: "broken", why: `this round's token ${refused ?? "is not under the token program the file names"}, so i won't hand you a claim for it.` })
       }
       set({ step: "ready" })
     })().catch(() => set({ step: "failed", why: "could not reach solana. try again in a minute.", retry: false }))
@@ -88,15 +108,16 @@ function RoundClaim({ round, owner }: { round: ClaimableRound; owner: PublicKey 
     try {
       const connection = new Connection(rpcFor(round.cluster), "confirmed")
       const mint = new PublicKey(round.mint)
+      const tokenProgram = new PublicKey(round.token_program)
       const tx = new Transaction().add(
-        createAtaIdempotentInstruction(owner, owner, mint),
-        newClaimInstruction({
+        createAtaIdempotentInstruction(owner, owner, mint, tokenProgram),
+        claimMerkleInstruction({
           programId: new PublicKey(round.program_id),
-          distributor: new PublicKey(round.distributor),
+          distribution: new PublicKey(round.distributor),
           mint,
+          tokenProgram,
           claimant: owner,
-          amountUnlocked: BigInt(claim.amount_atomic),
-          amountLocked: 0n,
+          totalAmount: BigInt(claim.amount_atomic),
           proof: claim.proof.map(hexToBytes),
         }),
       )
@@ -128,16 +149,17 @@ function RoundClaim({ round, owner }: { round: ClaimableRound; owner: PublicKey 
       ) : null}
       {state.step === "broken" ? <p className="text-sm text-destructive">{state.why} nothing was sent. tell @teenydroid.</p> : null}
       {state.step === "claimed" ? <p className="text-sm text-muted-foreground">already claimed from this wallet.</p> : null}
-      {state.step === "expired" ? <p className="text-sm text-muted-foreground">the claim window closed and the unclaimed tokens went back.</p> : null}
+      {state.step === "revoked" ? <p className="text-sm text-muted-foreground">this wallet&apos;s prize was revoked on chain.</p> : null}
+      {state.step === "expired" ? <p className="text-sm text-muted-foreground">the round is closed: the unclaimed tokens went back to the giveaway pool.</p> : null}
       {state.step === "ready" || state.step === "sending" || (state.step === "failed" && state.retry) ? (
         <div className="flex flex-col gap-2">
           <Button size="lg" className="w-fit" disabled={state.step === "sending"} onClick={send}>
             {state.step === "sending" ? "waiting for your wallet…" : "claim"}
           </Button>
           <p className="max-w-xl text-xs text-muted-foreground">
-            you sign and you pay the fees: about 0.0014 SOL of rent for the on-chain record that you claimed, about
-            0.002 SOL more if this wallet has no $TINY token account yet, and the network fee. so keep roughly 0.002 to
-            0.004 SOL in this wallet first.
+            you sign and you pay the fees: about 0.001 SOL of rent for the on-chain record of your claim (you can take
+            it back once the round closes), about 0.0021 SOL more if this wallet has no $TINY token account yet, and
+            the network fee. so keep roughly 0.001 to 0.0035 SOL in this wallet first.
           </p>
         </div>
       ) : null}
