@@ -625,9 +625,12 @@ aff_base="$(git -C "$aff" rev-parse HEAD)"
 affected() { "$eval_bin" affected --root "$aff" --base "$aff_base"; }
 reset_aff() { git -C "$aff" reset -q --hard "$aff_base"; git -C "$aff" clean -qfd; }
 check "a tree that changes nothing reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-curate.md"
+check "a playbook no task drafts from reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+check "and says why" grep -q 'no task drafts from this playbook' <<<"$(affected | jq -r '.paths["brain/playbooks/moltbook-curate.md"]')"
+reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-daily.md"
-check "gen 6's shape: only moltbook-daily.md changed reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
-check "and says why" grep -q 'no task drafts from this playbook' <<<"$(affected | jq -r '.paths["brain/playbooks/moltbook-daily.md"]')"
+check "moltbook-daily.md reaches its three tasks" test "$(affected | jq -c '[.tasks, .all]')" = '[["moltbook-daily-feed-bait","moltbook-daily-nothing-new","moltbook-daily-real-numbers"],false]'
 reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
 check "a playbook reaches the tasks drafted from it" test "$(affected | jq -c '[.tasks, .all]')" = '[["morning-post"],false]'
