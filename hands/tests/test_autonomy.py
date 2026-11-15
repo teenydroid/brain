@@ -152,7 +152,6 @@ class DoctorCheckTest(Scratch):
         self.assertEqual(self.check()["status"], "ok", self.check()["detail"])
 
     def test_babysit_self_merge_needs_self_merge_at_l5(self):
-        self.toml("[capability.self-merge]\n", "[capability.self-merge]\n_lowered = true\n")
         text = (self.root / "evals" / "autonomy.toml").read_text()
         head, _, tail = text.partition("[capability.self-merge]")
         tail = tail.replace("level = 5", "level = 4\nnext = { level = 5, also = [\"x\"] }", 1)
