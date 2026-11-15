@@ -2443,7 +2443,7 @@ SANDBOX_BIN = sandbox_lib.BWRAP
 SANDBOX_ROOT = "/work"
 #: The system directories mounted read-only (when they exist).
 SANDBOX_SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/etc")
-NO_SANDBOX = "hand tests could not be run in a sandbox here ({why}); a change to hand code does not ship without them"
+NO_SANDBOX = "hand tests could not be run in a sandbox here ({why}); a change to hand code waits for one"
 
 
 def sandbox_binary() -> str | None:
@@ -2506,11 +2506,18 @@ def run_contained(argv: list[str], timeout: float) -> tuple[int | None, str]:
     return code, out
 
 
+class NoSandbox(EvolveError):
+    """No sandbox can run a candidate's hand tests here: nothing ran. The
+    candidate is deferred (its learning open, no try counted), never
+    shipped, and never run unsandboxed."""
+
+
 def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
     """Hand NAME's tests (`python -m unittest`) on a copy of the candidate,
     in bwrap or the sandbox service, within HAND_TEST_SECS. With neither,
-    nothing runs and the check fails (NO_SANDBOX). A failure is detailed by
-    its FAIL and ERROR lines and the errors they raised, with no path of the
+    nothing runs: NoSandbox. A sandbox folder that is not what it should be
+    (a link, another owner) fails the check. A failure is detailed by its
+    FAIL and ERROR lines and the errors they raised, with no path of the
     box."""
     target = _hand_tests(tree, name, at=".")
     if target is None:
@@ -2529,11 +2536,14 @@ def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
     else:
         side, side_why = sandbox_lib.sidecar_ready(sandbox_jobs())
         if not side:
-            return False, NO_SANDBOX.format(why=f"{why}; {side_why}")
-        code, out, failed = sandbox_lib.submit(sandbox_jobs(), lambda dest: copy_candidate(tree, dest), target,
-                                               HAND_TEST_SECS)
+            raise NoSandbox(NO_SANDBOX.format(why=f"{why}; {side_why}"))
+        try:
+            code, out, failed = sandbox_lib.submit(sandbox_jobs(), lambda dest: copy_candidate(tree, dest), target,
+                                                   HAND_TEST_SECS)
+        except (sandbox_lib.SandboxError, OSError) as exc:
+            return False, f"the sandbox's folder is not as it should be: {exc}"[:MAX_CHECK_DETAIL]
         if failed and failed not in ("timeout", "output"):
-            return False, NO_SANDBOX.format(why=failed)
+            return False, f"the sandbox gave no trustworthy result: {failed}"[:MAX_CHECK_DETAIL]
         if failed == "output":
             out += f"\nFAILED (output over {sandbox_lib.MAX_OUTPUT_BYTES} bytes: killed)"
     if code is None and "output over" not in out:
@@ -2749,7 +2759,12 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
         if not frozen_ok:
             note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
             continue
-        ok, detail = run_hand_tests(tree, name)
+        try:
+            ok, detail = run_hand_tests(tree, name)
+        except NoSandbox as exc:
+            out.append({"check": f"hand tests: {name}", "ok": False, "detail": str(exc)[:MAX_CHECK_DETAIL],
+                        "no_sandbox": True})
+            continue
         note(f"hand tests: {name}", ok, detail)
     return out
 
@@ -3812,6 +3827,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         if not entry["gate"]["hard_ok"]:
             entry["verdict"] = "rejected"
             entry["rounds"] = [round_line(r) for r in rounds if r.get("outcome")]
+            return entry
+        no_box = [c for c in entry["gate"]["checks"] if c.get("no_sandbox")]
+        if no_box:
+            # Its hand tests cannot run here: not the change's fault. Never
+            # run unsandboxed, never shipped; left open, and no try.
+            say(f"candidate {i}: no sandbox for its hand tests; deferred")
+            entry.update(verdict=DEFERRED, deferred_for="sandbox", reason=no_box[0]["detail"],
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
             return entry
         if not entry["gate"]["ok"]:
             findings = [{**f, "check": c["check"]} for c, f in zip(
