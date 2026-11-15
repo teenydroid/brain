@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterator
 
 from .. import hand
 from . import open_db, twitr
-from .client import XApi, number_setting
+from .client import MAX_USER_IDS, XApi, number_setting
 from .model import Json, SearchOptions
 
 MINUTE = 60.0
@@ -66,6 +66,10 @@ class Ttl:
     #: The account the token acts as. Keyed on the token, so a re-auth is a
     #: miss; the day only bounds a rename.
     identity: float = DAY
+    #: An account from a lookup by ids (`users`): its age, followers and
+    #: whether it follows the account. A day is fresh enough for a giveaway
+    #: draw, and every lookup is billed per user.
+    user: float = DAY
 
     @classmethod
     def from_settings(cls) -> "Ttl":
@@ -251,6 +255,37 @@ class CachedReads:
         # a token for another account is another key.
         key = f"identity:{digest(hand.require('X_ACCESS_TOKEN'))}"
         return self._through(key, "identity", self._x.identity)
+
+    def users_by_ids(self, user_ids: list[str]) -> list[Json]:
+        """Accounts by id, each kept a day under `user:<id>` (an id X did not
+        return under `missing:user:<id>`, an hour). Only the ids neither
+        knows go to X, 100 to a call, in the order asked."""
+        ids = list(dict.fromkeys(str(i) for i in user_ids if i))
+
+        def known(user_id: str) -> Any:
+            hit = self._read(f"user:{user_id}")
+            if hit is not _MISS:
+                return hit
+            return None if self._read(f"missing:user:{user_id}") is not _MISS else _MISS
+
+        found = {i: known(i) for i in ids}
+        wanted = [i for i in ids if found[i] is _MISS]
+        if wanted:
+            with self._flight(f"users:{digest(','.join(sorted(wanted)))}"):
+                for user_id in wanted:
+                    found[user_id] = known(user_id)
+                wanted = [i for i in wanted if found[i] is _MISS]
+                for start in range(0, len(wanted), MAX_USER_IDS):
+                    chunk = wanted[start:start + MAX_USER_IDS]
+                    returned = {u["id"]: u for u in self._x.users_by_ids(chunk)}
+                    for user_id in chunk:
+                        user = returned.get(user_id)
+                        if user is None:
+                            self._write(f"missing:user:{user_id}", "missing", None)
+                        else:
+                            self._write(f"user:{user_id}", "user", user)
+                        found[user_id] = user
+        return [found[i] for i in ids if found[i]]
 
     def user_by_username(self, username: str) -> Json | None:
         """Not kept: a profile changes, and a lookup is one user, not a bill

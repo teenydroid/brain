@@ -8,6 +8,8 @@
   media          uploads from the allowed folders, and Giphy GIFs
   mentions       the mentions queue: ingest, screen, offer to the core
   publish        the only path to a write: guard, rules, DRY_RUN, X, record
+  webhook        X's pushes: mentions, replies, quotes, follows
+  follows        who follows the account, from the webhook (`x_follows`)
   cli            the verbs
 """
 
