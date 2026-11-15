@@ -1047,6 +1047,29 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
 # --- the command line --------------------------------------------------------------------------
 
 
+def _ids(text: str) -> list[str]:
+    """A comma list of task ids; "" is none."""
+    return [t for t in (x.strip() for x in text.split(",")) if t]
+
+
+def _options(args: list[str], flags: tuple[str, ...], valued: tuple[str, ...]) -> tuple[list[str], dict]:
+    """ARGS up to a "--" split into positionals and options: FLAGS take no
+    value, VALUED take the next argument."""
+    head, tail = (args[:args.index("--")], args[args.index("--"):]) if "--" in args else (args, [])
+    plain, opts, i = [], {}, 0
+    while i < len(head):
+        if head[i] in flags:
+            opts[head[i]] = True
+            i += 1
+        elif head[i] in valued and i + 1 < len(head):
+            opts[head[i]] = head[i + 1]
+            i += 2
+        else:
+            plain.append(head[i])
+            i += 1
+    return plain + tail, opts
+
+
 def main(argv: list[str]) -> int:
     usage = __doc__.split("\n\n")[1]
     if len(argv) < 2:
@@ -1054,6 +1077,11 @@ def main(argv: list[str]) -> int:
         return 2
     cmd, args = argv[1], argv[2:]
     try:
+        if cmd in ("draft", "judge", "score"):
+            args, opts = _options(args, ("--resume", "--both-orders"), ("--key", "--tasks", "--mode"))
+        else:
+            opts = {}
+        tasks = set(_ids(opts["--tasks"])) if "--tasks" in opts else None
         if cmd == "tasks" and len(args) == 1:
             out = [load_task(Path(args[0]), t) for t in task_ids(Path(args[0]))]
             if not out:
@@ -1067,6 +1095,13 @@ def main(argv: list[str]) -> int:
             for task_id in ids:
                 load_task(Path(args[0]), task_id)
             out = ids
+        elif cmd == "select" and len(args) == 4:
+            out = select(Path(args[0]), Path(args[1]) if args[1] else None, args[2] == "1", _ids(args[3]))
+        elif cmd == "affected" and len(args) == 4:
+            held = Path(args[1]) if args[1] else None
+            every = all_tasks(Path(args[0]), held)
+            out = affected_tasks(changed_paths(Path(args[2]), args[3]), every)
+            out["heldout"] = [t["id"] for t in every if t["heldout"] and t["id"] in out["tasks"]]
         elif cmd == "render" and len(args) == 2:
             print(render(load_task(Path(args[0]), args[1]), drafting_brain(Path(args[0]))))
             return 0
@@ -1080,11 +1115,14 @@ def main(argv: list[str]) -> int:
             print(judge_message(Path(args[0]), Path(args[1]), load_task(Path(args[0]), args[2]), json.loads(sys.stdin.read())))
             return 0
         elif cmd == "judge" and len(args) > 6 and args[5] == "--":
-            out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:])}
+            out = {"judged": judge(Path(args[0]), Path(args[1]), Path(args[2]), Path(args[3]), Path(args[4]), args[6:],
+                                   both_orders=bool(opts.get("--both-orders")), tasks=tasks)}
         elif cmd == "draft" and len(args) > 6 and args[5] == "--":
-            out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), args[4].split(","), args[6:])
+            out = draft(Path(args[0]), Path(args[1]), Path(args[2]), int(args[3]), _ids(args[4]), args[6:],
+                        resume=bool(opts.get("--resume")), key=opts.get("--key", ""))
         elif cmd == "score" and len(args) == 5:
-            out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]), int(args[4]))
+            out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]),
+                        None if args[4] == "auto" else int(args[4]), mode=opts.get("--mode", "tournament"), tasks=tasks)
         else:
             print(usage, file=sys.stderr)
             return 2
