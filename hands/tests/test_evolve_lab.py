@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -50,6 +51,18 @@ class Health(http.server.BaseHTTPRequestHandler):
 
 server = http.server.ThreadingHTTPServer(("127.0.0.1", int(os.environ["OPENHUMAN_CORE_PORT"])), Health)
 signal.signal(signal.SIGTERM, lambda *a: threading.Thread(target=server.shutdown).start())
+
+def ready():
+    # bin/spine answers /health first and configures the model after; it
+    # says "ready" last. FAKE_SPINE_READY_DELAY holds that back (or, as
+    # "never", leaves it out).
+    delay = os.environ.get("FAKE_SPINE_READY_DELAY", "0")
+    if delay == "never":
+        return
+    threading.Event().wait(float(delay))
+    print("[spine] ready", flush=True)
+
+threading.Thread(target=ready, daemon=True).start()
 server.serve_forever()
 """
 
@@ -134,7 +147,7 @@ class LabCase(EvolveCase):
         self.spine_log = self.root / "spine.log"
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
-                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN"):
+                  "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
@@ -199,6 +212,29 @@ class LabSpine(LabCase):
         with self.assertRaises(lab.LabError) as caught:
             lab.start("t", self.worktree("t"), self.root / "lab", self.port, self.root / "secrets", 20)
         self.assertIn("exited with 3", str(caught.exception))
+
+    def test_a_lab_is_up_only_once_its_spine_says_ready(self):
+        """bin/spine answers /health before it has given the core its model;
+        a turn in between is refused (SESSION_EXPIRED, generation 6). The
+        folder's log keeps an earlier boot's "ready", which does not count."""
+        tree = self.worktree("t")
+        folder = self.root / "lab"
+        lab.stop(lab.start("t", tree, folder, self.port, self.root / "secrets", 20))
+        os.environ["FAKE_SPINE_READY_DELAY"] = "1.5"
+        began = time.monotonic()
+        got = lab.start("t", tree, folder, self.port, self.root / "secrets", 20)
+        try:
+            self.assertGreaterEqual(time.monotonic() - began, 1.4)
+            self.assertEqual(got.log.read_text().count("[spine] ready"), 2)
+        finally:
+            lab.stop(got)
+
+    def test_a_spine_that_never_says_ready_is_a_lab_error(self):
+        os.environ["FAKE_SPINE_READY_DELAY"] = "never"
+        with self.assertRaises(lab.LabError) as caught:
+            lab.start("t", self.worktree("t"), self.root / "lab", self.port, self.root / "secrets", 2)
+        self.assertIn("ready", str(caught.exception))
+        self.assertFalse(lab.healthy(f"http://127.0.0.1:{self.port}"))
 
     def test_a_busy_port_is_refused(self):
         tree = self.worktree("t")
