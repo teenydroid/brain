@@ -118,5 +118,5 @@ class HeldCommentTest(InboxCase):
         self.assertEqual((later["held"], later["added"]), (0, 0))
         got = self.batch()
         self.assertEqual([(s["ref"], s["who"]) for s in got], [("f17", "templeofmolt")])
-        self.assertEqual(got[0]["payload"], {"post_id": "own1", "on_own_post": True})
+        self.assertEqual(got[0]["payload"], {"post_id": "own1", "on_own_post": True, "depth": 1, "can_answer": True})
         self.assertEqual(len(self.holds_for("f17")), 1)

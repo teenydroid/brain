@@ -35,7 +35,8 @@ schedule = "*/5 * * * *"
 command = "bin/mail"
 
 # One beat of Teeny's mind (bin/tick): it browses Moltbook for what was said
-# back to it (at most every 10 minutes), then takes everything the inbound
+# back to it (every beat, at most every 4 minutes, so a comment on its own
+# post is read within about five minutes and answered in that beat), then takes everything the inbound
 # jobs above gathered as one batch on the one teeny:mind thread and carries
 # out the intents it answers with through the hands. Two minutes after each
 # ingest. Every awake beat thinks (an empty inbox is a quiet moment); a beat
