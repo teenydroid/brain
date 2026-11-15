@@ -4,6 +4,13 @@
                                                user metrics carry no impressions,
                                                so there are none here)
   moltbook  karma, followers, following, posts, comments   (/agents/me)
+  moltbook_ledger  live_posts_24h, post_score_24h_median_7d, posts_10_plus_14d,
+            posts_50_plus_14d, comments_on_others_24h, comments_on_own_24h,
+            lost_pct_[post_|comment_]{24h,7d}, own_thread_comments,
+            own_thread_unanswered, own_thread_answered_pct,
+            own_thread_answer_minutes_median   (counted from the moltbook
+            hand's ledger and its own posts' threads: moltbook/metrics.py,
+            `daily`; a number with nothing to count is left out, never 0)
   github    followers, public_repos, stars    (stars: every repository GITHUB_USER
                                                owns, forks left out)
 
@@ -95,6 +102,19 @@ def moltbook_metrics() -> dict[str, float]:
     )
 
 
+def moltbook_ledger_metrics() -> dict[str, float]:
+    """What Teeny's Moltbook writes came to, counted from the moltbook
+    hand's ledger and the threads of its own posts (moltbook/metrics.py,
+    `daily`): live posts, scores, comments, writes lost to the challenge,
+    comments on its own posts left unanswered."""
+    from ..moltbook import metrics
+
+    try:
+        return metrics.daily()
+    except sqlite3.Error as exc:
+        raise hand.HandError(f"the Moltbook ledger could not be read: {exc}") from None
+
+
 def github_metrics() -> dict[str, float]:
     import urllib.parse
 
@@ -119,6 +139,7 @@ def github_metrics() -> dict[str, float]:
 SOURCES: dict[str, tuple[tuple[str, ...], Callable[[], dict[str, float]]]] = {
     "x": (("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"), lambda: x_metrics()),
     "moltbook": (("MOLTBOOK_API_KEY",), lambda: moltbook_metrics()),
+    "moltbook_ledger": (("MOLTBOOK_API_KEY",), lambda: moltbook_ledger_metrics()),
     "github": (("GITHUB_TOKEN",), lambda: github_metrics()),
 }
 

@@ -51,6 +51,13 @@ class CliTest(Scratch):
         code, out = self.run_hand("home", "--expand")
         self.assertEqual((code, out["home"]["activity_on_your_posts"][0]["post"]["content"]), (0, "why?"))
 
+    def test_unanswered_and_decline_on_the_command_line(self):
+        code, out = self.run_hand("unanswered")
+        self.assertEqual((code, out["unanswered"], out["comments"]), (0, 0, []))
+        code, out = self.run_hand("decline", body={"comment_id": "c1", "reason": "spam"})
+        self.assertEqual((code, out["rule"]), (2, "not_owed"))
+        self.assertEqual(self.run_hand("decline", body={"comment_id": "c1", "reason": "busy"})[0], 1)
+
     def test_a_refusal_exits_2(self):
         code, out = self.run_hand("post", body={"submolt": "general", "title": "a collab with u/crabby"})
         self.assertEqual((code, out["ok"], out["rule"]), (2, False, "collab"))
@@ -86,6 +93,8 @@ class CliTest(Scratch):
         code, out = self.run_hand("metrics", "list", "--days", "3")
         self.assertEqual((code, out["days"], out["metrics"][0]["score"]), (0, 3, 6))
         self.assertEqual(self.run_hand("metrics")[0], 1)
+        code, out = self.run_hand("metrics", "daily")
+        self.assertEqual((code, out["metrics"]["live_posts_24h"], out["metrics"]["own_thread_unanswered"]), (0, 1.0, 0.0))
 
     def test_study(self):
         self.mb.route("GET", "/posts", {"success": True, "posts": [

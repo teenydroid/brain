@@ -30,11 +30,13 @@ linked module.
                  every other module, TinyComputer included, from its release
   [computer]     (single keys) the captcha solver: a browser task tries a
                  captcha or "verify you are human" check with Jev's image
-                 questions, on TypeSafe (TYPESAFE_API_KEY in
+                 questions, on Surplus Intelligence (SURPLUS_API_KEY in
                  secrets/spine.env, which bin/spine stores in the core), a
                  few times before it stops for a person. In the spine's
-                 environment, TEENY_CAPTCHA_SOLVER=0 turns it off and
-                 TEENY_CAPTCHA_MODEL names another image model
+                 environment, TEENY_CAPTCHA_SOLVER=0 turns it off,
+                 TEENY_CAPTCHA_PROVIDER=type_safe moves it to TypeSafe's own
+                 API (TYPESAFE_API_KEY) and TEENY_CAPTCHA_MODEL names another
+                 image model
 
 The wallet's `[wallet_policy]` belongs in its own module beside this one.
 """
@@ -55,9 +57,14 @@ SHELL_TIMEOUT_SECS = 1800
 #: payment checkpoint still stops it whatever this says.
 UNATTENDED_ACTIONS = ("click", "fill", "type", "press", "select", "check", "task_step")
 
-#: The image-reading Jev model the captcha solver asks, unless
-#: TEENY_CAPTCHA_MODEL names another.
-CAPTCHA_MODEL = "jev-preview"
+#: Where the captcha solver asks Jev, unless TEENY_CAPTCHA_PROVIDER names
+#: another: Surplus Intelligence sells the same Jev for a fraction of
+#: TypeSafe's price, and the client answers its missing Box question itself.
+CAPTCHA_PROVIDER = "surplus"
+
+#: The image-reading Jev model each provider is asked for, unless
+#: TEENY_CAPTCHA_MODEL names another. Surplus has no `jev-preview` alias.
+CAPTCHA_MODELS = {"surplus": "jev-1.14", "type_safe": "jev-preview"}
 
 #: Image challenges one captcha try may submit before the task stops for a
 #: person (TinyComputer allows 1 to 10).
@@ -195,10 +202,14 @@ def keys(root: Path) -> dict[str, dict[str, str]]:
     the decision and rescue models in, so the table is not owned whole."""
     del root
     enabled = os.environ.get("TEENY_CAPTCHA_SOLVER", "1").strip().lower() not in ("0", "false", "no", "off")
-    model = os.environ.get("TEENY_CAPTCHA_MODEL", "").strip() or CAPTCHA_MODEL
+    provider = os.environ.get("TEENY_CAPTCHA_PROVIDER", "").strip().lower().replace("typesafe", "type_safe")
+    if provider not in CAPTCHA_MODELS:
+        provider = CAPTCHA_PROVIDER
+    model = os.environ.get("TEENY_CAPTCHA_MODEL", "").strip() or CAPTCHA_MODELS[provider]
     return {
         "computer": {
             "captcha_solver": "true" if enabled else "false",
+            "captcha_provider": _s(provider),
             "captcha_model": _s(model),
             "max_captcha_attempts": str(CAPTCHA_ATTEMPTS),
         }

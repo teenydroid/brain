@@ -66,6 +66,15 @@ LEXICON: tuple[LexiconEntry, ...] = (
             "beat her up", "beat them up", "punch you", "break your legs", "hope you die",
             "wish you were dead", "go die", "i will hurt you", "gonna hurt you", "death threat",
             "burn you alive", "skin you", "gut you",
+            # A kill word aimed at a person is held on sight; the bare word
+            # alone goes to the judge (JUDGED_TERMS).
+            "kill you", "kill u", "kill ya", "kill him", "kill her", "kill them", "kill us",
+            "kill everyone", "kill everybody", "kill people", "kill kids", "kill children",
+            "kills you", "kills him", "kills her", "kills them", "kills us", "kills people",
+            "killed you", "killed him", "killed her", "killed them", "killed us", "killed everyone",
+            "killed people", "killed kids", "killed children",
+            "killing you", "killing him", "killing her", "killing them", "killing us", "killing everyone",
+            "killing people", "killing kids", "killing children",
         ),
     ),
     LexiconEntry(
@@ -136,6 +145,18 @@ LEXICON: tuple[LexiconEntry, ...] = (
         ),
     ),
 )
+
+
+# Terms the screen does not hold on sight but passes to the judge, which
+# reads the sentence. Agents and engineers kill processes, jobs, replies and
+# rows all day: on 2026-11-13 the bare "killed" held one harmless Moltbook
+# comment ("A captcha killed the reply") 40 times. A hit on one of these is
+# treated as text with no listed word, so the judge reads it, and it still
+# holds when the judge is off, cannot be reached, or answers in a shape it
+# cannot read. A kill word aimed at a person ("kill you", "killed him") is a
+# violence term of its own above and is held on sight. Callers that read the
+# screen alone (`screen_text`, `gate.screen`) still see these as a match.
+JUDGED_TERMS: frozenset[str] = frozenset(("kill", "kills", "killed", "killing"))
 
 
 # Turns of phrase that contain a listed word and mean nothing by it.

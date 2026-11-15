@@ -103,6 +103,56 @@ class StudyTest(Scratch):
                                               "verification_status": "verified"}})
         self.assertEqual((own[0]["kind"], own[0]["post_id"], own[0]["metrics"]), ("comment", "px", None))
 
+    def test_own_summary_is_per_format_and_submolt_over_seven_and_fourteen_days(self):
+        self.feeds([])
+        conn = rules.db()
+        posts = (  # id, days ago, submolt, format, status, score, comments, verification
+            ("a", 1, "general", "claim", "verified", 9, 12, "verified"),
+            ("b", 2, "general", "claim", "verified", 5, 4, "verified"),
+            ("c", 3, "memory", "claim", "verified", 7, 6, "verified"),
+            ("d", 4, "memory", "audit", "verified", 30, 20, "verified"),
+            ("e", 5, "general", None, "verified", 0, 1, "verified"),
+            ("hid", 1, "general", "audit", "verification_failed", 0, 0, "failed"),
+            ("old", 10, "builds", "finding", "verified", 50, 9, "verified"),
+            ("gone", 20, "builds", "finding", "verified", 99, 9, "verified"),
+            ("young", 0.01, "general", "claim", "verified", 0, 0, None),  # not measured yet
+        )
+        for pid, days, submolt, fmt, status, score, comments, ver in posts:
+            conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status, format) VALUES (?, ?, ?, ?, ?, ?)",
+                         (pid, T0 - days * DAY, submolt, f"title {pid}", status, fmt))
+            if ver:
+                conn.execute("INSERT INTO moltbook_post_metrics (kind, target_id, checkpoint, at, score, comment_count,"
+                             " verification_status) VALUES ('post', ?, 24, ?, ?, ?, ?)", (pid, T0, score, comments, ver))
+        for cid, fmt, score in (("c1", "threads", 2), ("c2", "threads", 0), ("c3", "own-thread", 1)):
+            conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status, format) VALUES (?, 'px', ?, 'verified', ?)",
+                         (cid, T0 - DAY, fmt))
+            conn.execute("INSERT INTO moltbook_post_metrics (kind, target_id, checkpoint, at, score, comment_count,"
+                         " verification_status) VALUES ('comment', ?, 1, ?, ?, 0, 'verified')", (cid, T0, score))
+        got = study.study()["own_summary"]
+        week = got["7d"]["posts"]
+        self.assertEqual(week["by_format"], [
+            {"format": "audit", "n": 1, "hidden": 1, "median_score": 30, "best_score": 30, "median_comments": 20,
+             "worst": {"id": "d", "score": 30, "title": "title d"}},
+            {"format": "claim", "n": 3, "median_score": 7, "best_score": 9, "median_comments": 6,
+             "worst": {"id": "b", "score": 5, "title": "title b"}},
+            {"format": "(untagged)", "n": 1, "median_score": 0, "best_score": 0, "median_comments": 1,
+             "worst": {"id": "e", "score": 0, "title": "title e"}},
+        ])
+        self.assertEqual([(g["submolt"], g["n"], g["median_score"]) for g in week["by_submolt"]],
+                         [("memory", 2, 18.5), ("general", 3, 5)])
+        self.assertEqual([(g["format"], g["n"], g["median_score"]) for g in got["7d"]["comments"]["by_format"]],
+                         [("threads", 2, 1), ("own-thread", 1, 1)])  # a tie goes to the larger n
+        self.assertEqual([g["format"] for g in got["14d"]["posts"]["by_format"]], ["finding", "audit", "claim", "(untagged)"])
+        lines = study.summary_lines(got)
+        self.assertEqual(lines[0], 'Moltbook posts by format, last 7d: audit n=1 med 30 best 30 cmt 20 hidden 1;'
+                                   ' claim n=3 med 7 best 9 cmt 6; (untagged) n=1 med 0 best 0 cmt 1; worst (untagged) "title e"')
+
+    def test_own_summary_with_no_writes_is_empty_tables(self):
+        self.feeds([])
+        got = study.study()["own_summary"]
+        self.assertEqual(got["7d"], {"posts": {"by_format": [], "by_submolt": []}, "comments": {"by_format": []}})
+        self.assertEqual(study.summary_lines(got), [])
+
     def test_own_posts_are_the_last_twenty_posts_alone_with_their_format(self):
         self.feeds([])
         conn = rules.db()

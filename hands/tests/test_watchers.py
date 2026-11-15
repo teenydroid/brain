@@ -94,6 +94,7 @@ ENVIRONMENT = {
     "CORTEX_API_URL": "the memory engine, from secrets/spine.env",
     "CORTEX_API_KEY": "the memory engine's key, from secrets/spine.env",
     "TYPESAFE_API_KEY": "the captcha solver's key, from secrets/spine.env in a subshell",
+    "SURPLUS_API_KEY": "the captcha solver's Surplus key, from secrets/spine.env in a subshell",
 }
 
 _ENV_READ = re.compile(
@@ -165,16 +166,16 @@ class WatcherTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "evolve.env"
-            path.write_text("EVOLVE=0\nEVOLVE_AUTO_PROMOTE=0\n")
+            path.write_text("EVOLVE=0\nEVOLVE_MAX_OPEN_PRS=2\n")
             saved = dict(os.environ)
             try:
-                os.environ.update(EVOLVE="1", EVOLVE_AUTO_PROMOTE="1")
+                os.environ.update(EVOLVE="1", EVOLVE_MAX_OPEN_PRS="20")
                 cfg = evolve.load_config(path)
             finally:
                 os.environ.clear()
                 os.environ.update(saved)
         self.assertFalse(cfg["EVOLVE"])
-        self.assertFalse(cfg["EVOLVE_AUTO_PROMOTE"])
+        self.assertEqual(cfg["EVOLVE_MAX_OPEN_PRS"], 2)
 
     def test_the_pinned_watcher_jobs_are_pinned(self):
         pinned = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]

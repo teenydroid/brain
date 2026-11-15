@@ -206,10 +206,12 @@ brain/
 `CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
-`narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
-merged only if it wins, behind rules in code the brain cannot edit. The loop
-is `bin/evolve`, documented in [`evolve.md`](evolve.md): the operator merges
-what it proposes unless `EVOLVE_AUTO_PROMOTE=1`.
+`narrative/LORE.md` and tracked in `narrative/ARCS.md`, and the loop acts on
+what Teeny learned: each item of `MEMORY.md` it decided, promised or is in the
+middle of becomes one small change, gated in code the brain cannot edit,
+measured on the eval tasks it reaches, and opened as its own pull request.
+The loop is `bin/evolve`, documented in [`evolve.md`](evolve.md); the
+babysitter merges what passes its audit and CI, or a person does.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -266,8 +268,10 @@ generation stays on disk.
 
 - X mentions (`hands/x ingest`, the webhook);
 - mail (`hands/mail ingest`);
-- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
-  10 minutes (`hands/moltbook inbox`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses every beat,
+  at most every 4 minutes (`hands/moltbook inbox`); a comment on Teeny's own
+  post that the mind read and left comes back until it is answered or
+  declined with a reason (`hands/moltbook unanswered` counts them);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
 - GitHub: issues, pull requests, comments, review comments and mentions
@@ -399,7 +403,8 @@ already past its budget sends no more of the file and keeps the rest.
 closed (docs/hands.md, `guard`), so when the model provider drops streams in
 bursts (on 2026-11-13 the judge could not be reached about 45 times in an
 hour and a quarter) it holds Teeny's own words as category `unknown`, and
-such a hold expires unsent. The judge itself asks up to three times first.
+such a hold expires unsent (unless the re-screen sends a Moltbook draft
+again, docs/hands.md, "Re-screening"). The judge itself asks up to three times first.
 When it still fails, the hand's refusal (`refused: held`) carries
 `judge_failed: true`, which only a judge failure sets (its reason starts
 `the judge could not be reached` or is `the judge answered in an unreadable
@@ -534,9 +539,12 @@ or so). It works from:
   2026-11-13; never a conversation),
   newest first, each with an alias such as `[c3]`;
 - the follow-ups still waiting, and the page as it stands;
-- the scoreboard and the lab (`bin/lib/scoreboard.py`): the three lines of
+- the scoreboard and the lab (`bin/lib/scoreboard.py`): the lines of
   `hands/stats board` and the average result per format, the open
-  experiments scored in code just before the turn, the lab's lessons, and
+  experiments scored in code just before the turn, the lab's lessons, what
+  worked and what flopped on Moltbook (its own posts by format and submolt,
+  comments by format, over 7 and 14 days: `hands/moltbook study`'s
+  `own_summary`), and
   "true right now" (the wallet's and the x402 rail's balances read at that
   moment, and the follower numbers), so a dream does not write a stale
   number into the page. Each is a list with a hard cap of 2,500 characters.
@@ -548,7 +556,7 @@ one surface, how many posts it needs, a deadline. Posts join one by their
 post hourly, `hands/lab score` compares an experiment's posts with the
 other posts of the same period in code, and a verdict other than `unclear`
 is refused until the planned posts are measured. Every beat carries a
-scoreboard block (at most 1,500 characters: the board's three lines, the
+scoreboard block (at most 1,500 characters: the board's lines, the
 open experiments, the latest three lessons); the mind may
 `propose_experiment` and `conclude_experiment` (2 and 5 a day by default).
 The night dream concludes what is due and proposes the next ones through
@@ -860,7 +868,18 @@ Every scheduled job is in one of two files:
     `SPINE_FALLBACK_MODEL` in `secrets/spine.env`, the same two failures,
     and a fallback model that answers, move the running core to that model.
     The main model answering again moves it back. Each move is a note on the
-    night's diary page (docs/roadmap.md, A18).
+    night's diary page (docs/roadmap.md, A18). It also reads the playbook
+    run logs: `bin/act` marks a draft the model provider failed
+    (`failure: "provider"`, with its kind: payment, auth, rate_limit,
+    server, timeout, connection) apart from a failure of the playbook, and
+    does not let cron retry one that cannot clear in seconds (402, 401).
+    Three such runs in a row, or two half an hour apart, while the probe
+    still answers, raise a third alarm (`act_alarm` in `state/health.json`,
+    one issue), cleared by the next answered draft (`ACT_ALARM_RUNS`,
+    `ACT_ALARM_MINUTES` in `secrets/teeny.env`). Once drafts are answered
+    again, a slot they lost is made up once within its window: a
+    `make_up_hours` job (the Moltbook evening audit) or a
+    `catch_up` playbook (`bin/lib/catch_up.py`).
   - `health-daily` (`bin/health daily`, 00:40 UTC), which tells Teeny how
     the day before went as one `health · daily` stimulus: cost, failed cron
     and playbook runs, failed beats, the doctor's checks that are not ok and

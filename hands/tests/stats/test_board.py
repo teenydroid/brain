@@ -54,6 +54,18 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(out["lines"], ["Audience: no snapshot yet.", "X last 7d: nothing measured yet.",
                                         "Moltbook last 7d: nothing measured yet."])
 
+    def test_the_moltbook_daily_numbers_are_a_fourth_line_once_a_snapshot_has_them(self):
+        self.assertEqual(board.board()["moltbook_daily"], {})
+        self.stat("2026-09-13", "moltbook_ledger", "live_posts_24h", 1)
+        for metric, value in (("live_posts_24h", 3), ("own_thread_unanswered", 2), ("own_thread_answered_pct", 81.8),
+                              ("lost_pct_7d", 4.5), ("posts_10_plus_14d", 1), ("posts_50_plus_14d", 0),
+                              ("a_metric_this_board_does_not_know", 7)):
+            self.stat("2026-09-14", "moltbook_ledger", metric, value)
+        out = board.board()
+        self.assertEqual(out["moltbook_daily"]["live_posts_24h"], 3)
+        self.assertEqual(out["lines"][3], "Moltbook on 2026-09-14: live posts (24h) 3, own-thread comments unanswered 2,"
+                                          " answered 81.8%, writes lost to the challenge (7d) 4.5%, posts at 10+ (14d) 1, at 50+ 0")
+
     def test_audience_changes_over_one_and_seven_days(self):
         self.stat("2026-09-06", "x", "followers", 300)
         self.stat("2026-09-13", "x", "followers", 330)
