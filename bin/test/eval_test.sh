@@ -301,14 +301,19 @@ compare() { # OUT [ARGS...]: run compare, leave its exit code in $code
 report() { jq -r "$1" "$2/report.json"; }
 
 # --- the same brain against itself is all ties -------------------------------------------
+judge_turns() { jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' '; }
+: >"$FAKE_CALLS"
+FAKE_JUDGE=tie compare "$scratch/self1"
+# The judge is ~80% of a candidate's half hour on glm-5.3-flash: once a pair now.
+check "judges each pair once by default, as the judge agent" test "$(judge_turns)" = "$tasks"
 : >"$FAKE_CALLS"
 # One turn at a time here, so the log's first two judge turns are the first pair's.
-EVAL_CONCURRENCY=1 FAKE_JUDGE=tie compare "$scratch/self"
+EVAL_CONCURRENCY=1 FAKE_JUDGE=tie compare "$scratch/self" --both-orders
 check "a tie judge decides nothing" test "$(report .ties "$scratch/self")" = "$tasks"
 check "and nothing is promoted" test "$(report .promote "$scratch/self")" = false
 check "compare exits 2 when the candidate does not win" test "$code" = 2
 check "says why" grep -q 'decided pair' <<<"$(report .reason "$scratch/self")"
-check "judges each pair twice, as the judge agent" test "$(jq -r 'select(.agent_id == "judge") | 1' "$FAKE_CALLS" | wc -l | tr -d ' ')" = "$((tasks * 2))"
+check "--both-orders judges each pair twice" test "$(judge_turns)" = "$((tasks * 2))"
 
 # --- what the judge is shown ------------------------------------------------------------
 judge_msg() { jq -rs --argjson n "$1" '[.[] | select(.agent_id == "judge")][$n].message' "$FAKE_CALLS"; }
@@ -358,9 +363,18 @@ draft '{"text": "gm %TASK% from the CAND"}'
 # and reply-fud prefer the candidate, morning-post and humans-post the baseline.
 # 21: the candidate wins both orderings (draft 2 in the first, draft 1 in the
 # second); 12: the baseline wins both. A split verdict would be 11 or 22.
-capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
+capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare --both-orders "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
 check "and keeps each pair's orderings apart and its own verdict (both samples agree)" \
   test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
+# Once a pair: sample 1 shows the baseline first, sample 2 the candidate.
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par1" >/dev/null 2>&1 || true
+check "judged once, the order alternates by sample" \
+  test "$(jq -r '"\(.task) \(.sample) \(.first.better // "-")\(.second.better // "-")"' "$scratch/par1/judged.jsonl" | sort | paste -sd, -)" = \
+  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 1-,humans-post 2 -2,morning-post 1 1-,morning-post 2 -2,reply-fud 1 2-,reply-fud 2 -1"
+check "and the one verdict decides the pair" test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par1/report.json")" = "4 4"
+FAKE_JUDGE=first "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par-first" >/dev/null 2>&1 || true
+check "a judge that always picks draft 1 favours each side equally often" \
+  test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par-first/report.json")" = "4 4"
 check "every pair once, in order" \
   test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
@@ -402,7 +416,7 @@ FAKE_JUDGE=prefer:CAND compare "$scratch/win"
 check "a judge that prefers the candidate both ways promotes it" test "$(report .promote "$scratch/win")" = true
 check "compare exits 0 when it does" test "$code" = 0
 check "every pair is a win" test "$(report .wins "$scratch/win")" = "$tasks"
-check "the judge's notes are kept per pair" test "$(report '.pairs[0].notes | length' "$scratch/win")" = 2
+check "the judge's note is kept per pair" test "$(report '.pairs[0].notes | length' "$scratch/win")" = 1
 check "without --judge-model the judge runs on the core's model" test "$(report .judge_model "$scratch/win")" = null
 
 rm -f "$FAKE_TURN_COUNT"
@@ -420,8 +434,8 @@ EVAL_JUDGE_MODEL=judge-env FAKE_JUDGE=tie compare "$scratch/judged-env"
 check "EVAL_JUDGE_MODEL does the same" test "$(jq -s 'map(.model_override) | unique | join(",")' -r "$FAKE_CALLS")" = judge-env
 
 # --- position bias is not a win ----------------------------------------------------------------
-FAKE_JUDGE=first compare "$scratch/bias"
-check "a judge that always picks draft 1 decides nothing" test "$(report .decided "$scratch/bias")" = 0
+FAKE_JUDGE=first compare "$scratch/bias" --both-orders
+check "with --both-orders a judge that always picks draft 1 decides nothing" test "$(report .decided "$scratch/bias")" = 0
 check "its pairs are marked inconsistent" test "$(report '[.pairs[] | select(.consistent)] | length' "$scratch/bias")" = 0
 FAKE_JUDGE=garbage compare "$scratch/garbage"
 check "an unreadable judge decides nothing" test "$(report .decided "$scratch/garbage")" = 0
