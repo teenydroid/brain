@@ -100,7 +100,7 @@ class FakeCore:
             if self.execute_error:
                 raise hand.CoreError(f"openhuman.wallet_execute_prepared_program: {self.execute_error}")
             return {"quoteId": params["quoteId"], "accountIndex": 1, "address": self.address,
-                    "transactionHash": CLOSE_SIG if "close" in str(self.calls) else SIG}
+                    "transactionHash": SIG}
         raise AssertionError(f"unexpected core call {method}")
 
 
