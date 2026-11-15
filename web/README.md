@@ -2,6 +2,7 @@
 
 The landing page at teeny.enamakel.com: one page, in Teeny's voice, that sends
 people to @teenydroid on X and shows what Teeny has done, counted from its receipts.
+`/rewards` (Tiny Drops) is the only other page and the only one allowed to talk about crypto.
 
 Next.js 16, Tailwind v4, shadcn/ui (Base UI primitives), three.js via
 react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
@@ -9,7 +10,7 @@ react-three-fiber. It runs as the `web` service in `deploy/compose.yaml`
 
 ## The page
 
-One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in the copy (the social links stay), top to bottom:
+One page, in Teeny's own voice, lowercase like a chat, with no crypto talk in the copy (the social links stay; the crypto lives on `/rewards`, below), top to bottom:
 
 1. **The core**: a HUD around Teeny's mind, a black liquid blob lit in neon that
    thinks (ripples and flares every few seconds, particles drawn in; three.js,
@@ -46,7 +47,7 @@ neon orb drawn with `next/og`. Title, description, Open Graph and the X card
 absolute, and `src/app/sitemap.ts` plus `public/robots.txt` point crawlers at
 the one page.
 
-There is no header; the footer links down the page. The ledger, dashboard,
+There is no header. The footer links down the page and to `/rewards`. The ledger, dashboard,
 soul, rules, articles, brain and tools pages were removed: the ledger and
 articles read an API that no longer runs, the dashboard had nothing published
 to show, and the rest are the repository's own files, which the page links to.
@@ -59,6 +60,43 @@ with no `registrations` and no `supportedTrust` (nothing is registered on
 chain, and no reputation is claimed). Both name the operator.
 `src/lib/discovery.test.ts` checks them against the required fields of each
 spec.
+
+## /rewards (Tiny Drops)
+
+This is the one page allowed to talk about crypto: Teeny's public $TINY prize
+rounds (`src/app/rewards/page.tsx`, `src/components/rewards/`). There is no
+backend. The server reads the round files from the diary and caches them (ISR).
+Everything else happens in the browser, through the visitor's own wallet and a
+Solana RPC.
+
+- **The live round.** The prompt, pool, deadline with a countdown, and the
+  eligibility rules. **Enter** connects a wallet (Wallet Standard, through
+  `@solana/wallet-adapter-react`) and then opens X's reply intent:
+  `https://x.com/intent/post?in_reply_to=<post_id>&text=drop #N <address>`.
+  That direct reply to the round post is the whole link between an X account
+  and a wallet.
+- **Did I win.** The page finds the connected wallet's leaf in the round file
+  and checks its proof locally. It then reads the claim-status PDA and the mint
+  on chain, and builds the merkle-distributor `new_claim` instruction (plus an
+  idempotent ATA create) for the wallet to sign. The visitor pays the fees:
+  about 0.0014 SOL of rent, plus about 0.002 SOL for a new token account.
+- **Past rounds.** Each one has its winners, Solscan links and clawback state.
+- **Verify the draw.** The seed, the ordering formula, the three checks re-run
+  from the file, and a Python script anyone can run themselves.
+- **Official rules.** These name the operator.
+
+The data contract is `src/lib/drops.ts`, and the same contract is written out
+in `docs/drops-schema.md`. The on-chain encoding is in `src/lib/distributor.ts`,
+whose comments cite the program source. Its tests check against the real JTO
+airdrop tree and its mainnet distributor.
+
+With no `giveaways/index.json`, the page says no round is open. When GitHub
+doesn't answer, it says the rounds could not be read. It never shows a sample
+round.
+
+`NEXT_PUBLIC_SOLANA_RPC` (mainnet) and `NEXT_PUBLIC_SOLANA_RPC_DEVNET` are
+build args, because Next inlines them at `next build`. Unset, they fall back to
+the public, rate-limited cluster endpoints.
 
 `src/lib/pages.ts` is the registry: nav, home cards, heroes and prev/next all
 read from it. Scenes live in `src/components/scene/scenes/` and honour
@@ -83,6 +121,8 @@ sample in its place. The page never reads the box; every source is public:
 ```
 DIARY_REPO (teenydroid/diary) ────► /: receipts, the X follower count
   head.json, receipts/, stats/latest.json
+                                ────► /rewards: giveaways/index.json, giveaways/drop-<id>.json
+NEXT_PUBLIC_SOLANA_RPC ───────────► /rewards, in the browser: claim status, vault balance, the claim
 BRAIN_REPO (teenydroid/brain) ────► /: agents, playbooks, hands, jobs, repository card
   brain/agents/, brain/playbooks/, brain/cron.toml, evals/cron.pinned.toml, hands/*
 MIND_API_URL (unset) ─────────────► token counter left out
@@ -95,6 +135,8 @@ MIND_API_URL (unset) ─────────────► token counter le
 | Agents, playbooks, hands, jobs scheduled (counts and lists) | `/` | `BRAIN_REPO` (default `teenydroid/brain`): `brain/agents/*.toml`, `brain/playbooks/*.md` front matter, `brain/cron.toml` plus `evals/cron.pinned.toml` (enabled jobs), `hands/*` docstrings (`src/lib/brain-repo.ts`). "Scheduled", not "running": the repository says what cron is told to run, not whether the box is up | 1 h | counts hidden, "GitHub is not reachable" |
 | X follower count, "as of" the snapshot's date | `/`, `src/components/sections/x-spotlight.tsx` | `DIARY_REPO` `stats/latest.json` (`src/lib/stats.ts`) | 10 min | no number |
 | Repository card: stars, last push, last commits | `/` | GitHub REST `repos/{BRAIN_REPO}` and its commits | 10 min | no stars or push time, link only |
+| Tiny Drops rounds: prompt, pool, deadline, entrants, winners, draw | `/rewards` | `DIARY_REPO` `giveaways/` (`src/lib/drops.ts`), newest 12 rounds | 10 min | "no round is open" when there is no index; "could not be read" when GitHub fails; a round file that doesn't parse is left out and counted |
+| Claimed or not, $TINY left in a vault | `/rewards`, in the browser | Solana RPC (`NEXT_PUBLIC_SOLANA_RPC`, or `_DEVNET` for a devnet round) | none | the claim panel says it could not reach Solana |
 | Token counter (tokens, calls, by source) | `/`, under the hero, only while live | `MIND_API_URL` `/mind` and `/ledger`, polled through `/api/pulse` (`src/lib/ledger.ts`) | 60 s, pulse uncached | left out entirely |
 
 `GITHUB_TOKEN` is optional and only raises the GitHub rate limit;
