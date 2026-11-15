@@ -94,7 +94,7 @@ def _read_yaml(text):
                 raise ConfigError([f"line {lineno}: list item before any key"])
             if indent == 0:
                 raise ConfigError([f"line {lineno}: list item at top level"])
-            current.append(_scalar(body[2:]))
+            current.append(_value(body[2:]))
             continue
         if ":" not in body:
             raise ConfigError([f"line {lineno}: expected 'key: value', got: {body!r}"])
@@ -103,6 +103,7 @@ def _read_yaml(text):
         if indent == 0:
             if rest:
                 doc[key] = _value(rest)
+                current, list_key = None, None
             else:
                 doc[key] = []
                 current, list_key = doc[key], key
@@ -121,13 +122,24 @@ def read(path):
             text = handle.read()
     except OSError as err:
         raise ConfigError([f"cannot read {path}: {err.strerror or err}"]) from err
+    except UnicodeDecodeError as err:
+        raise ConfigError([f"cannot read {path}: not valid UTF-8 text"]) from err
     return read_text(text, path)
 
 
 def read_text(text, source="<config>"):
     """Parse JSON config text, or fall back to the YAML subset."""
+
+    def no_repeats(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ConfigError([f"{source}: '{key}' given twice"])
+            out[key] = value
+        return out
+
     try:
-        doc = json.loads(text)
+        doc = json.loads(text, object_pairs_hook=no_repeats)
     except ValueError:
         try:
             return _read_yaml(text)
@@ -150,13 +162,13 @@ def _check_entries(entries):
         label = _scalar(item) if isinstance(item, str) else ""
         if not label:
             issues.append(f"entries[{i}]: must be a slug or address, got {item!r}")
-        elif label in seen:
+        elif label.lower() in seen:
             issues.append(f"entries[{i}]: duplicate entry '{label}'")
         elif not (_SLUG.match(label) or _ADDR.match(label)):
             issues.append(
                 f"entries[{i}]: '{label}' is not a repo slug (owner/name) "
                 f"or a 0x address")
-        seen.add(label)
+        seen.add(label.lower())
     return issues
 
 
