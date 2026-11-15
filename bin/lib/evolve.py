@@ -2596,11 +2596,12 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
     ok, detail = _run_check([str(code / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
                              "--pinned", str(code / "evals" / "cron.pinned.toml")], env)
     note("seed-cron --check", ok, detail)
-    if frozen_ok:
+    if frozen_ok and not shims:
         ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], doctor_env)
         note("doctor --root", ok, detail)
     else:
-        note("doctor --root", False, "not run: the candidate touches a frozen path")
+        note("doctor --root", False, "not run: the candidate touches a frozen path, or the entry point of a hand "
+                                     "whose code is frozen")
     ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
     return out

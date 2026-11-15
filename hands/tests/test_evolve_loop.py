@@ -653,6 +653,15 @@ class HandEdits(LoopCase):
         self.assertTrue(checks["hand tests: lore"]["ok"])
         self.assertIn("lore: tests changed too", checks["changed hands have tests"]["detail"])
 
+    def test_its_entry_point_may_change_when_its_code_is_not_frozen(self):
+        shim = self.base_text("hands/lore")
+        edits = self.lore_edit() + [{"path": "hands/lore", "old": shim.splitlines()[1],
+                                     "new": '"""hands/lore: proof events for lore episodes, read only (docs/hands.md)."""'}]
+        out, checks = self.gated(edits)
+        self.assertTrue(checks["frozen hands' entry points"]["ok"], checks["frozen hands' entry points"])
+        self.assertTrue(checks["doctor --root"]["ok"], checks["doctor --root"])
+        self.assertTrue(out["ok"], [c for c in out["checks"] if not c["ok"]])
+
     def test_without_its_docs_or_a_test_it_comes_back_as_findings_not_a_rejection(self):
         out, checks = self.gated(self.lore_edit(test=False, docs=False))
         self.assertTrue(out["hard_ok"])

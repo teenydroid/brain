@@ -741,7 +741,8 @@ class Gate(EvolveCase):
     def test_a_playbook_delta_passes_every_check(self):
         out, checks = self.gated([self.playbook_edit("Name the person who shipped it.")])
         self.assertTrue(out["ok"], checks)
-        self.assertEqual(set(checks), {"frozen paths", "changed hands have tests", "docs updated", "diff size", "no binary files",
+        self.assertEqual(set(checks), {"frozen paths", "frozen hands' entry points", "changed hands have tests", "docs updated", "diff size",
+                                       "no binary files",
                                        "SOUL+CONTEXT size",
                                        "new hands have tests", "aims at a component with a reading",
                                        "does more than run less", "new hands are called", "does more than mark an arc",
@@ -755,18 +756,16 @@ class Gate(EvolveCase):
         self.assertIn("bin/ask", checks["frozen paths"]["detail"])
         self.assertIn("not run", checks["doctor --root"]["detail"])
 
-    def test_an_existing_hands_entry_point_may_change_but_needs_a_test_and_docs(self):
-        """Since 2026-11-15 a hand that is not frozen may change: what it
-        lacks comes back as findings, never a rejection, and the doctor runs
-        the changed hands/git sealed (sealed_env)."""
+    def test_the_entry_point_of_a_hand_whose_code_is_frozen_stays_as_it_is(self):
+        """hands/git runs teeny_hands.git_cli, which is frozen: a rewritten
+        shim would step around it, and bin/doctor --root runs it. Not final
+        (a finding), but the doctor never runs it."""
         text = self.base_text("hands/git")
         out, checks = self.gated([{"path": "hands/git", "old": text.splitlines()[0], "new": "#!/bin/sh\necho hi"}])
         self.assertTrue(out["hard_ok"])
-        self.assertNotIn("existing hand entry points", checks)
-        self.assertFalse(checks["changed hands have tests"]["ok"])
-        self.assertFalse(checks["docs updated"]["ok"])
-        self.assertNotIn("not run", checks["doctor --root"]["detail"])
-        self.assertIn("hand tests: git", checks)  # its own tests ran
+        self.assertFalse(checks["frozen hands' entry points"]["ok"])
+        self.assertIn("hands/lib/teeny_hands/git_cli.py", checks["frozen hands' entry points"]["detail"])
+        self.assertIn("not run", checks["doctor --root"]["detail"])
 
     def test_more_changed_lines_than_the_share_of_the_repository_fail(self):
         """The 400-line cap is gone: the cap is EVOLVE_MAX_CHANGE_PCT (5) of
