@@ -268,9 +268,16 @@ class Drop:
         os.setresuid(self.test_uid, self.test_uid, self.test_uid)
 
     def reap(self) -> None:
-        """Every process of the test uid, killed (the runner keeps KILL)."""
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.kill(-1, signal.SIGKILL)
+        """Every process of the test uid, killed (the runner keeps KILL),
+        until none is left."""
+        for _ in range(50):
+            left = uid_processes(self.test_uid)
+            if not left:
+                return
+            for pid in left:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(pid, signal.SIGKILL)
+            time.sleep(0.05)
 
     def remove(self, path: Path) -> None:
         """PATH removed as the test uid, which owns it."""
@@ -282,6 +289,24 @@ class Drop:
             finally:
                 os._exit(0)
         os.waitpid(pid, 0)
+
+
+def uid_processes(uid: int, proc: Path = Path("/proc")) -> list[int]:
+    """The live processes whose real or effective uid is UID."""
+    out = []
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            status = (entry / "status").read_text()
+        except OSError:
+            continue
+        line = next((l for l in status.splitlines() if l.startswith("Uid:")), "")
+        ids = line.split()[1:3]
+        state = next((l for l in status.splitlines() if l.startswith("State:")), "")
+        if str(uid) in ids and " Z" not in state:
+            out.append(int(entry.name))
+    return out
 
 
 def _write_new(path: Path, value: Any) -> None:
@@ -384,15 +409,9 @@ def serve(jobs: Path, work: Path, drop: Drop | None = None) -> None:
             os.setresuid(drop.uid, drop.uid, drop.uid)
             heartbeat(jobs)
             os._exit(0)
-        # The heartbeat's pid is the checkout owner's, not the test uid's:
-        # reap (kill -1 as root) would take it too, so it is restarted when gone.
-        beat = pid
     else:
         threading.Thread(target=heartbeat, args=(jobs,), daemon=True).start()
-        beat = None
     while True:
-        if beat is not None and os.waitpid(beat, os.WNOHANG)[0] == beat:
-            return serve(jobs, work, drop)
         if not serve_one(jobs, work, drop=drop):
             time.sleep(1)
 
