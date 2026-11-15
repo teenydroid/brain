@@ -756,7 +756,10 @@ context, lore and arcs, exported from main's commit to
 `state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
 promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
 touches SOUL or CONTEXT, with no hard-check regression.
-`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. While its lab
+`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. A run and a
+compare keep `EVAL_CONCURRENCY` turns in flight at once (default 4, 1 to 16):
+one at a time, a generation took 8 to 12 hours, most of it the judge's 120
+turns per candidate. The files are written in the same order either way. While its lab
 is up, the persona probe asks the candidate too (below), and its drift from
 gen-0 goes on the candidate as `probe`.
 
@@ -846,6 +849,7 @@ that doesn't parse, or is out of range, refuses the run.
 | `EVOLVE_CANDIDATES` | `4` | N, 1 to 8 |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | samples per task when a lab core measures |
+| `EVAL_CONCURRENCY` | `4` | draft and judge turns in flight at once, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown; the message is then cut to fit the core's 64 KiB prompt screen, largest files first (`fit_request`) |

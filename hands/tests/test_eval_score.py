@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -217,6 +218,42 @@ class FenceVeto(ScoreCase):
         got = self.score(base, cand, winners=winning(40))
         self.assertEqual(got["regressions"], [TASKS[-1]])
         self.assertFalse(got["promote"])
+
+
+
+class RetrierBudget(unittest.TestCase):
+    """EVAL_RETRY_BUDGET is spent by every worker of a run at once, so the
+    reservation is atomic: four turns failing together cannot each see the
+    same remainder and spend it four times over."""
+
+    def setUp(self):
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+        self.ThreadPoolExecutor = ThreadPoolExecutor
+        self.env = unittest.mock.patch.dict(os.environ, {"EVAL_RETRY_WAIT": "4", "EVAL_RETRY_BUDGET": "10",
+                                                         "EVAL_TURN_TRIES": "5"})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+
+    def test_concurrent_workers_spend_the_budget_once(self):
+        retrier = evals.Retrier(sleep=lambda s: None)
+        with self.ThreadPoolExecutor(max_workers=8) as pool:
+            got = list(pool.map(lambda _: retrier._reserve(4), range(8)))
+        self.assertEqual(sum(got), 2)  # 10 seconds hold two 4-second pauses, not three
+        self.assertAlmostEqual(retrier.budget, 2)
+
+    def test_a_retry_that_would_overspend_the_budget_is_not_taken(self):
+        failed = evals.subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="stream ended")
+        sleeps = []
+        retrier = evals.Retrier(sleep=sleeps.append)
+        with unittest.mock.patch.object(evals.subprocess, "run", return_value=failed):
+            turn, attempts = retrier.run(["ask"], "message")
+        # 4 s pause fits (6 s left); the next pause is 12 s, which does not.
+        self.assertEqual(sleeps, [4])
+        self.assertEqual(attempts, 2)
+        self.assertEqual(turn.returncode, 1)
 
 
 if __name__ == "__main__":

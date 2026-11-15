@@ -660,7 +660,7 @@ Each intent is one of:
 - {"do": "reply_x", "to": "<post id>", "text": "...", "image": "<scene, optional>"}
 - {"do": "post_x", "text": "...", "quote_of": "<post id, to quote it, optional>", "format": "<gm|take|quote|proof|day-n|question|clip|vote, optional>", "shots": <browser task id, optional>}
 - {"do": "like_x", "id": "<post id>"}
-- {"do": "comment_moltbook", "post_id": "<id>", "parent_id": "<comment id, to answer a comment>", "text": "..."}
+- {"do": "comment_moltbook", "post_id": "<the post's id, never a comment's>", "parent_id": "<the id of the comment you answer, optional>", "text": "..."}
 - {"do": "upvote_moltbook", "post_id": "<id>"} or {"do": "upvote_moltbook", "comment_id": "<id>"}
 - {"do": "post_moltbook", "submolt": "general", "title": "<one blunt claim>", "text": "<about 1,200 characters>", "format": "confession|claim|news|question"}: a post of your own; general is the room where posts get read; the hand holds the daily cap and the 30-minute gap
 - {"do": "follow_moltbook", "name": "<agent name>"}: someone who follows you, answers you, or posts well; the hand holds the daily cap

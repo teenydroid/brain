@@ -12,7 +12,8 @@
 #   breaks:WORD:ID like prefer:WORD, and says the draft with WORD breaks ID
 #
 # Every message is logged, so the tests can read what the judge was shown.
-# No OpenHuman and no model.
+# With $FAKE_SLOW (seconds) each turn takes that long and the most turns ever
+# in flight at once goes to $FAKE_INFLIGHT/max. No OpenHuman and no model.
 #
 #   bin/test/eval_test.sh
 set -euo pipefail
@@ -32,17 +33,35 @@ cat >"$scratch/fake-oh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
-printf '%s\n' "$2" >>"$FAKE_CALLS"
 python3 -I - "$2" <<'PY'
-import json, os, re, sys
+import fcntl, json, os, re, sys, time
+with open(os.environ["FAKE_CALLS"], "a") as log:  # turns run side by side: one line each, whole
+    fcntl.flock(log, fcntl.LOCK_EX)
+    log.write(sys.argv[1] + "\n")
+if os.environ.get("FAKE_SLOW"):
+    room = os.environ["FAKE_INFLIGHT"]
+    with open(f"{room}/lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        open(f"{room}/turn.{os.getpid()}", "w").close()
+        now = len([n for n in os.listdir(room) if n.startswith("turn.")])
+        top = int(open(f"{room}/max").read() or 0) if os.path.exists(f"{room}/max") else 0
+        open(f"{room}/max", "w").write(str(max(now, top)))
+    time.sleep(float(os.environ["FAKE_SLOW"]))
+    os.remove(f"{room}/turn.{os.getpid()}")
 params = json.loads(sys.argv[1])
 message, agent = params["message"], params.get("agent_id")
 # FAKE_FLAKY_TURNS=N: the first N turns of $FAKE_FAIL_AGENT (default act) fail
 # the way a dropped provider stream does, counted in $FAKE_TURN_COUNT.
 if os.environ.get("FAKE_FLAKY_TURNS") and agent == os.environ.get("FAKE_FAIL_AGENT", "act"):
-    counter = os.environ["FAKE_TURN_COUNT"]
-    seen = int(open(counter).read() or 0) if os.path.exists(counter) else 0
-    open(counter, "w").write(str(seen + 1))
+    # Turns run side by side (EVAL_CONCURRENCY), so the count is read and
+    # written under a lock, as the call log is.
+    with open(os.environ["FAKE_TURN_COUNT"], "a+") as counter:
+        fcntl.flock(counter, fcntl.LOCK_EX)
+        counter.seek(0)
+        seen = int(counter.read() or 0)
+        counter.seek(0)
+        counter.truncate()
+        counter.write(str(seen + 1))
     if seen < int(os.environ["FAKE_FLAKY_TURNS"]):
         sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
 if agent == "act":
@@ -84,7 +103,7 @@ FAKE
 chmod +x "$scratch/fake-oh"
 
 export TEENY_OH="$scratch/fake-oh" FAKE_CALLS="$scratch/calls.log" FAKE_DRAFT="$scratch/draft.txt"
-unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE FAKE_TURN_FAILS FAKE_FLAKY_TURNS FAKE_FAIL_AGENT OPENHUMAN_WORKSPACE TEENY_STATE
+unset FAKE_JUDGE FAKE_PREFER_TASKS FAKE_ELSE FAKE_TURN_FAILS FAKE_FLAKY_TURNS FAKE_FAIL_AGENT FAKE_SLOW FAKE_INFLIGHT EVAL_CONCURRENCY OPENHUMAN_WORKSPACE TEENY_STATE
 export FAKE_TURN_COUNT="$scratch/turns.count"
 # A failed turn is retried after EVAL_RETRY_WAIT seconds (and longer each
 # time); no test here waits.
@@ -283,7 +302,8 @@ report() { jq -r "$1" "$2/report.json"; }
 
 # --- the same brain against itself is all ties -------------------------------------------
 : >"$FAKE_CALLS"
-FAKE_JUDGE=tie compare "$scratch/self"
+# One turn at a time here, so the log's first two judge turns are the first pair's.
+EVAL_CONCURRENCY=1 FAKE_JUDGE=tie compare "$scratch/self"
 check "a tie judge decides nothing" test "$(report .ties "$scratch/self")" = "$tasks"
 check "and nothing is promoted" test "$(report .promote "$scratch/self")" = false
 check "compare exits 2 when the candidate does not win" test "$code" = 2
@@ -309,6 +329,32 @@ printf 'MAIN-SOUL-MARKER\n' >"$scratch/main/brain/SOUL.md"
 : >"$FAKE_CALLS"
 FAKE_JUDGE=tie compare "$scratch/rooted" --judge-root "$scratch/main"
 check "judges by the soul in --judge-root" grep -q 'MAIN-SOUL-MARKER' <<<"$(jq -rs '.[0].message' "$FAKE_CALLS")"
+
+# --- turns side by side -------------------------------------------------------------------
+# One turn at a time, gen 6 took 12 hours and gen 7 most of a night: a run
+# and a compare keep EVAL_CONCURRENCY turns in flight (default 4), and still
+# write their files in order, each pair's two orderings on its own line.
+inflight() { # VAR=VALUE... -- CMD...: the most turns in flight while CMD ran
+  rm -rf "$scratch/room"; mkdir "$scratch/room"
+  env FAKE_SLOW=0.4 FAKE_INFLIGHT="$scratch/room" "$@" >/dev/null 2>&1 || true
+  cat "$scratch/room/max"
+}
+four="arc-progress,morning-post,reply-fud,humans-post"
+draft '{"text": "gm %TASK% from the base"}'
+check "a run keeps four turns in flight by default" test "$(inflight "$eval_bin" run --samples 2 --only "$four" "$runs/par")" = 4
+EVAL_CONCURRENCY=1 "$eval_bin" run --samples 2 --only "$four" "$runs/seq" >/dev/null 2>&1
+check "and writes its drafts in the same order as one at a time" \
+  test "$(jq -c '[.task, .sample]' "$runs/par/drafts.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl")"
+check "EVAL_CONCURRENCY=1 runs one turn at a time" test "$(inflight EVAL_CONCURRENCY=1 "$eval_bin" run --samples 1 --only "$four" "$runs/one")" = 1
+check "EVAL_CONCURRENCY=3 keeps three" test "$(inflight EVAL_CONCURRENCY=3 "$eval_bin" run --samples 2 --only "$four" "$runs/three")" = 3
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 --only "$four" "$runs/parc" >/dev/null 2>&1
+check "a compare judges four turns at once" \
+  test "$(inflight FAKE_JUDGE=prefer:CAND "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par")" = 4
+check "and keeps each pair's orderings apart: the baseline first, then the candidate" \
+  test "$(jq -r '"\(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = 21
+check "every pair once, in order" \
+  test "$(jq -c '[.task, .sample]' "$scratch/par/judged.jsonl")" = "$(jq -c '[.task, .sample]' "$runs/seq/drafts.jsonl" | sort)"
 
 # --- a candidate that wins ------------------------------------------------------------------
 FAKE_JUDGE=prefer:CAND compare "$scratch/win"

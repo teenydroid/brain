@@ -21,6 +21,9 @@
 #       through the core's per-turn `model_override`, without editing the
 #       frozen judge.toml; report.json records the model asked for.
 #
+# Both keep EVAL_CONCURRENCY turns in flight at once (default 4, 1 to 16) and
+# write their files in order all the same.
+#
 # --with-heldout also drafts (run) and judges (compare) the held-out tasks
 # in $EVAL_HELDOUT_DIR (default secrets/heldout/*.toml, outside the public
 # repository; same format as evals/tasks/). report.json shows them in a
