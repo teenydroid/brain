@@ -277,6 +277,20 @@ class PostTest(Scratch, Refusing):
         self.created()
         actions.post(self.body())
 
+    def test_a_post_refused_for_the_gap_never_reaches_the_guard(self):
+        # A post the beat holds for the gap is sent again every beat until it
+        # opens (bin/lib/tick.py, PACED): the limits come first, so a refusal
+        # for the gap spends no guard judge turn.
+        from unittest import mock
+
+        self.created()
+        actions.post(self.body())
+        self.at(T0 + 12 * MINUTE)
+        with mock.patch.object(actions, "check_fields", side_effect=AssertionError("the guard ran")) as guard:
+            error = self.refused(actions.post, self.body(), "rate_limit")
+        guard.assert_not_called()
+        self.assertEqual(error.detail["wait_seconds"], 18 * 60 + 1)
+
     def test_bad_bodies(self):
         for body in (None, {}, {"submolt": "general"}, {"submolt": "General Chat", "title": "x"},
                      {"submolt": "general", "title": "x", "type": "video"}, {"submolt": "general", "title": "x", "type": "link"},
