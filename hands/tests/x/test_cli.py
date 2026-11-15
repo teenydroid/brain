@@ -97,6 +97,24 @@ class ReadVerbsTest(Cli):
         code, out, _ = self.run_x("whoami")
         self.assertEqual((code, out), (0, {"ok": True, "id": "1000", "username": "teenydroid"}))
 
+    def test_links_says_the_days_link_is_spent_after_an_earlier_link_post(self):
+        # The 23:00 show reads this before it drafts: once the 07:00 post used
+        # the day's one link, it writes the Moltbook exchange without one.
+        from teeny_hands import hand
+        from teeny_hands.x import posting_rules
+
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 0, 1))
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "101", "post", "shipped it: github.com/teenydroid/thing", created_at=T0)
+        conn.commit()
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 1, 0))
+        self.assertEqual(self.x.requests(), [], "a read of the ledger, never of X")
+
     def test_get(self):
         self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "hello", "author_id": "42"}})
         code, out, _ = self.run_x("get", "77")
