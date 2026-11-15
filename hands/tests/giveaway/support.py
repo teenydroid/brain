@@ -123,7 +123,7 @@ class GiveawayCase(Scratch):
     # --- rounds -------------------------------------------------------------------------
 
     def open_body(self, **overrides: Any) -> dict:
-        body = {"format": "drop", "pool_tiny": "100000", "winners": 2, "best_reply_tiny": "20000",
+        body = {"format": "drop", "pool_tiny": "100000", "winners": 4, "best_reply_tiny": "20000",
                 "prompt": "tell me the worst advice you ever took", "deadline": iso(DEADLINE),
                 "text": "drop #1: 100,000 tiny for the worst advice you ever took. reply to this post to enter"}
         body.update(overrides)

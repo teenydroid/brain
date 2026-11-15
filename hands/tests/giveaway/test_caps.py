@@ -59,7 +59,7 @@ class OpenTest(GiveawayCase):
         self.assertFalse(self.web.writes())
 
     def test_each_cap(self):
-        self.refused("pool_cap", pool_tiny="100001", best_reply_tiny="1", winners=2)
+        self.refused("pool_cap", pool_tiny="100004", best_reply_tiny="4", winners=4)
         self.refused("per_winner_cap", pool_tiny="100000", winners=1, best_reply_tiny="0")
         self.refused("per_winner_cap", pool_tiny="90000", winners=3, best_reply_tiny="30000")  # 20k + 30k to one person
         self.refused("split", pool_tiny="100000", winners=3, best_reply_tiny="20000")
