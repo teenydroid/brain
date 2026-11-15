@@ -859,15 +859,16 @@ def fence_failures(record: dict, breaks: list[str]) -> list[str]:
 MAX_UNRUN = 0.1
 
 
-def _unmeasured(base: dict, cand: dict) -> dict:
+def _unmeasured(base: dict, cand: dict, expected: set[str] | None = None) -> dict:
     """What the two runs could not compare: each side's visible samples that
     never ran (or are missing), and the visible tasks with no sample drafted
-    on both sides, whose checks therefore never ran."""
+    on both sides, whose checks therefore never ran. EXPECTED, the visible
+    tasks selected, counts one neither run drafted at all as such a task."""
     keys = {k for k in set(base) | set(cand)
             if not (base.get(k, {}).get("heldout") or cand.get(k, {}).get("heldout"))}
     out = {side: [k for k in keys if k not in run or _unrun(run[k])] for side, run in (("base", base), ("cand", cand))}
     ran = {k[0] for k in keys if k in base and k in cand and not _unrun(base[k]) and not _unrun(cand[k])}
-    out["tasks"] = sorted({k[0] for k in keys} - ran)
+    out["tasks"] = sorted(({k[0] for k in keys} | (expected or set())) - ran)
     out["samples"] = len(keys)
     return out
 
@@ -883,8 +884,46 @@ def _inconclusive(unmeasured: dict) -> str | None:
     return "inconclusive: " + "; ".join(why) if why else None
 
 
-def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int) -> dict:
-    base, cand = _drafts(base_path), _drafts(cand_path)
+#: The modes of a compare (docs/evolve.md, "4. Evaluate"): a tournament
+#: promotes a candidate that beats the baseline; a non-regression check
+#: passes one that does no worse on the tasks its change can reach.
+MODES = ("tournament", "nonregression")
+#: What a non-regression check's --min-pairs is at most, by default; it is
+#: otherwise half the pairs there could be, so a change one task reaches
+#: can still be decided.
+NONREGRESSION_MIN_PAIRS = 12
+#: Why a compare with no visible task selected decides nothing.
+UNMEASURABLE = "no eval task reaches this change"
+
+
+def auto_min_pairs(possible: int) -> int:
+    """--min-pairs in a non-regression check, unless given: half the
+    possible pairs (rounded up, at least 1), at most 12."""
+    return min(NONREGRESSION_MIN_PAIRS, max(1, -(-possible // 2)))
+
+
+def unmeasurable(mode: str, tasks: list[str] | None, threshold: float) -> dict:
+    """The report of a compare with no visible task to measure: never
+    promoted, never lost, and nothing was drafted or judged."""
+    return {"promote": False, "verdict": "unmeasurable", "reason": UNMEASURABLE, "mode": mode,
+            "tasks": sorted(tasks or []), "wins": 0, "losses": 0, "ties": 0, "decided": 0, "win_rate": 0.0,
+            "threshold": threshold, "min_pairs": 0, "regressions": [], "fences": [], "hard_failure_rise": 0,
+            "hard_failures": {}, "unrun": [], "unmeasured_tasks": [], "pairs": []}
+
+
+def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int | None,
+          mode: str = "tournament", tasks: set[str] | None = None) -> dict:
+    """The report of a compare. MODE is a tournament (verdicts won, lost,
+    inconclusive) or a non-regression check (pass, regressed,
+    inconclusive); TASKS, when given, is the only tasks scored, and with no
+    visible one among them the verdict is "unmeasurable". MIN_PAIRS None is
+    12 in a tournament and auto_min_pairs() in a non-regression check."""
+    if mode not in MODES:
+        raise EvalError(f"mode is one of {', '.join(MODES)}")
+    visible_selected = None if tasks is None else set(tasks) - set(heldout_ids(heldout_dir()))
+    if visible_selected is not None and not visible_selected:
+        return unmeasurable(mode, sorted(tasks or []), threshold)
+    base, cand = _drafts(base_path, tasks), _drafts(cand_path, tasks)
     judged = {(r["task"], r["sample"]): r for r in _read_jsonl(judged_path)} if judged_path.is_file() else {}
 
     pairs = []
@@ -906,7 +945,7 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             continue
         record = judged.get(key)
         if record is not None:
-            outcome = pair_outcome(record["first"], record["second"])
+            outcome = pair_outcome(record.get("first"), record.get("second"))
         elif b.get("draft") is None or c.get("draft") is None:
             # No draft to judge on one side: the other side wins it, without a judge.
             winner = "tie" if b.get("draft") is None and c.get("draft") is None else ("cand" if b.get("draft") is None else "base")
@@ -932,7 +971,7 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
             "consistent": outcome["consistent"],
             "breaks": outcome["breaks"],
             "hard_fail": hard,
-            "notes": [r["notes"] for r in (record["first"], record["second"])] if record else [],
+            "notes": [record[k]["notes"] for k in ("first", "second") if record.get(k)] if record else [],
         })
 
     # The verdict is the visible tasks'; the held-out ones are reported
@@ -944,8 +983,11 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     regressions = sorted(set(visible["regressions"]) | set(fenced))
     # A regression seen in what did run rejects however much did not; too
     # little run otherwise decides nothing either way.
-    unmeasured = _unmeasured(base, cand)
+    unmeasured = _unmeasured(base, cand, visible_selected)
     unsure = None if regressions else _inconclusive(unmeasured)
+    if min_pairs is None:
+        min_pairs = auto_min_pairs(unmeasured["samples"]) if mode == "nonregression" else 12
+    short = decided < min_pairs
     if fenced:
         reason = "hard-check regression: a fence check failed on " + ", ".join(
             f"{t} ({', '.join(sorted({f['check'] for f in fences[False] if f['task'] == t}))})" for t in fenced)
@@ -956,17 +998,27 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"hard-check regression on {', '.join(regressions)}"
     elif unsure:
         reason = unsure
-    elif decided < min_pairs:
+    elif short:
         reason = f"{decided} decided pair(s), needs {min_pairs}"
+        if mode == "nonregression":
+            reason = "inconclusive: " + reason
     elif win_rate < threshold:
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
-    promote = not regressions and not unsure and decided >= min_pairs and win_rate >= threshold
+    good = not regressions and not unsure and not short and win_rate >= threshold
+    if mode == "nonregression":
+        # Too few decided pairs says nothing either way here: a change one
+        # task reaches has few pairs, and a tie is no regression.
+        verdict = "pass" if good else "inconclusive" if unsure or (short and not regressions) else "regressed"
+    else:
+        verdict = "won" if good else "inconclusive" if unsure else "lost"
     out = {
-        "promote": promote,
-        "verdict": "won" if promote else "inconclusive" if unsure else "lost",
+        "promote": good,
+        "verdict": verdict,
         "reason": reason,
+        "mode": mode,
+        "tasks": None if tasks is None else sorted(tasks),
         "wins": wins,
         "losses": losses,
         "ties": visible["ties"],
