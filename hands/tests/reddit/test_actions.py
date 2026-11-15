@@ -11,7 +11,10 @@ from teeny_hands.reddit import actions, rules
 
 def rows(table: str) -> list[dict]:
     conn = hand.open_db(rules.SCHEMA)
-    return [dict(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+    try:
+        return [dict(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+    finally:
+        conn.close()
 
 
 class Refusing:

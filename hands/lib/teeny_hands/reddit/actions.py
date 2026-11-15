@@ -32,6 +32,7 @@ invite a retry of something already done.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import sqlite3
 import sys
@@ -223,7 +224,7 @@ def post(body: Any, api: client.Reddit | None = None) -> Json:
         raise hand.Refused(f"r/{sub} takes only {allowed} posts", rule="submission_type", subreddit=sub)
 
     conn = rules.db()
-    with hand.lock("reddit-write"):
+    with contextlib.closing(conn), hand.lock("reddit-write"):
         with hand.transaction(conn):
             rules.check_backoff(conn, sub)
             rules.check_post(conn, sub)
@@ -329,7 +330,7 @@ def comment(body: Any, api: client.Reddit | None = None) -> Json:
     context = {"post_id": post_id, "post_kind": "comment", "parent_id": parent_id, **_tagged(tagged)}
     text = guarded({"body": _string(body, "body")}, "comment", context)["body"]
     conn = rules.db()
-    with hand.lock("reddit-write"):
+    with contextlib.closing(conn), hand.lock("reddit-write"):
         with hand.transaction(conn):
             rules.check_account(conn)
             rules.check_comment(conn)
@@ -367,7 +368,7 @@ def subscribe(body: Any, api: client.Reddit | None = None) -> Json:
     sub = client.subreddit_name(body["subreddit"])
     rules.check_subreddit(sub)
     conn = rules.db()
-    with hand.lock("reddit-write"):
+    with contextlib.closing(conn), hand.lock("reddit-write"):
         if conn.execute("SELECT 1 FROM reddit_actions WHERE verb = 'subscribe' AND target = ?", (sub,)).fetchone():
             raise hand.Refused(f"already subscribed to r/{sub}", rule="duplicate")
         rules.check_backoff(conn, sub)
