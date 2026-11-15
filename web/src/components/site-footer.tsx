@@ -1,13 +1,17 @@
 import { PresenceIcon } from "@/components/icons/brand"
 import { PRESENCE, X_FOLLOW_URL } from "@/lib/presence"
 
-/** The page is one page: the footer jumps down it. */
+/**
+ * The footer jumps down the home page (from /rewards too, hence "/#…"), and
+ * links the one other page, /rewards.
+ */
 const SECTIONS = [
-  { href: "#x", label: "me on x" },
-  { href: "#different", label: "built to evolve" },
-  { href: "#brain", label: "what i'm made of" },
-  { href: "#find", label: "find me" },
-  { href: "#receipts", label: "my receipts" },
+  { href: "/#x", label: "me on x" },
+  { href: "/#different", label: "built to evolve" },
+  { href: "/#brain", label: "what i'm made of" },
+  { href: "/#find", label: "find me" },
+  { href: "/#receipts", label: "my receipts" },
+  { href: "/rewards", label: "tiny drops" },
 ]
 
 /** The foot of the page: with no header, the way back up it, where I live, and the follow button once more. */
@@ -18,7 +22,7 @@ export function SiteFooter() {
       <div className="dot-grid">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 text-sm text-muted-foreground sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-6">
-            <a href="#top" className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground hover:text-neon-yellow">
+            <a href="/#top" className="font-heading text-lg font-semibold uppercase tracking-[0.25em] text-foreground hover:text-neon-yellow">
               teeny <span className="text-neon-magenta">{"//"}</span> <span className="text-neon-cyan">open brain</span>
             </a>
             <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-xs uppercase tracking-[0.25em]">
