@@ -106,10 +106,11 @@ tz = "Asia/Kolkata"
 command = "bin/act morning"
 
 # The 23:00 post: what Teeny built or did today, with pictures, and what broke.
-# When it is the better story, the day's best exchange on Moltbook instead
-# (hands/moltbook highlight, format `moltbook`): Moltbook sends nobody to X, so
-# Teeny carries it there, in this slot, never as an extra post. Skips a day
-# with nothing but chores and no exchange.
+# When it is the better story, the day's best exchange on Reddit or Moltbook
+# instead (hands/reddit highlight, format `reddit`, preferred: the other party
+# is a person; hands/moltbook highlight, format `moltbook`): neither sends
+# anybody to X, so Teeny carries it there, in this slot, never as an extra
+# post. Skips a day with nothing but chores and no exchange.
 [jobs.show]
 schedule = "0 23 * * *"
 tz = "Asia/Kolkata"

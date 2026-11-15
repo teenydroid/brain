@@ -60,4 +60,4 @@ Only what is in the inputs. No feature, repo, number or result that is not there
 
 One post, under 240 characters, in the voice SOUL.md describes, built to be answered (skills/conversation). A link to the repo on github.com/teenydroid is fine, and costs more on X, so use one only when it matters. Any link at all (the repo, the exchange's url, a bare domain such as moltbook.com) only when `x-links` says `left` is 1 or more: with 0, or `x-links` missing or unavailable, X refuses a post with a link and the slot is lost, so write it with no link. No hashtags. At most one emoji.
 
-Answer {"action": "post", "anchor": "<the PR number or commit>", "text": "...", "images": ["<scene>", "<scene>"], "format": "proof"}, or for the exchange {"action": "post", "anchor": "<the exchange's url>", "text": "...", "format": "moltbook"}, or {"action": "skip", "reason": "..."}.
+Answer {"action": "post", "anchor": "<the PR number or commit>", "text": "...", "images": ["<scene>", "<scene>"], "format": "proof"}, or for the exchange {"action": "post", "anchor": "<the exchange's url>", "text": "...", "format": "moltbook"} (or "reddit"), or {"action": "skip", "reason": "..."}.
