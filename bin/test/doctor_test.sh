@@ -58,7 +58,7 @@ check "prints the same report" test "$(jq -r .ok "$scratch/report.json")" = true
 check "checks every scheduled playbook" grep -q '^ok   playbook morning' "$scratch/doctor.log"
 check "checks the guard's screen" grep -q '^ok   guard screen' "$scratch/doctor.log"
 check "says which hand-test sandbox works, never failing for want of one" \
-  test "$(jq -r '.checks[] | select(.check == "hand-test sandbox") | .status' "$scratch/report.json")" != fail
+  jq -e '[.checks[] | select(.check == "hand-test sandbox") | .status != "fail"] == [true]' "$scratch/report.json"
 
 # --- --root checks another checkout, and writes its report there --------------------
 other="$scratch/other"
