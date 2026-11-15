@@ -90,7 +90,7 @@ CREATE INDEX IF NOT EXISTS moltbook_pains_post ON moltbook_pains (post_id);
 
 def db() -> sqlite3.Connection:
     conn = rules.db()
-    conn.executescript(SCHEMA)
+    conn.executescript(SCHEMA + build_requests.SCHEMA)
     return conn
 
 
@@ -292,7 +292,6 @@ def file_pain(body: Any, api: RestApi | None = None) -> Json:
             if recent >= PAINS_PER_DAY:
                 raise hand.Refused(f"at most {PAINS_PER_DAY} pain filed a day; the builder makes one thing at a time",
                                    rule="daily_cap")
-            conn.executescript(build_requests.SCHEMA) if False else None  # tables exist: rules.db() is hands.db
             first = voiced[0]
             source_id = first["post_id"] + (f":{first['comment_id']}" if first.get("comment_id") else "")
             if not build_requests.record(SOURCE, source_id, ", ".join(agents), text, conn=conn):
@@ -327,14 +326,14 @@ def helpdesk(body: Any, api: RestApi | None = None) -> Json:
             out["filed"] = file_pain(body["pain"], api)
         except hand.Refused as refused:
             refusals.append(refused)
-            out["pain_refused"] = {"error": str(refused), **getattr(refused, "details", {})}
+            out["pain_refused"] = {"reason": refused.reason, **refused.detail}
     if answering:
         comment = {k: body[k] for k in ("post_id", "body", "parent_id", "format", "experiment") if k in body}
         try:
             out["comment"] = actions.comment(comment, api)
         except hand.Refused as refused:
             refusals.append(refused)
-            out["comment_refused"] = {"error": str(refused), **getattr(refused, "details", {})}
+            out["comment_refused"] = {"reason": refused.reason, **refused.detail}
     if refusals and not ({"filed", "comment"} & set(out)):
         raise refusals[0]
     return out
