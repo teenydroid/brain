@@ -1189,8 +1189,7 @@ rules let it, and a host on `deploy/browser-deny.txt` is refused by the
 browser itself: OpenHuman reads that list from `OPENHUMAN_BROWSER_DENY_FILE`
 on every navigation (`open`, `task`, and the `browser_open` tool), whatever
 `OPENHUMAN_BROWSER_ALLOW_ALL` says, and refuses every page if it cannot read
-the list. The operator's prompt says the same. Starting the session on that
-site is what the browser then does, under that rule.
+the list. The operator's prompt says the same.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended
