@@ -374,9 +374,9 @@ class NonRegression(ScoreCase):
                 self.assertEqual(self.split(10, 18, threshold=threshold)["verdict"], "regressed")
 
     def test_ties_are_dropped_not_counted_against_it(self):
-        got = self.split(2, 2, ties=20)
+        got = self.split(2, 2, ties=20, min_pairs=2)
         self.assertEqual((got["decided"], got["ties"], got["verdict"]), (4, 20, "pass"))
-        self.assertEqual(self.split(0, 4, ties=20)["verdict"], "regressed")
+        self.assertEqual(self.split(0, 4, ties=20, min_pairs=2)["verdict"], "regressed")
 
     def test_too_few_decided_pairs_is_still_inconclusive_not_regressed(self):
         got = self.split(0, 3, ties=21)  # 12 wanted of 24 pairs, 3 decided
