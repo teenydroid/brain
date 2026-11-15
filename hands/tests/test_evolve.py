@@ -767,8 +767,11 @@ class Gate(EvolveCase):
         _, ok = self.gated_again(1000)
         self.assertTrue(ok["diff size"]["ok"], ok["diff size"])
         tree = self.root / "trees" / "t"
-        cap = evolve.max_change_lines(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip(), 5)
-        _, checks = self.gated_again(cap + 1)
+        base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
+        cap = evolve.max_change_lines(tree, base, 5)
+        # Past apply_edits' 40,000 characters: written straight to the tree.
+        (tree / "brain" / "skills" / "long" / "SKILL.md").write_text("".join(f"line {i}\n" for i in range(cap + 1)))
+        checks = {c["check"]: c for c in evolve.gate(tree, base)["checks"]}
         self.assertFalse(checks["diff size"]["ok"])
         self.assertIn(f"{cap + 1}/{cap}", checks["diff size"]["detail"])
         self.assertTrue(checks["diff size"]["hard"])
