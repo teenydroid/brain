@@ -64,6 +64,18 @@ class MaterialTest(Scratch):
             "2026-09-14: 3 guard holds (judge unreachable 2, violence 1); 2 later let through on review",
         ])
 
+    def test_guard_holds_count_teenys_own_writes_not_other_agents_comments(self):
+        # An inbound comment the guard held (e.g. "killed" in a harmless reply)
+        # is not a write of Teeny's: the audit's count must leave it out.
+        self.hold("violence", "killed", T0 - HOUR)
+        self.at(T0 - HOUR)
+        holds.record(direction="inbound", kind="message", context={"surface": "moltbook"}, category="violence",
+                     reason="killed", by="judge", text="a stranger's comment")
+        self.at(T0)
+        out = material.material()["guard_holds"]
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["lines"], ["2026-09-14: 1 guard hold (violence 1)"])
+
     def _write(self, table: str, at: float, status: str, n: int = 1) -> None:
         conn = rules.db()
         with hand.transaction(conn):
