@@ -170,6 +170,35 @@ check "a quote with no anchor is judged on the post it quotes" \
   test "$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' | jq -r .anchor)" = 4242
 rm -f "$brain/playbooks/quoting.md"
 
+# --- a thread: "posts" in place of "text", the judge reads them joined, hands/x post-thread
+reset
+answer '{"action": "post", "anchor": "pr 212", "posts": ["the build broke", "here is why"], "format": "proof"}'
+out="$(run morning)"
+check "a thread is sent through hands/x post-thread, not post" \
+  grep -q '^x post-thread DRY_RUN= stdin={"posts":\["the build broke","here is why"\],"format":"proof","anchor":"pr 212"}' "$FAKE_HANDS"
+check "and hands/x post is not called" bash -c "! grep -q '^x post ' '$FAKE_HANDS'"
+check "the anchor judge reads the posts joined as one draft" \
+  test "$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' | jq -r .text)" = $'the build broke\n\nhere is why'
+check "a done thread spends one of the day's runs" test "$(jq -r '.actions[0].status + " " + (.left_today | tostring)' <<<"$out")" = "done 0"
+check "tells the model a playbook may allow a thread" grep -q '"posts": \["\.\.\.", "\.\.\."\]' <<<"$(jq -r .message "$FAKE_CALLS")"
+reset
+answer '{"action": "post", "anchor": "pr 212", "posts": ["the build broke", "here is why"]}'
+out="$(FAKE_ANCHOR=no run morning)"
+check "a thread the judge finds unanchored is skipped and nothing is sent" \
+  bash -c "[ '$(jq -r '.actions[0].action' <<<"$out")' = skip ] && ! grep -q '^x post' '$FAKE_HANDS'"
+reset
+answer '{"action": "post", "anchor": "pr 212", "text": "one", "posts": ["a", "b"]}'
+out="$(run morning)"
+check "a draft with both text and posts is an error and nothing is sent" \
+  bash -c "[ '$(jq -r '.actions[0].status' <<<"$out")' = error ] && ! grep -q '^x post' '$FAKE_HANDS'"
+reset
+answer '{"action": "post", "anchor": "pr 212", "posts": ["a", 2]}'
+out="$(run morning)"
+check "posts that are not all strings are an error and nothing is sent" \
+  bash -c "[ '$(jq -r '.actions[0].status' <<<"$out")' = error ] && ! grep -q '^x post' '$FAKE_HANDS' && ! grep -q '^guard anchor' '$FAKE_HANDS'"
+reset
+out="$(FAKE_X_EXIT=1 run morning)" || true
+
 # --- a data job (A17): Teeny's script, jailed, fed the inputs before it --------------
 if python3 -c "import sys; sys.path[:0] = ['$here/../lib', '$here/../../hands/lib']; import datajob
 from teeny_hands.build import verify; sys.exit(0 if verify.landlock_abi() >= 1 and datajob.seccomp_supported() else 1)"; then
