@@ -157,10 +157,14 @@ def request(repo: str, number: int, sha: str) -> Json:
 
 
 def _once(pending: Json, verb: str, reason: str, **detail: Any) -> None:
-    """A wait or refusal row, only when the reason is new for this deploy."""
+    """A wait or refusal row, only when the reason is new for this deploy.
+    The pending file says why it is still pending (`waiting`, `refused`)."""
     if pending.get("last") == [verb, reason]:
         return
     pending["last"] = [verb, reason]
+    for key in ("waiting", "refused", "dry_run"):
+        pending.pop(key, None)
+    pending[{"deploy_wait": "waiting", "deploy_refused": "refused"}.get(verb, "dry_run")] = reason
     _write(pending)
     ledger.record_action(verb, pending["repo"], int(pending["number"]), pending["sha"], reason=reason, **detail)
 
