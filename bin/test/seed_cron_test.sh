@@ -449,6 +449,18 @@ for book in chatty vague; do
   check "with catch-up off, and says so ($book)" grep -q "catch-up off for teeny.x" "$scratch/stderr"
   check "and the job is there ($book)" test "$(job_field teeny.x .command)" = "bin/act $book"
 done
+# A slot every run of which failed on the model provider may be made up
+# (`make_up_hours`), on a playbook that speaks too: its post was never made.
+refuses "refuses make_up_hours on a job that is not a playbook" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/heartbeat"\nmake_up_hours = 3'
+refuses "refuses a make-up window over 6 hours" \
+  $'[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act morning"\nmake_up_hours = 7'
+refuses "refuses a make-up window as long as the gap between slots" \
+  $'[jobs.x]\nschedule = "0 9,12 * * *"\ncommand = "bin/act morning"\nmake_up_hours = 1'
+printf '[jobs.x]\nschedule = "0 9 * * *"\ncommand = "bin/act chatty"\nmake_up_hours = 3\n' >"$toml"
+if seed --check; then pass "--check allows make_up_hours on a playbook that comments"; else fail "--check allows make_up_hours on a playbook that comments"; fi
+check "and it becomes the job's make_up_secs, with no catch-up" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$toml' /dev/null | jq -e '.[0].make_up_secs == 10800 and .[0].catch_up_secs == 0' >/dev/null"
 printf '[jobs.bills]\nschedule = "5 1 * * *"\ncommand = "bin/pay-bills"\ncatch_up = true\n' >"$pinned"
 refuses "refuses catch-up on a pinned job that moves money" ''
 : >"$pinned"
@@ -485,6 +497,12 @@ check "and no job that must follow another, or be followed, catches up out of or
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
       \"teeny.dream-midday\", \"teeny.receipts\")) | .catch_up_secs] | length == 5 and all(. == 0)' >/dev/null"
+check "and the Moltbook noon and evening posts make up a slot the model provider lost" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.moltbook-daily\", \"teeny.moltbook-evening\")) | .make_up_secs] | length == 2 and all(. > 0)' >/dev/null"
+check "and no X post makes one up: a late post would take the next one's eight-hour room" bash -c "
+  python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
+    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\")) | .make_up_secs] | length == 3 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "
