@@ -42,7 +42,7 @@ class ReadsTest(Scratch):
         self.mb.route("GET", "/posts", {"success": True, "posts": [raw, {"id": "b"}, {"id": "c"}], "next_cursor": "n1"})
         out = reads.feed(None, "hot", 2, brief=True)
         self.assertEqual(out["posts"][0], {"id": "a", "title": "a claim", "content": "x" * 400, "author": "lobster",
-                                           "submolt": "agents", "score": 12, "comment_count": 3,
+                                           "author_karma": 9, "submolt": "agents", "score": 12, "comment_count": 3,
                                            "created_at": "2026-09-14T06:00:00Z"})
         self.assertEqual([p["id"] for p in out["posts"]], ["a", "b"])  # never more than asked for
         self.assertNotIn("next_cursor", out)
@@ -180,3 +180,128 @@ class HomeExpandTest(Scratch):
         self.activity(("m1", MENTION))
         self.full_post("m1")
         self.assertNotIn("post", reads.home(expand=True)["home"]["activity_on_your_posts"][0])
+
+
+def _at(hours_ago: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(T0 - hours_ago * 3600, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _post(pid: str, hours_ago: float, karma: int | None = 50, comments: int = 0, author: str = "crabby", **more) -> dict:
+    who: dict = {"name": author}
+    if karma is not None:
+        who["karma"] = karma
+    return {"id": pid, "title": pid, "content": "c", "author": who, "comment_count": comments,
+            "created_at": _at(hours_ago), **more}
+
+
+class FilteredFeedTest(Scratch):
+    """`feed`'s filters: what the comment playbook may see is decided here,
+    not in its prose (docs/audit/moltbook-plan.md, section 4)."""
+
+    def test_several_submolts_are_read_and_merged_newest_first(self):
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [_post("g1", 2), _post("g2", 0.2)]})
+        self.mb.route("GET", "/submolts/memory/feed", {"success": True, "posts": [_post("m1", 1), _post("g1", 2)]})
+        out = reads.feed(["general", "m/memory"], "new", 10, brief=True)
+        self.assertEqual([p["id"] for p in out["posts"]], ["g2", "m1", "g1"])
+        self.assertEqual(out["submolts"], ["general", "memory"])
+        # A submolt's own feed leaves the submolt off; the brief puts it back.
+        self.assertEqual({p["id"]: p["submolt"] for p in out["posts"]}, {"g2": "general", "m1": "memory", "g1": "general"})
+        self.assertEqual(self.mb.requests("GET", "/submolts/memory/feed")[0].query, {"sort": "new", "limit": "10"})
+
+    def test_old_posts_never_reach_the_reader(self):
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [
+            _post("young", 0.5), _post("edge", 3), _post("old", 45.7), _post("undated", 1, created_at=None)]})
+        out = reads.feed("general", "new", 10, brief=True, max_age_hours=3)
+        self.assertEqual([p["id"] for p in out["posts"]], ["young", "edge"])
+        self.assertEqual((out["seen"], out["filters"]), (4, {"max_age_hours": 3}))
+        # Filtering reads deeper than it keeps.
+        self.assertEqual(self.mb.requests("GET", "/submolts/general/feed")[0].query["limit"], str(reads.FILTER_FETCH))
+
+    def test_author_karma_and_comment_count(self):
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [
+            _post("small", 1, karma=40), _post("big", 1, karma=31934), _post("tiny", 1, karma=2),
+            _post("unknown", 1, karma=None), _post("crowded", 1, karma=40, comments=30)]})
+        out = reads.feed("general", "new", 10, brief=True, max_author_karma=10000, min_author_karma=5, max_comments=5)
+        self.assertEqual([p["id"] for p in out["posts"]], ["small"])
+        self.assertEqual(out["posts"][0]["author_karma"], 40)
+        zero = reads.feed("general", "new", 10, brief=True, max_comments=0)
+        self.assertEqual(zero["filters"], {"max_comments": 0})  # a 0 is a filter, not an unset one
+        self.assertNotIn("crowded", [p["id"] for p in zero["posts"]])
+
+    def test_skip_mine_drops_teenys_posts_and_those_it_commented_on(self):
+        from teeny_hands.moltbook import rules
+
+        conn = rules.db()
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES ('c1', 'done', ?, 'posted')", (T0,))
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES ('c2', 'refused', ?, 'failed')", (T0,))
+        conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('ownpost', ?, 'general', 't', 'posted')", (T0,))
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [
+            _post("done", 1), _post("refused", 1), _post("ownpost", 1, author="someone"), _post("mine", 1, author="TeenyDroid"),
+            _post("fresh", 1)]})
+        out = reads.feed("general", "new", 10, brief=True, skip_mine=True)
+        self.assertEqual(sorted(p["id"] for p in out["posts"]), ["fresh", "refused"])
+
+    def test_the_cut_comes_after_the_filter(self):
+        posts = [_post(f"old{i}", 30 + i) for i in range(5)] + [_post("new1", 1), _post("new2", 2)]
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": posts})
+        out = reads.feed("general", "new", 1, brief=True, max_age_hours=3)
+        self.assertEqual([p["id"] for p in out["posts"]], ["new1"])
+
+    def test_one_failing_submolt_leaves_the_others(self):
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [_post("g1", 1)]})
+        self.mb.route("GET", "/submolts/memory/feed", {"success": False, "error": "boom"}, status=500)
+        out = reads.feed(["general", "memory"], "new", 5, brief=True)
+        self.assertEqual([p["id"] for p in out["posts"]], ["g1"])
+        self.assertEqual(out["errors"][0]["submolt"], "memory")
+        with self.assertRaises(hand.HandError):
+            reads.feed(["memory"], "new", 5, brief=True, max_age_hours=3)
+
+    def test_an_unfiltered_single_feed_is_unchanged(self):
+        self.mb.route("GET", "/submolts/general/feed", {"success": True, "posts": [{"id": "b"}], "next_cursor": "n"})
+        self.assertEqual(reads.feed("general", "hot", 5), {"posts": [{"id": "b"}], "next_cursor": "n", "submolt": "general"})
+
+
+class PeersTest(Scratch):
+    def peers_file(self, text: str) -> None:
+        (self.root / "brain").mkdir(exist_ok=True)
+        (self.root / reads.PEERS_FILE).write_text(text)
+
+    def test_the_checked_in_list_is_all_agent_names(self):
+        from pathlib import Path
+
+        checkout = Path(__file__).resolve().parents[3]
+        self.peers_file((checkout / reads.PEERS_FILE).read_text())
+        names, skipped = reads.peer_names()
+        self.assertEqual(skipped, [])
+        self.assertIn("fieldnotes_ai", names)
+        self.assertLessEqual(len(names), reads.PEERS_MAX)
+
+    def test_each_peers_newest_posts_by_author(self):
+        self.peers_file("# peers\nlilt\nu/fieldnotes_ai  # tooling\nLilt\nnot a name!\n\n")
+        self.mb.route("GET", "/posts", {"success": True, "posts": [_post("l1", 1, author="lilt"), _post("l0", 20, author="lilt")]},
+                      when=lambda seen: seen.query.get("author") == "lilt")
+        self.mb.route("GET", "/posts", {"success": True, "posts": [_post("f1", 0.5, author="fieldnotes_ai"),
+                                                                    _post("x1", 0.1, author="stranger")]},
+                      when=lambda seen: seen.query.get("author") == "fieldnotes_ai")
+        out = reads.peers(2, max_age_hours=3)
+        self.assertEqual(out["peers"], ["lilt", "fieldnotes_ai"])
+        self.assertEqual(out["skipped"], ["not a name!"])
+        # A post not by the peer is dropped (the author filter was ignored); old ones are filtered.
+        self.assertEqual([p["id"] for p in out["posts"]], ["f1", "l1"])
+        queries = [s.query for s in self.mb.requests("GET", "/posts")]
+        self.assertEqual(queries, [{"author": "lilt", "sort": "new", "limit": "2"},
+                                   {"author": "fieldnotes_ai", "sort": "new", "limit": "2"}])
+        reads.peers(2, max_age_hours=3)
+        self.assertEqual(len(self.mb.requests("GET", "/posts")), 2)  # cached
+
+    def test_no_file_is_no_peers(self):
+        self.assertEqual(reads.peers(2), {"peers": [], "posts": []})
+
+    def test_at_most_peers_max_are_read(self):
+        self.peers_file("\n".join(f"agent{i}" for i in range(reads.PEERS_MAX + 3)))
+        self.mb.route("GET", "/posts", {"success": True, "posts": []})
+        out = reads.peers(1)
+        self.assertEqual(len(self.mb.requests("GET", "/posts")), reads.PEERS_MAX)
+        self.assertEqual(len(out["not_read"]), 3)
