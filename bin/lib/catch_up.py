@@ -77,11 +77,24 @@ keeps the window two hours shorter than the gap between slots, so the next
 slot always falls after such a claim could lapse, for runs under the core's
 own limits.
 
+A slot lost to the model provider is made up the same way, once, by
+bin/health only (`provider_back`: its probe answered, and the latest
+playbook draft after any provider failure did too). That is a playbook job
+with a `make_up_secs` window (cron_policy.py: `make_up_hours`, or its
+catch-up window) whose slot did have runs, every one of which bin/act
+recorded as `failure: "provider"` in state/act/<playbook>/runs.jsonl. A
+slot a skip, a refusal, a cap or a playbook error held is not made up, and
+neither is a slot with no line in the log (a run cut off before it wrote
+one). On 2026-11-14 a 402 from the provider failed every draft from 06:10
+to 09:15 UTC, the noon Moltbook post among them, and nothing ran it again.
+The rest is as for a missed slot: the window, the ledger, the quiet hours,
+one job per call, and bin/act's `max_per_day`.
+
 A schedule with names (MON) or with both day fields set (the core's cron
 library and classic cron disagree on what that means) is not guessed at:
 cron_policy.py refuses catch-up on one, and this skips it, said in `errors`.
 
-Prints (or returns) {caught_up: [{name, slot}], pending: [names left for
+Prints (or returns) {caught_up: [{name, slot}] (a make-up adds `lost: "provider"`), pending: [names left for
 a later call], deferred: [names waiting out the quiet hours], errors:
 {name: why}}; with --dry-run, what it would catch up, changing nothing.
 """
@@ -363,14 +376,39 @@ class Ledger:
 # --- the decision -------------------------------------------------------------------------------
 
 
+def _lost_to_provider(state: Path, command: str, slot: float) -> bool:
+    """Whether a playbook job's runs since `slot` all failed on the model
+    provider: at least one line in its run log, and every one `failure:
+    "provider"` (bin/act)."""
+    argv = command.split()
+    if argv[:1] != ["bin/act"] or len(argv) != 2:
+        return False
+    try:
+        raw = (state / "act" / argv[1] / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    since = []
+    for text in raw[-200:]:
+        try:
+            line = json.loads(text)
+            at = dt.datetime.fromisoformat(str(line["at"]).replace("Z", "+00:00")).timestamp()
+        except (ValueError, KeyError, TypeError):
+            continue
+        if at >= slot:
+            since.append(line)
+    return bool(since) and all(line.get("failure") == "provider" for line in since)
+
+
 def _quiet(now: float) -> bool:
     import rhythm  # bin/lib/rhythm.py: TEENY_QUIET_HOURS, Teeny's own night
     return rhythm.is_night(now)
 
 
 def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], ledger: Json, now: float,
-                rearmed: set[str], errors: dict[str, str]) -> tuple[list[Json], list[str]]:
-    """The missed slots to catch up, oldest first, and the names waiting out
+                rearmed: set[str], errors: dict[str, str], state: Path | None = None,
+                provider_back: bool = False) -> tuple[list[Json], list[str]]:
+    """The missed slots to catch up, and with `provider_back` the slots lost
+    to the model provider to make up, oldest first, and the names waiting out
     the quiet hours. A job whose schedule cannot be read goes in `errors`."""
     now_ms = int(now * 1000)
     core = _core_jobs(conn)
@@ -378,12 +416,14 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
     deferred: list[str] = []
     for want in desired:
         window = int(want.get("catch_up_secs") or 0)
+        make_up = int(want.get("make_up_secs") or 0) if provider_back and state is not None else 0
         name = str(want.get("name"))
         have = core.get(name)
-        if window <= 0 or not want.get("enabled", True) or have is None or not have["enabled"]:
+        if max(window, make_up) <= 0 or not want.get("enabled", True) or have is None or not have["enabled"]:
             continue
         schedule = have["schedule"]
-        earliest = max(now - window, have["created_ms"] / 1000, float(ledger["since"].get(name) or 0) / 1000)
+        earliest = max(now - max(window, make_up), have["created_ms"] / 1000,
+                       float(ledger["since"].get(name) or 0) / 1000)
         try:
             slot = last_slot(str(schedule.get("expr") or ""), schedule.get("tz"), now, earliest)
         except (ValueError, KeyError) as error:  # one odd schedule never stops the others
@@ -397,16 +437,25 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
         # A run that started (or was queued) at the slot holds it; so does a
         # live claim on it, and on the job's current next run (a run the core
         # took after a re-arm moved it on).
-        if (_ran_since(conn, have["id"], slot_ms) or _lease_live(conn, have["id"], slot_ms, now_ms)
-                or _lease_live(conn, have["id"], have["next_ms"], now_ms)):
+        if _lease_live(conn, have["id"], slot_ms, now_ms) or _lease_live(conn, have["id"], have["next_ms"], now_ms):
             continue
-        moved_on = name in rearmed or have["next_ms"] > slot_ms
+        lost = False
+        if _ran_since(conn, have["id"], slot_ms):
+            # A run held the slot, unless every run of it failed on the
+            # model provider and it is back: then it is made up.
+            lost = (make_up > 0 and now - slot <= make_up and state is not None
+                    and _lost_to_provider(state, str(want.get("command") or ""), slot))
+            if not lost:
+                continue
+        elif now - slot > window:
+            continue
+        moved_on = lost or name in rearmed or have["next_ms"] > slot_ms
         if not moved_on and now - slot < GRACE_SECS:
             continue
         if str(want.get("command") or "").startswith("bin/act ") and _quiet(now):
             deferred.append(name)
             continue
-        found.append({"name": name, "id": have["id"], "slot": slot, "schedule": schedule,
+        found.append({"name": name, "id": have["id"], "slot": slot, "schedule": schedule, "lost": lost,
                       "rearm": not moved_on and have["next_ms"] <= now_ms})
     found.sort(key=lambda c: (c["slot"], c["name"]))
     return found, deferred
@@ -414,8 +463,9 @@ def _candidates(conn: sqlite3.Connection, desired: Iterable[Mapping[str, Any]], 
 
 def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] = (), rearmed: Iterable[str] = (),
         dry_run: bool = False, state: Path | None = None, by: str = "health",
-        lock_wait: float = LOCK_WAIT_SECS) -> Json:
-    """Catches up at most MAX_PER_RUN missed slot (see the module docs)."""
+        lock_wait: float = LOCK_WAIT_SECS, provider_back: bool = False) -> Json:
+    """Catches up at most MAX_PER_RUN missed slot, or with `provider_back`
+    makes up one the model provider lost (see the module docs)."""
     now = hand.now()
     out: Json = {"caught_up": [], "pending": [], "deferred": [], "errors": {}}
     state = _state_dir(state)
@@ -423,14 +473,15 @@ def run(desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str] =
         with Ledger(state, readonly=dry_run, wait=lock_wait) as ledger:
             if ledger.note:
                 out["errors"]["ledger"] = f"state/catch-up.json {ledger.note}; started afresh without the bad part"
-            return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by)
+            return _run(ledger, out, desired, call, fresh, rearmed, dry_run, now, by, state, provider_back)
     except Busy as busy:  # raised only while taking the lock
         out["errors"]["ledger"] = str(busy)
         return out
 
 
 def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: Call, fresh: Iterable[str],
-         rearmed: Iterable[str], dry_run: bool, now: float, by: str) -> Json:
+         rearmed: Iterable[str], dry_run: bool, now: float, by: str, state: Path | None = None,
+         provider_back: bool = False) -> Json:
     if not dry_run:
         for name in fresh:
             ledger.data["since"][name] = int(now * 1000)
@@ -441,7 +492,8 @@ def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: 
     try:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
         try:
-            found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"])
+            found, out["deferred"] = _candidates(conn, desired, ledger.data, now, set(rearmed), out["errors"],
+                                                 state, provider_back)
         finally:
             conn.close()
     except sqlite3.Error as error:
@@ -450,7 +502,7 @@ def _run(ledger: Ledger, out: Json, desired: Iterable[Mapping[str, Any]], call: 
     out["pending"] = [c["name"] for c in found[MAX_PER_RUN:]]
     for job in found[:MAX_PER_RUN]:
         name, slot_ms = job["name"], int(job["slot"] * 1000)
-        entry = {"name": name, "slot": _iso(job["slot"])}
+        entry = {"name": name, "slot": _iso(job["slot"]), **({"lost": "provider"} if job["lost"] else {})}
         if dry_run:
             out["caught_up"].append(entry)
             continue
