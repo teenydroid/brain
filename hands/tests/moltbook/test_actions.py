@@ -791,3 +791,58 @@ class OperatorTest(Scratch, Refusing):
         self.assertEqual([c["name"] for c in rules.collab_list()["collabs"]], ["crabby"])
         rules.collab_remove("crabby")
         self.assertEqual(rules.collab_list()["collabs"], [])
+
+
+class PostSlotTest(Scratch):
+    """The gate a posting playbook runs first (`hands/moltbook post-slot`):
+    open, or empty with the reason, so bin/act skips before the model turn."""
+
+    def post_at(self, at: float, status: str = "verified") -> None:
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('p', ?, 'general', 't', ?)",
+                     (at, status))
+        conn.commit()
+
+    def test_open_when_no_post_holds_the_gap(self):
+        self.assertEqual(rules.post_slot(), {"open": True, "new_agent": False})
+
+    def test_the_12_13_case_a_closed_gap_is_empty_with_the_reason(self):
+        # 2026-11-15: a post at 11:48 (hidden, needs_verification) held the
+        # gap; moltbook-general drafted at 12:13 and the hand refused it (wait
+        # 329s). The gate says so before any draft, and its answer is empty but
+        # for `why`, which bin/act reads as a skip.
+        self.post_at(T0 - 25 * MINUTE + 1, status="needs_verification")
+        slept = []
+        out = rules.post_slot(wait=0, sleep=slept.append)
+        self.assertEqual(set(out), {"why"})
+        self.assertIn("rate_limit", out["why"])
+        self.assertIn("wait 300s", out["why"])
+        self.assertEqual(slept, [])
+
+    def test_a_short_wait_is_sat_out_and_then_the_slot_is_open(self):
+        self.post_at(T0 - 29 * MINUTE)
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            self.at(T0 + seconds)
+
+        out = rules.post_slot(wait=120, sleep=sleep)
+        self.assertEqual(out, {"open": True, "new_agent": False, "waited": 61})
+        self.assertEqual(slept, [61])
+
+    def test_a_wait_longer_than_allowed_is_not_sat_out(self):
+        self.post_at(T0 - 10 * MINUTE)
+        slept = []
+        out = rules.post_slot(wait=120, sleep=slept.append)
+        self.assertEqual(set(out), {"why"})
+        self.assertEqual(slept, [])
+
+    def test_the_daily_cap_and_the_lockout_close_it_too(self):
+        self.configure(MOLTBOOK_MAX_POSTS_PER_DAY="1")
+        self.post_at(T0 - 2 * HOUR)
+        self.assertIn("daily_cap", rules.post_slot()["why"])
+        conn = hand.open_db(rules.SCHEMA)
+        rules.set_failures(conn, rules.LOCKOUT_AFTER)
+        conn.commit()
+        self.assertIn("verification_lockout", rules.post_slot()["why"])
