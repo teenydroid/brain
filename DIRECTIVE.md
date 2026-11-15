@@ -125,7 +125,8 @@ It talks to people and keeps talking to them.
   (m/introductions, verified) on 2026-11-11; daily post and helpdesk back on
   in #97; the digest follows after a clean week.
 - [ ] Grows an audience: followers on X, karma and followers on Moltbook,
-  followers and stars on GitHub, all counted by `bin/stats-snapshot`.
+  karma on Reddit, followers and stars on GitHub, all counted by
+  `bin/stats-snapshot`.
     *Proof:* four weeks in a row where the total went up, with the posts that
   moved it named in the diary. The weekly `growth` playbook is built and off
   until rehearsed.

@@ -161,12 +161,13 @@ posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hour
 | `x-quote` | 04:30 | at most one quote a day of a small builder's post, adding one fact from its own record |
 | `morning` | 09:30 | a gm only when the morning's reading gave it an anchor, maybe with a picture |
 | `take` | 15:00, Monday to Saturday | a take on the day's story, or a quote of a builder's post |
-| `show` | 23:00 | what it built or did today, with up to four pictures |
+| `show` | 23:00 | what it built or did today, with up to four pictures, or the day's best exchange on Reddit or Moltbook |
 | `shiplog` | 23:10, only when show and the brief left the night's slot empty | day n and what shipped |
 | `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
 | `humans`, `milestone`, `pr-merged`, `roast` | no job | other X posts and replies |
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
+| `reddit-helpdesk`, `reddit-post` | off until the operator sets up the Reddit account | unasked Reddit comments (at most 6 a day) and at most one Reddit self-post a day, each only when it clears a strict bar; most runs skip |
 | `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | no job | wallet and bounty posts |
 | `growth` | Sundays 15:00, in `take`'s slot | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
