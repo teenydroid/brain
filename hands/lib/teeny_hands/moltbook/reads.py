@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, peerfile
 from ..readcache import ReadCache
 from ..rest import RestApi, RestError, quote
 from . import client
@@ -369,8 +369,6 @@ PEERS_MAX = 20
 def peer_names() -> tuple[list[str], list[str]]:
     """The peers file's names, in order and once each, and the lines that
     are not agent names (left out, and said so)."""
-    from .. import peerfile
-
     return peerfile.names(PEERS_FILE, client.agent_name)
 
 
