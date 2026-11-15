@@ -4,7 +4,7 @@ model.
 
     python3 bin/lib/cron_policy.py [--strict] CRON_TOML PINNED_TOML [DEFAULT_TZ]
 
-Prints [{name, kind, expr, tz, command, agent, prompt, enabled, catch_up_secs}] on success
+Prints [{name, kind, expr, tz, command, agent, prompt, enabled, catch_up_secs, make_up_secs}] on success
 (kind "shell" with a command, or "agent" with an agent and a prompt); exits
 non-zero with the reason on the first rule a file breaks.
 
@@ -44,6 +44,14 @@ written here, in code it cannot edit:
   whose playbook speaks in public, or cannot be read, is an error; at boot it
   only switches that job's catch-up off and says so on stderr, because a
   playbook edit must never stop Teeny from booting.
+- `make_up_hours = N` (at most MAKE_UP_MAX_HOURS, on a `bin/act` job only,
+  with the same window rule) lets bin/lib/catch_up.py run a slot once, late,
+  when every run of it failed on the model provider (bin/act's run log) and
+  the provider answers again. It is allowed on a playbook that speaks: the
+  slot's post was never made, so the make-up is that post, a few hours late,
+  under the same `max_per_day` and hand caps. It covers nothing else (a slot
+  lost to a restart, a skip, a refusal or a cap). A `catch_up` playbook job
+  makes up a lost slot within its catch-up window without it.
 """
 
 from __future__ import annotations
@@ -66,6 +74,7 @@ MAX_PROMPT_CHARS = 4000
 CATCH_UP_DEFAULT_HOURS = 6
 CATCH_UP_MAX_HOURS = 12
 CATCH_UP_CLAIM_HOURS = 2
+MAKE_UP_MAX_HOURS = 6
 #: Playbook outputs that put words in public, which never catch up.
 POSTING_OUTPUTS = ("post", "reply", "like")
 POSTING_VERBS = ("post", "reply", "comment", "announce", "quote")
@@ -228,6 +237,29 @@ def _catch_up(job: dict, minutes: list[int], where: str, brain: Path, strict: bo
     return hours * 3600
 
 
+def _make_up(job: dict, minutes: list[int], where: str, catch_up_secs: int) -> int:
+    """The window in seconds in which a slot lost to the model provider is
+    made up: `make_up_hours`, else a playbook's catch-up window, else 0."""
+    hours = job.get("make_up_hours")
+    argv = str(job.get("command", "")).split()
+    if hours is None:
+        return catch_up_secs if argv[:1] == ["bin/act"] else 0
+    if argv[:1] != ["bin/act"]:
+        raise PolicyError(f"{where}: make_up_hours is for a bin/act job, whose run log says why a slot was lost")
+    if not isinstance(hours, int) or isinstance(hours, bool) or not 1 <= hours <= MAKE_UP_MAX_HOURS:
+        raise PolicyError(f"{where}: make_up_hours is a whole number from 1 to {MAKE_UP_MAX_HOURS}")
+    expr = str(job.get("schedule", "")).split()
+    for spec, low, high, field in ((expr[2], 1, 31, "day of month"), (expr[3], 1, 12, "month"),
+                                   (expr[4], 0, 7, "day of week")):
+        _field(spec, low, high, f"{where}: make-up needs a numeric {field}")
+    if expr[2] != "*" and expr[4] != "*":
+        raise PolicyError(f"{where}: make-up on a schedule that sets both day of month and day of week")
+    if (hours + CATCH_UP_CLAIM_HOURS) * 60 >= min_gap(minutes):
+        raise PolicyError(f"{where}: a {hours}-hour make-up window, plus the {CATCH_UP_CLAIM_HOURS} hours a cut-off"
+                          f" run's claim can last, is not shorter than the {min_gap(minutes)} minutes between its slots")
+    return hours * 3600
+
+
 def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, strict: bool = False) -> list[dict]:
     brain = brain or path.parent
     with open(path, "rb") as fh:
@@ -241,7 +273,8 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
         where = f"{path}: jobs.{name}"
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             raise PolicyError(f"{where}: name must be lowercase letters, digits and dashes")
-        extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled", "catch_up", "catch_up_hours"}
+        extra = set(job) - {"schedule", "command", "agent", "prompt", "tz", "enabled", "catch_up", "catch_up_hours",
+                           "make_up_hours"}
         if extra:
             raise PolicyError(f"{where}: unknown keys: {', '.join(sorted(extra))}")
         expr = str(job.get("schedule", "")).strip()
@@ -272,6 +305,7 @@ def _jobs(path: Path, default_tz: str, pinned: bool, brain: Path | None = None, 
             "prompt": prompt,
             "enabled": enabled,
             "catch_up_secs": catch_up_secs,
+            "make_up_secs": _make_up(job, minutes, where, catch_up_secs),
             "runs_per_day": len(minutes),
         })
     return out
