@@ -62,7 +62,8 @@ Every run:
    draft that is answered again. The probe above asks a one-word question;
    a draft is a long turn as the `act` agent, which can fail while the probe
    answers (a spending allowance that covers the small call and not the big
-   one). While the model alarm is open the same outage files nothing more.
+   one). It is raised only while the probe answers: when the probe fails
+   too, the model alarm above is the one, and one outage files one issue.
    With the probe answering and no provider failure since the last answered
    draft, a slot such a failure lost is made up (bin/lib/catch_up.py,
    `provider_back`).
@@ -737,7 +738,7 @@ def _watch_act(state: Json, now: float) -> tuple[Json, Json]:
         if not alarm.get("issue") and runs:
             _open_issue(alarm, _act_issue(outage))
         out["act_alarm"] = "open"
-    elif due and not state.get("alarm"):
+    elif due and not state.get("failures"):
         alarm = {"ref": f"act:{int(outage['since'])}", "opened_at": now, "since": outage["since"], "issue": None}
         _open_issue(alarm, _act_issue(outage))
         stimuli.add(
