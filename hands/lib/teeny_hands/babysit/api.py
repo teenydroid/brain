@@ -146,7 +146,8 @@ class PullsApi:
         statuses = got.get("statuses") if isinstance(got.get("statuses"), list) else []
         return {
             "state": got.get("state"),
-            "statuses": [{"context": s.get("context"), "state": s.get("state")} for s in statuses if isinstance(s, Mapping)],
+            "statuses": [{"context": s.get("context"), "state": s.get("state"), "creator": _login(s.get("creator"))}
+                         for s in statuses if isinstance(s, Mapping)],
         }
 
     def permission(self, owner: str, name: str, login: str) -> str | None:

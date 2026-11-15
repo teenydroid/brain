@@ -1370,6 +1370,42 @@ class AskProposerTurn(EvolveCase):
 
 
 
+class CrashedGenerations(EvolveCase):
+    """A generation that raises before it writes result.json is resumed by
+    the next run, which raises again, so no other learning ever gets a turn.
+    It is ended instead, and what it was doing counts as a failed try."""
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+
+    def test_a_generation_that_raises_is_not_resumed_forever(self):
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        pub = FakePublisher()
+        with unittest.mock.patch.object(evolve, "pr_text", side_effect=RuntimeError("the body would not render")):
+            with self.assertRaises(RuntimeError):
+                self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertTrue((evolve.gen_dir(1) / "result.json").exists())
+        self.assertEqual(evolve.unfinished(), [])
+        learning = evolve.read_learnings()[-1]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 1))
+        out = self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertNotIn("resumed", out)
+        self.assertEqual(out["gen"], 2)
+        self.assertEqual(len(pub.prs), 1)
+
+    def test_a_crashed_publish_is_a_failed_try_not_a_pr(self):
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        with unittest.mock.patch.object(evolve, "pr_text", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self.run_gen(1, publisher=FakePublisher(), evaluator=Verdicts())
+        verdicts = [e.get("verdict") for e in self.entries().values() if e.get("gen") == 1]
+        self.assertIn("crashed", verdicts)
+        self.assertNotIn("opened", verdicts)
+
+
 class ProposerPromptFitsTheScreenTest(unittest.TestCase):
     """The core's prompt screen holds any input over 64 KiB as
     `input.oversized`, so a proposer turn whose message is bigger never runs

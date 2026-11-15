@@ -403,6 +403,12 @@ by CI, and by a targeted eval on the tasks it reaches. Nothing in the loop
 merges. The babysitter (`hands/babysit`) merges a `teeny/gen-*` pull request
 once its audit is ready, CI passes and the `teeny/eval` commit status is
 success.
+With `BABYSIT_SELF_MERGE=1` (the `self-merge` rung, L5, the operator's
+decision of 2026-11-15) the babysitter also merges a `teeny/gen-*` pull
+request whose audit is clean and whose `teeny/eval` status passed at its exact
+head, with no person's approval, then deploys the merge to the live checkout
+through `bin/lib/live_checkout.py`, the steps the loop's old restart took
+(docs/hands.md, "babysit"). `EVOLVE_AUTO_PROMOTE` is not read by the loop.
 
 ### Why it changed (2026-11-15)
 
@@ -503,7 +509,7 @@ with that hash and a verdict that settles it:
 | `skipped` (`already`, `not-actionable`, `frozen`) | settled |
 | `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `no-proposal`, `inconclusive`, `unevaluated`, `pr-error` | a failed try: open again |
+| `no-proposal`, `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
 An edit to the text changes its hash, so a learning the dream rewrites is

@@ -95,6 +95,7 @@ import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
+import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
 
 Json = dict[str, Any]
@@ -767,12 +768,12 @@ def diff_hash(patch: str) -> str:
 
 def archived_mutations(entries: Mapping[str, Json]) -> dict[str, set[str]]:
     """The changed lines of every archived candidate's own mutation. An
-    inconclusive one is left out: nothing measured it, so proposing it
-    again is not a duplicate."""
+    inconclusive one, or one a crash ended, is left out: nothing measured
+    it, so proposing it again is not a duplicate."""
     out = {}
     for entry_id, entry in entries.items():
         rel = entry.get("mutation_patch")
-        if not rel or entry.get("verdict") == "inconclusive":
+        if not rel or entry.get("verdict") in ("inconclusive", "crashed"):
             continue
         try:
             out[entry_id] = changed_lines((evolve_dir() / rel).read_text(encoding="utf-8"))
@@ -2791,6 +2792,44 @@ def wait_for_dream() -> bool:
 
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
                    publisher: Publisher | None = None, evaluator: Evaluator | None = None) -> Json:
+    """One generation (_run_generation). One that raises is ended, not left
+    for the next run to resume: resumable() would take it again and the same
+    exception would end every run after it, with no other learning ever
+    reaching a proposer. What it was doing is recorded as a failed try."""
+    progress: Json = {"picks": [], "cands": [], "queue": []}
+    try:
+        return _run_generation(cfg, n, proposals, publisher, evaluator, progress)
+    except Exception as exc:
+        end_crashed(progress, exc)
+        raise
+
+
+def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
+    """Ends a generation that raised: every candidate still in flight (or
+    pending, or without a verdict) becomes `crashed`, which counts as a
+    failed try for its learning (learning_state), and each picked learning
+    that never got a candidate records one too. Then result.json, so the
+    next run starts a new generation instead of resuming this one."""
+    gen = progress.get("gen")
+    if gen is None:
+        return
+    reason = str(getattr(exc, "reason", None) or exc)[:300] or type(exc).__name__
+    for cand in [*progress.get("queue", []), *progress.get("cands", [])]:
+        if cand.get("verdict") in SETTLED or (cand.get("verdict") not in (*IN_FLIGHT, "pending", None)):
+            continue
+        cand.update(verdict="crashed", crashed=reason)
+        record(cand)
+    have = set(archive())
+    for i, ref in enumerate(progress.get("picks", []), 1):
+        if cand_id(gen, i) not in have:
+            record({"id": cand_id(gen, i), "gen": gen, "cand": i, "learning": ref, "verdict": "crashed",
+                    "crashed": reason})
+    if not (gen_dir(gen) / "result.json").exists():
+        write_json(gen_dir(gen) / "result.json", {"gen": gen, "crashed": reason, "at": iso(now())})
+
+
+def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher: Publisher | None,
+                    evaluator: Evaluator | None, progress: Json) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
     if halt_path().exists():
@@ -2810,6 +2849,7 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
         refresh_prs(entries, publisher)
     learnings = read_learnings()
     queue = waiting(entries, learnings)
+    progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
     cut = None
@@ -2840,6 +2880,7 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
             "gen": gen, "started_at": iso(now()), "base": base, "source": src.kind, "candidates": len(picks),
             "dry_run": dry_run(), "learnings": picks, **({"runway": cut} if cut else {})})
     gdir = gen_dir(gen)
+    progress.update(gen=gen, picks=picks)
     held = heldout_tasks()
     markers = [m for t in held for m in t["markers"]]
     if (gdir / "evidence.json").is_file():
@@ -2851,6 +2892,7 @@ def run_generation(cfg: Config, n: int | None = None, proposals: str | None = No
     mutations = archived_mutations(entries)
     parent = line_head(entries)
     cands: list[Json] = []
+    progress["cands"] = cands
     siblings: list[str] = []
     for i, learning in enumerate(picks, 1):
         entry = entries.get(cand_id(gen, i))
@@ -3304,16 +3346,7 @@ def running(name: str = "evolve") -> bool:
     """Whether a run holds the lock NAME now: `evolve` before a restart,
     which ends the container a generation runs in; `reflect` while a dream
     writes the page a generation reads."""
-    path = state_dir() / "locks" / f"{name}.lock"
-    if not path.exists():
-        return False
-    with open(path, "a+") as fh:
-        try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        fcntl.flock(fh, fcntl.LOCK_UN)
-        return False
+    return live_checkout.lock_held(state_dir(), name)
 
 
 def main(argv: list[str]) -> int:

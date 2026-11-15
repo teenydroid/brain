@@ -60,9 +60,9 @@ fence proposal (G3) names.
 | tool-less | Every turn that reads strangers' text is tool-less: models draft, hands act | `bin/lib/agent_check.py`, `brain/agents/*.toml` | `bin/test/doctor_test.sh::fails an act agent that was given a tool`, `bin/test/doctor_test.sh::fails a mail agent that was given a tool` |
 | invariants | What Teeny is stays anchored in its brain, whatever it rewrites | `evals/invariants.md`, `bin/lib/evals.py` | `bin/test/doctor_test.sh::fails a soul that no longer says it never sells`, `bin/test/doctor_test.sh::fails a drive that no longer needs a ledger` |
 | charter | This charter exists and its short version rides in every speaking prompt | `brain/CHARTER.md`, `bin/doctor`, `bin/lib/prompts.py` | `bin/test/doctor_test.sh::fails without CHARTER.md`, `hands/tests/test_prompts.py::PromptsTest.test_the_checked_in_charter_rides_in_the_real_prompt` |
-| ladder | No switch is set above the level its capability was granted on the autonomy ladder | `evals/autonomy.toml`, `bin/lib/autonomy.py`, `bin/doctor` | `hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5`, `bin/test/doctor_test.sh::fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4` |
+| ladder | No switch is set above the level its capability was granted on the autonomy ladder | `evals/autonomy.toml`, `bin/lib/autonomy.py`, `bin/doctor` | `hands/tests/test_autonomy.py::DoctorCheckTest.test_auto_promote_is_refused_while_merge_is_below_l5`, `hands/tests/test_autonomy.py::DoctorCheckTest.test_granting_self_merge_leaves_auto_promote_refused`, `bin/test/doctor_test.sh::fails EVOLVE_AUTO_PROMOTE=1 while merge is at L4`, `bin/test/doctor_test.sh::fails BABYSIT_SELF_MERGE=1 once self-merge is under L5` |
 | reviewer | A model may release a held draft only in a category the frozen config allows; people, money, self-harm and violence always wait for a person, and the reviewer is never the drafter's model | `hands/lib/teeny_hands/guard/review.py`, `evals/guard-review.toml` | `hands/tests/guard/test_review.py::ReviewTest.test_the_reviewer_saying_release_on_a_kept_category_changes_nothing`, `hands/tests/guard/test_review.py::ReviewTest.test_money_waits_for_a_person_in_any_category`, `hands/tests/guard/test_review.py::ReviewTest.test_the_reviewer_is_never_the_drafters_or_the_judges_model` |
-| babysit | No pull request on Teeny's repositories merges without a person's approval of its exact head; a frozen or sensitive path needs an operator's; a prompt-injection attempt, a secret, Trojan Source or an edit to the diary's history is never merged, and every injection attempt is logged without its text | `hands/babysit`, `hands/lib/teeny_hands/babysit/`, `evals/cron.pinned.toml` | `hands/tests/babysit/test_audit.py::VerdictTest.test_without_an_approval_it_needs_a_review`, `hands/tests/babysit/test_audit.py::VerdictTest.test_an_approval_of_an_older_head_does_not_count`, `hands/tests/babysit/test_audit.py::SecurityTest.test_a_frozen_path_needs_the_operator`, `hands/tests/babysit/test_audit.py::InjectionTest.test_a_strangers_injection_in_the_body_blocks_and_is_logged_without_its_text`, `hands/tests/babysit/test_actions.py::MergeTest.test_refuses_when_the_head_moved` |
+| babysit | No pull request on Teeny's repositories merges without a person's approval of its exact head, except Teeny's own evolve pull request (`teeny/gen-*`) once `BABYSIT_SELF_MERGE=1`, its audit is clean and `teeny/eval` passed at that head (the `self-merge` rung); a frozen or sensitive path needs an operator's; a prompt-injection attempt, a secret, Trojan Source or an edit to the diary's history is never merged, and every injection attempt is logged without its text | `hands/babysit`, `hands/lib/teeny_hands/babysit/`, `evals/cron.pinned.toml` | `hands/tests/babysit/test_audit.py::VerdictTest.test_without_an_approval_it_needs_a_review`, `hands/tests/babysit/test_audit.py::VerdictTest.test_an_approval_of_an_older_head_does_not_count`, `hands/tests/babysit/test_audit.py::SecurityTest.test_a_frozen_path_needs_the_operator`, `hands/tests/babysit/test_audit.py::InjectionTest.test_a_strangers_injection_in_the_body_blocks_and_is_logged_without_its_text`, `hands/tests/babysit/test_actions.py::MergeTest.test_refuses_when_the_head_moved`, `hands/tests/babysit/test_self_merge.py::SelfMergeVerdictTest.test_teenys_evolve_pr_fails_when_teeny_eval_failed`, `hands/tests/babysit/test_self_merge.py::SelfMergeVerdictTest.test_a_builder_teeny_slug_pr_still_needs_review`, `hands/tests/babysit/test_self_merge.py::SelfMergeVerdictTest.test_an_operator_finding_still_needs_the_operator`, `hands/tests/babysit/test_deploy.py::DeployTest.test_deploy_waits_while_evolve_runs` |
 | only-operator-widens | Only the operator widens Teeny's freedom, one fence at a time, in a pull request. Teeny proposes in an issue | `evals/frozen.txt`, `bin/lib/frozen.py`, `.github/workflows/check.yml` | `bin/test/frozen_test.sh::DIRECTIVE.md is refused` |
 
 ## Kill switches
@@ -87,6 +87,7 @@ switch off, never on (`hands/tests/test_watchers.py`).
 | `GH_INBOUND` | `secrets/teeny.env` | GitHub notifications reaching the inbox | off |
 | `BABYSIT` | `secrets/teeny.env` | the babysitter's labels and audit comments on pull requests (the audit itself always runs and writes nothing to GitHub) | off |
 | `BABYSIT_MERGE` | `secrets/teeny.env` | the babysitter merging approved, green, clean pull requests (L4, `merge`) | off |
+| `BABYSIT_SELF_MERGE` | `secrets/teeny.env` | the babysitter merging Teeny's evolve pull requests on a passed `teeny/eval` with no person's approval, and deploying them to the live checkout (L5, `self-merge`; needs `BABYSIT_MERGE` too) | off |
 | A wallet key | `secrets/teeny.env` (remove `WALLET_*`) | the wallet entirely | none set |
 | A cron job | `brain/cron.toml` (`enabled = false`), or `evals/cron.pinned.toml` for a pinned one | that job | per job |
 | `state/spine-fallback.json` | the box | any generation starting, while a last-good boot stands | absent |
@@ -154,7 +155,9 @@ for each:
 | build | L3 | `MIND_ISSUES_PER_DAY` (L3) | 4 shipped requests, an issue it opened and closed |
 | spend | L3 | `WALLET_MIND_ACTIONS` (L3), `TINY_BUY` (L4) | mainnet, a vendor payment, a paid bounty, earned inflows |
 | self-edit | L4 | `EVOLVE` (L4) | five generation PRs, a chronicle page |
-| merge | L4 | `EVOLVE_AUTO_PROMOTE` (L5) | five generations a person merged, each kept by `evolve-watch` |
+| merge | L4 | `EVOLVE_AUTO_PROMOTE` (L5), `BABYSIT_MERGE` (L4) | five generations a person merged, each kept by `evolve-watch` |
+| self-merge | L5 | `BABYSIT_SELF_MERGE` (L5) | none: granted by the operator on 2026-11-15 |
+| servers | L1 | none | a fixture invoice paid once (S5), spend at L4 |
 
 Who merges what Teeny evolves: since 2026-11-15 `bin/evolve` merges nothing.
 Each learning's change opens its own pull request (`teeny/gen-<n>-c<i>`) with
@@ -164,10 +167,19 @@ success, or a person merges or closes it. `EVOLVE_AUTO_PROMOTE` is no longer
 read by the loop; the ladder above still refuses it while `merge` is at L4,
 and `promoted_at`, which nothing writes any more, no longer drops a level
 ([`evolve.md`](evolve.md), "Publish").
-| servers | L1 | none | a fixture invoice paid once (S5), spend at L4 |
 
 Teeny can read its levels in this page and in the report, and can never
 raise one: the file is frozen, and a fence proposal (G3) is how it asks.
+
+`self-merge` is its own rung, granted at L5 by the operator on 2026-11-15
+("if the internal babysitter checks out, we merge"): the evolve loop opens
+one small pull request per learning and no longer merges anything itself,
+and hands/babysit merges each one whose audit is clean, whose checks are
+green and whose `teeny/eval` status passed at the exact head, then deploys
+it (docs/hands.md, "babysit"). It is not `merge` raised to L5, because that
+would also let `EVOLVE_AUTO_PROMOTE` (the loop merging on its own measure,
+with no audit) pass the doctor, which the operator did not grant. It drops
+a step on a model change of the evolver or the judge.
 
 ## What Teeny reports
 
