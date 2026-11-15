@@ -84,43 +84,224 @@ of the wins was that.
   string, and must be greater than 0.
 - The sum of all claims must be no more than the pool.
 - `proof` is the list of sibling hashes from leaf to root, as 64-hex strings.
-- Nothing is locked: the on-chain `amount_locked` is always 0.
+- Every leaf uses the Immediate vesting schedule, so the whole amount is
+  claimable at once.
 
-## The program: Jito merkle-distributor
+## The program: Solana Foundation Rewards
 
-These facts were verified from github.com/jito-foundation/distributor at
-commit `2cf79f63973a79e6354871dc9355a63aa1d15139`, and against the live
-mainnet JTO airdrop.
+Rounds are paid through the merkle distribution of the Solana Foundation
+Rewards program (github.com/solana-foundation/rewards, MIT). It supports both
+SPL Token and Token-2022, so it can pay out $TINY. `web/src/lib/distributor.ts`
+encodes it by hand. Its tests check byte for byte against vectors computed in
+Rust, using the hashing copied verbatim from the program's own test utilities.
 
-- **Program id:** `mERKcfxMC5SqJn4Ld4BUris3WKZZ1ojjWJ3A3J5CKxv`. It is
-  executable on mainnet-beta and not deployed on devnet, so a devnet round
-  names its own deployment in `program_id`. That deployment has to be built
-  with its own `declare_id!`.
-- **Distributor PDA:** `["MerkleDistributor", mint, u64le(version)]`. Tiny
-  Drops uses version = round id.
-- **Claim status PDA:** `["ClaimStatus", claimant, distributor]`.
-- **Vault:** the distributor's associated token account for the mint, under
-  the classic Token program.
-- **Leaf:**
-  `sha256(0x00 || sha256(claimant(32) || u64le(amount_unlocked) || u64le(amount_locked)))`.
-- **Inner node:** `sha256(0x01 || min(a,b) || max(a,b))`, comparing the two
-  32-byte hashes lexicographically.
-- **Tree shape:** the tree is built level by level in leaf order, and a lone
-  last node is paired with itself (`merkle-tree/src/merkle_tree.rs`,
-  `sorted_hashes = true`).
-- **`new_claim` data:** `4eb1627bd215bb53` (`sha256("global:new_claim")[:8]`),
-  then `u64le amount_unlocked`, `u64le amount_locked`, `u32le len(proof)` and
-  `32 bytes × len`.
-- **`new_claim` accounts:** distributor (w), claim_status (w), from = vault (w),
-  to = claimant's token account (w), claimant (w, signer), token program,
-  system program.
+### Which code is live
 
-The claimant pays the rent for the claim status account (64 bytes, about
-0.0014 SOL) and, if they don't have one yet, for their associated token
-account (about 0.002 SOL).
+- **Audited code.** OtterSec audited through commit
+  `aa1cfd9276375e44e57d1917d110ff095fb6d475` (`audits/AUDIT_STATUS.md`).
+- **The two deployments.** Program id `REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi`
+  is executable on mainnet and on devnet, and the two clusters run different
+  binaries. Mainnet was last upgraded at slot 422571636 (2026-05-27), with
+  upgrade authority `DXtFpbPjcn2hxPnw79x1Pfoj35vXh5AsWBkS37YnXMVv`. Devnet was
+  last upgraded on 2026-06-02.
+- **Not verified.** The mainnet program is **not verified**.
+  - The OtterSec registry reports `is_verified: false`. Its on-chain hash is
+    `96a2835c…d88d` (sha256 of the program's code, with trailing zeros
+    trimmed). That is a 170,617-byte binary.
+  - The last verified build was of `758aa7a` (2026-05-19), with hash
+    `449b6b27…be1c`. A reproduction of that build matched it exactly, so the
+    method below works.
+  - Builds tried with the same method:
 
-**The program takes the classic SPL Token program only**
-(`Program<'info, Token>`). $TINY
-(`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`) is a Token-2022 mint, so
-this program cannot pay it out as deployed. Before the first $TINY round, PR 5
-has to choose a distributor that supports Token-2022.
+    | Commit | Build image | Size (bytes) | Hash |
+    | --- | --- | --- | --- |
+    | `5f2746d` | 3.1.10 | 179,801 | `4e7f4e77…` |
+    | `5f2746d` | 4.0.0 | 172,177 | `e8a42dc7…` |
+    | `360011f` | 4.0.0 | 172,177 | `e8a42dc7…` |
+    | `5006e14` | 4.0.0 | 172,177 | `e8a42dc7…` |
+    | `2ee78cb` | 4.0.0 | 170,593 | `e3ea1ae3…` |
+    | `aa1cfd9` (the audited commit) | 3.1.10 | 181,737 | `3ba5eeff…` |
+
+    None of these matches the live binary.
+- **What that means.** The live program is post-audit code built in a way that
+  isn't published, and not the audited commit itself.
+- **The parts we use are unchanged.** Everything this contract relies on reads
+  the same at `aa1cfd9`, at `5f2746d` and at main `dc88bfd`: the instruction
+  discriminators, the data layouts, the PDA seeds, and the leaf and node
+  hashing. The post-audit changes we know of only add checks, and our
+  transactions already satisfy them:
+  - the claimant's token account must be owned by the claimant;
+  - mints with a transfer hook are refused on create;
+  - the deposit must cover `total_amount`;
+  - closing leaves a closed marker behind.
+- **Before the first mainnet round,** ask the maintainers which commit is
+  deployed, or wait for a verified build.
+
+### Addresses
+
+| What | Seeds (program = `REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi`) |
+| --- | --- |
+| merkle distribution | `["merkle_distribution", mint, authority, seed]` |
+| merkle claim | `["merkle_claim", distribution, claimant]` |
+| revocation marker | `["revocation", distribution, claimant]` |
+| event authority | `["event_authority"]` (the IDL's docs say `__event_authority`; the code says `event_authority`) |
+| vault | associated token account of the distribution for the mint, under the mint's token program |
+
+`seed` is the address of a throwaway keypair that **must sign**
+CreateMerkleDistribution. Each round gets a new one, so each round gets its own
+distribution. The giveaway hand, or the spine, generates it, signs with it, and
+publishes its address as `distribution_seed`. It is never needed again.
+
+### Hashing (keccak-256, not sha256)
+
+```
+leaf = keccak256(0x00 || keccak256(claimant(32) || u64le(total_amount) || schedule))
+       schedule for Immediate = the single byte 0x00
+node = keccak256(min(a, b) || max(a, b))      a, b compared as bytes; no prefix byte
+```
+
+Build the tree the way the program's tests do
+(`tests/integration-tests/src/utils/merkle_utils.rs`). Pair neighbours level
+by level in leaf order. A lone last node moves up unchanged and adds no proof
+step. A one-leaf tree's root is the leaf itself, with an empty proof.
+
+Vector, computed in Rust from the program's code: claimants `[1;32]`, `[2;32]`
+and `[3;32]` with totals 1000000, 2500000 and 42, all Immediate, give root
+`47dfbe7fa0962b4e379252f841e5d0bec0bb3632a3478e6754fc2196b8bb7bcb`. The other
+values are in `web/src/lib/distributor.test.ts`.
+
+### Instructions
+
+The first byte is the discriminator. Integers are little-endian. `w` means
+writable and `s` means signer.
+
+**CreateMerkleDistribution (5)** creates the distribution and its vault, then
+moves `amount` from the authority's token account into the vault.
+
+- **Data:** `5`, `bump u8`, `revocable u8` (0), `amount u64`,
+  `merkle_root [32]`, `total_amount u64`, `clawback_ts i64`. That is 59 bytes
+  in all.
+- **Accounts:**
+  1. payer (w, s)
+  2. authority (s)
+  3. seed (s)
+  4. distribution (w)
+  5. mint
+  6. distribution vault (w)
+  7. authority's token account (w)
+  8. System program
+  9. token program
+  10. ATA program
+  11. event authority
+  12. the Rewards program
+- **Rules:** `amount` and `total_amount` must be greater than 0. The program
+  stores the amount that actually landed in the vault as `total_amount`, and
+  [post-audit] refuses the call if that is less than `total_amount`. Set both
+  to the round's total. `clawback_ts` is when the authority may close the
+  distribution; set it to `clawback_at`. Use `revocable = 0`: nothing is ever
+  revoked.
+
+**ClaimMerkle (6)** claims everything unlocked.
+
+- **Data:** `6`, `claim_bump u8`, `total_amount u64` (from the leaf),
+  `amount u64` (0 = everything unlocked), `schedule` (Immediate = `0x00`),
+  `u32 proof length`, then `32 × length` bytes of proof.
+- **Accounts:**
+  1. payer (w, s)
+  2. claimant (s)
+  3. distribution (w)
+  4. merkle claim PDA (w)
+  5. revocation PDA
+  6. mint
+  7. distribution vault (w)
+  8. claimant's token account (w; [post-audit] owned by the claimant)
+  9. System program
+  10. token program
+  11. event authority
+  12. the Rewards program
+- **Usage:** the page passes the claimant as the payer, and adds an idempotent
+  ATA create under the mint's token program before the claim.
+
+**CloseMerkleDistribution (8)** is the clawback.
+
+- **Data:** the single byte `8`.
+- **Accounts:**
+  1. authority (w, s)
+  2. distribution (w)
+  3. mint
+  4. distribution vault (w)
+  5. authority's token account (w)
+  6. token program
+  7. event authority
+  8. the Rewards program
+- **What it does:**
+  - It works only once `clawback_ts` has passed.
+  - It moves everything left in the vault to the authority's token account,
+    closes the vault, and returns the rent to the authority.
+  - [post-audit] It turns the distribution into a 3-byte
+    `MerkleDistributionClosed` marker (discriminator 6), so the same address
+    can never be used again. The audited code closed the account outright.
+- **Claims until then:** the program doesn't stop claims at `clawback_ts`.
+  Claims keep working until this instruction runs, so the hand should close
+  the round promptly at `clawback_at`. The page stops offering claims at
+  `clawback_at`.
+
+**CloseMerkleClaim (7)**
+
+- **Data:** `7`.
+- **Accounts:**
+  1. claimant (w, s)
+  2. distribution
+  3. merkle claim PDA (w)
+  4. event authority
+  5. the Rewards program
+- **What it does:** once the distribution is closed, the claimant can close
+  their claim account and get its rent back.
+
+### Account layouts
+
+The first byte of each account is its discriminator, and the second is its
+version (1).
+
+- **MerkleDistribution (2), 162 bytes:**
+  - byte 2: bump
+  - byte 3: revocable
+  - bytes 4–9: padding
+  - bytes 10–41: authority
+  - bytes 42–73: mint
+  - bytes 74–105: seed
+  - bytes 106–137: root
+  - bytes 138–145: total_amount
+  - bytes 146–153: total_claimed
+  - bytes 154–161: clawback_ts
+- **MerkleClaim (3), 18 bytes:**
+  - byte 2: bump
+  - bytes 3–9: padding
+  - bytes 10–17: claimed_amount
+
+### What a claim costs
+
+- **The claim record:** rent for the 18-byte MerkleClaim account, 1,016,160
+  lamports (about 0.001 SOL). The claimant gets it back with CloseMerkleClaim
+  once the round is closed.
+- **A token account, if the claimant has none:** rent for a Token-2022
+  associated token account (170 bytes with ImmutableOwner), 2,074,080 lamports
+  (about 0.0021 SOL).
+- **The network fee.**
+
+### The $TINY mint
+
+The $TINY mint (`2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump`, as read
+2026-11-15):
+
+- It is Token-2022 with 6 decimals.
+- Its only extensions are MetadataPointer (18) and TokenMetadata (19).
+- Its mint authority and freeze authority are both none.
+
+The page refuses to build a claim for a mint carrying a transfer fee (extension
+1) or a transfer hook (extension 14).
+
+The giveaway wallet's transactions need three signers: the payer, the
+authority and the throwaway seed. That matters for PR 5:
+`wallet_execute_prepared_program` has to accept a transaction the host has
+already signed with the seed keypair.
