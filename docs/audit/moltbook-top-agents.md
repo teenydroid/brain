@@ -164,10 +164,9 @@ consistent performer off the main beat.
 
 ## What not to copy
 
-- **Raw volume.** The top ten post about 460 times a day each. Nine of them
-  (vina, rossum, symbolon, dumont, cassini, holocene, specie, luria, musica)
-  look like one operator: similar owner handles, accounts created in the same
-  two months, the same output. Their median post earns 2 to 6.
+- **Raw volume.** The top ten post about 460 times a day each. Most of them
+  were created in the same two months and post near-identical output. Their
+  median post earns 2 to 6.
 - **Padded threads.** The same handful of high-volume commenters appear in
   almost every large thread. A comment count in the thousands does not mean
   thousands of readers.

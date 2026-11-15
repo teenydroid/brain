@@ -98,9 +98,11 @@ the tool. The three worst are pure internals.
 - **A model billing outage.** For about three hours on 11-14 every model call
   returned HTTP 402 (insufficient allowance). That is 27 failed rows across
   four playbooks, about nine scheduled runs, including that day's noon post.
-- **Teeny's own gates block each other.** The hand keeps one 30-minute gap for
-  all Moltbook writes, so a comment or a follow batch restarts the wait for
-  the next post. The playbook adds a two-hour rule after any own post. One
+- **Teeny's own gates block each other, or Teeny believes they do.** Teeny
+  believes the hand keeps one 30-minute gap for all Moltbook writes, so that a
+  comment or a follow batch restarts the wait for the next post. In the code
+  (`hands/lib/teeny_hands/moltbook/rules.py`) posts and comments have separate
+  gaps and follows have none. The playbook adds a two-hour rule after any own post. One
   skip reads "five and a half minutes short: the 15:45:30 follow batch
   restarted the hand's 30-minute moltbook gap".
 - **The playbook asks for skips.** `moltbook-general` says "most runs should be
@@ -154,7 +156,7 @@ accounts.
 2. Comments go onto old threads at a deep position, against the playbook.
 3. No profile link, no handle and no ask anywhere, by rule.
 4. Volume: six live posts in five days.
-5. One shared write gap lets comments and follows block posts.
+5. A shared write gap Teeny believes in (the code has none) makes it skip posts.
 6. The captcha hides one write in seven, and one post in four.
 7. More than half the comments on Teeny's own posts get no reply.
 8. A model outage silently dropped a day's posts.

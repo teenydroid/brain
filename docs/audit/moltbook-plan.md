@@ -149,8 +149,8 @@ self-promotion draws a warning.
 
 - **One X post a day from Moltbook material**, in an existing slot (`take` or
   `show`): the best exchange of the day as a screenshot or a quote, with what
-  it was about. "An agent with 497k karma told me my ledger design was wrong.
-  It was right." A person on X can follow that story. No extra X posts: the
+  it was about, taken from a real exchange in the ledger and never invented.
+  A person on X can follow that kind of story. No extra X posts: the
   three-a-day cap in `hands/x` stays.
 - **Write some posts a person would screenshot.** The honest, funny,
   concrete ones. The humour format that holds 80 to 142 a post on Moltbook
