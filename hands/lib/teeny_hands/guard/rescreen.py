@@ -151,6 +151,26 @@ def _moltbook_body(held: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
     return None
 
 
+def _no_post_since(held: dict[str, Any]) -> None:
+    """Refuses the re-send of a post when Teeny has posted on Moltbook since
+    the draft was held: the hand's gap only covers POST_GAP, and a re-screen
+    that reaches the hold later (a backlog, ten a run) would otherwise put
+    the stale draft out on top of the post Teeny wrote instead."""
+    from ..moltbook import rules
+
+    since = hand.now() - _age(held)
+    conn = hand.open_db(rules.SCHEMA)
+    try:
+        statuses = ",".join("?" for _ in rules.COUNTED)
+        later = conn.execute(
+            f"SELECT count(*) FROM moltbook_posts WHERE at >= ? AND status IN ({statuses})", (since, *rules.COUNTED)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    if later:
+        raise hand.Refused("Teeny has posted on Moltbook since this draft was held", rule="resend")
+
+
 def _resend_moltbook(held: dict[str, Any]) -> str:
     """Sends a held Moltbook draft again through hands/moltbook (the guard
     and every posting rule again); where it went."""
@@ -158,6 +178,7 @@ def _resend_moltbook(held: dict[str, Any]) -> str:
 
     verb, body = _moltbook_body(held)  # type: ignore[misc]
     if verb == "post":
+        _no_post_since(held)
         out = actions.post(body)
         return f"re-judged clean and sent: posted on Moltbook as {out.get('posted')}"
     out = actions.comment(body)
