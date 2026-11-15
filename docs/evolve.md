@@ -700,8 +700,13 @@ and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
 `SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
 left out, so a lab never writes Teeny's long-term memory. None of the live
 box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
-`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`,
-sends TERM to the lab's process group when it is done, and KILL 30 s later.
+`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`
+and for `bin/spine` to log `[spine] ready` in this boot, sends TERM to the
+lab's process group when it is done, and KILL 30 s later. The core answers
+`/health` before `bin/spine` has given it its model over RPC, and a turn in
+that gap is refused with `SESSION_EXPIRED: backend session not active`. In
+generation 6 the first three draft turns of candidates 2 to 4 hit it, and the
+fourth went out before the context window was set (`HTTP 400`).
 A core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree; what git ignores (the core's config, its
 prompts) is never committed.
