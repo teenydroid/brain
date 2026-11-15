@@ -373,6 +373,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
+| `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
 | `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
 
 Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
@@ -387,6 +388,62 @@ operator approved this head), `needs_review` (no operator or maintainer
 other than the author and Teeny approved the exact head commit), `waiting`
 (a wait finding), else `ready`. An approval of an older head never counts.
 
+**Self-merge** (`BABYSIT_SELF_MERGE=1` in `secrets/teeny.env`, off by
+default; the `self-merge` rung at L5 in `evals/autonomy.toml`, the
+operator's decision of 2026-11-15: "if the internal babysitter checks out,
+we merge"). A pull request on teenydroid/brain whose author is
+`GITHUB_USER` (tier `teeny`), from a branch of the same repository named
+`teeny/gen-<n>-c<i>` (or the older loop's `teeny/gen-<n>`; digits only, so
+a builder's `teeny/<slug>` never qualifies), is not held at `needs_review`.
+The `teeny/eval` commit status on its exact head, set by Teeny or an
+operator, stands in for the approval: `success` (the targeted eval passed
+non-regression, or found the change unmeasurable) makes it `ready` with
+`self_merge: true` and `approved_by: []`; missing is `waiting`
+(`eval_missing`), pending is `waiting`, `failure` or `error` is `failing`.
+Every other rule holds as before: any block, fail or operator finding stops
+it (a frozen path blocks Teeny; a sensitive path, a removed test, an
+injection in Teeny's own diff or too large a change needs the operator), and
+every check must be green. Strangers, maintainers and builder pull requests
+still need a person's approval of the exact head.
+
+**Deploy on merge.** A self-merge queues `state/deploy-pending.json`
+(`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
+and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
+(`TEENY_ROOT`, the one `bin/spine` runs) to the merge in the order
+`bin/lib/live_checkout.py` keeps for it and for `bin/evolve`'s promotion
+restart:
+
+1. **wait** while `state/locks/evolve.lock`, `evolve-watch.lock` or
+   `eval.lock` is held (a generation, evolve-watch, the targeted eval): a
+   restart ends the container they run in. Nothing moves; `deploy_wait`.
+2. **refuse** tracked edits, a failed fetch, or a history that cannot
+   fast-forward to the merge (`deploy_refused`, with the reason, also in the
+   pending file). Nothing is reset or forced; the deploy stays pending until
+   the operator clears the way.
+3. **last-good**: the outgoing commit goes to `state/last-good` when a
+   restart follows, so a boot that fails on the merge falls back.
+4. **fast-forward**: `git merge --ff-only` (`deploy_ff`).
+5. **submodules**: `git submodule update --init --recursive` when the
+   merge moved a gitlink (`deploy_submodules`).
+6. **seed-cron**: `bin/seed-cron` when `brain/cron.toml` or
+   `evals/cron.pinned.toml` changed and no restart follows
+   (`deploy_seed_cron`; a boot reseeds anyway).
+7. **restart**: TERM to `bin/spine` (`state/spine.pid`) only when the merge
+   touched what is read at boot (`deploy_restart`, written before the TERM):
+   `brain/SOUL.md`, `CONTEXT.md`, `DRIVE.md`, `CHARTER.md`,
+   `narrative/LORE.md` and `narrative/ARCS.md` (bin/lib/prompts.py),
+   `brain/agents/**` and `brain/skills/**` (the core), the playbooks
+   `bin/lib/inbound_config.py` writes into the core's config
+   (`mentions.md`, `mail.md`), `bin/**`, `deploy/**`, `spine/**`,
+   `vendor/**`, `.gitmodules` and `hands/lib/teeny_hands/websites.py`.
+   Any other playbook, `brain/narrative/chronicle/**`, `brain/cron.toml`,
+   `hands/**`, `evals/**` and `docs/**` are read by each run and restart
+   nothing; a path in neither list restarts (`unlisted`). Compose starts
+   the spine again and the doctor gates the boot.
+
+Under `DRY_RUN` nothing moves: `deploy_dry_run` records the plan once and
+the deploy stays pending.
+
 | Verb | | Does |
 |---|---|---|
 | `queue [--repo OWNER/REPO] [--max N]` | R | Every open pull request on the watched repositories (20 each), audited, worst verdict first, with `counts`. |
@@ -394,12 +451,12 @@ other than the author and Teeny approved the exact head commit), `waiting`
 | `injections [--days N] [--max N]` | R | The injection log, newest first: when, repository, number, head, `who`, `tier`, `rule`, `location` and a 16-hex `digest` of the matched span. Never the span. |
 | `audits [--max N]` | R | The last audits, with their findings. |
 | `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
-| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
-| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`. One pull request's refusal or error is listed in `errors`; the rest go on. |
+| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC, self-merges included; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). A self-merge is also refused past `BABYSIT_SELF_MERGES_PER_DAY` (2, at most 10; `self_merge_cap`), is recorded as `self_merge` (with `eval`) instead of `merge`, and queues the deploy. GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. One pull request's refusal or error is listed in `errors`; the rest go on. |
 
 Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
 write nothing to GitHub or the action ledger; the audits are reads and are
-recorded either way. State is `babysit_audits`, `babysit_injections`
+recorded either way. State is `state/deploy-pending.json`, `babysit_audits`, `babysit_injections`
 (unique on pull request, who, rule, place and digest, so a payload seen
 twice is logged once) and `babysit_actions` in `state/hands.db`. No row
 holds a pull request's words: the dream and the weekly audit read the
