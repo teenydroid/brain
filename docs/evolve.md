@@ -853,6 +853,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | no binary files | the diff adds or changes a binary file |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
 | new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
+| frozen hands' entry points | the diff changes an existing `hands/<name>` that loads a frozen module (`hands/git` runs `teeny_hands.git_cli`): a rewritten shim would step around the frozen code, so it stays as it is. The doctor isn't run then |
 | changed hands have tests | the diff changes an existing hand (its `hands/<name>` or its code under `hands/lib/teeny_hands/`) and none of its tests (`hands/tests/test_<name>.py` or `hands/tests/<name>/`) |
 | hand tests: `<name>` | one per hand the diff touches (code or tests) that has tests: `python3 -m unittest` on them in the worktree, within 300 s, with none of `bin/evolve`'s environment (`sealed_env`: the worktree as root, state and secrets, `DRY_RUN=1`, a home inside it). A failure is detailed by its `FAIL`/`ERROR` lines and the errors they raised. Not run when the diff touches a frozen path |
 | docs updated | a new or changed hand whose section of `docs/hands.md` (its `` ## `name` `` heading) the diff leaves as it was, or does not have; a new playbook or a new job in `brain/cron.toml` named on no line the diff adds to `docs/architecture.md` or `docs/hands.md`, where its siblings are listed (`docs/architecture.md`, "6. Triggers", for Teeny's own jobs) |
@@ -868,7 +869,9 @@ Until 2026-11-15 an existing hand's entry point was off limits, because
 `bin/doctor --root` runs the candidate's `hands/git`. A hand that is not
 frozen may now change; the frozen ones (`evals/frozen.txt`: guard, x,
 wallet, babysit and the rest) are still refused by the hard gate, and their
-code never runs here. When the diff changes an existing hand, the doctor
+code never runs here. The entry point of a hand whose code is frozen but
+whose shim is not (`hands/git`, `hands/stimuli`, `hands/brief`) still may
+not change ("frozen hands' entry points"). When the diff changes an existing hand, the doctor
 runs with the same sealed environment as the hand tests.
 
 The last three run the candidate's own frozen code (its `bin/` and
