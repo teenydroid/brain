@@ -290,6 +290,15 @@ def start_backoff(conn: sqlite3.Connection, scope: str, signal: str, reason: str
     return True
 
 
+def signal(scope: str, signal: str, reason: str, ref: str | None = None) -> bool:
+    """`start_backoff` on a connection of its own."""
+    conn = db()
+    try:
+        return start_backoff(conn, scope, signal, reason, ref)
+    finally:
+        conn.close()
+
+
 def backoffs(conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
     """The back-offs in force, oldest first."""
     own = conn is None

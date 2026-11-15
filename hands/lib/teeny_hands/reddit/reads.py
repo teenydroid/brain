@@ -111,11 +111,7 @@ def _account_trouble(signal: str, reason: str) -> None:
     (rules, back-offs) until the operator clears it."""
     from . import rules
 
-    conn = rules.db()
-    try:
-        rules.start_backoff(conn, rules.ACCOUNT, signal, reason)
-    finally:
-        conn.close()
+    rules.signal(rules.ACCOUNT, signal, reason)
 
 
 def whoami(api: client.Reddit | None = None, fresh: bool = False) -> Json:

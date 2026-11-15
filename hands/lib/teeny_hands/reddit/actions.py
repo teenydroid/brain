@@ -134,8 +134,8 @@ def _call(api: client.Reddit, path: str, form: Mapping[str, str], subreddit: str
         if error.status == 429:
             raise _rate_limited(error.retry_after, "429") from None
         if error.status == 403:
-            _safely("a back-off", lambda: rules.start_backoff(
-                rules.db(), subreddit, "forbidden", f"Reddit answered a write to r/{subreddit} with 403", path))
+            _safely("a back-off", lambda: rules.signal(
+                subreddit, "forbidden", f"Reddit answered a write to r/{subreddit} with 403", path))
             raise hand.Refused("Reddit refused the write (403): banned, suspended, or the community is closed",
                                rule="forbidden", subreddit=subreddit) from None
         raise
@@ -167,7 +167,7 @@ def _community(name: str, api: client.Reddit | None) -> Mapping[str, Any]:
         raise hand.Refused(f"Reddit has no open community r/{name}", rule="subreddit", subreddit=name)
     if about.get("user_is_banned"):
         if not hand.dry_run():
-            _safely("a back-off", lambda: rules.start_backoff(rules.db(), name, "banned", f"Teeny is banned from r/{name}"))
+            _safely("a back-off", lambda: rules.signal(name, "banned", f"Teeny is banned from r/{name}"))
         raise hand.Refused(f"Teeny is banned from r/{name}", rule="banned", subreddit=name)
     if about.get("over18"):
         raise hand.Refused(f"r/{name} is NSFW; Teeny stays out", rule="nsfw", subreddit=name)

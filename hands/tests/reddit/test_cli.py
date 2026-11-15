@@ -37,7 +37,7 @@ class CliTest(Scratch):
         self.assertEqual((code, out["posts"][0]["id"]), (0, "p1"))
 
     def test_a_refusal_exits_2(self):
-        code, out = self.run_hand("post", body={"subreddit": "AskReddit", "title": "hi", "body": "there"})
+        code, out = self.run_hand("post", body={"subreddit": "AskReddit", "title": "hi", "body": "there", "anchor": "PR #1"})
         self.assertEqual((code, out["refused"][:6], out["rule"]), (2, "r/AskR", "subreddit"))
 
     def test_check_says_who_the_token_is_for(self):
