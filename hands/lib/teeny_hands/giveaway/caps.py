@@ -14,12 +14,27 @@ Read from secrets/teeny.env, never the environment:
   GIVEAWAY_CLAWBACK_DAYS         days a prize may be claimed before the pool
                                  takes back what is left
   GIVEAWAY_X_LOOKUPS_PER_ROUND   paid `hands/x users` calls one draw may make
-  GIVEAWAY_CLUSTER               devnet or mainnet
+  GIVEAWAY_CLUSTER               devnet or mainnet. The core signs and sends on
+                                 its own cluster (WALLET_CLUSTER), so the two
+                                 must agree or nothing is signed
+  GIVEAWAY_DEVNET_MINT           devnet only, and required there: a Token-2022
+                                 test mint with 6 decimals standing in for
+                                 $TINY, which exists on mainnet only
 
 Each one is required. A cap that is missing, zero, unreadable or negative is
 an error (rule `caps`), never a default: a typo must not lift a cap, as in
 hands/wallet's caps. $TINY amounts are whole tokens, held here as atomic units
 (10^-6, TINY_DECIMALS), never a float.
+
+`policy_account` is the core's own copy of these caps: bin/lib/wallet_config.py
+writes it as `[wallet_policy.accounts.solana_1]`, the only thing that lets the
+giveaway wallet (Solana index 1) sign at all. It lists the Rewards program
+alone (every transaction the hand builds has that one instruction; the program
+moves the tokens itself), and one mint, the round's, at GIVEAWAY_POOL_MAX_TINY
+a transaction and GIVEAWAY_SEASON_MAX_TINY in any 24 hours (no day may spend
+more than a season; anything tighter would refuse a full pool). With the
+switch off, or the caps not sane, there is no section and the core refuses
+every transaction the giveaway wallet is asked to sign.
 """
 
 from __future__ import annotations
@@ -30,6 +45,7 @@ from typing import Mapping
 
 from .. import hand
 from ..wallet import caps as wallet_caps
+from ..wallet import solana
 
 SWITCH = "GIVEAWAYS"
 POOL_MAX = "GIVEAWAY_POOL_MAX_TINY"
@@ -39,6 +55,7 @@ MAX_PER_WINNER = "GIVEAWAY_MAX_PER_WINNER_TINY"
 CLAWBACK_DAYS = "GIVEAWAY_CLAWBACK_DAYS"
 X_LOOKUPS = "GIVEAWAY_X_LOOKUPS_PER_ROUND"
 CLUSTER = "GIVEAWAY_CLUSTER"
+DEVNET_MINT = "GIVEAWAY_DEVNET_MINT"
 CAP_KEYS = (POOL_MAX, SEASON_MAX, ROUNDS_PER_WEEK, MAX_PER_WINNER, CLAWBACK_DAYS, X_LOOKUPS, CLUSTER)
 
 #: $TINY: Token-2022, 6 decimals (docs/drops-schema.md, "The $TINY mint").
@@ -55,6 +72,10 @@ MAX_TINY = Decimal(10**9)
 MAX_ROUNDS_PER_WEEK = 14
 MAX_CLAWBACK_DAYS = 365
 MAX_X_LOOKUPS = 20
+#: The giveaway wallet: Solana account index 1 (m/44'/501'/1'/0') in the core,
+#: under its own policy section.
+ACCOUNT_INDEX = 1
+POLICY_ACCOUNT = "solana_1"
 
 
 @dataclass(frozen=True)
@@ -140,6 +161,32 @@ def load(env: Mapping[str, str]) -> Caps:
     if caps.max_per_winner > caps.pool_max:
         raise CapsError(f"{MAX_PER_WINNER} is above {POOL_MAX}")
     return caps
+
+
+def mint(cluster: str, env: Mapping[str, str]) -> str:
+    """The mint a round on `cluster` pays: $TINY on mainnet, the operator's
+    GIVEAWAY_DEVNET_MINT on devnet (CapsError when it is not set)."""
+    if cluster == "mainnet":
+        return TINY_MINT
+    value = str(env.get(DEVNET_MINT) or "").strip()
+    if not solana.is_address(value) or value == TINY_MINT:
+        raise CapsError(f"{DEVNET_MINT} (a devnet Token-2022 mint with {TINY_DECIMALS} decimals) is not set")
+    return value
+
+
+def policy_account(env: Mapping[str, str], core_cluster: str) -> dict | None:
+    """The core's `[wallet_policy.accounts.solana_1]`, or None when the switch
+    is off. CapsError when it is on but the caps are not usable, or name
+    another cluster than the core's."""
+    if str(env.get(SWITCH) or "").strip().lower() not in ("1", "true", "yes", "on"):
+        return None
+    loaded = load(env)
+    if loaded.cluster != core_cluster:
+        raise CapsError(f"{CLUSTER} is {loaded.cluster} but the core's wallet is on {core_cluster} (WALLET_CLUSTER)")
+    return {
+        "allowed_programs": [REWARDS_PROGRAM],
+        "mints": [{"mint": mint(loaded.cluster, env), "per_tx_max_raw": loaded.pool_max, "daily_max_raw": loaded.season_max}],
+    }
 
 
 def on() -> bool:
