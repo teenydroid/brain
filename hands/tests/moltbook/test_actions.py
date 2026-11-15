@@ -11,7 +11,7 @@ import os
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
 from teeny_hands import hand
-from teeny_hands.moltbook import actions, rules
+from teeny_hands.moltbook import actions, reads, rules
 
 
 #: Moltbook ids are UUIDs; the beat's batch carries them whole.
