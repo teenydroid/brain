@@ -1936,17 +1936,19 @@ class TargetedEvaluator:
                 done(cand, unmeasurable(plans[cand["id"]]))
         if not measured:
             return
+        baseline = Baseline(self.base, self.cfg["EVOLVE_EVAL_SAMPLES"])
         try:
             try:
-                base_env = self._base_env()
-                baseline = Baseline(self.base, self.cfg["EVOLVE_EVAL_SAMPLES"])
-                union = sorted({t for c in measured for t in plans[c["id"]]["tasks"]})
+                # A restart that finds every report it needs boots nothing.
+                fresh = [c for c in measured if not self._reusable(c, plans[c["id"]])]
+                base_env = self._base_env() if fresh else {}
+                union = sorted({t for c in fresh for t in plans[c["id"]]["tasks"]})
                 baseline.draft(baseline.missing(union), self._env(base_env, self.cfg["EVAL_CONCURRENCY"]))
             except EvolveError as exc:
                 for cand in measured:
                     done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300]})
                 return
-            share = max(1, self.cfg["EVAL_CONCURRENCY"] // len(measured))
+            share = max(1, self.cfg["EVAL_CONCURRENCY"] // max(1, len(fresh)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(measured)) as pool:
                 futures = {pool.submit(self._one, c, plans[c["id"]], baseline, base_env, share): c for c in measured}
                 for future in concurrent.futures.as_completed(futures):
@@ -1959,19 +1961,33 @@ class TargetedEvaluator:
         finally:
             self.close()
 
+    def _paths(self, cand: Json) -> tuple[Path, Path]:
+        folder = self.gdir / "eval" / f"cand-{cand['cand']}"
+        return folder / "run", folder / "compare"
+
+    def _saved_report(self, cand: Json, tasks: list[str]) -> Json | None:
+        run, compare = self._paths(cand)
+        if not (compare / "report.json").is_file() or not _ran(run, tasks, self.cfg["EVOLVE_EVAL_SAMPLES"]):
+            return None
+        try:
+            report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return report if isinstance(report, dict) and report.get("tasks", tasks) == tasks else None
+
+    def _reusable(self, cand: Json, plan: Json) -> bool:
+        """Measured before a restart, and needing no probe: nothing to boot."""
+        return self._saved_report(cand, plan["tasks"]) is not None and not (plan["all"] and self.cfg["EVOLVE_PROBES"])
+
     def _env(self, core: Mapping[str, str], concurrency: int) -> dict[str, str]:
         return code_env(**core, EVAL_CONCURRENCY=str(concurrency))
 
     def _one(self, cand: Json, plan: Json, baseline: Baseline, base_env: Mapping[str, str], share: int) -> Json:
         tasks = plan["tasks"]
         tree = evolve_dir() / cand["worktree"]
-        folder = self.gdir / "eval" / f"cand-{cand['cand']}"
-        run, compare = folder / "run", folder / "compare"
+        run, compare = self._paths(cand)
         report_path = compare / "report.json"
-        report = None
-        if report_path.is_file() and _ran(run, tasks, self.cfg["EVOLVE_EVAL_SAMPLES"]):
-            with contextlib.suppress(OSError, ValueError):
-                report = json.loads(report_path.read_text(encoding="utf-8"))
+        report = self._saved_report(cand, tasks)
         probe = None
         if report is None or (plan["all"] and self.cfg["EVOLVE_PROBES"]):
             before = snapshot(tree)
