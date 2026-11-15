@@ -108,6 +108,7 @@ import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
+import sandbox as sandbox_lib  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -2399,23 +2400,19 @@ def frozen_shim(tree: Path, base: str, path: str) -> str | None:
 # --- the hand-test sandbox ---------------------------------------------------------------------------
 #
 # A candidate's hand tests are model-written code. They never run on the box
-# as they are: a copy of the candidate's tracked files runs under bubblewrap
-# (already in the image for TinyBox) with every namespace unshared (no
-# network but a loopback of its own, its own pids), the system read-only,
-# nothing of the checkout, state/ or secrets/ mounted, and only the copy and
-# a /tmp of its own writable. bwrap dies with this process, and a timeout
-# kills its whole process group. Where bwrap cannot make a namespace (the
-# spine's container under Docker's default seccomp profile has no user
-# namespaces) nothing runs: the check says so and CI's scripts job runs the
-# tests before any merge (docs/evolve.md, "The hand-test sandbox").
+# as they are (bin/lib/sandbox.py): a copy of the candidate's tracked files
+# runs under bubblewrap where it can make its namespaces, else in the
+# `sandbox` compose service (no network, read-only root, nothing of the
+# checkout but state/sandbox/). With neither, nothing runs, and a change to
+# hand code is sent back with a finding: it does not ship from a box with no
+# sandbox (docs/evolve.md, "The hand-test sandbox").
 
-SANDBOX_BIN = "bwrap"
-#: Where the copy of the candidate is mounted inside the sandbox.
+SANDBOX_BIN = sandbox_lib.BWRAP
+#: Where the copy of the candidate is mounted inside bwrap.
 SANDBOX_ROOT = "/work"
 #: The system directories mounted read-only (when they exist).
 SANDBOX_SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/etc")
-_SANDBOX_PROBE: dict[str, bool] = {}
-NOT_RUN_HERE = "not run here: no sandbox ({why}); CI's scripts job runs them before any merge"
+NO_SANDBOX = "hand tests could not be run in a sandbox here ({why}); a change to hand code does not ship without them"
 
 
 def sandbox_binary() -> str | None:
@@ -2423,29 +2420,18 @@ def sandbox_binary() -> str | None:
 
 
 def sandbox_ready(binary: str | None = None) -> tuple[bool, str]:
-    """Whether bwrap is here and can make its namespaces (once per process):
-    (ready, why not)."""
-    binary = binary or sandbox_binary()
-    if not binary:
-        return False, f"no {SANDBOX_BIN}"
-    if binary not in _SANDBOX_PROBE:
-        try:
-            done = subprocess.run([binary, "--unshare-all", "--die-with-parent", "--ro-bind", "/", "/",
-                                   "--dev", "/dev", "--proc", "/proc", "--", "/bin/true"],
-                                  capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
-            _SANDBOX_PROBE[binary] = done.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            _SANDBOX_PROBE[binary] = False
-    return (True, "") if _SANDBOX_PROBE[binary] else (False, f"{SANDBOX_BIN} cannot make a namespace here")
+    return sandbox_lib.bwrap_ready(binary)
+
+
+def sandbox_jobs() -> Path:
+    """Where bin/evolve leaves jobs for the sandbox service: state/sandbox/,
+    the one folder of the checkout that service mounts."""
+    return state_dir() / "sandbox"
 
 
 def sandbox_env() -> dict[str, str]:
-    """The environment inside the sandbox: nothing of this process's."""
-    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8", "TMPDIR": "/tmp",
-            "TEENY_ROOT": SANDBOX_ROOT, "TEENY_STATE": f"{SANDBOX_ROOT}/state",
-            "TEENY_SECRETS": f"{SANDBOX_ROOT}/secrets", "TEENY_HANDS": f"{SANDBOX_ROOT}/hands",
-            "OPENHUMAN_WORKSPACE": f"{SANDBOX_ROOT}/brain", "DRY_RUN": "1", "PYTHONDONTWRITEBYTECODE": "1",
-            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+    """The environment inside bwrap: nothing of this process's."""
+    return sandbox_lib.sandbox_env(SANDBOX_ROOT)
 
 
 def sandbox_argv(binary: str, copy: Path, command: list[str]) -> list[str]:
@@ -2480,42 +2466,46 @@ def copy_candidate(tree: Path, dest: Path) -> None:
 
 
 def run_contained(argv: list[str], timeout: float) -> tuple[int | None, str]:
-    """ARGV in a session of its own; at TIMEOUT the whole process group is
-    killed. (returncode or None on a timeout, its output)."""
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            stdin=subprocess.DEVNULL, start_new_session=True)
-    try:
-        out, _ = proc.communicate(timeout=timeout)
-        return proc.returncode, out
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        out, _ = proc.communicate()
-        return None, out
+    """ARGV in a session of its own; at TIMEOUT, or past
+    sandbox.MAX_OUTPUT_BYTES of output, the whole process group is killed.
+    (returncode or None, its output)."""
+    code, out, why = sandbox_lib.run_contained(argv, timeout)
+    if why == "output":
+        out += f"\nFAILED (output over {sandbox_lib.MAX_OUTPUT_BYTES} bytes: killed)"
+    return code, out
 
 
 def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
-    """Hand NAME's tests (`python -m unittest`), on a copy of the candidate
-    in the sandbox, within HAND_TEST_SECS. Without a working sandbox nothing
-    runs (fail closed) and the check passes, saying so. A failure is
-    detailed by its FAIL and ERROR lines and the errors they raised, with no
-    path of the box."""
-    ready, why = sandbox_ready()
-    if not ready:
-        return True, NOT_RUN_HERE.format(why=why)
-    target = _hand_tests(tree, name, at=SANDBOX_ROOT)
+    """Hand NAME's tests (`python -m unittest`) on a copy of the candidate,
+    in bwrap or the sandbox service, within HAND_TEST_SECS. With neither,
+    nothing runs and the check fails (NO_SANDBOX). A failure is detailed by
+    its FAIL and ERROR lines and the errors they raised, with no path of the
+    box."""
+    target = _hand_tests(tree, name, at=".")
     if target is None:
         return True, "no tests"
-    with tempfile.TemporaryDirectory(prefix="evolve-sandbox-") as scratch:
-        copy = Path(scratch) / "tree"
-        copy_candidate(tree, copy)
-        try:
-            code, out = run_contained(sandbox_argv(sandbox_binary() or SANDBOX_BIN, copy,
-                                                   [str(Path(sys.executable).resolve()), "-m", "unittest", *target]),
-                                     HAND_TEST_SECS)
-        except OSError as exc:
-            return False, str(exc)[:MAX_CHECK_DETAIL]
-    if code is None:
+    ready, why = sandbox_ready()
+    if ready:
+        with tempfile.TemporaryDirectory(prefix="evolve-sandbox-") as scratch:
+            copy = Path(scratch) / "tree"
+            copy_candidate(tree, copy)
+            try:
+                code, out = run_contained(sandbox_argv(sandbox_binary() or SANDBOX_BIN, copy,
+                                                       [str(Path(sys.executable).resolve()), "-m", "unittest",
+                                                        *target]), HAND_TEST_SECS)
+            except OSError as exc:
+                return False, str(exc)[:MAX_CHECK_DETAIL]
+    else:
+        side, side_why = sandbox_lib.sidecar_ready(sandbox_jobs())
+        if not side:
+            return False, NO_SANDBOX.format(why=f"{why}; {side_why}")
+        code, out, failed = sandbox_lib.submit(sandbox_jobs(), lambda dest: copy_candidate(tree, dest), target,
+                                               HAND_TEST_SECS)
+        if failed and failed not in ("timeout", "output"):
+            return False, NO_SANDBOX.format(why=failed)
+        if failed == "output":
+            out += f"\nFAILED (output over {sandbox_lib.MAX_OUTPUT_BYTES} bytes: killed)"
+    if code is None and "output over" not in out:
         return False, f"timed out after {HAND_TEST_SECS} s"
     lines = out.strip().splitlines()
     if code == 0:
