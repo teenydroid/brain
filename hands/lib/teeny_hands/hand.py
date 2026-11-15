@@ -53,7 +53,13 @@ class Refused(Exception):
 
 
 class HandError(Exception):
-    """Something went wrong that is not a rule: exit 1."""
+    """Something went wrong that is not a rule: exit 1. `detail` is what else
+    the caller is told beside the message (a verb that did part of its work
+    says how far it got)."""
+
+    def __init__(self, *args: Any, **detail: Any) -> None:
+        super().__init__(*args)
+        self.detail = detail
 
 
 # --- paths and secrets --------------------------------------------------------------
@@ -344,7 +350,7 @@ def run(name: str, parser: argparse.ArgumentParser, argv: list[str]) -> int:
         emit({"ok": False, "refused": refused.reason, **refused.detail})
         return 2
     except HandError as exc:
-        emit({"ok": False, "error": str(exc)})
+        emit({"ok": False, "error": str(exc), **exc.detail})
         return 1
     except Exception as exc:  # noqa: BLE001 - the contract owes the caller one JSON line
         if os.environ.get("TEENY_HANDS_DEBUG"):
