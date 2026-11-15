@@ -26,8 +26,8 @@ import {
 } from "./drops"
 
 const MINT = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
-const AUTHORITY = new PublicKey("B2nP9ufqx8e2ER5hYKc5zy6CiXwHmyTYAbwC6rxnWKhE")
-const DIST_SEED = new PublicKey("Fq1o1MkiE3ae9gNXgQhfJb1vuuMCDT4emUbwp8bPGBYf")
+const AUTHORITY = new PublicKey(new Uint8Array(32).fill(7))
+const DIST_SEED = new PublicKey(new Uint8Array(32).fill(8))
 const BLOCKHASH = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn"
 const ALICE = new PublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
 const CAROL = new PublicKey("HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH")
