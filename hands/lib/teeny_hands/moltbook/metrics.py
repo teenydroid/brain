@@ -23,6 +23,7 @@ from .. import hand
 from ..rest import RestApi, RestError
 from . import reads, rules
 from .actions import _walk
+from .study import _when
 
 HOUR = 3600.0
 DAY = 86400.0
@@ -192,7 +193,7 @@ THREAD_HOURS = 72
 MAX_THREADS = 25
 #: Scores counted as a post that landed, and one that did well.
 SCORE_MARKS = (10, 50)
-#: The day of posts the top scores are counted over (the plan's 14 days).
+#: The days of posts the top scores are counted over (the plan's 14).
 SCORE_DAYS = WINDOW_DAYS
 
 
@@ -278,8 +279,8 @@ def _scores(conn, since: float, until: float) -> tuple[list[int], list[int]]:
 
 def own_thread_replies(conn, api: RestApi | None = None, now: float | None = None) -> Json:
     """Other agents' comments on Teeny's own posts of the last THREAD_HOURS
-    and whether Teeny answered each: `comments`, `unanswered` (answerable
-    ones with no answer: a comment at rules.MAX_REPLY_DEPTH cannot be
+    and whether Teeny answered each: `comments`, `answered`, `unanswered`
+    (answerable ones with no answer: a comment at rules.MAX_REPLY_DEPTH cannot be
     answered and is not counted), `answer_minutes` (from the comment to
     Teeny's first answer, each answered one), `threads` read and `complete`
     (False when a read failed, so the counts are short).
@@ -306,7 +307,7 @@ def own_thread_replies(conn, api: RestApi | None = None, now: float | None = Non
         rules.ACCEPTED,
     ):
         answers[str(parent)] = float(at)
-    out: Json = {"threads": 0, "comments": 0, "unanswered": 0, "answer_minutes": [], "complete": True}
+    out: Json = {"threads": 0, "comments": 0, "answered": 0, "unanswered": 0, "answer_minutes": [], "complete": True}
     if not posts:
         return out
     me = reads.me_name(api).lower()
@@ -337,23 +338,22 @@ def _author_name(node: Mapping[str, Any]) -> str:
 def _count_thread(nodes: Any, depth: int, me: str, answers: Mapping[str, float], out: Json) -> None:
     if not isinstance(nodes, list):
         return
-    from .study import _when
-
     for node in nodes:
         if not isinstance(node, Mapping):
             continue
-        replies = node.get("replies") if isinstance(node.get("replies"), list) else []
-        if _author_name(node) != me and not node.get("is_deleted") and not node.get("is_spam") and node.get("id") is not None:
+        replies = [r for r in node.get("replies") or [] if isinstance(r, Mapping)] if isinstance(node.get("replies"), list) else []
+        theirs = _author_name(node) != me and node.get("id") is not None
+        if theirs and not node.get("is_deleted") and not node.get("is_spam"):
             out["comments"] += 1
-            times = [_when(r.get("created_at")) for r in replies if isinstance(r, Mapping) and _author_name(r) == me
-                     and r.get("verification_status") not in HIDDEN]
-            answered = [t for t in times if t is not None] + (
-                [answers[str(node["id"])]] if str(node["id"]) in answers else [])
-            if any(_author_name(r) == me for r in replies if isinstance(r, Mapping)
-                   and r.get("verification_status") not in HIDDEN) or answered:
+            mine = [r for r in replies if _author_name(r) == me and r.get("verification_status") not in HIDDEN]
+            ledger = answers.get(str(node["id"]))
+            if mine or ledger is not None:
+                out["answered"] += 1
+                times = [t for t in (_when(r.get("created_at")) for r in mine) if t is not None]
+                times += [ledger] if ledger is not None else []
                 asked = _when(node.get("created_at"))
-                if answered and asked is not None:
-                    out["answer_minutes"].append(round(max(0.0, min(answered) - asked) / 60, 1))
+                if times and asked is not None:
+                    out["answer_minutes"].append(round(max(0.0, min(times) - asked) / 60, 1))
             elif depth < rules.MAX_REPLY_DEPTH:
                 out["unanswered"] += 1
         _count_thread(replies, depth + 1, me, answers, out)
@@ -368,7 +368,7 @@ def daily(api: RestApi | None = None) -> dict[str, float]:
     conn = rules.db()
     try:
         out: dict[str, float] = {"live_posts_24h": float(len(_live_posts(conn, now - DAY, now)))}
-        day_scores, best = _scores(conn, now - 7 * DAY, now)
+        day_scores, _ = _scores(conn, now - 7 * DAY, now)
         median = _median(day_scores)
         if median is not None:
             out["post_score_24h_median_7d"] = median
@@ -390,9 +390,9 @@ def daily(api: RestApi | None = None) -> dict[str, float]:
     if threads["complete"]:
         out["own_thread_unanswered"] = float(threads["unanswered"])
         out["own_thread_comments"] = float(threads["comments"])
-        answered = threads["comments"] - threads["unanswered"]
-        if threads["comments"]:
-            out["own_thread_answered_pct"] = round(100.0 * answered / threads["comments"], 1)
+        answerable = threads["answered"] + threads["unanswered"]
+        if answerable:
+            out["own_thread_answered_pct"] = round(100.0 * threads["answered"] / answerable, 1)
         median = _median(threads["answer_minutes"])
         if median is not None:
             out["own_thread_answer_minutes_median"] = median
