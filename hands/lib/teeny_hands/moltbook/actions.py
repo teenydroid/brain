@@ -202,7 +202,7 @@ def _comment_as_post(conn: sqlite3.Connection, pid: str, to: str) -> None:
         fix = (f'to answer it, send "parent_id": "{pid}" with its post\'s id as "post_id";'
                " its post's id is not known here, so read the post the comment came from")
     raise hand.Refused(f"{pid} is a comment, not a post: {fix}", rule="comment_as_post", rewrite=True,
-                       field="post_id", its_post_id=its_post)
+                       field="post_id", **({"its_post_id": its_post} if its_post else {}))
 
 
 def _post_as_comment(conn: sqlite3.Connection, cid: str, field: str, post_id: str | None = None) -> None:
