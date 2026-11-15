@@ -527,12 +527,12 @@ def _comment_detail(writer: str | None, own_post: bool, the_post: Any) -> str:
         for key, value in (("post_comments", the_post.get("comment_count")), ("post_score", the_post.get("score"))):
             if isinstance(value, int) and not isinstance(value, bool):
                 detail[key] = value
-        author = the_post.get("author")
         if _author(the_post):
             detail["post_author"] = _author(the_post)
+        author = the_post.get("author")
         if isinstance(author, Mapping):
-            for key, field in (("author_karma", "karma"), ("author_followers", "followerCount")):
-                value = author.get(field, author.get("follower_count") if field == "followerCount" else None)
+            for key, fields in (("author_karma", ("karma",)), ("author_followers", ("followerCount", "follower_count"))):
+                value = next((author[f] for f in fields if f in author), None)
                 if isinstance(value, int) and not isinstance(value, bool):
                     detail[key] = value
     return json.dumps(detail, sort_keys=True)
