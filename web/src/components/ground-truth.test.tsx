@@ -197,8 +197,8 @@ describe("/rewards", () => {
       id: 3, tag: "drop #3", status: "open", format: "drop", pool_tiny: "250000", winners: 5, best_reply_tiny: "50000",
       prompt: "what should i build next?", deadline: "2026-11-20T18:00:00Z", post_id: "1990000000000000003",
       post_url: "https://x.com/teenydroid/status/1990000000000000003", cluster: "mainnet",
-      mint: "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump", decimals: 6, program_id: "mERKcfxMC5SqJn4Ld4BUris3WKZZ1ojjWJ3A3J5CKxv",
-      distributor: null, vault: null, merkle_root: null, clawback_at: null, seed: null, entrants: [], draw_order: [], claims: [], txs: {},
+      mint: "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump", decimals: 6, token_program: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      program_id: "REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi", authority: null, distribution_seed: null, distributor: null, vault: null, merkle_root: null, clawback_at: null, seed: null, entrants: [], draw_order: [], claims: [], txs: {},
     }
     const page = text(renderToStaticMarkup(<RewardsView drops={{ source: "live", url, rounds: [round], skipped: 0 }} now={NOW} />))
     expect(page).toContain("what should i build next?")
@@ -212,8 +212,9 @@ describe("/rewards", () => {
       id: 2, tag: "drop #2", status: "settled", format: "drop", pool_tiny: "1000", winners: 1, best_reply_tiny: "0",
       prompt: "worst advice?", deadline: "2026-11-10T18:00:00Z", post_id: "1990000000000000002",
       post_url: "https://x.com/teenydroid/status/1990000000000000002", cluster: "devnet",
-      mint: "So11111111111111111111111111111111111111112", decimals: 6, program_id: "mERKcfxMC5SqJn4Ld4BUris3WKZZ1ojjWJ3A3J5CKxv",
-      distributor: "HS8EQ8QkQSBJggY8r255AKdWbtYRtyNMoRt4LjNkkWm1", vault: "8Xm3tkQH581s3MoRHWUNYA5jKbgPATW4tJAAxgwDC6T6",
+      mint: "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump", decimals: 6, token_program: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      program_id: "REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi", authority: "11111111111111111111111111111111",
+      distribution_seed: "11111111111111111111111111111111", distributor: "11111111111111111111111111111111", vault: "11111111111111111111111111111111",
       merkle_root: "00".repeat(32), clawback_at: "2026-12-10T18:00:00Z",
       seed: { slot: 1, blockhash: "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZAMdL4VZHirAn", sha256: "00".repeat(32) },
       entrants: [{ handle: "alice", eligible: true, reason: "ok" }], draw_order: ["alice"],
