@@ -86,14 +86,14 @@ class BriefTest(unittest.TestCase):
         with self.assertRaises(hand.Refused):
             briefs.post({"id": brief_id, "text": "again"})
         sent = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(sent, [{"argv": ["post"], "body": {"text": "hi new holders"}}])
+        self.assertEqual(sent, [{"argv": ["post"], "body": {"text": "hi new holders", "anchor": f"brief:{brief_id}"}}])
 
     def test_a_picture_bin_act_attached_goes_on_the_post(self):
         brief_id = briefs.add("show the new home")["brief"]["id"]
         self.x_answers({"id": "1901", "kind": "post", "text": "new home"})
         briefs.post({"id": brief_id, "text": "new home", "media_ids": ["123456"]})
         sent = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(sent[-1]["body"], {"text": "new home", "media_ids": ["123456"]})
+        self.assertEqual(sent[-1]["body"], {"text": "new home", "anchor": f"brief:{brief_id}", "media_ids": ["123456"]})
 
     def test_media_ids_must_be_a_list_of_ids(self):
         brief_id = briefs.add("bad media")["brief"]["id"]
