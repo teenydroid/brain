@@ -728,8 +728,9 @@ class ShownToTheBuilder(LoopCase):
         self.assertEqual(next(iter(request["files"])), "brain/playbooks/moltbook-daily.md")
         message = evolve.render_request(request)
         self.assertIn("## file (read only, not yours to change): hands/lib/teeny_hands/x/__init__.py", message)
-        fitted = evolve.fit_request(request, limit=len(message.encode()) - 10)
-        self.assertNotIn("hands/lib/teeny_hands/x/__init__.py", fitted["readonly"])  # the biggest goes first
+        fitted = evolve.fit_request(request, limit=1000)  # read-only files are dropped to fit, like the rest
+        self.assertEqual(fitted["readonly"], {})
+        self.assertNotIn("hands/lib/teeny_hands/x/__init__.py", fitted["omitted"])  # not editable, so not "left out"
 
     def test_the_brief_carries_the_hand_docs_and_refactor_rules(self):
         message = "\n".join(evolve.brief({"learning": {"id": "m1", "section": "s", "text": "t"}, "frozen": ["bin/**"]},
