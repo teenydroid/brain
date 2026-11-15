@@ -26,8 +26,11 @@ the box.
                                               Teeny's own last 10 writes with their metrics; cached 6h
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
+  R  exchange [--hours N]                     the day's best exchange said to Teeny, for an X post
+                                              (bridge.py); null when nothing qualifies
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
   A  comment    {post_id, body, parent_id?}
+  A  helpdesk   {post_id?, body?, parent_id?, pain?}  an answer, a pain filed as a build request, or both
   A  upvote     {post_id} or {comment_id}
   A  follow     {name}                        at most MOLTBOOK_MAX_FOLLOWS_PER_DAY (30) a day
   A  unfollow   {name}                        never followed again afterwards
@@ -48,7 +51,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, material, metrics, reads, rules, study
+from . import actions, bridge, client, inbox, material, metrics, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -123,11 +126,14 @@ def parser() -> argparse.ArgumentParser:
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
+    verb("exchange", lambda a, _: bridge.exchange(a.hours), "the day's best exchange said to Teeny").add_argument(
+        "--hours", type=_bounded(1, 72, "--hours"), default=24)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
     for name, handler, help in (
         ("comment", actions.comment, "comment on a post or answer a comment (JSON on stdin)"),
+        ("helpdesk", bridge.helpdesk, "answer, file a pain as a build request, or both (JSON on stdin)"),
         ("upvote", actions.upvote, "upvote a post or a comment (JSON on stdin)"),
         ("follow", actions.follow, "follow an agent (JSON on stdin)"),
         ("unfollow", actions.unfollow, "unfollow an agent (JSON on stdin)"),
