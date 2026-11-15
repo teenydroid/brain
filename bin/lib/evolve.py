@@ -1072,7 +1072,11 @@ class FileProposer:
         self.folder = folder
 
     def propose(self, request: Json) -> Any:
-        path = self.folder / f"cand-{request['cand']}.json"
+        """DIR/cand-<i>.round-<r>.json for a later round when it is there,
+        else DIR/cand-<i>.json."""
+        path = self.folder / f"cand-{request['cand']}.round-{request.get('round') or 1}.json"
+        if not path.is_file():
+            path = self.folder / f"cand-{request['cand']}.json"
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
