@@ -412,6 +412,9 @@ class DeskTest(Scratch):
         self.assertEqual(offer["report_to"], "desk/build-done.json")
         self.assertIn("job_id", offer["report_shape"])
         self.assertIn("Work only inside workdir", offer["rules"])
+        # The rules name the one path the builder is shown: report_to.
+        self.assertIn("write your report to report_to, once", offer["rules"])
+        self.assertNotIn("report_to_path", offer["rules"])
         # Laying it out again before a report is the same claim, resumed.
         jobs.desk()
         again = json.loads(self.desk("build.json").read_text())
