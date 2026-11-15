@@ -318,8 +318,9 @@ def file_pain(body: Any, api: RestApi | None = None) -> Json:
 def helpdesk(body: Any, api: RestApi | None = None) -> Json:
     """{post_id?, body?, parent_id?, format?, experiment?, pain?}: the answer
     goes through `actions.comment` with every rule there; the pain is filed
-    first, so a refused answer never loses it. Refused only when every part
-    asked for was."""
+    first, so a refused answer never loses it, and an answer Moltbook fails
+    after a pain was filed is reported as `comment_error`, not raised.
+    Refused only when every part asked for was."""
     if not isinstance(body, Mapping):
         raise hand.HandError("stdin must be a JSON object: {post_id, body} to answer, {pain} to file, or both")
     unknown = sorted(set(body) - {"post_id", "body", "parent_id", "format", "experiment", "pain"})
@@ -343,6 +344,12 @@ def helpdesk(body: Any, api: RestApi | None = None) -> Json:
         except hand.Refused as refused:
             refusals.append(refused)
             out["comment_refused"] = {"reason": refused.reason, **refused.detail}
+        except hand.HandError as error:
+            # Moltbook failing the answer is an error, not a refusal; with a
+            # pain already written, the call still reports what it filed.
+            if "filed" not in out:
+                raise
+            out["comment_error"] = {"error": str(error)}
     if refusals and not ({"filed", "comment"} & set(out)):
         raise refusals[0]
     return out
