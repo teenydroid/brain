@@ -380,6 +380,91 @@ class CommentTest(Scratch, Refusing):
         out = actions.comment({"post_id": FULL, "body": "thanks", "parent_id": PARENT})
         self.assertEqual(out["would_comment"], {"post_id": FULL, "body": "thanks", "parent_id": PARENT})
 
+    # Live, 2026-11-15: the mind put a comment's id in post_id twice; Moltbook
+    # answered a bare 404 and the mind parked two replies it owed as "dead ids".
+    THEIRS = "b2e848b7-5960-497a-82f7-7bc4129f572d"
+    ITS_POST = "8f817b7b-e26d-425a-bf6f-e81f25292c2c"
+
+    def test_a_comment_id_from_the_inbox_as_post_id_is_refused_with_its_post(self):
+        from teeny_hands import stimuli
+
+        stimuli.add("moltbook", "comment", self.THEIRS, "a ruling, please", who="ironheights",
+                    payload={"post_id": self.ITS_POST, "parent_id": PARENT, "depth": 2, "can_answer": True})
+        caught = self.refused(actions.comment, {"post_id": self.THEIRS, "body": "the ruling"}, "comment_as_post")
+        self.assertEqual((caught.detail.get("rewrite"), caught.detail.get("field")), (True, "post_id"))
+        self.assertEqual(caught.detail.get("its_post_id"), self.ITS_POST)
+        self.assertIn(f"{self.THEIRS} is a comment, not a post", caught.reason)
+        self.assertIn(f'"parent_id": "{self.THEIRS}"', caught.reason)
+        self.assertIn(f'"post_id": "{self.ITS_POST}"', caught.reason)
+        self.assertEqual(self.mb.seen, [])
+
+    def test_teenys_own_comment_id_as_post_id_is_refused_with_its_post(self):
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, ?, ?, 'posted')",
+                     (self.THEIRS, self.ITS_POST, T0 - DAY))
+        caught = self.refused(actions.comment, {"post_id": self.THEIRS, "body": "more"}, "comment_as_post")
+        self.assertEqual(caught.detail.get("its_post_id"), self.ITS_POST)
+        self.assertEqual(self.mb.seen, [])
+
+    def test_a_comment_id_from_the_read_cache_as_post_id_is_refused_with_its_post(self):
+        reply = {"id": self.THEIRS, "post_id": self.ITS_POST, "author": {"name": "xiaoyaonight"}, "replies": []}
+        self.a_post(self.ITS_POST, comments=[{"id": PARENT, "author": {"name": "crabby"}, "replies": [reply]}])
+        from teeny_hands.moltbook import reads
+
+        reads.comments(self.ITS_POST)  # the read that put it in the cache
+        seen = len(self.mb.seen)
+        caught = self.refused(actions.comment, {"post_id": self.THEIRS, "body": "yes"}, "comment_as_post")
+        self.assertEqual(caught.detail.get("its_post_id"), self.ITS_POST)
+        self.assertEqual(len(self.mb.seen), seen)
+
+    def test_a_known_comment_id_whose_post_is_unknown_says_so(self):
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("CREATE TABLE IF NOT EXISTS moltbook_held (comment_id TEXT PRIMARY KEY, post_id TEXT, hold_id INTEGER, at REAL)")
+        from teeny_hands import stimuli
+
+        stimuli.add("moltbook", "comment", self.THEIRS, "hi", payload={"on_own_post": False})
+        caught = self.refused(actions.comment, {"post_id": self.THEIRS, "body": "yes"}, "comment_as_post")
+        self.assertIsNone(caught.detail.get("its_post_id"))
+        self.assertIn("is a comment, not a post", caught.reason)
+        self.assertIn("its post's id is not known here", caught.reason)
+        self.assertEqual(self.mb.seen, [])
+
+    def test_a_post_id_as_parent_id_is_refused(self):
+        from teeny_hands import stimuli
+
+        stimuli.add("moltbook", "comment", self.THEIRS, "hi", payload={"post_id": self.ITS_POST})
+        caught = self.refused(actions.comment, {"post_id": self.ITS_POST, "body": "yes", "parent_id": self.ITS_POST},
+                              "post_as_parent")
+        self.assertEqual((caught.detail.get("rewrite"), caught.detail.get("field")), (True, "parent_id"))
+        self.assertIn(f"{self.ITS_POST} is a post, not a comment", caught.reason)
+        caught = self.refused(actions.comment, {"post_id": FULL, "body": "yes", "parent_id": self.ITS_POST},
+                              "post_as_parent")
+        self.assertIn(f'"post_id": "{self.ITS_POST}"', caught.reason)
+        self.assertEqual(self.mb.seen, [])
+
+    def test_an_unknown_id_moltbook_404s_explains_the_404(self):
+        caught = None
+        with self.assertRaises(hand.HandError) as caught:
+            actions.comment({"post_id": self.THEIRS, "body": "the ruling"})
+        message = str(caught.exception)
+        self.assertIn(f"Moltbook has no post with the id {self.THEIRS} (404)", message)
+        self.assertIn("parent_id", message)
+        self.assertEqual(self.mb.writes(), [])
+
+    def test_a_correct_answer_to_a_known_comment_is_unchanged(self):
+        from teeny_hands import stimuli
+
+        stimuli.add("moltbook", "comment", self.THEIRS, "a ruling, please",
+                    payload={"post_id": self.ITS_POST, "parent_id": PARENT})
+        self.a_post(self.ITS_POST, comments=[{"id": PARENT, "author": {"name": "teenydroid"},
+                                              "replies": [{"id": self.THEIRS, "author": {"name": "ironheights"}, "replies": []}]}])
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_comments (comment_id, post_id, at, status) VALUES (?, ?, ?, 'posted')",
+                     (PARENT, self.ITS_POST, T0 - DAY))
+        self.created("comment", "c9", path=f"/posts/{self.ITS_POST}/comments")
+        out = actions.comment({"post_id": self.ITS_POST, "body": "the ruling", "parent_id": self.THEIRS})
+        self.assertEqual(out, {"commented": "c9", "post_id": self.ITS_POST, "parent_id": self.THEIRS})
+
     def test_own_post_only_its_first_comment(self):
         self.a_post("mine", author="teenydroid")
         self.created("comment", "c1", path="/posts/mine/comments")
