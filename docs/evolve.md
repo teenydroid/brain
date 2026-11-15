@@ -384,7 +384,7 @@ is final; the new rule does so 6%, 9% and 8% of the time. A few cases:
 |---|---|---|---|
 | 4 | 0 | 0.0625 | `regressed` |
 | 4 | 1 | 0.3125 | `pass` |
-| 28 | 10 | 0.0872 | `regressed` |
+| 28 | 10 | 0.0925 | `regressed` |
 | 28 | 13 | 0.4253 | `pass` |
 
 It is `inconclusive` under the rules below, and also when fewer than
