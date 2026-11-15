@@ -52,7 +52,7 @@ LISTED = 50
 OPEN = ("waiting", "held")
 
 
-def _epoch(value: Any) -> float | None:
+def epoch(value: Any) -> float | None:
     """Moltbook's `created_at` (ISO, Z) as epoch seconds, or None."""
     if not isinstance(value, str) or not value.strip():
         return None

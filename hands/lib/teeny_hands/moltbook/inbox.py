@@ -112,7 +112,7 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None, max_own
         answers: dict[str, tuple[str, float | None]] = {}
         for node, parent in tree:
             if parent is not None and str(node.get("id")) in mine and parent not in answers:
-                answers[parent] = (str(node.get("id")), owed._epoch(node.get("created_at")))
+                answers[parent] = (str(node.get("id")), owed.epoch(node.get("created_at")))
         if own:
             # An answer Moltbook hides until its challenge is answered is not in
             # the thread, but the ledger has it (and the hand refuses a second).
@@ -141,7 +141,7 @@ def scan(days: int = 7, max_posts: int = 10, api: RestApi | None = None, max_own
                 payload["parent_id"] = parent
                 payload["answering_teeny"] = parent in mine
             if own:
-                owed.track(conn, cid, post_id, parent, author or None, depth, owed._epoch(node.get("created_at")))
+                owed.track(conn, cid, post_id, parent, author or None, depth, owed.epoch(node.get("created_at")))
                 if cid in answers:
                     owed.answered(conn, cid, *answers[cid])
             if _known(conn, known, cid):
