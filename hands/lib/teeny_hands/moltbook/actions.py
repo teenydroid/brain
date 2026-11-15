@@ -404,6 +404,13 @@ def post(body: Any, api: RestApi | None = None) -> Json:
     fields = {"title": title}
     if text:
         fields["body"] = text
+    conn = rules.db()
+    # The limits first, before the guard reads a word: a post the beat holds
+    # for the gap (bin/lib/tick.py, PACED) is sent again every beat until the
+    # gap opens, and a refusal here costs no judge turn. They are checked
+    # again under the write lock below.
+    with hand.transaction(conn):
+        rules.check_post(conn)
     # The context lets the guard's re-screen send the post again, as written,
     # if only a judge outage held it (guard/rescreen.py).
     resend = {"type": kind, **({"url": url} if url else {}), **{k: v for k, v in tagged.items() if v is not None}}
@@ -412,7 +419,6 @@ def post(body: Any, api: RestApi | None = None) -> Json:
         _link_allowed(url)
     published = [fields["title"], fields.get("body", ""), url or ""]
 
-    conn = rules.db()
     rules.check_collab(conn, "\n".join(published))
     if rules.looks_crypto(published):
         info = reads.submolt(submolt, api)
