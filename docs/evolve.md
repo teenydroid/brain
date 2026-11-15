@@ -392,10 +392,22 @@ The judge inherits the core's model. Two ways give it another:
 - For good: `model = "<name>"` in `brain/agents/judge.toml`, which only a
   human can edit.
 
-`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`. Whether
-the core sends the override's model to the endpoint under that pinned route
-has not been checked against a real core: run one judge turn with `--model`
-and read the endpoint's log before relying on it.
+`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`, and
+under that pin the core used to ignore the override. Checked on a lab core
+(2026-11-15): judge turns sent with `model_override` set to
+`qwen3-next-80b-a3b-instruct`, `claude-haiku-4.5` and `gemini-3.1-flash-lite`
+all logged `model="glm-5.3-flash"` in their `turn prompt summary` line. The
+pinned role route outranked `default_model`, which was the only thing the
+override changed. tinyhumansai/openhuman#8734 fixes this. For that one turn
+the override re-pins the chat, reasoning, agentic and coding roles to
+`local-openai:<M>` on the same endpoint and key. Memory and vision keep
+`SPINE_MODEL`, and a turn without `--model` is unchanged. Until the gitlink
+carries that fix, `--model` has no effect here. The same PR applies
+`inference_reasoning_effort` when there is no `inference_url`. Before, the
+core dropped it, so `low` and `none` made no difference to judge time.
+`bin/spine` registers a context window only for `SPINE_MODEL`. Give the
+judge's model a `model_registry` entry as well, or its turns get the tiny
+default budget the spine comment describes.
 
 ## The loop (built): `bin/evolve`
 
@@ -1044,9 +1056,12 @@ Where they run:
   run may start a server on 7790 and up, how long a boot takes, and what a
   generation costs in model turns are unknown until one runs. Set
   `EVOLVE_EVALUATOR=none` to keep Phase B's behaviour.
-- **The judge's model under the pinned route.** `model_override` reaches the
-  core; whether it changes the model the endpoint is asked for when every
-  role is pinned to `local-openai:<SPINE_MODEL>` is unchecked (see "Evals").
+- **The judge's model under the pinned route.** It was ignored: every role
+  pinned to `local-openai:<SPINE_MODEL>` kept the endpoint on `SPINE_MODEL`
+  whatever `model_override` said. tinyhumansai/openhuman#8734 fixes it, and
+  this repo picks it up when the gitlink moves to the merged fix (see
+  "Evals"). The judge model's context window is still not registered by
+  `bin/spine`.
 - **An evolver that tests.** It has no shell and no
   `brain/skills/evolve/SKILL.md`, so it can't run the tests before it
   answers, and it can't edit `SOUL.md`.
