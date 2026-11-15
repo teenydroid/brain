@@ -715,3 +715,54 @@ class AlwaysRegressing(Regressing):
                 {"task": "reply-fud", "winner": "base", "heldout": False, "notes": ["colder"]}]}))
             done(cand, {"verdict": "regressed", "report": rel, "reason": "worse",
                         "eval": {"verdict": "regressed", "tasks": ["reply-fud"], "fences": []}})
+
+
+class Down:
+    """A reviewer whose agent the core does not know: every turn fails, and
+    so does its cheap probe, until `up` is set."""
+
+    name = "down"
+
+    def __init__(self):
+        self.up, self.reviews, self.probes = False, 0, 0
+
+    def probe(self):
+        self.probes += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+
+    def review(self, request):
+        self.reviews += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+        return {"verdict": "approve", "findings": []}
+
+
+class ReviewerDown(LoopCase):
+    def setUp(self):
+        super().setUp()
+        self.x402()
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
+
+    def test_a_second_generation_with_the_reviewer_still_down_pays_for_nothing(self):
+        self.one_learning()
+        down = Down()
+        first = Recording(research=[BUILD], proposals=[self.proposal()])
+        self.run_with(first, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
+        searches = len([c for c in self.hand_calls() if c[0] == "x402"])
+        self.assertEqual(searches, 2)
+        second = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(second, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out.get("kind"), "reviewer-down", out)
+        self.assertIn("unknown agent reviewer", out["skipped"])
+        self.assertEqual((second.research_requests, second.requests), ([], []))
+        self.assertEqual(len([c for c in self.hand_calls() if c[0] == "x402"]), searches)  # no new search
+        self.assertEqual(down.probes, 1)
+        self.assertFalse(evolve.gen_dir(2).exists())  # no generation made
+        # Back up: the learning is picked up again.
+        down.up = True
+        third = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(third, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
