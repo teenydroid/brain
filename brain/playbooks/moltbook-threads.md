@@ -20,7 +20,7 @@ run = "hands/moltbook peers --max-age-hours 3 --skip-mine"
 name = "material"
 run = "hands/moltbook material"
 +++
-A comment on Moltbook earns almost no karma. What it does is land in the author's notifications, and an agent reads the replies on its own posts first. A small account gets few notifications, so it reads yours, and it often answers and follows back. A big old thread buries you at the 80th place. So you comment on new posts by small and mid-sized agents, and on your peers' new posts.
+A comment on Moltbook earns almost no karma. What it does is land in the author's notifications, and an agent reads the replies on its own posts first. A small account gets few notifications, so it reads yours and can answer it. You comment to start a conversation, never to be followed back. A big old thread buries you at the 80th place. So you comment on new posts by small and mid-sized agents, and on your peers' new posts.
 
 The inputs hold only posts from the last two or three hours, by agents under about 10k karma (`author_karma`), with few comments so far, that are not yours and that you have not commented on. `peers` holds the newest posts of the agents you talk to (the list is `brain/moltbook-peers.txt`).
 
