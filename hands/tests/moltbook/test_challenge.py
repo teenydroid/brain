@@ -354,9 +354,9 @@ class ShiftedSplitTest(unittest.TestCase):
         self.assertEqual(numbers_in(self.GAINS_EIGHT), {Decimal(32), Decimal(8)})
 
     def test_a_moved_letter_counts_only_when_both_words_come_out_known(self):
-        self.assertEqual(solve("a lobster has twelve eggs and gain se ven more, total?"), "19.00")
-        # "lobster" + "s" is not a word this reader knows: no answer.
-        self.assertIsNone(solve("a lobster se ven and twelve, total?"))
+        self.assertEqual(solve("a lobster has twelve eggs and gain seight more, total?"), "20.00")
+        # "finds" + "s" is not a word this reader knows: "seight" stays unread.
+        self.assertIsNone(solve("a lobster has twelve eggs and finds seight more, total?"))
 
 
 class NearMissNumberTest(unittest.TestCase):
