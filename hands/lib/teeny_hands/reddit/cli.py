@@ -16,6 +16,9 @@ the rules and DRY_RUN itself. Operator verbs (O) are for a person at the box.
   R  metrics daily                            the account's karma, as hands/stats keeps it
   R  study                                    per allowlisted subreddit: the week's top posts and what
                                               Teeny's own writes scored, by kind and format; cached 6h
+  R  highlight [--hours N]                     the day's best exchange on Teeny's own writes: a reply the
+                                              inbound guard let through, its exact words, Teeny's words,
+                                              the permalink; null when there is none
   R  slot --kind post|comment [--wait S]     whether a write would pass the caps, gaps and back-offs now:
                                               {open: true} or {open: false, why, wait_seconds?}
   A  post       {subreddit, title, anchor, body? | url?, flair_id?, format?, experiment?}
@@ -32,7 +35,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, metrics, reads, rules, study
+from . import actions, client, highlight, inbox, metrics, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -105,6 +108,8 @@ def parser() -> argparse.ArgumentParser:
     measuring.add_argument("action", choices=("refresh", "list", "daily"))
     measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     verb("study", lambda a, _: study.study(), "what wins in each allowlisted subreddit this week")
+    best = verb("highlight", lambda a, _: highlight.highlight(a.hours), "the day's best exchange on Teeny's own writes")
+    best.add_argument("--hours", type=_bounded(1, 72, "--hours"), default=24)
 
     for name, handler, help in (
         ("post", actions.post, "submit a post (JSON on stdin)"),
