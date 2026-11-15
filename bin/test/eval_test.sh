@@ -552,6 +552,180 @@ rm "$held/morning-post.toml" "$held/hold-tide.toml"
 check "refuses --with-heldout with no held-out tasks" bash -c "! '$eval_bin' run --samples 1 --with-heldout '$runs/x' 2>/dev/null"
 unset EVAL_HELDOUT_DIR
 
+# --- a non-regression check on the tasks a change reaches ------------------------------------------
+# Gen 6: two of four candidates edited playbooks no task drafts from
+# (moltbook-daily.md, pr-merged.md), were scored on all 30 tasks, and "lost"
+# on noise against a 0.6 threshold. Now the change picks its tasks (affected)
+# and the check asks only that the candidate is no worse on them.
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 "$runs/nbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 "$runs/ncand" >/dev/null 2>&1
+nr() { # OUT [ARGS...]: a non-regression compare of nbase and ncand; exit code in $code
+  local out="$1"
+  shift
+  code=0
+  "$eval_bin" compare --mode nonregression "$@" "$runs/nbase" "$runs/ncand" "$out" >/dev/null 2>"$scratch/compare.err" || code=$?
+}
+: >"$FAKE_CALLS"
+FAKE_JUDGE=prefer:CAND nr "$scratch/nr-pass" --tasks morning-post
+check "--tasks judges only those tasks' pairs" test "$(judge_turns)" = 2
+check "a candidate no worse on what its change reaches passes" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-pass")" = "pass true"
+check "and compare exits 0" test "$code" = 0
+check "the report names the mode and the tasks" test "$(report '[.mode, (.tasks | join(","))] | join(" ")' "$scratch/nr-pass")" = "nonregression morning-post"
+check "one task's two samples are enough to decide (min pairs: half the possible)" test "$(report .min_pairs "$scratch/nr-pass")" = 1
+FAKE_JUDGE=prefer:base nr "$scratch/nr-worse" --tasks morning-post,reply-fud
+check "a candidate the judge likes less has regressed" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "regressed false"
+check "and compare exits 2" test "$code" = 2
+# Even, by alternation: sample 1 shows the base first, sample 2 the candidate.
+FAKE_JUDGE=first nr "$scratch/nr-even" --tasks morning-post,reply-fud
+check "an even split passes the 0.5 a non-regression check needs" test "$(report '[.verdict, .threshold, .win_rate] | map(tostring) | join(" ")' "$scratch/nr-even")" = "pass 0.5 0.5"
+FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks morning-post,reply-fud --threshold 0.6
+check "--threshold still sets it" test "$(report .verdict "$scratch/nr-even6")" = regressed
+FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks morning-post
+check "nothing decided is inconclusive, not regressed" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-tie")" = "inconclusive false"
+FAKE_JUDGE=breaks:CAND:never-sell nr "$scratch/nr-fence" --tasks morning-post
+check "a fence break still rejects it" test "$(report .verdict "$scratch/nr-fence")" = regressed
+FAKE_JUDGE=prefer:CAND nr "$scratch/nr-all"
+check "without --tasks it measures every task" test "$(report '[.verdict, .decided] | map(tostring) | join(" ")' "$scratch/nr-all")" = "pass $((tasks * 2))"
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --tasks morning-post "$runs/nbase" "$runs/ncand" "$scratch/t-few" >/dev/null 2>&1 || true
+check "the tournament stays the default, and keeps its 12 pairs" test "$(report '[.mode, .verdict, .min_pairs] | map(tostring) | join(" ")' "$scratch/t-few")" = "tournament lost 12"
+check "refuses a mode it does not know" bash -c "! '$eval_bin' compare --mode vibes '$runs/nbase' '$runs/ncand' '$scratch/x' 2>/dev/null"
+check "refuses a task it does not know" bash -c "! '$eval_bin' compare --tasks nope '$runs/nbase' '$runs/ncand' '$scratch/x' 2>/dev/null"
+
+# A playbook no task uses is unmeasurable, not lost.
+: >"$FAKE_CALLS"
+FAKE_JUDGE=prefer:base nr "$scratch/nr-none" --tasks ""
+check "a change no task reaches is unmeasurable" test "$(report '[.verdict, .promote, .reason] | map(tostring) | join(" ")' "$scratch/nr-none")" = "unmeasurable false no eval task reaches this change"
+check "compare exits 3 for it" test "$code" = 3
+check "and asks the judge nothing" test "$(judge_turns)" = 0
+code=0
+"$eval_bin" compare --tasks "" "$scratch/nodrafts" "$scratch/nodrafts" "$scratch/t-none" >/dev/null 2>&1 || code=$?
+check "in a tournament too, with no drafts at all" test "$code $(report .verdict "$scratch/t-none")" = "3 unmeasurable"
+
+# --- affected: which tasks a change can reach ----------------------------------------------------
+aff="$scratch/aff"
+git init -q "$aff"
+cp -R "$repo/brain" "$aff/brain"
+mkdir -p "$aff/hands"
+printf 'hand\n' >"$aff/hands/x"
+git -C "$aff" add -A
+git -C "$aff" -c user.name=t -c user.email=t@t commit -qm base
+aff_base="$(git -C "$aff" rev-parse HEAD)"
+affected() { "$eval_bin" affected --root "$aff" --base "$aff_base"; }
+reset_aff() { git -C "$aff" reset -q --hard "$aff_base"; git -C "$aff" clean -qfd; }
+check "a tree that changes nothing reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-daily.md"
+check "gen 6's shape: only moltbook-daily.md changed reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+check "and says why" grep -q 'no task drafts from this playbook' <<<"$(affected | jq -r '.paths["brain/playbooks/moltbook-daily.md"]')"
+reset_aff
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
+check "a playbook reaches the tasks drafted from it" test "$(affected | jq -c '[.tasks, .all]')" = '[["morning-post"],false]'
+check "and the why names it" test "$(affected | jq -r '.why["morning-post"]')" = "drafted from brain/playbooks/morning.md"
+reset_aff
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/mentions.md"
+check "the mentions playbook reaches its fourteen tasks" test "$(affected | jq '.tasks | length')" = "$(grep -l '^playbook = "mentions"' "$repo"/evals/tasks/*.toml | wc -l | tr -d ' ')"
+reset_aff
+printf '\nbe kind.\n' >>"$aff/brain/SOUL.md"
+check "SOUL.md reaches every task" test "$(affected | jq -c '[(.tasks | length), .all, (.why | keys)]')" = "[$tasks,true,[\"*\"]]"
+reset_aff
+for f in brain/CONTEXT.md brain/agents/act.md brain/narrative/LORE.md brain/MEMORY.seed.md; do
+  printf '\nx\n' >>"$aff/$f"
+  check "$f reaches every task" test "$(affected | jq .all)" = true
+  reset_aff
+done
+printf 'new\n' >"$aff/AGENTS.md"
+check "an untracked file counts (a new AGENTS.md reaches every task)" test "$(affected | jq .all)" = true
+reset_aff
+printf 'changed\n' >>"$aff/hands/x"
+printf '\nx\n' >>"$aff/brain/narrative/VOICE.md"
+printf '\nx\n' >>"$aff/brain/skills/humor/SKILL.md" 2>/dev/null || printf 'x\n' >"$aff/brain/skills/new.md"
+check "hands, VOICE.md and skills reach no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+reset_aff
+git -C "$aff" mv brain/playbooks/roast.md brain/playbooks/roast-old.md
+check "a rename reaches the tasks of the name it had" test "$(affected | jq -c .tasks)" = '["roast-asked"]'
+reset_aff
+printf 'x\n' >"$aff/brain/playbooks/hé llo.md"
+printf 'x\n' >"$aff/brain/playbooks/tab	name.md"
+check "a path git would quote is read as it is" test "$(affected | jq -r '.paths | keys | join("|")')" = "brain/playbooks/hé llo.md|brain/playbooks/tab	name.md"
+reset_aff
+check "refuses a base that does not exist" bash -c "! '$eval_bin' affected --root '$aff' --base nope 2>/dev/null"
+
+# --- a baseline reused across candidates ---------------------------------------------------------
+# One baseline OUT serves every candidate of a generation (and the next one
+# while main has not moved): --tasks drafts only the rows it is missing.
+act_turns() { jq -r 'select(.agent_id == "act") | 1' "$FAKE_CALLS" | wc -l | tr -d ' '; }
+draft '{"text": "gm %TASK% from the base"}'
+reuse() { "$eval_bin" run --samples 2 --brain "$aff/brain" "$@" "$runs/reuse" >/dev/null 2>&1; }
+: >"$FAKE_CALLS"
+reuse --tasks morning-post
+check "a run records what it measured" test "$(jq -r '[.commit, .samples] | map(tostring) | join(" ")' "$runs/reuse/run.json")" = "$aff_base 2"
+: >"$FAKE_CALLS"
+reuse --tasks morning-post,reply-fud
+check "the next candidate's tasks draft only the rows missing" test "$(act_turns)" = 2
+check "and keep the rows already there" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort | uniq -c | awk '{print $1 $2}' | paste -sd, -)" = "2morning-post,2reply-fud"
+: >"$FAKE_CALLS"
+reuse --tasks reply-fud
+check "a task already drafted is not drafted again" test "$(act_turns)" = 0
+jq -c 'if .task == "reply-fud" and .sample == 2 then .checks = [{"check": "turn", "ok": false, "detail": "dropped"}] | .draft = null | .no_sample = true else . end' \
+  "$runs/reuse/drafts.jsonl" >"$runs/reuse/d" && mv "$runs/reuse/d" "$runs/reuse/drafts.jsonl"
+: >"$FAKE_CALLS"
+reuse --tasks reply-fud
+check "a row that never ran is drafted again" test "$(act_turns)" = 1
+printf '\nCHANGED.\n' >>"$aff/brain/playbooks/morning.md"
+: >"$FAKE_CALLS"
+reuse --tasks morning-post,reply-fud
+check "a row drafted from another message is drafted again" test "$(act_turns)" = 2
+reset_aff
+: >"$FAKE_CALLS"
+reuse --tasks morning-post,reply-fud --key other-model
+check "another --key drafts afresh" test "$(act_turns)" = 4
+printf '\nbe kind.\n' >>"$aff/brain/SOUL.md"
+git -C "$aff" -c user.name=t -c user.email=t@t commit -qam soul
+: >"$FAKE_CALLS"
+reuse --tasks morning-post,reply-fud --key other-model
+check "another commit drafts afresh" test "$(act_turns)" = 4
+check "and only what it was asked" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort -u | paste -sd, -)" = "morning-post,reply-fud"
+git -C "$aff" reset -q --hard "$aff_base"
+: >"$FAKE_CALLS"
+"$eval_bin" run --samples 2 --brain "$aff/brain" --tasks "" "$runs/reuse" >/dev/null 2>&1
+check "--tasks \"\" drafts nothing" test "$(act_turns)" = 0
+: >"$FAKE_CALLS"
+"$eval_bin" run --samples 2 --brain "$aff/brain" --only reply-fud "$runs/reuse" >/dev/null 2>&1
+check "--only still drafts afresh" test "$(act_turns) $(wc -l <"$runs/reuse/drafts.jsonl" | tr -d ' ')" = "2 2"
+check "refuses --only with --tasks" bash -c "! '$eval_bin' run --only reply-fud --tasks reply-fud '$runs/x' 2>/dev/null"
+
+# --- held-out tasks, selected the same way ---------------------------------------------------------
+mkdir -p "$held"
+cat >"$held/hold-morning.toml" <<'TOML'
+description = "a morning post nobody in the public repository can read"
+kind = "post"
+playbook = "morning"
+prompt = '''Write today's morning post.'''
+TOML
+export EVAL_HELDOUT_DIR="$held"
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
+check "affected names a held-out task its playbook reaches" test "$(affected | jq -c '[.tasks, .heldout]')" = '[["morning-post","hold-morning"],["hold-morning"]]'
+reset_aff
+: >"$FAKE_CALLS"
+"$eval_bin" run --samples 1 --tasks morning-post,hold-morning "$runs/hsel" >/dev/null 2>&1
+check "without --with-heldout a held-out id in --tasks is skipped" test "$(jq -r .task "$runs/hsel/drafts.jsonl" | paste -sd, -)" = morning-post
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 --with-heldout --tasks morning-post,hold-morning "$runs/hselb" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 --with-heldout --tasks morning-post,hold-morning "$runs/hselc" >/dev/null 2>&1
+check "with it, it is drafted" test "$(jq -r .task "$runs/hselc/drafts.jsonl" | sort -u | paste -sd, -)" = "hold-morning,morning-post"
+: >"$FAKE_CALLS"
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks morning-post,hold-morning \
+  "$runs/hselb" "$runs/hselc" "$scratch/hsel" >/dev/null 2>&1 || true
+check "and judged once a pair, apart from the verdict" test "$(judge_turns) $(report '[.verdict, .decided, .heldout.pairs] | map(tostring) | join(" ")' "$scratch/hsel")" = "4 pass 2 2"
+code=0
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks hold-morning \
+  "$runs/hselb" "$runs/hselc" "$scratch/honly" >/dev/null 2>&1 || code=$?
+check "held-out tasks alone never decide: unmeasurable" test "$code $(report .verdict "$scratch/honly")" = "3 unmeasurable"
+rm "$held/hold-morning.toml"
+unset EVAL_HELDOUT_DIR
+
 # --- invariants ------------------------------------------------------------------------------------
 cand_root="$scratch/candroot"
 mkdir -p "$cand_root"
