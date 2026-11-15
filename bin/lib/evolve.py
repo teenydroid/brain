@@ -192,6 +192,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_J_WINDOW_DAYS": ("7", int, 1, 90),
     "EVOLVE_DUP_THRESHOLD": ("0.9", float, 0.0, 1.0),
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
+    # The turns a lab run or compare keeps in flight; 1 during a provider outage.
+    "EVAL_CONCURRENCY": (str(evals_lib.DEFAULT_CONCURRENCY), int, 1, evals_lib.MAX_CONCURRENCY),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
     "EVOLVE_CREDIT_DAYS": ("7", int, 1, 90),
     "EVOLVE_CREDIT_DECAY": ("0.5", float, 0.0, 1.0),
@@ -1753,8 +1755,10 @@ class LabCore:
     is used, with the live core's token."""
 
     def __init__(self, cand_url: str, base_url: str | None, samples: int, cand_env: Mapping[str, str] | None = None,
-                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None) -> None:
+                 base_env: Mapping[str, str] | None = None, judge_model: str | None = None,
+                 concurrency: int | None = None) -> None:
         self.cand_url, self.base_url, self.samples = cand_url, base_url, samples
+        self.concurrency = concurrency  # EVAL_CONCURRENCY from secrets/evolve.env; None leaves bin/eval's default
         self.cand_env = dict(cand_env or ({"OPENHUMAN_CORE_URL": cand_url} if cand_url else {}))
         self.base_env = dict(base_env or ({"OPENHUMAN_CORE_URL": base_url} if base_url else {}))
         self.judge_model = judge_model
@@ -1762,6 +1766,8 @@ class LabCore:
     def _eval(self, core: Mapping[str, str], *args: str) -> subprocess.CompletedProcess:
         extra = dict(core)
         extra["EVAL_HELDOUT_DIR"] = str(heldout_dir())
+        if self.concurrency is not None:
+            extra["EVAL_CONCURRENCY"] = str(self.concurrency)
         return subprocess.run([str(CODE / "bin" / "eval"), *args], capture_output=True, text=True,
                               env=code_env(**extra), stdin=subprocess.DEVNULL)
 
@@ -1845,7 +1851,7 @@ class LabEvaluator:
                          self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
         try:
             got = LabCore(lab.url, base_url, self.cfg["EVOLVE_EVAL_SAMPLES"], cand_env=lab.env(), base_env=base_env,
-                          judge_model=self.cfg.judge_model).evaluate(gen_dir, cand, src)
+                          judge_model=self.cfg.judge_model, concurrency=self.cfg["EVAL_CONCURRENCY"]).evaluate(gen_dir, cand, src)
             if self.cfg["EVOLVE_PROBES"]:
                 got["probe"] = self._probe(gen_dir, cand, lab.env(), base_env)
         finally:
@@ -2640,7 +2646,8 @@ def select(cfg: Config, gen: int, cands: list[Json], entries: Mapping[str, Json]
 
 
 def make_evaluators(cand_urls: Mapping[int, str], base_url: str | None, cfg: Config) -> dict[int, Evaluator]:
-    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model)
+    return {i: LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                       concurrency=cfg["EVAL_CONCURRENCY"])
             for i, url in cand_urls.items()}
 
 
@@ -2772,7 +2779,8 @@ def evaluate_cmd(cfg: Config, gen: int, i: int, url: str, base_url: str | None) 
     cand = cands.get(i)
     if cand is None or not cand.get("gate", {}).get("ok"):
         raise EvolveError(f"generation {gen} has no gated candidate {i}")
-    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model), cand, source())
+    evaluate_one(LabCore(url, base_url, cfg["EVOLVE_EVAL_SAMPLES"], judge_model=cfg.judge_model,
+                         concurrency=cfg["EVAL_CONCURRENCY"]), cand, source())
     record(cand)
     return {"ok": True, "id": cand["id"], "verdict": cand["verdict"], "scores": cand.get("scores")}
 
