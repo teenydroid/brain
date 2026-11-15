@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """bin/sandbox-runner: the hand-test sandbox's runner (docs/evolve.md, "The
-hand-test sandbox"). The `sandbox` compose service runs it with no network,
-a read-only root, no capabilities and only state/sandbox/ of the checkout
-mounted (at JOBS_DIR): it runs each job bin/evolve leaves there, a
-candidate's hand tests on a copy in WORK_DIR, kills whatever they left
-behind, and writes the result beside it.
+hand-test sandbox"). The `sandbox` compose service runs it as root with only
+SETUID, SETGID, CHOWN and KILL, no network, a read-only root and only
+state/sandbox/ of the checkout mounted (at JOBS_DIR). It touches JOBS_DIR
+only as the checkout's owner (SANDBOX_UID, SANDBOX_GID), runs each job's
+tests on a copy in WORK_DIR as SANDBOX_TEST_UID (default 65534), which can
+reach neither JOBS_DIR nor this process, kills whatever they left behind,
+and writes the result.
 
     bin/sandbox-runner JOBS_DIR WORK_DIR
+
+It refuses to start without root or those settings: tests running as the
+runner's own uid could forge their result.
 """
 import os
 import sys
@@ -17,6 +22,21 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))  # beside sandbo
 
 import sandbox  # noqa: E402
 
+
+def setting(name: str, default: str | None = None) -> int:
+    value = os.environ.get(name, default)
+    if value is None or not value.isdigit():
+        sys.exit(f"sandbox-runner: {name} must be a uid or gid")
+    return int(value)
+
+
 if len(sys.argv) != 3:
     sys.exit("usage: bin/sandbox-runner JOBS_DIR WORK_DIR")
-sandbox.serve(Path(sys.argv[1]), Path(sys.argv[2]), reap=True)
+if os.geteuid() != 0:
+    sys.exit("sandbox-runner: must start as root (with only SETUID, SETGID, CHOWN and KILL) to run tests as "
+             "another uid; refusing to run them as its own")
+drop = sandbox.Drop(setting("SANDBOX_UID"), setting("SANDBOX_GID"), setting("SANDBOX_TEST_UID", "65534"),
+                    setting("SANDBOX_TEST_GID", "65534"))
+if 0 in (drop.uid, drop.test_uid) or drop.uid == drop.test_uid:
+    sys.exit("sandbox-runner: SANDBOX_UID and SANDBOX_TEST_UID must be two different uids, neither root")
+sandbox.serve(Path(sys.argv[1]), Path(sys.argv[2]), drop=drop)
