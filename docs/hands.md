@@ -1129,8 +1129,9 @@ write on it reaches only the tool-less mind (`gh ingest`), never the builder.
 The browser operator (`brain/agents/operator.toml`, the pinned `operator`
 agent job, every 20 minutes) does one task at a time in OpenHuman's browser,
 on the open web: any public https page except the operator's
-`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1`;
-`deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
+`deploy/browser-deny.txt` (bin/spine sets `OPENHUMAN_BROWSER_ALLOW_ALL=1` and
+`OPENHUMAN_BROWSER_DENY_FILE` to that list, which OpenHuman enforces on every
+navigation; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
 Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
@@ -1180,10 +1181,16 @@ and is not pictured.
 
 **Links to other sites.** A browser session stays on the site it was
 opened on. A click, key press or redirect that leads to another site
-answers `left_for_another_site` with that page's URL instead of failing
-the turn, and the operator opens it with the browser's `open` action if
-its rules let it (never a `never_open` host). That starts a new session on
-that site. The core never follows such a link by itself.
+answers `left_for_another_site` with that page's normalized URL instead of
+failing the turn, and says the page is on another site and that going there
+is a decision under the task's rules. The core never follows such a link by
+itself. The operator opens it with the browser's `open` action only if its
+rules let it, and a host on `deploy/browser-deny.txt` is refused by the
+browser itself: OpenHuman reads that list from `OPENHUMAN_BROWSER_DENY_FILE`
+on every navigation (`open`, `task`, and the `browser_open` tool), whatever
+`OPENHUMAN_BROWSER_ALLOW_ALL` says, and refuses every page if it cannot read
+the list. The operator's prompt says the same. Starting the session on that
+site is what the browser then does, under that rule.
 
 A task ends `needs_human` wherever only a person may go on: the browser's
 checkpoint before any payment (which OpenHuman keeps whatever the unattended

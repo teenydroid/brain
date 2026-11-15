@@ -106,6 +106,14 @@ class CoreConfigTest(unittest.TestCase):
 
         self.assertEqual(Path("state", *queue.CAPTURES), Path("state/browser/screenshots"))
 
+    def test_the_core_refuses_the_deny_list_itself(self):
+        # A link the operator follows to another site is opened by the core
+        # (left_for_another_site, then open); the deny list must hold there
+        # without the model, so bin/spine names it to the core.
+        self.assertIn('export OPENHUMAN_BROWSER_DENY_FILE="$TEENY_ROOT/deploy/browser-deny.txt"',
+                      (REPO / "bin" / "spine").read_text())
+        self.assertTrue((REPO / "deploy" / "browser-deny.txt").is_file())
+
     def test_tinycomputer_is_served_from_its_release_so_the_browser_can_load(self):
         # The browser loads TinyComputer with a host callback (the consequence
         # gate on browser egress), and TinyBus admits a callback-bound load
