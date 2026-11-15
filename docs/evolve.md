@@ -657,15 +657,24 @@ of them touched. A check that fails is detailed by its failing lines, up to
 
 A learning's change touches a playbook or two, so it is measured only where
 it reaches, and asked one question: did anything get worse? This depends on
-three verbs of `bin/eval` ([`evals.md`](evals.md); built in its own pull
-request):
+three verbs of `bin/eval` ([`evals.md`](evals.md); built in teenydroid/brain#278):
 
 ```
-bin/eval affected --root DIR --base SHA     {"tasks": [...], "all": bool, "why": {...}}
-bin/eval run --tasks a,b [--samples N] OUT
+bin/eval affected --root DIR --base SHA     {"tasks", "all", "why", "paths", "heldout"}
+bin/eval run --tasks a,b --samples N --brain DIR --key K OUT
+                                            a reused OUT drafts only missing or stale rows (OUT/run.json)
 bin/eval compare --mode nonregression --tasks a,b [--judge-root R] [--judge-model M] BASE CAND OUT
-                                            report.json verdict: pass | regressed | inconclusive | unmeasurable
+                                            verdict pass | regressed | inconclusive | unmeasurable;
+                                            exit 0 pass, 2 not passed, 3 unmeasurable, 1 an error
 ```
+
+`--brain` is the brain the lab serves (the base lab's tree, or the
+candidate's worktree): `bin/eval` reads each task's playbook prompt from it.
+Until 2026-11-15 the loop passed only the lab's URL and token, so `bin/eval`
+read the live checkout's playbooks, and a candidate's own playbook edit never
+reached its drafts. `--key` is the labs' model (`SPINE_MODEL`), so a model
+change drafts the baseline afresh. The compare runs with nonregression's own
+`--min-pairs` and threshold, each pair judged once.
 
 `TargetedEvaluator` (`EVOLVE_EVALUATOR=lab`, the default), for the gated
 candidates of a generation:
@@ -674,13 +683,13 @@ candidates of a generation:
    task reaches is `unmeasurable` at once, and no lab boots for it. Its pull
    request says so: live outcomes and evolve-watch are its test.
 2. For the rest, one lab spine over main (`EVOLVE_LAB_PORT`) drafts the
-   baseline, only for the tasks no earlier run drafted at this base commit
-   and sample count: `state/evolve/baseline/<base>/s<samples>/` keeps main's
-   drafts task by task across candidates and generations. The base lab also
+   baseline, only for the tasks no earlier run drafted at this base commit,
+   sample count and model: `state/evolve/baseline/<base>/s<samples>-<model>/`
+   is one `bin/eval` run folder kept across candidates and generations. The base lab also
    serves the judge, which reads main's soul, context, lore and arcs.
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
-   --mode nonregression` against a view of the baseline holding those tasks.
+   --mode nonregression --tasks` against the baseline.
    `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
    for every turn in flight: the baseline gets all of it, then each of the K
    candidates measured gets a Kth (at least 1).
@@ -753,7 +762,7 @@ no `result.json` and finishes it where it was, in the same generation:
 - a candidate with a saved proposal is rebuilt from it without a proposer
   turn, and gated again;
 - a gated one is measured, reusing the drafts its eval already made
-  (`eval/cand-<i>/run/run.json` marks a finished run) and a compare report
+  (`eval/cand-<i>/run/evolve-run.json` marks a finished run) and a compare report
   it already has; when every report is there, no lab boots;
 - a measured one opens its pull request.
 
@@ -877,9 +886,9 @@ gen-0).
 
 ## What is not built
 
-- **The targeted eval's verbs.** `bin/eval affected`, `run --tasks` and
-  `compare --mode nonregression` come in their own pull request. Until it
-  lands, `affected` fails, every candidate a gate passes is `unevaluated`
+- **The targeted eval's verbs.** `bin/eval affected`, `run --tasks --brain
+  --key` and `compare --mode nonregression` come in teenydroid/brain#278.
+  Until it lands, `affected` fails, every candidate a gate passes is `unevaluated`
   (a failed try), and nothing opens. The tests use a stand-in that keeps the
   contract (`hands/tests/test_evolve.py`, `STUB_EVAL`).
 - **The babysitter's merge of `teeny/gen-*`.** It is being taught to merge
