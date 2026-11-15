@@ -573,6 +573,28 @@ class DeskTest(Scratch):
         self.assertTrue((stray / "__init__.py").exists())
         self.assertFalse((self.workbench() / "brain" / "hands").exists())
 
+    def test_a_stray_file_from_an_earlier_job_is_not_named_on_a_later_one(self):
+        # Self jobs share the workdir brain. Job 7 left files in the mirror
+        # before job 8 was claimed; job 8 must not be told to rewrite them.
+        mirror = self.workbench() / "state" / "workbench" / "brain" / "hands" / "lib" / "teeny_hands" / "dripsplan"
+        mirror.mkdir(parents=True)
+        old = mirror / "__init__.py"
+        old.write_text("x = 1\n")
+        os.utime(old, (T0 - 3000, T0 - 3000))
+        self.claim_self_job("self-7-build-dripsplan", claimed_at=T0 - 3600, status="shipped")
+        self.claim_self_job("self-8-build-dripsplan", claimed_at=T0)
+        jobs.desk()
+        self.assertNotIn("note", json.loads(self.desk("build.json").read_text())["job"])
+        # A file the current job wrote into the mirror is still named, and
+        # only it: job 7's file is not.
+        fresh = mirror / "cli.py"
+        fresh.write_text("y = 2\n")
+        os.utime(fresh, (T0 + 10, T0 + 10))
+        jobs.desk()
+        note = json.loads(self.desk("build.json").read_text())["job"]["note"]
+        self.assertIn("state/workbench/brain/hands/lib/teeny_hands/dripsplan/cli.py", note)
+        self.assertNotIn("__init__.py", note)
+
     def test_no_note_without_a_nested_mirror(self):
         self.claim_self_job()
         jobs.desk()
