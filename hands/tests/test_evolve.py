@@ -134,15 +134,22 @@ if verb == "affected":
         tasks = sorted({t for m in re.findall(r"^\+.*TOUCHES:([\w,-]+)", diff, re.M) for t in m.split(",") if t})
         print(json.dumps({"tasks": tasks, "all": False, "why": {n: tasks for n in names}}))
 elif verb == "run":
-    tasks, samples, out = opt("--tasks").split(","), int(opt("--samples", "2")), args[-1]
+    tasks, samples, out, brain = opt("--tasks").split(","), int(opt("--samples", "2")), args[-1], opt("--brain")
+    # The draft message carries the task's playbook as the served brain has it
+    # (bin/eval reads it from --brain): here, its TOUCHES lines.
+    playbooks = os.path.join(brain, "playbooks")
+    said = sorted(l.strip() for f in sorted(os.listdir(playbooks)) for l in open(os.path.join(playbooks, f))
+                  if "TOUCHES:" in l)
     note({"verb": "run", "tasks": tasks, "samples": samples, "url": os.environ.get("OPENHUMAN_CORE_URL"),
-          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "out": out})
+          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "out": out, "brain": brain, "key": opt("--key"),
+          "message": said})
     time.sleep(float(os.environ.get("FAKE_EVAL_DELAY") or 0))
     os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, "drafts.jsonl"), "w") as fh:
+    with open(os.path.join(out, "drafts.jsonl"), "a") as fh:  # a reused OUT keeps its rows
         for t in tasks:
             for s in range(samples):
-                fh.write(json.dumps({"task": t, "sample": s, "draft": {"text": f"{t} from {os.environ.get('OPENHUMAN_CORE_URL')}"}}) + "\n")
+                fh.write(json.dumps({"task": t, "sample": s, "message": said,
+                                     "draft": {"text": f"{t} from {os.environ.get('OPENHUMAN_CORE_URL')}"}}) + "\n")
 elif verb == "compare":
     tasks = opt("--tasks").split(",")
     base, cand, out = args[-3], args[-2], args[-1]
@@ -151,14 +158,14 @@ elif verb == "compare":
     verdict = verdicts.get(i, "pass")
     rows = [json.loads(l) for l in open(os.path.join(base, "drafts.jsonl")) if l.strip()]
     note({"verb": "compare", "mode": opt("--mode"), "tasks": tasks, "url": os.environ.get("OPENHUMAN_CORE_URL"),
-          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "base_tasks": sorted({r["task"] for r in rows}),
-          "judge_model": opt("--judge-model")})
+          "concurrency": os.environ.get("EVAL_CONCURRENCY"), "judge_model": opt("--judge-model"),
+          "min_pairs": opt("--min-pairs"), "base_tasks": sorted({r["task"] for r in rows if r["task"] in tasks})})
     os.makedirs(out, exist_ok=True)
     report = {"verdict": verdict, "tasks": tasks, "wins": 1, "losses": 0, "ties": len(tasks) - 1,
               "regressions": [{"task": tasks[0]}] if verdict == "regressed" else [], "fences": [],
               "reason": f"stub {verdict}"}
     json.dump(report, open(os.path.join(out, "report.json"), "w"))
-    sys.exit(0 if verdict == "pass" else 2)
+    sys.exit({"pass": 0, "unmeasurable": 3}.get(verdict, 2))
 else:
     sys.exit(f"stub bin/eval: no verb {verb}")
 """

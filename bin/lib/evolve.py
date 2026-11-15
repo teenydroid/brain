@@ -1817,10 +1817,6 @@ def affected(cand: Json) -> Json:
     return got
 
 
-def _drafts_of(path: Path) -> list[Json]:
-    return read_jsonl(path / "drafts.jsonl")
-
-
 #: bin/evolve's own mark of a finished candidate run, beside bin/eval's
 #: run.json (which bin/eval reads to reuse rows): a resumed run that finds it
 #: needs no lab to know the drafts are there.
@@ -2619,7 +2615,7 @@ def eval_text(cand: Mapping[str, Any]) -> str:
     tasks = ev.get("tasks") or []
     fences = ev.get("fences") or []
     regressions = ev.get("regressions") or []
-    return (f"**Targeted eval** (`bin/eval compare --mode nonregression` against main, blind, both orders): "
+    return (f"**Targeted eval** (`bin/eval compare --mode nonregression` against main, blind): "
             f"{ev.get('verdict')} on the {len(tasks)} task(s) the change reaches"
             + (f" ({'every task' if ev.get('all') else ', '.join(f'`{t}`' for t in tasks)})" if tasks else "")
             + f". {ev.get('wins', 0)} won, {ev.get('losses', 0)} lost, {ev.get('ties', 0)} tied; "
