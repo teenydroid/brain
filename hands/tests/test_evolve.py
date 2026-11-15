@@ -346,7 +346,7 @@ class Learnings(EvolveCase):
         self.assertIn("a sentence that is not in the file", seen[1])
         self.assertNotEqual(out["candidates"][0]["verdict"], "no-proposal")
 
-    def test_edits_that_fail_twice_are_no_proposal(self):
+    def test_edits_that_never_apply_are_parked_after_the_last_round(self):
         calls = []
 
         class Wrong:
@@ -359,9 +359,9 @@ class Learnings(EvolveCase):
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Wrong()):
             out = self.run_gen(1)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
-        self.assertIn("occurs 0 times", out["candidates"][0]["reason"])
+        self.assertEqual(len(calls), 3)  # EVOLVE_REVISE_ROUNDS
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+        self.assertIn("occurs 0 times", self.entries()["g1c1"]["findings"][0]["problem"])
 
     def test_a_skip_without_a_why_is_asked_again(self):
         (self.props / "cand-1.json").write_text(json.dumps({"skip": "meh"}))
@@ -741,7 +741,8 @@ class Gate(EvolveCase):
     def test_a_playbook_delta_passes_every_check(self):
         out, checks = self.gated([self.playbook_edit("Name the person who shipped it.")])
         self.assertTrue(out["ok"], checks)
-        self.assertEqual(set(checks), {"frozen paths", "existing hand entry points", "diff size", "SOUL+CONTEXT size",
+        self.assertEqual(set(checks), {"frozen paths", "existing hand entry points", "diff size", "no binary files",
+                                       "SOUL+CONTEXT size",
                                        "new hands have tests", "aims at a component with a reading",
                                        "does more than run less", "new hands are called", "does more than mark an arc",
                                        "seed-cron --check", "doctor --root", "eval invariants"})
@@ -760,17 +761,21 @@ class Gate(EvolveCase):
         self.assertFalse(checks["existing hand entry points"]["ok"])
         self.assertIn("not run", checks["doctor --root"]["detail"])
 
-    def test_more_than_400_changed_lines_fail(self):
-        body = "".join(f"line {i}\n" for i in range(401))
-        out, checks = self.gated([{"path": "brain/skills/long/SKILL.md", "old": "", "new": body}])
+    def test_more_changed_lines_than_the_share_of_the_repository_fail(self):
+        """The 400-line cap is gone: the cap is EVOLVE_MAX_CHANGE_PCT (5) of
+        every line the repository tracks, about 6,500 lines."""
+        _, ok = self.gated_again(1000)
+        self.assertTrue(ok["diff size"]["ok"], ok["diff size"])
+        tree = self.root / "trees" / "t"
+        cap = evolve.max_change_lines(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip(), 5)
+        _, checks = self.gated_again(cap + 1)
         self.assertFalse(checks["diff size"]["ok"])
-        self.assertIn("401/400", checks["diff size"]["detail"])
-        _, ok = self.gated_again(400)
-        self.assertTrue(ok["diff size"]["ok"])
+        self.assertIn(f"{cap + 1}/{cap}", checks["diff size"]["detail"])
+        self.assertTrue(checks["diff size"]["hard"])
 
     def gated_again(self, n):
         subprocess.run(["git", "--git-dir", str(self.src), "worktree", "remove", "--force",
-                        str(self.root / "trees" / "t")], check=True, capture_output=True)
+                        str(self.root / "trees" / "t")], capture_output=True)
         body = "".join(f"line {i}\n" for i in range(n))
         return self.gated([{"path": "brain/skills/long/SKILL.md", "old": "", "new": body}])
 
@@ -960,12 +965,15 @@ class PurposeChecks(EvolveCase):
                                   self.playbook_edit("Say what the terminal printed overnight.")], component="world")
         self.assertTrue(checks["does more than mark an arc"]["ok"])
 
-    def test_every_rejection_lands_in_the_archive_with_its_reason(self):
+    def test_a_failed_check_lands_in_the_archive_with_its_reason(self):
+        """Not final since 2026-11-15: the same proposal three rounds running
+        is parked, its failed check kept as the finding."""
         self.propose(1, [self.cron('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')],
                      component="attention")
         self.run_gen(1)
         entry = self.entries()["g1c1"]
-        self.assertEqual(entry["verdict"], "rejected")
+        self.assertEqual(entry["verdict"], "parked")
+        self.assertIn("does more than run less", entry["findings"][0]["problem"])
         failed = [c for c in entry["gate"]["checks"] if not c["ok"]]
         self.assertEqual([c["check"] for c in failed], ["does more than run less"])
         self.assertIn("thinned", failed[0]["detail"])
@@ -1303,13 +1311,18 @@ class LabLessons(EvolveCase):
 
 
 
+#: A bash stand-in core's first line: the reviewer approves.
+REVIEW_OK = ("case \"$2\" in *'\"agent_id\":\"reviewer\"'*) python3 -c 'import json; print(json.dumps("
+             "{\"response\": json.dumps({\"verdict\": \"approve\", \"findings\": []})}))'; exit 0;; esac\n")
+
+
 class AskProposerTurn(EvolveCase):
     def test_one_tool_less_turn_on_a_thread_of_its_own(self):
         calls = self.root / "oh.log"
         fake = self.root / "fake-oh"
         answer = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "+1%",
                              "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
-        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+        fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
                         "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' "
                         + "'" + answer.replace("'", "'\\''") + "'\n")
         fake.chmod(0o755)
@@ -1333,7 +1346,7 @@ class AskProposerTurn(EvolveCase):
         good = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "people answer",
                            "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
-        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+        fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
                         "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
                         "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
                         "exit 0;; esac\n"

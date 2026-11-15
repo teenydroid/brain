@@ -97,6 +97,8 @@ elif agent == "judge":
     if len(hits) == 1 and lose and drafts[hits[0]].endswith(" on " + lose):
         hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
+elif agent == "reviewer":
+    answer = json.dumps({"verdict": "approve", "findings": []})
 elif agent == "evolver" and message.startswith("# evolve research"):
     # A research turn that writes anyway: bin/evolve throws it away.
     with open(os.path.join(params["cwd"], "brain", "playbooks", "morning.md"), "a") as fh:
