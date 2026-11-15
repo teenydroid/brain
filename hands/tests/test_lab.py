@@ -161,6 +161,7 @@ class RedditLabTest(LabTest):
             conn.execute("INSERT INTO reddit_post_metrics (kind, target_id, checkpoint, at, score, state)"
                          " VALUES ('comment', ?, 24, ?, ?, 'live')", (cid, T0 + DAY, score))
         conn.close()
+        self.at(T0 + 2 * DAY)
         exp = ledger.db().execute("SELECT * FROM experiments WHERE id = ?", (out["proposed"],)).fetchone()
         got = ledger.measure(ledger.db(), exp)
         self.assertEqual((got["n"], got["avg"], got["baseline_n"], got["baseline_avg"]), (1, 9, 1, 1))

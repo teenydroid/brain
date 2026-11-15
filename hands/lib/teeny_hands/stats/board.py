@@ -38,7 +38,7 @@ TOP = 5
 TEXT_CHARS = 80
 #: Characters of each of the three lines.
 LINE_CHARS = 320
-AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"))
+AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("reddit", "karma"))
 
 Json = dict[str, Any]
 
@@ -182,6 +182,38 @@ def moltbook_writes(conn: sqlite3.Connection, since: float, until: float | None 
     ]
 
 
+def reddit_writes(conn: sqlite3.Connection, since: float, until: float | None = None) -> list[Json]:
+    """Own Reddit posts and comments written in [since, until) with their
+    latest measured row (score, plus a post's comment count); unmeasured
+    ones are left out. A comment's text is not kept, so it reads as its post."""
+    tables = _tables(conn)
+    if not {"reddit_post_metrics", "reddit_posts", "reddit_comments"} <= tables:
+        return []
+    until = until if until is not None else hand.now() + DAY
+    rows = conn.execute(
+        "SELECT w.*, m.checkpoint, m.score, m.comment_count, m.state FROM ("
+        " SELECT 'post' AS kind, post_id AS id, title AS text, at, format, experiment FROM reddit_posts"
+        "  WHERE post_id IS NOT NULL AND at >= ? AND at < ?"
+        " UNION ALL"
+        " SELECT 'comment', comment_id, 'on ' || post_id || ' in r/' || subreddit, at, format, experiment FROM reddit_comments"
+        "  WHERE comment_id IS NOT NULL AND at >= ? AND at < ?) w"
+        " JOIN reddit_post_metrics m ON m.kind = w.kind AND m.target_id = w.id"
+        " JOIN (SELECT kind, target_id, max(checkpoint) AS checkpoint FROM reddit_post_metrics GROUP BY kind, target_id)"
+        "   newest ON newest.kind = m.kind AND newest.target_id = m.target_id AND newest.checkpoint = m.checkpoint"
+        " ORDER BY w.at DESC",
+        (since, until, since, until),
+    ).fetchall()
+    out = []
+    for r in rows:
+        item: Json = {"id": r["id"], "kind": r["kind"], "format": r["format"], "experiment": r["experiment"],
+                      "text": _cut(r["text"]), "result": int(r["score"] or 0) + int(r["comment_count"] or 0),
+                      "checkpoint": r["checkpoint"], "at": r["at"]}
+        if r["state"] != "live":
+            item["state"] = r["state"]
+        out.append(item)
+    return out
+
+
 def _cut(text: Any) -> str:
     text = " ".join(str(text or "").split())
     return text if len(text) <= TEXT_CHARS else text[: TEXT_CHARS - 3] + "..."
@@ -245,6 +277,7 @@ def board(days: int = 7) -> Json:
         people = audience(conn)
         x = _surface(x_writes(conn, since))
         moltbook = _surface(moltbook_writes(conn, since))
+        reddit = _surface(reddit_writes(conn, since))
         daily = moltbook_daily(conn)
     finally:
         conn.close()
@@ -261,5 +294,8 @@ def board(days: int = 7) -> Json:
     daily_line = _daily_line(daily) if daily else None
     if daily_line:
         lines.append(daily_line)
+    # Only once Reddit has a measured write: most boxes have no Reddit account.
+    if reddit["measured"]:
+        lines.append(_surface_line("Reddit", days, reddit))
     return {"days": days, "at": datetime.fromtimestamp(hand.now(), timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-            "audience": people, "x": x, "moltbook": moltbook, "moltbook_daily": daily, "lines": lines}
+            "audience": people, "x": x, "moltbook": moltbook, "reddit": reddit, "moltbook_daily": daily, "lines": lines}

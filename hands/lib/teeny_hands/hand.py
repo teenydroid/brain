@@ -195,6 +195,45 @@ def add_columns(conn: sqlite3.Connection, table: str, columns: Mapping[str, str]
                 raise
 
 
+def rebuild_table(conn: sqlite3.Connection, table: str, schema: str) -> None:
+    """Rebuilds `table` to its CREATE TABLE in `schema` when the stored one
+    differs (SQLite cannot change a CHECK in place): the rows are copied
+    across, column by column where the names match, and the schema's
+    indexes made again, in one transaction. Nothing to do when it already
+    matches."""
+    import re as _re
+
+    create = next(
+        (part.strip() for part in schema.split(";")
+         if _re.match(rf"\s*CREATE TABLE IF NOT EXISTS {_re.escape(table)}\s*\(", part)),
+        None,
+    )
+    if create is None:
+        raise HandError(f"the schema has no table {table}")
+    want = create.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE", 1)
+    have = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    if have is not None and " ".join(have[0].split()) == " ".join(want.split()):
+        return
+    with transaction(conn):
+        have = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+        if have is not None and " ".join(have[0].split()) == " ".join(want.split()):
+            return
+        if have is None:
+            conn.execute(want)
+        else:
+            old = f"{table}__old"
+            conn.execute(f"ALTER TABLE {table} RENAME TO {old}")
+            conn.execute(want)
+            new_columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            shared = [r[1] for r in conn.execute(f"PRAGMA table_info({old})") if r[1] in new_columns]
+            names = ", ".join(shared)
+            conn.execute(f"INSERT INTO {table} ({names}) SELECT {names} FROM {old}")
+            conn.execute(f"DROP TABLE {old}")
+        for part in schema.split(";"):
+            if _re.match(rf"\s*CREATE (UNIQUE )?INDEX IF NOT EXISTS \w+ ON {_re.escape(table)}\b", part):
+                conn.execute(part.strip())
+
+
 def number(name: str, default: int, low: int, high: int) -> int:
     """A whole-number setting, clamped to [low, high]; the default when it is
     unset or unreadable, so a typo cannot lift a cap."""

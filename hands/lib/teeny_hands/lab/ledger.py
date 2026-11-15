@@ -27,9 +27,9 @@ from .. import hand, tags
 from ..stats import board
 
 DAY = 86400.0
-SURFACES = ("x", "moltbook")
+SURFACES = ("x", "moltbook", "reddit")
 #: `result` is the board's one number per write; `views` is X's impressions.
-METRICS = {"x": ("result", "views"), "moltbook": ("result",)}
+METRICS = {"x": ("result", "views"), "moltbook": ("result",), "reddit": ("result",)}
 VERDICTS = ("works", "fails", "unclear")
 STATUSES = ("open", "concluded")
 MAX_OPEN = 5
@@ -42,7 +42,7 @@ MAX_LESSONS = 20
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS experiments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    surface      TEXT NOT NULL CHECK (surface IN ('x', 'moltbook')),
+    surface      TEXT NOT NULL CHECK (surface IN ('x', 'moltbook', 'reddit')),
     hypothesis   TEXT NOT NULL,
     format       TEXT NOT NULL,
     metric       TEXT NOT NULL,
@@ -67,7 +67,10 @@ Json = dict[str, Any]
 
 
 def db() -> sqlite3.Connection:
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    # A ledger from before Reddit: its CHECK names only x and moltbook.
+    hand.rebuild_table(conn, "experiments", SCHEMA)
+    return conn
 
 
 def _line(value: Any, name: str, most: int) -> str:
@@ -165,7 +168,7 @@ def measure(conn: sqlite3.Connection, exp: Mapping[str, Any]) -> Json:
     deadline, against the surface's other writes of the same kinds."""
     until = min(hand.now(), float(exp["deadline_at"]))
     since = float(exp["proposed_at"])
-    read = board.x_writes if exp["surface"] == "x" else board.moltbook_writes
+    read = {"x": board.x_writes, "moltbook": board.moltbook_writes, "reddit": board.reddit_writes}[exp["surface"]]
     writes = read(conn, since, until + 1)
     mine = [w for w in writes if w["experiment"] == exp["id"]
             or (w["experiment"] is None and w["format"] == exp["format"])]

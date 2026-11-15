@@ -89,6 +89,7 @@ STAT_CLASSES = {
     "github.followers": "unknown",
     "moltbook.followers": "agent",
     "moltbook.karma": "agent",
+    "reddit.karma": "unknown",
 }
 #: Why each surface's accounts get the class they do (`collect.classify`).
 CLASS_RULES = {
@@ -96,6 +97,7 @@ CLASS_RULES = {
     "telegram": "human: Telegram marks every bot account (is_bot), and bots never reach the inbox",
     "gh": "agent when the login ends in [bot] (a GitHub App), unknown otherwise",
     "x": "unknown: nothing X returns says whether an account is automated",
+    "reddit": "unknown: Reddit is people, not agents, but nothing it returns marks a bot account",
     "mail": "unknown: automated senders never reach the inbox, but nothing says a person wrote the rest",
 }
 

@@ -195,11 +195,63 @@ def _resend_moltbook(held: dict[str, Any]) -> str:
     return f"re-judged clean and sent: commented on Moltbook as {out.get('commented')} on {out.get('post_id')}"
 
 
+def _reddit_body(held: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """("post" or "comment", the body `hands/reddit` takes) to send a held
+    draft again as it was written, or None when the hold does not say enough
+    (a post's subreddit and anchor, a comment's post and parent)."""
+    context, fields = held["context"], _fields(held)
+    if fields is None:
+        return None
+    tags = {key: context[key] for key in ("format", "experiment") if context.get(key) is not None}
+    kind = context.get("post_kind")
+    if (kind == "post" and isinstance(context.get("subreddit"), str) and isinstance(context.get("anchor"), str)
+            and "title" in fields):
+        body = {"subreddit": context["subreddit"], "title": fields["title"], "anchor": context["anchor"], **tags}
+        if "body" in fields:
+            body["body"] = fields["body"]
+        for key in ("url", "flair_id"):
+            if context.get(key):
+                body[key] = context[key]
+        return "post", body
+    if kind == "comment" and isinstance(context.get("post_id"), str) and "parent_id" in context and "body" in fields:
+        body = {"post_id": context["post_id"], "body": fields["body"], **tags}
+        if context.get("parent_id"):
+            body["parent_id"] = context["parent_id"]
+        return "comment", body
+    return None
+
+
+def _resend_reddit(held: dict[str, Any]) -> str:
+    """Sends a held Reddit draft again through hands/reddit (the guard and
+    every rule again, the anchor and the back-offs among them); where it
+    went. A post is dropped when Teeny has posted on Reddit since it was held."""
+    from ..reddit import actions, rules
+
+    verb, body = _reddit_body(held)  # type: ignore[misc]
+    if verb == "post":
+        since = hand.now() - _age(held)
+        conn = rules.db()
+        try:
+            later = conn.execute(
+                f"SELECT count(*) FROM reddit_posts WHERE at >= ? AND status IN ({','.join('?' for _ in rules.COUNTED)})",
+                (since, *rules.COUNTED),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        if later:
+            raise hand.Refused("Teeny has posted on Reddit since this draft was held", rule="resend")
+        out = actions.post(body)
+        return f"re-judged clean and sent: posted on Reddit as {out.get('posted')}"
+    out = actions.comment(body)
+    return f"re-judged clean and sent: commented on Reddit as {out.get('commented')} on {out.get('post_id')}"
+
+
 # surface -> (whether a held draft says enough to send again, what sends it
 # and says where it went). A surface not here only expires: an X reply is the
 # tick's to send again (bin/lib/tick.py), and the rest wait for Teeny.
 RESENDERS: dict[str, tuple[Callable[[dict[str, Any]], bool], Callable[[dict[str, Any]], str]]] = {
     "moltbook": (lambda held: _moltbook_body(held) is not None, _resend_moltbook),
+    "reddit": (lambda held: _reddit_body(held) is not None, _resend_reddit),
 }
 
 

@@ -49,14 +49,16 @@ CREATE TABLE IF NOT EXISTS briefs (
   post_id    TEXT,
   post_text  TEXT,
   done_at    REAL,
-  surface    TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook'))
+  surface    TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook', 'reddit'))
 );
 CREATE INDEX IF NOT EXISTS briefs_status ON briefs (status, created_at);
 """
 
 MAX_TEXT = 2000
-SURFACES = ("x", "moltbook")
-#: How long a Moltbook lead is offered: a thread two days old has moved on.
+SURFACES = ("x", "moltbook", "reddit")
+#: The surfaces whose briefs are leads (a thread to join), not X posts.
+LEAD_SURFACES = ("moltbook", "reddit")
+#: How long a Moltbook or Reddit lead is offered: a thread two days old has moved on.
 LEAD_HOURS = 48
 MAX_LEADS = 10
 
@@ -73,6 +75,8 @@ def _db():
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc):
                 raise
+    # A ledger from before Reddit: its CHECK names only x and moltbook.
+    hand.rebuild_table(conn, "briefs", SCHEMA)
     return conn
 
 
@@ -113,13 +117,15 @@ def next_open() -> Json:
         conn.close()
 
 
-def leads() -> Json:
+def leads(surface: str = "moltbook") -> Json:
+    if surface not in LEAD_SURFACES:
+        raise hand.HandError(f"leads are for one of {', '.join(LEAD_SURFACES)}")
     conn = _db()
     try:
         rows = conn.execute(
-            "SELECT id, text, created_at FROM briefs WHERE status = 'open' AND surface = 'moltbook' AND created_at >= ?"
+            "SELECT id, text, created_at FROM briefs WHERE status = 'open' AND surface = ? AND created_at >= ?"
             " ORDER BY created_at DESC, id DESC LIMIT ?",
-            (hand.now() - LEAD_HOURS * 3600, MAX_LEADS),
+            (surface, hand.now() - LEAD_HOURS * 3600, MAX_LEADS),
         ).fetchall()
         return {"leads": [{"id": r["id"], "text": r["text"], "created_at": r["created_at"]} for r in rows]}
     finally:
@@ -220,11 +226,13 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    adding = verb("add", lambda a, _: add(" ".join(a.text), a.surface), "queue a brief or a Moltbook lead (operator)")
+    adding = verb("add", lambda a, _: add(" ".join(a.text), a.surface), "queue a brief or a Moltbook or Reddit lead (operator)")
     adding.add_argument("--surface", choices=SURFACES, default="x")
     adding.add_argument("text", nargs="+")
     verb("next", lambda a, _: next_open(), "the oldest open X brief")
-    verb("leads", lambda a, _: leads(), "the open Moltbook leads of the last 48 hours")
+    verb("leads", lambda a, _: leads(a.surface), "the open Moltbook (or Reddit) leads of the last 48 hours").add_argument(
+        "--surface", choices=LEAD_SURFACES, default="moltbook"
+    )
     verb("list", lambda a, _: listing(a.max), "the briefs, newest first").add_argument(
         "--max", type=_bounded(1, 100, "--max"), default=20
     )

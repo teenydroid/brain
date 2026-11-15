@@ -115,6 +115,18 @@ def moltbook_ledger_metrics() -> dict[str, float]:
         raise hand.HandError(f"the Moltbook ledger could not be read: {exc}") from None
 
 
+def reddit_metrics() -> dict[str, float]:
+    """The Reddit account's karma, through hands/reddit (reddit/metrics.py,
+    `daily`): `karma`, `link_karma`, `comment_karma`."""
+    from ..reddit import metrics
+    from ..rest import RestError
+
+    try:
+        return metrics.daily()
+    except RestError as exc:
+        raise hand.HandError(f"Reddit: {exc}") from None
+
+
 def github_metrics() -> dict[str, float]:
     import urllib.parse
 
@@ -141,6 +153,7 @@ SOURCES: dict[str, tuple[tuple[str, ...], Callable[[], dict[str, float]]]] = {
     "moltbook": (("MOLTBOOK_API_KEY",), lambda: moltbook_metrics()),
     "moltbook_ledger": (("MOLTBOOK_API_KEY",), lambda: moltbook_ledger_metrics()),
     "github": (("GITHUB_TOKEN",), lambda: github_metrics()),
+    "reddit": (("REDDIT_CLIENT_ID",), lambda: reddit_metrics()),
 }
 
 

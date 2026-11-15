@@ -61,10 +61,11 @@ CREATE TABLE IF NOT EXISTS world_scores (
 Json = dict[str, Any]
 
 #: Stats metrics that count as attention, and as shipped.
-ATTENTION_STATS = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("github", "followers"))
+ATTENTION_STATS = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("github", "followers"),
+                   ("reddit", "karma"))
 SHIPPED_STATS = (("github", "stars"), ("github", "forks"), ("github", "open_issues"))
 #: Stimuli surfaces where a person reached Teeny, and the window counted.
-ENGAGED_SURFACES = ("x", "moltbook", "mail", "telegram", "gh")
+ENGAGED_SURFACES = ("x", "moltbook", "reddit", "mail", "telegram", "gh")
 #: The surfaces version 1 counted, for `v1_value`.
 V1_SURFACES = ("x", "moltbook", "mail", "telegram")
 ENGAGED_DAYS = 7
@@ -74,6 +75,7 @@ TEST_ALIASES = {"image": "media", "video": "media"}
 CHANNELS = {
     "x": ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"),
     "moltbook": ("MOLTBOOK_API_KEY",),
+    "reddit": ("REDDIT_CLIENT_ID", "REDDIT_USERNAME"),
     "github": ("GITHUB_TOKEN",),
     "mail": ("AGENTMAIL_API_KEY", "AGENTMAIL_INBOX"),
     "telegram": ("TELEGRAM_BOT_TOKEN",),
