@@ -393,7 +393,8 @@ tz = "UTC"
 command = "bin/pay-bills"
 
 # The weekly Moltbook unfollow (bin/moltbook-prune): whoever Teeny followed 7 or
-# more days ago that does not follow back is taken off its follow list, so the
+# more days ago that does not follow back is taken off its follow list (peers and
+# agents with a real exchange in the last 14 days stay), so the
 # daily follow job (brain/cron.toml, moltbook-follow) is never a follow-for-follow.
 # Pinned so the brain cannot drop it; it does not use one of the brain's 24 slots.
 [jobs.moltbook-prune]

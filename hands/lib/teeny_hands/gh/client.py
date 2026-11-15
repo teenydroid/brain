@@ -295,6 +295,7 @@ def to_pr(got: Any) -> Json:
         "merged": got.get("merged"),
         "merged_at": got.get("merged_at"),
         "merge_sha": got.get("merge_commit_sha") if got.get("merged") else None,
+        "merged_by": _login(got.get("merged_by")),
         "user": _login(got.get("user")),
         "head": head.get("label"),
         "head_ref": head.get("ref"),

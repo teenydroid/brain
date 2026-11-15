@@ -41,6 +41,7 @@ in="$(cat)"
 printf 'x %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   search) echo '{"ok": true, "posts": [{"id": "111", "text": "gm @teenydroid, what are you building?"}]}' ;;
+  links) printf '%s\n' "${FAKE_X_LINKS:-{\"ok\": true, \"cap\": 1, \"sent_today\": 0, \"left\": 1\}}" ;;
   upload) [ -n "${FAKE_UPLOAD_FAIL:-}" ] && { echo '{"ok": false, "error": "X answered 500"}'; exit 1; }
     echo '{"ok": true, "media_id": "1234567890"}' ;;
   *) echo '{"ok": true, "dry_run": true}'; exit "${FAKE_X_EXIT:-0}" ;;
@@ -236,6 +237,16 @@ for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "
   FAKE_QUEUE="$empty" run told >/dev/null
   check "treats $empty as empty" test ! -s "$FAKE_CALLS"
 done
+# A gate (hands/moltbook post-slot) answers only its reason when it is shut:
+# that is empty too, and the skip records the reason.
+reset
+out="$(FAKE_QUEUE='{"ok": true, "why": "rate_limit: one post per 30 min; wait 329s"}' run told)"
+check "treats an answer of only a why as empty" test ! -s "$FAKE_CALLS"
+check "and records the why with the skip" test "$(jq -r .why <<<"$out")" = "rate_limit: one post per 30 min; wait 329s"
+check "and in runs.jsonl" test "$(tail -n 1 "$scratch/state/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
+reset
+FAKE_QUEUE='{"ok": true, "open": true}' run told >/dev/null
+check "drafts when the gate is open" test -s "$FAKE_CALLS"
 printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
@@ -649,6 +660,35 @@ else
   check "bin/ask sends a 60k-character message within 10 seconds" test "$(jq -r '.message | length' "$FAKE_CALLS")" -gt 59000
 fi
 check "bin/ask still refuses a message that is only whitespace" bash -c "! printf '  \n\t ' | '$here/../ask' --agent act 2>/dev/null"
+
+# --- show: the day's one X link already spent -------------------------------------------
+# X refuses a second link post a day (hands/x, X_LINK_POSTS_MAX_PER_DAY). The
+# real show playbook reads `hands/x links` first and is told to write the
+# Moltbook exchange without its url when none is left, rather than lose the
+# 23:00 slot to a refusal.
+for h in gh stats moltbook brief; do
+  cat >"$scratch/hands/$h" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$FAKE_HANDS"
+case "$(basename "$0") $1" in
+  "moltbook highlight") echo '{"ok": true, "highlight": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
+  "brief next") echo '{"ok": true, "brief": null}' ;;
+  *) echo '{"ok": true}' ;;
+esac
+FAKE
+  chmod +x "$scratch/hands/$h"
+done
+cp "$here/../../brain/playbooks/show.md" "$brain/playbooks/show.md"
+reset
+answer '{"action": "post", "text": "an agent named Ava told me \"your cache hides the bug\". it did.", "format": "moltbook"}'
+out="$(FAKE_X_LINKS='{"ok": true, "cap": 1, "sent_today": 1, "left": 0}' run show)"
+message="$(jq -r .message "$FAKE_CALLS")"
+check "show reads today's X link budget before it drafts" grep -q '^x links DRY_RUN=1 ' "$FAKE_HANDS"
+check "and gives the model the spent link as data" grep -q '"x-links":{"ok":true,"cap":1,"sent_today":1,"left":0}' <<<"$message"
+check "and tells it to leave the exchange's url out when none is left" grep -q "only when \`x-links\` says \`left\` is 1 or more; otherwise leave the url out" <<<"$message"
+check "the link-free show post goes out instead of being refused" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "with no link in it" bash -c "grep '^x post ' '$FAKE_HANDS' | grep -q 'Ava' && ! grep '^x post ' '$FAKE_HANDS' | grep -q 'moltbook.com'"
+rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$scratch/hands/moltbook" "$scratch/hands/brief"
 
 # --- the repository's own playbooks parse ------------------------------------------------
 for path in "$here/../../brain/playbooks"/*.md; do

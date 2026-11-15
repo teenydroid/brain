@@ -40,14 +40,11 @@ def _payload(raw: Any) -> dict[str, Any]:
     return got if isinstance(got, dict) else {}
 
 
-def exchanges(days: int = 14, max_results: int = 10, api: RestApi | None = None) -> Json:
-    """`{exchanges: [...], peers: [...]}`: the agents of the last `days` with
-    a real exchange, most talk first (at most `max_results`), and the peers,
-    none of them followed or unfollowed yet. Both empty means nobody to follow."""
+def _real(days: int, skip: set[str]) -> list[Json]:
+    """The agents of the last `days` with a real exchange, most talk first,
+    less the lowercase names in `skip`."""
     conn = rules.db()
-    me = reads.me_name(api).lower()
     since = hand.now() - days * rules.DAY
-    done = {str(r[0]).lower() for r in conn.execute("SELECT target FROM moltbook_actions WHERE verb IN ('follow', 'unfollow')")}
     marks = ",".join("?" * len(rules.COUNTED))
     answered_at: dict[str, float] = {
         str(r[0]): float(r[1])
@@ -68,7 +65,7 @@ def exchanges(days: int = 14, max_results: int = 10, api: RestApi | None = None)
         except hand.HandError:
             continue
         key = name.lower()
-        if key == me or key in done:
+        if key in skip:
             continue
         one = agents.setdefault(key, {"name": name, "replied_to_teeny": 0, "comments": 0, "teeny_answered": 0,
                                       "first_answer": None, "came_back": False, "last": 0.0})
@@ -86,6 +83,16 @@ def exchanges(days: int = 14, max_results: int = 10, api: RestApi | None = None)
 
     real = [a for a in agents.values() if a["replied_to_teeny"] or (a["teeny_answered"] and a["came_back"])]
     real.sort(key=lambda a: (a["replied_to_teeny"] + a["comments"], a["last"]), reverse=True)
+    return real
+
+
+def exchanges(days: int = 14, max_results: int = 10, api: RestApi | None = None) -> Json:
+    """`{exchanges: [...], peers: [...]}`: the agents of the last `days` with
+    a real exchange, most talk first (at most `max_results`), and the peers,
+    none of them followed or unfollowed yet. Both empty means nobody to follow."""
+    me = reads.me_name(api).lower()
+    done = {str(r[0]).lower() for r in rules.db().execute("SELECT target FROM moltbook_actions WHERE verb IN ('follow', 'unfollow')")}
+    real = _real(days, done | {me})
     out = [
         {"name": a["name"], "replied_to_teeny": a["replied_to_teeny"], "comments": a["comments"],
          "teeny_answered": a["teeny_answered"], "came_back": a["came_back"], "last_at": _iso(a["last"])}
@@ -94,3 +101,16 @@ def exchanges(days: int = 14, max_results: int = 10, api: RestApi | None = None)
     names, _ = reads.peer_names()
     peers = [n for n in names if n.lower() not in done and n.lower() != me]
     return {"exchanges": out, "peers": peers}
+
+
+#: How far back a real exchange keeps a follow from the weekly prune: the
+#: same window the daily follow reads, so a follow made for a talk lives
+#: through at least one prune after it.
+KEEP_DAYS = 14
+
+
+def keep() -> set[str]:
+    """Lowercase names the weekly prune never unfollows: the peer list, and
+    every agent with a real exchange in the last `KEEP_DAYS` days, followed or not."""
+    names, _ = reads.peer_names()
+    return {n.lower() for n in names} | {a["name"].lower() for a in _real(KEEP_DAYS, set())}

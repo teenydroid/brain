@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -291,6 +292,37 @@ def check_post(conn: sqlite3.Connection) -> dict[str, Any]:
     if done >= cap:
         raise hand.Refused(f"{done} Moltbook post(s) in the last 24 hours; the cap is {cap}", rule="daily_cap")
     return {"new_agent": new}
+
+
+#: The longest wait `post-slot --wait` takes. A cron shell job past 300 s
+#: fails (docs/oh-gaps.md, G12), and a posting playbook's run already takes
+#: one to six minutes, so the gate never sits out more than this.
+POST_SLOT_MAX_WAIT = 180
+
+
+def post_slot(wait: float = 0.0, sleep: Any = time.sleep) -> dict[str, Any]:
+    """Whether a post would pass the limits now, for a posting playbook's
+    first input (`hands/moltbook post-slot`): {"open": true} when it would,
+    else only {"why": "<rule>: <reason>"}, which bin/act reads as empty and
+    skips before the model turn. A wait for the gap (or the write rate) of at
+    most `wait` seconds is sat out once, then asked again. It reads the same
+    rules a post meets (check_post) and moves none of them."""
+    conn = db()
+    try:
+        waited = 0
+        while True:
+            try:
+                mode = check_post(conn)
+                return {"open": True, **mode, **({"waited": waited} if waited else {})}
+            except hand.Refused as refused:
+                rule, left = refused.detail.get("rule"), refused.detail.get("wait_seconds")
+                if (waited or rule != "rate_limit" or not isinstance(left, (int, float))
+                        or left > min(wait, POST_SLOT_MAX_WAIT)):
+                    return {"why": f"{rule}: {refused.reason}"}
+            sleep(left)
+            waited = int(left)
+    finally:
+        conn.close()
 
 
 def check_follow(conn: sqlite3.Connection, name: str) -> None:

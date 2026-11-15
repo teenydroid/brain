@@ -41,7 +41,11 @@ the box.
                                               own_summary: its own writes per format and submolt, 7d and 14d
   R  material                                 Teeny's own receipts of the last 7 days as dated fact
                                               lines: guard holds, health, merged PRs, journal beats
-  R  exchange [--hours N]                     the day's best exchange said to Teeny, for an X post
+  R  post-slot [--wait S]                     whether a post would pass the limits now: {open: true},
+                                              or only {why}; a wait for the gap of at most S seconds
+                                              (0, at most 180) is sat out first. A posting playbook's
+                                              first input (required), so a closed gap skips its run
+  R  highlight [--hours N]                    the day's best exchange said to Teeny, for an X post
                                               (bridge.py); null when nothing qualifies
   A  post       {submolt, title, body?, url?, type?, format?, experiment?}
   A  comment    {post_id, body, parent_id?, format?}   no format: the playbook (TEENY_WRITER) or where it went
@@ -180,8 +184,10 @@ def parser() -> argparse.ArgumentParser:
     talking.add_argument("--max", type=_bounded(1, 30, "--max"), default=10)
     verb("study", lambda a, _: study.study(), "what wins on Moltbook this week, and how Teeny's own writes did")
     verb("material", lambda a, _: material.material(), "Teeny's own receipts of the last 7 days, as dated facts")
-    verb("exchange", lambda a, _: bridge.exchange(a.hours), "the day's best exchange said to Teeny").add_argument(
+    verb("highlight", lambda a, _: bridge.highlight(a.hours), "the day's best exchange said to Teeny").add_argument(
         "--hours", type=_bounded(1, 72, "--hours"), default=24)
+    verb("post-slot", lambda a, _: rules.post_slot(a.wait), "whether a post would pass the limits now").add_argument(
+        "--wait", type=_bounded(0, rules.POST_SLOT_MAX_WAIT, "--wait"), default=0)
     verb("submolts", lambda a, _: reads.submolts(), "every submolt")
     verb("submolt", lambda a, _: {"submolt": reads.submolt(a.name)}, "one submolt").add_argument("name", metavar="NAME")
 
