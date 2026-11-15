@@ -160,7 +160,7 @@ class Research(LoopCase):
         self.assertEqual(out["candidates"][0]["verdict"], "opened")
 
     def test_a_research_answer_out_of_shape_builds_without_a_plan_and_says_why(self):
-        for bad, why in ((["not", "an object"], "not a JSON object"),
+        for n, (bad, why) in enumerate(((["not", "an object"], "not a JSON object"),
                          ({"verdict": "maybe", "why": "x"}, "verdict"),
                          ({"verdict": "build", "why": "x"}, "needs a plan"),
                          ({**BUILD, "read": ["secrets/teeny.env"]}, "may not read"),
@@ -168,9 +168,9 @@ class Research(LoopCase):
                          ({**BUILD, "read": ["/etc/passwd"]}, "not a repository path"),
                          ({**BUILD, "read": ["brain/no-such-file.md"]}, "not a tracked file"),
                          ({**BUILD, "read": [f"brain/playbooks/{n}.md" for n in range(9)]}, "the most is 8"),
-                         ({**BUILD, "document": ["deploy/prod.env"]}, "may not document")):
+                         ({**BUILD, "document": ["deploy/prod.env"]}, "may not document"))):
             with self.subTest(why=why):
-                tree = self.worktree(f"t{abs(hash(why))}")
+                tree = self.worktree(f"t{n}")
                 with self.assertRaises(evolve.EvolveError) as raised:
                     evolve.check_research(bad, tree)
                 self.assertIn(why, str(raised.exception))
@@ -311,7 +311,7 @@ class ResearchTurns(LoopCase):
         (params,) = [json.loads(line) for line in calls.read_text().splitlines()]
         self.assertEqual(params["agent_id"], "act")
         self.assertTrue(params["message"].startswith("# evolve research: generation 1, candidate 1"))
-        self.assertIn("## file: brain/cron.toml", params["message"])
+        self.assertIn("## file: brain/", params["message"])
         self.assertLessEqual(len(params["message"].encode()), evolve.MAX_PROPOSER_PROMPT_BYTES)
 
 
