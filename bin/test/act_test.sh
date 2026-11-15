@@ -671,7 +671,7 @@ for h in gh stats moltbook brief; do
 #!/usr/bin/env bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$FAKE_HANDS"
 case "$(basename "$0") $1" in
-  "moltbook exchange") echo '{"ok": true, "exchange": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
+  "moltbook highlight") echo '{"ok": true, "highlight": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
   "brief next") echo '{"ok": true, "brief": null}' ;;
   *) echo '{"ok": true}' ;;
 esac
