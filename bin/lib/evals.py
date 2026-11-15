@@ -497,16 +497,96 @@ def drafting_brain(evals: Path) -> Path:
     return Path(os.environ.get("OPENHUMAN_WORKSPACE") or evals.parent / "brain")
 
 
-def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str]) -> dict:
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+#: What, beside the message, the act turn's system prompt is read from in
+#: the measured brain (see EVERY_DRAFT): the built prompt carries the rest.
+PROMPT_FILES = ("agent/prompts/act.md", "agents/act.toml", "SOUL.md", "IDENTITY.md", "AGENTS.md")
+
+
+def measured(brain: Path, samples: int, key: str = "") -> dict:
+    """What a run records about the brain it drafted (OUT/run.json), and
+    what a later run must match to reuse its drafts: the commit of the
+    brain's checkout, a hash of what the act turn's system prompt is built
+    from (PROMPT_FILES, and the repository's AGENTS.md), the samples, and a
+    KEY of the caller's (bin/eval run --key: say, the model). `commit` is
+    None outside a git checkout, and such a run is never reused."""
+    def git(*args: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(brain), *args], capture_output=True, text=True)
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    top = git("rev-parse", "--show-toplevel")
+    prompt = hashlib.sha256()
+    for name in PROMPT_FILES:
+        path = brain / name
+        prompt.update(f"{name}\0".encode())
+        prompt.update(path.read_bytes() if path.is_file() else b"\0missing")
+    if top:
+        path = Path(top) / "AGENTS.md"
+        prompt.update(b"AGENTS.md@root\0" + (path.read_bytes() if path.is_file() else b"\0missing"))
+    status = git("status", "--porcelain", "--", ".")
+    return {"brain": str(brain.resolve()), "root": top, "commit": git("rev-parse", "HEAD") if top else None,
+            "dirty": bool(status) if status is not None else None, "prompt_sha": prompt.hexdigest(),
+            "samples": samples, "key": key}
+
+
+def _reusable(old: dict | None, now: dict) -> str | None:
+    """Why OLD's drafts cannot stand for NOW's, or None when they can."""
+    if old is None:
+        return "no run.json"
+    if not now["commit"]:
+        return f"{now['brain']} is not in a git checkout"
+    for field in ("commit", "prompt_sha", "samples", "key"):
+        if old.get(field) != now[field]:
+            return f"its {field} differs"
+    return None
+
+
+def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str], ask: list[str],
+          resume: bool = False, key: str = "") -> dict:
     """Every task in `ids`, `samples` times, drafted by `ask` (bin/ask
     --agent act) and checked. A turn that fails is tried again (Retrier);
     one that never answers keeps its failed `turn` check, with `no_sample`
-    and `attempts`, and is set aside as unrun."""
+    and `attempts`, and is set aside as unrun.
+
+    OUT/run.json (beside OUT) records what was measured (measured()), and
+    every draft its message's hash. With RESUME, an OUT whose run.json
+    matches is kept: every row stays, and only the (task, sample) pairs of
+    IDS with no row, a row that never ran, or a row drafted from another
+    message are drafted again. So one baseline serves every candidate of a
+    generation, and the next generation too while main has not moved, each
+    drafting only the tasks the last ones did not need."""
     tasks = [load_task(evals, task_id) for task_id in ids]
     retrier = Retrier()
     drafted = passed = missing = 0
     brain = drafting_brain(evals)
+    meta_path = out.with_name("run.json")
+    now = measured(brain, samples, key)
+    kept: list[dict] = []
+    if resume and out.is_file():
+        try:
+            old = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            old = None
+        why = _reusable(old, now)
+        if why is None:
+            kept = _read_jsonl(out)
+        else:
+            print(f"[eval] not reusing {out}: {why}; drafting afresh", file=sys.stderr)
     jobs = [(task, render(task, brain), sample) for task in tasks for sample in range(1, samples + 1)]
+    done = {(r["task"], r["sample"]): r for r in kept}
+    reused = 0
+    todo = []
+    for task, message, sample in jobs:
+        row = done.get((task["id"], sample))
+        if row is not None and not _unrun(row) and row.get("message_sha") == _sha(message):
+            reused += 1
+            continue
+        done.pop((task["id"], sample), None)
+        todo.append((task, message, sample))
+    kept = list(done.values())
 
     def one(job: tuple) -> dict:
         task, message, sample = job
@@ -517,10 +597,15 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
         else:
             result = {"draft": None, "checks": [{"check": "turn", "ok": False, "detail": turn.stderr.strip()[-300:]}], "ok": False}
             extra["no_sample"] = True
-        return {"task": task["id"], "sample": sample, "heldout": task["heldout"], "answer": turn.stdout[:4000], **result, **extra}
+        return {"task": task["id"], "sample": sample, "heldout": task["heldout"], "answer": turn.stdout[:4000],
+                **result, **extra, "message_sha": _sha(message)}
 
+    meta_path.write_text(json.dumps(now, indent=2) + "\n", encoding="utf-8")
     with out.open("w", encoding="utf-8") as fh:
-        for record in _in_flight(one, jobs):
+        for record in kept:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        fh.flush()
+        for record in _in_flight(one, todo):
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             fh.flush()
             failed = [c["check"] for c in record["checks"] if not c["ok"]]
