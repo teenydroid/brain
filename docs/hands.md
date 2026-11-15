@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -39,6 +39,7 @@ report they leave beside it.
 | `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
 | `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
+| `follow-up --to ID` | A | Continues one of the account's own posts as a thread: a reply to `ID`, which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
@@ -2592,6 +2593,37 @@ operator runs it, and a playbook that announces a site would come with a
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `giveaway`: Tiny Drops, public $TINY rounds paid by code
+
+Rounds anyone can enter by replying to the round post, paid from the giveaway
+pool (Solana wallet index 1, `m/44'/501'/1'/0'`), never Teeny's own wallet
+(the `giveaway-pool` fence, docs/governance.md). A model only opens a round
+and picks the best reply; who entered, the draw, the payout and the clawback
+are code's. The round files it publishes are the contract in
+`docs/drops-schema.md` and `web/src/lib/drops.ts`.
+
+| Verb | | Does |
+|---|---|---|
+| `open` | A | `{format, pool_tiny, winners, best_reply_tiny, prompt, deadline, threshold?, text}`. Refused unless `GIVEAWAYS` is on (`rule: giveaways_off`) and every cap below is set and sane (`rule: caps`). `format` is `drop` (N random winners plus a best reply), `milestone` (the same, paid only if `x.followers` from `hands/stats` reaches `threshold` by the draw; the threshold must be above today's count) or `challenge` (judged only: `winners` 0, the best reply takes the pool). The pool is at most `GIVEAWAY_POOL_MAX_TINY`, and with every round opened in the last 30 days at most `GIVEAWAY_SEASON_MAX_TINY`; at most `GIVEAWAY_ROUNDS_PER_WEEK` rounds open in any 7 days; the pool less the best-reply prize splits evenly between the winners, and one person winning both is at most `GIVEAWAY_MAX_PER_WINNER_TINY`; the deadline is 1 hour to 30 days away; one round is open at a time. `text` is the announcement, which must carry the round's tag `drop #N` (`status` names the next one); it goes out through the x hand's `post` (guard, posting rules, `DRY_RUN`), and only once it is out is the round recorded, with that post as the round post. Under `DRY_RUN` nothing is recorded. |
+| `status [ID]` | R | The season against the caps (`next_tag`, `season_left_tiny`, `rounds_left_this_week`, ...) and the last 20 rounds, or one round with its entry counts. Statuses: `open`, `drawn`, `void` (nothing to pay; the diary shows it as `drawn` with no claims), `settled`, `clawed_back`. |
+| `announcements` | R | What the giveaway playbooks owe a post for: `open` (room to open a round), `countdown` (an open round within 24 hours of its deadline), `to_judge` (past the deadline, with a best-reply prize and no pick: the entries eligible so far, never a held one, at most 30, 500 characters each), `winners` (drawn), `claim_open` (settled), `closing_soon` (within 72 hours of the clawback). Each but `open` and `to_judge` names `thread_to`, the newest post of the round's own thread, for `hands/x follow-up`; one goes away once a post in that thread comes after it was owed. |
+| `judge` | A | `{round_id, entry_id, reasons, text}`, after the deadline and before the draw, for an entry eligible so far and not Teeny's. `text` must carry the tag; it is threaded under the round post (`hands/x follow-up`), and only once it is out is the pick recorded. The other playbook output. |
+| `entries [ID]` | J | Every round not drawn yet: its entries from `hands.db` alone, never X (a test fails on any X call). The webhook stores each direct reply to the round post in `x_mentions` (with `conversation_id`, and the author's age and followers when X sends them); one entry per account, from its replies made before the deadline. The first reply is the entry. Its address is bound from the first of its replies that carries exactly one valid Solana address, leaving out the $TINY and USDC mints, the token and Rewards programs and the giveaway wallet, so a later reply can supply an address the first lacked but never replace one it had. Nothing else a reply says changes anything. A nested reply is not pushed by the webhook, so the rules say "reply to the drop post itself". An open round's file is published to the diary once (and again only if it changes). |
+| `draw [ID]` | J | After the deadline. Waits (`rule: waiting_for_judge`) for the best-reply pick up to 24 hours past the deadline, then draws without it (`best_skipped`); with no prize or nobody eligible it does not wait. The seed is the first finalized Solana block at or after the deadline (`GIVEAWAY_RPC_URL`; `rule: seed_not_final` until there is one): `seed.sha256 = sha256("<id>:<blockhash>")`. Every entrant gets a reason: held by the guard, not screened yet, Teeny's own, classed as an agent (`hands/world`), account under 90 days, under 25 followers, a near-duplicate of an earlier reply (word-set Jaccard 0.8 once the tag, addresses, handles, links and the entry template's words are out, and only between replies of at least 4 such words), no address (Teeny's own index-0 address, asked of the core, never binds), an address another account entered first, or not following @teenydroid (`x_follows`). The eligible handles are sorted by `sha256(seed || handle)`. Walking that order, each candidate the webhook told too little about (follow, age or followers) goes into one batched `hands/x users` call, at most `GIVEAWAY_X_LOOKUPS_PER_ROUND` a round; past that a candidate is `unverifiable`, and a candidate who fails is replaced by the next. The best-reply winner is checked the same way. A person who wins twice gets one leaf with the sum. A milestone not reached, or nobody eligible, makes the round `void`. |
+| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`) for the distribution, funded with exactly the round's total. Until PR 5b fills that step in, it is refused (`chain_not_ready`): the round stays `drawn`, published with `distributor` and `vault` null, and nothing is signed. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
+| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution, which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
+| `due` | J | `entries`, then `draw`, `settle` and `clawback` for every round each is due for. One round's refusal never stops the others. |
+
+The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
+`GIVEAWAY_SEASON_MAX_TINY`, `GIVEAWAY_ROUNDS_PER_WEEK`,
+`GIVEAWAY_MAX_PER_WINNER_TINY`, `GIVEAWAY_CLAWBACK_DAYS`,
+`GIVEAWAY_X_LOOKUPS_PER_ROUND`, `GIVEAWAY_CLUSTER`) are in
+`deploy/teeny.env.example`; with the switch off no round is opened, judged,
+drawn or settled. `GIVEAWAY_AUTHORITY` (the giveaway wallet's address) and
+`GIVEAWAY_RPC_URL` (a Solana JSON-RPC for the round's cluster) are needed to
+settle and to draw. Only `open` and `judge` may be a playbook's output, and an
+input runs only `status` and `announcements` (bin/lib/playbook.py).
+
 ## `lore`: proof events for lore episodes
 
 Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
@@ -2747,6 +2779,7 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
+| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
