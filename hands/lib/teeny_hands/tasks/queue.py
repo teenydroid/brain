@@ -81,6 +81,8 @@ _DOMAIN = re.compile(r"^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+
 #: A claim older than this is abandoned: the operator run that took it ended
 #: without reporting. It goes back to pending once, then fails.
 STALE_CLAIM_SECONDS = 2 * 3600
+#: The cron job that runs the operator, as the core's storage names it.
+OPERATOR_JOB = "teeny.operator"
 MAX_PENDING = 50
 MAX_SCREENSHOTS = 10
 #: X takes a still image up to 5 MB.
@@ -375,23 +377,32 @@ def _hand_over(conn: sqlite3.Connection, task_id: int, notes: str) -> None:
 
 def next_task() -> Json:
     """The operator's open claim if it has one, else the oldest pending
-    task, claimed. A stale claim goes back to pending once, then fails."""
+    task, claimed. A claim whose operator run ended without a report (the
+    desk settles reports before it asks), or a stale one, goes back to
+    pending once, then fails, with the pictures its runs took."""
     with hand.lock("tasks-queue"):
         conn = db()
         try:
             with hand.transaction(conn):
                 cutoff = hand.now() - STALE_CLAIM_SECONDS
                 for row in conn.execute(
-                    "SELECT id, attempts FROM browser_tasks WHERE status = 'claimed' AND claimed_at < ?", (cutoff,)
+                    "SELECT id, attempts, claimed_at FROM browser_tasks WHERE status = 'claimed'"
                 ).fetchall():
+                    ended = _unreported_run(float(row["claimed_at"] or 0))
+                    if ended is None and float(row["claimed_at"] or 0) >= cutoff:
+                        continue
+                    shots = _captured(row["id"], float(row["claimed_at"] or 0), BROWSE_MAX_SCREENSHOTS)
                     if row["attempts"] >= 2:
+                        why = (f"the operator's run ended twice without a report; the last said: {ended}"
+                               if ended is not None else "abandoned twice: the operator never reported back")
                         conn.execute(
-                            "UPDATE browser_tasks SET status = 'failed', finished_at = ?, notes = ? WHERE id = ?",
-                            (hand.now(), "abandoned twice: the operator never reported back", row["id"]),
+                            "UPDATE browser_tasks SET status = 'failed', finished_at = ?, notes = ?, screenshots = ?"
+                            " WHERE id = ?",
+                            (hand.now(), why, json.dumps(shots), row["id"]),
                         )
                     else:
-                        conn.execute("UPDATE browser_tasks SET status = 'pending', claimed_at = NULL WHERE id = ?",
-                                     (row["id"],))
+                        conn.execute("UPDATE browser_tasks SET status = 'pending', claimed_at = NULL, screenshots = ?"
+                                     " WHERE id = ?", (json.dumps(shots), row["id"]))
                 open_claim = conn.execute(
                     "SELECT * FROM browser_tasks WHERE status = 'claimed' ORDER BY id LIMIT 1"
                 ).fetchone()
@@ -459,6 +470,53 @@ def _screenshots(task_id: int, value: Any) -> list[str]:
             shutil.copyfile(resolved, dest)
         kept.append(str(dest.relative_to(root)))
     return kept
+
+
+def _storage() -> Path:
+    """The core's storage.db, found as bin/lib/teeny.sh finds it."""
+    import os
+
+    if os.environ.get("TEENY_STORAGE"):
+        return Path(os.environ["TEENY_STORAGE"])
+    workspace = os.environ.get("OPENHUMAN_WORKSPACE")
+    return Path(workspace) / "storage.db" if workspace else hand.root() / "brain" / "storage.db"
+
+
+def _unreported_run(since: float) -> str | None:
+    """When an operator run started after `since` (a claim) and has ended,
+    what it said (its first line, short); None when none has, or the core's
+    storage cannot be read (the stale cutoff still applies then). Called
+    after the desk settled any report, so an ended run here left none.
+    Read-only, as bin/crons reads it."""
+    path = _storage()
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute(
+            "WITH jobs AS MATERIALIZED (SELECT id, body FROM docs WHERE coll = 'cron.jobs' AND deleted = 0"
+            "   AND json_valid(body)),"
+            " runs AS MATERIALIZED (SELECT body FROM docs WHERE coll = 'cron.runs' AND deleted = 0"
+            "   AND json_valid(body) AND body != '{}')"
+            " SELECT json_extract(runs.body, '$.output') FROM runs"
+            " JOIN jobs ON jobs.id = json_extract(runs.body, '$.job_id')"
+            " WHERE json_extract(jobs.body, '$.name') = ?"
+            "   AND json_extract(runs.body, '$.started_ms') >= ?"
+            "   AND json_extract(runs.body, '$.finished_ms') IS NOT NULL"
+            " ORDER BY json_extract(runs.body, '$.seq') DESC LIMIT 1",
+            (OPERATOR_JOB, int(since * 1000)),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    said = str(row[0] or "").strip().splitlines()
+    return (said[0] if said else "nothing")[:200]
 
 
 def _image_type(data: bytes) -> str | None:
