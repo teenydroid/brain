@@ -1355,8 +1355,9 @@ settings say), a login Teeny has no account for, a CAPTCHA the browser could
 not get past itself, anything that asks for money or a secret. A CAPTCHA is
 first handed to the browser: a browser task tries checkbox and picture
 CAPTCHAs with Jev's image questions, a few times (`[computer] captcha_solver`,
-`bin/lib/core_sections/automation.py`, `TYPESAFE_API_KEY` in
-`secrets/spine.env`), and only one still
+`bin/lib/core_sections/automation.py`; Jev on Surplus Intelligence with
+`SURPLUS_API_KEY` in `secrets/spine.env`, or on TypeSafe with
+`TEENY_CAPTCHA_PROVIDER=type_safe` and `TYPESAFE_API_KEY`), and only one still
 standing ends the task `needs_human`. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
