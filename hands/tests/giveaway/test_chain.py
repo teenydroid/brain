@@ -20,7 +20,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from giveaway.support import DEADLINE, GiveawayCase, T0
+from giveaway.support import DEADLINE, HOUR, GiveawayCase, T0
+from giveaway.test_rounds import RoundCase
 from teeny_hands import hand
 from teeny_hands.giveaway import chain, onchain, rounds, store
 from teeny_hands.wallet import solana
@@ -448,30 +449,31 @@ class SpineTest(ChainCase):
         built = base64.b64decode(self.fake_core.calls[1][1]["transaction"])
         self.assertEqual(summarise(built)["signers"][1], out["distribution_seed"])
 
+
+
+@unittest.skipUnless(_spine(), "no teeny-spine build in target/ (cargo build -p teeny-spine)")
+class SpineSettleTest(RoundCase):
+    """A drawn round settles through the core: the plan rounds.py makes is the
+    one the spine builds and the hand's checks pass."""
+
+    def setUp(self):
+        super().setUp()
+        self.opened()
+        for n, handle in enumerate(("alice", "bob", "carol", "dave", "erin"), 1):
+            self.entrant(n, handle)
+        self.judged("erin")
+        self.at(DEADLINE + 2 * HOUR)
+        rounds.draw_round(1)
+        os.environ["OPENHUMAN_CORE_BIN"] = _spine()
+        self.fake_core = FakeCore()
+        self.fake_core.address = hand.setting("GIVEAWAY_AUTHORITY")
+        chain.use(onchain.CoreChain(core=self.fake_core, rpc=FakeRpc(), sleep=lambda s: None))
+
     def test_a_round_settles_through_the_core(self):
-        conn = store.db()
-        try:
-            conn.execute("DELETE FROM giveaway_rounds")
-        finally:
-            conn.close()
-        GiveawayRound.drawn(self)
-        self.fake_core.address = self.settings_authority()
-        chain.use(self.impl)
         self.remote()
         out = rounds.settle_round(1)
         row = self.row()
         self.assertEqual(row["status"], "settled", out)
         self.assertEqual((row["distributor"], row["tx_create"]), (out["chain"]["distributor"], SIG))
         prepare = self.fake_core.calls[1][1]
-        self.assertEqual(prepare["expectedDebits"][0]["amountRaw"], str(row["total_raw"]))
-
-    def settings_authority(self) -> str:
-        return hand.setting("GIVEAWAY_AUTHORITY")
-
-
-class GiveawayRound:
-    @staticmethod
-    def drawn(case: GiveawayCase) -> None:
-        from giveaway.test_rounds import SettleTest
-
-        SettleTest.setUp.__wrapped__(case) if hasattr(SettleTest.setUp, "__wrapped__") else None
+        self.assertEqual(prepare["expectedDebits"], [{"mint": hand.setting("GIVEAWAY_DEVNET_MINT"), "amountRaw": str(row["total_raw"])}])
