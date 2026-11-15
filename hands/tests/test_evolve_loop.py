@@ -181,6 +181,14 @@ class Research(LoopCase):
         self.assertNotIn("research", proposer.requests[0])
         self.assertIn("may not read", self.entries()["g1c1"]["research"]["error"])
 
+    def test_docs_to_update_are_only_ones_the_builder_may_change(self):
+        tree = self.worktree("t")
+        got = evolve.check_research({**BUILD, "document": ["docs/governance.md", "brain/playbooks/morning.md",
+                                                           "bin/evolve", "evals/judge.md"]}, tree)
+        self.assertEqual(got["document"], ["brain/playbooks/morning.md"])
+        self.assertEqual(got["document_cut"], ["docs/governance.md", "bin/evolve", "evals/judge.md"])
+        self.assertNotIn("governance", evolve.research_text(got))
+
     def test_files_to_read_past_the_byte_cap_are_dropped_and_named(self):
         tree = self.worktree("t")
         sizes = {p: (tree / p).stat().st_size for p in git("-C", str(tree), "ls-files", "brain/playbooks").split()}
@@ -272,6 +280,19 @@ class ResearchOnTheWeb(LoopCase):
         got = evolve.research_queries({"section": "what i have decided",
                                        "text": "ask @nyna_dev at nyna@example.com about https://x.com/a/b first thing"}, 3)
         self.assertEqual(got, ["ask at about first thing"])
+
+    def test_names_addresses_and_numbers_never_leave_in_a_query(self):
+        text = ("Pay Jane Doe at 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU and "
+                "0x52908400098527886E0F7030069857D2E4169EE7 every friday for the hosting. "
+                "call her on +1 415-555-0100 or 0044 20 7946 0958 before the invoice 123456 is due. "
+                "reach is a wave and commitment is a drip.")
+        got = evolve.research_queries({"section": "what i have decided", "text": text}, 5)
+        joined = " ".join(got)
+        for leak in ("Jane", "Doe", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "0x5290", "415", "555", "0100",
+                     "7946", "0958", "123456"):
+            self.assertNotIn(leak, joined)
+        self.assertIn("reach is a wave and commitment is a drip", got)
+        self.assertIn("every friday for the hosting", joined)
 
     def test_under_dry_run_nothing_is_paid_for(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
