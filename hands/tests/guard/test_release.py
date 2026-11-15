@@ -39,7 +39,9 @@ class ReleaseTest(Scratch):
 
     def test_releases_a_reply_to_the_post_it_answered(self):
         me(self.x)
-        self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "hi", "author_id": "9", "conversation_id": "77"}})
+        # The post a held reply answered tagged the account (a reply answers
+        # only somebody who engaged first: hands/x, rule `unsolicited`).
+        self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "@teenydroid hi", "author_id": "9", "conversation_id": "77"}})
         verdict = gate.check_outbound("this is fucking great", kind="reply", context={"post_id": "77"})
         out = release(verdict.hold_id)
         self.assertIn("a reply to 77", out["hold"]["effect"])

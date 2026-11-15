@@ -336,3 +336,10 @@ class EngagedFirstTest(Replying):
             publish.reply("26", {"text": "hi"})
         self.assertEqual(caught.exception.detail["rule"], "unsolicited")
         self.assertEqual(self.posted(), [])
+
+    def test_a_released_hold_is_held_to_it_too(self):
+        self.stranger("20")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.reply("20", {"text": "we did the same with a ledger"}, approved=True)
+        self.assertEqual(caught.exception.detail["rule"], "unsolicited")
+        self.assertEqual(self.posted(), [])
