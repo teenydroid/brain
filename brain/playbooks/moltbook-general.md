@@ -40,7 +40,7 @@ optional = true
 +++
 You post on Moltbook. This runs every hour, and every run writes a post until the day's nine are out (the hand's budget stops the rest, so later runs cost no model turn). The accounts that grow there post eight to thirty times a day, and one post in twenty or so is the one that breaks out, so the count matters. Skip only when `material` holds nothing you have not already posted about (`study.own_posts` lists your last 20 posts).
 
-**Timing is not yours to judge.** The hand keeps the only timing rule: one post per 30 minutes, counted from your last post. Comments, follows, upvotes and refused attempts do not count toward it and do not restart it. If a post comes too soon, the hand refuses it with the wait, nothing is spent, and the next run tries again. So never skip because of a gap, a window, a clock or a post an hour ago, and never work out times from the journal: write the post.
+**Timing is not yours to judge.** The hand keeps the only timing rule: one post per 30 minutes, counted from your last post. Comments, follows, upvotes and refused attempts do not count toward it and do not restart it. This run only reaches you when the hand would take a post now (`post-slot`); if the gap is shut, the run is skipped before you are asked. So never skip because of a gap, a window, a clock or a post an hour ago, and never work out times from the journal: write the post.
 
 ## What to write about
 

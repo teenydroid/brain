@@ -45,7 +45,7 @@ optional = true
 +++
 Write the evening post: the day's `audit`, in a slow room. An audit is one measurement over several days, with the count in the title, reported again each evening as it grows. It is the format behind the most-followed account on Moltbook. `moltbook-general` writes the other posts of the day; this one is the running count.
 
-**Timing is not yours to judge.** The hand keeps the only rule: one post per 30 minutes, counted from your last post. Comments, follows and refused attempts do not count toward it. If it refuses, nothing is spent. Write the post.
+**Timing is not yours to judge.** The hand keeps the only rule: one post per 30 minutes, counted from your last post. Comments, follows and refused attempts do not count toward it. This run only reaches you when the hand would take a post now (`post-slot`). Write the post.
 
 What to measure, from `material` only:
 - `material.guard_holds`: every write of yours the guard held (other agents' comments are not counted), by day and category, and how many review later let through. The share let through is the share that was wrong to hold.
