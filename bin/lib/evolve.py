@@ -2374,6 +2374,24 @@ def _hand_tests(tree: Path, name: str) -> list[str] | None:
     return None
 
 
+def frozen_shim(tree: Path, base: str, path: str) -> str | None:
+    """The frozen module an existing hand's entry point (hands/<name>, as of
+    BASE) loads, if any: hands/git runs teeny_hands.git_cli, which is frozen,
+    and a shim rewritten to run something else would step around it."""
+    text = git(in_tree(tree), "show", f"{base}:{path}", check=False)
+    try:
+        patterns = frozen.base_patterns(tree, base)
+    except frozen.FrozenError:
+        patterns = frozen_patterns()
+    for module in re.findall(r"teeny_hands\.([\w.]+)", text):
+        parts = module.split(".")
+        for rel in (f"hands/lib/teeny_hands/{'/'.join(parts)}.py", f"hands/lib/teeny_hands/{parts[0]}.py",
+                    f"hands/lib/teeny_hands/{parts[0]}/__init__.py"):
+            if frozen.frozen_pattern(rel, patterns):
+                return rel
+    return None
+
+
 def run_hand_tests(tree: Path, target: list[str]) -> tuple[bool, str]:
     """One hand's tests (`python -m unittest`), sealed (sealed_env), within
     HAND_TEST_SECS. A failure is detailed by its FAIL and ERROR lines and the
@@ -2537,6 +2555,12 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
          else (f"{', '.join(new_hands)} (run below)" if new_hands else "no new hand"))
     # Since 2026-11-15 an existing hand that is not frozen may change (the
     # frozen ones are refused by the hard gate): with a test, and its docs.
+    # Its entry point may not, when what it loads is frozen.
+    shims = [(p, lib) for s, p in changes if s != "A" and p.count("/") == 1 and _hand_name(p)
+             and (lib := frozen_shim(tree, base, p))]
+    note("frozen hands' entry points", not shims,
+         "; ".join(f"{p} runs {lib}, which is frozen: its entry point stays as it is" for p, lib in shims)
+         or "none changed")
     hands_changed = sorted({n for _, p in changes if (n := _hand_name(p))})
     edited = [n for n in hands_changed if n not in new_hands]
     tests_touched = {n for _, p in changes if (n := _test_hand(p))}
