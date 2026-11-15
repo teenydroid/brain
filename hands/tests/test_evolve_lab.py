@@ -155,7 +155,7 @@ class LabCase(EvolveCase):
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
                   "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
-                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT", "EVOLVE_EVAL_BIN"):
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),

@@ -749,7 +749,7 @@ of them touched. A check that fails is detailed by its failing lines, up to
 
 A learning's change touches a playbook or two, so it is measured only where
 it reaches, and asked one question: did anything get worse? This depends on
-three verbs of `bin/eval` ("Evals" above; built in teenydroid/brain#278):
+three verbs of `bin/eval` ("Evals" above, teenydroid/brain#278):
 
 ```
 bin/eval affected --root DIR --base SHA     {"tasks", "all", "why", "paths", "heldout"}
@@ -984,14 +984,6 @@ gen-0).
 
 ## What is not built
 
-- **The targeted eval's verbs.** `bin/eval affected`, `run --tasks --brain
-  --key` and `compare --mode nonregression` come in teenydroid/brain#278.
-  Until it lands, `affected` fails, every candidate a gate passes is `unevaluated`
-  (a failed try), and nothing opens. The tests use a stand-in that keeps the
-  contract (`hands/tests/test_evolve.py`, `STUB_EVAL`).
-- **The babysitter's merge of `teeny/gen-*`.** It is being taught to merge
-  Teeny's evolve pull requests when its audit is ready and `teeny/eval` is
-  success. Until then they wait for a person.
 - **A real lab boot at scale.** No four labs have run at once on the box.
 - **Watching every merge.** evolve-watch watches the newest merged change;
   when two merge within 72 hours, the older one's watch ends early.
