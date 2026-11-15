@@ -313,6 +313,17 @@ class ResearchOnTheWeb(LoopCase):
         self.assertIn("reach is a wave and commitment is a drip", got)
         self.assertIn("every friday for the hosting", joined)
 
+    def test_a_single_first_name_never_leaves_but_the_repositorys_own_words_do(self):
+        got = evolve.research_queries({"section": "what i have decided", "text":
+                                       "ask Jane before posting the moltbook-daily thread on Moltbook. "
+                                       "Reply on X and GitHub when Ravi asks about Teeny's hands."}, 5)
+        joined = " ".join(got)
+        for name in ("Jane", "Ravi"):
+            self.assertNotIn(name, joined)
+        for word in ("Moltbook", "X", "GitHub", "moltbook-daily", "Teeny's"):
+            self.assertIn(word, joined)
+        self.assertTrue(got[1].startswith("Reply on X"))  # a sentence's first word stays
+
     def test_under_dry_run_nothing_is_paid_for(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=1\n")

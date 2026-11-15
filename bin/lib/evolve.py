@@ -1409,8 +1409,32 @@ QUERY_SCRUB = (
     re.compile(r"\b0x[0-9a-fA-F]{6,}\b"),
     re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{25,}\b"),
     re.compile(r"\+?\d[\d\s().-]{5,}\d|\d{4,}"),
-    re.compile(r"\b[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)+"),
 )
+#: Capitalised words a query keeps past a sentence's first: the surfaces and
+#: names of Teeny's own world. Every other one may be a person's name, and
+#: is cut (with the repository's playbook and hand names, query_vocabulary).
+QUERY_WORDS = ("Teeny", "TINY", "Moltbook", "X", "GitHub", "Telegram", "Hacker", "News", "HN", "Lobsters",
+               "arXiv", "OpenHuman", "TinyBox", "Solana", "Base", "USDC", "SOL", "Exa", "AgentMail", "Python",
+               "Rust", "AI")
+
+
+def query_vocabulary() -> set[str]:
+    """QUERY_WORDS, the playbooks' and the hands' names (and their parts),
+    casefolded."""
+    words = {w.casefold() for w in QUERY_WORDS}
+    names = [p.stem for p in (CODE / "brain" / "playbooks").glob("*.md")]
+    names += [p.name for p in (CODE / "hands").glob("*") if p.is_file()]
+    for name in names:
+        words.add(name.casefold())
+        words.update(part.casefold() for part in name.split("-") if part)
+    return words
+
+
+def _keep_word(word: str, first: bool, vocabulary: set[str]) -> bool:
+    bare = word.strip(".,:;!?()\"'`").split("'")[0]
+    if first or not bare or not bare[0].isupper():
+        return True
+    return bare.casefold() in vocabulary
 _SECRET_NAME = re.compile(r"(^|/)(\.env|[^/]*\.env|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*)$", re.I)
 
 
@@ -1474,8 +1498,9 @@ def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any], files
 def research_queries(learning: Mapping[str, Any], n: int) -> list[str]:
     """Up to N web queries for a learning: its sentences, in order, with
     what could identify someone taken out (QUERY_SCRUB: links, emails,
-    handles, wallet addresses, phone and other long numbers, capitalised
-    name pairs). None for a promise (it names people) or when N is 0."""
+    handles, wallet addresses, phone and other long numbers; then every
+    capitalised word past a sentence's first that is not the repository's
+    own, query_vocabulary). None for a promise (it names people) or when N is 0."""
     if n <= 0 or learning.get("section") in NO_SEARCH_SECTIONS:
         return []
     text = str(learning.get("text") or "")
@@ -1483,8 +1508,13 @@ def research_queries(learning: Mapping[str, Any], n: int) -> list[str]:
         text = pattern.sub(" ", text)
     text = re.sub(r"[*_`#>\[\]]", "", text)
     out: list[str] = []
+    vocabulary = query_vocabulary()
     for sentence in re.split(r"(?<=[.!?:;])\s+", text):
-        query = " ".join(sentence.split()).strip(" .:;")[:MAX_QUERY_CHARS]
+        words = sentence.split()
+        # A capitalised word past the first may be a name: kept only when it
+        # is one of the repository's own (query_vocabulary).
+        words = [w for i, w in enumerate(words) if _keep_word(w, i == 0, vocabulary)]
+        query = " ".join(words).strip(" .:;")[:MAX_QUERY_CHARS]
         if len(query.split()) >= 3 and query.casefold() not in {q.casefold() for q in out}:
             out.append(query)
         if len(out) >= n:
