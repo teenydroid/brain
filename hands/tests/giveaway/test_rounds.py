@@ -355,7 +355,7 @@ class SettleTest(RoundCase):
     def test_without_the_chain_step_the_round_is_published_drawn(self):
         bare = self.remote()
         out = rounds.settle_round(1)
-        self.assertEqual(out["chain"]["refused"].split(" ")[0], "the")
+        self.assertEqual(out["chain"]["rule"], "chain_not_ready")
         self.assertEqual(self.row()["status"], "drawn")
         parsed = contract.parse_round(self.published(bare, "giveaways/drop-1.json"))
         self.assertEqual((parsed["status"], parsed["distributor"], parsed["vault"]), ("drawn", None, None))
@@ -397,6 +397,14 @@ class SettleTest(RoundCase):
         published = [a for a in actions if a.kind == "giveaway.published"]
         self.assertEqual([a.ref["status"] for a in published], ["drawn", "settled", "clawed_back"])
         self.assertFalse(withheld.get("giveaway.published"))
+
+    def test_the_secret_gate_still_stands(self):
+        self.remote()
+        conn = store.db()
+        conn.execute("UPDATE giveaway_rounds SET prompt = 'cs-FAKE-CONSUMER-SECRET'")
+        conn.close()
+        with self.assertRaises(hand.Refused):
+            rounds.settle_round(1)
 
     def test_the_open_round_is_published_once(self):
         bare = self.remote()
