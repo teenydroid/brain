@@ -146,6 +146,15 @@ class MediaTest(unittest.TestCase):
             self.image()
         self.assertEqual(caught.exception.detail["rule"], "per_day")
 
+    def test_twenty_images_a_day_by_default(self):
+        # The open "tag me and I'll draw us" offer (reply_x with an image)
+        # needs more than the posts' handful; 20 at 0.016 stays under $1.
+        for _ in range(20):
+            self.image()
+        with self.assertRaises(hand.Refused) as caught:
+            self.image()
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["limit"]), ("per_day", 20))
+
     def test_images_stop_at_the_daily_dollar_budget(self):
         self.env(MEDIA_MAX_USD_PER_DAY="0.03")  # each image is quoted 0.016
         self.image()
