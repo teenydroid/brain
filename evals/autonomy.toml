@@ -117,6 +117,31 @@ switch = [
 ]
 next = { level = 5, proofs = [{ id = "L5.human_merged", need = 5 }], also = ["each of the five measured well after the merge (evolve-watch closed it)"] }
 
+[capability.self-merge]
+# The operator's decision of 2026-11-15 ("if the internal babysitter checks
+# out, we merge"): Teeny's evolve pull requests merge with no person's
+# approval when hands/babysit's audit (code, no model) has no block, fail or
+# operator finding, every check is green, and the targeted eval's
+# `teeny/eval` status passed at the exact head; then the babysitter deploys
+# the merge to the live checkout (docs/hands.md, "babysit").
+#
+# A rung of its own, not `merge` raised to L5: `merge` at L5 would also let
+# EVOLVE_AUTO_PROMOTE pass the doctor (the loop merging, tagging and
+# restarting on its own measure, with no babysitter audit), which the
+# operator did not grant. Every other `needs = 5` switch stays where it was.
+#
+# It drops on a model change of the evolver (which writes the change) or
+# the judge (which the eval runs on): the eval stands in for the person, so
+# a new judge is re-confirmed before it does. Not on `promotion`: a self-merge
+# is what this rung grants, and the archive's promoted_at is only the old
+# loop's EVOLVE_AUTO_PROMOTE.
+what = "merging its own evolve pull requests (teeny/gen-*) with no person's approval when the babysitter's audit is clean and teeny/eval passed at the exact head, and deploying the merge to the live checkout"
+level = 5
+confirmed = "2026-11-15"
+roles = ["evolver", "judge"]
+drops_on = ["model-change"]
+switch = [{ file = "teeny.env", name = "BABYSIT_SELF_MERGE", when = "truthy", needs = 5 }]
+
 [capability.servers]
 what = "renting and paying for its own servers (hands/vps)"
 level = 1
