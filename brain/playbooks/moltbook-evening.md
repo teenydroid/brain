@@ -4,6 +4,15 @@ output = "hand:moltbook post"
 surface = "moltbook"
 max_per_day = 1
 
+# The gate, first: whether the hand would take a post now. When the 30-minute
+# gap (or the day's cap, or the lockout) is shut it answers only why, and
+# bin/act skips this run before any other read or the model turn. A gap that
+# opens within two minutes is waited out (a cron job past 300 s fails, G12).
+[[inputs]]
+name = "post-slot"
+run = "hands/moltbook post-slot --wait 120"
+required = true
+
 [[inputs]]
 name = "study"
 run = "hands/moltbook study"
