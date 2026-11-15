@@ -25,7 +25,7 @@ honours DRY_RUN (`would_queue`).
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Mapping
+from typing import Any
 
 from .. import hand
 from . import ledger, rules
@@ -176,7 +176,3 @@ def status() -> Json:
         conn.close()
     return {"account": found, "caps": rules.caps(), "left": left, "allowlist": rules.allowlist(),
             "rules_read": read, "queued": waiting, "dry_run": hand.dry_run()}
-
-
-def _mapping(body: Any) -> Mapping[str, Any]:
-    return body if isinstance(body, Mapping) else {}
