@@ -2388,7 +2388,7 @@ def sealed_env(tree: Path) -> dict[str, str]:
 
 
 def hand_section(text: str | None, name: str) -> str | None:
-    """Hand NAME's section of docs/hands.md: from its `## \`name\`` heading
+    """Hand NAME's section of docs/hands.md: from its `## `name`` heading
     to the next `## ` heading, or None."""
     if text is None:
         return None
@@ -2415,7 +2415,7 @@ def docs_missing(tree: Path, base: str, changes: list[tuple[str, str]], hands_ch
     for name in hands_changed:
         now_ = hand_section(after, name)
         if now_ is None:
-            missing.append(f"docs/hands.md has no section for hands/{name} (a `## \`{name}\`` heading)")
+            missing.append(f"docs/hands.md has no section for hands/{name} (a `## `{name}`` heading)")
         elif now_ == hand_section(before, name):
             missing.append(f"hands/{name} changed but its section in docs/hands.md did not")
     new_books = [Path(p).stem for s, p in changes if s == "A" and p.startswith("brain/playbooks/") and p.endswith(".md")]
