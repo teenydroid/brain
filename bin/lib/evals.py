@@ -613,7 +613,7 @@ def draft(evals: Path, hands_lib: Path, out: Path, samples: int, ids: list[str],
             drafted += 1
             passed += record["ok"]
             missing += bool(record.get("no_sample"))
-    return {"drafts": drafted, "ok": passed, "no_sample": missing}
+    return {"drafts": drafted, "ok": passed, "no_sample": missing, "reused": reused}
 
 
 # --- invariants ------------------------------------------------------------------------
