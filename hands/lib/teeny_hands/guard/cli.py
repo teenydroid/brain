@@ -16,6 +16,10 @@
             posting rules refused over the last N days (default 30)
   rescreen  -> the re-screen's counts: the holds a judge outage made, asked
             about again (rescreen.py; the pinned guard-rescreen job)
+  anchor    stdin {"text", "anchor", "inputs"?} -> {"anchored", "reason", "judged"}:
+            whether an own post says something specific about its anchor that
+            the inputs support (anchor.py; bin/act asks before a post). A
+            verdict, never a hold: anything but a clear yes is anchored false
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -33,7 +37,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import gate, holds
+from . import anchor, gate, holds
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -81,6 +85,16 @@ def check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if verdict.kind == "refuse":
         raise hand.Refused(verdict.reason, rewrite=True)
     return {"text": verdict.text}
+
+
+def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    body = _body(body, "anchor", "inputs")
+    name = body.get("anchor")
+    if isinstance(name, int) and not isinstance(name, bool):
+        name = str(name)
+    if not isinstance(name, str) or not name.strip():
+        raise hand.HandError("anchor must name the item the post is about")
+    return anchor.judge(body["text"], name.strip(), body.get("inputs"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -251,7 +265,7 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style)):
+    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")
