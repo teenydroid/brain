@@ -194,7 +194,7 @@ def open_vote(body: Any) -> Json:
                 raise hand.Refused(f"request {rid} is not a pending request", rule="option")
     finally:
         conn.close()
-    posted = xpost.post(text)
+    posted = xpost.post(text, anchor="requests:" + ",".join(str(rid) for rid in options))
     if posted.get("dry_run") or not posted.get("id"):
         return {"opened": False, "post": posted}
     now = hand.now()
