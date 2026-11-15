@@ -189,11 +189,10 @@ def has_link(text: str) -> bool:
     return bool(_LINK.search(text))
 
 
-def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
-    """A post or reply with a link, only while today's link posts are under
-    the cap. Run under the posting or replying lock, before X is called."""
-    if not has_link(text):
-        return
+def link_budget(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Today's link posts (UTC day) against the cap: {cap, sent_today, left,
+    resets_at}. What `check_link_budget` refuses on, and what `hands/x links`
+    reads out, so a playbook can leave the link out before it is refused."""
     cap = int(number_setting("X_LINK_POSTS_MAX_PER_DAY", 1, 0, 50))
     now = hand.now()
     day_start = now - (now % 86400.0)
@@ -202,6 +201,16 @@ def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
         for row in conn.execute("SELECT text FROM x_posts WHERE created_at >= ?", (day_start,)).fetchall()
         if has_link(row["text"])
     )
+    return {"cap": cap, "sent_today": sent, "left": max(0, cap - sent), "resets_at": iso(day_start + 86400.0)}
+
+
+def check_link_budget(conn: sqlite3.Connection, text: str) -> None:
+    """A post or reply with a link, only while today's link posts are under
+    the cap. Run under the posting or replying lock, before X is called."""
+    if not has_link(text):
+        return
+    budget = link_budget(conn)
+    cap, sent = budget["cap"], budget["sent_today"]
     if sent >= cap:
         raise hand.Refused(
             f"a post with a link costs $0.20 on X (without one, $0.015); {sent} of today's {cap} already went out. "

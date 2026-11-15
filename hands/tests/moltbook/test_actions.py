@@ -11,7 +11,7 @@ import os
 from guard.support import FakeCore, result
 from .support import CORRECTED, DAY, HOUR, KEY, MINUTE, T0, UNREADABLE, Scratch, verification
 from teeny_hands import hand
-from teeny_hands.moltbook import actions, rules
+from teeny_hands.moltbook import actions, reads, rules
 
 
 #: Moltbook ids are UUIDs; the beat's batch carries them whole.
@@ -276,6 +276,20 @@ class PostTest(Scratch, Refusing):
         self.at(T0 + 61)
         self.created()
         actions.post(self.body())
+
+    def test_a_post_refused_for_the_gap_never_reaches_the_guard(self):
+        # A post the beat holds for the gap is sent again every beat until it
+        # opens (bin/lib/tick.py, PACED): the limits come first, so a refusal
+        # for the gap spends no guard judge turn.
+        from unittest import mock
+
+        self.created()
+        actions.post(self.body())
+        self.at(T0 + 12 * MINUTE)
+        with mock.patch.object(actions, "check_fields", side_effect=AssertionError("the guard ran")) as guard:
+            error = self.refused(actions.post, self.body(), "rate_limit")
+        guard.assert_not_called()
+        self.assertEqual(error.detail["wait_seconds"], 18 * 60 + 1)
 
     def test_bad_bodies(self):
         for body in (None, {}, {"submolt": "general"}, {"submolt": "General Chat", "title": "x"},
@@ -716,6 +730,30 @@ class SmallActionsTest(Scratch, Refusing):
         self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
         self.assertEqual(actions.prune()["unfollowed"], [])  # nothing left to do the next week
 
+    def test_prune_never_unfollows_a_peer_who_does_not_follow_back(self):
+        (self.root / "brain").mkdir(exist_ok=True)
+        (self.root / reads.PEERS_FILE).write_text("Lilt\n")
+        self.followed("lilt", 9, follows_you=False)
+        self.followed("quiet", 9, follows_you=False)
+        self.mb.route("DELETE", "/agents/quiet/follow", {"success": True})
+        out = actions.prune()
+        self.assertEqual((out["unfollowed"], out["spared"], out["kept"]), (["quiet"], ["lilt"], 0))
+        self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/quiet/follow"])
+
+    def test_prune_never_unfollows_an_agent_with_a_recent_exchange(self):
+        from teeny_hands import stimuli
+
+        self.followed("talker", 9, follows_you=False)
+        self.followed("oldtalk", 30, follows_you=False)
+        self.mb.route("DELETE", "/agents/oldtalk/follow", {"success": True})
+        stimuli.add("moltbook", "comment", "c1", "words", who="talker",
+                    payload={"post_id": "p", "answering_teeny": True}, at=T0 - 3 * DAY)
+        stimuli.add("moltbook", "comment", "c2", "words", who="oldtalk",
+                    payload={"post_id": "p", "answering_teeny": True}, at=T0 - 20 * DAY)
+        out = actions.prune()
+        self.assertEqual((out["unfollowed"], out["spared"]), (["oldtalk"], ["talker"]))
+        self.assertEqual([r.path for r in self.mb.requests("DELETE")], ["/agents/oldtalk/follow"])
+
     def test_stale_follows_reports_unknown_as_null(self):
         self.followed("mystery", 8)
         self.assertEqual(actions.stale_follows()["follows"], [{"name": "mystery", "followed_days_ago": 8, "follows_back": None}])
@@ -777,3 +815,58 @@ class OperatorTest(Scratch, Refusing):
         self.assertEqual([c["name"] for c in rules.collab_list()["collabs"]], ["crabby"])
         rules.collab_remove("crabby")
         self.assertEqual(rules.collab_list()["collabs"], [])
+
+
+class PostSlotTest(Scratch):
+    """The gate a posting playbook runs first (`hands/moltbook post-slot`):
+    open, or empty with the reason, so bin/act skips before the model turn."""
+
+    def post_at(self, at: float, status: str = "verified") -> None:
+        conn = hand.open_db(rules.SCHEMA)
+        conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('p', ?, 'general', 't', ?)",
+                     (at, status))
+        conn.commit()
+
+    def test_open_when_no_post_holds_the_gap(self):
+        self.assertEqual(rules.post_slot(), {"open": True, "new_agent": False})
+
+    def test_the_12_13_case_a_closed_gap_is_empty_with_the_reason(self):
+        # 2026-11-15: a post at 11:48 (hidden, needs_verification) held the
+        # gap; moltbook-general drafted at 12:13 and the hand refused it (wait
+        # 329s). The gate says so before any draft, and its answer is empty but
+        # for `why`, which bin/act reads as a skip.
+        self.post_at(T0 - 25 * MINUTE, status="needs_verification")
+        slept = []
+        out = rules.post_slot(wait=0, sleep=slept.append)
+        self.assertEqual(set(out), {"why"})
+        self.assertIn("rate_limit", out["why"])
+        self.assertIn("wait 301s", out["why"])
+        self.assertEqual(slept, [])
+
+    def test_a_short_wait_is_sat_out_and_then_the_slot_is_open(self):
+        self.post_at(T0 - 29 * MINUTE)
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            self.at(T0 + seconds)
+
+        out = rules.post_slot(wait=120, sleep=sleep)
+        self.assertEqual(out, {"open": True, "new_agent": False, "waited": 61})
+        self.assertEqual(slept, [61])
+
+    def test_a_wait_longer_than_allowed_is_not_sat_out(self):
+        self.post_at(T0 - 10 * MINUTE)
+        slept = []
+        out = rules.post_slot(wait=120, sleep=slept.append)
+        self.assertEqual(set(out), {"why"})
+        self.assertEqual(slept, [])
+
+    def test_the_daily_cap_and_the_lockout_close_it_too(self):
+        self.configure(MOLTBOOK_MAX_POSTS_PER_DAY="1")
+        self.post_at(T0 - 2 * HOUR)
+        self.assertIn("daily_cap", rules.post_slot()["why"])
+        conn = hand.open_db(rules.SCHEMA)
+        rules.set_failures(conn, rules.LOCKOUT_AFTER)
+        conn.commit()
+        self.assertIn("verification_lockout", rules.post_slot()["why"])

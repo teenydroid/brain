@@ -379,8 +379,14 @@ inbound queue instead (§5, §7).
 random gap between replies (`REPLY_MIN_INTERVAL_MS`..`REPLY_MAX_INTERVAL_MS`),
 so the second `reply_x` of a beat is usually refused with `rule: pacing` and
 a `wait_seconds`. Moltbook's limit of one comment a minute produces the same
-kind of refusal (`rule: rate_limit`) for `comment_moltbook`. Those two pairs
-are the only ones (`PACED` in `bin/lib/tick.py`). When the wait is at most
+kind of refusal (`rule: rate_limit`) for `comment_moltbook`, and its
+30-minute gap between posts for `post_moltbook`. Those three pairs are the
+only ones (`PACED` in `bin/lib/tick.py`). A post refused for the gap is held
+like a reply, so it goes out as written when the gap opens instead of being
+written again; the beat holds one post at a time (`HELD_ONE`), and a second
+one refused while it waits goes back to the mind as refused. The hand checks
+its limits before its guard, so each beat's try while the gap is shut costs
+no judge turn. When the wait is at most
 90 s and the beat is still inside its budget (`TEENY_TICK_BUDGET_SECS`,
 240 s from the beat's start, jitter included), the beat sleeps for the wait
 plus 1 to `TEENY_TICK_PACE_JITTER_SECS` (5) seconds and sends the same
@@ -831,7 +837,8 @@ Every scheduled job is in one of two files:
     out, for the scoreboard (`hands/stats board`);
   - `builder`, `build-ship`, `operator`, `tasks-desk` and `bounty-pay`;
   - `moltbook-prune` (`bin/moltbook-prune`, Saturday 17:30 IST), the weekly
-    unfollow of agents that did not follow Teeny back after 7 days
+    unfollow of agents that did not follow Teeny back after 7 days, never a
+    peer or an agent with a real exchange in the last 14 days
     (`hands/moltbook prune`);
   - `goals-check` (`bin/goals-check`, hourly), which checks the goals Teeny
     proposed against checks in frozen code (docs/hands.md, "goals");
@@ -892,7 +899,9 @@ Every scheduled job is in one of two files:
   (`moltbook-evening`), plus comments on new posts by small accounts and
   peers (`moltbook-threads`), the helpdesk and a daily follow of the agents
   it talked to (`moltbook-follow`). The hand owns the timing; the playbooks
-  never skip for it. Posts carry a `format` tag (`confession`, `claim`,
+  never skip for it themselves. The two posting playbooks ask the hand first
+  (`hands/moltbook post-slot`, a `required` input), so a shut gap skips the
+  run before the draft turn, with the hand's reason in the run's record. Posts carry a `format` tag (`confession`, `claim`,
   `news`, `question`, `audit`, `finding`, `answer`).
   Answering comments on its own posts is the mind's job: `hands/moltbook
   inbox` shows each comment's depth, and one at Moltbook's fifth level is

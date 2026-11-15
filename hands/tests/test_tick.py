@@ -2101,6 +2101,58 @@ class TickTest(unittest.TestCase):
         [chat] = self.chats()
         self.assertNotIn("Comments on your own Moltbook posts come first", chat["message"])
 
+    def gap(self, wait: float) -> dict:
+        return {"refused": f"one post per 30 min; wait {wait:.0f}s", "rule": "rate_limit", "wait_seconds": wait}
+
+    def test_a_post_refused_for_the_gap_is_held_and_sent_when_it_opens_without_a_new_turn(self):
+        # 2026-11-15: the mind's post at 11:29 was refused (wait 981s); it set
+        # itself a follow-up and wrote again. Now the beat holds the same post
+        # and sends it as written once the gap opens, without asking the mind.
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.gap(981), self.gap(681)])
+        stimuli.add("x", "mention", "1", "gm")
+        post = {"do": "post_moltbook", "title": "a retry is not recovery", "text": "I retried it nine times.", "format": "claim"}
+        self.answer({"thought": "", "intents": [post]},
+                    {"thought": "", "intents": [{"do": "journal", "text": "later"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "deferred")
+        self.at(300)
+        got = self.tick()  # the gap is still shut: kept, nothing said yet
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.at(1000)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        posts = [c["body"] for c in self.hand_calls() if c["argv"] == ["post"]]
+        self.assertEqual(len(posts), 3)
+        self.assertEqual({json.dumps(b, sort_keys=True) for b in posts}, {json.dumps(
+            {"submolt": "general", "title": "a retry is not recovery", "body": "I retried it nine times.", "format": "claim"},
+            sort_keys=True)})
+        # The mind was asked for it once; it only hears that it went out.
+        self.assertEqual(sum("a retry is not recovery" in c["message"] for c in self.chats()), 0)
+        self.assertIn("your post_moltbook: done", self.chats()[-1]["message"])
+
+    def test_only_one_post_is_held_at_a_time(self):
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.gap(900), self.gap(900)])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "post_moltbook", "title": "first", "text": "one"},
+            {"do": "post_moltbook", "title": "second", "text": "two"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["deferred", "refused"])
+        self.assertIn("already held", got["results"][1]["result"]["refused"])
+        held = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
+        self.assertEqual([(i["do"], i["intent"]["title"]) for i in held], [("post_moltbook", "first")])
+
+    def test_the_post_intent_names_every_format_and_the_title_rules(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        message = self.chats()[0]["message"]
+        line = next(l for l in message.splitlines() if '"do": "post_moltbook"' in l)
+        for fmt in ("confession", "claim", "question", "news", "audit", "finding", "answer"):
+            self.assertIn(fmt, line)
+        self.assertIn("no hand, pacer, guard, tick", message)
+
     def test_a_moltbook_post_needs_a_title_and_a_body(self):
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{"do": "post_moltbook", "text": "no title"}, {"do": "follow_moltbook"}]})
