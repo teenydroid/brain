@@ -10,6 +10,12 @@ the rules and DRY_RUN itself. Operator verbs (O) are for a person at the box.
   R  user NAME                                another account
   R  subreddit NAME                           a community's about page and its rules
   R  inbox [--days N] [--max N]               replies and mentions, screened, into Teeny's mind's inbox
+  R  metrics refresh                          measure Teeny's own writes due a checkpoint (1h, 24h, 72h)
+                                              into reddit_post_metrics; a removal starts a back-off
+  R  metrics list [--days N]                  the latest row per write measured in the last N days
+  R  metrics daily                            the account's karma, as hands/stats keeps it
+  R  study                                    per allowlisted subreddit: the week's top posts and what
+                                              Teeny's own writes scored, by kind and format; cached 6h
   R  slot --kind post|comment [--wait S]     whether a write would pass the caps, gaps and back-offs now:
                                               {open: true} or {open: false, why, wait_seconds?}
   A  post       {subreddit, title, anchor, body? | url?, flair_id?, format?, experiment?}
@@ -26,7 +32,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import actions, client, inbox, reads, rules
+from . import actions, client, inbox, metrics, reads, rules, study
 
 
 def _bounded(low: int, high: int, what: str):
@@ -59,6 +65,12 @@ def _check(_: argparse.Namespace, __: Any) -> Mapping[str, Any]:
     return out
 
 
+def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    if args.action == "daily":
+        return {"metrics": metrics.daily()}
+    return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="hands/reddit", description="The only holder of the Reddit credentials.")
     verbs = root.add_subparsers(dest="verb")
@@ -88,6 +100,11 @@ def parser() -> argparse.ArgumentParser:
     scanning = verb("inbox", lambda a, _: inbox.scan(a.days, a.max), "replies and mentions, into Teeny's mind's inbox")
     scanning.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
     scanning.add_argument("--max", type=_bounded(1, 100, "--max"), default=50)
+
+    measuring = verb("metrics", _metrics, "how Teeny's own posts and comments landed")
+    measuring.add_argument("action", choices=("refresh", "list", "daily"))
+    measuring.add_argument("--days", type=_bounded(1, 30, "--days"), default=7)
+    verb("study", lambda a, _: study.study(), "what wins in each allowlisted subreddit this week")
 
     for name, handler, help in (
         ("post", actions.post, "submit a post (JSON on stdin)"),

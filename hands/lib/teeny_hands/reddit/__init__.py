@@ -5,6 +5,8 @@
   reads    the read verbs, through the read cache (`reddit_cache`)
   rules    the ledger, the subreddit allowlist, our caps and gaps, the crypto rule
   actions  the only path to a write: guard, rules, DRY_RUN, Reddit, the ledger
+  metrics  how Teeny's own writes landed (1h, 24h, 72h), removals, the daily karma
+  study    what wins in each allowlisted subreddit this week
   inbox    replies and mentions, screened, into Teeny's mind's inbox
   cli      the verbs
 """
