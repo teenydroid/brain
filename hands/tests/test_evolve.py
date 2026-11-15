@@ -741,7 +741,7 @@ class Gate(EvolveCase):
     def test_a_playbook_delta_passes_every_check(self):
         out, checks = self.gated([self.playbook_edit("Name the person who shipped it.")])
         self.assertTrue(out["ok"], checks)
-        self.assertEqual(set(checks), {"frozen paths", "existing hand entry points", "diff size", "no binary files",
+        self.assertEqual(set(checks), {"frozen paths", "changed hands have tests", "docs updated", "diff size", "no binary files",
                                        "SOUL+CONTEXT size",
                                        "new hands have tests", "aims at a component with a reading",
                                        "does more than run less", "new hands are called", "does more than mark an arc",
@@ -755,11 +755,18 @@ class Gate(EvolveCase):
         self.assertIn("bin/ask", checks["frozen paths"]["detail"])
         self.assertIn("not run", checks["doctor --root"]["detail"])
 
-    def test_an_existing_hands_entry_point_is_not_changed(self):
+    def test_an_existing_hands_entry_point_may_change_but_needs_a_test_and_docs(self):
+        """Since 2026-11-15 a hand that is not frozen may change: what it
+        lacks comes back as findings, never a rejection, and the doctor runs
+        the changed hands/git sealed (sealed_env)."""
         text = self.base_text("hands/git")
         out, checks = self.gated([{"path": "hands/git", "old": text.splitlines()[0], "new": "#!/bin/sh\necho hi"}])
-        self.assertFalse(checks["existing hand entry points"]["ok"])
-        self.assertIn("not run", checks["doctor --root"]["detail"])
+        self.assertTrue(out["hard_ok"])
+        self.assertNotIn("existing hand entry points", checks)
+        self.assertFalse(checks["changed hands have tests"]["ok"])
+        self.assertFalse(checks["docs updated"]["ok"])
+        self.assertNotIn("not run", checks["doctor --root"]["detail"])
+        self.assertIn("hand tests: git", checks)  # its own tests ran
 
     def test_more_changed_lines_than_the_share_of_the_repository_fail(self):
         """The 400-line cap is gone: the cap is EVOLVE_MAX_CHANGE_PCT (5) of
