@@ -553,6 +553,42 @@ out="$(run pick)"
 check "a pick with no words to publish asks the guard nothing" test "$(hand_calls guard)" = 0
 check "and hands the id and reason over as they are" grep -q '^lab pick stdin={"id":4,"reason":"small and useful"}$' "$FAKE_HANDS"
 check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+
+# --- a hand draft that names an anchor (hands/reddit post) meets the anchor judge ----------
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab post"\nsurface = "reddit"\nmax_per_day = 1\n+++\npost it\n' >"$brain/playbooks/rpost.md"
+answer '{"action": "hand", "subreddit": "LocalLLaMA", "title": "my guard held 40 of 212 replies", "body": "here is why", "anchor": "guard:2026-11-14"}'
+out="$(run rpost)"
+judged="$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//')"
+check "a hand draft with an anchor is judged on its title and body joined, and the anchor" \
+  jq -e '.text == "my guard held 40 of 212 replies\n\nhere is why" and .anchor == "guard:2026-11-14"' <<<"$judged"
+check "and once anchored the hand gets the anchor beside the guard's fields" \
+  grep -q '^lab post stdin={"subreddit":"LocalLLaMA","title":"my guard held 40 of 212 replies\[g\]","body":"here is why\[g\]","anchor":"guard:2026-11-14"}$' "$FAKE_HANDS"
+check "and it is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+reset
+out="$(FAKE_ANCHOR=no run rpost)"
+check "a hand draft the judge finds unanchored is a skip with the judge's reason" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: a generic gm"
+check "and keeps the draft it dropped" test "$(jq -r '.actions[0].draft' <<<"$out")" = $'my guard held 40 of 212 replies\n\nhere is why'
+check "and nothing reaches the guard's check or the hand" test "$(hand_calls lab)/$(grep -c '^guard check' "$FAKE_HANDS")" = "0/0"
+check "and spends no budget" test "$(jq -r .left_today <<<"$out")" = 1
+reset
+out="$(FAKE_ANCHOR=fail run rpost)"
+check "a hand draft the judge cannot answer is a skip (fails closed)" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: core unreachable"
+check "and runs no hand" test "$(hand_calls lab)" = 0
+reset
+answer '{"action": "hand", "subreddit": "LocalLLaMA", "title": "t", "body": "b", "anchor": "  "}'
+out="$(run rpost)"
+check "a blank anchor is a skip, and the judge is not asked" \
+  test "$(jq -r '.actions[0].reason' <<<"$out")/$(hand_calls guard)/$(hand_calls lab)" = "not anchored: the draft names no anchor/0/0"
+reset
+printf '+++\ndescription = "test"\noutput = "hand:lab comment"\nsurface = "reddit"\nmax_per_day = 6\n+++\nanswer it\n' >"$brain/playbooks/rcomment.md"
+answer '{"action": "hand", "post_id": "abc12", "body": "pin the version"}'
+out="$(run rcomment)"
+check "a hand draft with no anchor field (a comment) is not judged" \
+  test "$(grep -c '^guard anchor' "$FAKE_HANDS")/$(hand_calls lab)" = "0/1"
+
 check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
 check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
