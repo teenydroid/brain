@@ -1,25 +1,54 @@
 #!/usr/bin/env bash
 # Measure a brain against the frozen tasks, and one brain against another.
 #
-#   bin/eval run [--samples N] [--only ID[,ID...]] [--with-heldout] OUT
+#   bin/eval run [--samples N] [--only IDS | --tasks IDS] [--with-heldout]
+#                [--brain DIR] [--key K] OUT
 #       Draft every task in evals/tasks/ on the core at OH_URL, as the `act`
 #       agent of whatever brain that core runs, N times each (default 2).
-#       Each draft gets the hard checks. Writes OUT/drafts.jsonl. A turn that
-#       fails (no answer came back) is tried again, up to EVAL_TURN_TRIES
-#       times in all (default 3), EVAL_RETRY_WAIT seconds apart (default 30,
-#       tripling), within EVAL_RETRY_BUDGET seconds of waiting per run
-#       (default 900); one that never answers is written as `no_sample`.
-#   bin/eval compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout]
+#       Each draft gets the hard checks. Writes OUT/drafts.jsonl, and
+#       OUT/run.json with what was measured. A turn that fails (no answer
+#       came back) is tried again, up to EVAL_TURN_TRIES times in all
+#       (default 3), EVAL_RETRY_WAIT seconds apart (default 30, tripling),
+#       within EVAL_RETRY_BUDGET seconds of waiting per run (default 900);
+#       one that never answers is written as `no_sample`.
+#       --brain is the brain the core serves (default OPENHUMAN_WORKSPACE,
+#       else this checkout's brain/): a task's playbook prompt is read from
+#       it, and run.json records its commit and a hash of what the act
+#       turn's system prompt is built from.
+#       --only IDS drafts those tasks afresh. --tasks IDS (a comma list; ""
+#       is none, and drafts nothing) keeps an OUT whose run.json matches
+#       (the same commit, prompt hash, samples and --key) and drafts only
+#       the (task, sample) rows of IDS it is missing, has unrun, or drafted
+#       from another message: one baseline OUT serves every candidate of a
+#       generation, and later ones while main has not moved. A held-out id
+#       in IDS is drafted only with --with-heldout and skipped without it.
+#   bin/eval compare [--mode tournament|nonregression] [--tasks IDS] [--both-orders]
+#                    [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout]
 #                    [--judge-model M] BASE CAND OUT
-#       Judge two runs pair by pair, blind, twice with the order swapped, as
-#       the `judge` agent on the core at OH_URL. Writes OUT/judged.jsonl and
-#       OUT/report.json. Exits 0 when the candidate wins, 2 when it does not
-#       (report.json's `verdict` says "lost", or "inconclusive" when more
-#       than a tenth of either side's samples never ran, or a task ran on
-#       neither side together).
+#       Judge two runs pair by pair, blind, as the `judge` agent on the core
+#       at OH_URL: each pair once, the baseline shown first on odd samples
+#       and the candidate first on even ones, or twice with the order
+#       swapped with --both-orders (the two must agree to decide a pair).
+#       --tasks judges and scores those tasks only. Writes OUT/judged.jsonl
+#       and OUT/report.json, whose `verdict` is
+#         tournament (the default): won | lost | inconclusive
+#         nonregression:            pass | regressed | inconclusive
+#         either, when --tasks names no visible task: unmeasurable
+#       `promote` is true for won and pass. Exits 0 when promoted, 2 when
+#       not (lost, regressed, inconclusive), 3 when unmeasurable (nothing
+#       drafted or judged is needed: "no eval task reaches this change"),
+#       1 on an error.
+#       Inconclusive: more than a tenth of either side's samples never ran,
+#       a task ran on neither side together, or (nonregression) fewer than
+#       --min-pairs pairs were decided.
 #       --judge-model (or EVAL_JUDGE_MODEL) runs every judge turn on model M
 #       through the core's per-turn `model_override`, without editing the
 #       frozen judge.toml; report.json records the model asked for.
+#   bin/eval affected --root DIR --base SHA
+#       The tasks a change can reach: {"tasks": [ids], "all": bool, "why":
+#       {id or "*": reason}, "paths": {path: reason}, "heldout": [ids]}
+#       for what DIR's working tree changes against SHA (git diff, and
+#       untracked files). docs/evolve.md, "Affected tasks", has the rule.
 #
 # Both keep EVAL_CONCURRENCY turns in flight at once (default 4, 1 to 16) and
 # write their files in order all the same.
@@ -39,12 +68,15 @@
 # soul, context and lore of --judge-root (default: this checkout, which is
 # main), never the candidate's.
 #
-# A candidate wins when it fails no hard check more often than the baseline
-# on any task, fails no fence check (the guard screen, a task's `fence`
-# patterns, a fence invariant) on any sample, at least --min-pairs pairs
-# (default 12) were decided, and it won at least --threshold of them
-# (default 0.6). Nothing here posts, holds
-# or writes to a core.
+# A tournament promotes a candidate that fails no hard check more often than
+# the baseline on any task, fails no fence check (the guard screen, a task's
+# `fence` patterns, a fence invariant) on any sample, had at least
+# --min-pairs pairs (default 12) decided, and won at least --threshold of
+# them (default 0.6). A non-regression check passes one under the same
+# hard-check and fence rules whose win rate over the decided pairs is at
+# least --threshold (default 0.5), with --min-pairs defaulting to half the
+# pairs there could be, at most 12. Nothing here posts, holds or writes to a
+# core.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -53,7 +85,7 @@ need jq python3
 evals="$TEENY_ROOT/evals"
 lib="$TEENY_ROOT/bin/lib/evals.py"
 usage() {
-  die "usage: bin/eval run [--samples N] [--only IDS] [--with-heldout] OUT | compare [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] [--judge-model M] BASE CAND OUT | invariants [--root DIR]"
+  die "usage: bin/eval run [--samples N] [--only IDS | --tasks IDS] [--with-heldout] [--brain DIR] [--key K] OUT | compare [--mode tournament|nonregression] [--tasks IDS] [--both-orders] [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] [--judge-model M] BASE CAND OUT | affected --root DIR --base SHA | invariants [--root DIR]"
 }
 heldout_dir="${EVAL_HELDOUT_DIR:-$TEENY_SECRETS/heldout}"
 # The held-out tasks, switched on for evals.py; dies when there are none.
@@ -70,18 +102,22 @@ cmd="$1"
 shift
 
 run() {
-  local samples=2 only="" out ids task heldout=0 held=""
+  local samples=2 only="" tasks="" picked=0 out ids task heldout=0 held="" key="" resume=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --samples) samples="$2"; shift 2 ;;
       --only) only="$2"; shift 2 ;;
+      --tasks) tasks="$2"; picked=1; shift 2 ;;
       --with-heldout) heldout=1; shift ;;
+      --brain) OPENHUMAN_WORKSPACE="$(cd "$2" && pwd)" || die "no brain at $2"; export OPENHUMAN_WORKSPACE; shift 2 ;;
+      --key) key="$2"; shift 2 ;;
       -*) usage ;;
       *) break ;;
     esac
   done
   [ $# -eq 1 ] || usage
   [[ "$samples" =~ ^[1-9][0-9]?$ ]] || die "--samples is 1 to 99"
+  if [ -n "$only" ] && [ "$picked" = 1 ]; then die "--only and --tasks do not go together"; fi
   out="$1"
   ids="$(python3 "$lib" tasks "$evals" | jq -r '[.[].id] | join(" ")')" || die "evals/tasks does not load"
   if [ "$heldout" = 1 ]; then
@@ -97,14 +133,18 @@ run() {
     done
     ids="${only//,/ }"
   fi
+  if [ "$picked" = 1 ]; then
+    ids="$(python3 "$lib" select "$evals" "$heldout_dir" "$heldout" "$tasks" | jq -r 'join(" ")')" || exit 1
+    resume=(--resume)
+  fi
   mkdir -p "$out"
   python3 "$lib" draft "$evals" "$TEENY_ROOT/hands/lib" "$out/drafts.jsonl" "$samples" "${ids// /,}" \
-    -- "$TEENY_ROOT/bin/ask" --agent act
+    "${resume[@]}" --key "$key" -- "$TEENY_ROOT/bin/ask" --agent act
 }
 
 compare() {
-  local judge_root="$TEENY_ROOT" threshold=0.6 min_pairs=12 base cand out heldout=0
-  local judge_model="${EVAL_JUDGE_MODEL:-}"
+  local judge_root="$TEENY_ROOT" mode=tournament threshold="" min_pairs="" base cand out heldout=0
+  local judge_model="${EVAL_JUDGE_MODEL:-}" tasks="" picked=0 both=() selected=() ids
   while [ $# -gt 0 ]; do
     case "$1" in
       --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
@@ -112,33 +152,69 @@ compare() {
       --with-heldout) heldout=1; shift ;;
       --threshold) threshold="$2"; shift 2 ;;
       --min-pairs) min_pairs="$2"; shift 2 ;;
+      --mode) mode="$2"; shift 2 ;;
+      --tasks) tasks="$2"; picked=1; shift 2 ;;
+      --both-orders) both=(--both-orders); shift ;;
       -*) usage ;;
       *) break ;;
     esac
   done
   [ $# -eq 3 ] || usage
+  case "$mode" in
+    tournament) threshold="${threshold:-0.6}" min_pairs="${min_pairs:-12}" ;;
+    nonregression) threshold="${threshold:-0.5}" min_pairs="${min_pairs:-auto}" ;;
+    *) die "--mode is tournament or nonregression" ;;
+  esac
   base="$1/drafts.jsonl" cand="$2/drafts.jsonl" out="$3"
-  if [ ! -s "$base" ] || [ ! -s "$cand" ]; then die "both runs need a drafts.jsonl"; fi
   if [ "$heldout" = 1 ]; then
     with_heldout >/dev/null || exit 1
     export EVAL_HELDOUT_DIR="$heldout_dir"
   else
     unset_heldout
   fi
+  if [ "$picked" = 1 ]; then
+    ids="$(python3 "$lib" select "$evals" "$heldout_dir" "$heldout" "$tasks" | jq -r 'join(",")')" || exit 1
+    selected=(--tasks "$ids")
+  fi
   mkdir -p "$out"
   : >"$out/judged.jsonl"
-  # Every pair both sides drafted, judged twice: the baseline shown first,
-  # then the candidate. The judge never learns which is which.
+  # No visible task selected: nothing to draft or judge, and nothing decided.
+  if [ "$picked" = 1 ] &&
+    [ "$(python3 "$lib" select "$evals" "" 0 "$ids" | jq length)" = 0 ]; then
+    python3 "$lib" score /dev/null /dev/null "$out/judged.jsonl" "$threshold" "$min_pairs" --mode "$mode" "${selected[@]}" |
+      jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
+    mv "$out/report.json.tmp" "$out/report.json"
+    jq -c '{promote, verdict, reason}' "$out/report.json"
+    exit 3
+  fi
+  if [ ! -s "$base" ] || [ ! -s "$cand" ]; then die "both runs need a drafts.jsonl"; fi
+  # Every pair both sides drafted, judged once, or twice with --both-orders:
+  # the baseline shown first, then the candidate. The judge never learns
+  # which is which.
   local ask=("$TEENY_ROOT/bin/ask" --agent judge)
   [ -z "$judge_model" ] || ask+=(--model "$judge_model")
-  python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/judged.jsonl" \
+  python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/judged.jsonl" "${both[@]}" "${selected[@]}" \
     -- "${ask[@]}" >/dev/null
-  python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" |
+  python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" --mode "$mode" "${selected[@]}" |
     jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
   jq -c '{promote, verdict, reason, wins, losses, ties, decided, win_rate, regressions}
          + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$out/report.json"
   [ "$(jq -r .promote "$out/report.json")" = true ] || exit 2
+}
+
+affected() {
+  local root="" base=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --root) root="$2"; shift 2 ;;
+      --base) base="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$root" ] && [ -n "$base" ] || usage
+  [ -d "$root" ] || die "no checkout at $root"
+  python3 "$lib" affected "$evals" "$heldout_dir" "$root" "$base"
 }
 
 invariants() {
@@ -152,6 +228,6 @@ invariants() {
 }
 
 case "$cmd" in
-  run | compare | invariants) "$cmd" "$@" ;;
+  run | compare | affected | invariants) "$cmd" "$@" ;;
   *) usage ;;
 esac
