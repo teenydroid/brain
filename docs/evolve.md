@@ -207,6 +207,7 @@ media = ["image"]          # optional: the draft may add an "image" or "video"
 name = "stats"
 run = "hands/stats report --days 7"
 required = true            # optional: skip without a model turn when it is empty
+                           # (an "ok" and a gate's "why" aside; the why is recorded)
 [[inputs]]
 name = "hn"
 run = "hands/hn top --max 5"
