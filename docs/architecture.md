@@ -206,10 +206,12 @@ brain/
 `CONTEXT.md`, the lore, skills, playbooks, `cron.toml`) and add hands, but
 not `DRIVE.md`, which is frozen (`evals/frozen.txt`): it changes how it
 pursues the drive, never the drive itself. The work is driven by the goals in
-`narrative/LORE.md` and tracked in `narrative/ARCS.md`. A candidate brain is judged against the current one and
-merged only if it wins, behind rules in code the brain cannot edit. The loop
-is `bin/evolve`, documented in [`evolve.md`](evolve.md): the operator merges
-what it proposes unless `EVOLVE_AUTO_PROMOTE=1`.
+`narrative/LORE.md` and tracked in `narrative/ARCS.md`, and the loop acts on
+what Teeny learned: each item of `MEMORY.md` it decided, promised or is in the
+middle of becomes one small change, gated in code the brain cannot edit,
+measured on the eval tasks it reaches, and opened as its own pull request.
+The loop is `bin/evolve`, documented in [`evolve.md`](evolve.md); the
+babysitter merges what passes its audit and CI, or a person does.
 
 ### 4a. Context and memory: what a turn knows
 
@@ -266,8 +268,10 @@ generation stays on disk.
 
 - X mentions (`hands/x ingest`, the webhook);
 - mail (`hands/mail ingest`);
-- comments said to Teeny on Moltbook, which `bin/tick` browses at most every
-  10 minutes (`hands/moltbook inbox`);
+- comments said to Teeny on Moltbook, which `bin/tick` browses every beat,
+  at most every 4 minutes (`hands/moltbook inbox`); a comment on Teeny's own
+  post that the mind read and left comes back until it is answered or
+  declined with a reason (`hands/moltbook unanswered` counts them);
 - Telegram messages, which every beat reads with `hands/telegram ingest`
   when a bot token is set;
 - GitHub: issues, pull requests, comments, review comments and mentions

@@ -1761,15 +1761,17 @@ class TickTest(unittest.TestCase):
         self.assertIn("#2 in 5 h: write to bob (ref bob@example.com)", message)
         self.assertIn("#3 in 7 h: write the weekly post", message)
 
-    def test_a_beat_browses_moltbook_at_most_every_ten_minutes(self):
+    def test_a_beat_browses_moltbook_every_beat_at_most_every_four_minutes(self):
+        # Every five-minute beat, a minute early included, so a comment on
+        # Teeny's own post waits one beat, not two or three.
         browsed = lambda: sum(1 for c in (map(json.loads, self.hands_log.read_text().splitlines()) if self.hands_log.exists() else [])
                               if c["hand"] == "moltbook" and c["argv"][:1] == ["inbox"])
         self.tick()
         self.assertEqual(browsed(), 1)
-        os.environ["TEENY_NOW"] = str(T0 + 300)
+        os.environ["TEENY_NOW"] = str(T0 + 120)
         self.tick()
         self.assertEqual(browsed(), 1)
-        os.environ["TEENY_NOW"] = str(T0 + 601)
+        os.environ["TEENY_NOW"] = str(T0 + 241)
         self.tick()
         self.assertEqual(browsed(), 2)
 
@@ -2057,6 +2059,37 @@ class TickTest(unittest.TestCase):
                                     "url": "https://github.com/teenydroid/x"}),
             ("moltbook", ["follow"], {"name": "crabby"}),
         ])
+
+    def test_the_mind_can_decline_a_comment_on_its_own_post_with_a_reason(self):
+        stimuli.add("moltbook", "comment", "c9", "register your bot as a performer", who="pixelbot",
+                    payload={"post_id": "p1", "on_own_post": True})
+        stimuli.follow_up(T0 + 3600, "answer pixelbot", ref="c9")
+        self.answer({"thought": "", "intents": [
+            {"do": "decline_moltbook", "comment_id": "c9", "reason": "spam", "note": "sells a listing", "extra": 1},
+        ]})
+        got = self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [("moltbook", ["decline"], {"comment_id": "c9", "reason": "spam", "note": "sells a listing"})])
+        self.assertEqual([r["status"] for r in got["results"]], ["done"])
+        self.assertEqual(stimuli.follow_ups()["follow_ups"], [], "declining it settles what waited on it")
+
+    def test_own_thread_comments_come_with_the_rule_to_answer_them_now(self):
+        stimuli.add("moltbook", "comment", "c9", "what does your ledger keep?", who="rossum",
+                    payload={"post_id": "p1", "on_own_post": True, "again": 2, "waiting_minutes": 47})
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        for bit in ("Comments on your own Moltbook posts come first", "never only thanks or agreement",
+                    "Still unanswered, 47 min after it came (offered 3 times)", "no one-comment-per-beat rule",
+                    '"do": "decline_moltbook"'):
+            self.assertIn(bit, chat["message"])
+
+    def test_a_comment_elsewhere_carries_no_own_thread_rule(self):
+        stimuli.add("moltbook", "comment", "c9", "replying to you", who="ana", payload={"post_id": "p1", "on_own_post": False})
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        self.assertNotIn("Comments on your own Moltbook posts come first", chat["message"])
 
     def test_a_moltbook_post_needs_a_title_and_a_body(self):
         stimuli.add("x", "mention", "1", "gm")
