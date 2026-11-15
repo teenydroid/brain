@@ -235,9 +235,10 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
         offered, failed = 0, None
         if offer:
             drops = _open_drop_posts(conn)
-            for pending in conn.execute("SELECT post FROM x_mentions WHERE status = 'pending' ORDER BY id").fetchall():
+            for pending in conn.execute(
+                    "SELECT post, conversation_id FROM x_mentions WHERE status = 'pending' ORDER BY id").fetchall():
                 post = json.loads(pending["post"])
-                if post.get("conversation_id") in drops:
+                if pending["conversation_id"] in drops:
                     # An entry to an open Tiny Drop: hands/giveaway reads it from
                     # this row; answering every entry would be reply spam.
                     conn.execute("UPDATE x_mentions SET status = 'skipped', note = 'drop entry', updated_at = ? WHERE id = ?",
