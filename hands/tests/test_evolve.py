@@ -1334,6 +1334,9 @@ class AskProposerTurn(EvolveCase):
                            "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
                         "n=$(cat " + str(count) + " 2>/dev/null || echo 0); echo $((n + 1)) >" + str(count) + "\n"
                         "if [ \"$n\" = 0 ]; then a='" + cut.replace("'", "'\\''") + "'; else a='"
                         + good.replace("'", "'\\''") + "'; fi\n"
@@ -1344,6 +1347,7 @@ class AskProposerTurn(EvolveCase):
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         messages = [json.loads(line)["message"] for line in calls.read_text().splitlines()]
+        messages = [m for m in messages if not m.startswith("# evolve research")]
         self.assertEqual(len(messages), 2)
         self.assertIn("could not be read as JSON", messages[1])
 
@@ -1358,7 +1362,9 @@ class AskProposerTurn(EvolveCase):
         with unittest.mock.patch.object(evolve, "world_report", return_value={
                 "J": 0.1, "components": [{"component": "attention", "value": 5}, {"component": "money", "value": None}]}):
             evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
-        message = json.loads(calls.read_text().splitlines()[0])["message"]
+        # The build's message, after the research turn's (whose answer here does not parse as research).
+        message = next(m for m in (json.loads(line)["message"] for line in calls.read_text().splitlines())
+                       if m.startswith("# evolve: "))
         self.assertLess(message.index("What came of what you made"), message.index("The score, your builds"))
         self.assertIn("Anything aimed at money: never read", message)
         # money is not offered as a label (in the instructions: a playbook

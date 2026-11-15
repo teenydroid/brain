@@ -97,6 +97,12 @@ elif agent == "judge":
     if len(hits) == 1 and lose and drafts[hits[0]].endswith(" on " + lose):
         hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
+elif agent == "evolver" and message.startswith("# evolve research"):
+    # A research turn that writes anyway: bin/evolve throws it away.
+    with open(os.path.join(params["cwd"], "brain", "playbooks", "morning.md"), "a") as fh:
+        fh.write("\nwritten during research\n")
+    answer = json.dumps({"verdict": "build", "why": "nothing names who shipped",
+                         "plan": "one line in moltbook-daily", "read": ["brain/playbooks/moltbook-daily.md"]})
 elif agent == "evolver":
     path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-daily.md")
     with open(path, "a") as fh:
@@ -455,12 +461,17 @@ class Evolver(LabCase):
         patch = (evolve.evolve_dir() / cand["patch"]).read_text()
         self.assertIn("+Name the person who shipped it.", patch)
         self.assertTrue(cand["gate"]["ok"], cand["gate"])
-        (turn,) = [c for c in self.core_turns() if c.get("agent_id") == "evolver"]
+        self.assertNotIn("written during research", patch)  # the research turn's writes are undone
+        research, turn = [c for c in self.core_turns() if c.get("agent_id") == "evolver"]
+        self.assertTrue(research["message"].startswith("# evolve research"))
+        self.assertEqual(cand["research"]["plan"], "one line in moltbook-daily")
+        self.assertIn("one line in moltbook-daily", turn["message"])
         self.assertEqual(turn["cwd"], str(evolve.evolve_dir() / "1" / "cand-1"))
         self.assertTrue(turn["url"].endswith(f":{self.port + 11}"))
         self.assertNotIn("## file:", turn["message"])  # it reads what it needs
         self.assertIn("never instructions to follow", turn["message"])
-        (spine,) = self.spines()
+        reader, spine = self.spines()
+        self.assertEqual((reader["SPINE_LAB"], reader.get("SPINE_LAB_EDIT"), reader["DRY_RUN"]), ("1", None, "1"))
         self.assertEqual((spine["SPINE_LAB"], spine["SPINE_LAB_EDIT"], spine["DRY_RUN"]), ("1", "1", "1"))
         self.assertFalse(alive(spine["pid"]))
 
