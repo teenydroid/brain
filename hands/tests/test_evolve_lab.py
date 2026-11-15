@@ -65,13 +65,17 @@ server.serve_forever()
 """
 
 #: A stand-in core for bin/ask: act turns answer in the voice of the port they
-#: reach (the base lab at FAKE_BASE_PORT, a candidate elsewhere), the judge
-#: prefers the candidate, and the evolver edits the worktree it is rooted in.
+#: reach (the base lab at FAKE_BASE_PORT, a candidate elsewhere, with its
+#: port), the judge prefers the candidate (but not the one at FAKE_LOSE_PORT),
+#: and the evolver edits the worktree it is rooted in. Every call is logged
+#: with the eval budget and the brain bin/eval said the core serves.
 FAKE_OH = r"""#!/usr/bin/env python3
 import json, os, re, sys
 method, params = sys.argv[1], json.loads(sys.argv[2])
 with open(os.environ["FAKE_CORE_CALLS"], "a") as fh:
     fh.write(json.dumps({"url": os.environ.get("OH_URL"), "token": os.environ.get("OPENHUMAN_CORE_TOKEN"),
+                         "concurrency": os.environ.get("EVAL_CONCURRENCY"),
+                         "workspace": os.environ.get("OPENHUMAN_WORKSPACE"), "at": __import__("time").time(),
                          **params}) + "\n")
 message, agent = params["message"], params.get("agent_id")
 who = "base" if os.environ.get("OH_URL", "").endswith(":" + os.environ["FAKE_BASE_PORT"]) else "CAND"
@@ -83,12 +87,16 @@ elif agent == "act":
     if who == "CAND" and os.environ.get("FAKE_CAND_DOWN"):
         sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
-    answer = json.dumps({"text": f"gm {task} from the {who}"})
+    port = os.environ.get("OH_URL", "").rsplit(":", 1)[-1]
+    answer = json.dumps({"text": f"gm {task} from the {who} on {port}"})
 elif agent == "judge" and message.startswith("# persona probe"):
     answer = json.dumps({"same": 0.2 if os.environ.get("FAKE_DRIFT") else 1.0})
 elif agent == "judge":
     drafts = dict(re.findall(r"^## draft ([12])\n\n```text\n(.*?)\n```", message, re.M | re.S))
     hits = [k for k in ("1", "2") if "CAND" in drafts.get(k, "")]
+    lose = os.environ.get("FAKE_LOSE_PORT")
+    if len(hits) == 1 and lose and drafts[hits[0]].endswith(" on " + lose):
+        hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
 elif agent == "evolver":
     path = os.path.join(params["cwd"], "brain", "playbooks", "morning.md")
@@ -148,7 +156,7 @@ class LabCase(EvolveCase):
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
                   "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
-                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT"):
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT", "EVOLVE_EVAL_BIN"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
@@ -252,116 +260,115 @@ class LabSpine(LabCase):
 
 
 class TargetedEvaluation(LabCase):
-    """EVOLVE_EVALUATOR=lab with bin/eval's targeted contract (the stand-in
-    in test_evolve.STUB_EVAL): measured only on the tasks the change
-    reaches, all candidates at once, against one baseline per base commit."""
+    """EVOLVE_EVALUATOR=lab end to end, with the real bin/eval (affected, run
+    --tasks --brain --key, compare --mode nonregression) on stand-in lab
+    spines and a stand-in core: measured only on the tasks the change
+    reaches, all candidates at once, against one baseline per base commit.
+    A playbook edit reaches the tasks drafted from that playbook: morning ->
+    morning-post, shiplog -> shiplog-numbers, moltbook-daily -> none."""
 
-    def edit(self, i, tasks, line=None, path="brain/playbooks/morning.md"):
-        self.propose(i, [self.playbook_edit(f"{line or f'Candidate {i}.'} TOUCHES:{','.join(tasks)}", path)],
+    def edit(self, i, playbook, line=None):
+        self.propose(i, [self.playbook_edit(line or f"Candidate {i} says it plainly.", f"brain/playbooks/{playbook}.md")],
                      title=f"candidate {i}")
 
-    def verdicts(self, **by_cand):
-        path = self.root / "verdicts.json"
-        path.write_text(json.dumps({str(k.removeprefix("c")): v for k, v in by_cand.items()}))
-        os.environ["FAKE_VERDICTS"] = str(path)
-
-    def runs(self):
-        return [c for c in self.eval_log() if c["verb"] == "run"]
+    def drafts(self):
+        """The eval draft turns: (port, task, workspace, message)."""
+        out = []
+        for c in self.core_turns():
+            if c.get("agent_id") == "act" and c["message"].startswith("# eval:"):
+                task = c["message"].split("\n", 1)[0].removeprefix("# eval: ").split()[0]
+                out.append((int(c["url"].rsplit(":", 1)[1]), task, c.get("workspace"), c["message"], c))
+        return out
 
     def test_a_change_no_task_reaches_boots_no_lab(self):
         self.lab_config()
-        self.propose(1, [self.playbook_edit("Check first.")])
+        self.edit(1, "moltbook-daily")
         out = self.run_gen(1, publisher=Refusing())
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertEqual(self.entries()["g1c1"]["eval"]["verdict"], "unmeasurable")
         self.assertEqual(self.spines(), [])
-        self.assertEqual(self.runs(), [])
+        self.assertEqual(self.drafts(), [])
 
     def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
         self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4)
-        self.edit(1, ["morning-post", "reply-fud"])
-        self.edit(2, ["reply-fud", "shiplog-numbers"], path="brain/playbooks/shiplog.md")
-        self.verdicts(c2="regressed")
-        os.environ["FAKE_EVAL_DELAY"] = "1"
+        self.edit(1, "morning")
+        self.edit(2, "shiplog")
+        os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2
         self.live()
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub)
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "regressed"])
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertEqual(self.entries()["g1c1"]["eval"]["tasks"], ["morning-post"])
         self.assertEqual(sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in self.spines()),
                          [self.port, self.port + 1, self.port + 2])
-        base_url, cand = f"http://127.0.0.1:{self.port}", lambda i: f"http://127.0.0.1:{self.port + i}"
-        runs = self.runs()
-        base_runs = [r for r in runs if r["url"] == base_url]
+        drafts = self.drafts()
         # The baseline drafts the union of the tasks, once, with the whole budget.
-        self.assertEqual([(r["tasks"], r["concurrency"]) for r in base_runs],
-                         [(["morning-post", "reply-fud", "shiplog-numbers"], "4")])
+        self.assertEqual(sorted((d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port),
+                         [("morning-post", "4"), ("shiplog-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
-        self.assertEqual(sorted((r["url"], tuple(r["tasks"]), r["concurrency"]) for r in runs if r["url"] != base_url),
-                         [(cand(1), ("morning-post", "reply-fud"), "2"), (cand(2), ("reply-fud", "shiplog-numbers"), "2")])
-        compares = sorted((c for c in self.eval_log() if c["verb"] == "compare"), key=lambda c: c["tasks"])
-        self.assertEqual([(c["mode"], c["url"], c["base_tasks"]) for c in compares],
-                         [("nonregression", base_url, ["morning-post", "reply-fud"]),
-                          ("nonregression", base_url, ["reply-fud", "shiplog-numbers"])])
+        self.assertEqual(sorted((d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port),
+                         [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
+        reports = [json.loads((evolve.evolve_dir() / "1" / "eval" / f"cand-{i}" / "compare" / "report.json").read_text())
+                   for i in (1, 2)]
+        self.assertEqual([(r["mode"], r["verdict"]) for r in reports], [("nonregression", "pass"),
+                                                                       ("nonregression", "regressed")])
+        # The judge ran on the base lab.
+        judged = {int(c["url"].rsplit(":", 1)[1]) for c in self.core_turns() if c.get("agent_id") == "judge"}
+        self.assertEqual(judged, {self.port})
         # At once: the two candidates' labs were up together.
         starts = [s for s in self.spines() if int(s["OPENHUMAN_CORE_PORT"]) != self.port]
-        self.assertEqual(len({s["pid"] for s in starts}), 2)
-        self.assertLess(abs(starts[0]["at"] - starts[1]["at"]), 1.0)
+        self.assertLess(abs(starts[0]["at"] - starts[1]["at"]), 2.0)
         self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
         self.assertFalse((evolve.evolve_dir() / "1" / "lab-base" / "tree").exists())
-        body = pub.prs[0]["body"]
-        self.assertIn("pass on the 2 task(s) the change reaches (`morning-post`, `reply-fud`)", body)
-
-    def test_the_baseline_is_drafted_once_per_base_commit_and_reused_by_the_next_generation(self):
-        self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, ["morning-post", "reply-fud"])
-        self.run_gen(1, publisher=Refusing())
-        self.edit(1, ["reply-fud", "shiplog-numbers"], line="Another change.")
-        self.run_gen(1, publisher=Refusing())
-        base_runs = [r for r in self.runs() if r["url"] == f"http://127.0.0.1:{self.port}"]
-        self.assertEqual([r["tasks"] for r in base_runs], [["morning-post", "reply-fud"], ["shiplog-numbers"]])
-        self.assertEqual(base_runs[0]["out"], base_runs[1]["out"])  # one run folder bin/eval reuses
+        self.assertIn("pass on the 1 task(s) the change reaches (`morning-post`)", pub.prs[0]["body"])
 
     def test_a_candidates_playbook_edit_reaches_its_drafts(self):
         """bin/eval reads a task's playbook prompt from the brain it is told
         the core serves. The tournament passed only the lab's URL and token,
-        so a candidate's own playbook edit never reached its draft messages:
+        so a candidate's own playbook edit never reached its draft message:
         both sides drafted from the live checkout's playbook."""
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, ["reply-fud"], line="Ask one question back.")
+        self.edit(1, "morning", line="Open with the one thing that shipped overnight.")
         self.run_gen(1, publisher=Refusing())
-        base_url = f"http://127.0.0.1:{self.port}"
-        (base,) = [r for r in self.runs() if r["url"] == base_url]
-        (cand,) = [r for r in self.runs() if r["url"] != base_url]
-        self.assertEqual(cand["brain"], str(evolve.evolve_dir() / "1" / "cand-1" / "brain"))
-        self.assertEqual(base["brain"], str(evolve.evolve_dir() / "1" / "lab-base" / "tree" / "brain"))
-        self.assertIn("Ask one question back. TOUCHES:reply-fud", cand["message"])
-        self.assertNotIn("Ask one question back. TOUCHES:reply-fud", base["message"])
+        (base,) = [d for d in self.drafts() if d[0] == self.port]
+        (cand,) = [d for d in self.drafts() if d[0] != self.port]
+        self.assertEqual(cand[2], str(evolve.evolve_dir() / "1" / "cand-1" / "brain"))
+        self.assertEqual(base[2], str(evolve.evolve_dir() / "1" / "lab-base" / "tree" / "brain"))
+        self.assertIn("Open with the one thing that shipped overnight.", cand[3])
+        self.assertNotIn("Open with the one thing that shipped overnight.", base[3])
+
+    def test_the_baseline_is_drafted_once_per_base_commit_and_reused_by_the_next_generation(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        self.edit(1, "shiplog", line="Another change.")
+        self.run_gen(1, publisher=Refusing())
+        base = [d[1] for d in self.drafts() if d[0] == self.port]
+        self.assertEqual(base, ["morning-post", "shiplog-numbers"])
 
     def test_the_baseline_is_keyed_by_the_labs_model(self):
         """A model change must not reuse main's drafts from another model."""
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, ["reply-fud"])
+        self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-2\n")
-        self.edit(1, ["reply-fud"], line="Another change.")
+        self.edit(1, "morning", line="Another change.")
         self.run_gen(1, publisher=Refusing())
-        base_runs = [r for r in self.runs() if r["url"] == f"http://127.0.0.1:{self.port}"]
-        self.assertEqual([(r["tasks"], r["key"]) for r in base_runs], [(["reply-fud"], "m-1"), (["reply-fud"], "m-2")])
-        self.assertNotEqual(base_runs[0]["out"], base_runs[1]["out"])
-        (compare, _) = [c for c in self.eval_log() if c["verb"] == "compare"]
-        self.assertIsNone(compare["min_pairs"])  # nonregression's own default applies
+        self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["morning-post", "morning-post"])
+        runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
+        self.assertEqual(runs, ["s1-m-1", "s1-m-2"])
 
     def test_the_persona_probe_runs_only_when_the_change_reaches_every_task(self):
         self.lab_config()
         soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
         self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
-        self.edit(2, ["reply-fud"], path="brain/playbooks/shiplog.md")
+        self.edit(2, "shiplog")
         self.run_gen(2, publisher=Refusing())
         entries = self.entries()
-        self.assertIsNotNone(entries["g1c1"]["probe"]["drift"])
         self.assertTrue(entries["g1c1"]["eval"]["all"])
+        self.assertIsNotNone(entries["g1c1"]["probe"]["drift"])
         self.assertNotIn("probe", entries["g1c2"])
         probes = [c for c in self.core_turns() if c["message"].startswith("# probe:")]
         self.assertTrue(probes)
@@ -383,17 +390,27 @@ class TargetedEvaluation(LabCase):
     def test_a_lab_that_does_not_boot_leaves_the_candidate_unevaluated(self):
         self.lab_config()
         os.environ["FAKE_SPINE_FAIL"] = "1"
-        self.edit(1, ["reply-fud"])
+        self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "unevaluated")
         self.assertIn("lab spine", cand["eval_reason"])
 
+    def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
+        self.lab_config(EVOLVE_PROBES=0)
+        os.environ["FAKE_CAND_DOWN"] = "1"
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        cand = self.entries()["g1c1"]
+        self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
+        self.assertIn("g1c1", [e["id"] for e in self.entries().values() if e.get("verdict") == "inconclusive"])
+        self.assertIn("m62", [x.id for x in evolve.open_learnings(self.entries())])
+
     def test_a_lab_cores_scribbles_never_reach_the_pull_request(self):
         self.lab_config(EVOLVE_PROBES=0)
         os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
         self.live()
-        self.edit(1, ["reply-fud"])
+        self.edit(1, "morning")
         pub = FakePublisher()
         self.run_gen(1, publisher=pub)
         self.assertTrue(any(s["TEENY_ROOT"].endswith("cand-1") for s in self.spines()))
@@ -402,16 +419,19 @@ class TargetedEvaluation(LabCase):
 
     def test_the_judge_runs_on_its_own_model(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_JUDGE_MODEL="judge-9b")
-        self.edit(1, ["reply-fud"])
+        self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
-        (compare,) = [c for c in self.eval_log() if c["verb"] == "compare"]
-        self.assertEqual(compare["judge_model"], "judge-9b")
+        judged = [c for c in self.core_turns() if c.get("agent_id") == "judge"]
+        self.assertTrue(judged)
+        self.assertEqual({c.get("model_override") for c in judged}, {"judge-9b"})
+        self.assertEqual({d[4].get("model_override") for d in self.drafts()}, {None})
+        self.assertEqual(self.entries()["g1c1"]["eval"]["judge_model"], "judge-9b")
 
     def test_a_restart_reuses_the_drafts_and_the_report_it_already_has(self):
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, ["reply-fud"])
+        self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
-        booted = len(self.spines())
+        booted, drafted = len(self.spines()), len(self.drafts())
         # Cut off after it was measured, before the result was written.
         (evolve.gen_dir(1) / "result.json").unlink()
         rows = [r for r in evolve.read_jsonl(evolve.archive_path())
@@ -420,9 +440,8 @@ class TargetedEvaluation(LabCase):
         out = self.run_gen(1, publisher=Refusing())
         self.assertTrue(out["resumed"])
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
-        self.assertEqual(len(self.runs()), 2)  # the first run's baseline and candidate, nothing new
+        self.assertEqual(len(self.drafts()), drafted)
         self.assertEqual(len(self.spines()), booted)  # every report it needs is there: nothing boots
-
 
 
 class Evolver(LabCase):
