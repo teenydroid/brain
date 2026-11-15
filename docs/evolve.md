@@ -282,7 +282,10 @@ the model behind each role (`secrets/autonomy/models.jsonl`, roadmap G8).
 
 `bin/spine` runs the doctor before `serve` and refuses to boot a checkout that
 fails it. `bin/doctor --root <candidate>` checks a candidate before it's
-merged.
+merged. `bin/evolve run` won't start on a red report, but it runs
+`bin/doctor --live` once more first, because the boot-time report can be red
+only for the few minutes after a restart (a cron job the restart killed
+still holds its claim).
 
 ## Evals (built)
 
