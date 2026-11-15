@@ -196,13 +196,63 @@ def _rejoin(words: list[str]) -> list[str]:
             if _known(candidate) and not all(_known(p) for p in parts):
                 joined = (candidate, span)
                 break
+        shifted = None if joined else _shifted(out, words, i)
         if joined:
             out.append(joined[0])
             i += joined[1]
+        elif shifted:
+            out[-1] = shifted[0]
+            out.append(shifted[1])
+            i += shifted[2]
         else:
             out.append(words[i])
             i += 1
     return out
+
+
+#: How many letters of a word the noise may move onto the next one.
+_SHIFT_MAX = 2
+
+
+def _shifted(out: list[str], words: list[str], i: int) -> tuple[str, str, int] | None:
+    """"gAiN sE i. gGhT": the noise moved the last letter of "gains" onto
+    "eight", then split "eight". When 1 to 3 words from `i` joined are a
+    letter or two and then a number word, and that letter or two put back
+    on the word before makes a word this reader knows, the two words come
+    back as (word before, number word, words used). Both must come out
+    known, so a guess never makes a number."""
+    if not out or not out[-1].isalpha():
+        return None
+    for span in (3, 2, 1):
+        if i + span > len(words):
+            continue
+        parts = words[i : i + span]
+        if not all(p.isalpha() for p in parts) or all(_known(p) for p in parts):
+            continue
+        joined = collapse("".join(parts))
+        for cut in range(1, _SHIFT_MAX + 1):
+            before, rest = collapse(out[-1] + joined[:cut]), joined[cut:]
+            if _is_number_word(rest) and _known(before):
+                return before, rest, span
+    return None
+
+
+def _near_miss(word: str) -> bool:
+    """A long number word with two letters swapped ("tihrty") or one letter
+    too many ("tiwelve"): which number it is, if any, is a guess."""
+    if len(word) < 5 or not word.isalpha() or _known(word):
+        return False
+    for number in (*UNITS, *TENS, *SCALES):
+        if len(number) < 5:
+            continue
+        if len(word) == len(number):
+            diff = [k for k in range(len(word)) if word[k] != number[k]]
+            if len(diff) == 2 and diff[1] == diff[0] + 1 and word[diff[0]] == number[diff[1]] and word[diff[1]] == number[diff[0]]:
+                return True
+        elif len(word) == len(number) + 1:
+            if any(word[:k] + word[k + 1 :] == number for k in range(len(word))):
+                return True
+    return False
 
 
 class _Ambiguous(Exception):
@@ -280,6 +330,8 @@ def _numbers(words: list[str]) -> list[tuple[int, int, Decimal]]:
     i = 0
     while i < len(words):
         word = words[i]
+        if _near_miss(word):
+            raise _Ambiguous
         if re.fullmatch(r"\d+(?:\.\d+)?", word):
             flush(i)
             numbers.append((i, i + 1, Decimal(word)))
