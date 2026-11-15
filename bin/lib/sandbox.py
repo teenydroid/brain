@@ -333,8 +333,10 @@ def serve_one(jobs: Path, work: Path, reap: bool = False, drop: Drop | None = No
     there was none."""
     io = drop.io if drop else contextlib.nullcontext
     with io():
-        waiting = sorted((p for p in (jobs / "jobs").glob("*/job.json") if p.is_file() and not p.is_symlink()),
-                         key=lambda p: p.stat().st_mtime)
+        # A job already acknowledged is running or answered; bin/evolve
+        # removes its folder once it has read the result.
+        waiting = sorted((p for p in (jobs / "jobs").glob("*/job.json") if p.is_file() and not p.is_symlink()
+                          and not os.path.lexists(p.parent / "ack.json")), key=lambda p: p.stat().st_mtime)
         if not waiting:
             return False
         folder = waiting[0].parent
@@ -343,7 +345,7 @@ def serve_one(jobs: Path, work: Path, reap: bool = False, drop: Drop | None = No
         except ValueError:
             job = {}
         job_id = str(job.get("id") or "")
-        if job_id != folder.name or not isinstance(job.get("args"), list) or (folder / "ack.json").exists():
+        if job_id != folder.name or not isinstance(job.get("args"), list):
             shutil.rmtree(folder, ignore_errors=True)
             return True
         token = uuid.uuid4().hex
