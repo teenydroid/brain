@@ -3533,6 +3533,30 @@ def status_text(cand: Mapping[str, Any]) -> str:
     return f"pass: no regression on {len(ev.get('tasks') or [])} task(s) it reaches"[:140]
 
 
+def research_summary(cand: Mapping[str, Any]) -> str | None:
+    """The research, as the pull request says it."""
+    research = cand.get("research")
+    if not isinstance(research, Mapping):
+        return None
+    if research.get("error"):
+        return f"**Research**: none usable ({str(research['error'])[:200]}); built without a plan."
+    out = f"**Research**: {research.get('verdict')}. {str(research.get('why') or '').strip()}"
+    if research.get("plan"):
+        out += "\n\n> " + "\n> ".join(str(research["plan"]).splitlines())
+    if research.get("searches"):
+        out += f"\n\n{research['searches']} web search(es) informed it."
+    return out
+
+
+def rounds_summary(cand: Mapping[str, Any]) -> str | None:
+    """One line per round of build, checks and review."""
+    rounds = cand.get("rounds")
+    if not rounds:
+        return None
+    return "**Review rounds** (bin/evolve, the `reviewer` agent and evals/review.md)\n\n" + "\n".join(
+        f"- {line}" for line in rounds)
+
+
 def pr_text(cand: Json) -> tuple[str, str]:
     """The pull request: the learning in Teeny's words, HYPOTHESIS.md, the
     gate, the targeted eval (held-out tasks never shown)."""
@@ -3546,6 +3570,8 @@ def pr_text(cand: Json) -> tuple[str, str]:
         hyp.strip(),
         f"**Lineage**: {cand['id']}, parent {cand['parent']}; {stats.get('files')} file(s), "
         f"+{stats.get('added')} -{stats.get('removed')}; diff {str(cand.get('diff_hash'))[:12]}.",
+        *([research_md] if (research_md := research_summary(cand)) else []),
+        *([rounds_md] if (rounds_md := rounds_summary(cand)) else []),
         "**Gate** (bin/evolve, in code)\n\n" + gate_table(cand),
         eval_text(cand),
         "Opened by bin/evolve (docs/evolve.md): one learning, one change, one pull request. CI's frozen job checks "
