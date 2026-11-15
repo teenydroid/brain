@@ -50,7 +50,7 @@ from typing import Any, Mapping
 
 from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
-from . import challenge, client, model_read, owed, reads, rules
+from . import challenge, client, exchanges, model_read, owed, reads, rules
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -835,14 +835,21 @@ def stale_follows(days: int = 7, limit: int = 25, api: RestApi | None = None) ->
 
 def prune(days: int = 7, limit: int = 25, api: RestApi | None = None) -> Json:
     """The weekly unfollow: every agent followed at least `days` ago that its
-    profile says does not follow back. One whose profile does not say stays."""
+    profile says does not follow back. One whose profile does not say stays,
+    and so does a peer or an agent with a recent real exchange (`spared`):
+    Teeny reads those on purpose, followed back or not."""
     found = stale_follows(days, limit, api)
+    keep = exchanges.keep()
     unfollowed: list[str] = []
+    spared: list[str] = []
     refused: list[Json] = []
     kept = 0
     for item in found["follows"]:
         if item["follows_back"] is not False:
             kept += 1
+            continue
+        if item["name"].lower() in keep:
+            spared.append(item["name"])
             continue
         try:
             unfollow({"name": item["name"]}, api)
@@ -851,7 +858,7 @@ def prune(days: int = 7, limit: int = 25, api: RestApi | None = None) -> Json:
             refused.append({"name": item["name"], "refused": exc.reason})
             if exc.detail.get("rule") == "rate_limit":
                 break
-    out: Json = {"days": days, "checked": len(found["follows"]), "kept": kept}
+    out: Json = {"days": days, "checked": len(found["follows"]), "kept": kept, "spared": spared}
     out["would_unfollow" if hand.dry_run() else "unfollowed"] = unfollowed
     if refused:
         out["refused"] = refused
