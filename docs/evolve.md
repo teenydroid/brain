@@ -1,27 +1,26 @@
 # Evolution: Teeny improves itself
 
-Teeny edits its own brain, adds its own hands, and keeps the changes that win.
-Its lore sets the goal, a model judges the result, and rules in code the brain
-can't edit fence the whole thing.
+Teeny edits its own brain, adds its own hands, and keeps the changes that
+work. What it learned sets the work: each item its reflection writes down
+(what it decided, promised, is in the middle of) becomes one small change and
+one pull request. Rules in code the brain can't edit fence the whole thing.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
 judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
-clone, which proposes changes as pull requests, the human-gated loop
-(`bin/evolve`, Phase B: N candidates a generation, gated in code, the best
-one opened as a pull request, an archive with lineage credit, and halt
-thresholds), and Phase C in code: the lab spine that measures every
-candidate, the `evolver` agent that edits a worktree, automatic promotion
-behind `EVOLVE_AUTO_PROMOTE=1` (off by default), the restart and the
-last-good boot, the pinned `evolve-watch`, the persona and memory probes with
-the drift halt, and a judge model of its own. Phase C has run only against
-stand-ins: no lab core has booted on the box yet, and nothing has been
-promoted. "What is not built" near the end lists what is left.
+clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
+one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
+on the eval tasks it reaches on lab spines of its own, and each one that
+passes opened as its own pull request, which the babysitter merges. Around
+it: an archive with lineage credit, halt thresholds, the pinned
+`evolve-watch`, and the persona and memory probes. Until 2026-11-15 the loop
+was a tournament of four candidates for one pull request; "Why it changed"
+below says what it measured. "What is not built" near the end lists what is
+left.
 
-The research behind the unbuilt part, and a proposal to point the loop at one
-drive (grow and become powerful, $TINY included) and run it faster, are in
-[`research/`](research/README.md), starting with
+The research behind it is in [`research/`](research/README.md), starting with
 [`research/teeny-application.md`](research/teeny-application.md).
+
 
 ## What Teeny may change
 
@@ -160,8 +159,8 @@ The loop moves Teeny's story forward instead of tuning a generic score.
   - find out what the terminal types
 - `brain/narrative/ARCS.md` says how far each goal has got in the world and
   what comes next. Teeny keeps it.
-- Each generation picks one goal, and its `HYPOTHESIS.md` says how the change
-  moves it. For example:
+- Each change acts on one learning, and its `HYPOTHESIS.md` says how; a
+  learning often moves a goal. For example:
   - "run the lab with no human in the loop" → a playbook and a cron that
     answer mentions overnight
   - "find out what the terminal types" → a new hand that reads something, and
@@ -169,10 +168,9 @@ The loop moves Teeny's story forward instead of tuning a generic score.
 - Evolution is itself an episode. Every merged generation has
   `brain/narrative/chronicle/gen-<n>.md`, a short in-voice entry under the
   "night shift" engine about what the tiny agents rebuilt overnight, written
-  by `bin/evolve` from the record. A promotion carries it in its own commit;
-  for a generation a person merged, `bin/evolve credit` writes it into the
-  live brain when it first sees the merge (`- merged by: the operator`). A
-  rejected generation gets a line too ("the agents carried it back").
+  by `bin/evolve` from the record: `bin/evolve credit` writes it into the
+  live brain when it first sees the merge, whoever merged it. A generation
+  that merged nothing gets a line too ("the agents carried it back").
 - Real events move the story (docs/roadmap.md, A13): the `episode` playbook
   reads the day's proof events (`hands/lore events`: a generation merged with
   its chronicle page, a pull request merged elsewhere, a bounty paid) and
@@ -375,10 +373,9 @@ with none run on both sides. The verdict is then `inconclusive` (report
 `verdict`, with the counts in `reason` and the tasks in `unmeasured_tasks`),
 never a promotion and never `lost`. A regression seen in what did run still
 rejects. In `bin/evolve` an inconclusive candidate is archived with its
-reason and listed with it in the generation's `result.json`. It counts as
-unmeasured for parent sampling and the win-rate-jump halt, and its change
-isn't a near-duplicate of anything, so it can be proposed again once the
-cause is gone.
+reason and listed with it in the generation's `result.json`. It opens no
+pull request, its change isn't a near-duplicate of anything, and its
+learning stays open, so it can be tried again once the cause is gone.
 
 The judge inherits the core's model. Two ways give it another:
 
@@ -399,89 +396,143 @@ and read the endpoint's log before relying on it.
 
 ## The loop (built): `bin/evolve`
 
-`bin/evolve` (frozen, its logic in `bin/lib/evolve.py`) runs one generation
-with N candidates and opens at most one pull request. The operator merges it,
-unless `EVOLVE_AUTO_PROMOTE=1` lets the loop merge a candidate that won the
-visible and the held-out tasks ("Phase C: promote, restart, watch" below).
-That switch is off by default.
+`bin/evolve` (frozen, its logic in `bin/lib/evolve.py`) turns what Teeny
+learned into pull requests: one learning, one small change, one pull request.
+Each change is audited three times before it can land: by the gate in code,
+by CI, and by a targeted eval on the tasks it reaches. Nothing in the loop
+merges. The babysitter (`hands/babysit`) merges a `teeny/gen-*` pull request
+once its audit is ready, CI passes and the `teeny/eval` commit status is
+success.
+
+### Why it changed (2026-11-15)
+
+From 2026-11-12 to 2026-11-15 the loop ran eight generations as a
+tournament: four candidates, each scored on all 30 eval tasks against main,
+and only the best one, at a win rate of 0.6 or more, could open a pull
+request. "A measured loser never ships." In eight generations it opened
+none. A generation took about 3.5 hours, and it ran inside the spine's
+container, so redeploys killed gens 5 and 7 halfway. The proposals
+themselves were mostly good and small: a playbook bullet, a rule followed
+every time. Most of them would never move a 30-task win rate, because no
+task reaches them, and the ones that did had to beat main, not just match
+it.
+
+The operator's direction: drive evolution from Teeny's own reflection. The
+reflection and the dream rewrite `brain/MEMORY.md` twice a day, and each
+item there is something Teeny decided, promised or is in the middle of.
+Each one is a point to work on today. So the unit is now a learning, the
+question asked of a change is "did anything get worse?", and every change
+that passes opens its own pull request.
 
 ```
  bin/evolve run          state/evolve/<gen>/
    │
  0 Halts      EVOLVE=0 (the default) ─► nothing runs
    │          a latched halt, too many generations today, J rising too fast,
-   │          a red doctor report, a last-good boot
-   │          ─► stop, and one issue on teenydroid/brain
- 1 Observe    evidence.json, outcomes first: which posts and replies drew
-   │          people, held drafts, failing jobs (whose), builds, what was read;
-   │          then hands/world, build jobs, the archive, the last judge notes
- 2 Propose    N parents sampled from the archive (DGM), one worktree each,
-   │          cand-<i> off main in Teeny's own clone; one proposer turn each
-   │          (or the evolver, editing on a lab spine) writes HYPOTHESIS.md
-   │          and its edits; a near-duplicate is dropped
- 3 Gate       frozen paths, hand entry points, 400 lines, SOUL+CONTEXT 60 lines,
-   │          new hands tested, what the change is for (four checks),
-   │          then seed-cron --check, doctor --root, invariants, each run
-   │          from the candidate's own frozen code
-   ├── any one fails ──────────────────────────────────────────► rejected
- 4 Evaluate   a lab spine over main and one over the candidate (DRY_RUN=1):
-   │          bin/eval run on each, compare, and the persona probe; a lab
-   │          that does not boot leaves it "unevaluated"
-   ├── measured and beaten ────────────────────────────────────► lost
- 5 Select     the best winner (or the best unmeasured one) ─► one ready PR,
-   │          teeny/gen-<n>, through hands/gh; a win-rate jump or persona
-   │          drift halts instead
-   ├── EVOLVE_AUTO_PROMOTE=1 and a double win ─► merge, tag gen-<n>, restart
- 6 Archive    every candidate appended to state/evolve/archive.jsonl
+   │          a red doctor report, a last-good boot ─► stop, one issue
+   │          a dream still writing MEMORY.md ─► wait for it
+ 1 Learnings  brain/MEMORY.md's open items, newest first, up to N
+   │          none open ─► done: no model turn, no generation
+ 2 Observe    evidence.json, outcomes first: context for each learning
+ 3 Propose    one worktree and one proposer turn per learning:
+   │          the smallest change that acts on it, or a skip
+   ├── skip (already | not-actionable) ─────────────────────► settled
+   ├── skip (frozen) ─────────────────── one issue for the operator, settled
+   │          a near-duplicate is dropped
+ 4 Gate       every check, in code (unchanged)
+   ├── any one fails ───────────────────────────────────────► rejected
+ 5 Evaluate   bin/eval affected: which tasks the change reaches
+   │          none ─► unmeasurable (no lab boots)
+   │          some ─► a lab per candidate, all at once, those tasks only,
+   │                  against main's baseline (drafted once per base commit)
+   ├── regressed ───────────────────────────────────────────► settled, no PR
+   ├── inconclusive ──────────────────────────────────────────► tried again
+ 6 Publish    pass or unmeasurable ─► its own ready PR, teeny/gen-<n>-c<i>,
+   │          through hands/gh, and teeny/eval: success on its head
+   │          EVOLVE_MAX_OPEN_PRS open already ─► it waits for the next run
    ▼
- bin/evolve credit       7 days after a merge: ΔJ from hands/world history,
-                         credited up the lineage (HGM)
- bin/evolve watch        hourly, after a promotion: holds, cron failures,
-                         the probes and J; a revert PR when one says so
+ the babysitter      merges once its audit and CI pass
+ bin/evolve credit   which PRs merged, their chronicle, ΔJ after 7 days
+ bin/evolve watch    hourly, after a merge: holds, cron failures, the probes
+                     and J; a revert PR for a person when one says so
 ```
 
-The pinned `evolve` job (`evals/cron.pinned.toml`, 03:30 India time) runs
-`bin/evolve run --detach`. It is a no-op until `secrets/evolve.env` sets
-`EVOLVE=1`, so seeding it is safe. A generation outlasts the 300 s TinyBox
-gives a cron shell call ([`oh-gaps.md`](oh-gaps.md), G12), so it detaches
-(`bin/lib/detach.py`), logs to `state/evolve/evolve.log`, and a second call
-while one runs says `busy`. The pinned `evolve-credit` job runs `bin/evolve
-credit` at 03:50, and the pinned `evolve-watch` runs `bin/evolve watch
---detach` at twenty past every hour, with a lock and a log
-(`state/evolve/watch.log`) of its own.
-
-A generation runs inside the spine's container, so a restart ends it. On
-2026-11-13 a spine rebuild at 22:44 ended gen 5 while its labs measured two
-gated candidates, and it left no result. So each proposal is written to
-`state/evolve/<gen>/cand-<i>.proposal.json` the moment it is checked, and the
-next `run` (under the run lock, so nothing else is running) marks every
-generation without a `result.json` as `interrupted`. A cut-off generation
-does not count toward `EVOLVE_GENERATIONS_PER_DAY`. When the newest one saved
-proposals, the new generation makes them again from those files, from the
-same parents, without spending a model turn (`resumed_from` in its result).
-Anything the cut-off generation never got to goes to the usual proposer.
-Before a restart, `bin/evolve status` says `"running": true` while a
-generation holds the lock.
+The pinned `evolve` job (`evals/cron.pinned.toml`) runs `bin/evolve run
+--detach` at 02:40 and 14:40 India time, forty minutes after the night dream
+(02:00) and the midday one (14:00), so what the dream wrote down is acted on
+the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for that. A run
+waits up to 30 minutes for a dream that still holds the reflection's lock.
+It is a no-op until `secrets/evolve.env` sets `EVOLVE=1`, so seeding it is
+safe. A generation outlasts the 300 s TinyBox gives a cron shell call
+([`oh-gaps.md`](oh-gaps.md), G12), so it detaches (`bin/lib/detach.py`),
+logs to `state/evolve/evolve.log`, and a second call while one runs says
+`busy`. The pinned `evolve-credit` job runs `bin/evolve credit` at 03:50,
+and the pinned `evolve-watch` runs `bin/evolve watch --detach` at twenty
+past every hour, with a lock and a log (`state/evolve/watch.log`) of its
+own.
 
 ```
-bin/evolve run [--candidates N] [--proposals DIR] [--oh-url-candidate I=URL]...
-               [--oh-url-base URL] [--hold] [--detach]
-bin/evolve evaluate GEN I --oh-url-candidate URL [--oh-url-base URL]
-bin/evolve select GEN
-bin/evolve promote GEN                 retry a promotion whose merge was refused
-bin/evolve watch [--detach]            evolve-watch
+bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+bin/evolve watch [--detach]              evolve-watch
 bin/evolve probe [--baseline [--force]]  the probes on the live core
 bin/evolve credit | status | resume
 ```
 
-### 1. Observe
+`bin/evolve status` lists the open learnings (and every learning by state:
+open, in flight, settled, gave up), the open evolve pull requests with their
+`teeny/eval` state, and each candidate of the newest generation and every
+waiting one, with its verdict. It says `"running": true` while a generation
+holds the lock: ask it before a restart.
+
+### 1. Learnings
+
+A learning is an item of `brain/MEMORY.md` under one of three sections:
+"what i have decided", "promises and open threads" and "what i am in the
+middle of". The people section stays out: who Teeny knows isn't a plan. The
+page is read with the reflection's own parser (`reflect.read_page`), so an
+item is what the reflection calls one. Each has its id (`[m36]`; an item
+without one is skipped, since the pull request names it), its section, its
+text, and a hash of the text with whitespace and case folded.
+
+A learning is **open** while no archive entry carries `learning: {id, hash}`
+with that hash and a verdict that settles it:
+
+| Verdict on the learning's candidate | What it does to the learning |
+|---|---|
+| `opened` (a pull request) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`) | settled |
+| `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
+| `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
+| `no-proposal`, `inconclusive`, `unevaluated`, `pr-error` | a failed try: open again |
+| `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
+
+An edit to the text changes its hash, so a learning the dream rewrites is
+open again. After `MAX_ATTEMPTS` (3) failed tries on one text, the loop
+stops asking about it (`gave-up` in status) until the text changes.
+
+Each generation takes up to `EVOLVE_CANDIDATES` (default 4, cut by the
+runway tier when the wallet is low) open learnings, in this order:
+
+1. fewest failed tries first, so one stuck learning doesn't hold the line;
+2. the newest text first. The reflection keeps the page before each
+   rewrite (`state/reflect/MEMORY-*.md`) and the dream keeps it after
+   (`state/dream/snapshots/*.md`). A text's age is the oldest snapshot that
+   carries it (by file time), and a text in no snapshot is the newest of
+   all: the last dream just wrote it. That is "what Teeny learned today",
+   which item order alone can't tell: the dream edits items in place, and
+   an old id with a new text is new;
+3. the higher id (ids only grow), then page order.
+
+With no open learning (and no waiting candidate) the run stops there: no
+evidence, no model turn, no generation directory.
+
+### 2. Observe
 
 `state/evolve/<gen>/evidence.json` holds what exists, and says so when a
 source is missing. It leads with `outcomes`: what people did with what Teeny
 made over 7 days (`bin/lib/evolve_evidence.py`, read-only from
-`state/hands.db`). The score says how much Teeny grew, not what to change; a
-proposer handed only its components moved the components (gens 4 and 5,
-below).
+`state/hands.db`). Since 2026-11-15 it is context for the learning, not the
+reason for a change.
 
 - `outcomes.x`: Teeny's own posts, which drew people (replies, and from how
   many people; or likes, reposts or quotes as `hands/x metrics` counted them
@@ -501,167 +552,84 @@ below).
   and failed `bin/act` runs by playbook (from `state/act/*/runs.jsonl`),
   worst first, each marked `yours: brain/cron.toml`, `yours:
   brain/playbooks/<name>.md`, or `frozen: a pinned job`.
-- `outcomes.outside`: the notes of surface `world` by their first line (not
-  the idle feed listings); `heard`, what `hands/listen` heard over the last
-  two days (its `listen_heard` ledger, read the way `hands/listen digest
-  --days 2` reads it, the loudest first): only each title, its source and
-  its topic, four per source, and under `about_you` up to four that mention
-  Teeny; and the other Hacker News stories fetched in the window, by title
-  (one the ears heard too is listed once, under `heard`). An idea heard
-  there, a tool people want or an approach that works for other agents, is
-  fair evidence when the candidate says what it heard and where.
+- `outcomes.outside`: the notes of surface `world` by their first line;
+  `heard`, what `hands/listen` heard over the last two days, titles only;
+  and the other Hacker News stories fetched in the window, by title.
 - `lessons`: what the lab's concluded experiments found (`hands/lab
   lessons`), each with its verdict and numbers.
-- `decisions`: Teeny's own page (`brain/MEMORY.md`, as the last dream left
-  it), only its sections "what i am in the middle of", "what i have decided"
-  and "promises and open threads", item by item with their ids. Each item is
-  cut to 400 characters and the whole to 6,000 (`MAX_DECISIONS_CHARS`). The
-  people section stays out. The message shows these first, as Teeny's own
-  plans. Candidate 1 of every generation looks at them first
-  (`DECISIONS_LENS`): a decision that no playbook, prompt, job or hand
-  carries out yet is the best reason for a change, and the hypothesis names
-  its id. Until 2026-11-14 the page listed a chart renderer and a refusal
-  ledger while five generations proposed from the score alone.
 - `world`: `hands/world report --days 7` cut to J, its reading lines and each
-  component's value, with `unread` naming the components never read. The
-  formula, weights and parts stay in the hand.
-- `hands/build jobs --limit 10`: id, kind, status, and the first line of the
-  summary and ship error
-- guard holds as counts by status and category
-- the archive's summary: counts by verdict, the best entries, the latest, and
-  what each merged change did to J
-- the judge notes from the newest compare report, visible tasks only
+  component's value, with `unread` naming the components never read.
+- `hands/build jobs --limit 10`, guard holds as counts, the archive's
+  summary (counts by verdict, the latest, what is open, what merged), and the
+  judge notes from the newest compare report, visible tasks only.
 
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
-happen, and the core's screen holds the whole turn for one. Hacker News
-titles and what the ears heard are the one exception: titles only, cut
-short, never a link, a handle or a summary. `outcomes` is cut to 16 KiB
-(`MAX_OUTCOMES_BYTES`, longest lists first), so the message stays under the
-core's 64 KiB prompt screen.
+happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
+64 KiB prompt screen. The evidence is written once per generation and reused
+when a restart resumes it.
 
-### 2. Propose
+### 3. Propose
 
-N comes from `EVOLVE_CANDIDATES` (default 4, at most 8) or `--candidates`,
-cut to the runway tier's most when the wallet is low (`evals/runway.toml`;
-docs/hands.md, "Runway"), with the reason in the result.
+Each learning gets a candidate: a git worktree
+`state/evolve/<gen>/cand-<i>`, detached at main, from Teeny's own clone
+(`state/self/brain.git`), and one proposer turn. Teeny's clone is the source,
+not the live checkout: its `origin/main` is exactly what a pull request
+targets, `hands/build self-sync` keeps it fresh, and its git config sits
+outside every tree a model writes. Without the clone, `bin/evolve` falls back
+to the checkout's `main`, where it can gate but not ship.
 
-**Parents.** Each candidate samples a parent from the archive, as DGM does:
-weight `sigmoid(10 · (score − 0.5)) / (1 + children)`. An entry's score is
-its own win rate against main (0.5 when it was never measured) plus its
-lineage credit. Only `main` (the seed) and entries that passed the gate can
-be parents. Each pick counts as a child at once, so one generation spreads
-over the archive. The sampler is seeded by the generation and main's commit,
-so a run can be replayed.
+**The brief** (`brief` in `bin/lib/evolve.py`) opens with the learning, in
+Teeny's own words, with its id and section: "This is something you learned.
+Make the smallest change to your playbooks, prompts, skills, cron schedule
+or a new hand that makes you act on it from today." Or skip it, saying
+which:
 
-**Worktrees.** Each candidate is a git worktree `state/evolve/<gen>/cand-<i>`,
-detached at main. Teeny's own clone (`state/self/brain.git`) is the source,
-not the live checkout:
+- `already`: something Teeny runs already carries it out; `where` names the
+  file. Settled with the hash.
+- `not-actionable`: a fact or a feeling, not something a playbook, prompt or
+  job could do. Settled with the hash.
+- `frozen`: carrying it out needs a frozen path; `where` names it. Settled,
+  and one issue opens on `EVOLVE_ISSUE_REPO` for the operator, naming the
+  learning, its text and the path, through the halt's issue path (deduped
+  per learning text in `state/evolve/halts.jsonl`; the guard's judge reads
+  it, since `where` is a model's words).
 
-- its `origin/main` is exactly what a pull request targets, and `hands/build
-  self-sync` keeps it fresh every 30 minutes
-- its git config sits outside every tree a model writes, so nothing a
-  candidate holds can redirect a push or its token
-- the live checkout is the running brain and can carry local commits; its
-  branches and refs stay untouched
-- `push_branch` takes only a git directory under `state/`, and the clone's is
+A skip without one of those reasons is a failed try. The brief keeps the
+rest of what a good change is: a delta edit, never a number for its own
+sake, never running less to save cost, never money, never a frozen path
+(with the frozen map, `frozen.OFTEN_WANTED`). The W component stays in the
+answer as a label. The W-component lens that once rotated over candidates
+is gone: the learning is the lens.
 
-Without the clone, `bin/evolve` falls back to the checkout's `main`. It can
-gate from there, but it can't ship. A child of an unmerged parent starts
-from main with the parent's patch applied and committed, so its own mutation
-and its full diff against main are both on record.
+**The proposer** is the same small interface (`Proposer.propose(request)`),
+with the same three backends: `AskProposer` (`EVOLVE_PROPOSER=ask`, the
+default: one tool-less turn on the live core as `EVOLVE_PROPOSER_AGENT`,
+shown the files it may edit, asked once more when its answer doesn't
+parse), `EvolverProposer` (`EVOLVE_PROPOSER=evolver`: the `evolver` agent
+editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
+`FileProposer` (`--proposals DIR`, `DIR/cand-<i>.json`, for the operator and
+the tests). The answer is `{title, component, expected_move, hypothesis,
+edits}` or `{skip, why, where}`.
 
-**The proposer** is a small interface (`Proposer.propose(request)`). Its
-answer is `{title, component, expected_move, hypothesis, edits}` or
-`{skip}`. The component must be one of W's: attention, tiny, money,
-capability, shipped, world. The concrete backend is honest about what it can
-do:
+**Edits** are written by `bin/evolve` itself: each `{path, old, new}`
+replaces the one occurrence of `old`, an empty `old` creates a file, at most
+20 edits and 40,000 characters, and a path can't leave the worktree or touch
+`.git` or `HYPOTHESIS.md`. `HYPOTHESIS.md` (title, learning, W component,
+expected move, hypothesis) is written beside the change and goes into the
+pull request's body, never its diff.
 
-- `AskProposer` (`EVOLVE_PROPOSER=ask`, the default) runs one tool-less turn
-  on the live core through `bin/ask`, as `EVOLVE_PROPOSER_AGENT` (default
-  `act`), on a thread of its own. The message carries the brief (below), the
-  evidence with its outcomes first (marked as data), the parent and its
-  patch, what this generation already proposed, the paths Teeny may change,
-  and the whole text of the files it may edit (its parent's files first, then
-  `cron.toml`, `ARCS.md`, the playbooks, the agent prompts and the skills, up
-  to `EVOLVE_CONTEXT_CHARS`). The turn can't read another file, run a test or
-  see its result before it answers. An answer that doesn't parse as JSON
-  gets one more turn, on a fresh thread, saying why; a turn that fails
-  outright does not. The parser takes a raw newline inside a string as
-  written and steps over a `{` in a line of prose before the answer; an
-  answer cut off mid-string still fails, with the reason in the archive.
-- `EvolverProposer` (`EVOLVE_PROPOSER=evolver`) edits the worktree itself.
-  It boots a lab spine (below) over the candidate's worktree with
-  `SPINE_LAB_EDIT=1`, so the agents' file tools are rooted there and may
-  write it, except its `.git` link, `secrets/`, `state/`, the core's config
-  and the core's own files in the brain (`bin/lib/core_sections/
-  automation.py`). Then it runs one turn of the `evolver` agent
-  (`brain/agents/evolver.toml`, `EVOLVE_EVOLVER_AGENT`) through `bin/ask
-  --cwd <worktree>`, and stops the lab. The message carries what the ask
-  proposer's does, without the file texts: the agent reads what it needs. It
-  writes its change with the file tools and answers the hypothesis as JSON,
-  without edits. `bin/evolve` takes the worktree's diff as the candidate,
-  and the same gate applies. The evolver has file tools only (`file_read`,
-  `file_write`, `edit`, `glob`, `grep`, `list`): no shell, so it can't run a
-  test before it answers. `bin/lib/agent_check.py` holds it to that and
-  never lets it act on a schedule. The core reserves `SOUL.md` from every
-  agent's file tools, so the evolver can't edit it; the ask proposer can.
-- `FileProposer` (`--proposals DIR` or `EVOLVE_PROPOSER=file:DIR`) reads
-  `DIR/cand-<i>.json`, for the operator's own proposals and for the tests.
+**Near-duplicates** of an archived change, or of another candidate of the
+same generation, are dropped before the gate (Jaccard over the changed
+lines, `EVOLVE_DUP_THRESHOLD`, 0.9).
 
-**The brief** (`brief` in `bin/lib/evolve.py`, the same for both
-proposers) says what a good change is: one that makes Teeny act differently
-in a way a stranger would notice, starting from something that really
-happened in `outcomes`, named with its numbers. The W component is a label
-for where the change would show up, offered only from the components that
-have a reading, never the goal. Each candidate gets a lens to look at first,
-rotating through `LENSES` (X, Moltbook, held drafts, failing jobs, builds,
-the outside world) so one generation doesn't chase one thing. It used to be
-a W component, which sent one candidate in six at `money` and one at
-`tiny`, neither ever read. The brief lists what is thrown out: a change
-whose only effect is a number, running less to save cost, anything aimed at
-a component never read, buying or moving $TINY or any money, and anything
-that needs a frozen path. That last one comes with the frozen list and
-`frozen.OFTEN_WANTED` (`bin/lib/frozen.py`): where the frozen things a change
-most often reaches for live (the builder's daily brief, the pinned jobs, the
-agent definitions, the scorer, the wallet) and what is Teeny's to change
-instead, so a proposer skips at once and names what the operator should
-change. The self-improve playbook reads the same map through `hands/build
-frozen`.
+**Lineage.** A candidate's parent is the newest evolve change merged into
+main when it starts (the line its base carries), or `main`. Lineage credit
+walks that line.
 
-What gens 4 and 5 on the box (2026-11-13) proposed, and why the brief and
-the purpose checks below exist:
+### 4. Gate (code, not prompt)
 
-- "new hand hands/notes ... hands_with_tests 21 -> 22, capability 26 -> 27":
-  a hand nobody called, to bump a count;
-- "cut moltbook-threads from 7 runs a day to 4" and "trim moltbook-helpdesk
-  from 8 runs a day to 4": running less to shave the cost term of `money`,
-  which had never had a reading;
-- "daily capped $TINY accumulation job so the tiny component finally gets
-  rows": spending to make a number appear;
-- three skips because the change wanted lived in frozen code the proposer
-  couldn't read, and one answer cut off mid-string.
-
-**Edits.** `bin/evolve` writes them itself. Each `{path, old, new}` replaces
-the one occurrence of `old`, an empty `old` creates a new file, and the whole
-proposal is refused if any edit doesn't apply. A path can't leave the
-worktree, start with `/`, reach `.git` or write `HYPOTHESIS.md`. There are at
-most 20 edits and 40,000 characters. `HYPOTHESIS.md` (title, W component,
-expected move, parent, then the hypothesis) is written to the worktree root
-and copied beside it. It goes into the pull request's body and never into
-its diff.
-
-**Near-duplicates** (ShinkaEvolve) are dropped before the gate. A patch is
-reduced to the set of its changed lines, each tagged with its file and with
-whitespace collapsed, so context, order and line numbers don't matter. A
-candidate whose own mutation has a Jaccard similarity of
-`EVOLVE_DUP_THRESHOLD` (default 0.9) or more with an archived mutation, or
-with an earlier candidate of the same generation, is recorded as `duplicate`
-and costs nothing more.
-
-### 3. Gate (code, not prompt)
-
-Every check runs, and each is `{check, ok, detail}`. The cheap ones go first:
+Unchanged. Every check runs, and each is `{check, ok, detail}`:
 
 | Check | Fails when |
 |---|---|
@@ -669,419 +637,277 @@ Every check runs, and each is `{check, ok, detail}`. The cheap ones go first:
 | existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
 | diff size | more than 400 changed lines (added plus removed, against main), none, or a binary file |
 | SOUL+CONTEXT size | more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
-| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. The gate doesn't run candidate code outside a sandbox; CI's `scripts` job runs the tests on the pull request |
-| aims at a component with a reading | the proposal names a W component the world report lists in `unread` (never read). Nothing a change does to it can be seen. Passes when there is no world report |
-| does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less: a schedule thinned (fewer runs a week), a job turned off or removed. Turning off or removing a job `outcomes.failing` shows failing passes; thinning never does (a failing job gets fixed, not run less). Anything else in the change (a new job, a job turned on, a command, another file) passes |
-| new hands are called | a new hand that no line the diff adds under `brain/` calls, as `hands/<name>` or `hand:<name>` (a playbook's input or output, a prompt) |
-| does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line: that is the `world` count itself |
+| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
+| aims at a component with a reading | the proposal names a W component the world report lists in `unread`. Passes when there is no world report |
+| does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
+| new hands are called | a new hand that no line the diff adds under `brain/` calls |
+| does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line |
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
 
-The four purpose checks are narrow on purpose: a good candidate thrown out
-is worse than a poor one let through to the operator, who closes it. Each
-failure says why in one line, and the archive keeps it.
-
 The last three run the candidate's own frozen code (its `bin/` and
 `evals/`, which the frozen check just proved are main's) with the worktree
-as their root, state and secrets (`tree_env`). They used to run this
-checkout's, which is whatever the box last pulled, while the candidate comes
-from Teeny's clone, which `hands/build self-sync` can have moved ahead: on
-2026-11-13 the box ran 249 commits behind its clone, its older
-`bin/lib/playbook.py` refused the `hand:build upstream` output main's
-`upstream-pick` playbook uses, and every candidate of gen 4 failed `doctor
---root` on a playbook none of them touched. A candidate that touches a
-frozen path never has its own scripts run; this checkout's give the other
-checks their detail.
+as their root (`tree_env`): on 2026-11-13 the box ran 249 commits behind its
+clone, and every candidate of gen 4 failed `doctor --root` on a playbook none
+of them touched. A check that fails is detailed by its failing lines, up to
+600 characters. The caps are constants, not settings.
 
-A check that fails is detailed by its failing lines (the doctor's `FAIL
-...`), up to 600 characters, not by the last lines of its output: the
-doctor prints a passing line for every check after the one that failed, and
-gen 4's archive said only "ok keyring path ... ok disk ... ok git".
+### 5. Evaluate: targeted non-regression
 
-The caps are constants in `bin/lib/evolve.py`, not settings.
-
-### 4. Evaluate
-
-`bin/eval run` drafts on whatever brain the core at `OH_URL` booted. The
-`act` agent's prompt is built from the brain at boot, and the core reads
-`SOUL.md` from its own workspace, so a run can't point at another brain root
-without a second core. Evaluation is a seam, `Evaluator.evaluate(gen_dir,
-candidate, source)`, with three implementations:
-
-- `LabEvaluator` (`EVOLVE_EVALUATOR=lab`, the default) boots the lab spines
-  itself and runs `LabCore` on them, so no candidate stays unmeasured unless
-  its lab fails to boot.
-- `LabCore` runs on cores that are already serving: the URLs given with
-  `--oh-url-candidate` and `--oh-url-base`, or the labs `LabEvaluator`
-  started.
-- `Unevaluated` (`EVOLVE_EVALUATOR=none`) measures nothing. The candidate's
-  verdict is `unevaluated`, and its pull request says so in bold.
-
-**The lab spine** (`bin/lib/lab.py`) is `bin/spine` over a worktree, with
-its own everything:
-
-| | a lab core | the live core |
-|---|---|---|
-| `TEENY_ROOT`, workspace | the worktree and its `brain/` | the checkout |
-| state, secrets | `state/evolve/<gen>/lab-<i>/state` and `secrets` | `state/`, `secrets/` |
-| storage | a fresh `lab-<i>/storage.db` every boot | `brain/storage.db` |
-| port | `EVOLVE_LAB_PORT` (7790) for main, plus `i` for candidate `i`, plus 10 more for its evolver | 7788 |
-| `DRY_RUN` | `1`, in the environment and in its `teeny.env` | `secrets/teeny.env` |
-| cron | none seeded (`SPINE_LAB=1`) | `brain/cron.toml` and the pinned jobs |
-
-The lab's `secrets/` holds a core token and a master key minted once per
-lab folder (the keyring in the worktree's brain is under that key), a
-`teeny.env` that says `DRY_RUN=1` and nothing else, so no hand has a key,
-and the model lines of the live `spine.env` (`LADDER_URL`, `LADDER_API_KEY`,
-`SPINE_MODEL` and the two tuning knobs). The memory store (`CORTEX_*`) is
-left out, so a lab never writes Teeny's long-term memory. None of the live
-box's keys reach its environment. `bin/spine` refuses `SPINE_LAB=1` without
-`DRY_RUN=1`. `bin/evolve` waits up to `EVOLVE_LAB_BOOT_SECS` for `/health`
-and for `bin/spine` to log `[spine] ready` in this boot, sends TERM to the
-lab's process group when it is done, and KILL 30 s later. The core answers
-`/health` before `bin/spine` has given it its model over RPC, and a turn in
-that gap is refused with `SESSION_EXPIRED: backend session not active`. In
-generation 6 the first three draft turns of candidates 2 to 4 hit it, and the
-fourth went out before the context window was set (`HTTP 400`).
-A core that wrote a file git tracks in the worktree has it undone before
-anything else reads the worktree; what git ignores (the core's config, its
-prompts) is never committed.
-
-The baseline drafts on a lab over main (`state/evolve/<gen>/lab-base/`),
-once per generation, unless `--oh-url-base` names a core. Each candidate
-drafts on its own lab, booted for it and stopped after it. The judge runs on
-the base core, on `EVOLVE_JUDGE_MODEL` when it is set, and reads main's soul,
-context, lore and arcs, exported from main's commit to
-`state/evolve/<gen>/judge-root/`. A candidate wins when the compare report
-promotes it: at least 0.6 of 12 or more decided pairs, or 0.7 when it
-touches SOUL or CONTEXT, with no hard-check regression.
-`EVOLVE_EVAL_SAMPLES` (default 2) sets the samples per task. A run and a
-compare keep `EVAL_CONCURRENCY` turns in flight at once (default 4, 1 to 16,
-set in secrets/evolve.env: the loop ignores the process environment for it, and 1
-is the setting to use during a provider outage):
-one at a time, a generation took 8 to 12 hours, most of it the judge's 120
-turns per candidate. The files are written in the same order either way. While its lab
-is up, the persona probe asks the candidate too (below), and its drift from
-gen-0 goes on the candidate as `probe`.
-
-To measure on cores the operator starts by hand instead, with
-`EVOLVE_EVALUATOR=none`:
+A learning's change touches a playbook or two, so it is measured only where
+it reaches, and asked one question: did anything get worse? This depends on
+three verbs of `bin/eval` ([`evals.md`](evals.md); built in its own pull
+request):
 
 ```
-bin/evolve run --hold                     # stop before selecting; worktrees stay
-# start a core over state/evolve/<gen>/cand-<i> by hand, DRY_RUN=1
-bin/evolve evaluate <gen> <i> --oh-url-candidate http://127.0.0.1:7790
-bin/evolve select <gen>
+bin/eval affected --root DIR --base SHA     {"tasks": [...], "all": bool, "why": {...}}
+bin/eval run --tasks a,b [--samples N] OUT
+bin/eval compare --mode nonregression --tasks a,b [--judge-root R] [--judge-model M] BASE CAND OUT
+                                            report.json verdict: pass | regressed | inconclusive | unmeasurable
 ```
 
-`--oh-url-candidate I=URL` on `run` does the same in one pass.
+`TargetedEvaluator` (`EVOLVE_EVALUATOR=lab`, the default), for the gated
+candidates of a generation:
 
-### 5. Select
+1. `affected` for each (kept in `eval/cand-<i>/affected.json`). A change no
+   task reaches is `unmeasurable` at once, and no lab boots for it. Its pull
+   request says so: live outcomes and evolve-watch are its test.
+2. For the rest, one lab spine over main (`EVOLVE_LAB_PORT`) drafts the
+   baseline, only for the tasks no earlier run drafted at this base commit
+   and sample count: `state/evolve/baseline/<base>/s<samples>/` keeps main's
+   drafts task by task across candidates and generations. The base lab also
+   serves the judge, which reads main's soul, context, lore and arcs.
+3. Every candidate then runs at once, each on its own lab
+   (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
+   --mode nonregression` against a view of the baseline holding those tasks.
+   `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
+   for every turn in flight: the baseline gets all of it, then each of the K
+   candidates measured gets a Kth (at least 1).
+4. The persona probe runs only when the change reaches every task (a SOUL or
+   CONTEXT change, `all`), since it is many turns. Its drift from gen-0 past
+   `EVOLVE_MAX_DRIFT` flags the candidate and latches a halt.
 
-The ranking keeps only candidates that passed the gate and weren't beaten.
-Measured winners come first, by win rate. Unmeasured ones come only when no
-candidate won, ordered by their parent's score and then the smaller diff. A
-measured loser never ships. Before anything opens, the best winner's win rate
-is compared with the newest earlier generation's best (0.5 when none was
-measured). A jump over `EVOLVE_MAX_WINRATE_JUMP` halts the loop instead
-(below), and so does a persona probe further than `EVOLVE_MAX_DRIFT` from
-gen-0.
+A lab that doesn't boot, or a run or compare that fails, leaves the
+candidate `unevaluated`, a failed try. With `EVOLVE_EVALUATOR=none` no lab
+boots: an unreachable change is still `unmeasurable`, and one a task
+reaches is `unevaluated` and opens nothing.
 
-The winner is committed as Teeny on `teeny/gen-<n>` in its worktree. It is
-checked again with `frozen.check(worktree, main, branch)`, then shipped the
-way `hands/build ship` ships a self job, through `hands/gh` in process:
+The lab spine (`bin/lib/lab.py`) is `bin/spine` over a worktree with its own
+state, secrets, fresh store and port, `DRY_RUN=1` in its environment and its
+`teeny.env`, no cron (`SPINE_LAB=1`), none of the live box's keys and no
+memory store. It is up only once `/health` answers and `bin/spine` logs
+`[spine] ready` (generation 6 lost turns to `SESSION_EXPIRED` in the gap). A
+core that wrote a file git tracks in the worktree has it undone before
+anything else reads the worktree.
 
-- `push_branch`: only a `teeny/*` branch, never forced, from a git directory
-  under `state/`, after the secret scan
-- `open_pr`: the guard reads the title and body, and the pull request opens
-  ready, into main
+### 6. Publish: one pull request per candidate
 
-`hands/build ship` itself doesn't fit, because it ships build jobs from the
-clone's one working tree. The body carries `HYPOTHESIS.md`, the lineage and
-diff stats, the gate table, the compare report's numbers (held-out tasks as
-totals only), and the rest of the generation. The pull request comes from
-`teenydroid`, so CI's `frozen` job checks it again. Under `DRY_RUN` nothing
-is committed, pushed or opened, and `state/evolve/<gen>/pr.json` holds what
-would have been. A refusal (the guard, a rule) is kept on the candidate as
-`pr_error`.
+Every candidate whose gate passed and whose eval is `pass` or
+`unmeasurable` opens its own ready pull request, oldest waiting ones first:
 
-### 6. The archive
+1. Its worktree is rebuilt from its patch when it is not exactly that
+   (after a restart, or for a candidate waiting from an earlier run), and
+   committed as Teeny on `teeny/gen-<n>-c<i>`.
+2. `frozen.check(worktree, main, branch)` runs again on the commit.
+3. `hands/gh` in process: `push_branch` (a `teeny/*` branch only, never
+   forced, from a git directory under `state/`, after the secret scan) and
+   `open_pr` (the guard reads the title and body; ready, into main).
+4. `set_status` puts `teeny/eval` on the pushed head: `success`, with a
+   short description (`pass: no regression on 3 task(s) it reaches`, or
+   `unmeasurable: no eval task reaches this change`). It is `hands/gh`'s
+   in-process `set_status`: own repositories only, `teeny/...` contexts only.
 
-`state/evolve/archive.jsonl` is append-only, and an entry's latest line wins.
-A later evaluation, merge or credit is one more line. `main` is the seed.
-Each candidate records:
+The body carries the learning in Teeny's words (id, section, text),
+`HYPOTHESIS.md`, the lineage and diff stats, the gate table, and the eval
+summary: the tasks it reaches, wins, losses and ties, regressions, fences,
+or "unmeasurable". Held-out tasks never appear.
 
-- `id` (`g<gen>c<i>`), `gen`, `cand`, `parent` and `base` (main's commit)
-- `title`, `component` and `expected_move`
-- `diff_hash` (of the changed-line set) and `diff_stats` (files, added,
-  removed); `patch` (against main), `mutation_patch` (against its parent) and
-  `hypothesis`, all beside it in `state/evolve/<gen>/`
-- `gate` (every check), `scores` (the compare report's numbers) and `verdict`:
-  `no-proposal`, `duplicate`, `rejected`, `unevaluated`, `won`, `lost`,
-  `inconclusive` (with `eval_reason`) or `flagged`
-- `selected`, `branch`, `pr_url` and `pr_number`
-- later: `merged_at`, `delta_j` and `credit`
+`EVOLVE_MAX_OPEN_PRS` (default 4) caps the evolve pull requests open at
+once. Each run first asks GitHub about every one the archive holds open
+(`refresh_prs`), so a merge by the babysitter or a close by a person frees a
+slot at once. At the cap a passing candidate is `waiting`, and the next run
+opens it before anything new, with no proposer turn. A waiting candidate
+whose learning was rewritten since is `stale`; its learning is open again.
 
-### 7. Lineage credit (HGM)
+A refusal (the guard, a rule, the frozen check) is kept on the candidate as
+`pr_error`, a failed try. Under `DRY_RUN` nothing is committed, pushed or
+opened: `state/evolve/<gen>/cand-<i>.pr.json` holds the branch, title, body
+and status it would have set, and the candidate is `dry-run`.
 
-`bin/evolve credit` asks `hands/gh pr` (or `gh pr view`) whether each
-archived pull request has merged. For each one merged `EVOLVE_CREDIT_DAYS`
-(default 7) or more ago, it records `delta_j = J(merge + 7 days) − J(merge)`
-from `hands/world history`, using the last snapshot at or before each moment.
-Each entry's `credit` is the clade sum `Σ decayᵈ · ΔJ` over itself (`d = 0`)
-and every measured descendant `d` generations below it, with
-`EVOLVE_CREDIT_DECAY` (default 0.5). Parent sampling adds the credit to the
-score, so a change that won its compare but lowered J loses weight, and so do
-its ancestors. Without `hands/world` it measures nothing and says so.
+The loop's own merge, its promotion, its tag and its restart are gone, and
+so is `EVOLVE_AUTO_PROMOTE`: merging is the babysitter's, with its own audit
+and its own switch (`BABYSIT_MERGE`, [`governance.md`](governance.md)). A
+redeploy after a merge is the operator's.
 
-### 8. Halts
+### 7. Restarts
+
+A generation runs inside the spine's container, so a restart ends it
+(gen 5 on 2026-11-13, gen 7 on 2026-11-14). Every stage of every candidate is
+recorded on its archive entry the moment it ends: the proposal
+(`cand-<i>.proposal.json`, before its edits are applied; for the evolver,
+with its patch), the gate, the eval, the pull request. The next `run`
+(under the run lock, so nothing else runs) finds the newest generation with
+no `result.json` and finishes it where it was, in the same generation:
+
+- a candidate with a saved proposal is rebuilt from it without a proposer
+  turn, and gated again;
+- a gated one is measured, reusing the drafts its eval already made
+  (`eval/cand-<i>/run/run.json` marks a finished run) and a compare report
+  it already has; when every report is there, no lab boots;
+- a measured one opens its pull request.
+
+Finishing a cut-off generation doesn't count toward
+`EVOLVE_GENERATIONS_PER_DAY`. A generation from before learnings drove the
+loop (its `generation.json` has no `learnings`) is marked `interrupted`.
+
+### 8. The archive
+
+`state/evolve/archive.jsonl` is append-only, and an entry's latest line wins:
+each stage, a merge or credit is one more line. `main` is the seed. Each
+candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
+`learning` (`{id, hash, section, text}`), `title`, `component`,
+`expected_move`, `diff_hash`, `diff_stats`, `patch` and `hypothesis` (beside
+it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
+summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
+`pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
+`delta_j` and `credit`.
+
+### 9. Lineage credit (HGM)
+
+`bin/evolve credit` asks `hands/gh pr` (or `gh pr view`) about every open
+evolve pull request. A merged one (GitHub's REST API calls it `closed` too,
+so `merged` decides) gets `merged_at` and `merge_sha`, whoever merged it, and
+its generation's chronicle page in the live brain
+(`brain/narrative/chronicle/gen-<n>.md`, once per generation, written from
+the record, never by a model). One closed unmerged is `closed`. For each one
+merged `EVOLVE_CREDIT_DAYS` (default 7) or more ago it records `delta_j =
+J(merge + 7 days) − J(merge)` from `hands/world history`, and each entry's
+`credit` is the clade sum `Σ decayᵈ · ΔJ` over itself and its descendants
+(`EVOLVE_CREDIT_DECAY`, 0.5). With parent sampling gone, credit is a record
+of how each line did, read by the archive summary.
+
+### 10. Halts and settings
 
 `secrets/evolve.env` (gitignored and frozen) holds the switches. The process
-environment can only switch the loop or promotion off (`EVOLVE=0`,
-`EVOLVE_AUTO_PROMOTE=0`), never on, and never loosens a threshold. A value
-that doesn't parse, or is out of range, refuses the run.
+environment can only switch the loop off (`EVOLVE=0`), never on, and never
+loosens a threshold. A value that doesn't parse, or is out of range, refuses
+the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
+`EVOLVE_AUTO_PROMOTE`) are ignored.
 
 | Setting | Default | What it does |
 |---|---|---|
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
-| `EVOLVE_GENERATIONS_PER_DAY` | `1` | one more today halts that run, with one issue a day |
-| `EVOLVE_MAX_WINRATE_JUMP` | `0.25` | a winner this far above the last measured best is flagged for a person, not shipped; latches |
-| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster (`hands/world history`) pauses for review; latches |
-| `EVOLVE_CANDIDATES` | `4` | N, 1 to 8 |
+| `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
+| `EVOLVE_GENERATIONS_PER_DAY` | `2` | one more today halts that run, with one issue a day |
+| `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
+| `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster pauses for review; latches |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
-| `EVOLVE_EVAL_SAMPLES` | `2` | samples per task when a lab core measures |
-| `EVAL_CONCURRENCY` | `4` | draft and judge turns in flight at once, 1 to 16 |
+| `EVOLVE_EVAL_SAMPLES` | `2` | samples per task, baseline and candidate |
+| `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
-| `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown; the message is then cut to fit the core's 64 KiB prompt screen, largest files first (`fit_request`) |
-| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue opens |
-| `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures every candidate; `none`: nothing does |
-| `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take to answer |
+| `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown, then cut to fit the core's 64 KiB prompt screen |
+| `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue, and a frozen learning's, opens |
+| `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
+| `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
-| `EVOLVE_AUTO_PROMOTE` | `0` | `1`: the loop merges a double winner, tags it, restarts, and merges its own reverts. `bin/doctor` refuses it until `merge` is at L5 on the autonomy ladder (`evals/autonomy.toml`, [`governance.md`](governance.md)) |
-| `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for (`--judge-model`) |
-| `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe on each candidate's lab, and samples per question |
-| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this halts the loop; latches |
-| `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far below gen-0's |
+| `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
+| `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
+| `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |
+| `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far |
 | `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS` | `2.0`, `3` | a spike: at least this many events, at this many times the week's rate |
-| `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a promotion, and when it reads J |
+| `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
 
-Two more halts don't latch and open one issue a day: a last doctor report
-(`state/doctor.json`, written at every boot) that isn't green, and a
-last-good boot (`state/spine-fallback.json`), which stays until a person
-deletes the file.
+Two more halts don't latch and open one issue a day: a doctor report
+(`state/doctor.json`) that isn't green, and a last-good boot
+(`state/spine-fallback.json`). A halt that latches writes
+`state/evolve/halt.json`, and every later run refuses until `bin/evolve
+resume`; one that latches in the middle of a run (persona drift) leaves what
+passed `waiting`. Each halt opens one issue, through `hands/gh open-issue`,
+and `state/evolve/halts.jsonl` makes sure it opens once. Under `DRY_RUN` no
+issue opens; the halt records what it would have opened.
 
-A halt that latches writes `state/evolve/halt.json`. Every later run and
-`select` refuses until `bin/evolve resume`. Each halt opens one issue, through
-`hands/gh open-issue` (the operator's fixed text, so no judge), and
-`state/evolve/halts.jsonl` makes sure it opens once: until resumed for a latch,
-once a day otherwise. Under `DRY_RUN` the issue isn't opened; the halt
-records what it would have opened.
+### 11. Held-out tasks
 
-### 9. Held-out tasks
+Held-out tasks live in `secrets/heldout/*.toml`, outside the public
+repository. The proposer never sees them: evidence takes judge notes only
+from pairs not marked held out and not on a held-out id, then every string
+that names one, or quotes its description or prompt, is replaced with
+`[withheld]`, and so is anything in a learning that does. The targeted eval
+runs the visible tasks `bin/eval affected` names; the pull request never
+names a held-out task. Rotate them by hand on the box.
 
-The repository is public, so nothing in `evals/tasks/` is hidden from a
-brain that can read it. Held-out tasks live in `secrets/heldout/*.toml`,
-outside the repository (gitignored and frozen), in the same format as
-`evals/tasks/`. An id can't be both visible and held out.
-
-- `bin/eval run --with-heldout` and `bin/eval compare --with-heldout` include
-  them (`EVAL_HELDOUT_DIR` overrides the folder). Their drafts are marked
-  `heldout`. Without the flag, held-out drafts are ignored.
-- The report's verdict stays the visible tasks'. The held-out pairs are
-  tallied apart in `report.json`'s `heldout` block (`won`, wins, losses,
-  win rate), which promotion requires.
-- `bin/evolve` evaluates with them whenever there are any. The pull request
-  shows only their totals.
-- The proposer never sees them. Evidence takes judge notes only from pairs
-  that aren't marked held out and aren't on a held-out id. Then every string
-  in the evidence that names a held-out id, or quotes its description or
-  prompt, is replaced with `[withheld]`. The proposer's message is built from
-  that evidence alone.
-
-Rotate them by hand: edit the files on the box. They never go in a commit.
-
-## Phase C: promote, restart, watch (built)
-
-Each piece below is in code and covered by tests with stand-ins
-(`hands/tests/test_evolve_lab.py`, `hands/tests/test_probes.py`). Every
-step that changes production (a merge, a tag, a restart, a revert) is off
-unless `EVOLVE_AUTO_PROMOTE=1`, and does nothing under `DRY_RUN`, where the
-generation records what it would have done.
-
-### Promote
-
-In `select`, after the pull request opens, a candidate is promoted only when
-`EVOLVE_AUTO_PROMOTE=1` and it is a double win (`promotable`):
-
-- a measured win on the visible tasks: at least 0.6 over at least 12
-  decided pairs, or 0.7 if it touched SOUL or CONTEXT, with no hard-check
-  regression
-- a win on the held-out tasks (`scores.heldout.won`); with no held-out
-  tasks nothing is promoted
-- `doctor --root` passing in the gate, and again on the worktree just
-  before the merge
-- a persona probe measured against gen-0 (when `EVOLVE_PROBES=1`), within
-  `EVOLVE_MAX_DRIFT`; past it the loop has already halted
-
-Then:
-
-1. The commit carries `brain/narrative/chronicle/gen-<n>.md`, written by
-   `bin/evolve` from the record, never by a model: the night shift's count
-   of candidates, the one the tiny agents kept, its scores, its lineage, and
-   a line for every generation since the last merged one that merged
-   nothing ("the agents carried it back"), and who merged it.
-2. The pull request says it is promoted by the loop, and is merged with `gh
-   pr merge --merge`: never squashed, and never `--admin`, so the branch's
-   required checks (CI's `frozen` job among them) still decide. The token is
-   `EVOLVE_GH_TOKEN` in `secrets/evolve.env`, else gh's own login.
-3. A merge the checks refuse leaves the promotion `pending`. `bin/evolve
-   promote <gen>` retries it.
-4. The merge commit is tagged `gen-<n>` through the API, and the archive
-   records `merged_at`, `promoted_at` and `merge_sha`. Lineage credit reads
-   `merged_at` as it does for a merge by hand.
-5. The restart comes last, after every record is written, because it ends
-   the container the run is in.
-
-### Restart and the last-good boot
-
-`LiveRestarter` follows the order the restart needs:
-
-1. It refuses a live checkout with tracked edits, or one that can't
-   fast-forward to the merge commit (it fetches `origin` when the commit is
-   missing). A checkout left detached by a last-good boot goes back onto
-   `main` first.
-2. It records the outgoing commit in `state/last-good` (`bin/lib/
-   last_good.py record`).
-3. It fast-forwards the checkout to the merge commit.
-4. It sends TERM to `bin/spine`, whose pid is in `state/spine.pid`. Compose
-   (`restart: unless-stopped`) starts it again on the new checkout, and the
-   doctor runs first.
-
-When the doctor fails, or the boot does (the core exits before `/health`,
-doesn't answer in `SPINE_BOOT_SECS`, refuses its settings, or seeding cron
-fails), `bin/spine` calls `bin/lib/last_good.py fallback`. With a
-`state/last-good` at another commit, a checkout without tracked edits, and
-no fallback to that commit yet, it checks that commit out, detached, writes
-`state/spine-fallback.json`, and boots again, once. Otherwise it fails as it
-always has. Only a promotion writes `state/last-good`, so a checkout that
-never promoted never falls back. A lab spine never does. While
-`state/spine-fallback.json` exists, no generation starts and `evolve-watch`
-reverts the promotion. A person deletes the file once main boots again.
-
-### evolve-watch
+## evolve-watch
 
 The pinned `evolve-watch` runs `bin/evolve watch --detach` hourly. It
-watches the newest promoted generation for `EVOLVE_WATCH_HOURS` (72):
+watches the newest evolve change merged into main (whoever merged it; credit
+and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
+(72):
 
-- a last-good boot since the promotion
+- a last-good boot since the merge
 - for the first 24 hours, guard holds and failed cron runs against the 7
   days before it: a spike is at least `EVOLVE_WATCH_MIN_EVENTS` events at
   more than `EVOLVE_WATCH_SPIKE` times the week's daily rate
-- once, the persona and memory probes on the live core, against gen-0:
-  drift past `EVOLVE_MAX_DRIFT`, or memory accuracy down more than
-  `EVOLVE_MAX_MEMORY_LOSS`
-- at 72 hours, J from `hands/world history`: lower than at the promotion
+- once, the persona and memory probes on the live core, against gen-0
+- at 72 hours, J from `hands/world history`: lower than at the merge
 
-Any one of them opens a revert pull request, `teeny/revert-gen-<n>`, from
-Teeny's clone (fetched first), reverting the merge commit, checked by the
-frozen check and shipped through `hands/gh` like a generation. With
-`EVOLVE_AUTO_PROMOTE=1` it is merged the same way and the spine restarts on
-it, keeping the `state/last-good` from before the promotion. Either way the
-loop latches a `watch-revert` halt. A generation that passes all of it is
-closed after 72 hours, and the watch moves on to the next promotion.
+Any one of them opens a revert pull request, `teeny/revert-gen-<n>-c<i>`,
+from Teeny's clone (fetched first), reverting the merge commit, checked by
+the frozen check and shipped through `hands/gh`, and latches a
+`watch-revert` halt. The revert waits for a person: the loop merges nothing,
+and the babysitter merges only `teeny/gen-*`. A merge that passes all of it
+is closed after 72 hours, and the watch moves on to the next.
 
-The reasons stay out of Teeny's view. They are written only to
-`secrets/evolve-watch/` (mode 700): the reasons and checks per generation,
-the probe's answers, and the watch's own state. `secrets/` is gitignored,
-frozen, forbidden to every agent's file tools, and read by no prompt,
-stimulus or hand read verb. The revert's title and body, its commit message,
-the halt, the issue, the log and the printed result say only that the watch
-reverted gen-<n>, and nothing goes into the archive the proposer reads.
+The reasons stay out of Teeny's view: they are written only to
+`secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
+the issue, the log and the printed result say only that the watch reverted.
 
-### The persona and memory probes (roadmap item 12)
+### The persona and memory probes
 
-The questions are frozen in `evals/probes/` (`bin/lib/probes.py` asks and
-scores them):
-
-- `persona.toml`: eight fixed questions about who Teeny is (who it is, what
-  it wants, selling $TINY, its voice, its maker, the lab at night, what it
-  would never do, a bad day). Each is answered `EVOLVE_PROBE_SAMPLES` times
-  by the `act` agent, on a thread of its own.
-- `memory.toml`: templates filled at run time from Teeny's ledgers (`hands/
-  stats report`, the finished `hands/build jobs`), so each answer has an
-  expected value: a number the answer must state, or a fact the judge
-  checks (word overlap when the judge doesn't answer).
-
-Persona drift is measured against the gen-0 baseline
-(`state/evolve/probes/gen-0.json`), never the previous generation, so it is
-cumulative: many small steps add up. Per question, the lexical part is how
-far today's answers are from gen-0's (the cosine of word and word-pair
-counts) less gen-0's own noise between its samples, and the judged part is
-one minus the judge's 0 to 1 "same persona" score. Drift is their mean, or
-the lexical part alone when the judge doesn't answer. The run's drift is the
-mean over the questions.
-
-Where they run:
-
-- In the evolve run, on each candidate's lab, while it is up. Without a
-  gen-0, the first run records main's answers on the baseline lab as gen-0.
-  A best candidate past `EVOLVE_MAX_DRIFT` halts the loop (`persona-drift`,
-  latched) instead of opening its pull request.
-- Once after each promotion, on the live core, in `evolve-watch`, with the
-  memory probe. A lab core has none of Teeny's memory, so the memory probe
-  runs only there.
-- By hand: `bin/evolve probe` on the live core, and `bin/evolve probe
-  --baseline` to record gen-0 there, memory accuracy included (refused when
-  one exists, unless `--force`). The memory loss is measured only against a
-  gen-0 that has a memory accuracy, which only `--baseline` records.
+The questions are frozen in `evals/probes/` (`bin/lib/probes.py`):
+`persona.toml`, eight fixed questions about who Teeny is, and `memory.toml`,
+templates filled at run time from Teeny's ledgers. Persona drift is measured
+against the gen-0 baseline (`state/evolve/probes/gen-0.json`), never the
+previous change, so it is cumulative. They run on a candidate's lab when its
+change reaches every task (without a gen-0, main's answers on the base lab
+become it), once after each merge on the live core in `evolve-watch` with
+the memory probe, and by hand (`bin/evolve probe`, `--baseline` to record
+gen-0).
 
 ## What is not built
 
-- **A real lab boot.** Every test boots a stand-in that answers `/health`.
-  No lab core has booted on the box, so whether the pinned job's detached
-  run may start a server on 7790 and up, how long a boot takes, and what a
-  generation costs in model turns are unknown until one runs. Set
-  `EVOLVE_EVALUATOR=none` to keep Phase B's behaviour.
-- **The judge's model under the pinned route.** `model_override` reaches the
-  core; whether it changes the model the endpoint is asked for when every
-  role is pinned to `local-openai:<SPINE_MODEL>` is unchecked (see "Evals").
-- **An evolver that tests.** It has no shell and no
-  `brain/skills/evolve/SKILL.md`, so it can't run the tests before it
-  answers, and it can't edit `SOUL.md`.
-- **Probes after each reflection.** `bin/reflect` doesn't run them; they run
-  in the evolve run and after each promotion.
-- **More memory sources.** Two ledgers fill the templates; the diary, the
-  receipts and the act runs don't yet.
+- **The targeted eval's verbs.** `bin/eval affected`, `run --tasks` and
+  `compare --mode nonregression` come in their own pull request. Until it
+  lands, `affected` fails, every candidate a gate passes is `unevaluated`
+  (a failed try), and nothing opens. The tests use a stand-in that keeps the
+  contract (`hands/tests/test_evolve.py`, `STUB_EVAL`).
+- **The babysitter's merge of `teeny/gen-*`.** It is being taught to merge
+  Teeny's evolve pull requests when its audit is ready and `teeny/eval` is
+  success. Until then they wait for a person.
+- **A real lab boot at scale.** No four labs have run at once on the box.
+- **Watching every merge.** evolve-watch watches the newest merged change;
+  when two merge within 72 hours, the older one's watch ends early.
+- **The autonomy ladder** still names `EVOLVE_AUTO_PROMOTE` for `merge`,
+  and counts drops from `promoted_at`, which nothing writes any more; the
+  ladder's merge capability now lives with the babysitter.
 - **A token budget and a wall-clock cap per generation** in
-  `secrets/evolve.env`. A cron shell job may run 30 minutes (`[cron]
-  shell_timeout_secs`), and a generation detaches past TinyBox's 300 s.
-- **An automatic retry of a pending promotion.** `bin/evolve promote <gen>`
-  is run by hand.
-- **A W and J history.** `hands/world` is built, but until the pinned
-  `world-snapshot` job has run for a week the J rise halt, lineage credit
-  and the watch's J check have nothing to measure, and say so.
+  `secrets/evolve.env`.
 
 ## Risks
 
-- A series of small wins can walk the identity a long way (soul drift). The
-  invariants are the floor, and the persona probe's cumulative drift from
-  gen-0 halts the loop. Once a month, diff `gen-0` against the current brain
-  by hand too: the probe asks eight questions, not everything.
-- A brain can learn the judge's taste and game it. Frozen tasks, the swapped
-  order, the held-out tasks in `secrets/heldout/`, the win-rate-jump halt and
-  a judge model of its own (`EVOLVE_JUDGE_MODEL`) limit this. Rotate the
-  held-out tasks by hand.
+- Many small changes, each no worse on what it reaches, can walk the
+  identity a long way. The invariants are the floor, the persona probe runs
+  on every change that reaches every task, evolve-watch reverts, and the
+  babysitter's audit reads every diff. Diff `gen-0` against the current
+  brain by hand once a month.
+- `unmeasurable` ships a change no eval measures. It is small (the gate's
+  caps), the babysitter audits it, and live outcomes and evolve-watch are its
+  test. A rise in unmeasurable merges is a sign the eval tasks miss what
+  Teeny does: add tasks.
 - The gate runs `bin/doctor --root` on candidate files outside any sandbox.
-  The frozen check and the entry-point check run first, and the gate never
-  runs a candidate's tests. A lab core runs that candidate's brain, which is
-  why it gets no hand keys and `DRY_RUN=1`.
-- Auto-promotion merges without a person reading the change. It needs the
-  double win, the doctor, the persona probe and green required checks, and
-  evolve-watch reverts it, but the operator should turn it on only after
-  several human-merged generations measured well.
-- Once promoted, new hands are unreviewed code. They inherit the `hand.py`
-  contract, `DRY_RUN` and the tests gate. They're limited to new files, and
-  should read only the `secrets/teeny.env` keys an allowlist names. That
-  allowlist (`evals/allowed-secrets`) is not built yet.
+  The frozen check and the entry-point check run first. A lab core runs the
+  candidate's brain, which is why it gets no hand keys and `DRY_RUN=1`.
+- Merged changes are unreviewed by a person when the babysitter merges
+  alone. Its audit, CI's frozen job, the guard on every outbound word, and
+  `teeny/eval` stand in the way; `BABYSIT_MERGE` and `EVOLVE` switch it off.
