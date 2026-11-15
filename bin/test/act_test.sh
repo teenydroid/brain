@@ -64,6 +64,7 @@ cat >"$scratch/hands/lab" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'lab %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+printf 'lab-writer %s\n' "${TEENY_WRITER:-}" >>"$FAKE_HANDS"
 echo '{"ok": true}'
 FAKE
 # The media hands: log what they were asked and answer an asset (or a dry
@@ -453,6 +454,7 @@ answer '{"action": "hand", "post_id": "p-1", "body": "try a smaller batch"}'
 run molt >/dev/null
 check "a moltbook comment's body is screened" grep -q '^guard check --fields body stdin={"body":"try a smaller batch","surface":"moltbook"}' "$FAKE_HANDS"
 check "and the hand gets the post id and the guard's body" grep -q '^lab comment stdin={"post_id":"p-1","body":"try a smaller batch\[g\]"}$' "$FAKE_HANDS"
+check "and is told which playbook asked, to tag the comment with" grep -q '^lab-writer molt$' "$FAKE_HANDS"
 reset
 printf '+++\ndescription = "test"\noutput = "hand:lab pick"\n+++\npick one\n' >"$brain/playbooks/pick.md"
 answer '{"action": "hand", "id": 4, "reason": "small and useful"}'
