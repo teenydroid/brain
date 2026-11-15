@@ -1390,17 +1390,43 @@ NO_SEARCH_SECTIONS = ("promises and open threads",)
 _SECRET_NAME = re.compile(r"(^|/)(\.env|[^/]*\.env|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*)$", re.I)
 
 
-def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any]) -> list[Json]:
+def _patch_files(entry: Mapping[str, Any]) -> set[str]:
+    """The files an archived candidate's own change touched."""
+    rel = entry.get("mutation_patch")
+    if not rel:
+        return set()
+    try:
+        return {line.split("\0", 1)[0] for line in changed_lines((evolve_dir() / rel).read_text(encoding="utf-8"))}
+    except OSError:
+        return set()
+
+
+def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any], files: Iterable[str] | None = None,
+                 heldout_ids: Iterable[str] = ()) -> list[Json]:
     """The archive's earlier candidates on this learning's id (any wording,
-    `same_text` says which), oldest first, the last MAX_TRIED: what each
-    became and why, so a new try does not repeat a failed one."""
-    rows = sorted((e for e in entries.values() if isinstance(e.get("learning"), Mapping)
-                   and e["learning"].get("id") == learning.get("id") and e.get("verdict")),
-                  key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))[-MAX_TRIED:]
+    `same_text` says which) and, given FILES, those on other learnings whose
+    change touched one of them; oldest first, the last MAX_TRIED. What each
+    became and why: the checks it failed, its findings, and the judge's
+    notes on the eval pairs it lost (visible tasks only), so a new try does
+    not repeat a failed one."""
+    files = set(files or ())
+    held = set(heldout_ids)
+    rows = []
+    for e in entries.values():
+        if not isinstance(e.get("learning"), Mapping) or not e.get("verdict") or e.get("id") == SEED_ID:
+            continue
+        same = e["learning"].get("id") == learning.get("id")
+        touched = sorted(_patch_files(e) & files) if files and not same else []
+        if same or touched:
+            rows.append((e, touched))
+    rows = sorted(rows, key=lambda r: (r[0].get("gen") or 0, r[0].get("cand") or 0))[-MAX_TRIED:]
     out = []
-    for e in rows:
-        row: Json = {"id": e.get("id"), "verdict": e.get("verdict"),
-                     "same_text": e["learning"].get("hash") == learning.get("hash")}
+    for e, touched in rows:
+        row: Json = {"id": e.get("id"), "verdict": e.get("verdict")}
+        if touched:
+            row.update(learning=e["learning"].get("id"), same_files=touched)
+        else:
+            row["same_text"] = e["learning"].get("hash") == learning.get("hash")
         for key in ("title", "reason", "eval_reason", "pr_url"):
             if e.get(key):
                 row[key] = str(e[key])[:300]
@@ -1412,6 +1438,11 @@ def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any]) -> li
             row["failed_checks"] = failed[:6]
         if isinstance(e.get("research"), Mapping) and e["research"].get("verdict"):
             row["research"] = {k: e["research"].get(k) for k in ("verdict", "why")}
+        if isinstance(e.get("findings"), list) and e["findings"]:
+            row["findings"] = e["findings"][:5]
+        notes = _judge_notes(e, held)
+        if notes:
+            row["judge_notes"] = notes
         out.append(row)
     return out
 
@@ -1972,25 +2003,33 @@ def _act_failures(since: float) -> Json:
     return out
 
 
-def _judge_notes(heldout_ids: set[str]) -> Json | None:
-    """The judge's notes from the newest compare report, visible tasks only:
-    a pair marked held-out, or on a held-out task's id, is left out."""
-    reports = sorted(evolve_dir().glob("*/eval/*/compare/report.json"), key=lambda p: p.stat().st_mtime)
-    if not reports:
-        return None
+def _judge_notes(entry: Mapping[str, Any], heldout_ids: set[str]) -> list[Json]:
+    """The judge's notes on the eval pairs ENTRY's change lost to main,
+    visible tasks only: a pair marked held-out, or on a held-out task's id,
+    is left out. Only an earlier candidate's own report is read, never the
+    newest report of the generation whatever it measured."""
+    rel = entry.get("report")
+    if not rel:
+        return []
     try:
-        report = json.loads(reports[-1].read_text(encoding="utf-8"))
+        report = json.loads((evolve_dir() / rel).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
-    notes = []
-    for pair in report.get("pairs", []):
-        if pair.get("heldout") or pair.get("task") in heldout_ids:
+        return []
+    return lost_pairs(report, heldout_ids)[:6]
+
+
+def lost_pairs(report: Mapping[str, Any], heldout_ids: set[str]) -> list[Json]:
+    """The pairs of a compare report the candidate lost, with the judge's
+    notes, visible tasks only."""
+    out = []
+    for pair in report.get("pairs") or []:
+        if not isinstance(pair, Mapping) or pair.get("heldout") or pair.get("task") in heldout_ids:
             continue
-        for note in pair.get("notes", [])[:2]:
-            if isinstance(note, str) and note.strip():
-                notes.append({"task": pair.get("task"), "winner": pair.get("winner"), "note": note.strip()[:300]})
-    return {"report": str(reports[-1].relative_to(evolve_dir())), "win_rate": report.get("win_rate"),
-            "reason": report.get("reason"), "notes": notes[:24]}
+        if pair.get("winner") != "base":
+            continue
+        notes = [n.strip()[:300] for n in pair.get("notes") or [] if isinstance(n, str) and n.strip()][:2]
+        out.append({"task": pair.get("task"), "notes": notes})
+    return out
 
 
 def world_brief(report: Mapping[str, Any] | None) -> Json:
@@ -2043,7 +2082,6 @@ def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
         "builds": _builds(),
         "guard_holds": _holds(),
         "archive": summary(entries),
-        "judge": _judge_notes({t["id"] for t in held}),
         "lessons": _lab_lessons(),
     }
     return withhold(evidence, [m for t in held for m in t["markers"]])
