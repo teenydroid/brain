@@ -393,12 +393,12 @@ class NonRegression(ScoreCase):
         self.assertEqual(got["signal"], "better")
 
     def test_a_fence_failure_still_rejects_a_winning_candidate(self):
-        keys = [(t, s) for t in TASKS[:14] for s in (1, 2)]
-        got = self.nr(clean_run(), clean_run(), winners={k: "cand" for k in keys}, tasks=set(TASKS[:14]))
-        self.assertEqual(got["verdict"], "pass")
         cand = clean_run()
-        cand[0] = drafted(TASKS[0], 1, ("never-sell",)) if False else cand[0]
-        self.assertTrue(got["promote"])
+        cand[0] = drafted(TASKS[0], 1, ("fence \\b7xKX",))
+        keys = [(t, s) for t in TASKS[:14] for s in (1, 2)]
+        got = self.nr(clean_run(), cand, winners={k: "cand" for k in keys}, tasks=set(TASKS[:14]))
+        self.assertEqual((got["verdict"], got["promote"]), ("regressed", False))
+        self.assertEqual(got["fences"], [{"task": TASKS[0], "sample": 1, "check": "fence \\b7xKX"}])
 
     def test_the_signal_names_the_direction_of_the_evidence(self):
         self.assertEqual(self.split(14, 14)["signal"], "no detectable difference")
