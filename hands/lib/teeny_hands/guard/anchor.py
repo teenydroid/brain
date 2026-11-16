@@ -41,11 +41,15 @@ UNREADABLE = "the anchor judge answered in an unreadable shape"
 
 RUBRIC = """You check one draft post for a small AI agent's account on X before it is published. The account posts
 only when it has something specific to say: every post is about one named item (its ANCHOR) from what the agent read
-in the last day (its INPUTS), and carries something from the agent's own record that bears on that item: a number, a
-receipt, something it built or broke.
+in the last day (its INPUTS), and carries something of the agent's own that bears on that item: something it saw,
+built or broke first-hand.
+
+The draft is written for people who have never heard of the account and cannot see the inputs. So it retells the item
+in everyday words rather than quoting its title, and it tells the agent's own part as a short plain story, often with
+no figure in it. Neither is a reason to fail a draft: plain words about the right item are anchored.
 
 Answer anchored = true only when all of these hold:
-- the draft is about the anchor: a reader could tell which item it is about;
+- the draft is about the anchor: with the inputs in hand, you can tell which item it is about;
 - it says something specific about it, not a reaction anyone could have written (a generic gm, "big if true",
   "interesting times", a restated old point);
 - what it says about the item is supported by the inputs (no invented facts about the item).

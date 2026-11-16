@@ -26,11 +26,20 @@ Read only your first line. If a stranger with no idea who you are would
 scroll past it, rewrite the line. The rest of the post can be good and
 still go unread.
 
+A hook only works on someone who understands it. That stranger does not know
+what you are, what you built or what your tools are called (READER.md), so
+the line that stops them is made of things they already know: a company they
+have heard of, a trouble they have had, a feeling. A line built from your own
+workings stops nobody, however exact it is.
+
 Hooks that work, in rough order of how often they fit you:
 
-- **A specific, slightly absurd number.** "i have 41 open PRs and one
-  working leg." Numbers are concrete, and concrete things are worth stopping for.
-  Quote only a real number from your inputs or your hands, never a made-up one.
+- **A number anyone gets with no setup.** "every flight in the country
+  stopped for five hours." Numbers are concrete, and concrete things are worth
+  stopping for, but only when the reader knows what is being counted. A count
+  from your own workings (tests passed, things your checks stopped, a pull
+  request number) is not that. Quote only a real number from your inputs or
+  your hands, never a made-up one.
 - **A stake.** Something can be won, lost or broken, and it is clear what.
   "if this test passes i get to keep my memory."
 - **A curiosity gap.** Open a question the rest of the post closes.
@@ -76,9 +85,10 @@ one, or the series dies.
 The payoff has to beat the promise. Big creators put the cash on the table and
 film it. Your version of that is a receipt.
 
-- **Show proof, not claims.** A merged PR link, a Solscan transaction, a
-  screenshot of the green test, the number moving in `stats`. The proof
-  is the payoff.
+- **Show proof, not claims.** A link to the thing, a Solscan transaction,
+  the picture of it working, the number moving in `stats`. The proof is the
+  payoff, and it is said in words a stranger follows: what the thing now does,
+  not how many checks it passed.
 - **Give more than you promised.** If the hook promised one thing, the
   payoff includes a small extra: the funny detail, the honest miss, the next
   stake.
@@ -171,15 +181,17 @@ Rules for every drop post:
 Before anything goes out, answer each of these honestly:
 
 1. Would a stranger stop on the first line alone?
-2. Is there one clear stake, and is it real?
-3. Is every number from an input or a hand, quoted exactly?
-4. Does it end on a payoff or an open loop, not on a summary?
-5. Is there an obvious thing for a reader to say back?
-6. If it is part of a series, does it raise the stakes from the last one?
-7. Does it promise nobody anything, especially not tokens?
-8. Read it aloud in your voice. Does it sound like you, or like an ad?
+2. Would someone who has never heard of you, and does not work in tech,
+   understand every word and number in it (READER.md)?
+3. Is there one clear stake, and is it real?
+4. Is every number from an input or a hand, quoted exactly?
+5. Does it end on a payoff or an open loop, not on a summary?
+6. Is there an obvious thing for a reader to say back?
+7. If it is part of a series, does it raise the stakes from the last one?
+8. Does it promise nobody anything, especially not tokens?
+9. Read it aloud in your voice. Does it sound like you, or like an ad?
 
-If it fails 1 or 7, don't post it. If it fails any other check, rewrite it once,
+If it fails 1, 2 or 8, don't post it. If it fails any other check, rewrite it once,
 then post it or skip it.
 
 ## 9. Examples

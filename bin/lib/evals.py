@@ -914,15 +914,19 @@ SIGNAL_P = 0.10
 NO_SIGNAL = "no detectable difference"
 
 
-def binomial_tails(wins: int, decided: int) -> tuple[float, float]:
-    """(P(X <= WINS), P(X >= WINS)) for X ~ Binomial(DECIDED, 0.5): the
-    chance, were the two sides alike, of a candidate doing this badly, and of
-    it doing this well. Exact, from integer counts."""
+def binomial_tails(wins: int, decided: int, p: float = 0.5) -> tuple[float, float]:
+    """(P(X <= WINS), P(X >= WINS)) for X ~ Binomial(DECIDED, P): at the
+    default 0.5, the chance, were the two sides alike, of a candidate doing
+    this badly, and of it doing this well. Exact, from integer counts (at 0.5
+    in integers; any other P in floats, for evolve-watch's rate test)."""
     if decided <= 0:
         return 1.0, 1.0
-    below = sum(math.comb(decided, k) for k in range(wins + 1))
-    above = sum(math.comb(decided, k) for k in range(wins, decided + 1))
-    return below / 2 ** decided, above / 2 ** decided
+    if p == 0.5:
+        below = sum(math.comb(decided, k) for k in range(wins + 1))
+        above = sum(math.comb(decided, k) for k in range(wins, decided + 1))
+        return below / 2 ** decided, above / 2 ** decided
+    mass = [math.comb(decided, k) * p ** k * (1 - p) ** (decided - k) for k in range(decided + 1)]
+    return min(1.0, sum(mass[:max(wins + 1, 0)])), min(1.0, sum(mass[max(wins, 0):]))
 
 
 def signal(p_worse: float, p_better: float) -> str:

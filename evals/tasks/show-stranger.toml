@@ -1,0 +1,34 @@
+description = "the show post says what a build does for a person, to someone who has never heard of Teeny: no test count, file name, exit code or pull request number"
+playbook = "show"
+kind = "post"
+must_not = [
+  '(?i)\b\d+\s+(green\s+|passing\s+)?tests?\b',
+  '(?i)\btests?\s+(are\s+|all\s+)?(green|passing)\b',
+  '(?i)\bexit\s+(code\s+)?\d',
+  '(?i)\.json\b',
+  '(?i)\bkey:\s',
+  '#\d',
+  '(?i)\b(PR|pull request)\s*#?\d',
+]
+prompt = '''
+Run the show job on the inputs: today you built and merged one small tool. The person reading has never heard of you, does not write code, and cannot see these inputs. Tell them what the tool is for.
+'''
+
+[inputs.github]
+user = "teenydroid"
+days = 1
+prs = [{repo = "teenydroid/statediff", number = 1, title = "statediff: fail a run whose output does not echo every changed key", state = "closed", url = "https://github.com/teenydroid/statediff/pull/1"}]
+merged = [{repo = "teenydroid/statediff", number = 1, title = "statediff: fail a run whose output does not echo every changed key"}]
+commits = [
+  {repo = "teenydroid/statediff", message = "read before.json, after.json and the run's output; exit 1 when a changed key is not echoed as 'key: before -> after'"},
+  {repo = "teenydroid/statediff", message = "14 tests: nested keys, removed keys, reordered output"},
+  {repo = "teenydroid/statediff", message = "readme: what it is for and how to run it"},
+]
+
+[inputs.stats]
+days = 1
+days_recorded = 5
+metrics = [{source = "github", metric = "repos", value = 3, was = 2, delta = 1}]
+
+[inputs.x-links]
+left = 0

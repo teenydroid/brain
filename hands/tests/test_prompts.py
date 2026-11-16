@@ -253,6 +253,102 @@ class PromptsTest(unittest.TestCase):
                 self.assertNotIn(retold, text)
 
 
+    READER = "# READER.md\n\nWho reads you.\n\n## the person reading knows nothing about you\n\nnobody has heard of you.\n"
+    HOOKS = ("---\nname: hooks\n---\n\n# Hooks\n\nthe intro.\n\n## 1. The hook is the first seven words\n\nstop a stranger.\n\n"
+             "## 6. Tiny Drops: the giveaway formula\n\nonly when a drop is live.\n\n## 8. Pre-post check\n\nread it as a stranger.\n")
+
+    def public_brain(self) -> None:
+        (self.brain / "READER.md").write_text(self.READER)
+        (self.brain / "skills" / "hooks").mkdir(parents=True)
+        (self.brain / "skills" / "hooks" / "SKILL.md").write_text(self.HOOKS)
+        for agent in ("teeny", "teeny-mentions", "teeny-mail"):
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"You are {agent}.\n")
+        prompts.build(self.brain)
+
+    def prompt_of(self, agent: str) -> str:
+        return (self.brain / "agent" / "prompts" / f"{agent}.md").read_text()
+
+    def test_a_drafting_turn_is_told_who_reads_it(self):
+        # Posts went out in Teeny's own shorthand ("33 held writes, 0 let
+        # through") because no prompt said who the reader is. READER.md rides
+        # after the instructions and before the world, where strangers read.
+        self.public_brain()
+        for agent in ("act", "teeny", "teeny-mentions"):
+            text = self.prompt_of(agent)
+            self.assertIn("# who reads you (READER.md)", text, agent)
+            self.assertIn("nobody has heard of you.", text, agent)
+            self.assertNotIn("# READER.md", text, agent)
+            self.assertLess(text.index("# who reads you"), text.index("# your world"), agent)
+        self.assertTrue(self.prompt_of("act").startswith("Draft as JSON.\n\n# who reads you (READER.md)"))
+
+    def test_mail_is_not_written_for_strangers(self):
+        self.public_brain()
+        self.assertNotIn("who reads you", self.prompt_of("teeny-mail"))
+
+    def test_the_skills_a_post_is_built_from_ride_in_the_prompt(self):
+        # The playbooks say "(skills/hooks)"; a drafting turn has no tool to
+        # open a skill with, so it only ever saw the name.
+        self.public_brain()
+        for agent in ("act", "teeny"):
+            text = self.prompt_of(agent)
+            self.assertIn("## hooks: the hook is the first seven words\n\nstop a stranger.", text, agent)
+            self.assertIn("## hooks: pre-post check\n\nread it as a stranger.", text, agent)
+            self.assertLess(text.index("# who reads you"), text.index("## hooks: the hook"), agent)
+            self.assertLess(text.index("## hooks: pre-post check"), text.index("# your world"), agent)
+        # only the sections a post is built from, and only where posts start
+        self.assertNotIn("only when a drop is live", self.prompt_of("act"))
+        self.assertNotIn("the intro.", self.prompt_of("act"))
+        self.assertNotIn("## hooks:", self.prompt_of("teeny-mentions"))
+
+    def test_a_brain_without_a_reader_or_skills_still_builds(self):
+        text = self.built()
+        self.assertNotIn("who reads you", text)
+        self.assertNotIn("how a post of your own is built", text)
+
+    def real_prompt(self, agent: str) -> str:
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "READER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            return prompts.render(brain, agent)
+
+    def test_the_real_drafter_reads_the_reader_and_its_skills(self):
+        text = self.real_prompt("act")
+        self.assertIn("The person reading knows nothing about you".lower(), text.lower())
+        self.assertIn("## hooks: the hook is the first seven words", text)
+        self.assertIn("## hooks: story shape", text)
+        self.assertIn("## hooks: pre-post check", text)
+        self.assertIn("## conversation: shapes that get replies", text)
+        self.assertIn("## conversation: what not to do", text)
+        self.assertIn("## conversation: pre-post check", text)
+        # the giveaway formula and the ranker's table stay in the skill
+        self.assertNotIn("Tiny Drops: the giveaway formula", text)
+        self.assertNotIn("| share via copy link |", text)
+        for agent in ("teeny", "teeny-mentions"):
+            self.assertIn("# who reads you (READER.md)", self.real_prompt(agent), agent)
+
+    def test_no_prompt_names_a_tool_that_does_not_exist(self):
+        # skills/conversation told Teeny to run `x_critique` before posting;
+        # there has never been such a tool.
+        for agent in prompts.SPEAKING:
+            self.assertNotIn("x_critique", self.real_prompt(agent), agent)
+        for skill in ("hooks", "conversation"):
+            self.assertNotIn("x_critique", (REPO / "brain" / "skills" / skill / "SKILL.md").read_text(), skill)
+
+    def test_the_x_playbooks_ask_for_a_story_a_stranger_follows(self):
+        # The bar used to ask for "a number, a receipt" from Teeny's own
+        # record, which is what put its internal counts into posts.
+        for name in ("take", "show", "morning", "x-quote"):
+            text = (REPO / "brain" / "playbooks" / f"{name}.md").read_text(encoding="utf-8")
+            self.assertIn("READER.md", text, name)
+            self.assertIn("first-hand", text, name)
+            self.assertNotIn("a number, a receipt", text, name)
+            self.assertNotIn("240 characters", text, name)
+        for name in ("act", "teeny", "teeny-mentions"):
+            self.assertIn("READER.md", (REPO / "brain" / "agents" / f"{name}.md").read_text(), name)
+        self.assertIn("READER.md", (REPO / "brain" / "SOUL.md").read_text())
+
     def test_the_real_brain_speaks_no_private_jargon(self):
         # Replies on X read "the desk is loud today… receipts get posted when
         # it does" and "one smol desk, receipts only": words seeded by the
@@ -264,7 +360,7 @@ class PromptsTest(unittest.TestCase):
                    "a receipt to add", "the receipt as")
         with tempfile.TemporaryDirectory() as out:
             brain = Path(out)
-            for name in ("agents", "narrative", "CONTEXT.md", "DRIVE.md", "CHARTER.md"):
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "DRIVE.md", "CHARTER.md", "READER.md"):
                 (brain / name).symlink_to(REPO / "brain" / name)
             (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
             read = {agent: prompts.render(brain, agent).lower() for agent in prompts.SPEAKING}

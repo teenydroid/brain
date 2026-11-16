@@ -225,8 +225,14 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_PROBE_SAMPLES": ("2", int, 1, 5),
     "EVOLVE_MAX_DRIFT": ("0.35", float, 0.0, 1.0),
     "EVOLVE_MAX_MEMORY_LOSS": ("0.5", float, 0.0, 1.0),
+    # evolve-watch's spike (`spike`): at least MIN_EVENTS events, and a rate
+    # over SPIKE times the week's that an exact test puts under P.
     "EVOLVE_WATCH_SPIKE": ("2.0", float, 1.0, None),
     "EVOLVE_WATCH_MIN_EVENTS": ("3", int, 1, 1000),
+    "EVOLVE_WATCH_P": ("0.01", float, 0.0001, 0.5),
+    # A failed cron run this many minutes either side of a spine boot is the
+    # restart's, not the change's (`countable_failures`).
+    "EVOLVE_WATCH_BOOT_MINS": ("10", int, 0, 120),
     "EVOLVE_WATCH_HOURS": ("72", int, 24, 336),
 }
 #: The choices a str setting may take (anything, when it is not listed).
@@ -2105,17 +2111,25 @@ def _cron_failures(since: float) -> dict[str, int] | None:
     return {str(name): int(n) for name, n in rows}
 
 
-def _cron_failure_times(since: float) -> list[float] | None:
-    """When each failed cron run since SINCE finished (storage.db, read-only)."""
+def _cron_failures(since: float) -> list[Json] | None:
+    """Each failed cron run since SINCE (storage.db, read-only): when it
+    finished, its job's command (or name, for an agent job) and the tail of
+    its output, which carries the error."""
     path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
     if not path.is_file():
         return None
     try:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
         try:
+            jobs = {str(i): (str(c or "").strip() or str(n or "")) for i, c, n in conn.execute(
+                """
+                select id, json_extract(body, '$.command'), json_extract(body, '$.name') from docs
+                where coll = 'cron.jobs' and json_valid(body)
+                """)}
             rows = conn.execute(
                 """
-                select json_extract(body, '$.finished_ms') from docs
+                select json_extract(body, '$.finished_ms'), json_extract(body, '$.job_id'),
+                       json_extract(body, '$.output') from docs
                 where coll = 'cron.runs' and deleted = 0 and json_valid(body) and body != '{}'
                   and json_extract(body, '$.status') = 'error' and json_extract(body, '$.finished_ms') >= ?
                 """,
@@ -2125,7 +2139,59 @@ def _cron_failure_times(since: float) -> list[float] | None:
             conn.close()
     except sqlite3.Error:
         return None
-    return sorted(float(ms) / 1000 for (ms,) in rows if isinstance(ms, (int, float)))
+    return sorted(({"at": float(ms) / 1000, "job": jobs.get(str(job), str(job or "")), "output": str(out or "")[-2000:]}
+                   for ms, job, out in rows if isinstance(ms, (int, float))), key=lambda r: r["at"])
+
+
+#: An error the merged change cannot have caused: the core down (a restart),
+#: the model provider refusing or dropping (payment, rate, 5xx, a dropped
+#: stream, a timeout). Read from a failed cron run's output.
+INFRA_ERROR = re.compile(
+    r"core unreachable|failed to connect|couldn't connect|connection (?:refused|reset)|"
+    r"\bHTTP (?:402|408|429|5\d\d)\b|insufficient_allowance|stream (?:ended|closed|dropped)|"
+    r"timed out|\btimeout\b|bad gateway|service unavailable|gateway timeout", re.I)
+
+
+def _boot_times() -> list[float]:
+    """When the spine booted (state/boots.jsonl, which bin/spine writes)."""
+    return sorted(w for w in (_when_of(r) for r in read_jsonl(state_dir() / "boots.jsonl")) if w is not None)
+
+
+def change_reach(cand: Mapping[str, Any]) -> set[str] | None:
+    """The cron commands CAND's change can reach, when that is cheaply
+    known: a change to brain/playbooks/<name>.md alone reaches `bin/act
+    <name>` alone. Anything else (or no patch on record) reaches every job:
+    None."""
+    try:
+        patch = (evolve_dir() / str(cand["patch"])).read_text(encoding="utf-8")
+    except (KeyError, OSError):
+        return None
+    paths = set(re.findall(r"^diff --git a/(\S+) b/", patch, re.M))
+    names = {m.group(1) for m in (re.fullmatch(r"brain/playbooks/([\w.-]+)\.md", p) for p in paths) if m}
+    return {f"bin/act {n}" for n in names} if paths and len(names) == len(paths) else None
+
+
+def countable_failures(rows: list[Json] | None, boots: list[float], reach: set[str] | None,
+                       cfg: Config) -> tuple[list[float] | None, list[Json]]:
+    """The times of the failed cron runs the change could have caused, and
+    the runs left out with why: within EVOLVE_WATCH_BOOT_MINS of a spine
+    boot ("boot": a deploy or restart kills and fails what is running), an
+    infrastructure or provider error ("infra", INFRA_ERROR), or a job the
+    change does not reach ("unreached", `change_reach`)."""
+    if rows is None:
+        return None, []
+    grace = cfg["EVOLVE_WATCH_BOOT_MINS"] * 60
+    times, left = [], []
+    for r in rows:
+        job = r["job"]
+        why = ("boot" if any(abs(r["at"] - b) <= grace for b in boots) else
+               "infra" if INFRA_ERROR.search(r["output"]) else
+               "unreached" if reach is not None and " ".join(job.split()[:2]) not in reach else None)
+        if why:
+            left.append({"at": r["at"], "why": why})
+        else:
+            times.append(r["at"])
+    return times, left
 
 
 def _hold_times() -> list[float] | None:
@@ -4566,15 +4632,24 @@ def _watch_state() -> Json:
 
 def spike(times: list[float] | None, t0: float, end: float, cfg: Config) -> Json | None:
     """Events per day in [T0, END) against the 7 days before T0. A spike is
-    at least EVOLVE_WATCH_MIN_EVENTS events at more than EVOLVE_WATCH_SPIKE
-    times the baseline's rate (a quiet week counts as one event a week)."""
+    at least EVOLVE_WATCH_MIN_EVENTS events, and evidence the rate rose past
+    EVOLVE_WATCH_SPIKE times the week's: the exact conditional test of two
+    Poisson rates. Given the N events of both windows, the after window's
+    count is Binomial(N, q) were its rate SPIKE times the week's, q =
+    SPIKE*T_after / (SPIKE*T_after + T_week); a spike is a count whose upper
+    tail (evals.binomial_tails) is under EVOLVE_WATCH_P. Four failures in a
+    day against two a day is no evidence; twenty is."""
     if times is None:
         return None
-    before = sum(1 for t in times if t0 - 7 * 86400 <= t < t0) / 7
+    before_n = sum(1 for t in times if t0 - 7 * 86400 <= t < t0)
     after_n = sum(1 for t in times if t0 <= t < end)
-    after = after_n / max((end - t0) / 86400, 1 / 24)
-    return {"before_per_day": round(before, 3), "after": after_n, "after_per_day": round(after, 3),
-            "spike": after_n >= cfg["EVOLVE_WATCH_MIN_EVENTS"] and after > cfg["EVOLVE_WATCH_SPIKE"] * max(before, 1 / 7)}
+    span = max((end - t0) / 86400, 1 / 24)
+    ratio = cfg["EVOLVE_WATCH_SPIKE"]
+    q = ratio * span / (ratio * span + 7)
+    p = evals_lib.binomial_tails(after_n, after_n + before_n, q)[1]
+    return {"before": before_n, "before_per_day": round(before_n / 7, 3), "after": after_n,
+            "after_per_day": round(after_n / span, 3), "p": round(p, 6),
+            "spike": after_n >= cfg["EVOLVE_WATCH_MIN_EVENTS"] and p < cfg["EVOLVE_WATCH_P"]}
 
 
 def live_probe(cfg: Config, ask: probes_lib.Ask | None = None) -> Json:
@@ -4638,12 +4713,18 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
         reasons.append("the spine booted last-good after the merge")
     end = min(now(), t0 + 86400)
     if hours <= 24 + 1:
-        for name, times in (("guard holds", _hold_times()), ("cron failures", _cron_failure_times(t0 - 8 * 86400))):
+        failures, left = countable_failures(_cron_failures(t0 - 8 * 86400), _boot_times(), change_reach(cand), cfg)
+        for name, times in (("guard holds", _hold_times()), ("cron failures", failures)):
             got = spike(times, t0, end, cfg)
+            if got and name == "cron failures":
+                got["left_out"] = {side: {why: sum(1 for r in left if r["why"] == why and inside(r["at"]))
+                                          for why in ("boot", "infra", "unreached")}
+                                   for side, inside in (("before", lambda t: t0 - 7 * 86400 <= t < t0),
+                                                        ("after", lambda t: t0 <= t < end))}
             checks[name] = got
             if got and got["spike"]:
                 reasons.append(f"{name}: {got['after']} in {round((end - t0) / 3600, 1)} h, "
-                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before")
+                               f"{got['after_per_day']}/day against {got['before_per_day']}/day before (p {got['p']})")
     if cfg["EVOLVE_PROBES"] and not rec.get("probed"):
         try:
             probe = live_probe(cfg, ask)
