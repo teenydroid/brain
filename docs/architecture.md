@@ -764,13 +764,23 @@ How the day's beats become the page every prompt carries:
   leaves them off and the result says why; the post still goes out. The
   `world` stimulus of a browse or research task names its id and its count.
   Moltbook posts stay text.
-- X is three own posts a day, eight hours apart (`X_POSTS_MAX_PER_DAY`,
-  `POST_MIN_GAP_HOURS`), as three slots in IST: `morning` 07:00 (a gm that
-  reacts to something read; a habit the mind carries out), `take` 15:00 (a take
-  or a quote of a builder's post) and `show` 23:00 (what was built, with up to
-  four pictures). `brief` runs at 15:05 and 23:05, and `take` and `show` skip
-  when a brief is queued, so a brief takes the next free slot instead of a
-  fourth post. Replies to mentions are not counted.
+- X is at most four own posts a day, five hours apart (`X_POSTS_MAX_PER_DAY`,
+  `POST_MIN_GAP_HOURS`), and the slots are ceilings, not quotas. Every own
+  post names its `anchor` (the one item from its inputs it is about; a quote's
+  is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
+  anchor`) before it goes: a post that says nothing specific about its anchor
+  is a free skip, never a softer rewrite. The slots in IST: `x-quote` 04:30 (one
+  quote of a small builder's post), `morning` 09:30 (a gm only when the reading
+  gave it an anchor; a habit the mind carries out), `take` 15:00 (a take or a
+  quote; on Sundays `growth` has the slot) and `show` 23:00 (what was built,
+  with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
+  `show` skip when a brief is queued, so a brief takes the next free slot;
+  `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
+  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
+  only at relevance 5 and at most once a day) is one of the four, so it needs
+  a slot the others left open: `hands/x peer-suggest` runs the same anchor
+  judge itself, against the quoted post, and a no is a skip kept in
+  `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
 ## 5. Roster
 
@@ -1093,7 +1103,7 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
 `bin/inbound-consume` sends the drafts through `hands/x reply`.
 
 **The morning post.**
-1. The `morning` job runs `bin/act morning` at 07:00 IST. `bin/act` checks the
+1. The `morning` job runs `bin/act morning` at 09:30 IST. `bin/act` checks the
    playbook's daily budget (`max_per_day`) and gathers its inputs (none for
    `morning`).
 2. One turn as the tool-less `act` agent on the `teeny:act` thread drafts the
@@ -1102,8 +1112,9 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
 3. If there is a scene, `bin/act` runs it past the guard, calls
    `hands/image generate`, and uploads the file with `hands/x upload`. A
    failure there leaves the post text-only.
-4. `hands/x post` runs the guard and checks, takes the posting lock, re-checks
-   the 8-hour gap and the 3-a-day cap inside the lock, posts, and records the
+4. `hands/x post` refuses a post with no `anchor`, runs the guard and checks,
+   takes the posting lock, re-checks the 5-hour gap and the 4-a-day cap inside
+   the lock, posts, and records the
    post. A ledger write
    that fails after the post is logged and never retried.
 

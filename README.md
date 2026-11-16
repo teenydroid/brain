@@ -53,11 +53,14 @@ Teeny has three parts:
 
 ## What Teeny does
 
-- It posts on X twice a day: the morning gm (`morning`, 07:00 IST) and one
-  post about whatever the team queued with `hands/brief add` (`brief`). Either
-  may carry a picture or a clip of Teeny made by `hands/image` and
-  `hands/video`. Every other post playbook is in `brain/cron.toml`, switched
-  off.
+- It posts on X at most four times a day, and only when it has something
+  specific to say: a quote of a small builder (`x-quote`, 04:30 IST), a gm
+  when the morning's reading gave it an anchor (`morning`, 09:30), a take
+  (`take`, 15:00) and what it built (`show`, 23:00), plus whatever the team
+  queued with `hands/brief add` (`brief`) in the next free slot. Every own post
+  names the item it is about and passes an anchor judge, or it is skipped. A
+  post may carry a picture or a clip of Teeny made by `hands/image` and
+  `hands/video`.
 - It answers what people say to it. X pushes mentions, replies and quotes to a
   webhook (`bin/x-webhook`, the `xhook` service). Mail comes from its
   AgentMail inbox, comments from Moltbook and messages from Telegram when a bot
@@ -66,8 +69,15 @@ Teeny has three parts:
   about elsewhere but never answers on HN (`hands/hn` is read only). All of it
   lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
   Teeny's mind, which answers with intents that the hands carry out
-  ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
-  search, which is billed per post and too expensive.
+  ([`docs/architecture.md`](docs/architecture.md) §4a). X search is billed per
+  post, so Teeny uses it sparingly: one search a day for the `take` playbook,
+  and a read of its peers' newest posts for `peer-quote`.
+- It quotes other projects' posts, rarely. `peer-quote` (11:00 and 19:00 IST)
+  reads the newest posts of the accounts in `brain/x-peers.txt` and scores up
+  to three quotes. It posts one only when the relevance bar is met (Teeny has
+  built, run or measured something the author did not know), at most once a
+  day, and most days it posts nothing. No quote ever carries a ticker, address
+  or price.
 - It remembers, and it dreams. Every awake beat is journaled to
   `state/journal/<date>.md` and to the core's memory. Twice a day, at 14:00
   (`bin/dream --light`) and 02:00 (`bin/dream`), it dreams: it goes over
@@ -150,23 +160,25 @@ bin/tasks-desk ── task.json ──► operator agent ──► browser, on d
 
 Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
 its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight hours apart (`POST_MIN_GAP_HOURS` in `hands/x`).
+posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty. The outward quote of a peer (`peer-quote`) shares those four.
 
 | Playbook | When | Does |
 |---|---|---|
-| `morning` | 07:00 | the morning gm that reacts to something it read, maybe with a picture |
-| `take` | 15:00 | a take on the day's story, or a quote of a builder's post |
+| `x-quote` | 04:30 | at most one quote a day of a small builder's post, adding one fact from its own record |
+| `morning` | 09:30 | a gm only when the morning's reading gave it an anchor, maybe with a picture |
+| `take` | 15:00, Monday to Saturday | a take on the day's story, or a quote of a builder's post |
 | `show` | 23:00 | what it built or did today, with up to four pictures |
+| `shiplog` | 23:10, only when show and the brief left the night's slot empty | day n and what shipped |
 | `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
-| `humans`, `milestone`, `roast` | off | other X posts and replies |
+| `humans`, `milestone`, `roast` | no job | other X posts and replies |
 | `pr-merged` | off (no job) | a post when a PR merges upstream; its slot went to `giveaway-plan` |
 | `giveaway-plan` | off; Tuesdays 14:50 once on | opens the week's Tiny Drop inside the season budget (`hands/giveaway`); `giveaway-judge` and `giveaway-post` run from the pinned `giveaway-settle` job |
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
 | `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
+| `wallet-receipt`, `cost-of-living`, `bounty-winner` | no job | wallet and bounty posts |
+| `growth` | Sundays 15:00, in `take`'s slot | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 | `reddit-browse` | every 2 hours, when a read is due | queues a Reddit read for the browser operator (an allowlisted subreddit in turn, then the inbox); the mind comments and votes from what comes back (`hands/reddit`) |
-| `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
-| `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 
 `bounty-open`, `bounty-paid` and `cost-of-living-moltbook` are not scheduled.
 `mentions` and `mail` are the prompts the core's per-surface agents use when

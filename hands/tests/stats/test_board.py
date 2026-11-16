@@ -47,6 +47,13 @@ class BoardTest(unittest.TestCase):
         conn.execute("INSERT INTO x_post_metrics (post_id, checkpoint, at, likes, replies, reposts, quotes, impressions)"
                      " VALUES (?, 24, ?, ?, 1, 0, 0, ?)", (post_id, at + DAY, likes, impressions))
 
+    def test_a_thread_continuation_is_its_own_bucket_not_a_post_or_a_reply(self):
+        self.x_post("1", 4, kind="post")
+        self.x_post("2", 2, kind="thread")
+        self.x_post("3", 6, kind="reply")
+        groups = {g["format"]: g["n"] for g in board.board()["x"]["formats"]}
+        self.assertEqual(groups, {"(post)": 1, "(thread)": 1, "(reply)": 1})
+
     def test_an_empty_ledger_says_so(self):
         out = board.board()
         self.assertEqual(out["audience"], [])
@@ -65,6 +72,48 @@ class BoardTest(unittest.TestCase):
         self.assertEqual(out["moltbook_daily"]["live_posts_24h"], 3)
         self.assertEqual(out["lines"][3], "Moltbook on 2026-09-14: live posts (24h) 3, own-thread comments unanswered 2,"
                                           " answered 81.8%, writes lost to the challenge (7d) 4.5%, posts at 10+ (14d) 1, at 50+ 0")
+
+    def act_runs(self, name, *records):
+        """state/act/<name>/runs.jsonl as bin/act writes it: one JSON line a run."""
+        import json
+        folder = self.root / "state" / "act" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / "runs.jsonl", "a") as fh:
+            for at, record in records:
+                fh.write(json.dumps({"at": self.iso(at), **record}) + "\n")
+
+    @staticmethod
+    def iso(seconds):
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_playbook_runs_posts_and_skips_over_the_window(self):
+        post = {"action": "post", "status": "done", "result": {"id": "1"}}
+        self.act_runs("take",
+                      (T0 - 8 * DAY, {"ok": True, "playbook": "take", "actions": [post], "left_today": 0}),
+                      (T0 - DAY, {"ok": True, "playbook": "take", "actions": [post], "left_today": 0}),
+                      (T0 - 2 * DAY, {"ok": True, "playbook": "take", "actions": [
+                          {"action": "skip", "reason": "not anchored: a generic gm", "draft": "gm"}], "left_today": 1}),
+                      (T0 - 3 * DAY, {"ok": True, "playbook": "take", "actions": [
+                          {"action": "skip", "reason": "nothing new"}], "left_today": 1}),
+                      (T0 - 4 * DAY, {"ok": True, "playbook": "take", "actions": [
+                          {"action": "post", "status": "refused", "result": {}}], "left_today": 1}),
+                      (T0 - 5 * DAY, {"ok": False, "playbook": "take", "error": "the draft turn failed"}))
+        self.act_runs("x-quote",
+                      (T0 - DAY, {"ok": True, "playbook": "x-quote", "skipped": "slot is empty", "why": "too soon"}),
+                      (T0 - 2 * DAY, {"ok": True, "playbook": "x-quote", "skipped": "daily budget spent"}))
+        (self.root / "state" / "act" / "x-quote" / "runs.jsonl").open("a").write("not json\n")
+        out = board.board()
+        self.assertEqual(out["playbooks"], [
+            {"playbook": "take", "runs": 5, "posts": 1, "skips": 2, "not_anchored": 1},
+            {"playbook": "x-quote", "runs": 2, "posts": 0, "skips": 1, "not_anchored": 0},
+        ])
+        self.assertEqual(out["lines"][-1], "Playbooks last 7d (runs/posts/skips): take 5/1/2 (1 not anchored), x-quote 2/0/1")
+
+    def test_no_runs_no_playbook_line(self):
+        out = board.board()
+        self.assertEqual(out["playbooks"], [])
+        self.assertFalse(any(line.startswith("Playbooks") for line in out["lines"]))
 
     def test_audience_changes_over_one_and_seven_days(self):
         self.stat("2026-09-06", "x", "followers", 300)

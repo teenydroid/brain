@@ -14,14 +14,16 @@ from . import hand
 Json = dict[str, Any]
 
 
-def post(text: str) -> Json:
-    """`hands/x post` with {text}: its answer, or Refused / HandError as it
-    said. A dry run answers `dry_run` and no id."""
+def post(text: str, anchor: str) -> Json:
+    """`hands/x post` with {text, anchor}: its answer, or Refused / HandError
+    as it said. `anchor` names what the post is about (a first's key, the
+    requests a vote is between); hands/x refuses a post without one. A dry
+    run answers `dry_run` and no id."""
     exe = hand.root() / "hands" / "x"
     if not exe.is_file():
         raise hand.HandError("hands/x is not installed")
     try:
-        done = subprocess.run([str(exe), "post"], input=json.dumps({"text": text}), capture_output=True, text=True,
+        done = subprocess.run([str(exe), "post"], input=json.dumps({"text": text, "anchor": anchor}), capture_output=True, text=True,
                               timeout=180, cwd=hand.root())
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise hand.HandError(f"hands/x post: {type(exc).__name__}") from None

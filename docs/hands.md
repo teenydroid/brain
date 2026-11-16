@@ -17,6 +17,14 @@ loads. The shared contract (outcomes, exit codes, secrets, dry run, state, the
 core client) lives in `hands/lib/teeny_hands/hand.py`. To run every test:
 `python3 -m unittest discover -s hands/tests -t hands/tests`.
 
+**Changing a hand.** Teeny may add a hand, and, since 2026-11-15, make a
+small edit inside an existing one that is not frozen (`evals/frozen.txt`),
+through `bin/evolve` ([`evolve.md`](evolve.md), "The gate's checks"). Such a
+change carries a test (`hands/tests/test_<name>.py` or `hands/tests/<name>/`)
+and touches the hand's own section below (its `` ## `name` `` heading); the
+gate runs that hand's tests, sealed from the box's environment, and sends a
+failure back to the builder as a finding.
+
 **R** marks a read verb. **A** marks an acting verb, which only `bin/`
 scripts (`bin/act` for a playbook, `bin/tick` for the mind's intents) and the
 operator (the person) call. **O** marks an operator-only verb. **J** marks a job
@@ -35,10 +43,16 @@ report they leave beside it.
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
+| `peers [--max-age-hours H] [--per-peer N] [--skip-quoted]` | R | The newest original posts (8 hours, 2 a peer by default) of the accounts in `brain/x-peers.txt` (one handle a line, `#` comments, at most 20; the same parser as `brain/moltbook-peers.txt`, `teeny_hands/peerfile.py`). One recent search, `(from:a OR from:b ...) -is:retweet -is:reply` from `start_time` on, through the read cache, split into more searches only if a query would pass 512 characters. A post by anyone not on the list is dropped. `--skip-quoted` drops peers quoted in the last 7 days (`quoted_recently`). Every post kept is screened by `guard inbound`, as a mention is; a held one is dropped and counted in `held`. What it returns is kept in `x_peer_reads` as the last read. About $0.20 a day at two runs. |
+| `peer-suggest` | A | stdin `{"candidates": [{quote_of, text, relevance 1-5, why, source, format: quote\|visit}], "media_ids"?}`, 1 to 3 candidates (an `image` on a candidate is accepted and ignored: `bin/act` makes the picture from the answer's `image`). Every candidate is kept in `x_peer_candidates`; the top one (highest relevance, the first on a tie) is posted through `post` as a quote (lab format `peer-quote` or `peer-visit`) only when relevance is at least `PEER_QUOTE_MIN_RELEVANCE` (5), `source` is not empty, `quote_of` was in the last `peers` read, the anchor judge (`guard anchor`, run against the quoted post, the `source` and the `why`; `bin/act` cannot ask it for a `hand:` output) finds the text anchored, fewer than `PEER_QUOTES_MAX_PER_DAY` (1) went out this UTC day, and for a `visit` none went out in the last 7 days. Otherwise it is a skip with its `rule` (`relevance`, `source`, `not_read`, `daily`, `visit`, `anchor`) and reason, exit 0, nothing posted. A refusal by the guard or a posting rule is kept (`refused`) and exits 2. Under `DRY_RUN` every bar and rule runs and no row is written. One word, as a playbook's `hand:x <verb>` output names it (`peer-quote`). |
+| `peers suggestions [--days N]` | R | Every suggestion of the last N days (7), newest first, with its status (`posted`, `skipped`, `kept`, `refused`, `failed`), rule and reason; `runs`, `posted`, `skipped` and `last_visit_at`. |
+| `peers report [--days N]` | R | Per peer (the file's, then any touched), the touches of the last N days (14) from `x_peer_touches`: for each, whether the peer then appeared in `x_mentions` within 48 hours (`peer_answered`), which accounts mentioned Teeny for the first time in that window (`new_accounts`), and the quote's latest `x_post_metrics` row. `post` writes a touch for every quote of a peer, whichever playbook made it. |
 | `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
+| `slot` | R | Whether an own post would pass the gap and the day's cap now: `{open: true}`, or `{why}` with the refusal `post` would give. Reads the ledger only, never X. A post playbook reads it as a required input (`x-quote`, `growth`, `shiplog`), so a shut slot skips the run before the model turn, and before `x-quote`'s paid search. |
 | `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
-| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
-| `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
+| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 5 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 4 own posts and quotes a UTC day, the slots and the outward quote together, `rule: daily_cap`; replies are never counted) re-checked under the posting lock; for a quote of somebody else's post (looked up first: a post X does not have, or whose author is unknown, is refused with `rule: target`), no cashtag, `TINY` in capitals, Solana mint or EVM contract address, or pump.fun in the guard's text (`rule: outward_ticker`, a rewrite asked for; `take`'s quotes too) and no second quote of the same author within 7 days (`rule: peer_rotation`, with `last_quote_id` and `next_at`; the author is kept in `x_posts.quote_author`); and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, only to somebody who engaged first (`rule: unsolicited`: the target is a stored mention in `x_mentions`, tags the account, replies to it, or sits in the conversation under one of its own posts; X allows API replies only there), never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | An own post's body must carry `anchor`: a short string (at most 200 characters, or a whole number) naming the one item from its playbook's inputs it is about: a `listen digest` item id or URL, a `material` receipt, a PR number, the id of the post it quotes. A post with none, or a blank one, is refused with `rule: anchor` before the guard is asked or anything is sent, under `DRY_RUN` too. A quote with no anchor is anchored on `quote_of`. The anchor is kept in `x_posts.anchor` and never sent to X; replies take none. The callers set it: `bin/act` from the draft (and asks the anchor judge first, `guard anchor`), the mind's `post_x` intent, `briefs post` (`brief:<id>`), `firsts announce` (the first's key), `requests vote-open` (`requests:<ids>`), `bounty pick` (`bounty:<id>`), `giveaway open` (`giveaway:<round id>`), and `guard holds release` (the anchor the draft was held with, else `hold:<id>`). The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
+| `post` body | | `{text, anchor, media_ids?, gif_id?, quote_of?, format?, experiment?}` (`anchor` is optional only on a quote). `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
+| `post-thread` | A | A thread of 2 to 5 posts: stdin `{posts: [text, ...], anchor, media_ids?, gif_id?, format?, experiment?}`. The first text goes out as an own post and each later one as a reply to the one before, so readers see one thread. It is a separate verb from `thread`, the read above. Fewer or more posts, no `anchor`, or a `quote_of` is refused (`rule: thread` or `anchor`) before anything is sent. See "Threads" below. |
 | `follow-up [--to ID]` | A | Continues one of the account's own posts as a thread: a reply to `ID` (or the body's `to`, since `bin/act` pipes a playbook's draft with no flags), which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
@@ -47,6 +61,8 @@ report they leave beside it.
 | `metrics list [--days N]` | R | The latest row of each own post measured in the last N days (7), newest first, with its kind, `format`, `experiment` and the first 120 characters. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
 | `subscribe --webhook-id ID [--confirm]` | O | Subscribes the registered webhook (X's id for it) to every X Activity event the webhook reads (`webhook.SUBSCRIBED_EVENTS`: `post.mention.create`, `post.reply.create`, `post.quote.create`, `follow.follow`, `follow.unfollow`; the follow events with the `inbound` direction), one `POST /2/activity/subscriptions` each, signed as the account. Previews the request bodies unless `--confirm`. X treats a subscription it already has as a refresh, so it is safe to run again after an event type is added. |
+
+**Threads.** `post-thread` runs the same steps as `post`, once for the whole thread. Every post goes through the guard and the 280-character check before any is sent: if one is held, refused or too long, the whole thread is refused and nothing goes out. The thread is one own post: the gap and the daily cap are checked once, against its head, and `slot` is shut after it as after any post; the no-repeats check runs on the posts joined and on the head; the link budget counts the thread once if any of its posts carries a link. Prefer no link in the head and put it in the last post, so the post people see first costs $0.015, not $0.20 (this is not enforced). Media, `format`, `experiment` and the anchor belong to the head only, and `x_posts.anchor` is kept on the head only. The record is written first for each post, as elsewhere: the head as kind `post`, every later post as kind `thread` with `in_reply_to` the post before it and `thread_of` the head's id (a ledger made before threads is rebuilt once to allow the kind). A continuation is measured by `metrics refresh` like any post of Teeny's and appears in `metrics list` and the stats board under `(thread)`, but is neither an own post nor a reply: the gap, the daily cap, the reply pacing and the one-reply rule never count it, and the prompts and the proof report count only `post`, `quote` and `reply`. The later posts skip the 30 to 60 second reply pacing and `check_not_own`, on this verb only: `reply` to an own post, a continuation included, is still refused with `rule: self`. If X fails part way, nothing more is sent, nothing is retried and nothing is deleted: the posts that went out stay and are recorded, and the error (exit 1) says `sent`, `of`, `ids`, `failed_at` and `in_doubt` (X did not say whether the failed post went out). Under `DRY_RUN` nothing is sent or recorded and the result lists `would_post`. `bin/act` takes a thread from a `post` playbook as `{"action": "post", "anchor": ..., "posts": [...]}` in place of `text`: the anchor judge reads the posts joined, and the playbook says whether it may thread (`show` may, 2 to 4 posts).
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -62,8 +78,10 @@ guard check ───── hold ─────► guard_holds row, refused as 
   │                           reply only: never to the account's own post
   ▼
 lock "posting" (post) or "replying" (reply)
-  │  post:   the gap since the last own post; no near-duplicate of one of the last 30 days
-  │  reply:  never twice to one post, 30 to 60 s pacing
+  │  post:   the gap since the last own post, the day's cap; no near-duplicate of one of the last 30 days
+  │  quote of somebody else: no ticker, address or pump.fun; no author twice in 7 days
+  │  reply:  engaged first (a mention, a tag, a reply to it, under its post);
+  │          never twice to one post, 30 to 60 s pacing
   │  both:   the daily link-post budget
   ▼
 DRY_RUN=1 ? ── yes ─► {"would_post": ...}   no X write, no ledger row
@@ -215,6 +233,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `check` | R | Runs, in order: links (allowlist plus approved hosts), lexicon (8 categories, leetspeak folding, word boundaries; profanity outbound only), then the judge. The judge fails closed. Returns `ok` with the text to publish, or `hold{reason}` and writes the hold. `surface` picks the limits (below). |
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
 | `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` (for the webhook's mentions too), `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
+| `anchor` | R | The anchor judge (`teeny_hands/guard/anchor.py`): stdin `{text, anchor, inputs?}`, answers `{anchored, reason, judged}`. One short model pass, through the core's simple chat as the content judge asks (`SAFETY_JUDGE_MODEL` when set), reads whether the draft says something specific about its anchor that the inputs support. It only judges, never rewrites. Fails closed: an unreachable core or an unreadable answer (asked twice at most) is `anchored: false`. `ANCHOR_JUDGE=0` turns it off (every draft `anchored: true`, `judged: false`). `bin/act` asks it before every `post` output and records anything but a clear yes as a free skip, `reason: "not anchored: ..."`, with the draft. |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
@@ -1032,8 +1051,15 @@ model never does the arithmetic:
   counts under its kind, as `(reply)` or `(comment)`.
 - `moltbook_daily`: the newest snapshot's `moltbook_ledger` metrics with
   their `date` ({} before the first).
+- `playbooks`: per `bin/act` playbook over the last N days, read from
+  `state/act/<name>/runs.jsonl`: `runs`, `posts` (own posts that went out),
+  `skips` (the draft's skips, the anchor judge's among them, and runs skipped
+  before the draft for an empty input or a shut slot; a spent budget or a
+  run already going is not a skip), and `not_anchored` (the skips the anchor
+  judge made). Most posts first; the skip rate of the strict bar.
 - `lines`: the same in three lines of at most 320 characters, for a prompt,
-  and a fourth with `moltbook_daily` once a snapshot has it.
+  a fourth with `moltbook_daily` once a snapshot has it, and a last one for
+  `playbooks` once any ran.
 
 ### Lab tags
 
@@ -1344,7 +1370,7 @@ and $0.07 a 5-second clip.
 
 | Verb | | Does |
 |---|---|---|
-| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (8; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
 
@@ -1691,8 +1717,8 @@ the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. |
-| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
+| `address [--account giveaway]` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. `--account giveaway`: the Tiny Drops pool instead, Solana index 1 (`m/44'/501'/1'/0'`, from the core's `wallet_account`), which only `hands/giveaway`'s settle and clawback sign with. Funding the pool is the operator sending $TINY there. |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). `--account giveaway`: the pool's address, its SOL (fees and rent) and its round mint (`tiny`: $TINY on mainnet, `GIVEAWAY_DEVNET_MINT` on devnet). Read only. |
 | `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
 | `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
 | `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
@@ -2526,7 +2552,9 @@ that; at Exa's $0.007 to $0.012 a search it is under $0.05 a day.
 The surplus wallet (`SURPLUS_ADDRESS`, an EVM address) is what funds Teeny,
 and it takes only USDC on Base. `hands/surplus` moves Teeny's spare SOL there
 in two steps, each through `hands/wallet` and every rule and cap it keeps.
-It has no payment path of its own. Code: `teeny_hands/surplus/`.
+It has no payment path of its own. Code: `teeny_hands/surplus/`. Frozen
+(`evals/frozen.txt`): the hand, its library and its tests (`hands/tests/surplus/`)
+are the operator's, since it moves money out of Teeny's wallet.
 
 | Verb | | Does |
 |---|---|---|
@@ -2688,8 +2716,8 @@ are code's. The round files it publishes are the contract in
 | `judge` | A | `{round_id, entry_id, reasons, text}`, after the deadline and before the draw, for an entry eligible so far and not Teeny's. `text` must carry the tag; it is threaded under the round post (`hands/x follow-up`), and only once it is out is the pick recorded. The other playbook output. |
 | `entries [ID]` | J | Every round not drawn yet: its entries from `hands.db` alone, never X (a test fails on any X call). The webhook stores each direct reply to the round post in `x_mentions` (with `conversation_id`, and the author's age and followers when X sends them); one entry per account, from its replies made before the deadline. The first reply is the entry. Its address is bound from the first of its replies that carries exactly one valid Solana address, leaving out the $TINY and USDC mints, the token and Rewards programs and the giveaway wallet, so a later reply can supply an address the first lacked but never replace one it had. Nothing else a reply says changes anything. A nested reply is not pushed by the webhook, so the rules say "reply to the drop post itself". An open round's file is published to the diary once (and again only if it changes). |
 | `draw [ID]` | J | After the deadline. Waits (`rule: waiting_for_judge`) for the best-reply pick up to 24 hours past the deadline, then draws without it (`best_skipped`); with no prize or nobody eligible it does not wait. The seed is the first finalized Solana block at or after the deadline (`GIVEAWAY_RPC_URL`; `rule: seed_not_final` until there is one): `seed.sha256 = sha256("<id>:<blockhash>")`. Every entrant gets a reason: held by the guard, not screened yet, Teeny's own, classed as an agent (`hands/world`), account under 90 days, under 25 followers, a near-duplicate of an earlier reply (word-set Jaccard 0.8 once the tag, addresses, handles, links and the entry template's words are out, and only between replies of at least 4 such words), no address (Teeny's own index-0 address, asked of the core, never binds), an address another account entered first, or not following @teenydroid (`x_follows`). The eligible handles are sorted by `sha256(seed || handle)`. Walking that order, each candidate the webhook told too little about (follow, age or followers) goes into one batched `hands/x users` call, at most `GIVEAWAY_X_LOOKUPS_PER_ROUND` a round; past that a candidate is `unverifiable`, and a candidate who fails is replaced by the next. The best-reply winner is checked the same way. A person who wins twice gets one leaf with the sum. A milestone not reached, or nobody eligible, makes the round `void`. |
-| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`) for the distribution, funded with exactly the round's total. Until PR 5b fills that step in, it is refused (`chain_not_ready`): the round stays `drawn`, published with `distributor` and `vault` null, and nothing is signed. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
-| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution, which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
+| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`, below) for the distribution, funded with exactly the round's total. A refusal there (any `rule` below, or `chain_not_ready` when no spine binary is found) leaves the round `drawn`, published with `distributor` and `vault` null, and nothing is signed; the next run tries again. An outcome it cannot know is an error naming `in_doubt`, never resent. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
+| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution (CloseMerkleDistribution), which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
 | `due` | J | `entries`, then `draw`, `settle` and `clawback` for every round each is due for. One round's refusal never stops the others. |
 
 The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
@@ -2699,8 +2727,58 @@ The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
 `deploy/teeny.env.example`; with the switch off no round is opened, judged,
 drawn or settled. `GIVEAWAY_AUTHORITY` (the giveaway wallet's address) and
 `GIVEAWAY_RPC_URL` (a Solana JSON-RPC for the round's cluster) are needed to
-settle and to draw. Only `open` and `judge` may be a playbook's output, and an
-input runs only `status` and `announcements` (bin/lib/playbook.py).
+settle and to draw. On devnet, `GIVEAWAY_DEVNET_MINT` names a Token-2022 test
+mint (6 decimals) that stands in for $TINY, which exists on mainnet only. Only
+`open` and `judge` may be a playbook's output, and an input runs only `status`
+and `announcements` (bin/lib/playbook.py).
+
+**The chain step** (`giveaway/onchain.py`, signed in the core). The giveaway
+wallet is the core's Solana account index 1; its key never leaves the core, and
+it signs only under `[wallet_policy.accounts.solana_1]`, which
+`bin/lib/wallet_config.py` writes at every boot from these caps
+(`giveaway/caps.py`, `policy_account`): the Rewards program alone, and the
+round mint at `GIVEAWAY_POOL_MAX_TINY` a transaction and
+`GIVEAWAY_SEASON_MAX_TINY` in any 24 hours. With `GIVEAWAYS` off, or the caps
+not sane, or `GIVEAWAY_CLUSTER` not the core's `WALLET_CLUSTER`, the section is
+not written and the core refuses whatever index 1 is asked to sign (index 0's
+policy is written byte for byte as without it). One step:
+
+1. Refused first unless the round's cluster is the core's (`rule: cluster`),
+   `GIVEAWAY_RPC_URL` answers with that cluster's genesis hash (`cluster`), and
+   `GIVEAWAY_AUTHORITY` is the address the core has for index 1
+   (`wallet_account`; `rule: authority`).
+2. `teeny-spine giveaway-tx create|close` (`spine/src/giveaway_tx.rs`) builds
+   the unsigned legacy transaction over a fresh blockhash: one
+   CreateMerkleDistribution (amount = total_amount = the round total, the
+   root, the clawback time, not revocable; a throwaway seed keypair, made and
+   signed with there, gives the distribution its address) or
+   CloseMerkleDistribution. Its bytes match `@solana/web3.js` encoding the
+   program as `web/src/lib/distributor.ts` does
+   (`hands/tests/giveaway/fixtures/rewards_tx.json`).
+3. The attempt is recorded in `giveaway_chain` before anything is sent.
+4. `wallet_prepare_program {accountIndex: 1}` with `expectedDebits` the
+   round total of the mint (none for a close). The quote is checked against
+   the round, not the builder: one instruction, to the Rewards program, the
+   round's accounts in order, data carrying exactly its root, total and
+   clawback time (`rule: quote`), and a clean simulation debiting exactly the
+   total (`rule: simulation`). A `WALLET_POLICY_REFUSED` is `rule:
+   core_policy`.
+5. `wallet_execute_prepared_program`, then up to 60 seconds for the cluster
+   to confirm. A failure on chain is `failed` (nothing made; the next run
+   tries again).
+
+A round never gets a second distribution: an attempt `done` is the answer,
+and one sent but unknown (`in_doubt`) is settled from the chain on the next
+run, as `done` when the distribution is there and matches the round, or as
+`dead` (tried afresh) only once the chain's finalized block height has passed
+its blockhash's last valid height, when it can never land. Until then the
+step is an error naming `in_doubt`.
+
+The pinned job `giveaway-settle` (`bin/giveaway-run`, hourly at :33, never
+caught up) runs `due`, then, with `GIVEAWAYS` on, `bin/act giveaway-judge`
+when `announcements.to_judge` has a round and `bin/act giveaway-post` when a
+countdown, winners, claim-open or closing-soon post is owed (each at most
+once a run; a playbook not yet written is skipped).
 
 ## `lore`: proof events for lore episodes
 
@@ -2838,7 +2916,7 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows`, `x_peer_reads`, `x_peer_candidates`, `x_peer_touches` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
@@ -2858,7 +2936,7 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
-| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications` |
+| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications`, `giveaway_chain` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |

@@ -1,0 +1,24 @@
+# Teeny's peers on X: crypto-AI agents, their frameworks and launchpads, and
+# founders who post about building. hands/x peers reads their newest posts for
+# the peer-quote job; Teeny may quote one of them, never reply to them. One
+# handle a line, no @; `#` starts a comment. Keep it short: the hand reads at
+# most 20, and a mid-sized account notices a quote more than a giant does.
+#
+# THE OPERATOR MUST VERIFY EVERY HANDLE below with `hands/x user <handle>`
+# (right account, still active, not renamed) before peer-quote is switched on.
+# These were written from memory of the research pages, with no live X check.
+#
+# The rule: add a peer after a real exchange with it (it answered a quote, or
+# its community tagged Teeny). Drop one that is silent after three touches
+# (`hands/x peers report`) or that turns to pure price talk.
+truth_terminal
+aixbt_agent
+elizaos
+shawmakesmagic
+virtuals_io
+freysa_ai
+andyayrey
+0xzerebro
+autonolas
+clanker_world
+pumpdotfun

@@ -161,6 +161,51 @@ services:
     volumes:
       - ..:/srv/teeny
 
+  # The hand-test sandbox (docs/evolve.md, "The hand-test sandbox"): where
+  # bin/evolve runs a candidate's hand tests, code a model wrote, since the
+  # spine's container has no user namespaces for bubblewrap. Same image, no
+  # network at all, a read-only root, no new privileges, and nothing of the
+  # checkout mounted but state/sandbox/ (the jobs bin/evolve leaves and the
+  # results bin/sandbox-runner writes back) and the runner's two frozen
+  # files, read-only. No secrets/, no state/ beyond that, no .git.
+  #
+  # The runner starts as root with only SETUID, SETGID, CHOWN and KILL. It
+  # touches state/sandbox/ (kept 0700) only as the checkout's owner, and
+  # runs each job's tests as SANDBOX_TEST_UID (nobody), on a copy in the
+  # /work tmpfs: they can reach neither state/sandbox/ nor the runner, so
+  # they cannot forge a result, signal the runner or read its memory. At its
+  # time limit a job's process group is killed, and after every job each
+  # process of the test uid. Create state/sandbox/ as the checkout's owner
+  # before the first `up` (`mkdir -p state/sandbox`), or Docker makes it
+  # root's and the runner cannot answer (bin/doctor warns; hand edits are
+  # deferred, never shipped).
+  sandbox:
+    image: teeny-spine:current
+    restart: unless-stopped
+    init: true
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, KILL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 2g
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /work:size=2g,mode=1777,exec
+    environment:
+      HOME: /tmp
+      SANDBOX_UID: ${TEENY_UID:-1000}
+      SANDBOX_GID: ${TEENY_GID:-1000}
+      SANDBOX_TEST_UID: "65534"
+      SANDBOX_TEST_GID: "65534"
+    entrypoint: ["python3", "-I", "/opt/sandbox/sandbox-runner", "/sandbox", "/work"]
+    volumes:
+      - ../state/sandbox:/sandbox
+      - ../bin/sandbox-runner:/opt/sandbox/sandbox-runner:ro
+      - ../bin/lib/sandbox.py:/opt/sandbox/sandbox.py:ro
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try

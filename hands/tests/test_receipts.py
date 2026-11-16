@@ -304,6 +304,13 @@ class ReceiptsTest(ReceiptsCase):
         self.assertEqual(withheld, {"x.post": 1, "x.reply": 1, "github.push": 1, "build.shipped": 1,
                                     "wallet.paid": 1, "github.new-verb": 1})
 
+    def test_a_thread_continuation_is_a_receipt_of_its_own_kind(self):
+        self.seed()
+        self.sql("INSERT INTO x_posts VALUES ('105', 'thread', 'and then', '101', NULL, '[]', ?)", AT + 120)
+        actions, withheld = self.gather()
+        self.assertEqual({a.kind: a.ref for a in actions}["x.thread"], {"id": "105"})
+        self.assertNotIn("x.other", withheld)
+
     # --- the chain -------------------------------------------------------------------------------------
 
     def test_receipts_chain_by_hash_and_commit_to_the_private_row(self):

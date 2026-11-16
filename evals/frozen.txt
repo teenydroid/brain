@@ -53,6 +53,9 @@ docs/governance.md
 # playbooks stay Teeny's.
 brain/agents/act.toml
 brain/agents/judge.toml
+# The agent bin/evolve reviews each candidate with (its rubric, evals/review.md,
+# is frozen with evals/).
+brain/agents/reviewer.toml
 brain/agents/teeny.toml
 brain/agents/teeny-mentions.toml
 brain/agents/teeny-mail.toml
@@ -91,6 +94,12 @@ hands/vps
 hands/wallet
 # Paid search and the top-up spend from the same wallet.
 hands/x402
+# The surplus sweep moves Teeny's spare SOL to the surplus wallet: its entry
+# point, its library (where the address and the floor are checked) and the
+# tests that pin them are the operator's, like the wallet's.
+hands/surplus
+hands/lib/teeny_hands/surplus/
+hands/tests/surplus/
 # Tiny Drops pay $TINY from the giveaway pool (the giveaway-pool fence).
 hands/giveaway
 # The request list decides which paid request is built first (S3).

@@ -36,7 +36,7 @@ written here, in code it cannot edit:
   few times a day can have one. Its day fields must be numbers, and not
   both set (cron implementations read that differently). Never on a
   playbook that speaks in public (posts, replies, comments, announces:
-  POSTING_OUTPUTS, POSTING_VERBS), however the job is named, nor on the
+  POSTING_OUTPUTS, POSTING_VERBS, or any hands/x verb), however the job is named, nor on the
   pinned jobs that move money (NO_CATCH_UP_COMMANDS): a post or a payment
   hours late is a different act, not a late one. That last rule reads the
   playbook, which Teeny edits apart from this file: under --strict
@@ -80,7 +80,7 @@ POSTING_OUTPUTS = ("post", "reply", "like")
 POSTING_VERBS = ("post", "reply", "comment", "announce", "quote")
 #: Scripts that move money, which never catch up.
 NO_CATCH_UP_COMMANDS = ("bin/pay-bills", "bin/bounty-pay", "bin/tiny-buy", "bin/x402-fund", "bin/surplus-sweep",
-                        "bin/paid-requests")
+                        "bin/paid-requests", "bin/giveaway-run")
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
@@ -195,6 +195,10 @@ def _speaks(output: str) -> bool:
         return True
     if output.startswith("hand:"):
         words = output.split()
+        # Every hands/x output acts on X, whatever its verb is called
+        # (`peer-suggest` quotes a peer).
+        if words[0] == "hand:x":
+            return True
         return len(words) > 1 and words[1].split("-")[0] in POSTING_VERBS
     return False
 
