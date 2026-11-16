@@ -4,8 +4,8 @@
 #   profile the image builds), then boot it through bin/spine with a stub model
 #   and run the whole live test: seeding, a shell job, bin/crons, bin/oh,
 #   bin/ask, the keyring across a restart.
-# - scripts: shellcheck over bin/ and the reconciliation tests (scripts-shell),
-#   and the hands' unit tests on Python 3.11 (the image's version) in four
+# - scripts: shellcheck over bin/ and the reconciliation tests (scripts-shell,
+#   and doctor for bin/test/doctor_test.sh), and the hands' unit tests on Python 3.11 (the image's version) in four
 #   shards (hands); `scripts` itself passes only when all of them did. None
 #   needs a core.
 # - web: the Next.js site.
@@ -59,8 +59,8 @@ jobs:
           OPENHUMAN_CORE_BIN: target/release/teeny-spine
           TEENY_CHROME_PATH: /usr/bin/google-chrome
 
-  # The shell side of the old scripts job: shellcheck and the bin/ tests (the
-  # doctor's alone is about 8 minutes on the runner, a hundred bin/doctor runs).
+  # The shell side of the old scripts job: shellcheck and the bin/ tests, but
+  # the doctor's (doctor, below).
   scripts-shell:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -77,7 +77,6 @@ jobs:
       - run: shellcheck -x bin/oh bin/ask bin/act bin/doctor bin/eval bin/crons bin/heartbeat bin/spine bin/seed-cron bin/frozen-check bin/evolve bin/inbound-consume bin/mentions bin/mail bin/stats-snapshot bin/moltbook-prune bin/build-ship bin/tasks-desk bin/keychain-fill bin/bounty-pay bin/tick bin/reflect bin/dream bin/health bin/gh-inbound bin/proofs bin/accounts bin/wallet-watch bin/x402-fund bin/surplus-sweep bin/paid-requests bin/pay-bills bin/audit bin/autonomy bin/guard-review bin/guard-rescreen bin/lib/*.sh bin/test/*.sh deploy/*.sh
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
-      - run: bin/test/doctor_test.sh
       - run: bin/test/eval_test.sh
       - run: bin/test/inbound_consume_test.sh
       - run: bin/test/tell_test.sh
@@ -85,6 +84,19 @@ jobs:
       - run: bin/test/evolve_test.sh
       - run: bin/test/memory_page_test.sh
       - run: bin/test/proofs_test.sh
+
+  # bin/test/doctor_test.sh on its own: about a hundred bin/doctor runs, some
+  # 8 minutes on the runner, as long as the rest of the shell tests and a
+  # shard of the hands' together.
+  doctor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: bin/test/doctor_test.sh
 
   # The hands' unit tests on Python 3.11 (the image's version), about 3,100 of
   # them, dealt out by whole module across four runners (bin/test/hands_shard.py):
@@ -107,20 +119,22 @@ jobs:
       - run: python3 bin/test/hands_shard.py --shards 4 --shard ${{ matrix.shard }} -v
 
   # The required check (the ruleset "main: frozen gate" names `scripts`): green
-  # only when the shell tests and every shard of the hands' tests passed.
+  # only when the shell tests, the doctor's and every shard of the hands'
+  # tests passed.
   scripts:
     if: always()
-    needs: [scripts-shell, hands]
+    needs: [scripts-shell, doctor, hands]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every part passed
         env:
           SHELL_TESTS: ${{ needs.scripts-shell.result }}
+          DOCTOR_TESTS: ${{ needs.doctor.result }}
           HANDS_TESTS: ${{ needs.hands.result }}
         run: |
-          echo "scripts-shell: $SHELL_TESTS, hands: $HANDS_TESTS"
-          [ "$SHELL_TESTS" = success ] && [ "$HANDS_TESTS" = success ]
+          echo "scripts-shell: $SHELL_TESTS, doctor: $DOCTOR_TESTS, hands: $HANDS_TESTS"
+          [ "$SHELL_TESTS" = success ] && [ "$DOCTOR_TESTS" = success ] && [ "$HANDS_TESTS" = success ]
 
   frozen:
     if: >-
