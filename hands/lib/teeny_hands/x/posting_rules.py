@@ -12,6 +12,13 @@ guard and before DRY_RUN; nothing else in the hand posts.
   to it: they are conversations, not slots.
 - At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
   Replies to mentions are not posts and are never counted.
+- A thread (`hands/x thread`, 2 to 5 posts) is one own post: its head is
+  recorded as kind `post` and counts against the gap and the cap once; every
+  later post is recorded as kind `thread` (a continuation, `in_reply_to` the
+  post before it, `thread_of` the head). A continuation is measured like any
+  post of Teeny's, but is no own post and no reply: the gap, the cap, the
+  reply pacing and the one-reply rule never see it, and the link budget counts
+  a thread once however many of its posts carry a link.
 - Every own post names its anchor (`check_anchor`): the one item from its
   inputs it is about, kept in the ledger beside it. A quote is anchored on
   the post it quotes unless it names another. Replies need none.
@@ -38,6 +45,7 @@ Times are seconds since the epoch (`hand.now()`); what a caller reads is ISO
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sqlite3
@@ -56,13 +64,17 @@ DEFAULT_POSTS_MAX_PER_DAY = 4
 DEFAULT_POST_MIN_GAP_HOURS = 5.0
 #: The longest anchor kept: an id, a URL or "pr 212", never a paragraph.
 MAX_ANCHOR_LENGTH = 200
-#: Ledger columns added after x_posts was first created.
-COLUMNS = {"anchor": "TEXT"}
+#: A thread is two to five posts: one is `hands/x post`, more is a wall.
+THREAD_MIN_POSTS = 2
+THREAD_MAX_POSTS = 5
+#: Ledger columns added after x_posts was first created. `thread_of` is the
+#: head's id on a thread continuation.
+COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
     id          TEXT PRIMARY KEY,
-    kind        TEXT NOT NULL CHECK (kind IN ('post', 'reply', 'quote')),
+    kind        TEXT NOT NULL CHECK (kind IN ('post', 'reply', 'quote', 'thread')),
     text        TEXT NOT NULL,
     in_reply_to TEXT,
     quote_of    TEXT,
@@ -107,9 +119,29 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
-    """`format` and `experiment` on x_posts (teeny_hands/tags.py), and the
-    post's `anchor`, added to a ledger created before they existed."""
+    """`format` and `experiment` on x_posts (teeny_hands/tags.py), the
+    post's `anchor` and a continuation's `thread_of`, added to a ledger
+    created before they existed, and the kind `thread` its check allows."""
     hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS})
+    allow_thread_kind(conn)
+
+
+def allow_thread_kind(conn: sqlite3.Connection) -> None:
+    """A ledger made before threads checks `kind` against post, reply and
+    quote, and SQLite cannot alter a check: the table is rebuilt once, rows
+    and columns as they are, with `thread` allowed."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'x_posts'").fetchone()
+    if row is None or "'thread'" in row[0] or "'quote')" not in row[0]:
+        return
+    rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?x_posts\"?", "CREATE TABLE x_posts_new", row[0], count=1)
+    rebuilt = rebuilt.replace("'quote')", "'quote', 'thread')", 1)
+    with contextlib.nullcontext() if conn.in_transaction else hand.transaction(conn):
+        conn.execute("DROP TABLE IF EXISTS x_posts_new")
+        conn.execute(rebuilt)
+        conn.execute("INSERT INTO x_posts_new SELECT * FROM x_posts")
+        conn.execute("DROP TABLE x_posts")
+        conn.execute("ALTER TABLE x_posts_new RENAME TO x_posts")
+        conn.execute("CREATE INDEX IF NOT EXISTS x_posts_kind_created ON x_posts (kind, created_at)")
 
 
 def iso(seconds: float) -> str:
@@ -166,6 +198,22 @@ def check_anchor(anchor: Any, quote_of: str | None) -> str:
     if len(anchor) > MAX_ANCHOR_LENGTH:
         raise hand.HandError(f'"anchor" is at most {MAX_ANCHOR_LENGTH} characters: an id, a URL or a PR number')
     return anchor
+
+
+# --- threads ---------------------------------------------------------------------------------
+
+
+def check_thread_size(count: int) -> None:
+    """A thread is THREAD_MIN_POSTS to THREAD_MAX_POSTS posts; one is a post."""
+    if not THREAD_MIN_POSTS <= count <= THREAD_MAX_POSTS:
+        raise hand.Refused(
+            f"a thread is {THREAD_MIN_POSTS} to {THREAD_MAX_POSTS} posts, not {count}"
+            + ("; one post is hands/x post" if count == 1 else "") + ". Nothing was published.",
+            rule="thread",
+            posts=count,
+            min=THREAD_MIN_POSTS,
+            max=THREAD_MAX_POSTS,
+        )
 
 
 # --- attachments ----------------------------------------------------------------------------
@@ -225,6 +273,10 @@ def has_link(text: str) -> bool:
     return bool(_LINK.search(text))
 
 
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
 def link_budget(conn: sqlite3.Connection) -> dict[str, Any]:
     """Today's link posts (UTC day) against the cap: {cap, sent_today, left,
     resets_at}. What `check_link_budget` refuses on, and what `hands/x links`
@@ -232,11 +284,14 @@ def link_budget(conn: sqlite3.Connection) -> dict[str, Any]:
     cap = int(number_setting("X_LINK_POSTS_MAX_PER_DAY", 1, 0, 50))
     now = hand.now()
     day_start = now - (now % 86400.0)
-    sent = sum(
-        1
-        for row in conn.execute("SELECT text FROM x_posts WHERE created_at >= ?", (day_start,)).fetchall()
+    # A thread is one link post however many of its posts carry a link: its
+    # continuations count under their head.
+    head = "COALESCE(thread_of, id)" if _has_column(conn, "x_posts", "thread_of") else "id"
+    sent = len({
+        row["head"]
+        for row in conn.execute(f"SELECT {head} AS head, text FROM x_posts WHERE created_at >= ?", (day_start,)).fetchall()
         if has_link(row["text"])
-    )
+    })
     return {"cap": cap, "sent_today": sent, "left": max(0, cap - sent), "resets_at": iso(day_start + 86400.0)}
 
 
@@ -341,17 +396,19 @@ def record_post(
     format: str | None = None,
     experiment: int | None = None,
     anchor: str | None = None,
+    thread_of: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
-    an own post is about (`check_anchor`), None on a reply."""
+    an own post is about (`check_anchor`), None on a reply. `thread_of` is the
+    head's id on a thread continuation (kind `thread`), None elsewhere."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
-        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment, anchor),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of),
     )
 
 
