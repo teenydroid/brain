@@ -160,6 +160,7 @@ posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight ho
 | `brief` | 15:05 and 23:05, once a day at most | the told-to post: whatever the team queued with `hands/brief add`; `take` and `show` skip while one is queued |
 | `humans`, `milestone`, `roast` | off | other X posts and replies |
 | `pr-merged` | off (no job) | a post when a PR merges upstream; its slot went to `giveaway-plan` |
+| `giveaway-plan` | off; Tuesdays 14:50 once on | opens the week's Tiny Drop inside the season budget (`hands/giveaway`); `giveaway-judge` and `giveaway-post` run from the pinned `giveaway-settle` job |
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
 | `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
