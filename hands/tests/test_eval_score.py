@@ -349,12 +349,19 @@ class Affected(unittest.TestCase):
         self.tasks = [evals.load_task(REPO / "evals", t) for t in evals.task_ids(REPO / "evals")]
 
     def test_a_playbook_no_task_uses_is_unmeasurable_not_lost(self):
-        # Gen 6: two of four candidates edited these, and lost on all 30 tasks' noise.
-        got = evals.affected_tasks(["brain/playbooks/moltbook-daily.md", "brain/playbooks/pr-merged.md"], self.tasks)
+        # Gen 6: candidates edited playbooks no task drafted from, and lost on the noise of every task.
+        got = evals.affected_tasks(["brain/playbooks/moltbook-curate.md", "brain/playbooks/moltbook-follow.md"], self.tasks)
         self.assertEqual((got["tasks"], got["all"]), ([], False))
         report = evals.unmeasurable("nonregression", got["tasks"], 0.5)
         self.assertEqual((report["verdict"], report["promote"], report["reason"]),
                          ("unmeasurable", False, "no eval task reaches this change"))
+
+    def test_moltbook_daily_and_pr_merged_are_measured(self):
+        got = evals.affected_tasks(["brain/playbooks/moltbook-daily.md"], self.tasks)
+        self.assertEqual((got["tasks"], got["all"]), (
+            ["moltbook-daily-feed-bait", "moltbook-daily-nothing-new", "moltbook-daily-real-numbers"], False))
+        got = evals.affected_tasks(["brain/playbooks/pr-merged.md"], self.tasks)
+        self.assertEqual(got["tasks"], ["pr-merged-typo-fix"])
 
     def test_a_playbook_reaches_the_tasks_that_name_it(self):
         got = evals.affected_tasks(["brain/playbooks/episode.md"], self.tasks)
