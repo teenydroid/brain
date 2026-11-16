@@ -5,9 +5,9 @@
 #   and run the whole live test: seeding, a shell job, bin/crons, bin/oh,
 #   bin/ask, the keyring across a restart.
 # - scripts: shellcheck over bin/ and the reconciliation tests (scripts-shell,
-#   and doctor for bin/test/doctor_test.sh), and the hands' unit tests on Python 3.11 (the image's version) in four
-#   shards (hands); `scripts` itself passes only when all of them did. None
-#   needs a core.
+#   and doctor for bin/test/doctor_test.sh), and the hands' unit tests on
+#   Python 3.11 (the image's version) in four shards (hands); `scripts` itself
+#   passes only when all of them did. None needs a core.
 # - web: the Next.js site.
 # - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
 #   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
@@ -96,6 +96,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - run: python3 -m pip install --quiet "cryptography>=38"
       - run: bin/test/doctor_test.sh
 
   # The hands' unit tests on Python 3.11 (the image's version), about 3,100 of
