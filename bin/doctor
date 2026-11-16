@@ -189,6 +189,9 @@ fi
 if [ ! -s "$brain/agents/judge.toml" ]; then
   note "agent judge.toml" fail "missing: bin/eval judges with it"
 fi
+if [ ! -s "$brain/agents/querier.toml" ]; then
+  note "agent querier.toml" fail "missing: bin/evolve writes its search queries with it"
+fi
 
 # --- the two reviewed lists: http_request's allowed hosts, the browser's denied ones -
 run "browser-allow.txt" python3 -I -c '
