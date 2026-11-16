@@ -56,6 +56,12 @@ class Recording:
         return answer(request) if callable(answer) else answer
 
 
+#: A playbook no eval task reaches, so a build of it settles as a dry run
+#: under EVOLVE_EVALUATOR=none (moltbook-daily.md gained tasks in #294 and is
+#: "unevaluated" now). If a task ever names it, pick another one.
+UNREACHED = "brain/playbooks/pin-bump.md"
+
+
 class LoopCase(EvolveCase):
     def proposal(self, line="Check first.", path="brain/playbooks/moltbook-daily.md", title="check first"):
         return {"title": title, "component": "attention", "expected_move": "+1% in a week",
@@ -109,7 +115,7 @@ class Research(LoopCase):
 
     def test_build_hands_the_plan_and_the_files_it_named_to_the_build(self):
         self.one_learning()
-        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        proposer = Recording(research=[BUILD], proposals=[self.proposal(path=UNREACHED)])
         out = self.run_with(proposer)
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         (request,) = proposer.requests
@@ -175,7 +181,7 @@ class Research(LoopCase):
                     evolve.check_research(bad, tree)
                 self.assertIn(why, str(raised.exception))
         self.one_learning()
-        proposer = Recording(research=[{**BUILD, "read": ["secrets/teeny.env"]}], proposals=[self.proposal()])
+        proposer = Recording(research=[{**BUILD, "read": ["secrets/teeny.env"]}], proposals=[self.proposal(path=UNREACHED)])
         out = self.run_with(proposer)
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertNotIn("research", proposer.requests[0])
