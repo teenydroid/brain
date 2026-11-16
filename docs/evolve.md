@@ -757,11 +757,18 @@ The answer is `{verdict, why, plan, read, document}`:
 | `not-worth` | settled as `skipped` (`not-worth`) |
 
 The answer is held to its shape (`check_research`): a known verdict, a why, a
-plan for a build, and at most 8 paths each to read and to document, each a
-repository path inside the worktree, never under `secrets/`, `state/` or
-`.git`, never an `.env`, key or certificate file; a path to read must be a
-tracked file. What the files to read hold past 24,000 bytes is dropped and
-named (`read_cut`). A doc to update must be one the builder may change (under
+plan for a build, and paths to read and to document, each a repository path
+inside the worktree, never under `secrets/`, `state/` or `.git`, never an
+`.env`, key or certificate file: a path that breaks one of those is an error.
+A path to read that is not a tracked file (`brain/MEMORY.md`, the live page,
+is not in the repository), a directory, or a path past the first 8 of its
+list is dropped instead, named in `dropped` (`{path, from, why}`), and the
+rest of the research stands: the log, the archive entry and the pull request
+say what was dropped. Until 2026-11-16 one such path threw the whole research
+away (generation 12: three of four candidates built with no plan after their
+paid searches). The research turn is told to name tracked files only, not
+directories, and not `brain/MEMORY.md`. What the files to read hold past
+24,000 bytes is dropped and named (`read_cut`). A doc to update must be one the builder may change (under
 `brain/`, `hands/` or `docs/`, and not frozen, so never
 `docs/governance.md`); any other is dropped and named (`document_cut`). An answer out of shape, or a turn that fails, is kept as
 research with an `error`, and the build goes ahead without a plan, as it did
@@ -871,7 +878,14 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 
 Edits that do not apply (an old text not found once) end the round with that
 as a finding, and the next round's message carries "## your last edits did
-not apply" as before. A change approved by the reviewer is `pending` and goes
+not apply" as before. A proposal that parses but lacks a field (no
+hypothesis, title or expected move, or no known component) ends the round the
+same way, outcome `out-of-shape`, with a finding that names the missing
+field; until 2026-11-16 it ended the candidate on the first answer
+(generation 12, candidate 4). A candidate whose every round was out of shape
+is `no-proposal`, one failed try like a park. An answer that is not JSON at
+all (after the one re-ask) or a skip without a why still ends the candidate as
+`no-proposal` in round 1 and parks it in a later round. A change approved by the reviewer is `pending` and goes
 to the eval. One still failing after the last round is **parked**: no pull
 request, its last findings on the archive entry (`findings`), its rounds as
 lines (`rounds`), and its learning open again. The next try on that learning
