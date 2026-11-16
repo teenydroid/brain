@@ -23,7 +23,11 @@ linked module.
                  for the operator's {{keychain:<site>}} placeholder. It
                  opens any public https page (bin/spine sets
                  OPENHUMAN_BROWSER_ALLOW_ALL=1); what it
-                 never opens is deploy/browser-deny.txt (hands/tasks)
+                 never opens is deploy/browser-deny.txt (hands/tasks).
+                 With BROWSER_PROXY_URL in secrets/spine.env, the hosts on
+                 deploy/browser-proxy-domains.txt go through that
+                 residential proxy (`upstream_proxies`), still authorized
+                 like every other page; without it nothing is routed
   [http_request] allowed_domains: deploy/browser-allow.txt, for the raw
                  http_request tool
   [modules]      tinywallet from the spine's own executable (spine/Cargo.toml),
@@ -122,6 +126,64 @@ def _list(values) -> str:
     return "[" + ", ".join(_s(v) for v in values) + "]"
 
 
+#: The operator's list of hosts the browser reaches through the proxy.
+PROXY_DOMAINS = Path("deploy") / "browser-proxy-domains.txt"
+
+
+def _secrets(root: Path) -> Path:
+    """Where bin/spine reads secrets/spine.env from (bin/lib/teeny.sh
+    exports TEENY_SECRETS; a lab spine has its own)."""
+    return Path(os.environ.get("TEENY_SECRETS") or root / "secrets")
+
+
+def spine_secret(root: Path, name: str) -> str:
+    """One value from secrets/spine.env, read the way bin/spine's
+    `spine_env` reads it, without putting it in any environment. Missing
+    file or name is empty."""
+    try:
+        text = (_secrets(root) / "spine.env").read_text()
+    except (FileNotFoundError, PermissionError):
+        return ""
+    value = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, rest = line.partition("=")
+        if not sep or line.startswith("#") or key.strip() != name:
+            continue
+        rest = rest.strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+            rest = rest[1:-1]
+        value = rest
+    return value
+
+
+def proxy_domains(root: Path) -> list[str]:
+    """deploy/browser-proxy-domains.txt: one host per line, `#` comments."""
+    path = root / PROXY_DOMAINS
+    if not path.is_file():
+        return []
+    hosts = []
+    for raw in path.read_text().splitlines():
+        host = raw.split("#", 1)[0].strip().lower().strip(".")
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def upstream_proxies(root: Path) -> str:
+    """The `[browser] upstream_proxies` line, or empty when there is no
+    BROWSER_PROXY_URL or no domain to route. The URL carries the proxy's
+    credentials: it goes only into config.toml (mode 600, like the model
+    key) and is never printed."""
+    url = spine_secret(root, "BROWSER_PROXY_URL")
+    domains = proxy_domains(root)
+    if not url or not domains:
+        return ""
+    return f"upstream_proxies = [{{ domains = {_list(domains)}, url = {_s(url)} }}]\n"
+
+
 def chrome_path() -> str | None:
     """TEENY_CHROME_PATH, else the first browser found on this machine."""
     given = os.environ.get("TEENY_CHROME_PATH", "").strip()
@@ -185,6 +247,11 @@ def tables(root: Path) -> dict[str, str]:
     chrome = chrome_path()
     if chrome:
         browser += f"chrome_path = {_s(chrome)}\n"
+    # Sites that refuse the box's datacenter address, through the operator's
+    # residential proxy (deploy/browser-proxy-domains.txt). OpenHuman passes
+    # it to TinyComputer's egress proxy, which still authorizes each such
+    # page, and the proxy's own address, through TinySecurity.
+    browser += upstream_proxies(root)
 
     overrides = ", ".join(f'{{ id = {_s(m)}, source = "linked" }}' for m in LINKED_MODULES)
 
