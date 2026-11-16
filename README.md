@@ -176,9 +176,9 @@ posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hour
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
 | `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
-| `reddit-browse` | every 2 hours, when a read is due | queues a Reddit read for the browser operator (an allowlisted subreddit in turn, then the inbox); the mind comments and votes from what comes back (`hands/reddit`) |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | no job | wallet and bounty posts |
 | `growth` | Sundays 15:00, in `take`'s slot | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
+| `reddit-browse` | every 2 hours, when a read is due | queues a Reddit read for the browser operator (an allowlisted subreddit in turn, then the inbox); the mind comments and votes from what comes back (`hands/reddit`) |
 
 `bounty-open`, `bounty-paid` and `cost-of-living-moltbook` are not scheduled.
 `mentions` and `mail` are the prompts the core's per-surface agents use when

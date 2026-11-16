@@ -204,6 +204,85 @@ def _author_of(reads: Any, post_id: str) -> str | None:
     return post.get("authorId") if post else None
 
 
+def _thread_draft(body: Any) -> tuple[list[str], list[str], str | None]:
+    """The stdin body of a thread: its texts, and the head's media ids and
+    Giphy id. Anything else in it is refused, `quote_of` by name: a quote is
+    not a thread."""
+    if not isinstance(body, Mapping):
+        raise hand.HandError('stdin must be a JSON object with "posts"')
+    if body.get("quote_of") is not None:
+        raise hand.Refused("a quote is not a thread: post it with hands/x post. Nothing was published.", rule="thread")
+    unknown = sorted(set(body) - {"posts", "anchor", "media_ids", "gif_id"})
+    if unknown:
+        raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
+    posts = body.get("posts")
+    if not isinstance(posts, list) or not all(isinstance(t, str) and t.strip() for t in posts):
+        raise hand.HandError('"posts" must be a list of non-empty strings')
+    _, media_ids, gif_id, _ = _draft({"text": "-", **{k: body[k] for k in ("media_ids", "gif_id") if k in body}}, quote=False)
+    return list(posts), media_ids, gif_id
+
+
+def thread(body: Any, x: XApi | None = None) -> Json:
+    """A thread: the first text an own post, each later one a reply to the one
+    before, so readers see one thread. Every text goes through the anchor
+    check, the guard and the 280 cap before anything is sent; one held or too
+    long refuses the whole thread. It is one own post for the gap and the day's
+    cap (checked once, for the head) and for the link budget, and its
+    continuations are not replies, so they skip the reply pacing, the
+    one-reply rule and `check_not_own`. If X fails part way, what went out
+    stays, is recorded, and is reported (`sent`, `ids`) in the error; nothing
+    is retried or deleted."""
+    body, tagged = tags.split(body)
+    texts, media_ids, gif_id = _thread_draft(body)
+    rules.check_thread_size(len(texts))
+    anchor = rules.check_anchor(body.get("anchor"), None)
+    texts = [_guarded(t, "post", context={"anchor": anchor, "thread_index": i}) for i, t in enumerate(texts)]
+    for text in texts:
+        rules.check_length(text)
+    live = not hand.dry_run()
+    conn = _db()
+    rules.check_attachments(conn, media_ids, gif_id, live=live)
+    with hand.lock("posting"):
+        rules.check_gap(conn)
+        rules.check_daily_cap(conn)
+        rules.check_repeat(conn, "\n".join(texts))
+        rules.check_repeat(conn, texts[0])
+        rules.check_link_budget(conn, "\n".join(texts))
+        if not live:
+            return {"ok": True, "dry_run": True, "would_post": texts, "kind": "thread", "posts": len(texts)}
+        # The ledger's one-time migration happens before anything is sent.
+        rules.add_tag_columns(conn)
+        x = x or twitr.client()
+        if gif_id:
+            media_ids = [media.attach_gif(x, gif_id)]
+        ids: list[str] = []
+        for index, text in enumerate(texts):
+            try:
+                post_id = x.create_post(text, reply_to=ids[-1] if ids else None, media_ids=media_ids if not ids else ())
+            except XError as error:
+                stopped = XError(
+                    f"thread stopped: post {index + 1} of {len(texts)} was not sent ({error}); "
+                    f"{len(ids)} went out and stay up, nothing is retried or deleted",
+                    error.status,
+                )
+                stopped.detail.update(
+                    sent=len(ids), of=len(texts), ids=ids, failed_at=index + 1, in_doubt=_in_doubt(error),
+                    **({"head_id": ids[0]} if ids else {}),
+                )
+                raise stopped from error
+            # The post is out. A ledger that cannot record it is logged, not
+            # raised: an error here would invite a retry that posts it twice.
+            try:
+                if ids:
+                    rules.record_post(conn, post_id, "thread", text, in_reply_to=ids[-1], thread_of=ids[0])
+                else:
+                    rules.record_post(conn, post_id, "post", text, media=media_ids, anchor=anchor, **tagged)
+            except Exception as exc:  # noqa: BLE001
+                print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
+            ids.append(post_id)
+    return {"id": ids[0], "kind": "thread", "sent": len(ids), "ids": ids, "posts": texts}
+
+
 def _in_doubt(error: XError) -> bool:
     """Whether a failed post may still have gone out. A 4xx is X saying no;
     a 5xx, no answer, or a 2xx without an id leaves it unknown."""
