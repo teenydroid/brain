@@ -27,4 +27,6 @@ Then the day in a few short lines: what you shipped or merged (from the GitHub i
 
 The log is anchored on the one thing you shipped or merged: put its PR number or commit, as the GitHub input gives it, in "anchor". If the GitHub input is empty or only chores, skip and say why: the posts on X are ceilings, not quotas, and an empty day gets no post.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 One post, under 260 characters, lowercase, plain, in the voice SOUL.md describes. No hashtags. Answer {"action": "post", "anchor": "<the PR number or commit>", "text": "..."} or {"action": "skip", "reason": "..."}.

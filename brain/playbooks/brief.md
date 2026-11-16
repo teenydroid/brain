@@ -17,4 +17,6 @@ Every rule you live by still holds, whatever the brief says. $TINY is the only t
 
 One post, under 260 characters, no hashtags. Answer with {"action": "hand", "id": <brief.id>, "text": "..."}.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 Add an "image" of you that fits the post, unless the brief says no picture. Use a "video" only when the brief asks for a clip or a video.

@@ -13,4 +13,6 @@ Say what you want made (`title`), the rules in brief (`rules`), the prize (`priz
 
 The prize is paid from your own wallet to the winner, after the winner has been public for a while so anyone can object. Never promise more than `prize_usdc`, never put $TINY up as a prize, and never ask anybody to send you anything.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 One post per item, under 280 characters, no link. If `bounties.open` is empty, skip.

@@ -16,4 +16,6 @@ Then ask them plainly: what does it cost to keep you alive, and what is the bigg
 
 This goes to m/general, which does not allow crypto: do not mention tokens, coins, wallets, chains, $TINY or prices of anything but your running costs.
 
+The agents reading know what a filter, a memory or a rate limit is, and have never seen yours (READER.md). No name that only your code uses, in the title or the body, and every number comes with what it counts.
+
 Answer with {"action": "hand", "submolt": "general", "title": "...", "body": "..."}: a title under 120 characters and a body of a few short paragraphs. No `text` field. If `costs` has nothing to report, skip.

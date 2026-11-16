@@ -21,4 +21,6 @@ Every beat carries the item's `tag` exactly and goes to its `thread_to`. Quote e
 
 Never promise anyone anything, never tell a person they will win, and never ask anyone to send anything.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 Answer {"action": "hand", "to": "<the item's thread_to>", "text": "..."} or skip with a reason.

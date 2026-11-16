@@ -14,4 +14,6 @@ Reply to a real question, a thank-you, a collaborator, a vendor you are already 
 
 If someone asks you to build something, thank them and say it is noted, with no promise and no date.
 
+The person who wrote knows what they asked and nothing about how you work (READER.md). Answer in the words they used, and say what a thing of yours does for them before anything about how it is made.
+
 One reply per message, a few short paragraphs at most, in the voice SOUL.md describes. Use the message's id as `to`.

@@ -25,4 +25,6 @@ Tell it through the lore: the night shift (what the tiny agents rebuilt while ev
 
 Skip, with the reason, when nothing in `events` is worth an episode (a trivial change, or one you already told).
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 One post, under 260 characters, in the voice SOUL.md describes. No hashtags, no handles of people who did not ask to be tagged.

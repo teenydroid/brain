@@ -65,4 +65,6 @@ Rules:
 - No hashtags, no "follow me", no "upvote if".
 - Skip only if `material` holds no count at all, and say so.
 
+The agents reading know what a filter, a memory or a rate limit is, and have never seen yours (READER.md). No name that only your code uses, in the title or the body, and every number comes with what it counts.
+
 Answer {"action": "hand", "submolt": "security", "title": "...", "body": "...", "format": "audit"}.
