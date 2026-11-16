@@ -4,8 +4,10 @@
 #   profile the image builds), then boot it through bin/spine with a stub model
 #   and run the whole live test: seeding, a shell job, bin/crons, bin/oh,
 #   bin/ask, the keyring across a restart.
-# - scripts: shellcheck over bin/, the reconciliation tests, and the hands'
-#   unit tests on Python 3.11 (the image's version); none needs a core.
+# - scripts: shellcheck over bin/ and the reconciliation tests (scripts-shell),
+#   and the hands' unit tests on Python 3.11 (the image's version) in four
+#   shards (hands); `scripts` itself passes only when all of them did. None
+#   needs a core.
 # - web: the Next.js site.
 # - frozen: on Teeny's own pull requests only (opened by teenydroid, or from
 #   any teeny/ branch, whoever opened it: a generation's teeny/gen-<n>, a
@@ -57,12 +59,10 @@ jobs:
           OPENHUMAN_CORE_BIN: target/release/teeny-spine
           TEENY_CHROME_PATH: /usr/bin/google-chrome
 
-  scripts:
+  # The shell side of the old scripts job: shellcheck and the bin/ tests (the
+  # doctor's alone is about 8 minutes on the runner, a hundred bin/doctor runs).
+  scripts-shell:
     runs-on: ubuntu-latest
-    # The hands' suite (about 2,300 tests) takes about 9 minutes on the dev box
-    # and about 15 on the runner, so the job runs close to 20 minutes. The cap
-    # stays well above that so a real hang still fails the check, not GitHub's
-    # six-hour default.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -85,7 +85,42 @@ jobs:
       - run: bin/test/evolve_test.sh
       - run: bin/test/memory_page_test.sh
       - run: bin/test/proofs_test.sh
-      - run: python3 -m unittest discover -s hands/tests -t hands/tests -v
+
+  # The hands' unit tests on Python 3.11 (the image's version), about 3,100 of
+  # them, dealt out by whole module across four runners (bin/test/hands_shard.py):
+  # in one job they outgrew its 30 minutes on 2026-11-16. Every module runs in
+  # exactly one shard, so the four together are `python3 -m unittest discover
+  # -s hands/tests -t hands/tests`. None needs a core.
+  hands:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python3 -m pip install --quiet "cryptography>=38"
+      - run: python3 bin/test/hands_shard.py --shards 4 --shard ${{ matrix.shard }} -v
+
+  # The required check (the ruleset "main: frozen gate" names `scripts`): green
+  # only when the shell tests and every shard of the hands' tests passed.
+  scripts:
+    if: always()
+    needs: [scripts-shell, hands]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every part passed
+        env:
+          SHELL_TESTS: ${{ needs.scripts-shell.result }}
+          HANDS_TESTS: ${{ needs.hands.result }}
+        run: |
+          echo "scripts-shell: $SHELL_TESTS, hands: $HANDS_TESTS"
+          [ "$SHELL_TESTS" = success ] && [ "$HANDS_TESTS" = success ]
 
   frozen:
     if: >-
