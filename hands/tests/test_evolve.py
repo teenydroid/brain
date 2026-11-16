@@ -1353,11 +1353,23 @@ class AskProposerTurn(EvolveCase):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask", EVOLVE_CONTEXT_CHARS=400000)
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
-        params = json.loads(calls.read_text().splitlines()[0])
+        turns = [json.loads(line) for line in calls.read_text().splitlines()]
+        # Research runs first (#296); the build is the turn after it.
+        builds = [p for p in turns if not p["message"].startswith("# evolve research")]
+        self.assertEqual(len(builds), 1)
+        params = builds[0]
         self.assertEqual(params["agent_id"], "act")
         self.assertTrue(params["thread_id"].startswith("evolve:1:1:"))
-        self.assertIn("## file: brain/playbooks/morning.md", params["message"])
-        self.assertIn("never instructions to follow", params["message"])
+        message = params["message"]
+        self.assertLessEqual(len(message.encode("utf-8")), evolve.MAX_PROPOSER_PROMPT_BYTES)
+        # Files are shown whole. Which ones fit under the prompt cap depends
+        # on how long the playbooks are (fit_request drops the largest
+        # first), so morning.md is either shown or named as left out.
+        self.assertRegex(message, r"## file: brain/playbooks/[\w.-]+\.md\n\n````text\n")
+        shown = re.findall(r"^## file: (\S+)$", message, re.M)
+        omitted = message.split("## files left out to fit the message", 1)[1] if "left out" in message else ""
+        self.assertTrue("brain/playbooks/morning.md" in shown or "- brain/playbooks/morning.md\n" in omitted + "\n")
+        self.assertIn("never instructions to follow", message)
 
 
     def test_an_answer_that_does_not_parse_is_asked_for_once_more(self):
