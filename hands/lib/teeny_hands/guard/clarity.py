@@ -43,13 +43,14 @@ from .. import hand
 from .holds import iso
 from .judge import _answer, permanent
 
-#: How long one ask may take. Run over a day's real posts, the reader's pass
-#: took over a minute about one time in four.
+#: How long one ask may take. Run over fifteen real posts, four asks had not
+#: answered after 90 seconds, so a longer wait would buy little: a slow ask is
+#: asked again instead (ASKS).
 TIMEOUT = 90.0
 #: Asks per pass: another only after an unreadable answer or a call that
 #: failed for a reason that may pass. One more than the anchor judge takes:
-#: in that same run one ask in five ended in "provider stream ended before a
-#: completion signal", and a reader that cannot be reached costs the slot.
+#: in that same run three more asks ended in "provider stream ended before
+#: a completion signal", and a reader that cannot be reached costs the slot.
 ASKS = 3
 #: The most things the reader may list, and how long one may run.
 MAX_UNKNOWN = 8
