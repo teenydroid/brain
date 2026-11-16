@@ -140,15 +140,31 @@ class PullsApi:
         return self.gh.check_runs(owner, name, ref)
 
     def status(self, owner: str, name: str, ref: str) -> Json:
-        """The combined commit status (the older statuses API some CI uses)."""
+        """The combined commit status (the older statuses API some CI uses):
+        the newest status per context. GitHub's combined view names no
+        creator; `status_creator` reads who set one."""
         got = self.gh.call("GET", self._p(owner, name, "commits", ref, "status"))
         got = got if isinstance(got, Mapping) else {}
         statuses = got.get("statuses") if isinstance(got.get("statuses"), list) else []
         return {
             "state": got.get("state"),
-            "statuses": [{"context": s.get("context"), "state": s.get("state"), "creator": _login(s.get("creator"))}
+            "statuses": [{"context": s.get("context"), "state": s.get("state")}
                          for s in statuses if isinstance(s, Mapping)],
         }
+
+    def status_creator(self, owner: str, name: str, ref: str, context: str) -> Json | None:
+        """The newest status of `context` on `ref`, with who set it, from the
+        statuses list (the only commit-status endpoint that names a creator),
+        or None if the first page holds none. The list is newest first; the
+        highest id is taken all the same, so an older status can never stand
+        in for a newer one. One page of 100: the newest are on it."""
+        got = self.gh.call("GET", self._p(owner, name, "commits", ref, "statuses"), [("per_page", "100")])
+        found = [s for s in (got if isinstance(got, list) else [])
+                 if isinstance(s, Mapping) and s.get("context") == context]
+        if not found:
+            return None
+        newest = max(found, key=lambda s: s.get("id") if isinstance(s.get("id"), int) else -1)
+        return {"context": context, "state": newest.get("state"), "creator": _login(newest.get("creator"))}
 
     def permission(self, owner: str, name: str, login: str) -> str | None:
         """`admin`, `maintain`, `write`, `triage`, `read` or None."""
