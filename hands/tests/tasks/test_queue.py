@@ -788,3 +788,85 @@ class KeychainLoginTest(Scratch):
         for host, site in (("www.example.com", "example.com"), ("accounts.example.com", "example.com"),
                            ("shop.example.co.uk", "example.co.uk"), ("example.com", "example.com")):
             self.assertEqual(store.site_of(host), site)
+
+
+class RedditDeskTest(Scratch):
+    """The desk's side of hands/reddit: its tasks start only on reddit.com,
+    carry the words to type, settle back into its ledger, and bring what
+    they read back to the mind."""
+
+    def reddit(self, kind="reddit_browse", url="https://old.reddit.com/r/AI_Agents/hot/", **more):
+        return queue.add({"kind": kind, "goal": "read it", "start_url": url, "done_when": "read", **more},
+                         source="reddit")
+
+    def test_a_reddit_task_starts_only_on_reddit_and_needs_no_reputed_link(self):
+        self.assertEqual(self.reddit()["status"], "pending")
+        with self.assertRaises(hand.Refused) as caught:
+            self.reddit(url="https://example.com/r/AI_Agents/")
+        self.assertEqual(caught.exception.detail["rule"], "hand_site")
+        with self.assertRaises(hand.Refused) as caught:
+            self.reddit(url="https://notreddit.com/")
+        self.assertEqual(caught.exception.detail["rule"], "hand_site")
+
+    def test_the_words_to_type_ride_on_the_offer(self):
+        self.reddit(kind="reddit_comment", text="Exactly these words.")
+        offer = queue.next_task()["task"]
+        self.assertEqual((offer["kind"], offer["text"]), ("reddit_comment", "Exactly these words."))
+        self.assertIn("old.reddit.com", queue.RULES)
+        self.assertIn("type it exactly", queue.RULES)
+        with self.assertRaises(hand.HandError):
+            self.reddit(kind="reddit_comment", text="x" * (queue.TYPED_CHARS + 1))
+
+    def test_settling_a_reddit_task_calls_its_ledger_once(self):
+        calls = []
+        real = queue._reddit_settle
+        queue._reddit_settle = lambda *args: calls.append(args) or {"rows": 1}
+        self.addCleanup(setattr, queue, "_reddit_settle", real)
+        tid = self.reddit(kind="reddit_comment", text="hi")["task_id"]
+        queue.next_task()
+        out = queue.done({"task_id": tid, "outcome": "ok", "notes": "posted",
+                          "reddit": {"permalink": "https://old.reddit.com/r/AI_Agents/comments/a1/_/b2/"}})
+        self.assertEqual(out["reddit"], {"rows": 1})
+        self.assertEqual(calls, [(tid, "ok", "posted", {"permalink": "https://old.reddit.com/r/AI_Agents/comments/a1/_/b2/"})])
+        # Another kind never reaches it.
+        tid = self.add()["task_id"]
+        queue.next_task()
+        queue.done({"task_id": tid, "outcome": "ok", "notes": "n"})
+        self.assertEqual(len(calls), 1)
+
+    def test_a_reddit_browse_finding_becomes_a_world_stimulus(self):
+        from teeny_hands import stimuli
+
+        tid = self.reddit()["task_id"]
+        queue.next_task()
+        out = queue.done({"task_id": tid, "outcome": "ok", "notes": "1. How do you retry tool calls? (42 points)"})
+        self.assertEqual(out["stimulus"], f"world:reddit_browse:task:{tid}")
+        [told] = stimuli.take(max_items=10, max_chars=10_000)["stimuli"]
+        self.assertEqual((told["surface"], told["kind"]), ("world", "reddit_browse"))
+        self.assertIn("The operator read Reddit for you", told["text"])
+
+    def test_a_code_waited_on_from_reddit_also_reads_redditmail(self):
+        asked = []
+        real = queue._mail_codes
+        queue._mail_codes = lambda minutes, domain: asked.append(domain) or {
+            "found": [{"from": "noreply@redditmail.com", "codes": ["654321"]}] if domain == "redditmail.com" else []}
+        self.addCleanup(setattr, queue, "_mail_codes", real)
+        tid = self.add(kind="signup", start_url="https://www.reddit.com/register")["task_id"]
+        queue.next_task()
+        queue.done({"task_id": tid, "outcome": "needs_code", "notes": "a code", "code_from": "reddit.com"})
+        offer = queue.next_task()["task"]
+        self.assertEqual(asked, ["reddit.com", "redditmail.com"])
+        self.assertEqual(offer["mail_codes"][0]["codes"], ["654321"])
+        self.assertEqual(offer["code_sites"], {"redditmail.com": "reddit.com"})
+        self.assertIn("redditmail.com is reddit.com", queue.RULES)
+        self.assertEqual(queue.code_domains("redditmail.com"), ["redditmail.com"])
+        self.assertEqual(queue.code_domains("example.com"), ["example.com"])
+
+    def test_an_existing_table_gains_the_text_column(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE browser_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, goal TEXT NOT NULL,"
+                     " start_url TEXT NOT NULL, done_when TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', source TEXT,"
+                     " attempts INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, claimed_at REAL, finished_at REAL,"
+                     " notes TEXT, screenshots TEXT)")
+        conn.close()
+        self.assertIn("text", {r[1] for r in queue.db().execute("PRAGMA table_info(browser_tasks)")})
