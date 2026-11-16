@@ -500,10 +500,22 @@ The judge inherits the core's model. Two ways give it another:
 - For good: `model = "<name>"` in `brain/agents/judge.toml`, which only a
   human can edit.
 
-`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`. Whether
-the core sends the override's model to the endpoint under that pinned route
-has not been checked against a real core: run one judge turn with `--model`
-and read the endpoint's log before relying on it.
+`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`, and
+under that pin the core used to ignore the override. Checked on a lab core
+(2026-11-15): judge turns sent with `model_override` set to
+`qwen3-next-80b-a3b-instruct`, `claude-haiku-4.5` and `gemini-3.1-flash-lite`
+all logged `model="glm-5.3-flash"` in their `turn prompt summary` line. The
+pinned role route outranked `default_model`, which was the only thing the
+override changed. tinyhumansai/openhuman#8734 fixes this. For that one turn
+the override re-pins the chat, reasoning, agentic and coding roles to
+`local-openai:<M>` on the same endpoint and key. Memory and vision keep
+`SPINE_MODEL`, and a turn without `--model` is unchanged. The gitlink
+carries that fix. The same PR applies
+`inference_reasoning_effort` when there is no `inference_url`. Before, the
+core dropped it, so `low` and `none` made no difference to judge time.
+`bin/spine` registers a context window only for `SPINE_MODEL`. Give the
+judge's model a `model_registry` entry as well, or its turns get the tiny
+default budget the spine comment describes.
 
 ## The loop (built): `bin/evolve`
 
@@ -1092,6 +1104,9 @@ gen-0).
 - **The autonomy ladder** still names `EVOLVE_AUTO_PROMOTE` for `merge`,
   and counts drops from `promoted_at`, which nothing writes any more; the
   ladder's merge capability now lives with the babysitter.
+- **The judge model's context window.** `bin/spine` registers a
+  `model_registry` entry only for `SPINE_MODEL`, so the judge's model may get
+  the tiny default budget (see "Evals").
 - **A token budget and a wall-clock cap per generation** in
   `secrets/evolve.env`.
 
