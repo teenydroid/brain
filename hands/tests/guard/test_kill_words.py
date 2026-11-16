@@ -128,7 +128,10 @@ class KillWordsWithoutJudgeTest(support.Scratch):
             self.assertTrue(found.judged, text)
             self.assertFalse(gate.screen(text, OUTBOUND), text)
 
-    def test_only_the_four_bare_words_are_judged(self):
-        self.assertEqual(set(JUDGED_TERMS), {"kill", "kills", "killed", "killing"})
-        (violence,) = [entry for entry in LEXICON if entry.category == "violence"]
-        self.assertLessEqual(set(JUDGED_TERMS), set(violence.terms))
+    def test_only_the_bare_kill_and_bullet_words_are_judged(self):
+        kill = {"kill", "kills", "killed", "killing"}
+        bullet = {"bullet", "bullets"}
+        self.assertEqual(set(JUDGED_TERMS), kill | bullet)
+        terms = {entry.category: set(entry.terms) for entry in LEXICON}
+        self.assertLessEqual(kill, terms["violence"])
+        self.assertLessEqual(bullet, terms["weapons"])
