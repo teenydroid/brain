@@ -298,6 +298,7 @@ bin/test/evolve_test.sh                                      # bin/evolve end to
 bin/test/inbound_consume_test.sh                             # drafts to replies, batch-only, pacing; the core and hands faked
 bin/test/dockerfile_test.sh                                  # the image copies every module script it imports
 bin/test/proofs_test.sh                                      # bin/proofs over fixture ledgers; read-only, no core
+python3 bin/test/hands_shard.py --shards 4 --shard 1 -v      # one quarter of the hands' tests, by whole test class, as CI's `hands` job runs them
 OPENHUMAN_CORE_BIN=target/release/teeny-spine bin/test/spine_live_test.sh
 ```
 

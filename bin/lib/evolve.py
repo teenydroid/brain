@@ -991,6 +991,11 @@ class Skipped(Exception):
         self.why, self.where, self.note = why, where, note
 
 
+class ProposalShape(EvolveError):
+    """A proposal that parsed but lacks a field it needs: a finding for the
+    next round, not the end of the candidate (gen 12's "needs a hypothesis")."""
+
+
 def check_proposal(proposal: Any) -> Json:
     if not isinstance(proposal, Mapping):
         raise EvolveError("the proposal is not a JSON object")
@@ -1002,10 +1007,10 @@ def check_proposal(proposal: Any) -> Json:
         raise Skipped(why, str(proposal.get("where") or "").strip()[:300], note.strip()[:500])
     component = proposal.get("component")
     if component not in COMPONENTS:
-        raise EvolveError(f"the proposal names no W component ({', '.join(COMPONENTS)})")
+        raise ProposalShape(f"the proposal names no W component ({', '.join(COMPONENTS)})")
     for key in ("title", "expected_move", "hypothesis"):
         if not isinstance(proposal.get(key), str) or not proposal[key].strip():
-            raise EvolveError(f"the proposal needs a {key}")
+            raise ProposalShape(f"the proposal needs a {key}")
     return dict(proposal)
 
 
@@ -1624,13 +1629,16 @@ def research_web(cfg: Config, learning: Mapping[str, Any], budget: SearchBudget)
     return out
 
 
-def _research_paths(value: Any, name: str, tracked: set[str] | None) -> list[str]:
+def _research_paths(value: Any, name: str, tree: Path, tracked: set[str] | None,
+                    dropped: list[Json]) -> list[str]:
+    """The paths research named to NAME, held to the repository: one outside
+    it, or one research may not read, is an error. One that is not a tracked
+    file (brain/MEMORY.md, a directory), or past MAX_RESEARCH_PATHS, is
+    dropped and named in DROPPED; the rest of the research stands (gen 12)."""
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise EvolveError(f"the research's {name} is a list of paths")
-    if len(value) > MAX_RESEARCH_PATHS:
-        raise EvolveError(f"the research names {len(value)} paths to {name}; the most is {MAX_RESEARCH_PATHS}")
     out: list[str] = []
     for rel in value:
         raw = rel.strip()
@@ -1639,18 +1647,24 @@ def _research_paths(value: Any, name: str, tracked: set[str] | None) -> list[str
             raise EvolveError(f"the research's {name} path {rel[:100]!r} is not a repository path")
         if norm.split("/")[0] in ("secrets", "state", ".git") or _SECRET_NAME.search(norm):
             raise EvolveError(f"the research may not {name} {norm[:100]!r}")
-        if tracked is not None and norm not in tracked:
-            raise EvolveError(f"the research's {name} path {norm[:100]!r} is not a tracked file")
-        if norm not in out:
-            out.append(norm)
+        if norm in out:
+            continue
+        why = ("a directory, not a file" if (tree / norm).is_dir() else
+               "not a tracked file" if tracked is not None and norm not in tracked else
+               f"past the most ({MAX_RESEARCH_PATHS})" if len(out) >= MAX_RESEARCH_PATHS else None)
+        if why:
+            dropped.append({"path": norm[:200], "from": name, "why": why})
+            continue
+        out.append(norm)
     return out
 
 
 def check_research(answer: Any, tree: Path) -> Json:
     """A research answer, held to its shape: a verdict, a why, a plan for a
-    build, and paths that are the repository's own (tracked, inside the
-    worktree, never a secret). What the files to read hold past
-    MAX_RESEARCH_READ_BYTES is dropped, and named."""
+    build, and paths that are the repository's own (inside the worktree,
+    never a secret). A path to read that is not a tracked file, a directory,
+    or one past MAX_RESEARCH_PATHS is dropped and named in `dropped`, and
+    what the files to read hold past MAX_RESEARCH_READ_BYTES in `read_cut`."""
     if not isinstance(answer, Mapping):
         raise EvolveError("the research is not a JSON object")
     verdict = str(answer.get("verdict") or "").strip().lower()
@@ -1664,8 +1678,10 @@ def check_research(answer: Any, tree: Path) -> Json:
     if verdict == "build" and not plan.strip():
         raise EvolveError("a build needs a plan")
     tracked = {p for p in git(in_tree(tree), "ls-files").splitlines() if p}
-    read = _research_paths(answer.get("read"), "read", tracked)
-    named = _research_paths(answer.get("document"), "document", None)
+    dropped: list[Json] = []
+    read = _research_paths(answer.get("read"), "read", tree, tracked, dropped)
+    # A doc to update may be a new one: only a directory is dropped.
+    named = _research_paths(answer.get("document"), "document", tree, None, dropped)
     # Only docs the builder may change: never a frozen one (docs/governance.md).
     patterns = frozen_patterns()
     document = [p for p in named if p.startswith(EDITABLE_ROOTS + ("docs/",)) and frozen.frozen_pattern(p, patterns) is None]
@@ -1688,6 +1704,8 @@ def check_research(answer: Any, tree: Path) -> Json:
         out["read_cut"] = cut
     if document_cut:
         out["document_cut"] = document_cut
+    if dropped:
+        out["dropped"] = dropped
     return out
 
 
@@ -1717,6 +1735,9 @@ def research_one(cfg: Config, proposer: Proposer, tree: Path, gdir: Path, i: int
         restore_tree(tree, before)
     if got is None:
         return None
+    if got.get("dropped"):
+        say(f"candidate {i}: research named {len(got['dropped'])} path(s) it cannot be shown, dropped: "
+            + ", ".join(f"{d['path']} ({d['why']})" for d in got["dropped"])[:300])
     if web:
         got["web"] = web
     write_json(gdir / f"cand-{i}.research.json",
@@ -1740,7 +1761,7 @@ def saved_research(gdir: Path, i: int, learning: Mapping[str, Any]) -> Json | No
 def research_record(research: Mapping[str, Any], gen: int, i: int) -> Json:
     """The research as the archive keeps it: the verdict and plan, the paths,
     and how many searches ran; the web's text stays in the research file."""
-    out: Json = {k: research[k] for k in ("verdict", "why", "read", "document", "error", "read_cut")
+    out: Json = {k: research[k] for k in ("verdict", "why", "read", "document", "error", "read_cut", "dropped")
                  if research.get(k)}
     if research.get("plan"):
         out["plan"] = str(research["plan"])[:500]
@@ -1762,8 +1783,9 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "## your verdict\n\n"
         "- `build`: a change is worth making. `plan` says in a few lines what to change and where: the smallest "
         "change that makes you act on the learning, with no refactor it does not need. `read` names the files the "
-        f"change needs to see (at most {MAX_RESEARCH_PATHS}, paths in this repository); `document` names the docs "
-        "to update with it.\n"
+        f"change needs to see (at most {MAX_RESEARCH_PATHS}, paths in this repository: tracked files only, not "
+        "directories, and not brain/MEMORY.md, which is your live page and not in the repository); `document` "
+        "names the docs to update with it.\n"
         "- `already`: something you run already carries it out; `read` names the file that does.\n"
         "- `not-worth`: no change to the repository would make you act on it better (it is a fact or a feeling, "
         "or what it would cost outweighs it); `why` says so.\n"
@@ -3719,6 +3741,8 @@ def round_line(rec: Mapping[str, Any]) -> str:
     findings = rec.get("findings") or []
     if outcome == "did-not-apply":
         line = "the edits did not apply"
+    elif outcome == "out-of-shape":
+        line = str(findings[0]["problem"]) if findings else "the proposal was out of shape"
     elif outcome == "checks":
         line = "checks failed: " + ", ".join(sorted({str(f.get("check") or f["problem"][:60]) for f in findings}))
     elif outcome == "revise":
@@ -3743,7 +3767,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
     of build, hard gate, checks and review. A frozen path, an oversized
     change or SOUL+CONTEXT past its cap is `rejected` for good, and a
     near-duplicate is dropped; a failed check, a reviewer's revision, or
-    edits that did not apply go back to the builder as findings. An
+    edits that did not apply, or a proposal missing a field, go back to the
+    builder as findings (one out of shape every round is `no-proposal`). An
     approved change is `pending` (the eval comes next); one still failing
     after the last round is `parked` with its findings. TRIED is a callable
     giving what was tried before (given the files research named). Every
@@ -3840,6 +3865,18 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 return entry
             parked_why = f"round {rnd}: the builder skipped ({skip.why}): {skip.note}"[:300]
             break
+        except ProposalShape as exc:
+            # An answer that parsed but lacks a field: told what, next round,
+            # like edits that did not apply (gen 12, candidate 4).
+            say(f"candidate {i}: {exc}; sent back")
+            if rec is None:
+                rec = {"round": rnd}
+                rounds.append(rec)
+            findings = [{"file": "", "problem": str(exc)[:300],
+                         "fix": "answer every field: title, component (one of " + ", ".join(COMPONENTS)
+                                + "), expected_move and hypothesis, each a non-empty string, with your edits"}]
+            keep(rec, "out-of-shape", findings)
+            continue
         except (EvolveError, OSError) as exc:
             if rnd == 1:
                 entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})
@@ -3960,6 +3997,11 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         entry.update(verdict="pending", round=rnd, rounds=[round_line(r) for r in rounds if r.get("outcome")],
                      review={k: review[k] for k in ("verdict", "findings", "note") if k in review})
         return entry
+    if rounds and all(r.get("outcome") == "out-of-shape" for r in rounds):
+        # No round gave a proposal in shape: nothing was built.
+        entry.update(verdict="no-proposal", reason=str(rounds[-1]["findings"][0]["problem"])[:500],
+                     rounds=[round_line(r) for r in rounds], gate={"ok": False, "checks": []})
+        return entry
     entry.update(verdict="parked", reason=parked_why, findings=findings[:MAX_FINDINGS],
                  rounds=[round_line(r) for r in rounds if r.get("outcome")])
     entry.setdefault("gate", {"ok": False, "checks": []})
@@ -4014,6 +4056,9 @@ def research_summary(cand: Mapping[str, Any]) -> str | None:
     out = f"**Research**: {research.get('verdict')}. {str(research.get('why') or '').strip()}"
     if research.get("plan"):
         out += "\n\n> " + "\n> ".join(str(research["plan"]).splitlines())
+    if research.get("dropped"):
+        out += "\n\nPaths it named and was not shown: " + ", ".join(
+            f"{d.get('path')} ({d.get('why')})" for d in research["dropped"][:MAX_RESEARCH_PATHS]) + "."
     if research.get("searches"):
         out += f"\n\n{research['searches']} web search(es) informed it."
     return out
