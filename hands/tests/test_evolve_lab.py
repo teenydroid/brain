@@ -165,8 +165,11 @@ class LabCase(EvolveCase):
             "CORTEX_API_URL=http://127.0.0.1:3141\nCORTEX_API_KEY=cx\n")
 
     def lab_config(self, **values):
+        # One pair of budget keeps a task at EVOLVE_EVAL_SAMPLES (1) samples,
+        # as every test here was written; a test of the budget asks for more.
+        values = {"EVOLVE_EVAL_PAIRS": 1, "EVOLVE_EVAL_SAMPLES": 1, **values}
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_EVALUATOR="lab", EVOLVE_LAB_PORT=self.port,
-                    EVOLVE_LAB_BOOT_SECS=20, EVOLVE_EVAL_SAMPLES=1, EVOLVE_PROBE_SAMPLES=1,
+                    EVOLVE_LAB_BOOT_SECS=20, EVOLVE_PROBE_SAMPLES=1,
                     **values)
 
     def spines(self):
@@ -289,7 +292,9 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(self.drafts(), [])
 
     def test_candidates_are_measured_at_once_each_on_its_own_lab_against_one_baseline(self):
-        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4)
+        # Four pairs a task: the judge prefers main on all four of candidate 2's
+        # (one chance in 16 for a change like main), where one pair says nothing.
+        self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4, EVOLVE_EVAL_PAIRS=4)
         self.edit(1, "morning")
         self.edit(2, "shiplog")
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2
@@ -303,10 +308,10 @@ class TargetedEvaluation(LabCase):
                          [self.port, self.port + 1, self.port + 2])
         drafts = self.drafts()
         # The baseline drafts the union of the tasks, once, with the whole budget.
-        self.assertEqual(sorted((d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port),
+        self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
                          [("morning-post", "4"), ("shiplog-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
-        self.assertEqual(sorted((d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port),
+        self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
                          [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
         reports = [json.loads((evolve.evolve_dir() / "1" / "eval" / f"cand-{i}" / "compare" / "report.json").read_text())
                    for i in (1, 2)]
@@ -358,6 +363,45 @@ class TargetedEvaluation(LabCase):
         self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["morning-post", "morning-post"])
         runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
         self.assertEqual(runs, ["s1-m-1", "s1-m-2"])
+
+    def test_samples_per_task_fill_the_pair_budget_within_the_floor_and_the_cap(self):
+        """ceil(EVOLVE_EVAL_PAIRS / reached tasks), at least EVOLVE_EVAL_SAMPLES, at most 8."""
+        got = {n: evolve.eval_samples(24, 2, n) for n in (1, 2, 3, 14, 30)}
+        self.assertEqual(got, {1: 8, 2: 8, 3: 8, 14: 2, 30: 2})
+        self.assertEqual([evolve.eval_samples(24, 2, n) for n in (4, 5, 6, 12, 13, 24, 25)], [6, 5, 4, 2, 2, 2, 2])
+        self.assertEqual(evolve.eval_samples(24, 1, 30), 1)  # the floor is the samples setting
+        self.assertEqual(evolve.eval_samples(24, 10, 1), 10)  # which wins over the cap
+        self.assertEqual(evolve.eval_samples(1, 1, 5), 1)
+
+    def test_the_pair_budget_is_a_setting_that_defaults_to_24(self):
+        self.assertEqual(evolve.SETTINGS["EVOLVE_EVAL_PAIRS"][:2], ("24", int))
+        self.config()
+        self.assertEqual(evolve.load_config()["EVOLVE_EVAL_PAIRS"], 24)
+
+    def test_base_and_candidate_draw_the_same_samples_of_each_task_whatever_it_reaches(self):
+        """A change reaching one task drafts it 8 times; one reaching many
+        drafts each fewer times. Every candidate's baseline has its own
+        sample count (the baseline folder is keyed by it)."""
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=24, EVOLVE_EVAL_SAMPLES=2)
+        self.edit(1, "morning")
+        self.edit(2, "mentions")
+        out = self.run_gen(2, publisher=Refusing())
+        reached = {i: self.entries()[f"g1c{i}"]["eval"]["tasks"] for i in (1, 2)}
+        self.assertEqual(reached[1], ["morning-post"])
+        self.assertGreater(len(reached[2]), 3)
+        want = {1: evolve.eval_samples(24, 2, 1), 2: evolve.eval_samples(24, 2, len(reached[2]))}
+        self.assertEqual(want[1], 8)
+        self.assertLess(want[2], 8)
+        count = {}
+        for port, task, *_ in self.drafts():
+            count[(port, task)] = count.get((port, task), 0) + 1
+        for i in (1, 2):
+            for task in reached[i]:
+                self.assertEqual(count[(self.port, task)], want[i], f"main drafted {task}")
+                self.assertEqual(count[(self.port + i, task)], want[i], f"candidate {i} drafted {task}")
+        runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
+        self.assertEqual(runs, [f"s{want[2]}-m-1", "s8-m-1"])
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["dry-run", "dry-run"])
 
     def test_the_persona_probe_runs_only_when_the_change_reaches_every_task(self):
         self.lab_config()

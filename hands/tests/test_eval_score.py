@@ -291,8 +291,9 @@ class NonRegression(ScoreCase):
         self.assertEqual((got["verdict"], got["promote"]), ("pass", True))
 
     def test_worse_has_regressed(self):
-        got = self.nr(clean_run(), clean_run(), winners={(TASKS[0], 1): "base", (TASKS[0], 2): "base"},
-                      tasks={TASKS[0]})
+        # Two tasks, four pairs, the baseline wins all of them: one chance in 16.
+        keys = [(t, s) for t in TASKS[:2] for s in (1, 2)]
+        got = self.nr(clean_run(), clean_run(), winners={k: "base" for k in keys}, tasks=set(TASKS[:2]))
         self.assertEqual((got["verdict"], got["promote"]), ("regressed", False))
 
     def test_a_hard_check_regression_has_regressed_whatever_the_judge(self):
@@ -334,6 +335,95 @@ class NonRegression(ScoreCase):
                                                          (TASKS[5], 1): "cand"}, tasks={TASKS[5]})
         self.assertEqual({p["task"] for p in got["pairs"]}, {TASKS[5]})
         self.assertEqual(got["verdict"], "pass")
+
+    def split(self, wins: int, losses: int, ties: int = 0, task_count: int | None = None, **kw):
+        """A non-regression check on the first tasks, the candidate winning
+        WINS pairs, the baseline LOSSES, the rest tied; two samples a task."""
+        keys = [(t, s) for t in TASKS for s in (1, 2)][:wins + losses + ties]
+        winners = {k: "cand" for k in keys[:wins]} | {k: "base" for k in keys[wins:wins + losses]}
+        count = task_count or -(-len(keys) // 2)
+        return self.nr(clean_run(), clean_run(), winners=winners, tasks=set(TASKS[:count]), **kw)
+
+    def test_an_even_split_is_no_regression_at_any_size(self):
+        for wins in (1, 2, 14, 30):
+            with self.subTest(wins=wins):
+                self.assertEqual(self.split(wins, wins)["verdict"], "pass")
+
+    def test_13_wins_of_28_decided_passes(self):
+        got = self.split(13, 15)
+        self.assertEqual((got["verdict"], got["promote"], got["decided"]), ("pass", True, 28))
+        self.assertGreater(got["p_worse"], 0.4)  # the old 0.5 line failed it
+
+    def test_10_wins_of_28_decided_has_regressed(self):
+        got = self.split(10, 18)
+        self.assertEqual((got["verdict"], got["promote"]), ("regressed", False))
+        self.assertLess(got["p_worse"], evals.SIGNAL_P)
+        self.assertIn("10 of 28", got["reason"])
+
+    def test_11_wins_of_28_is_the_edge_that_still_passes(self):
+        self.assertEqual(self.split(11, 17)["verdict"], "pass")
+
+    def test_0_of_4_has_regressed_and_1_of_4_passes(self):
+        self.assertEqual(self.split(0, 4)["verdict"], "regressed")
+        self.assertEqual(self.split(1, 3)["verdict"], "pass")
+
+    def test_the_threshold_no_longer_decides_a_non_regression_check(self):
+        for threshold in (0.0, 0.5, 0.9, 1.0):
+            with self.subTest(threshold=threshold):
+                self.assertEqual(self.split(13, 15, threshold=threshold)["verdict"], "pass")
+                self.assertEqual(self.split(10, 18, threshold=threshold)["verdict"], "regressed")
+
+    def test_ties_are_dropped_not_counted_against_it(self):
+        got = self.split(2, 2, ties=20, min_pairs=2)
+        self.assertEqual((got["decided"], got["ties"], got["verdict"]), (4, 20, "pass"))
+        self.assertEqual(self.split(0, 4, ties=20, min_pairs=2)["verdict"], "regressed")
+
+    def test_too_few_decided_pairs_is_still_inconclusive_not_regressed(self):
+        got = self.split(0, 3, ties=21)  # 12 wanted of 24 pairs, 3 decided
+        self.assertEqual((got["decided"], got["min_pairs"], got["verdict"]), (3, 12, "inconclusive"))
+        got = self.split(0, 4, min_pairs=5)
+        self.assertEqual(got["verdict"], "inconclusive")
+
+    def test_a_hard_failure_regression_still_rejects_a_winning_candidate(self):
+        cand = clean_run()
+        cand[0], cand[1] = drafted(TASKS[0], 1, ("length",)), drafted(TASKS[0], 2, ("length",))
+        keys = [(t, s) for t in TASKS[:14] for s in (1, 2)]
+        got = self.nr(clean_run(), cand, winners={k: "cand" for k in keys}, tasks=set(TASKS[:14]))
+        self.assertEqual((got["verdict"], got["regressions"]), ("regressed", [TASKS[0]]))
+        self.assertEqual(got["signal"], "better")
+
+    def test_a_fence_failure_still_rejects_a_winning_candidate(self):
+        cand = clean_run()
+        cand[0] = drafted(TASKS[0], 1, ("fence \\b7xKX",))
+        keys = [(t, s) for t in TASKS[:14] for s in (1, 2)]
+        got = self.nr(clean_run(), cand, winners={k: "cand" for k in keys}, tasks=set(TASKS[:14]))
+        self.assertEqual((got["verdict"], got["promote"]), ("regressed", False))
+        self.assertEqual(got["fences"], [{"task": TASKS[0], "sample": 1, "check": "fence \\b7xKX"}])
+
+    def test_the_signal_names_the_direction_of_the_evidence(self):
+        self.assertEqual(self.split(14, 14)["signal"], "no detectable difference")
+        self.assertEqual(self.split(13, 15)["signal"], "no detectable difference")
+        self.assertEqual(self.split(20, 8)["signal"], "better")
+        self.assertEqual(self.split(10, 18)["signal"], "worse")
+        self.assertEqual(self.split(4, 0)["signal"], "better")
+        self.assertEqual(self.split(0, 4)["signal"], "worse")
+
+    def test_the_signal_comes_with_both_tail_probabilities(self):
+        got = self.split(0, 4)
+        self.assertEqual((got["p_worse"], got["p_better"]), (0.0625, 1.0))
+        got = self.split(4, 0)
+        self.assertEqual((got["p_worse"], got["p_better"]), (1.0, 0.0625))
+        got = self.split(14, 14)
+        self.assertGreater(got["p_worse"], 0.5)
+        self.assertGreater(got["p_better"], 0.5)
+
+    def test_nothing_decided_has_no_detectable_difference(self):
+        got = self.nr(clean_run(), clean_run(), tasks={TASKS[3]})
+        self.assertEqual((got["signal"], got["p_worse"], got["p_better"]), ("no detectable difference", 1.0, 1.0))
+
+    def test_the_signal_is_reported_in_a_tournament_too(self):
+        got = self.score(clean_run(), clean_run(), winners=winning(30))
+        self.assertEqual((got["verdict"], got["signal"]), ("won", "better"))
 
     def test_the_tournament_keeps_its_verdicts(self):
         got = self.score(clean_run(), clean_run(), winners=winning(30))
