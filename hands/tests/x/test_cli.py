@@ -233,6 +233,16 @@ class WriteVerbsTest(Cli):
         code, out, _ = self.run_x("reply", "--to", "5", stdin='{"text":"again"}', guarded=True)
         self.assertEqual((code, out["refused"].startswith("already replied")), (2, True))
 
+    def test_follow_up_takes_its_target_from_the_body_when_no_flag_names_one(self):
+        # bin/act pipes a playbook's draft to a hand with no flags, so a
+        # `hand:x follow-up` output names the post in the body.
+        code, out, _ = self.run_x("follow-up", stdin='{"text":"hi","to":"5"}', guarded=True)
+        self.assertEqual((code, out.get("rule")), (2, "not_own"))
+        code, out, _ = self.run_x("follow-up", stdin='{"text":"hi"}', guarded=True)
+        self.assertEqual(code, 1)
+        self.assertIn("to", out["error"])
+        self.assertEqual(self.x.writes(), [])
+
     def test_like(self):
         self.x.route("POST", "/2/users/1000/likes", {"data": {"liked": True}})
         code, out, _ = self.run_x("like", "77")

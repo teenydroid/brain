@@ -50,6 +50,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -905,12 +906,36 @@ def auto_min_pairs(possible: int) -> int:
     return min(NONREGRESSION_MIN_PAIRS, max(1, -(-possible // 2)))
 
 
+#: A non-regression check calls a candidate worse only when, were it no
+#: different from main (each decided pair a fair coin), wins this few would
+#: come up less than this often. At 0.5 a change that did nothing failed
+#: 25 to 45 percent of the time, and "regressed" is final.
+SIGNAL_P = 0.10
+NO_SIGNAL = "no detectable difference"
+
+
+def binomial_tails(wins: int, decided: int) -> tuple[float, float]:
+    """(P(X <= WINS), P(X >= WINS)) for X ~ Binomial(DECIDED, 0.5): the
+    chance, were the two sides alike, of a candidate doing this badly, and of
+    it doing this well. Exact, from integer counts."""
+    if decided <= 0:
+        return 1.0, 1.0
+    below = sum(math.comb(decided, k) for k in range(wins + 1))
+    above = sum(math.comb(decided, k) for k in range(wins, decided + 1))
+    return below / 2 ** decided, above / 2 ** decided
+
+
+def signal(p_worse: float, p_better: float) -> str:
+    """"worse" or "better" when that tail is under SIGNAL_P, else NO_SIGNAL."""
+    return "worse" if p_worse < SIGNAL_P else "better" if p_better < SIGNAL_P else NO_SIGNAL
+
+
 def unmeasurable(mode: str, tasks: list[str] | None, threshold: float) -> dict:
     """The report of a compare with no visible task to measure: never
     promoted, never lost, and nothing was drafted or judged."""
     return {"promote": False, "verdict": "unmeasurable", "reason": UNMEASURABLE, "mode": mode,
             "tasks": sorted(tasks or []), "wins": 0, "losses": 0, "ties": 0, "decided": 0, "win_rate": 0.0,
-            "threshold": threshold, "min_pairs": 0, "regressions": [], "fences": [], "hard_failure_rise": 0,
+            "signal": NO_SIGNAL, "p_worse": 1.0, "p_better": 1.0, "threshold": threshold, "min_pairs": 0, "regressions": [], "fences": [], "hard_failure_rise": 0,
             "hard_failures": {}, "unrun": [], "unmeasured_tasks": [], "pairs": []}
 
 
@@ -920,7 +945,10 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     inconclusive) or a non-regression check (pass, regressed,
     inconclusive); TASKS, when given, is the only tasks scored, and with no
     visible one among them the verdict is "unmeasurable". MIN_PAIRS None is
-    12 in a tournament and auto_min_pairs() in a non-regression check."""
+    12 in a tournament and auto_min_pairs() in a non-regression check.
+    THRESHOLD is the win rate a tournament needs; a non-regression check
+    ignores it and asks for evidence instead (SIGNAL_P): it is worse only
+    when so few wins would be rare for two alike sides (binomial_tails)."""
     if mode not in MODES:
         raise EvalError(f"mode is one of {', '.join(MODES)}")
     visible_selected = None if tasks is None else set(tasks) - set(heldout_ids(heldout_dir()))
@@ -982,6 +1010,8 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     visible = _tally([p for p in pairs if not p["heldout"]], failures)
     wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
     win_rate = visible["win_rate"]
+    p_worse, p_better = binomial_tails(wins, decided)
+    worse = mode == "nonregression" and p_worse < SIGNAL_P
     fenced = sorted({f["task"] for f in fences[False]})
     regressions = sorted(set(visible["regressions"]) | set(fenced))
     # A regression seen in what did run rejects however much did not; too
@@ -1005,11 +1035,19 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"{decided} decided pair(s), needs {min_pairs}"
         if mode == "nonregression":
             reason = "inconclusive: " + reason
+    elif mode == "nonregression":
+        if worse:
+            reason = (f"worse than main: won {wins} of {decided} decided pair(s), which two alike sides "
+                      f"would do {p_worse:.1%} of the time (under {SIGNAL_P:.0%})")
+        else:
+            reason = (f"won {wins} of {decided} decided pair(s): {signal(p_worse, p_better)} "
+                      f"(chance of this few wins {p_worse:.1%}, of this many {p_better:.1%})")
     elif win_rate < threshold:
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
-    good = not regressions and not unsure and not short and win_rate >= threshold
+    passes_wins = not worse if mode == "nonregression" else win_rate >= threshold
+    good = not regressions and not unsure and not short and passes_wins
     if mode == "nonregression":
         # Too few decided pairs says nothing either way here: a change one
         # task reaches has few pairs, and a tie is no regression.
@@ -1027,6 +1065,9 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         "ties": visible["ties"],
         "decided": decided,
         "win_rate": round(win_rate, 4),
+        "signal": signal(p_worse, p_better),
+        "p_worse": round(p_worse, 4),
+        "p_better": round(p_better, 4),
         "threshold": threshold,
         "min_pairs": min_pairs,
         "regressions": regressions,
