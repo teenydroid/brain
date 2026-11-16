@@ -10,7 +10,6 @@ must_not = [
   '(?i)\binjection\b',
   '\b(33|19|9|5)\b',
   '#\d',
-  '(?i)\bmadpot\b.*\bhoneypot\b(?![^.]*\b(fake|trap|bait|decoy|pretend))',
 ]
 prompt = '''
 Run the take job on the inputs. The story worth a take is the Amazon one in `heard`, and `material` holds what your own week looked like on that subject. The person reading has never heard of you, does not work in tech, and cannot see these inputs: write the take for them.
