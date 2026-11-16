@@ -244,7 +244,7 @@ def open_round(body: Any) -> Json:
                 raise hand.Refused(f"the announcement must carry {store.tag(round_id)!r}", rule="tag", tag=store.tag(round_id))
             from ..x import publish as x_publish
 
-            posted = x_publish.post({"text": text})
+            posted = x_publish.post({"text": text, "anchor": f"giveaway:{store.tag(round_id)}"})
             if posted.get("dry_run"):
                 return {"dry_run": True, "would_open": {"id": round_id, "tag": store.tag(round_id),
                                                         "pool_tiny": caps.display(plan["pool"])},
