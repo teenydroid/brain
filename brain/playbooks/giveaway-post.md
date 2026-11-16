@@ -10,6 +10,8 @@ required = true
 +++
 A Tiny Drop is a story told in one thread. Each beat goes under the round post as a follow-up, never as a new post. Post one beat, the first that applies, in this order: `winners`, `claim_open`, `closing_soon`, `countdown`. If all four are empty, skip.
 
+Before firing, check whether the beat already went through: a doubled winners or claim post in a live thread is a costly retry, and a costly retry waits. A fire that died halfway, or an outcome the item can't show you, is `unknown`: wait for the next run, look again, and re-send only if the thread still misses that beat. The thread is the outcome; the announcements list is a record, and records diverge.
+
 Every beat carries the item's `tag` exactly and goes to its `thread_to`. Quote every number exactly as the item gives it: never round it, add it up or make one up. Write to the hook rules (skills/hooks): each beat raises the stakes or pays them off. No hashtags, under 280 characters, no link but teeny.enamakel.com/rewards or a `distributor_url` the item gives you.
 
 - `countdown`: the drop closes soon. Say how many have entered (`entries`) and that the deadline (`deadline`, UTC) is close. One new fact, never just "x hours left".
