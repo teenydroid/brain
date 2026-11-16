@@ -7,7 +7,7 @@ import unittest
 
 from giveaway.support import CAPS, DAY, DEADLINE, HOUR, T0, GiveawayCase, iso
 from teeny_hands import hand
-from teeny_hands.giveaway import caps, rounds, store
+from teeny_hands.giveaway import caps, publish, rounds, store
 
 
 class CapsLoadTest(unittest.TestCase):
@@ -73,6 +73,16 @@ class OpenTest(GiveawayCase):
         self.refused("tag", text="drop #2 is not the next round")
         self.refused("fields", pay_to="someone")
         self.assertFalse(self.web.writes())
+
+    def test_a_deadline_can_be_given_in_hours_from_now(self):
+        # A drafting turn is not told the time, so a playbook names the
+        # deadline as hours from now and the hand works out the moment.
+        self.refused("deadline", deadline=None, deadline_hours=0)
+        self.refused("deadline", deadline=None, deadline_hours=24 * 30 + 1)
+        self.refused("deadline", deadline=None, deadline_hours="48")
+        self.refused("deadline", deadline=iso(DEADLINE), deadline_hours=48)
+        out = rounds.open_round(self.open_body(deadline=None, deadline_hours=48))
+        self.assertEqual(out["round"]["deadline"], publish.iso(T0 + 48 * HOUR))
 
     def test_open_posts_and_returns_the_tag(self):
         out = rounds.open_round(self.open_body())
