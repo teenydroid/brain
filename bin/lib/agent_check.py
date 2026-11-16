@@ -32,7 +32,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("teeny", "act", "judge", "teeny-mentions", "teeny-mail")
+NO_TOOLS = ("teeny", "act", "judge", "reviewer", "teeny-mentions", "teeny-mail")
 #: A drafting agent's turn is one model call: with no tools it cannot loop.
 #: But the vendored harness pauses a session turn when it reaches
 #: max_iterations even after a final answer (the CapPauser in

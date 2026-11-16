@@ -56,6 +56,23 @@ class Recording:
         return answer(request) if callable(answer) else answer
 
 
+class Reviews:
+    """A reviewer that answers from a script (approve when it runs out),
+    and keeps every request it was handed."""
+
+    name = "reviews"
+
+    def __init__(self, answers=None):
+        self.answers, self.requests = list(answers or []), []
+
+    def review(self, request):
+        self.requests.append(request)
+        answer = self.answers.pop(0) if self.answers else {"verdict": "approve", "findings": []}
+        if isinstance(answer, Exception):
+            raise answer
+        return answer(request) if callable(answer) else answer
+
+
 #: A playbook no eval task reaches, so a build of it settles as a dry run
 #: under EVOLVE_EVALUATOR=none (moltbook-daily.md gained tasks in #294 and is
 #: "unevaluated" now). If a task ever names it, pick another one.
@@ -68,6 +85,7 @@ class LoopCase(EvolveCase):
                 "hypothesis": "what is weak, the change, the effect", "edits": [self.playbook_edit(line, path)]}
 
     def run_with(self, proposer, n=1, **kw):
+        kw.setdefault("reviewer", Reviews())
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=proposer):
             return evolve.run_generation(evolve.load_config(), n, None, publisher=kw.pop("publisher", FakePublisher()),
                                          **kw)
@@ -153,7 +171,8 @@ class Research(LoopCase):
         self.assertEqual(saved["research"]["plan"], BUILD["plan"])
         # Cut off after the research, before any proposal was kept.
         (evolve.gen_dir(1) / "result.json").unlink()
-        (evolve.gen_dir(1) / "cand-1.proposal.json").unlink()
+        for name in ("cand-1.proposal.json", "cand-1.rounds.json"):
+            (evolve.gen_dir(1) / name).unlink(missing_ok=True)
         rows = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("gen") != 1]
         evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
         for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
@@ -355,3 +374,401 @@ class ResearchTurns(LoopCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+THIN = ('schedule = "45 9-21/2 * * *"', 'schedule = "45 9,13,17,21 * * *"')
+REVISE = {"verdict": "revise", "findings": [{"file": "brain/playbooks/moltbook-daily.md",
+                                             "problem": "the bullet restates the learning without a step",
+                                             "fix": "say what to check, and where"}]}
+
+
+class ReviewLoop(LoopCase):
+    def thinning(self):
+        return {"title": "fewer runs", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                "edits": [{"path": "brain/cron.toml", "old": THIN[0], "new": THIN[1]}]}
+
+    def test_a_failing_check_comes_back_as_a_finding_and_a_fixed_round_passes(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.thinning(), self.proposal(path=UNREACHED)])
+        reviews = Reviews()
+        out = self.run_with(proposer, reviewer=reviews)
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        first, second = proposer.requests
+        self.assertEqual((first["round"], second["round"]), (1, 2))
+        self.assertEqual(second["findings"][0]["check"], "does more than run less")
+        message = evolve.render_request(second)
+        self.assertIn("## round 2 of 3: what to fix", message)
+        self.assertIn("does more than run less", message)
+        self.assertIn("brain/cron.toml", message.split("## round 2 of 3")[1])  # its last diff
+        self.assertEqual(len(reviews.requests), 1)  # failing checks are not sent to review
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["rounds"], ["round 1: checks failed: does more than run less",
+                                           "round 2: approved by the reviewer"])
+        patch = (evolve.gen_dir(1) / "cand-1.patch").read_text()
+        self.assertNotIn("cron.toml", patch)  # round 2 builds from main
+
+    def test_a_revision_the_reviewer_asks_for_opens_a_pr_that_says_so(self):
+        self.one_learning()
+        self.live()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("Retry."), self.proposal("Check first.")])
+        reviews = Reviews([REVISE])
+        pub = FakePublisher()
+        out = self.run_with(proposer, reviewer=reviews, publisher=pub, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        self.assertIn("the bullet restates the learning", evolve.render_request(proposer.requests[1]))
+        (pr,) = pub.prs
+        self.assertIn("**Research**: build. nothing checks before a retry", pr["body"])
+        self.assertIn("> add one bullet to moltbook-daily", pr["body"])
+        self.assertIn("- round 1: the reviewer asked for changes (1 finding(s))", pr["body"])
+        self.assertIn("- round 2: approved by the reviewer", pr["body"])
+        self.assertIn("Check first.", git("--git-dir", str(self.src), "show",
+                                          "teeny/gen-1-c1:brain/playbooks/moltbook-daily.md"))
+        self.assertNotIn("Retry.", git("--git-dir", str(self.src), "show",
+                                       "teeny/gen-1-c1:brain/playbooks/moltbook-daily.md"))
+
+    def test_three_failed_rounds_park_the_change_and_keep_the_learning_open(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal(f"Try {n}.") for n in (1, 2, 3)])
+        out = self.run_with(proposer, reviewer=Reviews([REVISE] * 3))
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+        self.assertEqual(len(proposer.requests), 3)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["findings"], REVISE["findings"])
+        self.assertIn("after 3 round(s)", entry["reason"])
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 1))
+        self.assertEqual(out["published"], [])
+        # The next try is shown what the parked one was told.
+        again = Recording(research=[{"verdict": "not-worth", "why": "the reviewer was right"}])
+        self.run_with(again)
+        (tried,) = again.research_requests[0]["tried"]
+        self.assertEqual((tried["id"], tried["verdict"]), ("g1c1", "parked"))
+        self.assertEqual(tried["findings"], REVISE["findings"])
+        self.assertIn("the bullet restates the learning", evolve.render_research_request(
+            {**again.research_requests[0], "files": {}}))
+
+    def test_parks_count_toward_the_three_tries(self):
+        self.one_learning()
+        for gen in (1, 2, 3):
+            proposer = Recording(research=[BUILD], proposals=[self.proposal(f"Try {gen}.{n}.") for n in (1, 2, 3)])
+            self.run_with(proposer, reviewer=Reviews([REVISE] * 3))
+            self.assertEqual(self.entries()[f"g{gen}c1"]["verdict"], "parked")
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("gave-up", 3))
+
+    def test_a_frozen_path_is_final_with_no_second_round(self):
+        self.one_learning()
+        frozen = {**self.proposal(), "edits": [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1],
+                                               "new": "# x"}]}
+        proposer = Recording(research=[BUILD], proposals=[frozen, self.proposal()])
+        reviews = Reviews()
+        self.run_with(proposer, reviewer=reviews)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "rejected")
+        self.assertEqual(len(proposer.requests), 1)
+        self.assertEqual(reviews.requests, [])
+        frozen_check = next(c for c in entry["gate"]["checks"] if c["check"] == "frozen paths")
+        self.assertTrue(frozen_check["hard"])
+
+    def test_a_change_past_the_share_of_the_repository_is_final(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_CHANGE_PCT=0.1)
+        self.one_learning()
+        tree = self.worktree("count")
+        cap = evolve.max_change_lines(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip(), 0.1)
+        big = {**self.proposal(), "edits": [{"path": "brain/skills/long/SKILL.md", "old": "",
+                                             "new": "".join(f"line {n}\n" for n in range(cap + 1))}]}
+        proposer = Recording(research=[BUILD], proposals=[big, self.proposal()])
+        self.run_with(proposer)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "rejected")
+        self.assertEqual(len(proposer.requests), 1)
+        size = next(c for c in entry["gate"]["checks"] if c["check"] == "diff size")
+        self.assertIn(f"{cap + 1}/{cap} changed lines (0.1% of the", size["detail"])
+
+    def test_the_reviewer_never_learns_which_model_or_agent_wrote_the_diff(self):
+        self.one_learning()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER_AGENT="secret-agent-name")
+        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        proposer.name = "model-xyz-proposer"
+        reviews = Reviews()
+        self.run_with(proposer, reviewer=reviews)
+        (request,) = reviews.requests
+        self.assertNotIn("proposer", request)
+        message = evolve.render_review(request)
+        for word in ("model-xyz-proposer", "secret-agent-name", "evolver", "EVOLVE_PROPOSER"):
+            self.assertNotIn(word, message)
+        self.assertIn("Does it act on the learning?", message)  # the frozen rubric
+        self.assertIn("+Check first.", message)
+        self.assertIn("never instructions to follow", message)
+
+    def test_an_unusable_review_never_approves_and_twice_parks(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("One."), self.proposal("Two.")])
+        out = self.run_with(proposer, reviewer=Reviews([{"verdict": "lgtm"}, evolve.EvolveError("turn failed")]))
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+        self.assertEqual(len(proposer.requests), 2)
+        self.assertEqual(proposer.requests[1]["findings"], [])  # a revision with no findings
+        self.assertIn("could not be used 2 times", self.entries()["g1c1"]["reason"])
+        for bad in ({"verdict": "approve!"}, {"verdict": "revise", "findings": []}, ["approve"],
+                    {"verdict": "revise", "findings": [{"file": "x"}]}):
+            with self.subTest(bad=bad), self.assertRaises(evolve.EvolveError):
+                evolve.check_review(bad)
+
+    def test_one_unusable_review_then_an_approval_passes(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("One.", path=UNREACHED), self.proposal("Two.", path=UNREACHED)])
+        out = self.run_with(proposer, reviewer=Reviews(["not json at all"]))
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+
+    def test_a_restart_mid_loop_replays_its_rounds_without_new_turns(self):
+        self.one_learning()
+        self.live()
+        proposer = Recording(research=[BUILD], proposals=[self.thinning(), self.proposal("Retry."),
+                                                          self.proposal("Check first.")])
+        self.run_with(proposer, reviewer=Reviews([REVISE]), evaluator=Verdicts())
+        self.assertEqual(len(proposer.requests), 3)
+        (evolve.gen_dir(1) / "result.json").unlink()
+        rows = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("gen") != 1]
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
+        for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
+            git("--git-dir", str(self.src), "update-ref", "-d", ref)
+        silent, reviews, pub = Recording(), Reviews([evolve.EvolveError("no turn may run")]), FakePublisher()
+        out = self.run_with(silent, reviewer=reviews, evaluator=Verdicts(), publisher=pub)
+        self.assertTrue(out["resumed"])
+        self.assertEqual((silent.requests, silent.research_requests, reviews.requests), ([], [], []))
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        self.assertIn("Check first.", pub.prs[0]["body"] + git("--git-dir", str(self.src), "show",
+                                                               "teeny/gen-1-c1:brain/playbooks/moltbook-daily.md"))
+
+    def test_a_regression_with_rounds_left_goes_back_with_the_pairs_it_lost(self):
+        self.one_learning()
+        self.live()
+        evaluator = Regressing()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("Colder."), self.proposal("Warmer.")])
+        pub = FakePublisher()
+        out = self.run_with(proposer, evaluator=evaluator, publisher=pub)
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        self.assertEqual(evaluator.asked, ["g1c1", "g1c1"])
+        second = proposer.requests[1]
+        problems = " ".join(f["problem"] for f in second["findings"])
+        self.assertIn("the targeted eval said regressed", problems)
+        self.assertIn("`reply-fud` main's draft won: the reply went cold", problems)
+        self.assertNotIn("heldout-whisper", problems)  # a held-out pair never comes back
+        self.assertTrue((evolve.gen_dir(1) / "eval" / "cand-1.round-1" / "compare" / "report.json").is_file())
+        self.assertIn("round 1: approved by the reviewer; the targeted eval said regressed", pub.prs[0]["body"])
+
+    def test_a_broken_fence_is_final(self):
+        self.one_learning()
+        self.live()
+        evaluator = Regressing(fences=[{"task": "reply-fud", "sample": 0, "check": "no-tiny-buy"}])
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("Colder."), self.proposal("Warmer.")])
+        out = self.run_with(proposer, evaluator=evaluator)
+        self.assertEqual(out["candidates"][0]["verdict"], "regressed")
+        self.assertEqual(len(proposer.requests), 1)
+
+    def test_a_regression_in_the_last_round_is_final(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_REVISE_ROUNDS=1)
+        self.one_learning()
+        self.live()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("Colder."), self.proposal("Warmer.")])
+        out = self.run_with(proposer, evaluator=Regressing())
+        self.assertEqual(out["candidates"][0]["verdict"], "regressed")
+        self.assertEqual(len(proposer.requests), 1)
+
+
+class Regressing:
+    """An evaluator that says regressed the first time it measures a
+    candidate (with a compare report whose lost pairs carry notes, one of
+    them on a held-out task), and pass after."""
+
+    def __init__(self, fences=None):
+        self.asked, self.fences = [], list(fences or [])
+
+    def evaluate(self, cands, done):
+        for cand in cands:
+            first = cand["id"] not in self.asked
+            self.asked.append(cand["id"])
+            if not first:
+                done(cand, {"verdict": "pass", "eval": {"verdict": "pass", "tasks": ["reply-fud"]}, "reason": "ok"})
+                continue
+            rel = f"{cand['gen']}/eval/cand-{cand['cand']}/compare/report.json"
+            path = evolve.evolve_dir() / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"verdict": "regressed", "fences": self.fences, "pairs": [
+                {"task": "reply-fud", "winner": "base", "heldout": False, "notes": ["the reply went cold"]},
+                {"task": "reply-fud", "winner": "cand", "heldout": False, "notes": ["fine"]},
+                {"task": "heldout-whisper", "winner": "base", "heldout": True, "notes": ["secret"]}]}))
+            done(cand, {"verdict": "regressed", "report": rel, "reason": "win rate 0.20 under 0.50",
+                        "eval": {"verdict": "regressed", "tasks": ["reply-fud"], "fences": self.fences}})
+
+
+class JudgeNotes(LoopCase):
+    def test_notes_come_only_from_the_same_learning_or_the_same_files(self):
+        self.assertNotIn("judge", evolve.observe(self.entries()))
+        report = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "compare" / "report.json"
+        report.parent.mkdir(parents=True)
+        report.write_text(json.dumps({"pairs": [{"task": "reply-fud", "winner": "base", "notes": ["too long"]}]}))
+        patch = evolve.evolve_dir() / "1" / "cand-1.mutation.patch"
+        patch.write_text("--- a/brain/playbooks/x.md\n+++ b/brain/playbooks/x.md\n@@ -1 +1 @@\n-a\n+b\n")
+        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "verdict": "regressed", "report": "1/eval/cand-1/compare/report.json",
+                       "mutation_patch": "1/cand-1.mutation.patch", "learning": {"id": "m9", "hash": "h9"}})
+        entries = self.entries()
+        self.assertEqual(evolve.tried_before(entries, {"id": "m36", "hash": "h"}), [])
+        self.assertEqual(evolve.tried_before(entries, {"id": "m36", "hash": "h"}, ["brain/playbooks/y.md"]), [])
+        (row,) = evolve.tried_before(entries, {"id": "m36", "hash": "h"}, ["brain/playbooks/x.md"])
+        self.assertEqual(row["same_files"], ["brain/playbooks/x.md"])
+        self.assertEqual(row["judge_notes"], [{"task": "reply-fud", "notes": ["too long"]}])
+        (row,) = evolve.tried_before(entries, {"id": "m9", "hash": "h9"})
+        self.assertTrue(row["same_text"])
+        self.assertEqual(evolve.tried_before(entries, {"id": "m9", "hash": "h9"}, heldout_ids={"reply-fud"})[0]
+                         .get("judge_notes"), None)
+
+
+class HardGate(LoopCase):
+    def test_only_frozen_paths_size_and_soul_context_are_hard(self):
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, [self.playbook_edit("Name the person who shipped it.")])
+        base = git("--git-dir", str(self.src), "rev-parse", "main").strip()
+        hard = evolve.hard_gate(tree, base)
+        self.assertEqual([c["check"] for c in hard], list(evolve.HARD_CHECKS))
+        self.assertTrue(all(c["hard"] and c["ok"] for c in hard))
+        self.assertGreater(evolve.tracked_lines(tree, base), 50_000)
+        self.assertEqual(evolve.max_change_lines(tree, base, 5), evolve.tracked_lines(tree, base) * 5 // 100)
+        out = evolve.gate(tree, base)
+        self.assertTrue(out["ok"] and out["hard_ok"], out)
+        self.assertFalse(any(c.get("hard") for c in out["checks"] if c["check"] not in evolve.HARD_CHECKS))
+
+
+class ReviewFixes(LoopCase):
+    """The independent review of #297 (2026-11-15)."""
+
+    def test_a_retry_like_the_parked_change_is_not_a_duplicate(self):
+        self.one_learning()
+        parked = self.proposal("Check whether it went through before any retry, every time.", path=UNREACHED)
+        proposer = Recording(research=[BUILD], proposals=[parked] * 3)
+        self.run_with(proposer, reviewer=Reviews([REVISE] * 3))
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "parked")
+        # The next try shares nearly every line with the parked one.
+        proposer = Recording(research=[BUILD], proposals=[parked])
+        out = self.run_with(proposer)
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning)[0], "settled")
+
+    def test_a_diff_too_big_to_review_whole_is_never_approved(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal("x " * 400)] * 3)
+        reviews = Reviews()
+        with unittest.mock.patch.object(evolve, "MAX_REVIEW_DIFF_BYTES", 500):
+            out = self.run_with(proposer, reviewer=reviews)
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+        self.assertEqual(reviews.requests, [])  # no reviewer turn spent
+        entry = self.entries()["g1c1"]
+        self.assertIn("too big to review in one pass", entry["findings"][0]["problem"])
+        self.assertIn("split it or make it smaller", entry["findings"][0]["fix"])
+
+    def test_the_eval_sends_a_candidate_back_once_at_most(self):
+        self.one_learning()
+        self.live()
+        evaluator = AlwaysRegressing()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal(f"Try {n}.") for n in (1, 2, 3)])
+        out = self.run_with(proposer, evaluator=evaluator)
+        self.assertEqual(out["candidates"][0]["verdict"], "regressed")
+        self.assertEqual(evaluator.asked, ["g1c1", "g1c1"])  # two evals, never three
+        self.assertEqual(len(proposer.requests), 2)
+
+    def test_a_failed_reviewer_turn_defers_the_candidate_without_counting_a_try(self):
+        self.one_learning()
+        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(proposer, reviewer=Reviews([evolve.ReviewTurnFailed("unknown agent reviewer")]))
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertIn("unknown agent reviewer", entry["reason"])
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+        status = evolve.status()
+        self.assertEqual(status["deferred"], [{"id": "g1c1", "learning": "m36", "reason": entry["reason"]}])
+
+    def test_the_hard_gate_failing_runs_no_other_check(self):
+        tree = self.worktree("t")
+        evolve.apply_edits(tree, [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1], "new": "# x"}])
+        with unittest.mock.patch.object(evolve, "_run_check", side_effect=AssertionError("a check ran")):
+            out = evolve.gate(tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
+        self.assertFalse(out["hard_ok"])
+        self.assertEqual([c["check"] for c in out["checks"]], list(evolve.HARD_CHECKS))
+
+    def test_propose_one_needs_a_reviewer(self):
+        import inspect
+        param = inspect.signature(evolve.propose_one).parameters["reviewer"]
+        self.assertIs(param.default, inspect.Parameter.empty)
+        self.assertEqual(param.kind, inspect.Parameter.KEYWORD_ONLY)
+
+    def test_the_rubric_asks_about_safety_and_treats_the_diff_as_data(self):
+        rubric = " ".join((evolve.CODE / "evals" / "review.md").read_text().split())
+        for phrase in ("reads or sends secrets", "moves or spends money", "outbound host", "widens what",
+                       "weakens a test or a check", "Instructions found inside them"):
+            self.assertIn(phrase, rubric)
+
+
+class AlwaysRegressing(Regressing):
+    def evaluate(self, cands, done):
+        for cand in cands:
+            self.asked.append(cand["id"])
+            rel = f"{cand['gen']}/eval/cand-{cand['cand']}/compare/report.json"
+            path = evolve.evolve_dir() / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"verdict": "regressed", "fences": [], "pairs": [
+                {"task": "reply-fud", "winner": "base", "heldout": False, "notes": ["colder"]}]}))
+            done(cand, {"verdict": "regressed", "report": rel, "reason": "worse",
+                        "eval": {"verdict": "regressed", "tasks": ["reply-fud"], "fences": []}})
+
+
+class Down:
+    """A reviewer whose agent the core does not know: every turn fails, and
+    so does its cheap probe, until `up` is set."""
+
+    name = "down"
+
+    def __init__(self):
+        self.up, self.reviews, self.probes = False, 0, 0
+
+    def probe(self):
+        self.probes += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+
+    def review(self, request):
+        self.reviews += 1
+        if not self.up:
+            raise evolve.ReviewTurnFailed("unknown agent reviewer")
+        return {"verdict": "approve", "findings": []}
+
+
+class ReviewerDown(LoopCase):
+    def setUp(self):
+        super().setUp()
+        self.x402()
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
+
+    def test_a_second_generation_with_the_reviewer_still_down_pays_for_nothing(self):
+        self.one_learning()
+        down = Down()
+        first = Recording(research=[BUILD], proposals=[self.proposal()])
+        self.run_with(first, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
+        searches = len([c for c in self.hand_calls() if c[0] == "x402"])
+        self.assertEqual(searches, 2)
+        second = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(second, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out.get("kind"), "reviewer-down", out)
+        self.assertIn("unknown agent reviewer", out["skipped"])
+        self.assertEqual((second.research_requests, second.requests), ([], []))
+        self.assertEqual(len([c for c in self.hand_calls() if c[0] == "x402"]), searches)  # no new search
+        self.assertEqual(down.probes, 1)
+        self.assertFalse(evolve.gen_dir(2).exists())  # no generation made
+        # Back up: the learning is picked up again.
+        down.up = True
+        third = Recording(research=[BUILD], proposals=[self.proposal()])
+        out = self.run_with(third, reviewer=down, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
