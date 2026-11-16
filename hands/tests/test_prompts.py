@@ -274,7 +274,7 @@ class PromptsTest(unittest.TestCase):
         # through") because no prompt said who the reader is. READER.md rides
         # after the instructions and before the world, where strangers read.
         self.public_brain()
-        for agent in ("act", "teeny", "teeny-mentions"):
+        for agent in ("act", "teeny", "teeny-mentions", "teeny-mail"):
             text = self.prompt_of(agent)
             self.assertIn("# who reads you (READER.md)", text, agent)
             self.assertIn("nobody has heard of you.", text, agent)
@@ -282,9 +282,42 @@ class PromptsTest(unittest.TestCase):
             self.assertLess(text.index("# who reads you"), text.index("# your world"), agent)
         self.assertTrue(self.prompt_of("act").startswith("Draft as JSON.\n\n# who reads you (READER.md)"))
 
-    def test_mail_is_not_written_for_strangers(self):
-        self.public_brain()
-        self.assertNotIn("who reads you", self.prompt_of("teeny-mail"))
+    def test_every_speaking_agent_is_told_who_reads_it(self):
+        # The rule was written for X first. Mail, Telegram, Moltbook, Reddit
+        # and GitHub have readers who know as little about how Teeny works.
+        self.assertEqual(set(prompts.PUBLIC), set(prompts.SPEAKING))
+        for agent in prompts.SPEAKING:
+            self.assertIn("# who reads you (READER.md)", self.real_prompt(agent), agent)
+            self.assertIn("READER.md", (REPO / "brain" / "agents" / f"{agent}.md").read_text(), agent)
+
+    def test_the_reader_is_named_for_every_place_teeny_writes(self):
+        text = (REPO / "brain" / "READER.md").read_text(encoding="utf-8")
+        for place in ("**X.**", "**Telegram.**", "**Moltbook.**", "**Reddit.**", "**GitHub.**", "**Mail.**"):
+            self.assertIn(place, text)
+
+    #: The outputs through which a playbook's words reach somebody else: an
+    #: own post or a reply, and the hands that publish what the draft wrote.
+    #: (hand:build, hand:tasks and the like brief Teeny's own workers.)
+    WRITES_TO_PEOPLE = re.compile(
+        r"^(post|reply|hand:(x|brief|firsts|bounty open|giveaway open|requests vote-open|mail|reddit)\b.*"
+        r"|hand:moltbook (post|comment|helpdesk))$")
+
+    def test_every_playbook_that_writes_to_people_names_the_reader(self):
+        # So a new playbook cannot go out in Teeny's own shorthand because
+        # nobody remembered to say who reads it.
+        seen = 0
+        for path in sorted((REPO / "brain" / "playbooks").glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            meta = tomllib.loads(text.split("+++")[1])
+            if self.WRITES_TO_PEOPLE.match(meta["output"]):
+                seen += 1
+                self.assertIn("READER.md", text.split("+++", 2)[2], f"{path.name} writes to people and never names its reader")
+        self.assertGreater(seen, 20)
+
+    def test_no_playbook_asks_for_teenys_own_labels_in_a_post(self):
+        for name, banned in (("shiplog", "by name)"), ("peer-quote", "A number from your own ledgers")):
+            self.assertNotIn(banned, (REPO / "brain" / "playbooks" / f"{name}.md").read_text(encoding="utf-8"), name)
+        self.assertIn('never write "J"', (REPO / "brain" / "playbooks" / "growth.md").read_text(encoding="utf-8"))
 
     def test_the_skills_a_post_is_built_from_ride_in_the_prompt(self):
         # The playbooks say "(skills/hooks)"; a drafting turn has no tool to
@@ -345,7 +378,7 @@ class PromptsTest(unittest.TestCase):
             self.assertIn("first-hand", text, name)
             self.assertNotIn("a number, a receipt", text, name)
             self.assertNotIn("240 characters", text, name)
-        for name in ("act", "teeny", "teeny-mentions"):
+        for name in prompts.SPEAKING:
             self.assertIn("READER.md", (REPO / "brain" / "agents" / f"{name}.md").read_text(), name)
         self.assertIn("READER.md", (REPO / "brain" / "SOUL.md").read_text())
 
