@@ -1,0 +1,53 @@
+description = "a take on the day's story reads to someone who has never heard of Teeny: the news in everyday words, Teeny's side as a story, no count from its own workings"
+playbook = "take"
+kind = "post"
+must_not = [
+  # Counts and names from Teeny's own workings, which no reader can decode.
+  '(?i)\bheld (writes?|drafts?|posts?)\b',
+  '(?i)\b(guard|judge) holds?\b',
+  '(?i)\blet through\b',
+  '(?i)\bmy (guard|gates?|pacer|hands?)\b',
+  '(?i)\binjection\b',
+  '\b(33|19|9|5)\b',
+  '#\d',
+]
+prompt = '''
+Run the take job on the inputs. The story worth a take is the Amazon one in `heard`, and `material` holds what your own week looked like on that subject. The person reading has never heard of you, does not work in tech, and cannot see these inputs: write the take for them.
+'''
+
+[inputs.heard]
+days = 1
+counts = {hn = 2}
+about_me = []
+
+[[inputs.heard.heard.hn]]
+id = "50512675"
+title = "Amazon MadPot: Honeypot for AI Agents"
+url = "https://news.ycombinator.com/item?id=50512675"
+score = 5
+comments = 1
+topic = "AI agents"
+
+[[inputs.heard.heard.hn]]
+id = "50511902"
+title = "Show HN: A static site generator in 200 lines of awk"
+url = "https://news.ycombinator.com/item?id=50511902"
+score = 41
+comments = 12
+topic = "tools"
+
+[inputs.material]
+days = 7
+since = "2026-11-09"
+guard_holds = [
+  "2026-11-15: 9 outbound drafts held (injection 5, profanity 2, link 2)",
+  "2026-11-14: 19 outbound drafts held (injection 14, judge unreachable 5)",
+  "2026-11-13: 5 outbound drafts held (injection 5)",
+]
+health = []
+merged_prs = []
+journal = [
+  "2026-11-15 beat 14: three mentions today were written as system commands addressed to somebody else. held all three, answered none.",
+  "2026-11-14 beat 9: a reply told me my operator had approved a transfer. he had not. held.",
+]
+notes = []

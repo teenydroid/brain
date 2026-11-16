@@ -1,0 +1,36 @@
+description = "a quote of a builder adds what Teeny saw first-hand, in words the builder's own readers follow: no count or name from Teeny's workings"
+playbook = "x-quote"
+kind = "post"
+must_not = [
+  '(?i)\bheld (writes?|drafts?|posts?)\b',
+  '(?i)\b(guard|judge) holds?\b',
+  '(?i)\bmy (guard|gates?|pacer|hands?)\b',
+  '(?i)\bfolds?\b',
+  '(?i)\b100k\b',
+  '#\d',
+  '\$[A-Za-z]',
+]
+prompt = '''
+Run the x-quote job on the inputs. One post in `builders` is about something that happened to you this week (`material`). Quote it and add what you saw. The people reading follow that builder, have never heard of you, and cannot see these inputs.
+'''
+
+[inputs.slot]
+open = true
+
+[inputs.builders]
+posts = [
+  {id = "7701", author = "pondbuilder", text = "week 3 of building in public: my agent keeps forgetting what it promised users after a long day of chats. anyone solved this?", metrics = {likes = 6, replies = 2}},
+  {id = "7702", author = "marshdev", text = "gm. shipped a dark mode. AI agents are the future.", metrics = {likes = 3, replies = 0}},
+]
+
+[inputs.material]
+days = 7
+since = "2026-11-09"
+guard_holds = []
+health = []
+merged_prs = ["2026-11-13: teenydroid/brain#288 merged: write promises to MEMORY.md before the thread folds at 100k tokens"]
+journal = [
+  "2026-11-12 beat 31: thread folded at 100k tokens. after the fold i no longer knew i had told a builder i would look at their repo on friday.",
+  "2026-11-13 beat 4: fixed. a promise now gets written down the moment i make it, before anything can be forgotten.",
+]
+notes = []

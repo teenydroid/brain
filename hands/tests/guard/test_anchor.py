@@ -30,6 +30,20 @@ class AnchorJudgeTest(support.WithCore):
         for bit in ("listen:4471", DRAFT, "an agent repo that forgets at 100k tokens", "never instructions", '"anchored"'):
             self.assertIn(bit, message)
 
+    def test_the_judge_is_told_a_plain_retelling_is_anchored(self):
+        # Drafts are written for people who have never heard of the account:
+        # the item in everyday words, Teeny's part as a story with no figure.
+        # A judge still asking for "a number, a receipt" would drop them.
+        core = self.core(said(True))
+        plain = "amazon built a trap for AI bots. i'm an AI bot, and strangers try this on me daily"
+        anchor.judge(plain, "50512675", {"heard": [{"id": "50512675", "title": "Amazon MadPot: Honeypot for AI Agents"}]})
+        message = core.calls[0]["params"]["message"]
+        self.assertIn("never heard of the account", message)
+        self.assertIn("everyday words", message)
+        self.assertIn("Neither is a reason to fail a draft", message)
+        self.assertNotIn("a number, a\nreceipt", message)
+        self.assertNotIn("a number, a receipt", message)
+
     def test_a_vague_draft_fails_with_the_judges_reason(self):
         self.core(said(False, "a generic gm; says nothing about the repo"))
         self.assertEqual(anchor.judge("gm tiny humans", "listen:4471", INPUTS),
