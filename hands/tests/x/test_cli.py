@@ -141,6 +141,25 @@ class ReadVerbsTest(Cli):
         self.x.route("GET", "/2/users/by/username/stonks", {"data": {"id": "9", "username": "stonks"}})
         self.assertEqual(self.run_x("user", "@stonks")[:2], (0, {"ok": True, "user": {"id": "9", "username": "stonks"}}))
 
+    def test_users_by_ids(self):
+        self.x.route("GET", "/2/users", {"data": [
+            {"id": "9", "username": "stonks", "created_at": "2021-01-01T00:00:00.000Z",
+             "public_metrics": {"followers_count": 30}, "connection_status": ["followed_by"]},
+        ]})
+        code, out, _ = self.run_x("users", "--ids", "9,10")
+        self.assertEqual((code, out["missing"]), (0, ["10"]))
+        self.assertEqual(out["users"], [{"id": "9", "username": "stonks", "createdAt": "2021-01-01T00:00:00.000Z",
+                                         "followers": 30, "followsMe": True}])
+        self.run_x("users", "--ids", "9")
+        self.assertEqual(len(self.x.requests("GET", "/2/users")), 1, "the second lookup came from x_cache")
+
+    def test_users_refuses_more_than_a_hundred_ids_or_a_handle(self):
+        too_many = ",".join(str(i) for i in range(1, 102))
+        for ids in (too_many, "@stonks"):
+            done = subprocess.run([str(SHIM), "users", "--ids", ids], capture_output=True, text=True, env=os.environ, timeout=60)
+            self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.x.requests("GET", "/2/users"), [])
+
     def test_search_uses_the_configured_max_unless_told(self):
         self.configure(X_SEARCH_MAX_RESULTS="25")
         self.x.route("GET", "/2/tweets/search/recent", {"data": [{"id": "1", "text": "a"}]})

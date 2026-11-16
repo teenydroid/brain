@@ -2,10 +2,10 @@
 
 The account's webhook (registered with X at
 https://teeny.enamakel.com/api/webhooks/x, subscribed through the X Activity
-API to post.mention.create, post.reply.create and post.quote.create for the
-account) is the cheap way in: X pushes each event, so nothing is read or
-billed per post. The mentions timeline (`hands/x ingest`) also leaves some
-replies out, which the webhook does not.
+API to `SUBSCRIBED_EVENTS` for the account: `hands/x subscribe`) is the cheap
+way in: X pushes each event, so nothing is read or billed per post. The
+mentions timeline (`hands/x ingest`) also leaves some replies out, which the
+webhook does not.
 
 What this does with a delivery:
 
@@ -17,7 +17,12 @@ What this does with a delivery:
   spine) screens it with the inbound guard, offers it, and the reply flow
   answers it as it answers the timeline's mentions. A post already in the
   queue (the timeline saw it too) is left alone, so nothing is answered
-  twice.
+  twice. The author's account age, follower count and verified badge, when
+  the delivery carries them (`includes.users`), are kept on the row: a
+  giveaway's filters read them instead of paying X for a user lookup.
+- POST, `follow.follow` / `follow.unfollow` of the account by somebody else:
+  one row per follower in `x_follows` (x/follows.py), so "follows
+  @teenydroid" is a local lookup too.
 
 It screens nothing itself: it runs in the `xhook` container, which has its
 own network namespace, and the core (and so the safety judge) listens only in
@@ -37,17 +42,22 @@ import json
 import queue
 import sys
 import threading
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
 
 from .. import hand
-from . import cache, mentions, model
+from . import cache, follows, mentions, model
 from .client import XApi
 
 PATHS = ("/webhooks/x", "/api/webhooks/x")
 #: The X Activity API events that are somebody's post about the account.
 POST_EVENTS = ("post.mention.create", "post.reply.create", "post.quote.create")
+#: Everything the account's subscriptions ask X for (`hands/x subscribe`):
+#: the posts above, and somebody following or unfollowing the account.
+#: docs.x.com/x-api/activity/introduction, "Follow events".
+SUBSCRIBED_EVENTS = POST_EVENTS + follows.EVENTS
 MAX_BODY = 1024 * 1024
 
 Json = dict[str, Any]
@@ -73,6 +83,40 @@ def _is_retweet(text: str) -> bool:
     return text.startswith("RT @")
 
 
+def _iso(stamp: Any) -> str | None:
+    """A v1.1 `created_at` ("Wed Oct 10 20:19:24 +0000 2018") as ISO 8601,
+    the v2 shape; anything else as it came."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return datetime.strptime(stamp, "%a %b %d %H:%M:%S %z %Y").astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    except ValueError:
+        return stamp
+
+
+def _author_fields(user: Mapping[str, Any], followers: Any, created_at: Any) -> Json:
+    """What a delivery says about a post's author that a giveaway's filters
+    want: `authorCreatedAt`, `authorFollowers`, `authorVerified`. Absent
+    when the delivery did not carry it."""
+    out: Json = {}
+    if isinstance(created_at, str) and created_at:
+        out["authorCreatedAt"] = created_at
+    if isinstance(followers, int) and not isinstance(followers, bool):
+        out["authorFollowers"] = followers
+    if isinstance(user.get("verified"), bool):
+        out["authorVerified"] = user["verified"]
+    return out
+
+
+def _v2_authors(includes: Mapping[str, Any] | None) -> dict[str, Json]:
+    authors: dict[str, Json] = {}
+    for user in (includes or {}).get("users") or []:
+        if isinstance(user, Mapping) and user.get("id"):
+            metrics = user.get("public_metrics") if isinstance(user.get("public_metrics"), Mapping) else {}
+            authors[str(user["id"])] = _author_fields(user, metrics.get("followers_count"), user.get("created_at"))
+    return authors
+
+
 def posts_from_delivery(delivery: Any, me_id: str) -> list[Json]:
     """The posts in one delivery that are somebody else's mention, reply or
     quote of the account. The X Activity API sends one event per request
@@ -92,6 +136,9 @@ def posts_from_delivery(delivery: Any, me_id: str) -> list[Json]:
         includes = data.get("includes") if isinstance(data.get("includes"), Mapping) else None
         if isinstance(payload, Mapping):
             out = model.to_posts([payload], includes)
+            authors = _v2_authors(includes)
+            for post in out:
+                post.update(authors.get(str(post.get("authorId")), {}))
     elif isinstance(delivery.get("tweet_create_events"), list):
         if delivery.get("for_user_id") is not None and str(delivery["for_user_id"]) != me_id:
             return []
@@ -112,6 +159,7 @@ def posts_from_delivery(delivery: Any, me_id: str) -> list[Json]:
             ):
                 if value is not None:
                     post[key] = str(value)
+            post.update(_author_fields(user, user.get("followers_count"), _iso(user.get("created_at"))))
             out.append(post)
     return [p for p in out if p.get("authorId") != me_id and not _is_retweet(p.get("text", ""))]
 
@@ -145,6 +193,46 @@ def queue_posts(posts: list[Json], me: Mapping[str, Any]) -> dict[str, int]:
     return {k: v for k, v in counts.items() if v}
 
 
+#: The tag every subscription `subscribe` makes carries back on its events.
+SUBSCRIPTION_TAG = "teeny"
+
+
+def subscription_requests(me_id: str, webhook_id: str) -> list[Json]:
+    """The `POST /2/activity/subscriptions` bodies for `SUBSCRIBED_EVENTS`.
+    Follow events ask only for the `inbound` direction: somebody following
+    the account, not the account following somebody."""
+    out = []
+    for event_type in SUBSCRIBED_EVENTS:
+        target: Json = {"user_id": me_id}
+        if event_type in follows.EVENTS:
+            target["qualifiers"] = {"direction": "inbound"}
+        out.append({"event_type": event_type, "filter": target, "webhook_id": webhook_id, "tag": SUBSCRIPTION_TAG})
+    return out
+
+
+def subscribe(webhook_id: str, confirm: bool = False, x: XApi | None = None) -> Json:
+    """Subscribes the account's webhook to every event in
+    `SUBSCRIBED_EVENTS`. Without `confirm` it only shows what it would ask
+    for. X treats a subscription it already has as a refresh, so running it
+    again (after adding an event type here) is safe. Signed as the account
+    (OAuth 1.0a): mentions, replies and quotes are private events."""
+    if not webhook_id.strip():
+        raise hand.HandError("--webhook-id is required (X's id for the registered webhook)")
+    me_id = str(_identity()["id"])
+    requests = subscription_requests(me_id, webhook_id.strip())
+    if not confirm:
+        return {"preview": requests, "confirm": "run again with --confirm to create them"}
+    x = x or XApi.from_settings()
+    results = []
+    for body in requests:
+        try:
+            response = x.call("POST", "/2/activity/subscriptions", body=body, user=True)
+            results.append({"event_type": body["event_type"], "ok": True, "data": response.get("data")})
+        except hand.HandError as exc:
+            results.append({"event_type": body["event_type"], "ok": False, "error": str(exc)})
+    return {"subscriptions": results}
+
+
 class Receiver:
     """The HTTP side and the worker that queues what arrives."""
 
@@ -174,18 +262,32 @@ class Receiver:
             delivery = json.loads(body)
         except ValueError:
             return 400, {"error": "not JSON"}
-        posts = posts_from_delivery(delivery, str(self.me["id"]))
+        me_id = str(self.me["id"])
+        posts = posts_from_delivery(delivery, me_id)
         if posts:
-            self.work.put(posts)
-        return 200, {"ok": True, "queued": len(posts)}
+            self.work.put(("posts", posts))
+        followed = follows.from_delivery(delivery, me_id)
+        if followed:
+            self.work.put(("follows", followed))
+        answer: Json = {"ok": True, "queued": len(posts)}
+        if followed:
+            answer["follows"] = len(followed)
+        return 200, answer
+
+    def apply(self, item: tuple[str, list[Json]]) -> str:
+        """One unit of work off the queue, stored; what it did, for the log."""
+        kind, items = item
+        if kind == "follows":
+            return f"follows {follows.record(items)} from {[e['userId'] for e in items]}"
+        return f"queued {queue_posts(items, self.me)} from {[p['id'] for p in items]}"
 
     def drain(self) -> None:
         while True:
-            posts = self.work.get()
+            item = self.work.get()
             try:
-                _log(f"queued {queue_posts(posts, self.me)} from {[p['id'] for p in posts]}")
+                _log(self.apply(item))
             except Exception as exc:  # noqa: BLE001 - a bad batch must not stop the worker
-                _log(f"could not queue {[p.get('id') for p in posts]}: {type(exc).__name__}: {exc}")
+                _log(f"could not store {item[0]}: {type(exc).__name__}: {exc}")
             finally:
                 self.work.task_done()
 
