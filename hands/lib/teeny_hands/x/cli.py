@@ -18,6 +18,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
+  A  follow-up --to ID      stdin {"text", ...}: continue an own recorded post as a thread
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
   A  upload --file PATH     from state/media/ or brain/assets/ only
@@ -110,6 +111,10 @@ def _post(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
 
 def _reply(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return publish.reply(args.to, body)
+
+
+def _follow_up(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    return publish.follow_up(args.to, body)
 
 
 def _like(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -240,6 +245,7 @@ def parser() -> argparse.ArgumentParser:
          body=True)
     verb("post", _post, "an own post or a quote (JSON on stdin)", body=True)
     verb("reply", _reply, "a reply (JSON on stdin)", body=True).add_argument("--to", required=True)
+    verb("follow-up", _follow_up, "continue an own post as a thread (JSON on stdin)", body=True).add_argument("--to", required=True)
     verb("like", _like, "like a post").add_argument("id")
     unsay = verb("unsay", _unsay, "delete an own post")
     unsay.add_argument("id")

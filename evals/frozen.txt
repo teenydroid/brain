@@ -88,6 +88,8 @@ hands/vps
 hands/wallet
 # Paid search and the top-up spend from the same wallet.
 hands/x402
+# Tiny Drops pay $TINY from the giveaway pool (the giveaway-pool fence).
+hands/giveaway
 # The request list decides which paid request is built first (S3).
 hands/requests
 # What Teeny publishes on its own domain (A11): static files only.
@@ -103,6 +105,7 @@ hands/lib/teeny_hands/briefs.py
 hands/lib/teeny_hands/build/
 hands/lib/teeny_hands/desk.py
 hands/lib/teeny_hands/gh/
+hands/lib/teeny_hands/giveaway/
 hands/lib/teeny_hands/git.py
 hands/lib/teeny_hands/git_cli.py
 hands/lib/teeny_hands/guard/

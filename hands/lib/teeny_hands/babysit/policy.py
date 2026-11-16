@@ -218,6 +218,7 @@ DIARY_LAYOUT = (
     re.compile(r"days/\d{4}-\d{2}-\d{2}\.md"),
     re.compile(r"days/chain\.jsonl"),
     re.compile(r"memory/(?:MEMORY\.md|chain\.jsonl|head\.json)"),
+    re.compile(r"giveaways/(?:index|drop-\d+)\.json"),
     re.compile(r"verify\.py"),
     re.compile(r"README\.md"),
     re.compile(r"\.gitignore"),
@@ -238,6 +239,7 @@ DIARY_DATA = (
     re.compile(r"world/.+"),
     re.compile(r"wallet\.json"),
     re.compile(r"memory/.+"),
+    re.compile(r"giveaways/.+"),
 )
 #: What makes the receipts checkable at all.
 DIARY_VERIFIER = (re.compile(r"verify\.py"), re.compile(r"\.github/.+"))
