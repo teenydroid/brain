@@ -1,0 +1,42 @@
+## Evidence
+
+On the box (2026-11-16T01:57:58Z), `guard_holds` row 1133 held one of Teeny's own outbound build drafts: `direction=outbound`, `kind=draft`, `category=weapons`, reason `contains "bullet"`, held by the lexicon. The text began:
+
+> Add a '## Roadmap' section to README.md in teenydroid/refusal-ledger, immediately before the existing '## Run the tests' heading. One bullet per future feature, each credited to its moltbook correspon…
+
+It was a harmless build task (the README roadmap Teeny had promised), and the gate killed it. Markdown and README work uses "bullet" all the time, and `IDIOMS` only exempts "bullet point(s)", "silver bullet" and "bite/dodge the bullet".
+
+## Precedent
+
+`JUDGED_TERMS` in `hands/lib/teeny_hands/guard/lexicon.py` already covers kill/kills/killed/killing. Those words are not held on sight. They go to the model judge, which reads the whole sentence, and they are still held when the judge is off, unreachable or returns something unreadable. They were added after "killed" held one harmless comment 40 times.
+
+## Change
+
+- Add `"bullet"` and `"bullets"` to `JUDGED_TERMS`, and extend the comment above it with this case.
+- Both words stay in the weapons terms, because `JUDGED_TERMS` only applies to terms that are listed.
+- Update `test_kill_words.test_only_the_four_bare_words_are_judged` (now `..._bare_kill_and_bullet_words_are_judged`): it now requires the kill words to be in violence and the bullet words to be in weapons.
+
+## What stays held
+
+- Every other weapons term (gun, ammo, rifle, …) is still held on sight. A non-judged term always beats a judged one in `screen_text`, so "one bullet and a gun" is held by the screen without asking the judge.
+- With `SAFETY_JUDGE=0`, or a judge that fails, a bare "bullet" is held exactly as before.
+- Callers that only read the screen (`screen_text`, `gate.screen`) still see it as a weapons match.
+- Caps, idioms, other terms and judge-off behaviour are unchanged. There is no Rust twin of the lexicon in this repo.
+
+## Tests
+
+New `hands/tests/guard/test_bullet_words.py`, written before the fix. 4 of its 6 tests failed against the unfixed code. It covers:
+- the row-1133 draft goes out when the judge says clean, and the judge was asked
+- the judge still holds a "bullets" sentence aimed at harm
+- with an unreachable judge, the draft is still held (`judge_failed`)
+- ammo/gun, and bullet+gun, are still held by the screen with no judge call
+- with the judge off, a bare "bullet(s)" is still held; the screen alone reports it as a judged weapons match
+
+Runs:
+- `python3 -m unittest discover -s hands/tests -t hands/tests`
+- `bin/test/{seed_cron,act,doctor,eval,inbound_consume,frozen}_test.sh`
+- the shellcheck line from `.github/workflows/check.yml`
+
+## Frozen paths
+
+`evals/frozen.txt` lists `hands/guard` and `hands/lib/teeny_hands/guard/`. That only gates Teeny's own PRs. This is an operator PR, so the frozen check skips it, but it touches the guard and the operator should merge it.
