@@ -5,6 +5,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  get ID                 one post
   R  thread ID [--max N]    the post and its conversation
   R  user HANDLE            an account by its handle
+  R  users --ids A,B,...    up to 100 accounts by id: {id, username, createdAt, followers, followsMe}; kept 24h
   R  search QUERY [--max N] a recent search
   R  whoami                 the account's own id and username
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
@@ -12,6 +13,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
   A  post-thread            stdin {"posts": [2 to 5 texts], "anchor", "media_ids"?, "gif_id"?, "format"?, "experiment"?}; one own post, each later text a reply to the one before (not `thread`, the read above)
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
+  A  follow-up [--to ID]    stdin {"text", "to"?, ...}: continue an own recorded post as a thread
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
   A  upload --file PATH     from state/media/ or brain/assets/ only
@@ -23,10 +25,12 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  metrics list [--days N]  the latest row per own post measured in the last N days (7)
   O  twitr-connect HANDLE   start linking HANDLE to the wallet on twitr.sh: a link for the operator
   O  twitr-accounts         the X accounts linked to the wallet on twitr.sh
+  O  subscribe --webhook-id ID [--confirm]   subscribe the webhook to the X Activity events it reads
 
 Job verbs (J) keep the mentions queue. They answer nobody, but they write
 state and call the core, so no drafting agent is given them. Operator verbs
-(O) are run by a person once, when setting twitr.sh up (docs/hands.md).
+(O) are run by a person once, when setting twitr.sh or the webhook up
+(docs/hands.md).
 """
 
 from __future__ import annotations
@@ -35,8 +39,8 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, mentions, metrics, publish, twitr
-from .client import number_setting
+from . import cache, media, mentions, metrics, publish, twitr, webhook
+from .client import MAX_USER_IDS, number_setting
 from .model import SearchOptions
 
 
@@ -55,6 +59,27 @@ def _thread(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 def _user(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return {"user": cache.reads().user_by_username(args.handle)}
+
+
+def _users(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    users = cache.reads().users_by_ids(args.ids)
+    returned = {u["id"] for u in users}
+    return {"users": users, "missing": [i for i in args.ids if i not in returned]}
+
+
+def _ids(value: str) -> list[str]:
+    ids = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
+    if not ids:
+        raise argparse.ArgumentTypeError("--ids needs at least one id")
+    if len(ids) > MAX_USER_IDS:
+        raise argparse.ArgumentTypeError(f"--ids takes at most {MAX_USER_IDS} ids")
+    if not all(i.isdigit() for i in ids):
+        raise argparse.ArgumentTypeError("--ids are X user ids (digits), comma-separated")
+    return ids
+
+
+def _subscribe(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return webhook.subscribe(args.webhook_id, confirm=args.confirm)
 
 
 def _search(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -85,6 +110,16 @@ def _post_thread(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
 
 def _reply(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return publish.reply(args.to, body)
+
+
+def _follow_up(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    # bin/act pipes a playbook's draft with no flags, so the post may be named
+    # in the body instead; publish.follow_up still refuses all but own posts.
+    to = args.to if args.to is not None else (body.get("to") if isinstance(body, Mapping) else None)
+    if to is None:
+        raise hand.HandError("follow-up needs --to or a \"to\" in the body")
+    body = {k: v for k, v in body.items() if k != "to"} if isinstance(body, Mapping) else body
+    return publish.follow_up(str(to), body)
 
 
 def _like(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -162,6 +197,7 @@ def parser() -> argparse.ArgumentParser:
     thread.add_argument("id")
     thread.add_argument("--max", type=_max, default=None)
     verb("user", _user, "an account by its handle").add_argument("handle")
+    verb("users", _users, "up to 100 accounts by id, kept a day").add_argument("--ids", type=_ids, required=True)
     search = verb("search", _search, "a recent search")
     search.add_argument("query")
     search.add_argument("--max", type=_max, default=None)
@@ -171,6 +207,7 @@ def parser() -> argparse.ArgumentParser:
     verb("post", _post, "an own post or a quote (JSON on stdin)", body=True)
     verb("post-thread", _post_thread, "a thread of 2 to 5 posts, one own post (JSON on stdin)", body=True)
     verb("reply", _reply, "a reply (JSON on stdin)", body=True).add_argument("--to", required=True)
+    verb("follow-up", _follow_up, "continue an own post as a thread (JSON on stdin)", body=True).add_argument("--to")
     verb("like", _like, "like a post").add_argument("id")
     unsay = verb("unsay", _unsay, "delete an own post")
     unsay.add_argument("id")
@@ -193,6 +230,9 @@ def parser() -> argparse.ArgumentParser:
     measuring.add_argument("--days", type=_days, default=7)
     verb("twitr-connect", _twitr_connect, "start linking an X account to the wallet on twitr.sh").add_argument("handle")
     verb("twitr-accounts", _twitr_accounts, "the X accounts linked to the wallet on twitr.sh")
+    subscribing = verb("subscribe", _subscribe, "subscribe the webhook to the X Activity events it reads")
+    subscribing.add_argument("--webhook-id", required=True)
+    subscribing.add_argument("--confirm", action="store_true")
     return root
 
 

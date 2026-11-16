@@ -1,7 +1,7 @@
 """The scoreboard (docs/hands.md, "stats board"): one compact report of how
 Teeny is doing, worked out in code so no model does arithmetic.
 
-  audience  X followers, Moltbook followers and karma: the latest `stats`
+  audience  X followers, Moltbook followers and karma, Reddit karma: the latest `stats`
             value and its change over 1 and 7 days
   x         own posts, quotes and replies of the last N days with their
             latest `x_post_metrics` row
@@ -46,7 +46,7 @@ TOP = 5
 TEXT_CHARS = 80
 #: Characters of each of the three lines.
 LINE_CHARS = 320
-AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"))
+AUDIENCE = (("x", "followers"), ("moltbook", "followers"), ("moltbook", "karma"), ("reddit", "karma"))
 
 Json = dict[str, Any]
 

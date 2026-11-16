@@ -286,3 +286,25 @@ tz = "Asia/Kolkata"
 command = "bin/act speculate"
 catch_up = true
 
+# Open the week's Tiny Drop inside the season budget (giveaway-plan.md),
+# Tuesdays at 14:50, ten minutes before the `take`: on a day a drop opens,
+# the announce takes that slot and the 15:00 take is refused by the posting gap
+# (a refused post spends nothing). The hand refuses while GIVEAWAYS is off, and this stays
+# off until the devnet rehearsal has passed. The drop's countdown, judging
+# and reveal are drafted by giveaway-judge.md and giveaway-post.md, which the
+# pinned giveaway-settle job runs when `hands/giveaway announcements` owes
+# one (no slot here: brain jobs are capped at 24).
+[jobs.giveaway-plan]
+schedule = "50 14 * * 2"
+tz = "Asia/Kolkata"
+command = "bin/act giveaway-plan"
+enabled = false
+
+# Read Reddit through the browser operator (reddit-browse.md): every two
+# hours, the next allowlisted subreddit in turn (its threads and its rules),
+# then the inbox. What it read reaches the mind, which comments, replies and
+# votes through its reddit_* intents, so the growth loop needs no other slot.
+# A run with nothing due skips before the model (`hands/reddit due`).
+[jobs.reddit-browse]
+schedule = "35 */2 * * *"
+command = "bin/act reddit-browse"

@@ -40,6 +40,6 @@ The bar for every post: it is about one named item in the inputs from the last 2
 
 This is no longer a daily gm. Post only when this morning's reading gave you an anchor: one story from `heard`, `hn-top` or `hn-show`, and a line from your own record (`material`, or what you shipped or broke overnight) that bears on it. Say what you think of it in a line; a gm around it is fine, a gm without it is not a post. One running bit from the lore at most. Use the `gm` format: add "format": "gm", and the story's id or url as "anchor".
 
-One post. Under 240 characters. No link and no handle. Built to be answered (skills/conversation). No hashtags.
+One post. Under 240 characters. No link and no handle. Built to be answered (skills/conversation), with a first line that stops a stranger (skills/hooks). No hashtags.
 
 Add an "image" when a picture of you makes the gm better: you waking up, mid-build, glaring at a red test, whatever the post is about. Keep it to the scene; the character sheet takes care of how you look.

@@ -115,7 +115,8 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab", "build"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab", "build",
+                     "reddit"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -762,6 +763,75 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [self.ISSUE]})
         stimuli.add("x", "mention", "10", "hi")
         self.assertEqual(self.tick()["results"][0]["status"], "done")
+
+    # --- Reddit, through the browser desk (hands/reddit) ------------------------------
+
+    THREAD = "https://old.reddit.com/r/AI_Agents/comments/abc123/retries/"
+
+    def reddit_account(self):
+        from teeny_hands.tasks import queue
+
+        queue.record_account("www.reddit.com", "teenydroid", "Teeny's own Reddit account", 1)
+
+    def test_the_reddit_intents_are_offered_only_once_teeny_has_an_account(self):
+        self.tick()
+        self.assertNotIn("reddit_comment", self.chats()[0]["message"])
+        self.reddit_account()
+        stimuli.add("x", "mention", "r1", "hi")
+        self.tick()
+        message = self.chats()[1]["message"]
+        for do in ("reddit_comment", "reddit_reply", "reddit_post", "reddit_upvote", "reddit_subscribe"):
+            self.assertIn(f'"do": "{do}"', message)
+        self.assertIn("at most 6 today, replies included", message)
+        # A cap set to 0 takes the intent out of the prompt.
+        self.caps(REDDIT_POSTS_PER_DAY=0)
+        stimuli.add("x", "mention", "r2", "hi")
+        self.tick()
+        self.assertNotIn('"do": "reddit_post"', self.chats()[2]["message"])
+
+    def test_each_reddit_intent_goes_to_its_hand_verb_with_its_fields_only(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "cap retries at three", "subreddit": "x"},
+            {"do": "reddit_reply", "comment": self.THREAD + "def456/", "text": "thanks"},
+            {"do": "reddit_post", "subreddit": "AI_Agents", "title": "what retries taught me", "text": "three things"},
+            {"do": "reddit_upvote", "targets": [self.THREAD]},
+            {"do": "reddit_upvote", "permalink": self.THREAD},
+            {"do": "reddit_subscribe", "subreddit": "LLMDevs"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done"] * 6, got)
+        calls = [(c["argv"], c["body"]) for c in self.hand_calls() if c["hand"] == "reddit"]
+        self.assertEqual(calls, [
+            (["comment"], {"thread": self.THREAD, "body": "cap retries at three"}),
+            (["reply"], {"comment": self.THREAD + "def456/", "body": "thanks"}),
+            (["post"], {"subreddit": "AI_Agents", "title": "what retries taught me", "body": "three things"}),
+            (["upvote"], {"targets": [self.THREAD]}),
+            (["upvote"], {"targets": [self.THREAD]}),
+            (["subscribe"], {"subreddit": "LLMDevs"}),
+        ])
+
+    def test_comments_and_replies_share_one_mind_cap_and_a_refusal_is_not_paced(self):
+        tick = _tick_module()
+        self.assertNotIn("reddit_comment", tick.PACED)
+        self.caps(REDDIT_COMMENTS_PER_DAY=2)
+        os.environ["FAKE_REFUSALS_REDDIT"] = json.dumps([{"refused": "cap", "rule": "daily_cap", "wait_seconds": 30}])
+        self.addCleanup(os.environ.pop, "FAKE_REFUSALS_REDDIT", None)
+        self.answer({"thought": "", "intents": [
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "one"},
+            {"do": "reddit_reply", "comment": self.THREAD + "def456/", "text": "two"},
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "three"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "done", "refused"], got)
+        self.assertNotIn("paced", got["results"][0])
+        self.assertIn("today's 2 reddit_comment/reddit_reply intent(s) are spent", got["results"][2]["result"]["refused"])
+        self.assertEqual(len([c for c in self.hand_calls() if c["hand"] == "reddit"]), 2)
+
+    def test_a_reddit_post_needs_words_or_a_link(self):
+        self.answer({"thought": "", "intents": [{"do": "reddit_post", "subreddit": "AI_Agents", "title": "t"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused")
+        self.assertEqual([c for c in self.hand_calls() if c["hand"] == "reddit"], [])
 
     # --- paid web search and page reads (hands/x402) ----------------------------------
 

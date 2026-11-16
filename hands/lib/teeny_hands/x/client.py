@@ -43,6 +43,12 @@ USER_FIELDS = "username"
 #: What a lookup by handle asks for about the account.
 USER_LOOKUP_FIELDS = "created_at,description,public_metrics,verified"
 EXPANSIONS = "author_id,attachments.media_keys"
+#: What a lookup by ids asks for: a giveaway's filters (account age,
+#: followers) and whether each follows the account. `connection_status` is
+#: the signed-in account's relation to each user, so this lookup signs as it.
+USERS_BY_IDS_FIELDS = "created_at,public_metrics,connection_status"
+#: X's cap on ids per `GET /2/users` call.
+MAX_USER_IDS = 100
 
 #: How long one call may take. A post that times out may still have gone
 #: out, which is why the reply path treats a transport error as "in doubt".
@@ -287,6 +293,23 @@ class XApi:
             "GET", f"/2/users/by/username/{percent_encode(handle)}", [("user.fields", USER_LOOKUP_FIELDS)]
         )
         return model.to_user(response.get("data"), handle)
+
+    def users_by_ids(self, user_ids: Sequence[str]) -> list[Json]:
+        """Up to 100 accounts by id in one call, each `{id, username,
+        createdAt?, followers?, followsMe}`. X bills each user it returns; an
+        id X does not have (suspended, deactivated) is left out. Signed as the
+        account, so `connection_status` is the account's relation to each."""
+        ids = [i for i in user_ids if i]
+        if len(ids) > MAX_USER_IDS:
+            raise hand.HandError(f"at most {MAX_USER_IDS} ids per lookup")
+        if not ids:
+            return []
+        response = self.call(
+            "GET", "/2/users", [("ids", ",".join(ids)), ("user.fields", USERS_BY_IDS_FIELDS)], user=True
+        )
+        data = response.get("data")
+        users = (model.to_looked_up_user(raw) for raw in (data if isinstance(data, list) else []))
+        return [u for u in users if u]
 
     # --- raw writes (only teeny_hands.x.publish calls these) ---------------------------------
 

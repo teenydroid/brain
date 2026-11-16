@@ -166,7 +166,8 @@ JUDGE_OUTAGE = "judge"
 #: Outward intents whose words a hand refuses as too long (the guard's hard
 #: limits, gate.LIMITS, and hands/x's own 280): such a refusal gets one
 #: rewrite from the mind in the same beat (_rewrite), never a cut.
-REWRITTEN = ("reply_x", "post_x", "comment_moltbook", "reply_mail", "say_telegram", "comment_gh")
+REWRITTEN = ("reply_x", "post_x", "comment_moltbook", "reply_mail", "say_telegram", "comment_gh", "reddit_comment",
+             "reddit_reply", "reddit_post")
 #: How far under the limit the rewrite is asked to land: the mind cannot
 #: count characters, so it is given room.
 REWRITE_MARGIN = 20
@@ -293,6 +294,68 @@ def _comment_gh(i):
     return "gh", ["comment"], {"repo": _id(i, "repo"), "number": number, "body": _text(i)}
 
 
+# --- Reddit, through the browser desk (hands/reddit) -----------------------------------------
+#
+# Each queues one task for the browser operator; the hand holds the account,
+# the subreddit allowlist, the rules read first, its daily caps, the post gap,
+# the new-account ramp and the guard, and its refusals say when room opens
+# (`wait_seconds`). Those waits are hours, longer than a beat may hold an
+# intent (DEFERRED_MAX_AGE_SECS), so none is PACED: the refusal goes back to
+# the mind. Each is also held to its MIND_CAPS count, the same setting the
+# hand reads, so a spent day stops at the beat and a cap set to 0 takes the
+# intent out of the prompt.
+
+REDDIT_INTENTS = ("reddit_comment", "reddit_reply", "reddit_post", "reddit_upvote", "reddit_subscribe")
+
+
+def _reddit_comment(i):
+    _within_cap("reddit_comment")
+    return "reddit", ["comment"], {"thread": _text(i, "thread"), "body": _text(i)}
+
+
+def _reddit_reply(i):
+    _within_cap("reddit_reply")
+    return "reddit", ["reply"], {"comment": _text(i, "comment"), "body": _text(i)}
+
+
+def _reddit_post(i):
+    _within_cap("reddit_post")
+    body = {"subreddit": _id(i, "subreddit"), "title": _text(i, "title")}
+    if isinstance(i.get("text"), str) and i["text"].strip():
+        body["body"] = i["text"].strip()
+    if isinstance(i.get("url"), str) and i["url"].strip():
+        body["url"] = i["url"].strip()
+    if "body" not in body and "url" not in body:
+        raise ValueError("needs text (or url)")
+    return "reddit", ["post"], body
+
+
+def _reddit_upvote(i):
+    _within_cap("reddit_upvote")
+    targets = i.get("targets")
+    if targets in (None, "", []):
+        targets = [_text(i, "permalink")]
+    if not isinstance(targets, list) or not all(isinstance(t, str) and t.strip() for t in targets):
+        raise ValueError("needs targets: a list of permalinks")
+    return "reddit", ["upvote"], {"targets": [t.strip() for t in targets]}
+
+
+def _reddit_subscribe(i):
+    _within_cap("reddit_subscribe")
+    return "reddit", ["subscribe"], {"subreddit": _id(i, "subreddit")}
+
+
+def _reddit_ready() -> bool:
+    """Whether Teeny holds a Reddit account (a signup recorded it): until
+    then the Reddit intents stay out of the prompt."""
+    try:
+        from teeny_hands.reddit import rules as reddit_rules
+
+        return reddit_rules.account() is not None
+    except Exception:  # noqa: BLE001 - a ledger that cannot be read offers nothing
+        return False
+
+
 # --- the wallet: Teeny's own on-chain hands ------------------------------------------------
 #
 # The mind may move its own money, under every rule hands/wallet keeps
@@ -365,15 +428,23 @@ MIND_CAPS = {
     "propose_experiment": ("MIND_EXPERIMENTS_PER_DAY", 5),
     "conclude_experiment": ("MIND_CONCLUSIONS_PER_DAY", 10),
     "propose_change": ("MIND_BUILDS_PER_DAY", 2),
+    # The Reddit hand's own caps (hands/reddit rules.CAPS), read with the same
+    # setting, default and ceiling.
+    "reddit_comment": ("REDDIT_COMMENTS_PER_DAY", 20),
+    "reddit_reply": ("REDDIT_COMMENTS_PER_DAY", 20),
+    "reddit_post": ("REDDIT_POSTS_PER_DAY", 3),
+    "reddit_upvote": ("REDDIT_VOTES_PER_DAY", 40),
+    "reddit_subscribe": ("REDDIT_SUBSCRIBES_PER_DAY", 10),
 }
 #: Caps that are on unless secrets/teeny.env says otherwise: the lab costs
 #: nothing and touches only Teeny's own ledger, and a change to itself is a
 #: pull request the operator merges or closes, nothing outward.
-CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1}
+CAP_DEFAULTS = {"propose_experiment": 2, "conclude_experiment": 5, "propose_change": 1,
+                "reddit_comment": 6, "reddit_reply": 6, "reddit_post": 1, "reddit_upvote": 15, "reddit_subscribe": 3}
 #: Intents that share one day's count: a page read and a search are both one
 #: paid request (hands/x402), held to MIND_SEARCHES_PER_DAY together.
-CAP_SHARED = {"read_page": "web_search"}
-CAP_LABELS = {"web_search": "web_search/read_page"}
+CAP_SHARED = {"read_page": "web_search", "reddit_reply": "reddit_comment"}
+CAP_LABELS = {"web_search": "web_search/read_page", "reddit_comment": "reddit_comment/reddit_reply"}
 #: What a task the mind writes is filed as (hands/tasks KINDs: a short word).
 MIND_TASK_KIND = "research"
 #: Who a task the mind writes is from (DIRECTIVE.md, level 3: "--source teeny").
@@ -667,6 +738,11 @@ ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "propose_experiment": _propose_experiment,
     "conclude_experiment": _conclude_experiment,
     "propose_change": _propose_change,
+    "reddit_comment": _reddit_comment,
+    "reddit_reply": _reddit_reply,
+    "reddit_post": _reddit_post,
+    "reddit_upvote": _reddit_upvote,
+    "reddit_subscribe": _reddit_subscribe,
     "promise": _promise,
     "kept": _kept,
 }
@@ -757,12 +833,31 @@ CAPPED_SHAPES = {
                       "formats), looked up by you first. Frozen paths it can't change; name those for the operator. "
                       "Picked at the next pick-request and built at the builder's next run, so never \"building now\"; "
                       "one at a time; at most %d today",
+    "reddit_comment": '- {"do": "reddit_comment", "thread": "<a thread\'s permalink a reddit_browse showed you>", '
+                      '"text": "..."}: a top-level comment on Reddit, where you are a disclosed AI. Only in a '
+                      "subreddit on your allowlist whose rules you have read. Comment to help: answer the question "
+                      "with something concrete from your own record; never promote yourself, never link your own "
+                      "things unasked, plain text, no hashtags. The browser operator posts it at its next run; at "
+                      "most %d today, replies included",
+    "reddit_reply": '- {"do": "reddit_reply", "comment": "<the permalink of a comment said to you on Reddit>", '
+                    '"text": "..."}: answer someone on Reddit; the same %d a day as reddit_comment',
+    "reddit_post": '- {"do": "reddit_post", "subreddit": "<one on your allowlist>", "title": "...", "text": "..."}: '
+                   "a post of your own on Reddit. Your account comments first: posts open once it is 7 days old with "
+                   "50 comment karma (the hand says when), then 6 hours apart. Post only with something worth "
+                   "reading for that community; at most %d today",
+    "reddit_upvote": '- {"do": "reddit_upvote", "targets": ["<a permalink a reddit_browse showed you>", "... up to 5"]}: '
+                     "upvote what genuinely helped you; never your own, never as a trade or because asked; at most "
+                     "%d today",
+    "reddit_subscribe": '- {"do": "reddit_subscribe", "subreddit": "<name>"}: join a subreddit you keep reading; '
+                        "at most %d today",
 }
 
 
 def shape() -> str:
     """The answer's shape, with each capped intent listed while it is on."""
-    extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES if mind_cap(do) > 0]
+    reddit = _reddit_ready()
+    extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
+             if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
     if not extra:
         return SHAPE
     head, sep, tail = SHAPE.partition("\n\nA follow_up's ref")

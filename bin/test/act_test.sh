@@ -779,6 +779,11 @@ for name in morning take build-idea moltbook-daily moltbook-evening moltbook-gen
     bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
 done
 
+# Reddit is read through the browser desk: a run with nothing due skips before
+# the model, and the playbook can only queue a read.
+check "reddit-browse waits on hands/reddit due and only browses" \
+  bash -c "$(declare -f listens); act='$act' here='$here' listens reddit-browse | jq -e '.inputs[0] == \"due\" and .output == \"hand:reddit browse\" and .surface == \"reddit\"' >/dev/null"
+
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
   exit 1

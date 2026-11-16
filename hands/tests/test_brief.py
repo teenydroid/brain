@@ -177,7 +177,28 @@ class BriefTest(unittest.TestCase):
 
     def test_an_unknown_surface_is_refused(self):
         with self.assertRaises(hand.Refused):
-            briefs.add("hello", surface="reddit")
+            briefs.add("hello", surface="myspace")
+        with self.assertRaises(hand.Refused):
+            briefs.leads("x")
+
+    def test_a_reddit_lead_is_its_own_list(self):
+        reddit = briefs.add("r/AI_Agents has a thread on retries", surface="reddit")["brief"]["id"]
+        briefs.add("a moltbook thread", surface="moltbook")
+        self.assertEqual([lead["id"] for lead in briefs.leads("reddit")["leads"]], [reddit])
+        self.assertNotIn(reddit, [lead["id"] for lead in briefs.leads()["leads"]])
+
+    def test_a_ledger_whose_check_predates_reddit_is_widened_with_its_rows(self):
+        conn = hand.db()
+        conn.executescript(
+            "CREATE TABLE briefs (id INTEGER PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open'"
+            " CHECK (status IN ('open', 'posted', 'cancelled')), created_at REAL NOT NULL, post_id TEXT, post_text TEXT,"
+            " done_at REAL, surface TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook')));"
+            "CREATE INDEX briefs_status ON briefs (status, created_at);"
+            f"INSERT INTO briefs (id, text, created_at, surface) VALUES (7, 'kept', {T0}, 'moltbook');"
+        )
+        conn.close()
+        briefs.add("a reddit lead", surface="reddit")
+        self.assertEqual([(b["id"], b["surface"]) for b in briefs.listing(10)["briefs"]], [(8, "reddit"), (7, "moltbook")])
 
     def test_a_ledger_from_before_surfaces_is_read_as_x(self):
         conn = hand.db()
