@@ -991,6 +991,11 @@ class Skipped(Exception):
         self.why, self.where, self.note = why, where, note
 
 
+class ProposalShape(EvolveError):
+    """A proposal that parsed but lacks a field it needs: a finding for the
+    next round, not the end of the candidate (gen 12's "needs a hypothesis")."""
+
+
 def check_proposal(proposal: Any) -> Json:
     if not isinstance(proposal, Mapping):
         raise EvolveError("the proposal is not a JSON object")
@@ -1002,10 +1007,10 @@ def check_proposal(proposal: Any) -> Json:
         raise Skipped(why, str(proposal.get("where") or "").strip()[:300], note.strip()[:500])
     component = proposal.get("component")
     if component not in COMPONENTS:
-        raise EvolveError(f"the proposal names no W component ({', '.join(COMPONENTS)})")
+        raise ProposalShape(f"the proposal names no W component ({', '.join(COMPONENTS)})")
     for key in ("title", "expected_move", "hypothesis"):
         if not isinstance(proposal.get(key), str) or not proposal[key].strip():
-            raise EvolveError(f"the proposal needs a {key}")
+            raise ProposalShape(f"the proposal needs a {key}")
     return dict(proposal)
 
 
@@ -3736,6 +3741,8 @@ def round_line(rec: Mapping[str, Any]) -> str:
     findings = rec.get("findings") or []
     if outcome == "did-not-apply":
         line = "the edits did not apply"
+    elif outcome == "out-of-shape":
+        line = str(findings[0]["problem"]) if findings else "the proposal was out of shape"
     elif outcome == "checks":
         line = "checks failed: " + ", ".join(sorted({str(f.get("check") or f["problem"][:60]) for f in findings}))
     elif outcome == "revise":
@@ -3760,7 +3767,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
     of build, hard gate, checks and review. A frozen path, an oversized
     change or SOUL+CONTEXT past its cap is `rejected` for good, and a
     near-duplicate is dropped; a failed check, a reviewer's revision, or
-    edits that did not apply go back to the builder as findings. An
+    edits that did not apply, or a proposal missing a field, go back to the
+    builder as findings (one out of shape every round is `no-proposal`). An
     approved change is `pending` (the eval comes next); one still failing
     after the last round is `parked` with its findings. TRIED is a callable
     giving what was tried before (given the files research named). Every
@@ -3857,6 +3865,18 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 return entry
             parked_why = f"round {rnd}: the builder skipped ({skip.why}): {skip.note}"[:300]
             break
+        except ProposalShape as exc:
+            # An answer that parsed but lacks a field: told what, next round,
+            # like edits that did not apply (gen 12, candidate 4).
+            say(f"candidate {i}: {exc}; sent back")
+            if rec is None:
+                rec = {"round": rnd}
+                rounds.append(rec)
+            findings = [{"file": "", "problem": str(exc)[:300],
+                         "fix": "answer every field: title, component (one of " + ", ".join(COMPONENTS)
+                                + "), expected_move and hypothesis, each a non-empty string, with your edits"}]
+            keep(rec, "out-of-shape", findings)
+            continue
         except (EvolveError, OSError) as exc:
             if rnd == 1:
                 entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})
@@ -3976,6 +3996,11 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                       **({"in_place": True} if in_place else {})})
         entry.update(verdict="pending", round=rnd, rounds=[round_line(r) for r in rounds if r.get("outcome")],
                      review={k: review[k] for k in ("verdict", "findings", "note") if k in review})
+        return entry
+    if rounds and all(r.get("outcome") == "out-of-shape" for r in rounds):
+        # No round gave a proposal in shape: nothing was built.
+        entry.update(verdict="no-proposal", reason=str(rounds[-1]["findings"][0]["problem"])[:500],
+                     rounds=[round_line(r) for r in rounds], gate={"ok": False, "checks": []})
         return entry
     entry.update(verdict="parked", reason=parked_why, findings=findings[:MAX_FINDINGS],
                  rounds=[round_line(r) for r in rounds if r.get("outcome")])
