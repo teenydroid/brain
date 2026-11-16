@@ -1,0 +1,23 @@
+# The websites Teeny's browser reaches through the residential proxy, one
+# host per line. Owned by the operator, never by Teeny: it lives in deploy/,
+# outside the brain Teeny edits, and evals/frozen.txt freezes it.
+#
+# Some sites refuse the box's datacenter address outright (Reddit answers
+# every page with "You've been blocked by network security"). When
+# BROWSER_PROXY_URL is set in secrets/spine.env, bin/lib/core_sections/
+# automation.py writes `[browser] upstream_proxies` with this list, and the
+# browser reaches these hosts through that proxy. Every such page is still
+# authorized as before (deploy/browser-deny.txt and TinySecurity apply), and
+# so is the proxy's own address. Without BROWSER_PROXY_URL nothing is routed.
+#
+# A host matches itself and every subdomain. No wildcards: write the
+# registrable domain itself. Every other site goes direct, so the proxy's
+# metered traffic is spent only here.
+
+# Reddit: pages, its CDNs, its short links and its mail.
+reddit.com
+redd.it
+redditmedia.com
+redditstatic.com
+redditmail.com
+reddituploads.com

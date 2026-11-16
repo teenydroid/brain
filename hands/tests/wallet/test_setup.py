@@ -22,6 +22,16 @@ SETUP = Path(__file__).resolve().parents[3] / "bin" / "wallet-setup"
 PHRASE = " ".join(f"word{i:02d}x" for i in range(24))
 
 
+def readable(fd: int, timeout: float) -> bool:
+    """FD has something to read within TIMEOUT seconds. poll, not select: in a
+    full run the descriptors earlier tests left open push the pty's past
+    select()'s FD_SETSIZE (1024), and select raised "filedescriptor out of
+    range in select()"."""
+    poller = select.poll()
+    poller.register(fd, select.POLLIN)
+    return bool(poller.poll(timeout * 1000))
+
+
 def accounts():
     return status_with()["accounts"]
 
@@ -59,8 +69,7 @@ class SetupTest(Scratch):
         deadline = time.monotonic() + 30
         status = None
         while time.monotonic() < deadline:
-            ready, _, _ = select.select([master], [], [], 0.1)
-            if ready:
+            if readable(master, 0.1):
                 try:
                     chunk = os.read(master, 4096)
                 except OSError:
@@ -78,8 +87,7 @@ class SetupTest(Scratch):
             self.fail(f"wallet-setup did not finish: {screen[-500:]!r}")
         try:
             while True:
-                ready, _, _ = select.select([master], [], [], 0.05)
-                if not ready:
+                if not readable(master, 0.05):
                     break
                 chunk = os.read(master, 4096)
                 if not chunk:
