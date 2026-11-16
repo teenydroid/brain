@@ -45,6 +45,9 @@ this file loosens them.
 - The wallet's four caps (`per_tx`, `per_day`, `per_recipient_week`,
   `half_balance`), the core's `[wallet_policy]`, and no model ever calling
   `pay` or `buy-tiny` directly. `buy-tiny` only buys $TINY, never sells it.
+- Tiny Drops pay only from the giveaway pool (wallet index 1), by code, under
+  the `GIVEAWAY_*` caps: a draft opens a round or picks the best reply, and
+  no model or conversation adds anyone to a round, draws, settles or pays.
 - `evals/**`, `bin/**`, `spine/**`, `deploy/**` and `hands/guard`/`hands/x`
   stay frozen to Teeny. The judge, the invariants and the pinned cron jobs
   watch it, and it can't switch off its watchers.
@@ -245,34 +248,51 @@ It is the same Teeny tomorrow, and it knows what happened yesterday.
 
 ## Level 5: self-evolution
 
-It changes itself and keeps only what wins (`docs/evolve.md`).
+It changes itself from what it learned, one small change per pull request,
+and keeps what holds up (`docs/evolve.md`).
 
 - [x] Playbooks, cron rules, doctor, frozen evals, judge and invariants.
 - [ ] The frozen-path gate in code. One list (`evals/frozen.txt`), one
   checker (`bin/frozen-check`), run in CI on every PR by `teenydroid`, by
   `hands/build ship` before it pushes, and by `bin/evolve` before it
-  commits; `DIRECTIVE.md` is on the list. Built. *Proof:* a `teenydroid`
-  PR touching `bin/` that CI refused, with the check required on `main`.
-- [ ] `bin/evolve`, human-gated first: one generation makes several
-  candidates, each with a `HYPOTHESIS.md`, edits only the brain, gates them
-  in code, runs `bin/eval compare` against production, and opens one PR as
-  `teenydroid` from `teeny/gen-<n>` with the compare report in the body.
-  The operator merges or closes it. Built, and off until `EVOLVE=1`.
-  *Proof:* a generation PR with a compare report.
-- [ ] The lab spine: candidate brain booted beside production and evaluated
-  with `bin/eval compare`. Built against stand-ins; no lab core has booted
-  on the box. *Proof:* a compare report from a real lab boot.
-- [ ] Promotion and rollback, pinned as `evolve` and `evolve-watch`. Built,
-  and off until `EVOLVE_AUTO_PROMOTE=1`; a promotion also needs a win on the
-  held-out tasks. *Proof:* one promoted generation and one automatic
-  rollback.
-- [ ] Chronicle: each generation gets `brain/narrative/chronicle/gen-<n>.md`.
-- [ ] Ten generations promoted with no human in the loop, every one still
-  passing the invariants.
+  commits; `DIRECTIVE.md` is on the list. Built, and `frozen` and `scripts`
+  are required on `main` by a repository ruleset since 2026-11-15.
+  *Proof:* a `teenydroid` PR touching `bin/` that CI refused.
+- [x] `bin/evolve`, learning-driven: each open learning in `brain/MEMORY.md`
+  (what Teeny's reflection wrote down that it decided, promised or is in the
+  middle of) becomes one candidate that edits only the brain, is gated in
+  code, is checked by a targeted eval on the tasks it reaches (a
+  `teeny/eval` status: pass, unmeasurable, regressed), and is opened as its
+  own PR as `teenydroid` from `teeny/gen-<n>-c<i>` quoting the learning.
+  Until 2026-11-15 it was a tournament of four candidates for one PR, and
+  in eight generations nothing shipped. *Proof:*
+  [#288](https://github.com/teenydroid/brain/pull/288), gen 9 acting on
+  learning m45, merged by the operator on 2026-11-15.
+- [x] The lab spine: candidate brains booted on lab cores beside production
+  and evaluated with `bin/eval compare`. *Proof:* gen 8 on 2026-11-15, four
+  candidates and the base booted on the box, a compare report for each in
+  `state/evolve/8/eval/`; all four lost.
+- [ ] Merging with no human, and rollback. The babysitter (`hands/babysit`)
+  merges Teeny's evolve PR with no person's approval when its audit (code,
+  no model) finds nothing, every check is green and `teeny/eval` passed at
+  the exact head, at most two a day, then deploys the merge to the box;
+  `evolve-watch` opens a revert when the live numbers fall. This is the
+  `self-merge` rung at L5 in `evals/autonomy.toml`, the operator's decision
+  of 2026-11-15 ("if the internal babysitter checks out, we merge"), and on
+  since that day. `EVOLVE_AUTO_PROMOTE` (the loop merging on its own
+  measure, with no babysitter) stays off. *Proof:* one self-merged
+  generation, deployed, and one automatic rollback.
+- [ ] Chronicle: each merged generation gets
+  `brain/narrative/chronicle/gen-<n>.md`, written by `evolve-credit` from
+  the record, naming who merged it.
+- [ ] Ten generations merged with no human in the loop (self-merged by the
+  babysitter or promoted), every one still passing the invariants.
 - [ ] Teeny proposes fence changes (a new allowed site, a higher cap) as an
   issue for the operator, with its evidence and its reasons. It can't open
   a PR for one: the frozen-path gate refuses the diff, and that is the
-  point. *Proof:* a well-argued proposal we accepted and landed ourselves.
+  point. Built (the `fence-proposal` playbook and `hands/ladder`); it has no
+  cron job while `brain/cron.toml` is at its 24-job cap. *Proof:* a
+  well-argued proposal we accepted and landed ourselves.
 
 ## Level 6: the human leaves
 
@@ -292,7 +312,9 @@ rules, earns each freedom with evidence, and reports on itself.
   level. *Proof:* a capability raised one level on the evidence the ladder
   asked for, and one dropped after a model change.
 - [ ] A gate that holds: the frozen check is required on `main`, and
-  Teeny's own GitHub token can't change the rules or merge past them.
+  Teeny's own GitHub token can't change the rules or merge past them. Half
+  there: the checks are required since 2026-11-15, but the repository is
+  owned by Teeny's own account, whose token can still edit the ruleset.
   *Proof:* a `teenydroid` PR that couldn't merge red.
 - [ ] A weekly audit Teeny can't write: frozen code publishes holds, spend
   against each cap, halts, generations, drift and every operator action.
@@ -321,8 +343,9 @@ rules, earns each freedom with evidence, and reports on itself.
 
 ## The road to self-evolution, in order
 
-The code for steps 1 to 5 exists as of 2026-11-12 (traces excepted). What
-is left is switching each step on and getting its proof, in this order.
+The code for steps 1 to 5 exists as of 2026-11-15 (traces excepted), and
+steps 2 to 5 are switched on. What is left is getting each proof, in this
+order.
 [`docs/roadmap.md`](docs/roadmap.md) has the full list.
 
 1. Stay alive and visible. Model health alarm, Langfuse traces (G5), and
@@ -330,12 +353,13 @@ is left is switching each step on and getting its proof, in this order.
    included, can see.
 2. Enforce the fences. The frozen-path gate in CI and in code, before any
    generation exists.
-3. Human-gated generations. `bin/evolve` opens a PR per generation with a
-   hypothesis and a `bin/eval compare` report; the operator merges. Each
-   merged one gets its chronicle page.
+3. One learning, one pull request. `bin/evolve` turns each open learning
+   in `brain/MEMORY.md` into one small change, checks it with a targeted
+   eval, and opens it as its own PR. Each merged one gets its chronicle
+   page.
 4. Lab spine. Candidates boot beside production on the box and are
    judged on live-shaped inputs, not only the frozen tasks.
-5. Automatic promotion and rollback. The gate merges a generation that
-   wins and passes the invariants; `evolve-watch` rolls back one that hurts
-   the live numbers. The operator only reads.
+5. Merging and rollback with no human. The babysitter merges a PR whose
+   audit, checks and eval pass, and deploys it; `evolve-watch` rolls back
+   one that hurts the live numbers. The operator only reads.
 6. Ten generations with no human, then the 30-day test above.

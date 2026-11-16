@@ -97,6 +97,24 @@ class ReadVerbsTest(Cli):
         code, out, _ = self.run_x("whoami")
         self.assertEqual((code, out), (0, {"ok": True, "id": "1000", "username": "teenydroid"}))
 
+    def test_links_says_the_days_link_is_spent_after_an_earlier_link_post(self):
+        # The 23:00 show reads this before it drafts: once the 07:00 post used
+        # the day's one link, it writes the Moltbook exchange without one.
+        from teeny_hands import hand
+        from teeny_hands.x import posting_rules
+
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 0, 1))
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "101", "post", "shipped it: github.com/teenydroid/thing", created_at=T0)
+        conn.commit()
+        code, out, _ = self.run_x("links")
+        self.assertEqual(code, 0)
+        self.assertEqual((out["cap"], out["sent_today"], out["left"]), (1, 1, 0))
+        self.assertEqual(self.x.requests(), [], "a read of the ledger, never of X")
+
     def test_get(self):
         self.x.route("GET", "/2/tweets/77", {"data": {"id": "77", "text": "hello", "author_id": "42"}})
         code, out, _ = self.run_x("get", "77")
@@ -122,6 +140,25 @@ class ReadVerbsTest(Cli):
     def test_user(self):
         self.x.route("GET", "/2/users/by/username/stonks", {"data": {"id": "9", "username": "stonks"}})
         self.assertEqual(self.run_x("user", "@stonks")[:2], (0, {"ok": True, "user": {"id": "9", "username": "stonks"}}))
+
+    def test_users_by_ids(self):
+        self.x.route("GET", "/2/users", {"data": [
+            {"id": "9", "username": "stonks", "created_at": "2021-01-01T00:00:00.000Z",
+             "public_metrics": {"followers_count": 30}, "connection_status": ["followed_by"]},
+        ]})
+        code, out, _ = self.run_x("users", "--ids", "9,10")
+        self.assertEqual((code, out["missing"]), (0, ["10"]))
+        self.assertEqual(out["users"], [{"id": "9", "username": "stonks", "createdAt": "2021-01-01T00:00:00.000Z",
+                                         "followers": 30, "followsMe": True}])
+        self.run_x("users", "--ids", "9")
+        self.assertEqual(len(self.x.requests("GET", "/2/users")), 1, "the second lookup came from x_cache")
+
+    def test_users_refuses_more_than_a_hundred_ids_or_a_handle(self):
+        too_many = ",".join(str(i) for i in range(1, 102))
+        for ids in (too_many, "@stonks"):
+            done = subprocess.run([str(SHIM), "users", "--ids", ids], capture_output=True, text=True, env=os.environ, timeout=60)
+            self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.x.requests("GET", "/2/users"), [])
 
     def test_search_uses_the_configured_max_unless_told(self):
         self.configure(X_SEARCH_MAX_RESULTS="25")
@@ -189,6 +226,16 @@ class WriteVerbsTest(Cli):
         self.assertEqual((code, out), (0, {"ok": True, "id": "99", "in_reply_to": "5", "kind": "reply", "text": "hi"}))
         code, out, _ = self.run_x("reply", "--to", "5", stdin='{"text":"again"}', guarded=True)
         self.assertEqual((code, out["refused"].startswith("already replied")), (2, True))
+
+    def test_follow_up_takes_its_target_from_the_body_when_no_flag_names_one(self):
+        # bin/act pipes a playbook's draft to a hand with no flags, so a
+        # `hand:x follow-up` output names the post in the body.
+        code, out, _ = self.run_x("follow-up", stdin='{"text":"hi","to":"5"}', guarded=True)
+        self.assertEqual((code, out.get("rule")), (2, "not_own"))
+        code, out, _ = self.run_x("follow-up", stdin='{"text":"hi"}', guarded=True)
+        self.assertEqual(code, 1)
+        self.assertIn("to", out["error"])
+        self.assertEqual(self.x.writes(), [])
 
     def test_like(self):
         self.x.route("POST", "/2/users/1000/likes", {"data": {"liked": True}})

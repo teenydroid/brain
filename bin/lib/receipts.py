@@ -30,7 +30,8 @@ Every surface is covered, each from the ledger its hand writes once the
 action went out (never under DRY_RUN, never when refused or held): x_posts and
 x_likes; moltbook_posts and moltbook_comments (live statuses) and
 moltbook_actions (upvotes, follows, subscriptions); gh_actions; shipped
-build_jobs; paid wallet_payments and bought wallet_tiny_buys; bounties; mail_sent; telegram_sent. The mind
+build_jobs; paid wallet_payments and bought wallet_tiny_buys; bounties; the Tiny Drops round files pushed to
+`giveaways/` (giveaway_publications: round, status, sha256); mail_sent; telegram_sent. The mind
 loop's state/tick/runs.jsonl is never read: it is what the mind meant to do,
 dry runs and refusals included, and every action it took that went out is
 already in a ledger, so reading it too would count one twice.
@@ -186,6 +187,8 @@ SOLANA_SIG = re.compile(r"[1-9A-HJ-NP-Za-km-z]{64,90}")
 CLUSTERS = wallet_caps.CLUSTERS
 ASSETS = ("SOL", "USDC")
 PURPOSES = ("bounty", "vendor", "refund", "bill")
+GIVEAWAY_STATUSES = ("open", "drawn", "settled", "clawed_back")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 MAX_INT = 2**63 - 1
 
 
@@ -260,6 +263,8 @@ def _key(kind: str, ref: Json) -> str | None:
         "moltbook.follow": "agent", "moltbook.subscribe": "submolt",
         "wallet.paid": "signature", "wallet.bought": "signature", "bounty.opened": "id", "bounty.picked": "id",
     }.get(kind)
+    if kind == "giveaway.published" and "id" in ref and "sha256" in ref:
+        return f"{kind}:{ref['id']}:{ref['sha256']}"
     if pick and pick in ref:
         return f"{kind}:{ref[pick]}"
     if kind == "moltbook.upvote" and len(ref) == 1:
@@ -387,6 +392,14 @@ def gather(conn: sqlite3.Connection) -> tuple[list[Action], dict[str, int]]:
     for r in _rows(conn, "SELECT * FROM bounties WHERE winner_post_id IS NOT NULL ORDER BY picked_at, id"):
         add("bounty.picked", r["picked_at"] or r["created_at"], r, lambda r=r: {
             "id": _int(r["id"], 1), "x_post": _match(X_ID, r["winner_post_id"])})
+
+    for r in _rows(conn, "SELECT * FROM giveaway_publications ORDER BY at, id"):
+        # Each Tiny Drops round file pushed to giveaways/ (hands/giveaway):
+        # its round, the status it showed, and the sha256 of the file, so a
+        # rewritten round file no longer matches its receipt.
+        add("giveaway.published", r["at"], r, lambda r=r: {
+            "id": _int(r["round_id"], 1), "status": _one_of(GIVEAWAY_STATUSES, r["status"]),
+            "sha256": _match(SHA256_HEX, r["sha256"])})
 
     for r in _rows(conn, "SELECT * FROM mail_sent ORDER BY at, id"):
         # Who Teeny mailed and what about stays private: the receipt is a

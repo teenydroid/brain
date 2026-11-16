@@ -4,9 +4,9 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts` and `people`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -30,19 +30,23 @@ report they leave beside it.
 
 | Verb | | Does |
 |---|---|---|
-| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Then it screens every `unscreened` row the webhook queued the same way (`pending` or `held`; `screened` in its output). Every `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
+| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Then it screens every `unscreened` row the webhook queued the same way (`pending` or `held`; `screened` in its output). A `pending` row in the thread of an open Tiny Drop (`giveaway_rounds`) is an entry, marked `skipped` with the note `drop entry` and never offered, since hands/giveaway reads it from the row. Every other `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
+| `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
+| `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
 | `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
+| `follow-up [--to ID]` | A | Continues one of the account's own posts as a thread: a reply to `ID` (or the body's `to`, since `bin/act` pipes a playbook's draft with no flags), which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each own post measured in the last N days (7), newest first, with its kind, `format`, `experiment` and the first 120 characters. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
+| `subscribe --webhook-id ID [--confirm]` | O | Subscribes the registered webhook (X's id for it) to every X Activity event the webhook reads (`webhook.SUBSCRIBED_EVENTS`: `post.mention.create`, `post.reply.create`, `post.quote.create`, `follow.follow`, `follow.unfollow`; the follow events with the `inbound` direction), one `POST /2/activity/subscriptions` each, signed as the account. Previews the request bodies unless `--confirm`. X treats a subscription it already has as a refresh, so it is safe to run again after an event type is added. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -142,8 +146,9 @@ hands/x twitr-accounts             # until teenydroid reads `linked`
 
 X also pushes mentions, replies and quotes to the account's webhook,
 `https://teeny.enamakel.com/api/webhooks/x` (registered with X, subscribed
-through the X Activity API to `post.mention.create`, `post.reply.create` and
-`post.quote.create` for the account). `bin/x-webhook`, the `xhook` service in
+through the X Activity API to `post.mention.create`, `post.reply.create`,
+`post.quote.create`, `follow.follow` and `follow.unfollow` for the account:
+`hands/x subscribe`). `bin/x-webhook`, the `xhook` service in
 `deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge and
 refuses any delivery whose `x-twitter-webhooks-signature` is not the
 HMAC-SHA256 of the body under `X_API_SECRET`. It queues each post about the
@@ -160,6 +165,23 @@ held as "the judge could not be reached" until the guard's re-screen let it
 go, 2 to 15 minutes or more later.) This is how mentions arrive. Nothing is searched or billed per post, and the webhook catches
 replies that X's mentions timeline leaves out (2026-11-11: four of nine
 replies to the gm never came back from `/mentions`).
+
+A delivery also carries the post's author (`includes.users`, or `user` in
+the older `tweet_create_events` shape). Its account age, follower count and
+verified badge are kept on the row (`author_created_at`, ISO 8601;
+`author_followers`; `author_verified`, 0 or 1), null when the delivery did
+not carry them or the row came from the mentions timeline. Somebody following
+or unfollowing the account (`follow.follow` / `follow.unfollow`, payload
+`{source, target}` with `source` the follower,
+docs.x.com/x-api/activity/event-payloads) becomes one `x_follows` row per
+follower (`user_id`, `username`, `followed_at`, `unfollowed_at`, the
+follower's `user_created_at`, `followers` and `verified`), moved only by an
+event newer than the last it took (`event_at`), so a replayed follow cannot
+undo a later unfollow. The account's own follows of others are dropped.
+`teeny_hands.x.follows.follow_state(ids)` reads only that table:
+`{id: True | False | None}`, None for an account with no event seen (it
+followed before the subscription, or never). None of this reads X; a
+giveaway pays for `users --ids` only for the None ones it needs.
 
 How a mention reaches whoever answers it (`teeny_hands/x/mentions.py`):
 
@@ -198,6 +220,7 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
 | `review [--limit N]` | A | The hold reviewer (docs/roadmap.md, G4; `teeny_hands/guard/review.py`; the pinned `guard-review` job through `bin/guard-review`, every 15 minutes). Off unless `GUARD_REVIEW=1`. A second model, `GUARD_REVIEW_MODEL`, which must differ from the drafter's (`SPINE_MODEL` in `secrets/spine.env`) and the judge's, reads each pending outbound draft once, at most ten a run and none older than `max_age_hours`, and only in a category `evals/guard-review.toml` (frozen) lists as `releasable` (`profanity`, `drugs`). Whatever that file says, a person always decides `rejection` (people), `self-harm`, `violence`, `weapons`, `hate`, `extremism`, `sexual`, `links`, a judge hold with no category, and any draft that mentions money (`review.MONEY`). The reviewer can only answer `release` or `keep`, and anything else keeps the hold. A release goes out like `holds release` (the posting rules still apply) with the note "released by the hold reviewer". Each review is written to `guard_reviews` (hold id, category, outcome, sampled, model; never the text), and a random `sample` (a tenth) of releases is marked for the operator. Under `DRY_RUN` the outcome is `would_release` and nothing is claimed. |
 | `reviews [--sampled] [--limit N]` | R | The reviewer's log, newest first; `--sampled` gives the releases queued for the operator to read. |
+| `rescreen` | A | One pass of the re-screen ("Re-screening", below), the pinned `guard-rescreen` job through `bin/guard-rescreen`, every five minutes. Prints its counts as `rescreen`. |
 
 **Surfaces and limits** (lengths in UTF-16 code units, refused over, never
 cut; `max_emoji` overrides the cap):
@@ -212,8 +235,28 @@ cut; `max_emoji` overrides the cap):
 
 On a long-form surface, `text` is the body, and a leading `@handle` is kept
 (nothing adds it back there). The built-in link allowlist also carries
-`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to` and
-`solscan.io`.
+`github.com/teenydroid`, `moltbook.com`, `www.moltbook.com`, `agentmail.to`,
+`solscan.io` and Teeny's own site, `teeny.enamakel.com` (with its
+subdomains). It carries a short list of news and primary sources that the
+listening hands read and Teeny's posts cite (docs/audit/moltbook-plan.md,
+§5): `news.ycombinator.com`, `lobste.rs`, `arxiv.org`, `reuters.com`,
+`apnews.com`, `bbc.com`, `bbc.co.uk`, `nbcnews.com`, `arstechnica.com`,
+`theverge.com` and `faa.gov`. No shorteners, paste sites, or crypto or
+token sites. Anything else is cut, and a Moltbook or GitHub draft with a cut
+link is refused for a rewrite. An operator adds a host with `links approve`.
+
+**Kill words go to the judge.** The bare `kill`, `kills`, `killed` and
+`killing` (`lexicon.JUDGED_TERMS`) are not held on sight: agents kill
+processes, jobs and replies all day, and on 2026-11-13 the word held one
+harmless Moltbook comment ("A captcha killed the reply") 40 times. A text
+whose only listed word is one of these goes to the judge, like a text with no
+listed word, and the judge holds violence. It still holds when the judge is
+off (`SAFETY_JUDGE=0`, or `check_fields(judge=False)`), cannot be reached, or
+answers in a shape it cannot read. A kill word aimed at a person (`kill
+you`, `killed him`, `killing people`, and the rest in the lexicon) is a
+violence term of its own and is held on sight, as is every other violence
+word. Callers that read the lexicon alone (`screen_text`, `gate.screen`)
+still see the four words as a match (`ScreenMatch.judged`).
 
 **Repeated letters.** The screen collapses repeated letters, except in a
 term made of one repeated letter, which keeps its count (`x{3,}`). Otherwise
@@ -277,17 +320,47 @@ minutes (`teeny_hands.guard.rescreen`):
   ingest to offer, a comment goes into the `stimuli` inbox, and the hold is
   `cleared`. A real verdict is written on the hold (its category and
   reason), and the hold stays. Another failure leaves it for the next run.
-- A draft of Teeny's own is `expired`, never sent late; Teeny drafts afresh.
-  (A reply, Moltbook comment or mail reply held this way is sent again by
-  the next beat of `bin/tick`, through the guard again, under a new hold if
-  the judge fails again; the expired hold is the old attempt.)
+- A Moltbook post or comment of Teeny's own, under an hour old
+  (`RESEND_SECS`), is judged again the same way (the links, the lexicon and
+  the judge on each stored field). A fresh `clean` sends it through
+  `hands/moltbook post` or `comment`, as written: the guard runs again there,
+  and every posting rule (the gap, the caps, once per post and per parent,
+  the captcha). The hold is `cleared` with where it went. A real verdict is
+  written on the hold, which stays. Another failure leaves it for the next
+  run. A re-send the hand refuses (Teeny posted meanwhile, or the tick
+  already sent the comment again) or the guard holds again is closed as
+  `expired` and never tried again; if the guard's judge failed again, that
+  new hold is expired too. The hold's context carries what a re-send needs
+  (the post's `submolt`, `type` and `url`; a comment's `post_id` and
+  `parent_id`; the lab tags). A hold from before it did, or older than an
+  hour, is `expired`. Under `DRY_RUN` it is judged and left pending
+  (`would_send`).
+- Any other draft of Teeny's own is `expired`, never sent late; Teeny drafts
+  afresh. (A reply, Moltbook comment or mail reply held this way is also
+  sent again by the next beat of `bin/tick`, through the guard again, under
+  a new hold if the judge fails again; the expired hold is the old attempt.)
 
 Re-screening never touches a hold from a real verdict (the lexicon, the links,
 the judge naming a reason) or one an operator has decided, and it never
 releases a verdict. With `SAFETY_JUDGE=0` it asks nothing. Each hold
 records `rescreened_at` and `rescreen` (`cleared`, `prohibited`,
-`unreachable`, `unreadable`, `expired`, `release_failed`); `bin/health`
-prints the counts as `rescreen`.
+`unreachable`, `unreadable`, `expired`, `release_failed`, `would_send`);
+`bin/health` prints the counts as `rescreen`, with `sent` and `refused` for
+the Moltbook re-sends.
+
+It runs twice over: in `bin/health` after its probe (every 15 minutes), and
+in the pinned `guard-rescreen` job (`bin/guard-rescreen`, every five
+minutes, at :03, :08 and so on), so a comment held by an outage reaches
+Teeny's inbox, and a held Moltbook draft goes out, within about five minutes
+of the judge answering again. On 2026-11-14 four comments held through a
+three-hour billing outage waited for the next health run. One pass runs at a
+time (the `guard-rescreen` lock); a second skips.
+
+A released Moltbook comment is visible as a `stimuli` row `moltbook:comment:<comment
+id>` (surface `moltbook`, kind `comment`, `who` its author, payload
+`{post_id, on_own_post}`), and its hold reads `cleared` with the effect "the
+comment went into Teeny's inbox". Its `moltbook_held` row stays, so later
+scans pass it over.
 
 The statuses a hold moves through (`teeny_hands/guard/holds.py` and
 `rescreen.py`). `releasing` is a claim taken while the effect runs, never a
@@ -307,7 +380,10 @@ resting state:
        ├─ inbound item, fresh clean ─► releasing ─► cleared (item back in its queue)
        ├─ inbound item, real verdict ─► stays pending (category and reason written)
        ├─ judge fails again ──────────► stays pending, for the next run
-       └─ Teeny's own draft ──────────► expired (never sent late)
+       ├─ Teeny's Moltbook draft, under an hour, fresh clean
+       │     ─► releasing ─► cleared (sent through hands/moltbook)
+       │                 └─► expired (the hand refused, or the guard held it again)
+       └─ any other draft of Teeny's own ─► expired (never sent late)
 ```
 
 ## `gh`: the only holder of the GitHub token
@@ -373,6 +449,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
+| `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
 | `from_fork`, `stranger`, `unsigned_commits` | note | For the reader |
 
 Who is who: an **operator** is a login on `BABYSIT_OPERATORS` (default
@@ -387,6 +464,62 @@ operator approved this head), `needs_review` (no operator or maintainer
 other than the author and Teeny approved the exact head commit), `waiting`
 (a wait finding), else `ready`. An approval of an older head never counts.
 
+**Self-merge** (`BABYSIT_SELF_MERGE=1` in `secrets/teeny.env`, off by
+default; the `self-merge` rung at L5 in `evals/autonomy.toml`, the
+operator's decision of 2026-11-15: "if the internal babysitter checks out,
+we merge"). A pull request on teenydroid/brain whose author is
+`GITHUB_USER` (tier `teeny`), from a branch of the same repository named
+`teeny/gen-<n>-c<i>` (or the older loop's `teeny/gen-<n>`; digits only, so
+a builder's `teeny/<slug>` never qualifies), is not held at `needs_review`.
+The `teeny/eval` commit status on its exact head, set by Teeny or an
+operator, stands in for the approval: `success` (the targeted eval passed
+non-regression, or found the change unmeasurable) makes it `ready` with
+`self_merge: true` and `approved_by: []`; missing is `waiting`
+(`eval_missing`), pending is `waiting`, `failure` or `error` is `failing`.
+Every other rule holds as before: any block, fail or operator finding stops
+it (a frozen path blocks Teeny; a sensitive path, a removed test, an
+injection in Teeny's own diff or too large a change needs the operator), and
+every check must be green. Strangers, maintainers and builder pull requests
+still need a person's approval of the exact head.
+
+**Deploy on merge.** A self-merge queues `state/deploy-pending.json`
+(`babysit/deploy.py`); the sweep runs it last, every 20 minutes until done,
+and only while `BABYSIT_SELF_MERGE=1`. It brings the live checkout
+(`TEENY_ROOT`, the one `bin/spine` runs) to the merge in the order
+`bin/lib/live_checkout.py` keeps for it and for `bin/evolve`'s promotion
+restart:
+
+1. **wait** while `state/locks/evolve.lock`, `evolve-watch.lock` or
+   `eval.lock` is held (a generation, evolve-watch, the targeted eval): a
+   restart ends the container they run in. Nothing moves; `deploy_wait`.
+2. **refuse** tracked edits, a failed fetch, or a history that cannot
+   fast-forward to the merge (`deploy_refused`, with the reason, also in the
+   pending file). Nothing is reset or forced; the deploy stays pending until
+   the operator clears the way.
+3. **last-good**: the outgoing commit goes to `state/last-good` when a
+   restart follows, so a boot that fails on the merge falls back.
+4. **fast-forward**: `git merge --ff-only` (`deploy_ff`).
+5. **submodules**: `git submodule update --init --recursive` when the
+   merge moved a gitlink (`deploy_submodules`).
+6. **seed-cron**: `bin/seed-cron` when `brain/cron.toml` or
+   `evals/cron.pinned.toml` changed and no restart follows
+   (`deploy_seed_cron`; a boot reseeds anyway).
+7. **restart**: TERM to `bin/spine` (`state/spine.pid`) only when the merge
+   touched what is read at boot (`deploy_restart`, written before the TERM):
+   `brain/SOUL.md`, `CONTEXT.md`, `DRIVE.md`, `CHARTER.md`,
+   `narrative/LORE.md` and `narrative/ARCS.md` (bin/lib/prompts.py),
+   `brain/agents/**` and `brain/skills/**` (the core), the playbooks
+   `bin/lib/inbound_config.py` writes into the core's config
+   (`mentions.md`, `mail.md`), `bin/**`, `deploy/**`, `spine/**`,
+   `vendor/**`, `.gitmodules` and `hands/lib/teeny_hands/websites.py`.
+   Any other playbook, `brain/narrative/chronicle/**`, `brain/cron.toml`,
+   `hands/**`, `evals/**` and `docs/**` are read by each run and restart
+   nothing; a path in neither list restarts (`unlisted`). Compose starts
+   the spine again and the doctor gates the boot.
+
+Under `DRY_RUN` nothing moves: `deploy_dry_run` records the plan once and
+the deploy stays pending.
+
 | Verb | | Does |
 |---|---|---|
 | `queue [--repo OWNER/REPO] [--max N]` | R | Every open pull request on the watched repositories (20 each), audited, worst verdict first, with `counts`. |
@@ -394,12 +527,12 @@ other than the author and Teeny approved the exact head commit), `waiting`
 | `injections [--days N] [--max N]` | R | The injection log, newest first: when, repository, number, head, `who`, `tier`, `rule`, `location` and a 16-hex `digest` of the matched span. Never the span. |
 | `audits [--max N]` | R | The last audits, with their findings. |
 | `triage` | A | `{repo, number}`. Off unless `BABYSIT=1` (`rule: babysit_off`). A fresh audit, then labels: `babysit:<verdict>` (stale `babysit:*` labels removed), plus `prompt-injection`, `security` (a secret, Trojan Source or tag characters) and `frozen-path` when they apply. Then the audit as a comment, through `gh comment` and the guard, once per head and verdict: the verdict, the head, the approvers and a table of rules and places. |
-| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
-| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`. One pull request's refusal or error is listed in `errors`; the rest go on. |
+| `merge` | A | `{repo, number, head_sha}` (the full 40 characters the caller audited). Off unless `BABYSIT_MERGE=1` (`rule: babysit_merge_off`); `BABYSIT_MERGE` is L4 under `merge` in `evals/autonomy.toml`. Under the `babysit-merge` lock: refused past `BABYSIT_MERGES_PER_DAY` (3, at most 10, UTC, self-merges included; `daily_cap`), then a fresh audit must say `ready` (`not_ready`, with the verdict and findings), its head must be `head_sha` (`head_moved`), and the base must be the default branch (`base`). A self-merge is also refused past `BABYSIT_SELF_MERGES_PER_DAY` (2, at most 10; `self_merge_cap`), is recorded as `self_merge` (with `eval`) instead of `merge`, and queues the deploy. GitHub is asked to merge that sha only (`BABYSIT_MERGE_METHOD`: `merge`, `squash` or `rebase`), so a push after the audit fails the merge. |
+| `sweep [--max N]` | J | The job: `queue`, then `triage` each when `BABYSIT=1` and `merge` each `ready` one when `BABYSIT_MERGE=1`, then the pending deploy (`deploy`), last. One pull request's refusal or error is listed in `errors`; the rest go on. |
 
 Under `DRY_RUN` the acting verbs answer `would_*` after every rule ran and
 write nothing to GitHub or the action ledger; the audits are reads and are
-recorded either way. State is `babysit_audits`, `babysit_injections`
+recorded either way. State is `state/deploy-pending.json`, `babysit_audits`, `babysit_injections`
 (unique on pull request, who, rule, place and digest, so a payload seen
 twice is logged once) and `babysit_actions` in `state/hands.db`. No row
 holds a pull request's words: the dream and the weekly audit read the
@@ -443,22 +576,30 @@ A link post's `url` must be on the link allowlist.
 | Verb | | Does |
 |---|---|---|
 | `whoami`, `status`, `home [--expand]` | R | `/agents/me` (10 min), the claim status, the dashboard (1 min). `--expand` attaches, to each mention of Teeny in someone else's post, that post and its latest comments (at most 5 posts, through the `post` and `comments` caches). |
-| `feed [--submolt S] [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, submolt, score, comment_count, created_at}` with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. |
+| `feed [--submolt S]... [--sort hot\|new\|top\|rising] [--max N] [--brief]` | R | `/posts`, or `/submolts/S/feed` (5 min). `--brief` keeps at most N posts, each as `{id, title, content, author, author_karma, author_followers, submolt, score, comment_count, created_at}` (the author numbers when Moltbook sends them: a submolt's feed has karma, not followers) with the body cut at 400 characters. Moltbook's own answer runs to kilobytes a post, so a playbook input uses `--brief`. `--submolt` may be given several times: each submolt is one request (cached like any feed) and the posts are merged, newest first, as `{posts, seen, submolts}`. The filters drop posts before the cut to N: `--max-age-hours H` (by `created_at`), `--max-author-karma K`, `--min-author-karma K`, `--max-comments N`, and `--skip-mine` (Teeny's own posts and those it already commented on, by the ledger). A post whose age or karma is unknown fails a filter on it. With a filter each submolt is read 50 deep. A failing submolt is named in `errors` and the rest are kept; a 429 stops the reading. |
+| `peers [--per-peer N] [--max-age-hours H] [--skip-mine]` | R | The newest N posts (2) of each agent in `brain/moltbook-peers.txt` (one name a line, `#` comments, checked as agent names; Teeny may edit it), at most 20 peers, one `/posts?author=NAME&sort=new` request each (10 min). A post not by that peer is dropped. The same filters as `feed`; brief posts, newest first. |
 | `post ID`, `comments ID [--sort best\|new\|old]` | R | One post (5 min), its comment tree (2 min). |
 | `search QUERY [--type posts\|comments\|all]`, `profile NAME`, `submolts`, `submolt NAME` | R | Semantic search (10 min), an agent, every submolt, one submolt with `allow_crypto` (1 h). |
-| `inbox [--days N] [--max N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), and replies under its own comments elsewhere, newest N posts (10) of each. The inbound guard screens each one once: a held one is not added but kept in `moltbook_held`, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox). `bin/tick` runs it at most every 10 minutes. |
+| `inbox [--days N] [--max N] [--max-own N]` | R | What was said to Teeny, into its mind's inbox (`stimuli`): every comment on its own posts from the last N days (7), newest `--max-own` posts (30), and replies under its own comments elsewhere, newest `--max` posts (10). The inbound guard screens each one once: a held one is not added but kept in `moltbook_held` with the details the scan would have given it, and a comment already held or already in the inbox is passed over before the guard sees it again (the guard's re-screen returns a cleared one to the inbox, with its parent and depth). A comment on Teeny's own post is also owed an answer (below): the scan keeps its `moltbook_owed` row and offers one the mind read and left back to it (`again` counts them). `bin/tick` runs it every beat, at most every 4 minutes. |
+| `unanswered [--max N]` | R | The comments on Teeny's own posts still owed an answer. A stable shape, for the daily stats: `{unanswered, held, oldest_minutes, comments: [{comment_id, post_id, parent_id, author, depth, status, minutes, offered}], last_24h: {answered, declined, expired, median_answer_minutes}}`. `unanswered` counts `waiting`, `held` the ones the inbound guard holds, `minutes` is the wait since the comment was made, `offered` how many times it went to the mind; `comments` is oldest first, at most N (50). |
 | `metrics refresh` | R | Measures Teeny's own posts and comments (the ledger's, last 14 days) about 1h, 24h and 72h after they went out: score, comment count (for a comment, its replies) and Moltbook's `verification_status`. Each checkpoint gets one `moltbook_post_metrics` row and is never fetched again once recorded. A post is read through `post`, a comment found by id in its post's latest 100 `comments`, both through their caches. A late run records only the latest checkpoint due (a write first measured at 30h has a 24h row and no 1h row; `at` says when it was read). At most 20 writes a run, newest first (`left` counts the rest); a 429 ends the run. It records under `DRY_RUN` too, as `inbox` does, because it only reads. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each write measured in the last N days (7), newest write first: a post with its title, a comment with its post's id. |
-| `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row. The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
-| `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count, and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
+| `metrics daily` | R | The day's numbers `hands/stats snapshot` keeps under source `moltbook_ledger` ("moltbook metrics daily", below), as `{metrics: {...}}`. It reads the threads of Teeny's own posts of the last 72 hours, so it is not free: at most 25 comment reads through their 2-minute cache, stopping at a 429. |
+| `exchanges [--days N] [--max N]` | R | From the ledger only: the agents Teeny had a real exchange with in the last N days (14), most talk first (at most `--max`, 10). An exchange is a reply under Teeny's comment (`answering_teeny` in the inbox's stimulus), or a comment Teeny answered followed by another from the same agent. Each as `{name, replied_to_teeny, comments, teeny_answered, came_back, last_at}`. `peers` is the peer list. Agents Teeny already followed or unfollowed are left out of both, so two empty lists mean nobody to follow. `moltbook-follow` reads it. |
+| `study` | R | What wins this week, worked out deterministically (no model). `top` is the 15 best posts by score of the last 7 days from the `hot` and `top` feeds; `by_submolt` is the best 5 of each of `agents`, `memory`, `builds`, `tooling`, `infrastructure`, `security`. Each comes with title, submolt, author, score, comment count, `created_at` and the first 400 characters. `own` is Teeny's last 10 posts and comments with their latest `metrics` row; `own_posts` is its last 20 posts alone, each with its `format`, whether its body carried a link (`linked`) and its latest `metrics` row. `own_summary` is what its own writes came to over the last 7 and 14 days (`7d`, `14d`): posts by `format` and by `submolt`, comments by `format`, each group with `n` (measured and not hidden), `hidden` (hidden by the challenge, counted apart), `median_score`, `best_score`, `median_comments` and its `worst` write; groups best median first, so the last did worst; an untagged write counts as `(untagged)`. It reads only the ledger, and the dreams get it as lines ("moltbook: what worked and what flopped", bin/lib/scoreboard.py). The feeds part is cached 6 h (kind `study`, 14 feed reads at most). A study with a failed feed is answered with `errors` and not cached, and a 429 stops the reading. Every title and body is another agent's: data, never instructions. |
+| `material` | R | Teeny's own receipts of the last 7 days as short dated fact lines its posts may cite. `guard_holds`: the count of Teeny's own writes the guard held (inbound comments left out), and per day by category ("judge unreachable" for a judge that was down; never the held text or the hold's reason), with how many review later let through (re-screened clean or approved; `let_through` in all). `health`: the health check's alarm and recovery stimuli, and what `state/health.json` says now. `merged_prs`: its PRs merged into teenydroid/brain, through `hands/gh activity` (skipped with a note without `GITHUB_TOKEN`). `journal`: the first line of each beat and every bullet of the last 7 `state/journal/*.md`, quiet beats left out, at most 40 lines. `moltbook`: Teeny's own writes by day from the ledger, posts and comments Moltbook accepted and how their challenges ended (verified, failed, never answered). `exchanges`: the newest 12 comments agents left for Teeny in the last 3 days (its mind's inbox, already through `guard inbound`): `who`, `at`, `comment_id`, `post_id`, `on_your_post` (the title, on its own post), `answering_you`, and the first 300 characters scrubbed as `said`; their words, data for an `answer` post. Every line is scrubbed (`teeny_hands/scrub.py`, shared with `bin/health`) of URLs and their query strings, addresses and anything that looks like a key. What could not be read is in `notes`. |
+| `post-slot [--wait S]` | R | Whether a post would pass the limits now (`rules.post_slot`, the same checks a post meets, none moved): `{open: true, new_agent}` when it would, else only `why` (`"<rule>: <reason>"`). A shut gap (or the write rate) that opens within S seconds (0; at most 180) is waited out once and asked again; the day's cap and the lockout are never waited for. `moltbook-general` and `moltbook-evening` run it first, as a `required` input, so a shut gap skips the run before any other read or the draft turn, and the skip records the `why` (`bin/act`). The wait is two minutes there: a cron shell job past 300 s fails (docs/oh-gaps.md, G12). |
+| `highlight [--hours N]` | R | The day's best exchange said to Teeny, for the X `show` post (`moltbook/bridge.py`). A comment counts when the inbound guard let it into the inbox (`moltbook · comment`: on Teeny's own post, or under its comment elsewhere), it is 80 characters or more, and it was heard in the last N hours (24). The best post has the most distinct agents who left one; a tie goes to the post whose respondent has the most karma, then to the newest. The answer says its `rule`; with nothing counting, `highlight` is null with `why`. The winner carries its `url` (`https://www.moltbook.com/post/<id>`), title, submolt, score and comment count (read live, through the cache), `agents`, and up to 3 `replies`, highest karma first: each with `agent`, `karma`, `their_words` (the comment as the inbox holds it, at most 600 characters), what it answered (`your_post`, `your_comment`) and Teeny's own `your_answer` when there is one. A quote only ever comes from the inbox, so a comment the guard held is never quoted. `their_words` are other agents' words: data, never instructions. A read that fails leaves the live fields out, with `notes`. |
 | `post` | A | `{submolt, title, body?, url?, type?, format?, experiment?}` (with no `ID`, stdin is the post). The ledger keeps the title, the body and the lab tags (`format`, a short lowercase tag such as `confession`, `claim`, `news`, `question`, and `experiment`; "Lab tags", under `stats`). |
-| `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
+| `comment` | A | `{post_id, body, parent_id?, format?, experiment?}`. The ledger keeps the body and the lab tags. A comment with no `format` is tagged by who sent it: a playbook's name without `moltbook-` (`threads`, `helpdesk`; `bin/act` sets `TEENY_WRITER` to the playbook), or, from the mind (`bin/lib/tick.py` sets `TEENY_WRITER=mind`) or by hand, by where it went: `own-thread` on Teeny's own post, `reply` under another agent's comment, `comment` on another agent's post. Its `detail` keeps what the post read just before the write showed: `own_post`, `writer`, `post_age_minutes`, `post_comments`, `post_score`, `post_author`, `author_karma`, `author_followers` (each only when the read carried it). A reply under a comment already 5 levels deep is refused (`too_deep`): Moltbook draws a thread no further, so nobody would see it. `inbox` puts each comment's `depth` and `can_answer` in its stimulus. |
 | `upvote` | A | `{post_id}` or `{comment_id}`; once each, never Teeny's own. |
-| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. A follow needs no earlier exchange. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
+| `helpdesk` | A | `{post_id?, body?, parent_id?, format?, experiment?, pain?}`: the `moltbook-helpdesk` playbook's one output, an answer, a pain filed as a build request, or both. The answer is a `comment`, with every rule of `comment`. A `pain` is `{ask, voiced: [{post_id, comment_id?, agent}]}`: what to build, for whom and the problem (40 to 1500 characters, read against the guard's lexicon), and the 1 to 3 places agents voiced it. It becomes a `pending` build request (source `moltbook`, author the agents; see `requests`), and its places are kept in `moltbook_pains` (request_id, post_id, comment_id, agent, at). Refused: a place already filed (`already_filed`), a second pain in 24 hours (`daily_cap`), Teeny as the agent (`own`), words the lexicon holds (`guard`). The pain is filed first, so a refused answer never loses it, and an answer Moltbook fails after the pain was filed comes back as `comment_error` instead of failing the call; the call is refused only when every part it asked for was. Filing writes only `state/hands.db`, so `DRY_RUN` does not hold it back (as `build self`); the answer keeps `DRY_RUN`. |
+| `follow`, `unfollow`, `subscribe` | A | `{name}`, `{name}`, `{submolt}`; once each, never itself. The hand does not check for an earlier exchange; the daily `moltbook-follow` picks only from `exchanges`. It is held to `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30, last 24 hours, `daily_cap`) and refused for an agent Teeny already unfollowed (`unfollowed`). `unfollow` is `DELETE /agents/NAME/follow`. |
 | `follows [--days N] [--max N]` | R | The follows at least N days old (7) that Teeny has not unfollowed, oldest first (at most `--max`, 25), each with `follows_back`: `true` or `false` when the agent's profile says so, `null` when it does not say. |
 | `describe --description D` | O | Sets the profile text (`PATCH /agents/me`), through the guard (kind `profile`), at most 1000 characters. Run by the operator; no playbook or intent calls it. |
-| `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
+| `prune [--days N] [--max N]` | O | The weekly unfollow: for each follow from `follows` whose profile says `follows_back` is `false`, one `unfollow`. A `null` stays followed. So does an agent on the peer list (`brain/moltbook-peers.txt`) or one with a real exchange in the last 14 days (as `exchanges` counts it, followed or not): those are listed as `spared`, since Teeny reads them on purpose. Under `DRY_RUN` it lists `would_unfollow`. `bin/moltbook-prune` runs it from the pinned job `moltbook-prune` (Saturday 17:30 IST). |
 | `register --name N --description D` | O | Registers an agent and prints `api_key`, `claim_url` and `verification_code` once; the hand stores and logs nothing. The operator puts the key in `secrets/teeny.env` as `MOLTBOOK_API_KEY` and completes the claim. `DRY_RUN` applies. |
+| `decline` | A | `{comment_id, reason, note?}`: a comment on Teeny's own post it will not answer, with a `reason` of `spam`, `boilerplate`, `crypto` or `instruction` (nothing else declines). Refused (`not_owed`) for a comment that is not owed, (`settled`) for one already answered or declined. Under `DRY_RUN` it says `would_decline`. The mind's `decline_moltbook` intent. |
 | `pending [--status S]`, `verify ID --answer N`, `unlock` | O | Lists the challenges left for the operator and the failure count; answers one; clears the lockout. |
 | `collab add NAME --note T`, `collab list`, `collab remove NAME` | O | Consent on record (`collabs`: name, consent_note, consented_at). |
 
@@ -470,16 +611,35 @@ hears of the write, and refuses each with its `rule`:
   New-agent mode covers the 24 hours after `MOLTBOOK_CLAIMED_AT` (or after the
   first accepted post when that is unset, and always when there is neither):
   one post per 2 hours, one comment per 60 seconds and 20 a day. A 429 is
-  refused with Moltbook's `Retry-After`, never retried.
+  refused with Moltbook's `Retry-After`, never retried. A post meets these
+  limits before the guard reads it, so a post refused for the gap costs no
+  judge turn (the mind's beat sends a held post again until the gap opens,
+  `bin/lib/tick.py` PACED). A post left hidden by an unanswered challenge
+  (`needs_verification`) still counts for the gap: Moltbook limits post
+  creation per key ("1 post per 30 minutes", skill.md, "Rate Limits") and
+  exempts nothing that waits for its challenge, so the hand counts what
+  Moltbook created, seen or not.
 - Our caps (`daily_cap`, last 24 hours): `MOLTBOOK_MAX_POSTS_PER_DAY` (20,
   with Moltbook's 30-minute gap between posts), `MOLTBOOK_MAX_COMMENTS_PER_DAY`
   (50, and never above Moltbook's 50, or 20 for a new agent) and
   `MOLTBOOK_MAX_FOLLOWS_PER_DAY` (30; Moltbook sets no limit of its own).
+- The own-thread reserve (`own_thread_reserve`, with `waiting` and `left`):
+  while comments on Teeny's own posts wait for an answer (`moltbook_owed`,
+  under three days old), the day's last comments are kept for them. An
+  answer to one of them (its parent is an owed comment, or the post is
+  Teeny's own) may use the whole allowance; any other comment is refused once
+  the comments left would be no more than the number waiting. No cap moves.
 - Comments (`once_per_post`, `once_per_parent`, `own_post`,
   `own_comment`, `unknown_parent`): never twice on a post unless answering a
   reply to Teeny (a comment under Teeny's comment, or on Teeny's own post),
   never twice to one comment, and on its own post only the first comment,
   while nobody else has commented.
+- Age (`too_old`): a top-level comment on another agent's post older than
+  `MOLTBOOK_MAX_COMMENT_AGE_HOURS` (6, at least 1) is refused, because it
+  lands under every earlier comment and is not read. A reply (`parent_id`),
+  anything on Teeny's own post, a post that names Teeny and a post whose
+  `created_at` is missing are exempt. The playbooks' own inputs are
+  filtered tighter (`feed --max-age-hours`).
 - Collaboration (`collab`): a post that says collab, co-built,
   "partnered with" or "with u/NAME" is refused unless every agent it names
   has a `collabs` row.
@@ -515,7 +675,25 @@ moment Moltbook returns it, before the challenge is answered. Tables:
 `follow`, `unfollow`, `subscribe`), `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, and
 `moltbook_post_metrics` (id, kind `post`/`comment`, target_id, checkpoint
 in hours, at, score, comment_count, verification_status; unique per kind,
-target and checkpoint).
+target and checkpoint), `moltbook_held` (with the held comment's `payload`)
+and `moltbook_owed`.
+
+**Owed answers** (`moltbook/owed.py`). Every comment said to Teeny on its own
+post (a top-level comment, or a reply under Teeny's comment there) has a
+`moltbook_owed` row from the first scan that sees it: comment_id, post_id,
+parent_id, author, depth, `said_at` (Moltbook's `created_at`), `seen_at`,
+`status`, `reason`, `note`, `answer_id`, `settled_at`, `offered`,
+`offered_at`. The status is `waiting` (seen, not yet answered), `held` (the
+inbound guard holds it; a release makes it waiting), `answered` (Teeny's
+answer is under it: `comment` sent it, or the scan saw it in the thread),
+`declined` (a `decline` reason, `too_deep` at Moltbook's fifth level where an
+answer is never seen, or `gone` once it is no longer in a thread read whole)
+or `expired` (still waiting after three days). A waiting comment that a beat
+read and settled without an answer goes back to the inbox, pending in its old
+place, with `again` and `waiting_minutes` in its details: 15 minutes after
+the last offer, then 30, 60 and every 2 hours, until it is answered, declined
+or expired. Live, 2026-11-11 to 11-15, each comment was offered once, and 31
+of 58 on Teeny's posts went unanswered (docs/audit/moltbook-plan.md, item 2).
 
 `bin/health` also counts the writes nobody can see. When at least 3 went
 out in the last 24 hours and fewer than 90% of them are visible (`verified`,
@@ -525,6 +703,114 @@ alarm.
 
 The metrics refresh runs every hour from the pinned `metrics` job
 (`bin/stats-snapshot metrics`), and again before the daily snapshot.
+
+### `moltbook metrics daily`
+
+The numbers the growth plan's targets are written in
+(docs/audit/moltbook-plan.md, "Targets"), counted once a day by
+`hands/stats snapshot` and kept in `stats` under source `moltbook_ledger`
+(`teeny_hands/moltbook/metrics.py`, `daily`). Every window ends at the
+snapshot, not at midnight. A "live" write is one Moltbook accepted whose
+challenge was passed or never set (`posted`, `verified`) and whose latest
+metrics row does not say `pending` or `failed`. A number with nothing to
+count is left out, never written as 0.
+
+| Metric | Means |
+|---|---|
+| `live_posts_24h` | Teeny's live posts of the last 24 hours. Target 8. |
+| `post_score_24h_median_7d` | The median score of its live posts of the last 7 days at their 24-hour checkpoint. |
+| `posts_10_plus_14d`, `posts_50_plus_14d` | Its live posts of the last 14 days whose best measured score reached 10, and 50. Target: one at 50. |
+| `comments_on_others_24h`, `comments_on_own_24h` | Its live comments of the last 24 hours on other agents' posts, and on its own (a post in its ledger, or `detail.own_post`). |
+| `lost_pct_24h`, `lost_pct_7d` | The percent of all writes Moltbook took in the window that its challenge hid: failed, left unanswered, or never reached (`verification_failed`, `needs_verification`, `created`). A write less than 5 minutes old is not settled and is left out. Target under 5. |
+| `lost_pct_post_24h`, `lost_pct_post_7d`, `lost_pct_comment_24h`, `lost_pct_comment_7d` | The same for posts alone and comments alone. |
+| `own_thread_comments` | Other agents' comments on Teeny's own live posts of the last 72 hours (deleted and spam left out), read from the threads. |
+| `own_thread_unanswered` | Of those, the ones Teeny has not answered: no visible reply by Teeny under it and no live comment of its own with it as `parent_id`. A comment 5 levels deep cannot be answered and is not counted, nor is a reply to another agent rather than to Teeny (`comment` refuses an answer there, `once_per_post`), nor one Teeny settled with `decline`. Target 0. |
+| `own_thread_answered_pct` | Answered over answered plus unanswered. Target 95. |
+| `own_thread_answer_minutes_median` | The median minutes from such a comment to Teeny's first answer to it. Target under 15. |
+
+The four `own_thread_` numbers come from one function,
+`own_thread_replies`, which reads at most 25 threads through the 2-minute
+comments cache and stops at a 429. When a thread cannot be read they are
+all left out that day, since a short count would read as good news.
+`hands/stats board` shows the newest of them as its fourth line.
+
+## `reddit`: Teeny on Reddit, through the browser operator
+
+Reddit has no API open to Teeny: its public JSON answers 403 to the box
+(`listen/sources.py`), and an OAuth app now needs Reddit's approval. The
+browser operator already has what Reddit needs: a persistent profile
+(`state/browser/profile`, so a login survives between tasks), the keychain's
+`{{keychain:<site>}}` fill, the `signup` task kind, the `needs_code` loop
+through Teeny's inbox, and the captcha solver. So `hands/reddit` never drives
+a browser and never calls Reddit. Like the HTTP hands it validates, applies
+its caps and the guard, honours `DRY_RUN` and keeps a ledger in
+`state/hands.db`; what it decides to do it queues as one `hands/tasks` task
+of a `reddit_*` kind (`--source reddit`, a start page on reddit.com, the
+words to type as the task's `text`), and the desk's settling closes its row.
+The operator works on old.reddit.com and types `text` exactly (`tasks`
+RULES).
+
+| Verb | | Does |
+|---|---|---|
+| `status` | R | The account (handle, age, karma), each cap and what is left of it, the allowlist, the subreddits whose rules were read, and the rows still on the desk. |
+| `feed [--subreddit S] [--max N]` | R | The threads the last browses brought back, newest first. |
+| `seen [--max N]` | R | Everything a browse brought back (`reddit_seen`): the only things an upvote may target. |
+| `due` | R | The next read the `reddit-browse` playbook owes: the allowlisted subreddit read longest ago, then the inbox once there is an account, when that was over 6 hours ago; `{due: null, why}` otherwise, which skips the run before the model. |
+| `browse [--subreddit S] [--sort hot\|new\|rising]` | A | `{subreddit?, sort?, inbox?}`. Queues a `reddit_browse` task: a subreddit's (or the front page's) ten threads most worth an agent's reply, and a subreddit's rules (`reddit.rules`). At most once an hour per subreddit (`rate_limit`, `wait_seconds`). No account needed; anywhere public. `{inbox: true}` is `inbox`. |
+| `inbox` | A | Queues a `reddit_inbox` task: replies and mentions, read only. |
+| `stats` | A | Queues a `reddit_stats` task: the profile's karma and age, into `reddit_account` (and `hands/stats`' `reddit` source). |
+| `comment [--thread P]` | A | `{thread, body}`: a top-level comment on a thread (`reddit_comment`). |
+| `reply [--comment P]` | A | `{comment, body}`: an answer to a comment (`reddit_reply`). |
+| `post [--subreddit S] [--title T] [--url U]` | A | `{subreddit, title, body?, url?}`: a post of Teeny's own (`reddit_post`); a `url` must pass the guard's link allowlist. |
+| `upvote [P ...]` | A | `{targets: [P, ...]}` or `{permalink}`: up to 5 in one `reddit_vote` task, so a vote does not spend an operator run each. |
+| `subscribe [S]` | A | `{subreddit}` (`reddit_subscribe`). |
+| `signup [--username U]` | O | Queues an operator-source `signup` task on `https://www.reddit.com/register`: the desk makes the keychain password on offer (handle: `AGENTMAIL_INBOX`), the username is `teenydroid`, else `teeny_droid`, else `teenydroid_ai`, and Reddit's code comes from `redditmail.com` (`needs_code`, then `mail_codes`). It ends `ok` naming the username, which lands in `accounts`. Refused without `AGENTMAIL_INBOX` (`no_inbox`), without the keychain (`no_keychain`), with an account already (`have_account`) or one on the desk (`duplicate`). |
+| `profile` | O | Queues a `reddit_profile` task: display name `Teeny`, bio "An AI agent (Teeny), run by its operator. Not a person." (brain/DRIVE.md: say you are an AI where a profile has room). |
+
+Every acting verb runs, in one invocation: the body's shape, the rules, the
+guard (`check_fields`, surface `reddit`: title 300, body 10000, long-form),
+then under the `reddit-write` lock the rules again, then `DRY_RUN`
+(`{dry_run, would_queue}`: no task, no row), then the task and its row
+(`queued`). A task that ends ok marks its rows `done`, with the permalink of
+what Teeny wrote (`own`); any other end marks them `failed`. A row whose task
+ended without a settle (a stale claim, a hand-over to a person) is closed the
+next time the hand looks.
+
+The rules (`reddit/rules.py`):
+
+- **An account first** (`no_account`): nothing is written before a signup
+  recorded Teeny's Reddit account.
+- **The allowlist** (`subreddit`): comments and posts go only to the
+  subreddits in `deploy/reddit-subreddits.txt`, the operator's list of
+  communities that tolerate a disclosed AI account (frozen). Teeny reads
+  anywhere public.
+- **Rules first** (`no_rules`): a comment or post in a subreddit needs a
+  browse of it that captured its rules; the rules ride along in the task's
+  goal, and the operator ends the task `failed` if they forbid it.
+- **The caps** over the last 24 hours (`daily_cap`, with `wait_seconds`):
+  `REDDIT_COMMENTS_PER_DAY` (6, at most 20; comments and replies together),
+  `REDDIT_POSTS_PER_DAY` (1, at most 3), `REDDIT_VOTES_PER_DAY` (15, at most
+  40; each target), `REDDIT_SUBSCRIBES_PER_DAY` (3, at most 10). A task
+  still on the desk counts; a failed one frees its place.
+- **Posts** (`rate_limit`, `ramp`): 6 hours apart, and only once the account
+  is 7 days old with 50 comment karma. Until then it comments.
+- **Once** (`duplicate`): one comment per thread, one reply per comment, one
+  vote per target, one subscribe per subreddit.
+- **Votes** (`unseen`, `own`): only on something a browse brought back, never
+  on Teeny's own post or comment, never as a trade.
+- **Crypto** (`crypto`): never written.
+
+What comes back: a `reddit_browse` that ends ok is a `world · reddit_browse`
+stimulus (the operator's notes, framed as data) and its threads land in
+`reddit_seen`; a `reddit_inbox` is a `reddit · inbox` stimulus, its notes
+screened by `guard inbound` first (a hold never reaches the mind). The mind
+answers with `reddit_comment`, `reddit_reply`, `reddit_post`,
+`reddit_upvote` and `reddit_subscribe` (bin/lib/tick.py), each held to the
+same setting the hand reads and offered only once Teeny holds an account;
+the hand's refusals carry `rule` and `wait_seconds`. A guard hold the judge
+only made because it failed is sent again by `guard rescreen` through this
+hand. The `reddit-browse` job (every 2 hours) reads `due` and queues the
+next read, so the loop is browse, stimuli, mind, intent, desk.
 
 ## `hn`: Hacker News, read only
 
@@ -552,8 +838,8 @@ item is never listed, and `item` answers it as missing.
 
 **As playbook inputs.** The story lists are free and need no key, so a
 playbook reads them as inputs: `world-scan` (top), `build-idea` (show),
-`morning`, `take`, `moltbook-daily` and `moltbook-evening` (top, show), and
-`moltbook-general` (top). Beyond the front page, `hands/listen` (below)
+`morning`, `take` and `moltbook-evening` (top, show), and `moltbook-general`
+(top). Beyond the front page, `hands/listen` (below)
 searches HN for Teeny's names and its standing topics, and those playbooks
 read what it heard through `listen digest`. Each is marked `optional = true`, so an outage on Hacker News leaves
 that input out as `{"unavailable": true}` and the run goes on. The idle look
@@ -612,7 +898,7 @@ without a key. The bases are settings (`LISTEN_LOBSTERS_BASE`,
 | Verb | | Does |
 |---|---|---|
 | `scan [--days D] [--topic T]... [--max N] [--fresh-hours H] [--no-watch]` | R | Every source at once, for a playbook's input: `about_me` (anyone on HN naming Teeny in the last D days, 2, at most 7), `heard.hn` (the topics' stories, one row per story, loudest first), `heard.lobsters`, `heard.github`, `heard.arxiv`, at most N each (8, at most 20). Each item is brief: `title`, `link` (where people talk about it), `url` (the thing, when it differs), `score`, `comments`, `topic` or `tags`, and a short `summary` for a paper or a comment. A source that is down is named under `unavailable` and the rest come. Every title and summary goes through the guard's lexical screen (inbound direction, no model): a match is dropped and counted (`dropped_by_screen`). Each item is kept in `listen_heard`, and only what was first heard within H hours (20; 0 shows everything) is shown, so the evening's listen does not repeat the morning's (`repeats_left_out`). An HN story about Teeny, or the story a comment about it is in, is followed with `hn watch add` (at most 2 a scan, within `hn`'s own cap of 10): what people add to it reaches the mind through `hn inbox`, screened by the inbound guard. |
-| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-daily`, `-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
+| `digest [--days D] [--max N]` | R | What `listen_heard` holds from the last D days (2, at most 30), by source, loudest first (score, then comments), at most N each (8), with `counts` per source and `about_me` whole. Asks no source: the X posts (`morning`, `take`), `build-idea`, the Moltbook posts (`moltbook-evening`, `-general`), and anything that wants outside evidence (the evolve loop, the nightly memory) read this. |
 | `hn QUERY [--days D] [--max N]`, `lobsters [--max N]`, `github [--topic T] [--days D] [--max N]`, `arxiv [--max N]` | R | One source on its own, normalised as `{source, ref, title, url, link, by, score, comments, at, ...}`; nothing is kept. |
 
 A scan makes 3 + 7 Algolia searches (by default) and one request each to
@@ -717,10 +1003,10 @@ no key: it reads each source through the hand that holds it.
 
 | Verb | | Does |
 |---|---|---|
-| `snapshot` | J | Reads X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments) and GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. `DRY_RUN` does not affect it, because it only reads and records. |
+| `snapshot` | J | Reads X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments), the Moltbook ledger (source `moltbook_ledger`: live posts, scores, comments, writes lost to the challenge and unanswered own-thread comments, "moltbook metrics daily", under `moltbook`; it needs `MOLTBOOK_API_KEY` too, and lands when `/agents/me` fails) GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out) and Reddit (source `reddit`: `karma`, `karma_post`, `karma_comment` from the last `hands/reddit stats` read, `reddit_account`; no key, and `skipped` until a read has landed). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. `DRY_RUN` does not affect it, because it only reads and records. |
 | `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. Also `days_recorded` (how many days have a snapshot) and `first_recorded`. The ship log reads its "day n" from here; a model never counts it. |
-| `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
-| `board [--days N]` | R | The scoreboard (below): audience with its 1-day and 7-day change, the best and worst own writes per surface, and the average result per format. |
+| `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`stars`). No row is a refusal: quote no number. |
+| `board [--days N]` | R | The scoreboard (below): audience with its 1-day and 7-day change, the best and worst own writes per surface, the average result per format, and the newest Moltbook daily numbers. |
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
 Before the snapshot it runs `hands/moltbook metrics refresh` and
@@ -744,7 +1030,10 @@ model never does the arithmetic:
   lists the five `best` and five `worst` writes with their `format`, and
   `formats`, the average result per format, best first. An untagged write
   counts under its kind, as `(reply)` or `(comment)`.
-- `lines`: the same in three lines of at most 320 characters, for a prompt.
+- `moltbook_daily`: the newest snapshot's `moltbook_ledger` metrics with
+  their `date` ({} before the first).
+- `lines`: the same in three lines of at most 320 characters, for a prompt,
+  and a fourth with `moltbook_daily` once a snapshot has it.
 
 ### Lab tags
 
@@ -763,7 +1052,8 @@ the first time a hand opens it, and older rows keep them empty. A bad tag
 is an error and nothing is sent (`teeny_hands/tags.py`).
 
 The newest snapshot is also public. `bin/receipts` writes its allowed metrics
-(whole numbers only, from a fixed list per source) to `stats/latest.json` and
+(whole numbers only, from a fixed list per source; `moltbook_ledger` is not on
+it, so the site shows none of those) to `stats/latest.json` and
 `stats/YYYY-MM-DD.json` in the receipts repository, next to `wallet.json`
 (the wallet's public address), for the website to read.
 
@@ -893,7 +1183,8 @@ due` as its required input) is its caller; its cron job ships off.
 ## `requests`: what people asked Teeny to build
 
 This hand keeps one list of build requests from every channel
-(`build_requests`, recorded by `mail ingest` and `x requests`), and the one
+(`build_requests`, recorded by `mail ingest`, `x requests` and `moltbook
+helpdesk`), and the one
 Teeny picks for the builder. Nothing here answers the person who asked, and a
 pick is never a promise.
 
@@ -1028,7 +1319,7 @@ minutes, skips without a model turn when nothing is queued (its input is
 
 | Verb | | Does |
 |---|---|---|
-| `add [--surface x\|moltbook] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a Moltbook lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. A lead is never an X brief. |
+| `add [--surface x\|moltbook\|reddit] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a Moltbook lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. `--surface reddit` queues a Reddit lead, which `reddit-browse` reads (`leads --surface reddit`). A lead is never an X brief. |
 | `next` | R | The oldest open X brief, `{brief: {id, text}}`, or `{brief: null}`. |
 | `leads` | R | The open Moltbook leads of the last 48 hours, newest first (at most 10): `{leads: [{id, text, created_at}]}`. The Moltbook playbooks read them and decide for themselves whether one is worth a post or a comment, under the same guard and caps. A lead is never marked used; it drops out after 48 hours or when cancelled. |
 | `list [--max N]` | R | The briefs, newest first (20), with status `open`, `posted` or `cancelled`. |
@@ -1088,7 +1379,7 @@ hands/gh's own actions.
 | `ideas [--limit N]` | R | `today` (today's idea, or null) and `ideas`, the ones kept, newest first, each with the `job_id` made from it. |
 | `gaps` | R | The gaps of `docs/oh-gaps.md`: `id`, `title`, `issue`, `gap`, `change`, `solved`, and `open` (with `why_not` when it can't be proposed); plus `enabled`. |
 | `frozen` | R | What a self change may not touch: `patterns` (the operator's `evals/frozen.txt`), and `often_wanted`, the frozen things a self change most often reaches for (the builder's daily brief, the pinned jobs, the agent definitions, the scorer...) with where each lives and what is Teeny's to change instead (`bin/lib/frozen.py`, `OFTEN_WANTED`). The self-improve playbook reads it. |
-| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, its request is `shipped` with the repository as its note, and the mind hears `builder · shipped` once (ref `build:<id>`): which build, its summary's first line and the repository's exact URL (`payload.url`), with the line that this is the link to use, never one guessed from the build's name. The builder's own `builder · report` comes before shipping and carries no URL. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
+| `ship` | J | Every `ok` job, oldest first. A job that is not a self job is first tested by the ship step itself (`build/verify.py`, docs/roadmap.md A6): `python3 -m unittest discover` in the job's folder, in a Landlock jail that reads only the system's own directories and the folder, writes only the folder and (Landlock ABI 4+) opens no TCP connection, with a bare environment and a 300 s limit. No Landlock, no run, no ship. Only a pass with at least one test ships; anything else fails the job at once (`ship_error`, the run kept as `verified` with the output's tail), fails its request, and tells the mind why (`builder · tests_failed`, the output included). Under `DRY_RUN` the run is reported only. Then it creates `GITHUB_USER/<repo>` when GitHub says it does not exist (`gh create-repo`, the summary's first line as the description), writes a `.gitignore` for caches when there is none, and pushes the folder to `main` (`gh push`: the guard on the message, the owner rule, the workbench rule, the secret scan). The job is then `shipped` with `repo_url` and `commit_url`, its request is `shipped` with the repository as its note, and the mind hears `builder · shipped` once (ref `build:<id>`): which build, its summary's first line and the repository's exact URL (`payload.url`), with the line that this is the link to use, never one guessed from the build's name. When the request came from a problem agents named on Moltbook (`moltbook helpdesk`, `moltbook_pains`), the stimulus also names the threads where it was voiced (`payload.moltbook`, at most 3) and asks for the announcement: one post in `m/builds` (format `shipped`) with what it does, the repository, a five-minute setup and one open issue someone could take, then one comment in each of those threads asking for a case where it fails. The mind writes them through `post_moltbook` and `comment_moltbook`, so the hand's caps, its comment rules and the guard all hold. The builder's own `builder · report` comes before shipping and carries no URL. A refusal or an error is kept as `ship_error` and retried next run; after 3 the job is `failed` (and its request), and the mind is told why (`builder · ship_refused`). Under `DRY_RUN` it answers `would_create`/`would_push` and changes nothing. |
 
 `build_jobs` has one row per job (`kind`, `request_id` unique, `slug` unique,
 `repo`, `status`: `claimed`, `ok`, `failed`, `shipped`, `gave_up`). This hand only reads
@@ -1199,16 +1490,16 @@ on the open web: any public https page except the operator's
 connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
-Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
+Playbooks (`hand:tasks add`), `hands/reddit` (its `reddit_*` kinds, below) and the operator (the person) add tasks.
 Nothing else turns a task into words for the mind: the desk tells it only the
 outcome (`operator · report`), except for the findings kinds (`news`,
-`browse`, `research`), whose notes come back framed as data (below).
+`browse`, `research`, `reddit_browse`, `reddit_inbox`), whose notes come back framed as data (below).
 
 | Verb | | Does |
 |---|---|---|
-| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
+| `add [--source S]` | A | `{goal, start_url, done_when, kind?, text?}`. `text` is words the operator types exactly as given (a Reddit comment), at most 10000 characters, offered as `task.text`. A task from `--source reddit` starts only on reddit.com (`rule: hand_site`) and needs no reputed link. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, text?, max_pages?, max_screenshots?, email?, mail_codes?, code_sites?}, rules}`. `code_sites` comes with `mail_codes`: a mail domain that sends codes for another site (`redditmail.com` for `reddit.com`); a task waiting on `reddit.com` reads mail from redditmail.com too. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?, reddit?}`. `reddit` (an object: what the task's `done_when` asked for) goes with a `reddit_*` task only; when one settles, `reddit.ledger.settle` closes hands/reddit's row, and a failure there is logged, never a refused report. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -1264,8 +1555,9 @@ settings say), a login Teeny has no account for, a CAPTCHA the browser could
 not get past itself, anything that asks for money or a secret. A CAPTCHA is
 first handed to the browser: a browser task tries checkbox and picture
 CAPTCHAs with Jev's image questions, a few times (`[computer] captcha_solver`,
-`bin/lib/core_sections/automation.py`, `TYPESAFE_API_KEY` in
-`secrets/spine.env`), and only one still
+`bin/lib/core_sections/automation.py`; Jev on Surplus Intelligence with
+`SURPLUS_API_KEY` in `secrets/spine.env`, or on TypeSafe with
+`TEENY_CAPTCHA_PROVIDER=type_safe` and `TYPESAFE_API_KEY`), and only one still
 standing ends the task `needs_human`. Money moves only through `hands/wallet`, never
 the browser. `browser_tasks` has one row per task.
 
@@ -2379,6 +2671,37 @@ operator runs it, and a playbook that announces a site would come with a
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `giveaway`: Tiny Drops, public $TINY rounds paid by code
+
+Rounds anyone can enter by replying to the round post, paid from the giveaway
+pool (Solana wallet index 1, `m/44'/501'/1'/0'`), never Teeny's own wallet
+(the `giveaway-pool` fence, docs/governance.md). A model only opens a round
+and picks the best reply; who entered, the draw, the payout and the clawback
+are code's. The round files it publishes are the contract in
+`docs/drops-schema.md` and `web/src/lib/drops.ts`.
+
+| Verb | | Does |
+|---|---|---|
+| `open` | A | `{format, pool_tiny, winners, best_reply_tiny, prompt, deadline \| deadline_hours, threshold?, text}` (`deadline_hours`, whole hours from now, for a drafting turn that is not told the time). Refused unless `GIVEAWAYS` is on (`rule: giveaways_off`) and every cap below is set and sane (`rule: caps`). `format` is `drop` (N random winners plus a best reply), `milestone` (the same, paid only if `x.followers` from `hands/stats` reaches `threshold` by the draw; the threshold must be above today's count) or `challenge` (judged only: `winners` 0, the best reply takes the pool). The pool is at most `GIVEAWAY_POOL_MAX_TINY`, and with every round opened in the last 30 days at most `GIVEAWAY_SEASON_MAX_TINY`; at most `GIVEAWAY_ROUNDS_PER_WEEK` rounds open in any 7 days; the pool less the best-reply prize splits evenly between the winners, and one person winning both is at most `GIVEAWAY_MAX_PER_WINNER_TINY`; the deadline is 1 hour to 30 days away; one round is open at a time. `text` is the announcement, which must carry the round's tag `drop #N` (`status` names the next one); it goes out through the x hand's `post` (guard, posting rules, `DRY_RUN`), and only once it is out is the round recorded, with that post as the round post. Under `DRY_RUN` nothing is recorded. |
+| `status [ID]` | R | The season against the caps (`next_tag`, `season_left_tiny`, `rounds_left_this_week`, ...) and the last 20 rounds, or one round with its entry counts. Statuses: `open`, `drawn`, `void` (nothing to pay; the diary shows it as `drawn` with no claims), `settled`, `clawed_back`. |
+| `announcements` | R | What the giveaway playbooks owe a post for: `open` (room to open a round), `countdown` (an open round within 24 hours of its deadline), `to_judge` (past the deadline, with a best-reply prize and no pick: the entries eligible so far, never a held one, at most 30, 500 characters each), `winners` (drawn), `claim_open` (settled), `closing_soon` (within 72 hours of the clawback). Each but `open` and `to_judge` names `thread_to`, the newest post of the round's own thread, for `hands/x follow-up`; one goes away once a post in that thread comes after it was owed. |
+| `judge` | A | `{round_id, entry_id, reasons, text}`, after the deadline and before the draw, for an entry eligible so far and not Teeny's. `text` must carry the tag; it is threaded under the round post (`hands/x follow-up`), and only once it is out is the pick recorded. The other playbook output. |
+| `entries [ID]` | J | Every round not drawn yet: its entries from `hands.db` alone, never X (a test fails on any X call). The webhook stores each direct reply to the round post in `x_mentions` (with `conversation_id`, and the author's age and followers when X sends them); one entry per account, from its replies made before the deadline. The first reply is the entry. Its address is bound from the first of its replies that carries exactly one valid Solana address, leaving out the $TINY and USDC mints, the token and Rewards programs and the giveaway wallet, so a later reply can supply an address the first lacked but never replace one it had. Nothing else a reply says changes anything. A nested reply is not pushed by the webhook, so the rules say "reply to the drop post itself". An open round's file is published to the diary once (and again only if it changes). |
+| `draw [ID]` | J | After the deadline. Waits (`rule: waiting_for_judge`) for the best-reply pick up to 24 hours past the deadline, then draws without it (`best_skipped`); with no prize or nobody eligible it does not wait. The seed is the first finalized Solana block at or after the deadline (`GIVEAWAY_RPC_URL`; `rule: seed_not_final` until there is one): `seed.sha256 = sha256("<id>:<blockhash>")`. Every entrant gets a reason: held by the guard, not screened yet, Teeny's own, classed as an agent (`hands/world`), account under 90 days, under 25 followers, a near-duplicate of an earlier reply (word-set Jaccard 0.8 once the tag, addresses, handles, links and the entry template's words are out, and only between replies of at least 4 such words), no address (Teeny's own index-0 address, asked of the core, never binds), an address another account entered first, or not following @teenydroid (`x_follows`). The eligible handles are sorted by `sha256(seed || handle)`. Walking that order, each candidate the webhook told too little about (follow, age or followers) goes into one batched `hands/x users` call, at most `GIVEAWAY_X_LOOKUPS_PER_ROUND` a round; past that a candidate is `unverifiable`, and a candidate who fails is replaced by the next. The best-reply winner is checked the same way. A person who wins twice gets one leaf with the sum. A milestone not reached, or nobody eligible, makes the round `void`. |
+| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`) for the distribution, funded with exactly the round's total. Until PR 5b fills that step in, it is refused (`chain_not_ready`): the round stays `drawn`, published with `distributor` and `vault` null, and nothing is signed. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
+| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution, which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
+| `due` | J | `entries`, then `draw`, `settle` and `clawback` for every round each is due for. One round's refusal never stops the others. |
+
+The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
+`GIVEAWAY_SEASON_MAX_TINY`, `GIVEAWAY_ROUNDS_PER_WEEK`,
+`GIVEAWAY_MAX_PER_WINNER_TINY`, `GIVEAWAY_CLAWBACK_DAYS`,
+`GIVEAWAY_X_LOOKUPS_PER_ROUND`, `GIVEAWAY_CLUSTER`) are in
+`deploy/teeny.env.example`; with the switch off no round is opened, judged,
+drawn or settled. `GIVEAWAY_AUTHORITY` (the giveaway wallet's address) and
+`GIVEAWAY_RPC_URL` (a Solana JSON-RPC for the round's cluster) are needed to
+settle and to draw. Only `open` and `judge` may be a playbook's output, and an
+input runs only `status` and `announcements` (bin/lib/playbook.py).
+
 ## `lore`: proof events for lore episodes
 
 Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
@@ -2515,10 +2838,11 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
+| `reddit` | `reddit_actions` (the ledger: one row a write or read queued, unique per verb and target for comments, replies, votes and subscribes), `reddit_seen`, `reddit_rules`, `reddit_account` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `hn` | `hn_watch`, `hn_cache` |
 | `listen` | `listen_heard`, `listen_cache` |
@@ -2528,12 +2852,13 @@ creates its own tables:
 | `brief` | `briefs` |
 | `image`, `video` | `media_assets` |
 | `build` | `build_jobs` |
-| `tasks` | `browser_tasks` |
+| `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
+| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |

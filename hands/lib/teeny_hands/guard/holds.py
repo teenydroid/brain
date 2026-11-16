@@ -68,9 +68,11 @@ SURFACES = (
     "quote",
     "lore",
     # Long-form surfaces: GitHub titles, bodies and comments, Moltbook
-    # posts, AgentMail mail. Their limits are in gate.py's LIMITS.
+    # posts, Reddit posts and comments (and what its inbox said to Teeny),
+    # AgentMail mail. Their limits are in gate.py's LIMITS.
     "github",
     "moltbook",
+    "reddit",
     "mail",
     # The memo a stranger attached to a deposit (hands/wallet inflows).
     "wallet",
@@ -387,10 +389,12 @@ def reclassify(hold_id: int, category: str, reason: str, by: str) -> dict[str, A
     )
 
 
-def expire(hold_id: int, effect: str) -> dict[str, Any] | None:
-    """A draft held only by the judge failing: closed, never to be sent."""
+def expire(hold_id: int, effect: str, claimed: bool = False) -> dict[str, Any] | None:
+    """A draft held only by the judge failing: closed, never to be sent (or,
+    `claimed`, a re-send the hand refused or the guard held again)."""
     return _rescreen_update(
-        hold_id, "rescreen = 'expired', status = 'expired', decided_at = ?, effect = ?", (_iso_now(), effect)
+        hold_id, "rescreen = 'expired', status = 'expired', decided_at = ?, effect = ?", (_iso_now(), effect),
+        status="releasing" if claimed else "pending",
     )
 
 

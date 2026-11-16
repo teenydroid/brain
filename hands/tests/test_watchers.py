@@ -80,6 +80,7 @@ ENVIRONMENT = {
     "DRY_RUN": "can only force a rehearsal on (hand.dry_run, evolve), never off",
     "EVOLVE_NOW": "a pinned clock for the tests",
     "EVOLVE_BASE": "the base ref a generation starts from (tests)",
+    "EVOLVE_DOCTOR": "the doctor a red report is checked again with (tests); a doctor that cannot run leaves the halt",
     "EVOLVE_GIT_DIR": "Teeny's clone's git dir (tests)",
     "EVOLVE_LAB_SPINE": "the lab spine's command (tests)",
     "EVAL_HELDOUT_DIR": "where the held-out tasks are (tests); under secrets/ by default",
@@ -94,6 +95,7 @@ ENVIRONMENT = {
     "CORTEX_API_URL": "the memory engine, from secrets/spine.env",
     "CORTEX_API_KEY": "the memory engine's key, from secrets/spine.env",
     "TYPESAFE_API_KEY": "the captcha solver's key, from secrets/spine.env in a subshell",
+    "SURPLUS_API_KEY": "the captcha solver's Surplus key, from secrets/spine.env in a subshell",
 }
 
 _ENV_READ = re.compile(
@@ -165,16 +167,16 @@ class WatcherTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "evolve.env"
-            path.write_text("EVOLVE=0\nEVOLVE_AUTO_PROMOTE=0\n")
+            path.write_text("EVOLVE=0\nEVOLVE_MAX_OPEN_PRS=2\n")
             saved = dict(os.environ)
             try:
-                os.environ.update(EVOLVE="1", EVOLVE_AUTO_PROMOTE="1")
+                os.environ.update(EVOLVE="1", EVOLVE_MAX_OPEN_PRS="20")
                 cfg = evolve.load_config(path)
             finally:
                 os.environ.clear()
                 os.environ.update(saved)
         self.assertFalse(cfg["EVOLVE"])
-        self.assertFalse(cfg["EVOLVE_AUTO_PROMOTE"])
+        self.assertEqual(cfg["EVOLVE_MAX_OPEN_PRS"], 2)
 
     def test_the_pinned_watcher_jobs_are_pinned(self):
         pinned = tomllib.loads((REPO / "evals" / "cron.pinned.toml").read_text())["jobs"]

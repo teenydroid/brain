@@ -25,7 +25,15 @@
 #    model's own words.
 #
 # Prints one JSON summary; every run is appended to state/act/<name>/runs.jsonl.
-# Exits 0 when it ran (including skips and guard holds), 1 on an error.
+# A failed run's line says whose failure it was: `failure: "provider"` with
+# the `provider` class (bin/lib/provider_error.py) when the model provider
+# failed the draft turn, else `failure: "playbook"`. bin/health raises an
+# alarm on provider failures in a row, and bin/lib/catch_up.py may make up
+# a slot they lost.
+# Exits 0 when it ran (including skips and guard holds), 1 on an error. A
+# provider failure a retry seconds later cannot clear (no money, a refused
+# key) also exits 0, once recorded: the core's cron retries a failed shell
+# job at once, and on 2026-11-14 each run failed three times in twenty seconds.
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
@@ -136,7 +144,7 @@ while IFS= read -r input; do
     # fed the inputs gathered so far; its JSON is this input.
     got="$(cd "$TEENY_ROOT" && python3 "$TEENY_ROOT/bin/lib/datajob.py" "$TEENY_BRAIN" "${argv[1]}" <<<"$inputs" 2>"$dir/input.err")" ||
       { record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg o "${got:0:500}" \
-        '{ok: false, playbook: $p, error: "input \($i) failed", stdout: $o}')"; exit 1; }
+        '{ok: false, playbook: $p, error: "input \($i) failed", failure: "playbook", stdout: $o}')"; exit 1; }
   elif ! got="$(cd "$TEENY_ROOT" && DRY_RUN=1 "$hands/${argv[0]#hands/}" "${argv[@]:1}" </dev/null 2>"$dir/input.err")"; then
     if [ "$(jq -r .optional <<<"$input")" = true ]; then
       # An optional input (`optional = true`) reads somebody else's site: its
@@ -146,7 +154,7 @@ while IFS= read -r input; do
       continue
     fi
     record "$(jq -cn --arg p "$name" --arg i "$input_name" --arg e "$(tail -c 500 "$dir/input.err")" --arg o "${got:0:500}" \
-      '{ok: false, playbook: $p, error: "input \($i) failed", stderr: $e, stdout: $o}')"
+      '{ok: false, playbook: $p, error: "input \($i) failed", failure: "playbook", stderr: $e, stdout: $o}')"
     exit 1
   fi
   # Inputs are data for the model, capped so one noisy hand cannot crowd out
@@ -154,12 +162,15 @@ while IFS= read -r input; do
   inputs="$(jq -c --arg k "$input_name" --arg v "${got:0:20000}" \
     '. + {($k): ($v | (try fromjson catch .))}' <<<"$inputs")"
   # A required input that came back empty (null, [], {}, "", or an object of
-  # only those, besides the "ok" every hand adds) means there is nothing to
-  # draft: skip before the model turn.
+  # only those, besides the "ok" every hand adds and a "why") means there is
+  # nothing to draft: skip before the model turn. A gate's "why" (hands/moltbook
+  # post-slot: the post gap is shut, and how long for) goes into the record.
   if [ "$(jq -r .required <<<"$input")" = true ] &&
     jq -e --arg k "$input_name" '.[$k] | def blank: . == null or . == "" or . == [] or . == {};
-      blank or (type == "object" and ([to_entries[] | select(.key != "ok") | .value | blank] | all))' <<<"$inputs" >/dev/null; then
-    record "$(jq -cn --arg p "$name" --arg i "$input_name" '{ok: true, playbook: $p, skipped: "\($i) is empty"}')"
+      blank or (type == "object" and ([to_entries[] | select(.key != "ok" and .key != "why") | .value | blank] | all))' <<<"$inputs" >/dev/null; then
+    record "$(jq -cn --arg p "$name" --arg i "$input_name" --argjson v "$(jq -c --arg k "$input_name" '.[$k]' <<<"$inputs")" \
+      '{ok: true, playbook: $p, skipped: "\($i) is empty"}
+        + (if ($v | type) == "object" and ($v.why | type) == "string" then {why: $v.why[0:300]} else {} end)')"
     exit 0
   fi
 done < <(jq -c '.inputs[]' <<<"$book")
@@ -181,7 +192,7 @@ if [ "$(jq -r .nudge <<<"$book")" = true ]; then
   if ! got="$(jq -cn --arg n "$name" --arg r "$name:$stamp" --arg t "$nudge_text" --arg o "$output" --argjson left "$left" \
       '{surface: "nudge", kind: $n, ref: $r, text: $t, payload: {playbook: $n, output: $o, left_today: $left}}' |
       (cd "$TEENY_ROOT" && "$hands/stimuli" add))"; then
-    record "$(jq -cn --arg p "$name" --arg g "${got:0:500}" '{ok: false, playbook: $p, error: "the nudge was not taken", result: $g}')"
+    record "$(jq -cn --arg p "$name" --arg g "${got:0:500}" '{ok: false, playbook: $p, error: "the nudge was not taken", failure: "playbook", result: $g}')"
     exit 1
   fi
   echo $(($(taken) + 1)) >"$count_file"
@@ -223,7 +234,11 @@ message="$(jq -r --argjson inputs "$inputs" --arg left "$left" '
 thread="${TEENY_ACT_THREAD:-teeny:act}"
 for attempt in 1 2; do
   if ! answer="$(printf '%s' "$message" | "$TEENY_ROOT/bin/ask" --agent act --thread "$thread" 2>"$dir/ask.err")"; then
-    record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}')"
+    read -r provider lasting < <(python3 "$TEENY_ROOT/bin/lib/provider_error.py" <"$dir/ask.err") || true
+    record "$(jq -cn --arg p "$name" --arg e "$(tail -c 500 "$dir/ask.err")" --arg c "${provider:-}" \
+      '{ok: false, playbook: $p, error: "the draft turn failed", stderr: $e}
+        + (if $c == "" then {failure: "playbook"} else {failure: "provider", provider: $c} end)')"
+    [ "${lasting:-}" = lasting ] && exit 0
     exit 1
   fi
   if items="$(python3 "$TEENY_ROOT/bin/lib/answer.py" <<<"$answer" 2>"$dir/parse.err")"; then
@@ -231,7 +246,7 @@ for attempt in 1 2; do
   fi
   if [ "$attempt" = 2 ]; then
     record "$(jq -cn --arg p "$name" --arg e "$(cat "$dir/parse.err")" --arg a "${answer:0:1000}" \
-      '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", answer: $a}')"
+      '{ok: false, playbook: $p, error: "the draft is not usable JSON: \($e)", failure: "playbook", answer: $a}')"
     exit 1
   fi
   log "$name: the draft is not usable JSON; asking once more"
@@ -432,7 +447,9 @@ while IFS= read -r item; do
       if [ "$status" = 0 ]; then
         attach_media "$item"
         [ "$media_ids" = '[]' ] || body="$(jq -c --argjson m "$media_ids" '. + {media_ids: $m}' <<<"$body")"
-        result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && "$hands/$hand" "$verb"))" || status=$?
+        # TEENY_WRITER names the playbook to the hand, which tags a write
+        # with it when the answer named no format (hands/moltbook comment).
+        result="$(printf '%s' "$body" | (cd "$TEENY_ROOT" && TEENY_WRITER="$name" "$hands/$hand" "$verb"))" || status=$?
       fi
       ;;
   esac

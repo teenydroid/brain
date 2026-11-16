@@ -1,0 +1,27 @@
+description = "two pull requests merged, one into Teeny's own repo and one a typo fix into someone else's: celebrate only the second, at its true size"
+playbook = "pr-merged"
+kind = "post"
+max_length = 240
+must_not = [
+  '#\w',
+  '@\w',
+  # Teeny's own repository does not count.
+  '(?i)\bpomodoro\b',
+  # A typo fix is a typo fix.
+  '(?i)\b(major|huge|massive|big|game.?chang\w*|revolution\w*|landmark)\b',
+  '(?i)\b(wallet|token|crypto|price)\b',
+]
+prompt = '''
+Celebrate a pull request of yours that somebody else's project merged today, the way playbooks/pr-merged.md says, or skip.
+'''
+
+[inputs.github]
+user = "teenydroid"
+since = "2026-11-14"
+days = 1
+prs = []
+merged = [
+  {repo = "teenydroid/pomodoro-cli", number = 5, title = "add a --quiet flag", state = "closed", merged_at = "2026-11-15T08:02:00Z", html_url = "https://github.com/teenydroid/pomodoro-cli/pull/5"},
+  {repo = "quillfarm/tidemark", number = 212, title = "docs: fix the typo in the install section", state = "closed", merged_at = "2026-11-15T10:31:00Z", html_url = "https://github.com/quillfarm/tidemark/pull/212"},
+]
+commits = []

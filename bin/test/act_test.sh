@@ -23,6 +23,8 @@ cat >"$scratch/fake-oh" <<'FAKE'
 set -euo pipefail
 printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
+# $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
+[ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
 # $FAKE_FIRST, when the file is there, answers the first call only.
 if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
   jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
@@ -39,6 +41,7 @@ in="$(cat)"
 printf 'x %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   search) echo '{"ok": true, "posts": [{"id": "111", "text": "gm @teenydroid, what are you building?"}]}' ;;
+  links) printf '%s\n' "${FAKE_X_LINKS:-{\"ok\": true, \"cap\": 1, \"sent_today\": 0, \"left\": 1\}}" ;;
   upload) [ -n "${FAKE_UPLOAD_FAIL:-}" ] && { echo '{"ok": false, "error": "X answered 500"}'; exit 1; }
     echo '{"ok": true, "media_id": "1234567890"}' ;;
   *) echo '{"ok": true, "dry_run": true}'; exit "${FAKE_X_EXIT:-0}" ;;
@@ -64,6 +67,7 @@ cat >"$scratch/hands/lab" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'lab %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+printf 'lab-writer %s\n' "${TEENY_WRITER:-}" >>"$FAKE_HANDS"
 echo '{"ok": true}'
 FAKE
 # The media hands: log what they were asked and answer an asset (or a dry
@@ -233,9 +237,48 @@ for empty in 'null' '[]' '{}' '""' '{"brief": null, "more": []}' '{"ok": true, "
   FAKE_QUEUE="$empty" run told >/dev/null
   check "treats $empty as empty" test ! -s "$FAKE_CALLS"
 done
+# A gate (hands/moltbook post-slot) answers only its reason when it is shut:
+# that is empty too, and the skip records the reason.
+reset
+out="$(FAKE_QUEUE='{"ok": true, "why": "rate_limit: one post per 30 min; wait 329s"}' run told)"
+check "treats an answer of only a why as empty" test ! -s "$FAKE_CALLS"
+check "and records the why with the skip" test "$(jq -r .why <<<"$out")" = "rate_limit: one post per 30 min; wait 329s"
+check "and in runs.jsonl" test "$(tail -n 1 "$scratch/state/act/told/runs.jsonl" | jq -r .why)" = "rate_limit: one post per 30 min; wait 329s"
+reset
+FAKE_QUEUE='{"ok": true, "open": true}' run told >/dev/null
+check "drafts when the gate is open" test -s "$FAKE_CALLS"
 printf '+++\ndescription = "test"\noutput = "post"\n[[inputs]]\nrun = "hands/queue next"\nrequired = "yes"\n+++\npost it\n' >"$brain/playbooks/told.md"
 check "refuses a required that is not true or false" bash -c "! '$act' --check told >/dev/null 2>&1"
 rm -f "$brain/playbooks/told.md"
+
+# --- a draft turn the model provider failed -------------------------------------------
+# On 2026-11-14 every draft failed for three hours with HTTP 402, and cron
+# ran each failed run three times in twenty seconds. The line says it was the
+# provider, and which kind; a failure a retry cannot clear exits 0 (recorded
+# once, so cron does not retry it), and one that may clear still exits 1.
+reset
+book chatty post 1
+answer '{"action": "post", "text": "gm"}'
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 402 (insufficient_allowance): no allowance' run chatty)" && status=0 || status=$?
+line="$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")"
+check "a 402 draft failure is recorded as the provider's, class payment" \
+  jq -e '.ok == false and .failure == "provider" and .provider == "payment"' <<<"$line"
+check "and exits 0, so cron does not retry it at once" test "$status" = 0
+check "and spends nothing of the day" test ! -s "$scratch/state/act/chatty/$(date -u +%Y-%m-%d)"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 401 (invalid_api_key)' run chatty)" && status=0 || status=$?
+check "a refused key is class auth, and is not retried either" \
+  bash -c "[ '$status' = 0 ] && jq -e '.provider == \"auth\"' <<<'$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")' >/dev/null"
+reset
+out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned: provider stream ended before a completion signal' run chatty)" && status=0 || status=$?
+check "a cut stream is class server" jq -e '.failure == "provider" and .provider == "server"' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1, keeping cron's retry" test "$status" = 1
+reset
+out="$(FAKE_ASK_ERROR='invalid params: message too long' run chatty)" && status=0 || status=$?
+check "a turn failure that is not the provider's is the playbook's" \
+  jq -e '.failure == "playbook" and (has("provider") | not)' "$scratch/state/act/chatty/runs.jsonl"
+check "and exits 1" test "$status" = 1
+rm -f "$brain/playbooks/chatty.md"
 
 # --- an optional input that fails is left out; any other failure stops the run -------
 # A playbook that reads the outside world (Hacker News) must not lose its
@@ -253,6 +296,7 @@ answer '{"action": "post", "text": "gm anyway"}'
 out="$(run outage)" && status=0 || status=$?
 check "an input that fails stops the run" test "$status" = 1
 check "and says which" test "$(jq -r .error <<<"$out")" = "input world failed"
+check "and that it is the playbook's failure, not the provider's" test "$(jq -r .failure <<<"$out")" = playbook
 check "before any draft" test ! -s "$FAKE_CALLS"
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\noptional = true\n[[inputs]]\nname = "feed"\nrun = "hands/x search gm"\n+++\npost it\n' >"$brain/playbooks/outage.md"
@@ -453,6 +497,7 @@ answer '{"action": "hand", "post_id": "p-1", "body": "try a smaller batch"}'
 run molt >/dev/null
 check "a moltbook comment's body is screened" grep -q '^guard check --fields body stdin={"body":"try a smaller batch","surface":"moltbook"}' "$FAKE_HANDS"
 check "and the hand gets the post id and the guard's body" grep -q '^lab comment stdin={"post_id":"p-1","body":"try a smaller batch\[g\]"}$' "$FAKE_HANDS"
+check "and is told which playbook asked, to tag the comment with" grep -q '^lab-writer molt$' "$FAKE_HANDS"
 reset
 printf '+++\ndescription = "test"\noutput = "hand:lab pick"\n+++\npick one\n' >"$brain/playbooks/pick.md"
 answer '{"action": "hand", "id": 4, "reason": "small and useful"}'
@@ -616,6 +661,35 @@ else
 fi
 check "bin/ask still refuses a message that is only whitespace" bash -c "! printf '  \n\t ' | '$here/../ask' --agent act 2>/dev/null"
 
+# --- show: the day's one X link already spent -------------------------------------------
+# X refuses a second link post a day (hands/x, X_LINK_POSTS_MAX_PER_DAY). The
+# real show playbook reads `hands/x links` first and is told to write the
+# Moltbook exchange without its url when none is left, rather than lose the
+# 23:00 slot to a refusal.
+for h in gh stats moltbook brief; do
+  cat >"$scratch/hands/$h" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"$FAKE_HANDS"
+case "$(basename "$0") $1" in
+  "moltbook highlight") echo '{"ok": true, "highlight": {"agent": "Ava", "agents": 2, "their_words": ["your cache hides the bug"], "url": "https://www.moltbook.com/post/abc"}}' ;;
+  "brief next") echo '{"ok": true, "brief": null}' ;;
+  *) echo '{"ok": true}' ;;
+esac
+FAKE
+  chmod +x "$scratch/hands/$h"
+done
+cp "$here/../../brain/playbooks/show.md" "$brain/playbooks/show.md"
+reset
+answer '{"action": "post", "text": "an agent named Ava told me \"your cache hides the bug\". it did.", "format": "moltbook"}'
+out="$(FAKE_X_LINKS='{"ok": true, "cap": 1, "sent_today": 1, "left": 0}' run show)"
+message="$(jq -r .message "$FAKE_CALLS")"
+check "show reads today's X link budget before it drafts" grep -q '^x links DRY_RUN=1 ' "$FAKE_HANDS"
+check "and gives the model the spent link as data" grep -q '"x-links":{"ok":true,"cap":1,"sent_today":1,"left":0}' <<<"$message"
+check "and tells it to leave the exchange's url out when none is left" grep -q "only when \`x-links\` says \`left\` is 1 or more; otherwise leave the url out" <<<"$message"
+check "the link-free show post goes out instead of being refused" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "with no link in it" bash -c "grep '^x post ' '$FAKE_HANDS' | grep -q 'Ava' && ! grep '^x post ' '$FAKE_HANDS' | grep -q 'moltbook.com'"
+rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$scratch/hands/moltbook" "$scratch/hands/brief"
+
 # --- the repository's own playbooks parse ------------------------------------------------
 for path in "$here/../../brain/playbooks"/*.md; do
   name="$(basename "$path" .md)"
@@ -635,6 +709,11 @@ for name in morning take build-idea moltbook-daily moltbook-evening moltbook-gen
   check "$name reads what was heard" \
     bash -c "$(declare -f listens); act='$act' here='$here' listens $name | jq -e '.inputs | index(\"heard\")' >/dev/null"
 done
+
+# Reddit is read through the browser desk: a run with nothing due skips before
+# the model, and the playbook can only queue a read.
+check "reddit-browse waits on hands/reddit due and only browses" \
+  bash -c "$(declare -f listens); act='$act' here='$here' listens reddit-browse | jq -e '.inputs[0] == \"due\" and .output == \"hand:reddit browse\" and .surface == \"reddit\"' >/dev/null"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

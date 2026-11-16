@@ -31,6 +31,7 @@ class CoreConfigTest(unittest.TestCase):
         os.environ.pop("OPENHUMAN_WORKSPACE", None)
         os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
         os.environ.pop("TEENY_CAPTCHA_MODEL", None)
+        os.environ.pop("TEENY_CAPTCHA_PROVIDER", None)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -204,8 +205,21 @@ class CoreConfigTest(unittest.TestCase):
     def test_browser_tasks_try_a_captcha_with_jev_before_a_person(self):
         computer = self.written()["computer"]
         self.assertTrue(computer["captcha_solver"])
-        self.assertEqual(computer["captcha_model"], "jev-preview")
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
         self.assertEqual(computer["max_captcha_attempts"], 3)
+
+    def test_the_captcha_solver_can_go_back_to_typesafe_with_its_own_model(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "TypeSafe"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "type_safe")
+        self.assertEqual(computer["captcha_model"], "jev-preview")
+
+    def test_an_unknown_captcha_provider_falls_back_to_surplus(self):
+        os.environ["TEENY_CAPTCHA_PROVIDER"] = "nowhere"
+        computer = self.written()["computer"]
+        self.assertEqual(computer["captcha_provider"], "surplus")
+        self.assertEqual(computer["captcha_model"], "jev-1.14")
 
     def test_the_captcha_solver_keeps_the_cores_own_computer_keys(self):
         doc = self.written('[computer]\ndecision_model = "sage"\nmax_rescues = 2\n')

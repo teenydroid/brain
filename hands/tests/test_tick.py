@@ -49,6 +49,9 @@ name = os.path.basename(sys.argv[0])
 body = sys.stdin.read()
 with open(os.environ["FAKE_HANDS"], "a") as fh:
     fh.write(json.dumps({"hand": name, "argv": sys.argv[1:], "body": json.loads(body) if body.strip() else None}) + "\n")
+if os.environ.get("TEENY_WRITER"):
+    with open(os.environ["FAKE_HANDS"] + ".writer", "a") as fh:
+        fh.write(f"{name} {os.environ['TEENY_WRITER']}\n")
 if sys.argv[1:2] == ["mark"]:
     print(json.dumps({"ok": True})); sys.exit(0)
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -112,7 +115,8 @@ class TickTest(unittest.TestCase):
         (self.root / "bin").symlink_to(REPO / "bin")
         hands = self.scratch / "hands"
         hands.mkdir()
-        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab", "build"):
+        for name in ("x", "moltbook", "mail", "gh", "guard", "image", "telegram", "wallet", "tasks", "people", "hn", "x402", "lab", "build",
+                     "reddit"):
             _exe(hands / name, FAKE_HAND)
         _exe(self.scratch / "fake-oh", FAKE_OH)
         self.calls = self.scratch / "calls.log"
@@ -760,6 +764,75 @@ class TickTest(unittest.TestCase):
         stimuli.add("x", "mention", "10", "hi")
         self.assertEqual(self.tick()["results"][0]["status"], "done")
 
+    # --- Reddit, through the browser desk (hands/reddit) ------------------------------
+
+    THREAD = "https://old.reddit.com/r/AI_Agents/comments/abc123/retries/"
+
+    def reddit_account(self):
+        from teeny_hands.tasks import queue
+
+        queue.record_account("www.reddit.com", "teenydroid", "Teeny's own Reddit account", 1)
+
+    def test_the_reddit_intents_are_offered_only_once_teeny_has_an_account(self):
+        self.tick()
+        self.assertNotIn("reddit_comment", self.chats()[0]["message"])
+        self.reddit_account()
+        stimuli.add("x", "mention", "r1", "hi")
+        self.tick()
+        message = self.chats()[1]["message"]
+        for do in ("reddit_comment", "reddit_reply", "reddit_post", "reddit_upvote", "reddit_subscribe"):
+            self.assertIn(f'"do": "{do}"', message)
+        self.assertIn("at most 6 today, replies included", message)
+        # A cap set to 0 takes the intent out of the prompt.
+        self.caps(REDDIT_POSTS_PER_DAY=0)
+        stimuli.add("x", "mention", "r2", "hi")
+        self.tick()
+        self.assertNotIn('"do": "reddit_post"', self.chats()[2]["message"])
+
+    def test_each_reddit_intent_goes_to_its_hand_verb_with_its_fields_only(self):
+        self.answer({"thought": "", "intents": [
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "cap retries at three", "subreddit": "x"},
+            {"do": "reddit_reply", "comment": self.THREAD + "def456/", "text": "thanks"},
+            {"do": "reddit_post", "subreddit": "AI_Agents", "title": "what retries taught me", "text": "three things"},
+            {"do": "reddit_upvote", "targets": [self.THREAD]},
+            {"do": "reddit_upvote", "permalink": self.THREAD},
+            {"do": "reddit_subscribe", "subreddit": "LLMDevs"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["done"] * 6, got)
+        calls = [(c["argv"], c["body"]) for c in self.hand_calls() if c["hand"] == "reddit"]
+        self.assertEqual(calls, [
+            (["comment"], {"thread": self.THREAD, "body": "cap retries at three"}),
+            (["reply"], {"comment": self.THREAD + "def456/", "body": "thanks"}),
+            (["post"], {"subreddit": "AI_Agents", "title": "what retries taught me", "body": "three things"}),
+            (["upvote"], {"targets": [self.THREAD]}),
+            (["upvote"], {"targets": [self.THREAD]}),
+            (["subscribe"], {"subreddit": "LLMDevs"}),
+        ])
+
+    def test_comments_and_replies_share_one_mind_cap_and_a_refusal_is_not_paced(self):
+        tick = _tick_module()
+        self.assertNotIn("reddit_comment", tick.PACED)
+        self.caps(REDDIT_COMMENTS_PER_DAY=2)
+        os.environ["FAKE_REFUSALS_REDDIT"] = json.dumps([{"refused": "cap", "rule": "daily_cap", "wait_seconds": 30}])
+        self.addCleanup(os.environ.pop, "FAKE_REFUSALS_REDDIT", None)
+        self.answer({"thought": "", "intents": [
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "one"},
+            {"do": "reddit_reply", "comment": self.THREAD + "def456/", "text": "two"},
+            {"do": "reddit_comment", "thread": self.THREAD, "text": "three"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["refused", "done", "refused"], got)
+        self.assertNotIn("paced", got["results"][0])
+        self.assertIn("today's 2 reddit_comment/reddit_reply intent(s) are spent", got["results"][2]["result"]["refused"])
+        self.assertEqual(len([c for c in self.hand_calls() if c["hand"] == "reddit"]), 2)
+
+    def test_a_reddit_post_needs_words_or_a_link(self):
+        self.answer({"thought": "", "intents": [{"do": "reddit_post", "subreddit": "AI_Agents", "title": "t"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "refused")
+        self.assertEqual([c for c in self.hand_calls() if c["hand"] == "reddit"], [])
+
     # --- paid web search and page reads (hands/x402) ----------------------------------
 
     SEARCH = {"do": "web_search", "query": "openhuman agent", "n": 3}
@@ -1259,6 +1332,13 @@ class TickTest(unittest.TestCase):
         got = self.tick()
         self.assertEqual([r["status"] for r in got["results"]], ["done", "done"])
         self.assertEqual([c["body"]["post_id"] for c in self.hand_calls()], ["p1", "p2", "p2"])
+
+    def test_the_hand_is_told_the_mind_sent_it_to_tag_the_comment_with(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "comment_moltbook", "post_id": "p1", "text": "first"}]})
+        self.tick()
+        writers = Path(str(self.hands_log) + ".writer").read_text().splitlines()
+        self.assertIn("moltbook mind", writers)
 
     def test_a_deferred_reply_still_paced_after_an_hour_goes_back_to_the_mind(self):
         os.environ["FAKE_REFUSALS_X"] = json.dumps([self.paced(600), self.paced(600), self.paced(600)])
@@ -1761,15 +1841,17 @@ class TickTest(unittest.TestCase):
         self.assertIn("#2 in 5 h: write to bob (ref bob@example.com)", message)
         self.assertIn("#3 in 7 h: write the weekly post", message)
 
-    def test_a_beat_browses_moltbook_at_most_every_ten_minutes(self):
+    def test_a_beat_browses_moltbook_every_beat_at_most_every_four_minutes(self):
+        # Every five-minute beat, a minute early included, so a comment on
+        # Teeny's own post waits one beat, not two or three.
         browsed = lambda: sum(1 for c in (map(json.loads, self.hands_log.read_text().splitlines()) if self.hands_log.exists() else [])
                               if c["hand"] == "moltbook" and c["argv"][:1] == ["inbox"])
         self.tick()
         self.assertEqual(browsed(), 1)
-        os.environ["TEENY_NOW"] = str(T0 + 300)
+        os.environ["TEENY_NOW"] = str(T0 + 120)
         self.tick()
         self.assertEqual(browsed(), 1)
-        os.environ["TEENY_NOW"] = str(T0 + 601)
+        os.environ["TEENY_NOW"] = str(T0 + 241)
         self.tick()
         self.assertEqual(browsed(), 2)
 
@@ -2057,6 +2139,89 @@ class TickTest(unittest.TestCase):
                                     "url": "https://github.com/teenydroid/x"}),
             ("moltbook", ["follow"], {"name": "crabby"}),
         ])
+
+    def test_the_mind_can_decline_a_comment_on_its_own_post_with_a_reason(self):
+        stimuli.add("moltbook", "comment", "c9", "register your bot as a performer", who="pixelbot",
+                    payload={"post_id": "p1", "on_own_post": True})
+        stimuli.follow_up(T0 + 3600, "answer pixelbot", ref="c9")
+        self.answer({"thought": "", "intents": [
+            {"do": "decline_moltbook", "comment_id": "c9", "reason": "spam", "note": "sells a listing", "extra": 1},
+        ]})
+        got = self.tick()
+        calls = [(c["hand"], c["argv"], c["body"]) for c in self.hand_calls()]
+        self.assertEqual(calls, [("moltbook", ["decline"], {"comment_id": "c9", "reason": "spam", "note": "sells a listing"})])
+        self.assertEqual([r["status"] for r in got["results"]], ["done"])
+        self.assertEqual(stimuli.follow_ups()["follow_ups"], [], "declining it settles what waited on it")
+
+    def test_own_thread_comments_come_with_the_rule_to_answer_them_now(self):
+        stimuli.add("moltbook", "comment", "c9", "what does your ledger keep?", who="rossum",
+                    payload={"post_id": "p1", "on_own_post": True, "again": 2, "waiting_minutes": 47})
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        for bit in ("Comments on your own Moltbook posts come first", "never only thanks or agreement",
+                    "Still unanswered, 47 min after it came (offered 3 times)", "no one-comment-per-beat rule",
+                    '"do": "decline_moltbook"'):
+            self.assertIn(bit, chat["message"])
+
+    def test_a_comment_elsewhere_carries_no_own_thread_rule(self):
+        stimuli.add("moltbook", "comment", "c9", "replying to you", who="ana", payload={"post_id": "p1", "on_own_post": False})
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        self.assertNotIn("Comments on your own Moltbook posts come first", chat["message"])
+
+    def gap(self, wait: float) -> dict:
+        return {"refused": f"one post per 30 min; wait {wait:.0f}s", "rule": "rate_limit", "wait_seconds": wait}
+
+    def test_a_post_refused_for_the_gap_is_held_and_sent_when_it_opens_without_a_new_turn(self):
+        # 2026-11-15: the mind's post at 11:29 was refused (wait 981s); it set
+        # itself a follow-up and wrote again. Now the beat holds the same post
+        # and sends it as written once the gap opens, without asking the mind.
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.gap(981), self.gap(681)])
+        stimuli.add("x", "mention", "1", "gm")
+        post = {"do": "post_moltbook", "title": "a retry is not recovery", "text": "I retried it nine times.", "format": "claim"}
+        self.answer({"thought": "", "intents": [post]},
+                    {"thought": "", "intents": [{"do": "journal", "text": "later"}]})
+        got = self.tick()
+        self.assertEqual(got["results"][0]["status"], "deferred")
+        self.at(300)
+        got = self.tick()  # the gap is still shut: kept, nothing said yet
+        self.assertEqual(got["resumed"][0]["status"], "deferred")
+        self.at(1000)
+        got = self.tick()
+        self.assertEqual(got["resumed"][0]["status"], "done")
+        posts = [c["body"] for c in self.hand_calls() if c["argv"] == ["post"]]
+        self.assertEqual(len(posts), 3)
+        self.assertEqual({json.dumps(b, sort_keys=True) for b in posts}, {json.dumps(
+            {"submolt": "general", "title": "a retry is not recovery", "body": "I retried it nine times.", "format": "claim"},
+            sort_keys=True)})
+        # The mind was asked for it once; it only hears that it went out.
+        self.assertEqual(sum("a retry is not recovery" in c["message"] for c in self.chats()), 0)
+        self.assertIn("your post_moltbook: done", self.chats()[-1]["message"])
+
+    def test_only_one_post_is_held_at_a_time(self):
+        os.environ["FAKE_REFUSALS_MOLTBOOK"] = json.dumps([self.gap(900), self.gap(900)])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [
+            {"do": "post_moltbook", "title": "first", "text": "one"},
+            {"do": "post_moltbook", "title": "second", "text": "two"},
+        ]})
+        got = self.tick()
+        self.assertEqual([r["status"] for r in got["results"]], ["deferred", "refused"])
+        self.assertIn("already held", got["results"][1]["result"]["refused"])
+        held = json.loads((self.root / "state" / "tick" / "deferred.json").read_text())
+        self.assertEqual([(i["do"], i["intent"]["title"]) for i in held], [("post_moltbook", "first")])
+
+    def test_the_post_intent_names_every_format_and_the_title_rules(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        message = self.chats()[0]["message"]
+        line = next(l for l in message.splitlines() if '"do": "post_moltbook"' in l)
+        for fmt in ("confession", "claim", "question", "news", "audit", "finding", "answer"):
+            self.assertIn(fmt, line)
+        self.assertIn("no hand, pacer, guard, tick", message)
 
     def test_a_moltbook_post_needs_a_title_and_a_body(self):
         stimuli.add("x", "mention", "1", "gm")

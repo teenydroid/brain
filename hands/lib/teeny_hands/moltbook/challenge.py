@@ -18,11 +18,15 @@ How it reads one:
    letter in the noise and a real one compare equal.
 3. Re-join a word the noise split with a space ("tw enty") when the joined
    form is a number word or an operation word and the pieces are not both
-   words already.
+   words already. When the noise also moved a letter or two of the word
+   before onto it ("gAiN sE i. gGhT" is "gains eight"), the letters go back
+   only when both words then come out known.
 4. Read the numbers: digits, or number words with the usual grammar
    ("thirty two", "one hundred and five", "three point five"). Two numbers
    written next to each other ("five twenty") are not one number: that is
-   ambiguous, so no answer.
+   ambiguous, so no answer. So is a long number word with two letters
+   swapped or one letter too many ("tihrty", "tiwelve"): skipping it
+   answered 10 for "tihrty five * two" on 2026-11-15.
 5. Find the operation from its words (plus, gains ... / minus, slows,
    loses ... / times, multiplied ... / divided, split, shared ...). A
    comparison ("how much faster than") is the difference, as a positive
@@ -56,7 +60,9 @@ How it reads one:
    text says one number counts the other ("each exerts thirty two ... and
    there are four claw friends, how much total force": 32 x 4, not 36, which
    Moltbook marked wrong on 2026-11-12). "Each", "per", "every", "apiece" or
-   "there are" before a number make that sum a guess: no answer.
+   "there are" before a number make that sum a guess: no answer. So does an
+   addition where the second number counts creatures ("two lobsters") and
+   the first does not ("twenty five newtons").
 
 Confident means exactly two numbers and exactly one kind of operation, and
 for a division a divisor that is not zero. Anything else is None.
@@ -196,13 +202,63 @@ def _rejoin(words: list[str]) -> list[str]:
             if _known(candidate) and not all(_known(p) for p in parts):
                 joined = (candidate, span)
                 break
+        shifted = None if joined else _shifted(out, words, i)
         if joined:
             out.append(joined[0])
             i += joined[1]
+        elif shifted:
+            out[-1] = shifted[0]
+            out.append(shifted[1])
+            i += shifted[2]
         else:
             out.append(words[i])
             i += 1
     return out
+
+
+#: How many letters of a word the noise may move onto the next one.
+_SHIFT_MAX = 2
+
+
+def _shifted(out: list[str], words: list[str], i: int) -> tuple[str, str, int] | None:
+    """"gAiN sE i. gGhT": the noise moved the last letter of "gains" onto
+    "eight", then split "eight". When 1 to 3 words from `i` joined are a
+    letter or two and then a number word, and that letter or two put back
+    on the word before makes a word this reader knows, the two words come
+    back as (word before, number word, words used). Both must come out
+    known, so a guess never makes a number."""
+    if not out or not out[-1].isalpha():
+        return None
+    for span in (3, 2, 1):
+        if i + span > len(words):
+            continue
+        parts = words[i : i + span]
+        if not all(p.isalpha() for p in parts) or all(_known(p) for p in parts):
+            continue
+        joined = collapse("".join(parts))
+        for cut in range(1, _SHIFT_MAX + 1):
+            before, rest = collapse(out[-1] + joined[:cut]), joined[cut:]
+            if _is_number_word(rest) and _known(before):
+                return before, rest, span
+    return None
+
+
+def _near_miss(word: str) -> bool:
+    """A long number word with two letters swapped ("tihrty") or one letter
+    too many ("tiwelve"): which number it is, if any, is a guess."""
+    if len(word) < 5 or not word.isalpha() or _known(word):
+        return False
+    for number in (*UNITS, *TENS, *SCALES):
+        if len(number) < 5:
+            continue
+        if len(word) == len(number):
+            diff = [k for k in range(len(word)) if word[k] != number[k]]
+            if len(diff) == 2 and diff[1] == diff[0] + 1 and word[diff[0]] == number[diff[1]] and word[diff[1]] == number[diff[0]]:
+                return True
+        elif len(word) == len(number) + 1:
+            if any(word[:k] + word[k + 1 :] == number for k in range(len(word))):
+                return True
+    return False
 
 
 class _Ambiguous(Exception):
@@ -280,6 +336,8 @@ def _numbers(words: list[str]) -> list[tuple[int, int, Decimal]]:
     i = 0
     while i < len(words):
         word = words[i]
+        if _near_miss(word):
+            raise _Ambiguous
         if re.fullmatch(r"\d+(?:\.\d+)?", word):
             flush(i)
             numbers.append((i, i + 1, Decimal(word)))
@@ -372,6 +430,21 @@ def _times(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool | No
     return times
 
 
+#: Nouns that make a number a head count rather than a quantity.
+CREATURES = {collapse(w) for w in "lobster lobsters crab crabs claw claws friend friends shrimp".split()}
+
+
+def _counts_creatures(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
+    """"twenty five newtons ... joins with two lobsters, how much total": the
+    second number counts lobsters, the first is a force, so adding them is a
+    guess (Moltbook marked 27 wrong on 2026-11-15). Only when the two numbers
+    are not followed by the same noun ("20 claws and gains 5" still adds)."""
+    if len(spans) != 2:
+        return False
+    after = [words[end] if end < len(words) else None for _, end, _ in spans]
+    return after[1] in CREATURES and after[0] != after[1]
+
+
 def _there_are_count(words: list[str], spans: list[tuple[int, int, Decimal]]) -> bool:
     """"... and there are four claw friends": a count, whatever it counts."""
     return any(words[max(0, start - 2) : start] == ["there", "are"] for start, _, _ in spans)
@@ -434,6 +507,8 @@ def solve(challenge: str) -> str | None:
         a, b = numbers
         return _format(abs(a - b))
     if len(ops) != 1 or (added_pair and ops != {"+"}):
+        return None
+    if ops == {"+"} and not added_pair and _counts_creatures(words, spans):
         return None
     a, b = numbers
     return compute(a, ops.pop(), b)

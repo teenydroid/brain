@@ -7,6 +7,11 @@ is read from secrets/teeny.env (the operator's), never the environment.
                       change (default senamakel)
   BABYSIT_MAINTAINERS more logins whose approval counts, besides everyone
                       GitHub says can write to the repository
+  BABYSIT_SELF_MERGE  1 lets Teeny's own evolve pull requests (teeny/gen-*
+                      on teenydroid/brain) merge without a person's
+                      approval when the audit is clean and teeny/eval
+                      passed at the head (`self-merge` at L5, the
+                      operator's decision of 2026-11-15); default off
 """
 
 from __future__ import annotations
@@ -92,6 +97,25 @@ def tier(login: str | None, permission: Any = None) -> str:
     if permission is not None and permission(login) in WRITE_ROLES:
         return MAINTAINER
     return STRANGER
+
+
+# --- Teeny's evolve pull requests (the self-merge path) ----------------------------------
+
+#: The branch an evolve learning is opened from: teeny/gen-<n>-c<i> (or the
+#: older loop's teeny/gen-<n>). Digits only, so a builder's teeny/<slug>
+#: never reads as one, whatever its slug says.
+EVOLVE_BRANCH = re.compile(r"teeny/gen-[0-9]+(?:-c[0-9]+)?")
+#: The commit status the targeted eval sets on the PR's head: success is a
+#: passed non-regression (or "unmeasurable"), failure a regression.
+EVAL_CONTEXT = "teeny/eval"
+
+
+def self_merge_on() -> bool:
+    return hand.flag("BABYSIT_SELF_MERGE", False)
+
+
+def is_evolve_branch(ref: Any) -> bool:
+    return isinstance(ref, str) and EVOLVE_BRANCH.fullmatch(ref) is not None
 
 
 # --- paths -------------------------------------------------------------------------------
@@ -194,6 +218,7 @@ DIARY_LAYOUT = (
     re.compile(r"days/\d{4}-\d{2}-\d{2}\.md"),
     re.compile(r"days/chain\.jsonl"),
     re.compile(r"memory/(?:MEMORY\.md|chain\.jsonl|head\.json)"),
+    re.compile(r"giveaways/(?:index|drop-\d+)\.json"),
     re.compile(r"verify\.py"),
     re.compile(r"README\.md"),
     re.compile(r"\.gitignore"),
@@ -214,6 +239,7 @@ DIARY_DATA = (
     re.compile(r"world/.+"),
     re.compile(r"wallet\.json"),
     re.compile(r"memory/.+"),
+    re.compile(r"giveaways/.+"),
 )
 #: What makes the receipts checkable at all.
 DIARY_VERIFIER = (re.compile(r"verify\.py"), re.compile(r"\.github/.+"))

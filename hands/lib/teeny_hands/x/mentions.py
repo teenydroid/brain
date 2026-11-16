@@ -69,9 +69,19 @@ CREATE TABLE IF NOT EXISTS x_mentions (
 CREATE INDEX IF NOT EXISTS x_mentions_status ON x_mentions (status, seen_at);
 """
 
+#: What X's webhook says about a mention's author, when the delivery carries
+#: it (`includes.users`): kept so a giveaway's filters need no paid lookup.
+#: Null on a row from the mentions timeline, which asks only for usernames.
+AUTHOR_COLUMNS = {
+    "author_created_at": "TEXT",
+    "author_followers": "INTEGER",
+    "author_verified": "INTEGER",
+}
+
 
 def _db() -> sqlite3.Connection:
     conn = open_db(SCHEMA)
+    hand.add_columns(conn, "x_mentions", AUTHOR_COLUMNS)
     rules.ensure_schema(conn)
     return conn
 
@@ -135,9 +145,11 @@ def _store(
         verdict = _screen(post)
         if verdict.kind != "allow":
             status, note, hold_id = "held", verdict.reason, verdict.hold_id
+    verified = post.get("authorVerified")
     conn.execute(
         "INSERT OR IGNORE INTO x_mentions (id, author_id, author_username, conversation_id, created_at,"
-        " text, post, status, note, hold_id, seen_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " text, post, status, note, hold_id, seen_at, updated_at, author_created_at, author_followers,"
+        " author_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             post["id"],
             post.get("authorId"),
@@ -151,6 +163,9 @@ def _store(
             hold_id,
             now,
             now,
+            post.get("authorCreatedAt"),
+            post.get("authorFollowers"),
+            None if not isinstance(verified, bool) else int(verified),
         ),
     )
     counts[status] += 1
@@ -181,6 +196,16 @@ def _set_cursor(conn, name: str, since_id: str | None, now: float) -> None:
     )
 
 
+def _open_drop_posts(conn) -> set[str]:
+    """The posts of the Tiny Drops still open (hands/giveaway): a reply in one
+    of their threads is an entry, never a mention to answer. No table, no drops."""
+    try:
+        rows = conn.execute("SELECT post_id FROM giveaway_rounds WHERE status = 'open' AND post_id IS NOT NULL").fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    return {str(r["post_id"]) for r in rows}
+
+
 def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = None) -> Mapping[str, Any]:
     """Reads new mentions into the queue and offers every pending one. Safe to
     run at any time and twice at once (a lock), and it never answers anyone."""
@@ -209,8 +234,16 @@ def ingest(max_results: int | None = None, offer: bool = True, x: XApi | None = 
 
         offered, failed = 0, None
         if offer:
-            for pending in conn.execute("SELECT post FROM x_mentions WHERE status = 'pending' ORDER BY id").fetchall():
+            drops = _open_drop_posts(conn)
+            for pending in conn.execute(
+                    "SELECT post, conversation_id FROM x_mentions WHERE status = 'pending' ORDER BY id").fetchall():
                 post = json.loads(pending["post"])
+                if pending["conversation_id"] in drops:
+                    # An entry to an open Tiny Drop: hands/giveaway reads it from
+                    # this row; answering every entry would be reply spam.
+                    conn.execute("UPDATE x_mentions SET status = 'skipped', note = 'drop entry', updated_at = ? WHERE id = ?",
+                                 (hand.now(), post["id"]))
+                    continue
                 try:
                     _offer(post)
                 except hand.CoreError as exc:

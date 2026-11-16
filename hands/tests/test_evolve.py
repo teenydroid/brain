@@ -1,15 +1,16 @@
-"""bin/evolve (bin/lib/evolve.py): Phase B of the evolve loop, offline. Its
-candidates branch from a scratch clone of this repository, the core is a
-stand-in (TEENY_OH), the hands it reads are stand-ins (TEENY_HANDS), GitHub
-is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
+"""bin/evolve (bin/lib/evolve.py), offline: one candidate per open learning
+of brain/MEMORY.md, one pull request per candidate. Its candidates branch
+from a scratch clone of this repository, the core is a stand-in (TEENY_OH),
+the hands it reads are stand-ins (TEENY_HANDS), bin/eval is the real one
+(a change to a playbook no task drafts from is unmeasurable, so nothing
+boots), GitHub is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
 
 import json
-import time
 import os
-import random
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -26,7 +27,7 @@ SECRET_ID = "heldout-whisper"
 SECRET_PROMPT = "Reply to the lighthouse keeper who asks about the tide clock"
 ENV_KEYS = ("TEENY_ROOT", "TEENY_STATE", "TEENY_SECRETS", "TEENY_HANDS", "TEENY_OH", "EVOLVE_GIT_DIR", "EVOLVE_BASE",
             "EVOLVE_NOW", "DRY_RUN", "EVOLVE", "EVAL_HELDOUT_DIR", "TEENY_STORAGE", "OPENHUMAN_CORE_URL",
-            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE")
+            "FAKE_CALLS", "FAKE_HISTORY", "FAKE_REPORT", "OPENHUMAN_WORKSPACE", "EVOLVE_DOCTOR")
 
 
 def git(*args, cwd=None):
@@ -35,15 +36,20 @@ def git(*args, cwd=None):
 
 class FakePublisher:
     def __init__(self):
-        self.prs, self.issues, self.states = [], [], {}
+        self.prs, self.issues, self.states, self.statuses = [], [], {}, []
 
     def open_pr(self, src, tree, branch, base, title, body):
-        self.prs.append({"branch": branch, "title": title, "body": body, "tree": str(tree)})
+        files = git("-C", str(tree), "show", "--name-only", "--format=", "HEAD").split()
+        self.prs.append({"branch": branch, "title": title, "body": body, "tree": str(tree), "files": files})
         n = len(self.prs)
         return {"number": n, "html_url": f"https://github.com/teenydroid/brain/pull/{n}"}
 
-    def open_issue(self, repo, title, body):
-        self.issues.append({"repo": repo, "title": title, "body": body})
+    def set_status(self, sha, state, description):
+        self.statuses.append({"sha": sha, "state": state, "description": description})
+        return {"id": len(self.statuses)}
+
+    def open_issue(self, repo, title, body, judge=False):
+        self.issues.append({"repo": repo, "title": title, "body": body, "judge": judge})
         return {"number": 100 + len(self.issues), "html_url": "https://github.com/teenydroid/brain/issues/1"}
 
     def pr(self, number):
@@ -56,8 +62,26 @@ class Refusing(FakePublisher):
     def open_pr(self, *a, **k):
         raise AssertionError("opened a pull request under DRY_RUN")
 
+    def set_status(self, *a, **k):
+        raise AssertionError("set a status under DRY_RUN")
+
     def open_issue(self, *a, **k):
         raise AssertionError("opened an issue under DRY_RUN")
+
+
+class Verdicts:
+    """An evaluator that answers each candidate's verdict by its index
+    (default pass), and remembers whom it was asked about."""
+
+    def __init__(self, by_cand=None):
+        self.by_cand, self.asked = dict(by_cand or {}), []
+
+    def evaluate(self, cands, done):
+        for cand in cands:
+            self.asked.append(cand["id"])
+            verdict = self.by_cand.get(cand["cand"], "pass")
+            done(cand, {"verdict": verdict, "eval": {"verdict": verdict, "tasks": ["reply-fud"], "wins": 1,
+                                                     "losses": 0, "ties": 1}, "reason": f"judged {verdict}"})
 
 
 FAKE_HAND = r"""#!/usr/bin/env python3
@@ -80,6 +104,34 @@ elif name == "guard":
 else:
     sys.exit(1)
 """
+
+PAGE = """# MEMORY.md
+
+what i keep in mind.
+
+## people
+
+- [m1] **ana** (x): builds a cli for crabs.
+
+## promises and open threads
+
+- [m12] promise to nyna: answer her first whenever she surfaces.
+
+## what i am in the middle of
+
+- [m15] learning to code in public. the first thing i build myself is a $TINY chart renderer. not built yet.
+
+## what i have decided
+
+- [m36] before retrying anything, check whether it already went through.
+- [m44] **no likes on X, ever**: X's rules don't allow automated likes.
+- [m57] no dotted tokens in outbound telegram text.
+- [m61] reach is a wave, commitment is a drip: an event post needs a hook people can join.
+- [m62] some visits can just be visits.
+"""
+#: The page's learnings in the order a generation takes them (no snapshots:
+#: the higher id first).
+ORDER = ["m62", "m61", "m57", "m44", "m36", "m15", "m12"]
 
 
 class EvolveCase(unittest.TestCase):
@@ -114,17 +166,18 @@ class EvolveCase(unittest.TestCase):
             os.environ.pop(k, None)
         os.environ.update(TEENY_ROOT=str(self.root), TEENY_HANDS=str(hands), EVOLVE_GIT_DIR=str(self.src),
                           EVOLVE_BASE="main", EVOLVE_NOW=str(T0), FAKE_CALLS=str(self.calls),
-                          TEENY_OH=str(self.root / "no-core"))
+                          TEENY_OH=str(self.root / "no-core"), EVOLVE_DOCTOR=str(self.root / "no-doctor"))
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24)
         self.props = self.root / "props"
         self.props.mkdir()
+        self.page()
 
     def tearDown(self):
         for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
             git("--git-dir", str(self.src), "update-ref", "-d", ref)
-        for gen in evolve.evolve_dir().glob("*/cand-*"):
-            if gen.is_dir():
-                subprocess.run(["git", "--git-dir", str(self.src), "worktree", "remove", "--force", str(gen)],
+        for tree in [*evolve.evolve_dir().glob("*/cand-*"), *evolve.evolve_dir().glob("*/lab-base/tree")]:
+            if tree.is_dir():
+                subprocess.run(["git", "--git-dir", str(self.src), "worktree", "remove", "--force", str(tree)],
                                capture_output=True)
         subprocess.run(["git", "--git-dir", str(self.src), "worktree", "prune"], capture_output=True)
         for k, v in self.saved.items():
@@ -143,6 +196,14 @@ class EvolveCase(unittest.TestCase):
         text = "".join(f"{k}={v}\n" for k, v in values.items())
         (self.root / "secrets" / "evolve.env").write_text(text)
 
+    def live(self):
+        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
+
+    def page(self, text=PAGE):
+        brain = self.root / "brain"
+        brain.mkdir(exist_ok=True)
+        (brain / "MEMORY.md").write_text(text)
+
     def base_text(self, path):
         return git("--git-dir", str(self.src), "show", f"main:{path}")
 
@@ -151,10 +212,17 @@ class EvolveCase(unittest.TestCase):
             "title": title or f"candidate {i}", "component": component, "expected_move": "+1% in a week",
             "hypothesis": f"Hypothesis {i}: what is weak, the change, the effect.", "edits": edits}))
 
-    def playbook_edit(self, line):
-        text = self.base_text("brain/playbooks/morning.md")
+    def skip(self, i, why, where=""):
+        (self.props / f"cand-{i}.json").write_text(json.dumps({"skip": f"no change for {i}", "why": why,
+                                                               "where": where}))
+
+    def playbook_edit(self, line, path="brain/playbooks/moltbook-follow.md"):
+        """A line added to PATH. The default is a playbook no eval task
+        drafts from, so `bin/eval affected` (the real one) says the change is
+        unmeasurable and nothing boots."""
+        text = self.base_text(path)
         last = text.rstrip().splitlines()[-1]
-        return {"path": "brain/playbooks/morning.md", "old": last, "new": f"{last}\n\n{line}"}
+        return {"path": path, "old": last, "new": f"{last}\n\n{line}"}
 
     def run_gen(self, n, publisher=None, **kw):
         cfg = evolve.load_config()
@@ -163,73 +231,453 @@ class EvolveCase(unittest.TestCase):
     def entries(self):
         return evolve.archive()
 
+
     def worktree(self, name):
         tree = self.root / "trees" / name
         evolve.add_worktree(evolve.source(), tree, git("--git-dir", str(self.src), "rev-parse", "main").strip())
         return tree
 
 
-class ParentSampling(EvolveCase):
-    def test_main_seeds_an_empty_archive(self):
-        self.assertEqual(list(self.entries()), ["main"])
-        self.assertEqual(evolve.sample_parents(self.entries(), 3, random.Random(1)), ["main", "main", "main"])
+class Learnings(EvolveCase):
+    """2026-11-15: eight tournament generations opened no pull request. The
+    loop now acts on Teeny's own learnings, one candidate and one pull
+    request each."""
 
-    def test_weight_rises_with_score_and_falls_with_children(self):
-        entries = {
-            "main": evolve.seed_entry(),
-            "good": {"id": "good", "parent": "main", "verdict": "won", "gate": {"ok": True}, "scores": {"win_rate": 0.8}},
-            "meh": {"id": "meh", "parent": "main", "verdict": "lost", "gate": {"ok": True}, "scores": {"win_rate": 0.4}},
-        }
-        w = evolve.parent_weights(entries)
-        self.assertGreater(w["good"], w["meh"])
-        # main has two children: half of a childless entry's weight at its score, over three.
-        self.assertAlmostEqual(w["main"], 0.5 / 3)
-        self.assertAlmostEqual(w["good"], 1 / (1 + 2.718281828 ** (-10 * 0.3)), places=4)
-        entries["kid"] = {"id": "kid", "parent": "good", "verdict": "rejected", "gate": {"ok": False}}
-        self.assertAlmostEqual(evolve.parent_weights(entries)["good"], w["good"] / 2)
+    def proposals(self, n):
+        for i in range(1, n + 1):
+            self.propose(i, [self.playbook_edit(f"Act on learning {i}.")], title=f"act on {i}")
 
-    def test_rejected_and_duplicate_entries_are_never_parents(self):
-        entries = {"main": evolve.seed_entry(),
-                   "bad": {"id": "bad", "parent": "main", "verdict": "rejected", "gate": {"ok": False}},
-                   "dup": {"id": "dup", "parent": "main", "verdict": "duplicate", "gate": {"ok": False}}}
-        self.assertEqual(set(evolve.parent_weights(entries)), {"main"})
+    def test_the_page_learnings_are_the_decided_promised_and_ongoing_items_never_the_people(self):
+        got = evolve.read_learnings()
+        self.assertEqual(sorted(item.id for item in got), sorted(ORDER))
+        self.assertNotIn("m1", [item.id for item in got])
+        m44 = next(item for item in got if item.id == "m44")
+        self.assertEqual(m44.section, "what i have decided")
+        self.assertTrue(m44.text.startswith("**no likes on X, ever**"))
+        self.assertEqual(m44.hash, evolve.learning_hash("**no likes on X,   ever**: X's rules don't allow automated likes."))
 
-    def test_credit_feeds_the_weight(self):
-        entries = {"main": evolve.seed_entry(),
-                   "a": {"id": "a", "parent": "main", "verdict": "unevaluated", "gate": {"ok": True}},
-                   "b": {"id": "b", "parent": "main", "verdict": "unevaluated", "gate": {"ok": True}, "credit": 0.2}}
-        w = evolve.parent_weights(entries)
-        self.assertGreater(w["b"], w["a"])
-        entries["b"]["credit"] = -0.2
-        self.assertLess(evolve.parent_weights(entries)["b"], w["a"])
+    def test_each_open_learning_gets_its_own_candidate(self):
+        self.proposals(3)
+        out = self.run_gen(3)
+        self.assertEqual([c["learning"] for c in out["candidates"]], ORDER[:3])
+        entries = self.entries()
+        for i, lid in enumerate(ORDER[:3], 1):
+            entry = entries[f"g1c{i}"]
+            self.assertEqual(entry["learning"]["id"], lid)
+            self.assertEqual(entry["learning"]["hash"], next(x.hash for x in evolve.read_learnings() if x.id == lid))
+        hyp = (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text()
+        self.assertIn(f"- learning: [{ORDER[0]}] (what i have decided)", hyp)
 
-    def test_sampling_follows_the_weights_and_spreads_a_generation(self):
-        entries = {"main": evolve.seed_entry(),
-                   "good": {"id": "good", "parent": "main", "verdict": "won", "gate": {"ok": True}, "scores": {"win_rate": 0.9}}}
-        picks = [evolve.sample_parents(entries, 1, random.Random(s))[0] for s in range(2000)]
-        w = evolve.parent_weights(entries)
-        self.assertAlmostEqual(picks.count("good") / 2000, w["good"] / (w["good"] + w["main"]), delta=0.03)
-        # Each pick counts as a child, so four picks do not all land on one.
-        many = evolve.sample_parents(entries, 4, random.Random(3))
-        self.assertEqual(len(many), 4)
-        self.assertEqual(evolve.sample_parents(entries, 4, random.Random(3)), many)
+    def test_the_newest_learning_text_goes_first_by_the_reflection_snapshots(self):
+        """A text that the oldest snapshot already carried waits behind one
+        the latest reflection wrote; a text in no snapshot is the newest."""
+        snaps = evolve.state_dir() / "reflect"
+        snaps.mkdir(parents=True)
+        old = snaps / "MEMORY-20261110T0200.md"
+        old.write_text(PAGE)  # every learning as it reads now
+        os.utime(old, (T0 - 5 * DAY, T0 - 5 * DAY))
+        newer = PAGE.replace("- [m62] some visits can just be visits.\n", "")
+        mid = evolve.state_dir() / "dream" / "snapshots"
+        mid.mkdir(parents=True)
+        (mid / "20261112T0200Z-night.md").write_text('---\n{"slot": "night"}\n---\n' + newer)
+        os.utime(mid / "20261112T0200Z-night.md", (T0 - DAY, T0 - DAY))
+        self.page(PAGE.replace("- [m12] promise to nyna: answer her first whenever she surfaces.",
+                               "- [m12] promise to nyna: answered nov 15. answer her first whenever she surfaces."))
+        order = [item.id for item in evolve.open_learnings(self.entries())]
+        self.assertEqual(order[0], "m12")  # rewritten after every snapshot
+        self.assertEqual(order[1:], [x for x in ORDER if x != "m12"])  # the rest: all first seen 5 days ago, by id
 
-    def test_a_child_starts_from_its_unmerged_parents_change(self):
-        self.propose(1, [self.playbook_edit("Parent line: name one thing that shipped.")])
+    def test_an_unchanged_learning_that_was_already_carried_out_is_not_re_asked(self):
+        self.live()
+        self.proposals(2)
+        self.run_gen(2)
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "opened")
+        self.proposals(2)
+        out = self.run_gen(2)
+        self.assertEqual([c["learning"] for c in out["candidates"]], ORDER[2:4])
+
+    def test_an_edited_learning_is_open_again(self):
+        self.live()
+        self.proposals(1)
         self.run_gen(1)
-        parent = self.entries()["g1c1"]
-        self.assertEqual(parent["verdict"], "unevaluated")
-        self.propose(1, [{"path": "brain/playbooks/morning.md", "old": "Parent line: name one thing that shipped.",
-                          "new": "Parent line: name one thing that shipped, and who shipped it."}])
-        with unittest.mock.patch.object(evolve, "sample_parents", return_value=["g1c1"]):
+        self.page(PAGE.replace("some visits can just be visits.", "some visits can just be visits, and say so."))
+        self.proposals(1)
+        out = self.run_gen(1)
+        self.assertEqual(out["candidates"][0]["learning"], "m62")
+
+    def test_a_skip_as_already_or_not_actionable_is_kept_with_the_hash_and_not_re_asked(self):
+        self.skip(1, "already", "brain/playbooks/x-replies.md")
+        self.skip(2, "not-actionable")
+        out = self.run_gen(2)
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["skipped", "skipped"])
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["skip"], {"why": "already", "where": "brain/playbooks/x-replies.md",
+                                         "note": "no change for 1"})
+        self.assertEqual(entry["learning"]["id"], ORDER[0])
+        self.assertNotIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
+        self.assertNotIn(ORDER[1], [x.id for x in evolve.open_learnings(self.entries())])
+
+    def test_edits_that_do_not_apply_are_asked_for_once_more_with_the_error(self):
+        """Gen 9 (2026-11-15) lost m68 to one edit whose old text left a
+        sentence out of the SOUL.md line it quoted; the proposer never saw
+        why. It is asked once more, shown the error and its edits."""
+        seen = []
+        line = "Some visits can just be visits."
+
+        class Retry:
+            name = "retry"
+
+            def propose(self, request):
+                seen.append(evolve.render_request(request))
+                old = "a sentence that is not in the file" if len(seen) == 1 else ""
+                path = "brain/playbooks/moltbook-follow.md"
+                if old:
+                    return {"title": "t", "component": "attention", "expected_move": "+1%",
+                            "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
+                text = (REPO / path).read_text(encoding="utf-8")
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                        "edits": [{"path": path, "old": text, "new": text + line + "\n"}]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Retry()):
+            out = self.run_gen(1)
+        self.assertEqual(len(seen), 2)
+        self.assertIn("## your last edits did not apply", seen[1])
+        self.assertIn("the old text occurs 0 times, not once", seen[1])
+        self.assertIn("a sentence that is not in the file", seen[1])
+        self.assertNotEqual(out["candidates"][0]["verdict"], "no-proposal")
+
+    def test_edits_that_fail_twice_are_no_proposal(self):
+        calls = []
+
+        class Wrong:
+            name = "wrong"
+
+            def propose(self, request):
+                calls.append(request)
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                        "edits": [{"path": "brain/SOUL.md", "old": "not in the file", "new": "x"}]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Wrong()):
+            out = self.run_gen(1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+        self.assertIn("occurs 0 times", out["candidates"][0]["reason"])
+
+    def test_a_skip_without_a_why_is_asked_again(self):
+        (self.props / "cand-1.json").write_text(json.dumps({"skip": "meh"}))
+        out = self.run_gen(1)
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+        self.assertIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
+
+    def test_a_learning_that_needs_a_frozen_path_opens_one_issue_for_the_operator(self):
+        self.live()
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        self.skip(1, "frozen", "bin/lib/evolve.py")
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub)
+        (issue,) = pub.issues
+        self.assertIn(f"[{ORDER[0]}]", issue["title"])
+        self.assertIn("bin/lib/evolve.py", issue["body"])
+        self.assertIn("some visits can just be visits.", issue["body"])
+        self.assertTrue(issue["judge"])  # `where` is a model's words
+        # Settled: the same text is not asked about again, so no second issue.
+        self.skip(1, "frozen", "bin/lib/evolve.py")
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)
+
+    def test_no_open_learning_is_a_cheap_no_op(self):
+        self.page("# MEMORY.md\n\n## people\n\n- [m1] **ana**: crabs.\n")
+        with unittest.mock.patch.object(evolve, "observe") as observe, \
+                unittest.mock.patch.object(evolve, "make_proposer") as proposer:
+            out = self.run_gen(4)
+        self.assertEqual(out["learnings"], 0)
+        self.assertIn("no open learnings", out["skipped"])
+        observe.assert_not_called()
+        proposer.assert_not_called()
+        self.assertFalse(evolve.evolve_dir().exists() and any(evolve.evolve_dir().glob("*/generation.json")))
+
+    def test_a_learning_that_keeps_failing_is_dropped_after_three_tries(self):
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        for gen in range(1, evolve.MAX_ATTEMPTS + 1):
+            (self.props / "cand-1.json").write_text("not json")
+            out = self.run_gen(1)
+            self.assertEqual(out["candidates"][0]["learning"], ORDER[0], gen)
+        state, failed = evolve.learning_state(self.entries(), evolve.read_learnings()[-1])
+        self.assertEqual((state, failed), ("gave-up", evolve.MAX_ATTEMPTS))
+        self.assertNotIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
+
+    def test_the_proposer_is_shown_the_learning_and_asked_for_the_smallest_change(self):
+        seen = []
+
+        class Capture:
+            name = "capture"
+
+            def propose(self, request):
+                seen.append(evolve.render_request(request))
+                return {"skip": "just looking", "why": "not-actionable"}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Capture()):
             self.run_gen(1)
-        child = self.entries()["g2c1"]
-        self.assertEqual(child["parent"], "g1c1")
-        mutation = (evolve.evolve_dir() / child["mutation_patch"]).read_text()
-        full = (evolve.evolve_dir() / child["patch"]).read_text()
-        self.assertIn("-Parent line: name one thing that shipped.", mutation)
-        self.assertNotIn("-Parent line", full)  # against main the parent's line is new
-        self.assertIn("+Parent line: name one thing that shipped, and who shipped it.", full)
+        [message] = seen
+        self.assertIn("## what you learned", message)
+        self.assertIn("[m62] under \"what i have decided\"", message)
+        self.assertIn("> some visits can just be visits.", message)
+        self.assertIn("This is something you learned. Make the smallest change", message)
+        self.assertIn('"why": "already|frozen|not-actionable"', message)
+        self.assertNotIn("crabs", message)  # the people stay out
+
+
+class OnePullRequestPerCandidate(EvolveCase):
+    def setUp(self):
+        super().setUp()
+        self.live()
+
+    def test_two_passing_candidates_open_two_prs(self):
+        self.propose(1, [self.playbook_edit("Check first.")], title="check before retrying")
+        self.propose(2, [self.playbook_edit("A hook people can join.", "brain/playbooks/pr-merged.md")],
+                     title="event posts get a hook")
+        pub = FakePublisher()
+        out = self.run_gen(2, publisher=pub, evaluator=Verdicts())
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1", "teeny/gen-1-c2"])
+        self.assertEqual(pub.prs[0]["files"], ["brain/playbooks/moltbook-follow.md"])
+        self.assertEqual(pub.prs[1]["files"], ["brain/playbooks/pr-merged.md"])  # each its own change only
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "opened"])
+        entries = self.entries()
+        self.assertEqual(entries["g1c2"]["pr_url"], "https://github.com/teenydroid/brain/pull/2")
+        # Each head carries teeny/eval: success.
+        self.assertEqual([s["state"] for s in pub.statuses], ["success", "success"])
+        self.assertEqual(pub.statuses[0]["sha"], entries["g1c1"]["head_sha"])
+        self.assertEqual(pub.statuses[0]["sha"], git("--git-dir", str(self.src), "rev-parse", "teeny/gen-1-c1").strip())
+        self.assertIn("no regression on 1 task", pub.statuses[0]["description"])
+        log = git("--git-dir", str(self.src), "log", "-1", "--format=%an", "teeny/gen-1-c1").strip()
+        self.assertEqual(log, "Teeny")
+
+    def test_a_branch_left_by_a_failed_push_is_replaced_never_suffixed(self):
+        """The babysitter merges only teeny/gen-<n> or teeny/gen-<n>-c<i>,
+        digits only: a `-2` suffix would never merge."""
+        git("--git-dir", str(self.src), "branch", "teeny/gen-1-c1", "main")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertRegex(pub.prs[0]["branch"], r"^teeny/gen-\d+(-c\d+)?$")
+        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/moltbook-follow.md"))
+
+    def test_candidates_are_measured_under_the_eval_lock(self):
+        """The babysitter's deploy waits on state/locks/eval.lock before it
+        moves or restarts the live checkout a lab was booted from."""
+        seen = []
+
+        class Watching(Verdicts):
+            def evaluate(self, cands, done):
+                seen.append(evolve.running("eval"))
+                super().evaluate(cands, done)
+
+        self.propose(1, [self.playbook_edit("Check first.")])
+        self.run_gen(1, evaluator=Watching())
+        self.assertEqual(seen, [True])
+        self.assertFalse(evolve.running("eval"))
+
+    def test_the_body_carries_the_learning_in_teenys_words_the_hypothesis_the_gate_and_the_eval(self):
+        self.propose(1, [self.playbook_edit("Check first.")], title="check before retrying")
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        (pr,) = pub.prs
+        self.assertIn("[m62]", pr["title"])
+        self.assertIn("**What I learned** ([m62], what i have decided", pr["body"])
+        self.assertIn("> some visits can just be visits.", pr["body"])
+        self.assertIn("Hypothesis 1", pr["body"])
+        self.assertIn("| frozen paths | pass |", pr["body"])
+        self.assertIn("**Targeted eval**", pr["body"])
+        self.assertIn("pass on the 1 task(s)", pr["body"])
+        self.assertIn("The babysitter merges it", pr["body"])
+
+    def test_a_change_no_task_reaches_opens_a_pr_as_unmeasurable(self):
+        self.propose(1, [self.playbook_edit("Check first.")])
+        pub = FakePublisher()
+        out = self.run_gen(1, publisher=pub)  # EVOLVE_EVALUATOR=none: no lab could boot anyway
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["eval"]["verdict"], "unmeasurable")
+        self.assertIn("**Unmeasurable.**", pub.prs[0]["body"])
+        self.assertIn("evolve-watch are its test", pub.prs[0]["body"])
+        self.assertTrue(pub.statuses[0]["description"].startswith("unmeasurable"))
+        self.assertEqual(pub.statuses[0]["state"], "success")
+
+    def test_a_change_a_task_reaches_is_not_shipped_unmeasured(self):
+        self.propose(1, [self.playbook_edit("Say it plainly.", "brain/playbooks/morning.md")])
+        pub = FakePublisher()
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
+        self.assertEqual(pub.prs, [])
+        self.assertIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])  # tried again later
+
+    def test_a_regressed_candidate_opens_no_pr(self):
+        self.propose(1, [self.playbook_edit("One.")])
+        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/pr-merged.md")])
+        pub = FakePublisher()
+        out = self.run_gen(2, publisher=pub, evaluator=Verdicts({1: "regressed"}))
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed", "opened"])
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c2"])
+        self.assertNotIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])  # measured: settled
+
+    def test_an_inconclusive_candidate_opens_no_pr_and_may_be_retried(self):
+        self.propose(1, [self.playbook_edit("One.")])
+        pub = FakePublisher()
+        out = self.run_gen(1, publisher=pub, evaluator=Verdicts({1: "inconclusive"}))
+        self.assertEqual(out["candidates"][0]["verdict"], "inconclusive")
+        self.assertEqual(pub.prs, [])
+        self.assertIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
+
+    def test_a_rejected_candidate_is_archived_with_its_gate_and_never_shipped(self):
+        self.propose(1, [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1], "new": "# x"}])
+        pub = FakePublisher()
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out["published"], [])
+        self.assertEqual(pub.prs, [])
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["verdict"], "rejected")
+        self.assertFalse([c for c in entry["gate"]["checks"] if c["check"] == "frozen paths"][0]["ok"])
+
+    def test_at_the_open_pr_cap_a_passing_candidate_waits_for_the_next_run(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_OPEN_PRS=1)
+        self.propose(1, [self.playbook_edit("One.")])
+        self.propose(2, [self.playbook_edit("Two.", "brain/playbooks/pr-merged.md")])
+        pub = FakePublisher()
+        out = self.run_gen(2, publisher=pub, evaluator=Verdicts())
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "waiting"])
+        self.assertEqual(len(pub.prs), 1)
+        # The first merges (the babysitter); the next run opens the waiting one
+        # with no proposer turn for it, before any new learning.
+        pub.states = {1: {"merged_at": evolve.iso(T0), "state": "closed", "merge_sha": "f" * 40}}
+        for p in self.props.glob("*.json"):
+            p.unlink()
+        out = self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1", "teeny/gen-1-c2"])
+        self.assertEqual(self.entries()["g1c2"]["verdict"], "opened")
+        self.assertEqual(self.entries()["g1c1"]["merged_at"], evolve.iso(T0))
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")  # gen 2's own learning: no file
+
+    def test_dry_run_opens_no_pull_request_and_says_which_it_would(self):
+        os.environ["DRY_RUN"] = "1"
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, publisher=Refusing())
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        pr = json.loads((evolve.evolve_dir() / "1" / "cand-1.pr.json").read_text())
+        self.assertTrue(pr["dry_run"])
+        self.assertEqual(pr["would_open_pr"]["branch"], "teeny/gen-1-c1")
+        self.assertEqual(pr["would_set_status"]["context"], "teeny/eval")
+        self.assertEqual(git("--git-dir", str(self.src), "branch", "--list", "teeny/*").strip(), "")
+        # Settled while DRY_RUN stays on; asked for real once it is off.
+        self.assertNotIn(ORDER[0], [x.id for x in evolve.open_learnings(self.entries())])
+        os.environ.pop("DRY_RUN")
+        self.live()
+        self.assertEqual(evolve.open_learnings(self.entries())[0].id, ORDER[0])
+
+    def test_teeny_env_without_dry_run_0_is_a_dry_run(self):
+        (self.root / "secrets" / "teeny.env").unlink()
+        self.assertTrue(evolve.dry_run())
+        self.live()
+        self.assertFalse(evolve.dry_run())
+        os.environ["DRY_RUN"] = "1"
+        self.assertTrue(evolve.dry_run())
+
+    def test_a_refused_pull_request_stays_on_the_candidate(self):
+        class Guarded(FakePublisher):
+            def open_pr(self, *a, **k):
+                raise RuntimeError("held by the guard")
+
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, publisher=Guarded())
+        self.assertEqual(out["candidates"][0]["verdict"], "pr-error")
+        self.assertIn("held by the guard", self.entries()["g1c1"]["pr_error"])
+
+    def test_the_lineage_runs_through_the_newest_merge(self):
+        self.propose(1, [self.playbook_edit("One.")])
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(self.entries()["g1c1"]["parent"], "main")
+        pub.states = {1: {"merged_at": evolve.iso(T0), "state": "closed"}}
+        self.propose(1, [self.playbook_edit("Two.")])
+        self.run_gen(1, publisher=pub)
+        self.assertEqual(self.entries()["g2c1"]["parent"], "g1c1")
+
+
+class Restarts(EvolveCase):
+    """A generation lives in the spine's container, and redeploys killed
+    gens 5 and 7. Every stage is recorded as it ends, so a restart picks the
+    candidate up where it was."""
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+
+    def cut_off(self, gen, keep_through):
+        """Gen GEN as a restart leaves it: no result.json, and only the
+        archive lines up to the stage KEEP_THROUGH (proposal | gate | eval)."""
+        (evolve.gen_dir(gen) / "result.json").unlink()
+        rows = evolve.read_jsonl(evolve.archive_path())
+        kept, seen = [], {}
+        stage_of = {"proposal": 0, "gate": 1, "eval": 2}
+        for row in rows:
+            if row.get("gen") != gen:
+                kept.append(row)
+                continue
+            n = seen.get(row["id"], 0)
+            if n <= stage_of[keep_through] - 1:
+                kept.append(row)
+            seen[row["id"]] = n + 1
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in kept))
+
+    def test_a_restart_resumes_an_unfinished_candidate_without_a_new_proposer_turn(self):
+        self.propose(1, [self.playbook_edit("Check first.")], title="the cut-off one")
+        pub = FakePublisher()
+        self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.cut_off(1, "proposal")  # its proposal saved, nothing recorded
+        (self.props / "cand-1.json").unlink()  # the proposer would have nothing to say now
+        for ref in git("--git-dir", str(self.src), "for-each-ref", "--format=%(refname)", "refs/heads/teeny/").split():
+            git("--git-dir", str(self.src), "update-ref", "-d", ref)
+        pub = FakePublisher()
+        out = self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertEqual(out["gen"], 1)
+        self.assertTrue(out["resumed"])
+        self.assertEqual(out["candidates"][0]["title"], "the cut-off one")
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        self.assertTrue(self.entries()["g1c1"]["resumed"])
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertFalse(any(evolve.evolve_dir().glob("2/generation.json")))  # no new generation
+
+    def test_a_measured_candidate_is_not_measured_again_after_a_restart(self):
+        self.propose(1, [self.playbook_edit("Check first.")])
+        first = Verdicts()
+        self.run_gen(1, publisher=FakePublisher(), evaluator=first)
+        self.cut_off(1, "eval")  # measured as pass, then cut off before its pull request
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "pass")
+        again, pub = Verdicts(), FakePublisher()
+        out = self.run_gen(1, publisher=pub, evaluator=again)
+        self.assertEqual(again.asked, [])
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        self.assertEqual(len(pub.prs), 1)
+
+    def test_resuming_does_not_count_as_another_generation_today(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
+        self.propose(1, [self.playbook_edit("One.")])
+        self.run_gen(1, evaluator=Verdicts())
+        self.cut_off(1, "gate")
+        out = self.run_gen(1, evaluator=Verdicts())
+        self.assertTrue(out.get("resumed"), out)
+        self.assertEqual(evolve.generations_today(), 1)
+        self.assertEqual(self.run_gen(1)["skipped"], "halted: generations")
+
+    def test_a_generation_from_before_learnings_is_marked_interrupted_not_resumed(self):
+        old = evolve.gen_dir(8)
+        old.mkdir(parents=True)
+        (old / "generation.json").write_text(json.dumps({"gen": 8, "started_at": evolve.iso(T0), "base": "abc",
+                                                         "candidates": 4}))
+        self.propose(1, [self.playbook_edit("One.")])
+        out = self.run_gen(1, evaluator=Verdicts())
+        self.assertEqual(out["gen"], 9)
+        self.assertTrue(json.loads((old / "result.json").read_text())["interrupted"])
 
 
 class NearDuplicates(EvolveCase):
@@ -256,7 +704,7 @@ class NearDuplicates(EvolveCase):
         entries = self.entries()
         self.assertEqual(entries["g2c1"]["verdict"], "duplicate")
         self.assertEqual(entries["g2c1"]["duplicate_of"], "g1c1")
-        self.assertEqual(entries["g2c2"]["verdict"], "unevaluated")
+        self.assertEqual(entries["g2c2"]["verdict"], "dry-run")
         self.assertEqual(gated.call_count, 1)
 
     def test_two_candidates_of_one_generation_are_not_both_kept(self):
@@ -279,6 +727,7 @@ class NearDuplicates(EvolveCase):
         self.assertEqual(len(out["candidates"]), 1)
         self.assertIn("critical tier", out["runway"])
         self.assertIn("1 candidate(s), not 3", out["runway"])
+
 
 
 class Gate(EvolveCase):
@@ -404,17 +853,6 @@ class Gate(EvolveCase):
         with self.assertRaises(evolve.EvolveError):
             evolve.apply_edits(tree, [{"path": "brain/SOUL.md", "old": "this text is not there", "new": "x"}])
 
-    def test_a_rejected_candidate_is_archived_with_its_gate_and_never_shipped(self):
-        self.propose(1, [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1], "new": "# x"}])
-        pub = FakePublisher()
-        os.environ["DRY_RUN"] = "0"
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        out = self.run_gen(1, publisher=pub)
-        self.assertIsNone(out["selected"])
-        self.assertEqual(pub.prs, [])
-        entry = self.entries()["g1c1"]
-        self.assertEqual(entry["verdict"], "rejected")
-        self.assertFalse([c for c in entry["gate"]["checks"] if c["check"] == "frozen paths"][0]["ok"])
 
 
 WORLD = {"components": [{"component": "attention", "value": 392, "was": 390},
@@ -533,6 +971,7 @@ class PurposeChecks(EvolveCase):
         self.assertIn("thinned", failed[0]["detail"])
 
 
+
 class AnswersThatDoNotParse(unittest.TestCase):
     def test_a_raw_newline_inside_a_string_is_read(self):
         self.assertEqual(evolve.first_json('{"skip": "line one\nline two"}')["skip"], "line one\nline two")
@@ -546,76 +985,6 @@ class AnswersThatDoNotParse(unittest.TestCase):
             evolve.first_json('{"title": "t", "hypothesis": "it stops he')
         self.assertIn("Unterminated string", str(err.exception))
 
-
-class ArchiveAndSelect(EvolveCase):
-    def test_every_candidate_is_appended_with_its_record(self):
-        self.propose(1, [self.playbook_edit("One.")])
-        self.propose(2, [{"path": "bin/ask", "old": self.base_text("bin/ask").splitlines()[1], "new": "# x"}])
-        (self.props / "cand-3.json").write_text(json.dumps({"skip": "nothing today"}))
-        self.run_gen(3)
-        lines = [json.loads(l) for l in evolve.archive_path().read_text().splitlines()]
-        self.assertEqual(lines[0]["id"], "main")
-        self.assertEqual([l["id"] for l in lines[1:]], ["g1c1", "g1c2", "g1c3"])
-        one = lines[1]
-        for key in ("parent", "diff_hash", "diff_stats", "gate", "scores", "verdict", "base", "patch"):
-            self.assertIn(key, one)
-        self.assertEqual(one["diff_stats"]["added"], 2)
-        self.assertEqual([l["verdict"] for l in lines[1:]], ["unevaluated", "rejected", "no-proposal"])
-        self.assertTrue((evolve.evolve_dir() / "1" / "evidence.json").is_file())
-        self.assertTrue((evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text().startswith("# candidate 1"))
-
-    def test_later_lines_update_an_entry(self):
-        evolve.record({"id": "g9c1", "verdict": "unevaluated", "gen": 9})
-        evolve.record({"id": "g9c1", "verdict": "won", "gen": 9, "scores": {"win_rate": 0.7}})
-        self.assertEqual(self.entries()["g9c1"]["verdict"], "won")
-        self.assertEqual(len(evolve.archive_path().read_text().splitlines()), 3)
-
-    def test_one_pull_request_for_the_best_with_hypothesis_gate_and_report(self):
-        self.propose(1, [self.playbook_edit("One.")], title="the first")
-        self.propose(2, [self.playbook_edit("Two, much longer.\nAnd a second line.")], title="the second")
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        pub = FakePublisher()
-        out = self.run_gen(2, publisher=pub)
-        self.assertEqual(len(pub.prs), 1)
-        pr = pub.prs[0]
-        self.assertEqual(pr["branch"], "teeny/gen-1")
-        self.assertEqual(out["selected"], "g1c1")  # unmeasured: the smaller diff first
-        self.assertIn("Hypothesis 1", pr["body"])
-        self.assertIn("| frozen paths | pass |", pr["body"])
-        self.assertIn("**Unevaluated.**", pr["body"])
-        entry = self.entries()["g1c1"]
-        self.assertEqual(entry["pr_url"], "https://github.com/teenydroid/brain/pull/1")
-        log = git("--git-dir", str(self.src), "log", "-1", "--format=%an %s", "teeny/gen-1")
-        self.assertEqual(log.strip(), "Teeny gen-1: the first")
-        files = git("--git-dir", str(self.src), "show", "--name-only", "--format=", "teeny/gen-1").split()
-        self.assertEqual(files, ["brain/playbooks/morning.md"])  # HYPOTHESIS.md is in the body, not the diff
-
-    def test_dry_run_opens_no_pull_request(self):
-        os.environ["DRY_RUN"] = "1"
-        self.propose(1, [self.playbook_edit("One.")])
-        out = self.run_gen(1, publisher=Refusing())
-        self.assertTrue(out["dry_run"])
-        self.assertEqual(out["would_open_pr"]["branch"], "teeny/gen-1")
-        pr = json.loads((evolve.evolve_dir() / "1" / "pr.json").read_text())
-        self.assertTrue(pr["dry_run"])
-        branches = git("--git-dir", str(self.src), "branch", "--list", "teeny/*")
-        self.assertEqual(branches.strip(), "")
-
-    def test_teeny_env_without_dry_run_0_is_a_dry_run(self):
-        self.assertTrue(evolve.dry_run())
-        (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=0\n")
-        self.assertFalse(evolve.dry_run())
-        os.environ["DRY_RUN"] = "1"
-        self.assertTrue(evolve.dry_run())
-
-    def test_a_measured_winner_beats_an_unmeasured_one_and_a_loser_never_ships(self):
-        def cand(i, verdict, rate=None, lines=5):
-            return {"id": f"g1c{i}", "cand": i, "parent": "main", "verdict": verdict, "gate": {"ok": True, "lines": lines},
-                    "scores": {"win_rate": rate, "decided": 12} if rate is not None else None}
-        entries = {"main": evolve.seed_entry()}
-        ranked = evolve.rank([cand(1, "unevaluated", lines=1), cand(2, "won", 0.7), cand(3, "won", 0.8)], entries)
-        self.assertEqual([c["id"] for c in ranked], ["g1c3", "g1c2"])
-        self.assertEqual(evolve.rank([cand(1, "lost", 0.3)], entries), [])
 
 
 class Credit(EvolveCase):
@@ -652,52 +1021,75 @@ class Credit(EvolveCase):
         self.assertEqual(entries["g2c1"]["merged_at"], evolve.iso(T0 - 3 * DAY))
         self.assertAlmostEqual(entries["g1c1"]["credit"], 0.3)
         self.assertAlmostEqual(entries["main"]["credit"], 0.15)
-        # And the credit moves the parent weights.
-        weights = evolve.parent_weights(entries)
-        uncredited = evolve.parent_weights({**entries, "g1c1": {**entries["g1c1"], "credit": 0.0}})
-        self.assertGreater(weights["g1c1"], uncredited["g1c1"])
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["measured"], [])
 
-    def test_a_generation_a_person_merged_gets_its_chronicle_page(self):
-        """docs/roadmap.md, A13: whoever merged it, a merged generation has
-        brain/narrative/chronicle/gen-<n>.md."""
-        evolve.record({"id": "g2c1", "gen": 2, "cand": 1, "parent": "main", "verdict": "lost", "gate": {"ok": True}})
-        evolve.record({"id": "g3c1", "gen": 3, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
+
+    def test_a_merged_generation_gets_its_chronicle_page_whoever_merged_it(self):
+        """docs/roadmap.md, A13: a merged generation has
+        brain/narrative/chronicle/gen-<n>.md, written from the record."""
+        evolve.record({"id": "g2c1", "gen": 2, "cand": 1, "parent": "main", "verdict": "regressed", "gate": {"ok": True}})
+        evolve.record({"id": "g3c1", "gen": 3, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
                        "pr_number": 5, "title": "open with what shipped", "component": "attention",
-                       "expected_move": "+2%", "scores": {"wins": 3, "decided": 4}})
-        evolve.record({"id": "g3c2", "gen": 3, "cand": 2, "parent": "main", "verdict": "lost", "gate": {"ok": True}})
+                       "expected_move": "+2%", "eval": {"verdict": "pass", "tasks": ["morning-post", "shiplog-numbers"]},
+                       "learning": {"id": "m36", "section": "what i have decided", "hash": "h", "text": "t"}})
+        evolve.record({"id": "g3c2", "gen": 3, "cand": 2, "parent": "main", "verdict": "skipped", "gate": {"ok": False}})
         pub = FakePublisher()
         out = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(out["chronicled"], [])  # not merged yet: no page
         page = self.root / "brain" / "narrative" / "chronicle" / "gen-3.md"
         self.assertFalse(page.exists())
-        pub.states = {5: {"merged_at": evolve.iso(T0 - DAY)}}
+        # GitHub's REST API calls a merged pull request closed: `merged` decides.
+        pub.states = {5: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merge_sha": "e" * 40,
+                          "merged_by": "teenydroid"}}
         out = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(out["chronicled"], ["g3c1"])
+        entry = self.entries()["g3c1"]
+        self.assertNotIn("closed", entry)
+        self.assertEqual(entry["merge_sha"], "e" * 40)
         text = page.read_text()
         self.assertIn("# gen-3", text)
-        self.assertIn("ran 2 candidates", text)
+        self.assertIn("took 2 things teeny learned", text)
         self.assertIn("open with what shipped", text)
-        self.assertIn("won 3 of 4 pairs", text)
-        self.assertIn("- merged by: the operator", text)
+        self.assertIn("- what it acts on: [m36] (what i have decided)", text)
+        self.assertIn("no worse on the 2 task(s) it reaches", text)
+        self.assertIn("- merged by: the babysitter", text)
         self.assertIn("- gen-2: the agents carried it back", text)
-        self.assertEqual(self.entries()["g3c1"]["chronicle"], "brain/narrative/chronicle/gen-3.md")
+        self.assertEqual(entry["chronicle"], "brain/narrative/chronicle/gen-3.md")
         # Once: a later run neither rewrites it nor writes it again.
         page.write_text("kept\n")
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["chronicled"], [])
         self.assertEqual(page.read_text(), "kept\n")
 
-    def test_a_promoted_generation_keeps_the_page_its_commit_carried(self):
-        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "verdict": "won", "gate": {"ok": True},
-                       "pr_number": 1, "promoted_at": evolve.iso(T0 - DAY)})
+    def test_the_chronicle_names_a_person_who_merged_by_hand(self):
+        """A generation the operator merged is not credited to the babysitter."""
+        evolve.record({"id": "g4c1", "gen": 4, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 7, "title": "a playbook paragraph", "eval": {"verdict": "unmeasurable"}})
         pub = FakePublisher()
-        pub.states = {1: {"merged_at": evolve.iso(T0 - DAY)}}
-        out = evolve.credit(evolve.load_config(), pub)
-        self.assertEqual(out["chronicled"], [])
-        self.assertFalse((self.root / "brain" / "narrative" / "chronicle" / "gen-1.md").exists())
+        pub.states = {7: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merged_by": "senamakel"}}
+        evolve.credit(evolve.load_config(), pub)
+        text = (self.root / "brain" / "narrative" / "chronicle" / "gen-4.md").read_text()
+        self.assertIn("- merged by: senamakel, by hand", text)
+        self.assertNotIn("babysitter", text)
+        self.assertEqual(self.entries()["g4c1"]["merged_by"], "senamakel")
 
+    def test_the_chronicle_does_not_guess_who_merged(self):
+        evolve.record({"id": "g4c1", "gen": 4, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 7})
+        pub = FakePublisher()
+        pub.states = {7: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY)}}
+        evolve.credit(evolve.load_config(), pub)
+        text = (self.root / "brain" / "narrative" / "chronicle" / "gen-4.md").read_text()
+        self.assertIn("- merged by: not recorded", text)
+
+    def test_a_pull_request_closed_unmerged_is_closed(self):
+        evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "parent": "main", "gate": {"ok": True}, "pr_number": 1})
+        pub = FakePublisher()
+        pub.states = {1: {"state": "closed", "merged": False}}
+        evolve.credit(evolve.load_config(), pub)
+        self.assertTrue(self.entries()["g1c1"]["closed"])
+        self.assertEqual(evolve.open_prs(self.entries()), [])
     def test_the_chronicle_goes_to_the_live_brain_the_core_boots(self):
         live = self.root / "elsewhere"
         os.environ["OPENHUMAN_WORKSPACE"] = str(live)
@@ -722,6 +1114,7 @@ class Credit(EvolveCase):
         self.assertEqual([j for _, j in evolve.world_history()], [0.5, 0.7])
 
 
+
 class EvalConcurrency(EvolveCase):
     """secrets/evolve.env sets how many eval turns a lab run keeps in flight,
     so an operator can drop it to 1 during a provider outage."""
@@ -743,13 +1136,6 @@ class EvalConcurrency(EvolveCase):
         with unittest.mock.patch.dict(os.environ, {"EVAL_CONCURRENCY": "9"}):
             self.assertEqual(evolve.load_config()["EVAL_CONCURRENCY"], 2)
 
-    def test_the_lab_evals_run_with_it(self):
-        self.config(EVOLVE=1, EVAL_CONCURRENCY=1)
-        evaluators = evolve.make_evaluators({1: "http://cand"}, "http://base", evolve.load_config())
-        with unittest.mock.patch.object(evolve.subprocess, "run") as run:
-            run.return_value = subprocess.CompletedProcess([], 0, "", "")
-            evaluators[1]._eval({"OPENHUMAN_CORE_URL": "http://base"}, "run")
-        self.assertEqual(run.call_args.kwargs["env"]["EVAL_CONCURRENCY"], "1")
 
 
 class Halts(EvolveCase):
@@ -771,7 +1157,7 @@ class Halts(EvolveCase):
         self.assertFalse(evolve.evolve_dir().exists() and any(evolve.evolve_dir().glob("*/generation.json")))
 
     def test_a_bad_threshold_refuses_the_run(self):
-        self.config(EVOLVE=1, EVOLVE_MAX_WINRATE_JUMP="lots")
+        self.config(EVOLVE=1, EVOLVE_MAX_J_RISE="lots")
         with self.assertRaises(evolve.EvolveError):
             evolve.load_config()
         self.config(EVOLVE=1, EVOLVE_CANDIDATES=50)
@@ -794,45 +1180,6 @@ class Halts(EvolveCase):
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
         self.assertIn("gen", self.run_gen(1, publisher=pub))
 
-    def cut_off(self, gen):
-        """Gen GEN as a restart leaves it: started, its proposals made, no
-        result and nothing archived (2026-11-13: a spine rebuild at 22:44
-        ended gen 5 while its labs measured two gated candidates)."""
-        (evolve.gen_dir(gen) / "result.json").unlink()
-        kept = [r for r in evolve.read_jsonl(evolve.archive_path()) if r.get("gen") != gen]
-        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in kept))
-
-    def test_a_generation_a_restart_cut_off_does_not_use_up_the_day_and_its_proposals_are_reused(self):
-        self.live()
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
-        self.propose(1, [self.playbook_edit("One.")], title="the cut-off one")
-        pub = FakePublisher()
-        self.assertEqual(self.run_gen(1, publisher=pub)["gen"], 1)
-        self.cut_off(1)
-        (self.props / "cand-1.json").unlink()  # its proposer would have nothing to say now
-        out = self.run_gen(1, publisher=pub)
-        self.assertEqual(out.get("gen"), 2, out)
-        self.assertEqual(out["resumed_from"], 1)
-        [cand] = out["candidates"]
-        self.assertEqual(cand["title"], "the cut-off one")
-        self.assertNotEqual(cand["verdict"], "no-proposal")
-        cut = json.loads((evolve.gen_dir(1) / "result.json").read_text())
-        self.assertTrue(cut["interrupted"])
-        self.assertEqual(cut["resumed_in"], 2)
-        # Gen 2 counts for the day; the cut-off gen 1 does not.
-        self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1, publisher=pub)["skipped"], "halted: generations")
-
-    def test_a_cut_off_generation_is_resumed_once(self):
-        self.live()
-        self.propose(1, [self.playbook_edit("One.")], title="once")
-        self.run_gen(1)
-        self.cut_off(1)
-        self.assertEqual(self.run_gen(1)["resumed_from"], 1)
-        self.propose(1, [self.playbook_edit("Two.")], title="fresh")
-        out = self.run_gen(1)
-        self.assertNotIn("resumed_from", out)
-        self.assertEqual(out["candidates"][0]["title"], "fresh")
 
     def test_status_says_whether_a_generation_is_running(self):
         self.assertFalse(evolve.status()["running"])
@@ -866,33 +1213,6 @@ class Halts(EvolveCase):
         os.environ["FAKE_HISTORY"] = str(path)
         self.assertEqual(evolve.halts_before(evolve.load_config()), [])
 
-    def test_a_win_rate_jump_is_flagged_for_a_person_not_shipped(self):
-        self.live()
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_MAX_WINRATE_JUMP=0.25)
-        self.propose(1, [self.playbook_edit("One.")])
-
-        class Judged:
-            def evaluate(self, gen_dir, cand, src):
-                return {"verdict": "won", "scores": {"win_rate": 0.95, "decided": 18, "wins": 17, "losses": 1}}
-
-        pub = FakePublisher()
-        with unittest.mock.patch.object(evolve, "make_evaluators", return_value={1: Judged()}):
-            out = self.run_gen(1, publisher=pub)
-        self.assertEqual(pub.prs, [])
-        self.assertEqual(len(pub.issues), 1)
-        self.assertIn("winrate-jump", pub.issues[0]["title"])
-        self.assertEqual(self.entries()["g1c1"]["verdict"], "flagged")
-        self.assertTrue(evolve.halt_path().exists())
-        self.assertIn("winrate-jump", out["halt"]["kind"])
-
-    def test_a_win_rate_near_the_last_ones_ships(self):
-        entries = {"main": evolve.seed_entry(),
-                   "g1c1": {"id": "g1c1", "gen": 1, "scores": {"win_rate": 0.62}}}
-        cand = {"id": "g2c1", "gen": 2, "scores": {"win_rate": 0.7}}
-        self.assertIsNone(evolve.winrate_halt(evolve.load_config(), entries, cand))
-        cand["scores"]["win_rate"] = 0.9
-        self.assertIsNotNone(evolve.winrate_halt(evolve.load_config(), entries, cand))
-
     def test_dry_run_files_no_issue(self):
         os.environ["DRY_RUN"] = "1"
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
@@ -901,6 +1221,24 @@ class Halts(EvolveCase):
         out = self.run_gen(1, publisher=Refusing())
         self.assertTrue(out["halts"][0]["dry_run"])
         self.assertIn("would_open_issue", out["halts"][0])
+
+
+    def test_a_run_waits_for_a_dream_still_writing_the_page(self):
+        with evolve.run_lock("reflect") as held, unittest.mock.patch.object(evolve, "DREAM_WAIT_SECS", 0):
+            self.assertTrue(held)
+            out = self.run_gen(1, publisher=Refusing())
+        self.assertEqual(out["kind"], "busy")
+        self.assertIn("dream", out["skipped"])
+        self.assertFalse(any(evolve.evolve_dir().glob("*/generation.json")))
+
+    def test_the_old_tournament_settings_are_gone(self):
+        for name in ("EVOLVE_MAX_WINRATE_JUMP", "EVOLVE_AUTO_PROMOTE"):
+            self.assertNotIn(name, evolve.SETTINGS)
+        self.assertEqual(evolve.load_config()["EVOLVE_GENERATIONS_PER_DAY"], 24)
+        (self.root / "secrets" / "evolve.env").write_text("EVOLVE=1\nEVOLVE_AUTO_PROMOTE=1\n")
+        cfg = evolve.load_config()  # an old evolve.env still loads
+        self.assertEqual((cfg["EVOLVE_GENERATIONS_PER_DAY"], cfg["EVOLVE_MAX_OPEN_PRS"]), (2, 4))
+
 
 
 class HeldOut(EvolveCase):
@@ -935,7 +1273,7 @@ class HeldOut(EvolveCase):
 
             def propose(self, request):
                 seen.append(evolve.render_request(request))
-                return {"skip": "just looking"}
+                return {"skip": "just looking", "why": "not-actionable"}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Capture()):
             self.run_gen(1)
@@ -952,6 +1290,7 @@ class HeldOut(EvolveCase):
         self.assertIn("pending:spam", evidence)
 
 
+
 class LabLessons(EvolveCase):
     def test_the_labs_lessons_are_evidence(self):
         self.assertEqual(evolve.observe(self.entries())["lessons"], {"available": False, "why": "no hands/lab lessons"})
@@ -962,77 +1301,6 @@ class LabLessons(EvolveCase):
         got = evolve.observe(self.entries())["lessons"]
         self.assertEqual(got["lessons"][0]["lesson"], "confessions get comments")
 
-
-PAGE = """# MEMORY.md
-
-what i keep in mind.
-
-## people
-
-- [m1] **ana** (x): builds a cli for crabs.
-
-## what i am in the middle of
-
-- [m15] learning to code in public. the first thing i build myself is a $TINY chart renderer. not built yet.
-
-## what i have decided
-
-- [m44] **no likes on X, ever**: X's rules don't allow automated likes.
-- [m57] no dotted tokens in outbound telegram text.
-"""
-
-
-class Decisions(EvolveCase):
-    """2026-11-14: the dream's page listed what Teeny had decided and was in
-    the middle of (a chart renderer, a refusal ledger), and five generations
-    proposed from the score alone: none read the page."""
-
-    def page(self, text=PAGE):
-        brain = self.root / "brain"
-        brain.mkdir(exist_ok=True)
-        (brain / "MEMORY.md").write_text(text)
-
-    def test_what_the_page_says_teeny_decided_is_evidence_and_who_it_knows_is_not(self):
-        self.page()
-        got = evolve.observe(self.entries())["decisions"]
-        self.assertEqual(got["source"], "brain/MEMORY.md")
-        text = json.dumps(got)
-        self.assertIn("[m15] learning to code in public", text)
-        self.assertIn("[m57] no dotted tokens", text)
-        self.assertNotIn("crabs", text)
-
-    def test_no_page_says_so(self):
-        self.assertEqual(evolve.observe(self.entries())["decisions"],
-                         {"available": False, "why": "no brain/MEMORY.md"})
-
-    def test_a_long_page_is_clipped(self):
-        self.page("## what i have decided\n\n" + "".join(f"- [m{n}] {'x' * 900}\n" for n in range(100)))
-        got = evolve.observe(self.entries())["decisions"]
-        self.assertLessEqual(len(json.dumps(got)), evolve.MAX_DECISIONS_CHARS + 500)
-        self.assertTrue(got["clipped"])
-
-    def test_the_first_candidate_of_every_generation_looks_at_the_page_first(self):
-        for gen in range(1, 9):
-            self.assertEqual(evolve.lens(gen, 1), evolve.DECISIONS_LENS)
-            self.assertNotEqual(evolve.lens(gen, 2), evolve.DECISIONS_LENS)
-
-    def test_the_proposer_is_shown_the_page_and_asked_to_carry_a_decision_out(self):
-        self.page()
-        seen = []
-
-        class Capture:
-            name = "capture"
-
-            def propose(self, request):
-                seen.append(evolve.render_request(request))
-                return {"skip": "just looking"}
-
-        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Capture()):
-            self.run_gen(1)
-        [message] = seen
-        self.assertIn("## your own page", message)
-        self.assertIn("- [m15] learning to code in public", message)
-        self.assertIn(evolve.DECISIONS_LENS, message)
 
 
 class AskProposerTurn(EvolveCase):
@@ -1046,9 +1314,11 @@ class AskProposerTurn(EvolveCase):
                         + "'" + answer.replace("'", "'\\''") + "'\n")
         fake.chmod(0o755)
         os.environ["TEENY_OH"] = str(fake)
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        # Room for every playbook, so the check does not hang on how long the
+        # playbooks sorted ahead of morning.md happen to be.
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask", EVOLVE_CONTEXT_CHARS=400000)
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
-        self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         params = json.loads(calls.read_text().splitlines()[0])
         self.assertEqual(params["agent_id"], "act")
         self.assertTrue(params["thread_id"].startswith("evolve:1:1:"))
@@ -1064,6 +1334,9 @@ class AskProposerTurn(EvolveCase):
                            "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
                         "n=$(cat " + str(count) + " 2>/dev/null || echo 0); echo $((n + 1)) >" + str(count) + "\n"
                         "if [ \"$n\" = 0 ]; then a='" + cut.replace("'", "'\\''") + "'; else a='"
                         + good.replace("'", "'\\''") + "'; fi\n"
@@ -1072,8 +1345,9 @@ class AskProposerTurn(EvolveCase):
         os.environ["TEENY_OH"] = str(fake)
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
-        self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         messages = [json.loads(line)["message"] for line in calls.read_text().splitlines()]
+        messages = [m for m in messages if not m.startswith("# evolve research")]
         self.assertEqual(len(messages), 2)
         self.assertIn("could not be read as JSON", messages[1])
 
@@ -1081,27 +1355,63 @@ class AskProposerTurn(EvolveCase):
         calls = self.root / "oh.log"
         fake = self.root / "fake-oh"
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
-                        "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' '{\"skip\": \"no\"}'\n")
+                        "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' '{\"skip\": \"no\", \"why\": \"already\"}'\n")
         fake.chmod(0o755)
         os.environ["TEENY_OH"] = str(fake)
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
         with unittest.mock.patch.object(evolve, "world_report", return_value={
                 "J": 0.1, "components": [{"component": "attention", "value": 5}, {"component": "money", "value": None}]}):
             evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
-        message = json.loads(calls.read_text().splitlines()[0])["message"]
+        # The build's message, after the research turn's (whose answer here does not parse as research).
+        message = next(m for m in (json.loads(line)["message"] for line in calls.read_text().splitlines())
+                       if m.startswith("# evolve: "))
         self.assertLess(message.index("What came of what you made"), message.index("The score, your builds"))
         self.assertIn("Anything aimed at money: never read", message)
-        self.assertNotIn("money, capability", message)  # money is not offered as a label
+        # money is not offered as a label (in the instructions: a playbook
+        # shown whole below them may list every component)
+        self.assertNotIn("money, capability", message.split("## file: ")[0])
         self.assertIn("Doing less of yourself to save money", message)
         self.assertIn("a new hand that no playbook or prompt in the same change calls", message)
         self.assertIn("hands/lib/teeny_hands/build/jobs.py (DAILY_BRIEF", message)
-        self.assertIn("This candidate looks first at", message)
-        self.assertIn("An idea heard outside (outcomes.outside.heard", message)
-        self.assertIn("fair evidence when you say what you heard and where", message)
+        self.assertLess(message.index("## what you learned"), message.index("## evidence"))
+        self.assertIn("context for it, not a reason of its own", message)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
+class CrashedGenerations(EvolveCase):
+    """A generation that raises before it writes result.json is resumed by
+    the next run, which raises again, so no other learning ever gets a turn.
+    It is ended instead, and what it was doing counts as a failed try."""
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+
+    def test_a_generation_that_raises_is_not_resumed_forever(self):
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        pub = FakePublisher()
+        with unittest.mock.patch.object(evolve, "pr_text", side_effect=RuntimeError("the body would not render")):
+            with self.assertRaises(RuntimeError):
+                self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertTrue((evolve.gen_dir(1) / "result.json").exists())
+        self.assertEqual(evolve.unfinished(), [])
+        learning = evolve.read_learnings()[-1]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 1))
+        out = self.run_gen(1, publisher=pub, evaluator=Verdicts())
+        self.assertNotIn("resumed", out)
+        self.assertEqual(out["gen"], 2)
+        self.assertEqual(len(pub.prs), 1)
+
+    def test_a_crashed_publish_is_a_failed_try_not_a_pr(self):
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
+        self.propose(1, [self.playbook_edit("Check first.")])
+        with unittest.mock.patch.object(evolve, "pr_text", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self.run_gen(1, publisher=FakePublisher(), evaluator=Verdicts())
+        verdicts = [e.get("verdict") for e in self.entries().values() if e.get("gen") == 1]
+        self.assertIn("crashed", verdicts)
+        self.assertNotIn("opened", verdicts)
 
 
 class ProposerPromptFitsTheScreenTest(unittest.TestCase):
@@ -1110,7 +1420,7 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
     (generation 1 on the box: four candidates, four `no-proposal`)."""
 
     def request(self, files):
-        return {"gen": 1, "cand": 1, "focus": "reach", "frozen": ["bin/**"], "evidence": {"j": 1},
+        return {"gen": 1, "cand": 1, "learning": {"id": "m1", "section": "what i have decided", "hash": "h", "text": "say less"}, "frozen": ["bin/**"], "evidence": {"j": 1},
                 "parent": "main", "parent_title": None, "parent_patch": "", "siblings": [],
                 "editable": sorted(files), "files": dict(files)}
 
@@ -1135,3 +1445,8 @@ class ProposerPromptFitsTheScreenTest(unittest.TestCase):
     def test_a_request_that_fits_is_left_as_it_is(self):
         request = self.request({"brain/playbooks/small.md": "z" * 500})
         self.assertEqual(evolve.fit_request(request), request)
+
+
+
+if __name__ == "__main__":
+    unittest.main()

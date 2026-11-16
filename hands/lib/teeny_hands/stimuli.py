@@ -38,7 +38,7 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host")
+SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host")
 STATUSES = ("pending", "taken", "done")
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000
@@ -50,7 +50,7 @@ TAKEN_TIMEOUT_SECS = 3600
 #: How far ahead a follow-up may be set.
 MAX_FOLLOW_UP_SECS = 90 * 86400
 #: Surfaces a follow-up's ref may be prefixed with ("x:111" is "111").
-_REF_SURFACES = ("x", "moltbook", "mail", "telegram", "gh", "hn")
+_REF_SURFACES = ("x", "moltbook", "reddit", "mail", "telegram", "gh", "hn")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stimuli (
@@ -130,6 +130,22 @@ def add(surface: str, kind: str, ref: str, text: str, who: str | None = None,
             (f"{surface}:{kind}:{ref}", surface, kind.strip(), ref.strip(), who,
              _clip(text, NUDGE_TEXT_CHARS if surface == "nudge" else MAX_TEXT_CHARS),
              json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now, now),
+        )
+    return cur.rowcount == 1
+
+
+def again(surface: str, kind: str, ref: str, payload: Mapping[str, Any]) -> bool:
+    """Puts a settled stimulus back to pending, in its old place (its `at`),
+    with new details: something a beat read and left that is still owed
+    (a comment on Teeny's own Moltbook post, moltbook/owed.py). False when
+    it is not there or not settled (pending or taken already)."""
+    now = hand.now()
+    conn = db()
+    with hand.transaction(conn):
+        cur = conn.execute(
+            "UPDATE stimuli SET status = 'pending', tick = NULL, taken_at = NULL, payload = ?, updated_at = ?"
+            " WHERE id = ? AND status = 'done'",
+            (json.dumps(dict(payload), ensure_ascii=False), now, f"{surface}:{kind}:{ref}"),
         )
     return cur.rowcount == 1
 

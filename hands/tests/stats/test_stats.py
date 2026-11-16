@@ -60,9 +60,14 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(out["written"], {
             "x": {"followers": 120.0, "following": 30.0, "posts": 400.0},
             "moltbook": {"karma": 42.0, "followers": 7.0},
+            # No writes yet: the counts are 0, and a median or a share of
+            # nothing is left out.
+            "moltbook_ledger": {"live_posts_24h": 0.0, "posts_10_plus_14d": 0.0, "posts_50_plus_14d": 0.0,
+                                "comments_on_others_24h": 0.0, "comments_on_own_24h": 0.0,
+                                "own_thread_unanswered": 0.0, "own_thread_comments": 0.0},
             "github": {"followers": 9.0, "public_repos": 3.0, "stars": 7.0},
         })
-        self.assertEqual(len(self.rows()), 8)
+        self.assertEqual(len(self.rows()), 15)
         self.assertNotIn("impressions", out["written"]["x"])
 
     def test_the_snapshot_keeps_the_x_bio_for_the_doctor(self):
@@ -82,20 +87,34 @@ class StatsTest(unittest.TestCase):
         self.fake.route("GET", "/agents/me", {"success": True, "agent": {"karma": 50}})
         collect.snapshot()
         rows = self.rows()
-        self.assertEqual(len(rows), 8)
+        self.assertEqual(len(rows), 15)
         self.assertIn(("2026-09-14", "moltbook", "karma", 50.0), rows)
 
     def test_missing_keys_skip_a_source(self):
         self.configure(MOLTBOOK_API_KEY=None, GITHUB_TOKEN=None)
         out = collect.snapshot()
         self.assertEqual(set(out["written"]), {"x"})
-        self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set"})
+        self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set",
+                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set",
+                                          "reddit": "nothing read yet"})
+
+    def test_reddit_karma_comes_from_the_last_profile_read(self):
+        from teeny_hands.reddit import rules
+
+        conn = rules.db()
+        conn.execute("INSERT INTO reddit_account (handle, karma_post, karma_comment, age_days, checked_at)"
+                     " VALUES ('teenydroid', 4, 61, 9, ?)", (T0,))
+        conn.close()
+        out = collect.snapshot()
+        self.assertEqual(out["written"]["reddit"], {"karma": 65.0, "karma_post": 4.0, "karma_comment": 61.0})
+        self.assertNotIn("reddit", out.get("skipped", {}))
 
     def test_a_failing_source_does_not_stop_the_others(self):
         self.fake.route("GET", "/agents/me", {"success": False, "error": "down"}, status=500)
         out = collect.snapshot()
         self.assertIn("moltbook", out["failed"])
-        self.assertEqual(set(out["written"]), {"x", "github"})
+        # The ledger's numbers do not need the profile read.
+        self.assertEqual(set(out["written"]), {"x", "moltbook_ledger", "github"})
 
     def test_report_and_get(self):
         collect.snapshot()
