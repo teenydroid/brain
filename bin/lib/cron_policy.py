@@ -80,7 +80,7 @@ POSTING_OUTPUTS = ("post", "reply", "like")
 POSTING_VERBS = ("post", "reply", "comment", "announce", "quote")
 #: Scripts that move money, which never catch up.
 NO_CATCH_UP_COMMANDS = ("bin/pay-bills", "bin/bounty-pay", "bin/tiny-buy", "bin/x402-fund", "bin/surplus-sweep",
-                        "bin/paid-requests")
+                        "bin/paid-requests", "bin/giveaway-run")
 PLAYBOOK_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 

@@ -5,6 +5,14 @@ Nothing here moves funds or asks the core to: the reads are `wallet_status`,
 Solana RPC token-account reads for USDC and $TINY and, on mainnet, one
 `eth_call` per EVM network for its USDC (chains.py). BTC is read by the core
 (`wallet_balances`), on mainnet only.
+
+`--account giveaway` reads the giveaway wallet instead: Solana account index
+1 (`m/44'/501'/1'/0'`), which only hands/giveaway's settle and clawback sign
+with (through the core, under `[wallet_policy.accounts.solana_1]`). Its
+address is `wallet_account` from the core; its balance is SOL (fees and
+rent) and the round mint (`$TINY` on mainnet, GIVEAWAY_DEVNET_MINT on
+devnet), whichever token program holds it. Funding the pool is the operator
+sending $TINY to that address; nothing here moves anything.
 """
 
 from __future__ import annotations
@@ -41,6 +49,42 @@ def _btc_address() -> str | None:
         return own_address(chain=chains.BITCOIN)
     except hand.HandError:
         return None  # a wallet whose stored accounts carry no Bitcoin one
+
+
+GIVEAWAY_INDEX = 1
+
+
+def giveaway_address(core: Any = hand.core) -> Json:
+    """R: the giveaway wallet's address, from the core."""
+    cluster = _cluster()
+    try:
+        account = core("wallet_account", {"chain": "solana", "accountIndex": GIVEAWAY_INDEX})
+    except hand.CoreError as exc:
+        raise hand.HandError(f"the core could not say the giveaway wallet's address ({exc})") from None
+    found = account.get("address") if isinstance(account, Mapping) else None
+    if not solana.is_address(found):
+        raise hand.HandError("the core has no giveaway wallet (Solana index 1); the operator runs bin/wallet-setup once")
+    return {"account": "giveaway", "index": GIVEAWAY_INDEX, "address": found, "cluster": cluster,
+            "derivation_path": account.get("derivationPath"), "url": solana.explorer_account(found, cluster)}
+
+
+def giveaway_balance(core: Any = hand.core) -> Json:
+    """R: the giveaway wallet's SOL and round mint (the pool)."""
+    from ..giveaway import caps as giveaway_caps
+
+    out = giveaway_address(core)
+    cluster, own = out["cluster"], out["address"]
+    lamports = solana.rpc(cluster, "getBalance", [own])
+    lamports = lamports.get("value") if isinstance(lamports, Mapping) else lamports
+    out["sol"] = {"raw": str(int(lamports or 0)), "display": caps.display(int(lamports or 0), "SOL")}
+    mint = giveaway_caps.round_mint(cluster)
+    try:
+        raw, decimals = solana.token_holding(cluster, own, mint)
+        decimals = TINY_DECIMALS if decimals is None else decimals
+        out["tiny"] = {"raw": str(raw), "display": _decimal(raw, decimals), "mint": mint}
+    except hand.HandError as exc:
+        out["tiny"] = {"error": str(exc), "mint": mint}
+    return out
 
 
 def address() -> Json:

@@ -150,6 +150,19 @@ command = "bin/tasks-desk"
 schedule = "23 * * * *"
 command = "bin/bounty-pay"
 
+# Tiny Drops (bin/giveaway-run; docs/hands.md, "giveaway"), hourly: entries,
+# the draw, the settle (the distribution, signed in the core by the giveaway
+# wallet, Solana index 1, under [wallet_policy.accounts.solana_1]) and the
+# clawback of every round due. Then, only with GIVEAWAYS=1, the round threads'
+# playbooks when `hands/giveaway announcements` says a post is owed:
+# giveaway-judge for a best reply to pick, giveaway-post for a countdown, the
+# winners, the claim opening or its closing (each skipped while it does not
+# exist). Operator-owned: money moves only through this job and the caps, and
+# it never catches up a missed slot.
+[jobs.giveaway-settle]
+schedule = "33 * * * *"
+command = "bin/giveaway-run"
+
 # GitHub into the mind's inbox (bin/gh-inbound; docs/roadmap.md, A1): issues,
 # pull requests, comments, review comments and mentions from the token's
 # notifications, and new stars on Teeny's repositories, each screened by the

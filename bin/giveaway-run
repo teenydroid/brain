@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Tiny Drops, the hourly pinned job (evals/cron.pinned.toml, giveaway-settle;
+# docs/hands.md, "giveaway").
+#
+# 1. `hands/giveaway due`: collect every open round's entries (hands.db only,
+#    no X read), draw the rounds past their deadline, settle the drawn ones
+#    (tree, round file in the diary, then the distribution: the core signs
+#    with the giveaway wallet, Solana index 1, under its own policy), and
+#    close the distributions past their clawback. One round's refusal never
+#    stops another's; a step in doubt is never resent on a guess. With
+#    GIVEAWAYS off only the clawback acts (it only returns tokens to the pool).
+# 2. Only with GIVEAWAYS on: `hands/giveaway announcements` (a read) says what
+#    the round threads are owed, and the playbook that writes it runs, at most
+#    once each per run (each has its own max_per_day):
+#      to_judge non-empty                                -> bin/act giveaway-judge
+#      countdown, winners, claim_open or closing_soon    -> bin/act giveaway-post
+#    A playbook that does not exist yet (`bin/act --check` fails) is skipped,
+#    not an error. brain/cron.toml has no slot for either: they follow the
+#    rounds' own clock, which this job keeps.
+#
+# Prints one JSON line: {ok, due, dispatched, skipped, failed}. Exits 1 when
+# `due` or a playbook run failed. DRY_RUN applies all the way down. Money moves
+# here, so the job never catches up a missed slot (bin/lib/cron_policy.py).
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq
+
+hands="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+act="${TEENY_ACT:-$TEENY_ROOT/bin/act}"
+cd "$TEENY_ROOT"
+
+status=0
+due="$("$hands/giveaway" due </dev/null)" || status=1
+if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$due"; then
+  due='{"ok": false, "error": "hands/giveaway due answered no JSON"}'
+  status=1
+fi
+
+dispatched=()
+skipped=()
+failed=()
+run_playbook() {
+  if ! "$act" --check "$1" >/dev/null 2>&1; then
+    skipped+=("$1")
+  elif "$act" "$1" </dev/null >&2; then
+    dispatched+=("$1")
+  else
+    failed+=("$1")
+    status=1
+  fi
+}
+
+on="$("$hands/giveaway" status </dev/null | jq -r '.season.on // false' 2>/dev/null || echo false)"
+if [ "$on" = true ]; then
+  owed="$("$hands/giveaway" announcements </dev/null)" || owed='{}'
+  if jq -e '(.to_judge // []) | length > 0' >/dev/null 2>&1 <<<"$owed"; then
+    run_playbook giveaway-judge
+  fi
+  if jq -e '[.countdown, .winners, .claim_open, .closing_soon] | map(. // [] | length) | add > 0' >/dev/null 2>&1 <<<"$owed"; then
+    run_playbook giveaway-post
+  fi
+fi
+
+list() { if [ $# -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -sc .; fi; }
+jq -cn --argjson due "$due" --argjson dispatched "$(list "${dispatched[@]+"${dispatched[@]}"}")" \
+  --argjson skipped "$(list "${skipped[@]+"${skipped[@]}"}")" --argjson failed "$(list "${failed[@]+"${failed[@]}"}")" \
+  --argjson ok "$([ "$status" = 0 ] && echo true || echo false)" \
+  '{ok: $ok, due: $due, dispatched: $dispatched, skipped: $skipped, failed: $failed}'
+exit "$status"

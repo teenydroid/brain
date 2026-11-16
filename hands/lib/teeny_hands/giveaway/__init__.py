@@ -2,13 +2,14 @@
 giveaway pool (docs/hands.md, "giveaway"; docs/drops-schema.md).
 
   caps         the switch and the GIVEAWAY_* caps
-  store        the tables: rounds, entries, the draw
+  store        the tables: rounds, entries, the draw, the chain attempts
   eligibility  who may win, with a reason per entrant
   draw         the seed (a finalized Solana blockhash) and the draw order
   keccak       Keccak-256, which the standard library lacks
   merkle       the claim tree, hashed as the Rewards program checks it
   publish      the round's JSON in the public diary (teenydroid/diary)
-  chain        the on-chain step, the interface PR 5b fills in
+  chain        the on-chain step's interface, and which implementation runs
+  onchain      that step, signed in the core by the giveaway wallet (index 1)
   rounds       the verbs
   cli          the command line
 """

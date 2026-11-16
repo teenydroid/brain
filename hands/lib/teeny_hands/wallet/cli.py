@@ -1,7 +1,9 @@
 """The verbs of hands/wallet (docs/hands.md, "wallet").
 
-  R  address                       Teeny's Solana, EVM and Bitcoin addresses (one recovery phrase)
-  R  balance                       SOL, USDC and $TINY on Solana; ETH and USDC on each EVM network, and BTC (mainnet)
+  R  address [--account giveaway]  Teeny's Solana, EVM and Bitcoin addresses (one recovery phrase);
+                                   giveaway: the Tiny Drops pool, Solana index 1
+  R  balance [--account giveaway]  SOL, USDC and $TINY on Solana; ETH and USDC on each EVM network, and BTC (mainnet);
+                                   giveaway: the pool's SOL and $TINY
   R  tiny                          Teeny's $TINY: {mint, owner, raw, decimals, amount}, read only
   R  ledger [--max N]              this hand's payments and the core's spend ledger
   R  costs [--days N]              what keeping Teeny running cost: models, x402, bills
@@ -44,6 +46,10 @@ from .. import hand
 from . import accounts, buy, convert, pay, reads, sales, senses, x402
 
 
+#: Teeny's own wallet (index 0), or the Tiny Drops pool (Solana index 1).
+ACCOUNTS = ("main", "giveaway")
+
+
 def _bounded(low: int, high: int, what: str):
     def parse(value: str) -> int:
         number = int(value)
@@ -63,8 +69,10 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    verb("address", lambda a, _: reads.address(), "Teeny's Solana, EVM and Bitcoin addresses")
-    verb("balance", lambda a, _: reads.balance(), "balances on Solana, the EVM networks and Bitcoin")
+    verb("address", lambda a, _: reads.giveaway_address() if a.account == "giveaway" else reads.address(),
+         "Teeny's Solana, EVM and Bitcoin addresses").add_argument("--account", choices=ACCOUNTS, default="main")
+    verb("balance", lambda a, _: reads.giveaway_balance() if a.account == "giveaway" else reads.balance(),
+         "balances on Solana, the EVM networks and Bitcoin").add_argument("--account", choices=ACCOUNTS, default="main")
     verb("tiny", lambda a, _: reads.tiny(), "Teeny's $TINY balance, in tokens")
     verb("ledger", lambda a, _: reads.ledger(a.max), "payments, newest first").add_argument("--max", type=_bounded(1, 500, "--max"), default=50)
     verb("costs", lambda a, _: reads.costs(a.days), "what keeping Teeny running cost").add_argument("--days", type=_bounded(1, 366, "--days"), default=30)

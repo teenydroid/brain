@@ -13,6 +13,11 @@
                          winner the kind, the amount, the leaf and its proof
   giveaway_publications  every round file pushed to the diary, with its
                          sha256 (bin/lib/receipts.py makes each a receipt)
+  giveaway_chain         every attempt at a round's on-chain step (onchain.py):
+                         create or close, its seed, distributor and vault, the
+                         blockhash and the block height it expires at, and
+                         built -> sent -> done, or refused, failed, in_doubt,
+                         dead (sent, and provably never landed)
 
 Statuses: open -> drawn -> settled -> clawed_back, or open -> void (nothing
 to pay: a milestone not reached, or nobody eligible). The diary shows a void
@@ -107,6 +112,23 @@ CREATE TABLE IF NOT EXISTS giveaway_publications (
     sha256    TEXT NOT NULL,
     at        REAL NOT NULL,
     UNIQUE (round_id, sha256)
+);
+CREATE TABLE IF NOT EXISTS giveaway_chain (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    round_id     INTEGER NOT NULL REFERENCES giveaway_rounds (id),
+    op           TEXT NOT NULL CHECK (op IN ('create', 'close')),
+    state        TEXT NOT NULL
+                 CHECK (state IN ('built', 'sent', 'done', 'refused', 'failed', 'in_doubt', 'dead')),
+    seed         TEXT,
+    distributor  TEXT,
+    vault        TEXT,
+    blockhash    TEXT NOT NULL,
+    last_valid   INTEGER,
+    quote_id     TEXT,
+    tx           TEXT,
+    error        TEXT,
+    created_at   REAL NOT NULL,
+    updated_at   REAL NOT NULL
 );
 """
 
