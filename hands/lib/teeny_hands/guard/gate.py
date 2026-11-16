@@ -242,11 +242,36 @@ def _held_on_sight(found: Any, judge: bool = True) -> bool:
     return found is not None and (not found.judged or not judge or not judge_enabled())
 
 
+def _held_before(kind: str, context: dict[str, Any], text: str) -> Held | None:
+    """The standing hold this inbound item already has, as a Held; None when
+    it has none or the log cannot say (it is then screened, so a broken log
+    never lets anything through)."""
+    try:
+        hold = holds.existing_inbound(kind, context, text)
+    except Exception as error:  # noqa: BLE001 - screen it afresh instead
+        log.warning("safety: could not look for an earlier hold; screening afresh: %s", error)
+        return None
+    if hold is None:
+        return None
+    log.info("safety: inbound already held (hold %s, %s); not screened again", hold["id"], hold["category"])
+    return Held(hold["category"], hold["reason"], hold["by"], hold["id"])
+
+
 def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | None:
     """Whether a message from somebody else is something the account
     processes at all: None when it is. With a context (`surface` and where it
     came from), a hold is recorded for review. A judged term (a bare "kill")
-    is read by the judge instead of held on sight."""
+    is read by the judge instead of held on sight.
+
+    An item held before (holds.existing_inbound: the same surface, item and
+    words, on a real finding, still standing) is that hold, returned without
+    screening it again: no judge call, no new row. Anything else, and every
+    message when the log cannot be read, is screened as before."""
+    if context is not None:
+        kind = context.get("kind") or ("task" if context.get("surface") == "task" else "message")
+        before = _held_before(kind, context, text)
+        if before is not None:
+            return before
     found = screen_text(text, INBOUND)
     if _held_on_sight(found):
         log.info("safety: inbound held by the screen (%s, %s)", found.category, found.term)
@@ -256,7 +281,6 @@ def gate_inbound(text: str, context: dict[str, Any] | None = None) -> Held | Non
             log.info("safety: inbound has a judged term (%s); the judge reads it", found.term)
         held = _ask(text, INBOUND)
     if held is not None and context is not None:
-        kind = context.get("kind") or ("task" if context.get("surface") == "task" else "message")
         hold_id = _record(
             direction=INBOUND,
             kind=kind,

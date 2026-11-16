@@ -217,6 +217,43 @@ def _pending_outage(conn: sqlite3.Connection, kind: str, context: dict[str, Any]
     return None
 
 
+# The holds an inbound item already has that stand for it on a new read
+# (`existing_inbound`): still to be reviewed, being decided, or confirmed by an
+# operator. An approved hold is not a pass, and a cleared one was let back in
+# by the re-screen: either is screened again, as before.
+STANDING = ("pending", "releasing", "rejected")
+
+
+def existing_inbound(kind: str, context: dict[str, Any], text: str) -> dict[str, Any] | None:
+    """The hold somebody else's message already has, when it is read again:
+    on the same surface, naming the same item (every ITEM_KEYS value equal,
+    at least one of them set), with the same words, held on a real finding
+    (not the judge failing: `_INFRA`) and still standing (STANDING). The
+    oldest such hold, or None. A message that names no item is never matched:
+    the same words from somebody else are another message.
+
+    The gate returns this hold instead of screening the message again: an
+    intake that reads the same comment on every poll (HN, with no
+    notifications) would otherwise ask the judge again each time and, its
+    answer worded afresh, write a new hold each time (2026-11-14..16: one HN
+    comment held 13 times, 1049 inbound holds for 214 items)."""
+    item = {key: context.get(key) for key in ITEM_KEYS}
+    if all(value is None for value in item.values()):
+        return None
+    statuses = ",".join("?" for _ in STANDING)
+    with _store() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM guard_holds WHERE direction = 'inbound' AND kind = ? AND text = ?"
+            f" AND status IN ({statuses}) AND json_extract(context, '$.surface') = ? AND NOT ({_INFRA}) ORDER BY id",
+            (kind, text, *STANDING, context.get("surface"), *_infra_params()),
+        )
+        for row in rows:
+            held = json.loads(row["context"])
+            if {key: held.get(key) for key in ITEM_KEYS} == item:
+                return _hold(row)
+    return None
+
+
 def record(
     *,
     direction: str,

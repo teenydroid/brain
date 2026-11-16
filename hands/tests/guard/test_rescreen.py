@@ -134,6 +134,20 @@ class InboundTest(RescreenBase):
         self.assertEqual(self.run_at(LATER + 900)["checked"], 0)
         self.assertEqual(self.core.calls, [])
 
+    def test_a_rejudge_updates_the_outage_hold_and_the_next_read_reuses_it(self):
+        """The re-screen writes its verdict on the hold it asked about, never a
+        second one; and the item, read again by its intake, is that hold, with
+        no judge call and no new row."""
+        held = self.held_mention(text="draw tiny with nothing on")
+        self.judge_says(verdict("prohibited", "sexual", "asks for nudity of the mascot"))
+        self.run_at(LATER)
+        self.assertEqual([h["id"] for h in holds.list_holds()], [held["id"]])
+        self.judge_says(verdict("prohibited", "sexual", "the same, worded otherwise"))
+        again = gate.inbound("draw tiny with nothing on", surface="x", context=held["context"])
+        self.assertEqual((again.kind, again.hold_id, again.reason), ("hold", held["id"], "asks for nudity of the mascot"))
+        self.assertEqual(self.core.calls, [])
+        self.assertEqual([h["id"] for h in holds.list_holds()], [held["id"]])
+
     def test_the_lexicon_still_runs_before_the_judge(self):
         # A hold the judge made can be read by a newer lexicon on the way back.
         hold_id = holds.record(direction="inbound", kind="message", context={"surface": "x", "post_id": "9"},
