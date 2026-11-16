@@ -49,7 +49,7 @@ FILED, STALE, DUST = 1, 2, accounts.DUST
 #: Below these, in the asset's own units, a deposit is dust (WALLET_DUST_<ASSET>).
 DUST_DEFAULTS = {"SOL": "0.0001", "USDC": "0.01"}
 TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-TOKEN_2022 = "TokenzQdBNbLqP5VjB6TPMNHSs8YRUJ5MmbGyM3Qd6S9M"
+TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 TOKEN_ACCOUNT_SIZE = 165
 
 
