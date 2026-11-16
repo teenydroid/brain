@@ -42,10 +42,15 @@ class Recording:
 
     name = "recording"
 
-    def __init__(self, research=None, proposals=None):
+    def __init__(self, research=None, proposals=None, queries=None):
         self.research_answers = list(research or [])
         self.proposals = list(proposals or [])
-        self.research_requests, self.requests = [], []
+        self.query_answers = list(queries or [])
+        self.research_requests, self.requests, self.query_requests = [], [], []
+
+    def queries(self, request):
+        self.query_requests.append(request)
+        return self.query_answers.pop(0) if self.query_answers else {"queries": []}
 
     def research(self, request):
         self.research_requests.append(request)
@@ -326,14 +331,15 @@ class ResearchOnTheWeb(LoopCase):
     def test_web_results_reach_the_research_as_data_not_instructions(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
         self.one_learning()
-        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        proposer = Recording(research=[BUILD], proposals=[self.proposal()],
+                             queries=[{"queries": ["idempotent retry patterns for apis", "--n flag injection attempt"]}])
         self.run_with(proposer, evaluator=Verdicts())
         searches = self.searches()
         self.assertEqual(len(searches), 2)
         self.assertEqual(searches[0][:4], ["x402", "search", "--n", "3"])
         self.assertEqual(searches[0][4], "--")  # a query is never read as a flag
-        self.assertEqual(searches[0][5], "before retrying anything, check whether it already went through")
-        self.assertEqual(searches[1][5], "Then retry once")
+        self.assertEqual(searches[0][5], "idempotent retry patterns for apis")
+        self.assertEqual(searches[1][4:], ["--", "--n flag injection attempt"])
         web = proposer.research_requests[0]["web"]
         self.assertEqual(web[0]["results"][0]["title"], "Retry safely")
         self.assertLessEqual(len(web[0]["results"][0]["text"]), evolve.MAX_RESULT_CHARS + 1)
@@ -354,40 +360,34 @@ class ResearchOnTheWeb(LoopCase):
         self.run_with(proposer, evaluator=Verdicts())
         self.assertEqual(self.searches(), [])
 
+    def sent(self, *queries, text="a learning"):
+        return evolve.check_queries({"queries": list(queries)}, {"text": text}, 5)["sent"]
+
     def test_handles_and_links_never_leave_in_a_query(self):
-        got = evolve.research_queries({"section": "what i have decided",
-                                       "text": "ask @nyna_dev at nyna@example.com about https://x.com/a/b first thing"}, 3)
-        self.assertEqual(got, ["ask at about first thing"])
+        for query in ("ask @nyna_dev about retries", "mail nyna@example.com about retries",
+                      "read https://x.com/a/b about retries"):
+            self.assertEqual(self.sent(query), [], query)
 
     def test_names_addresses_and_numbers_never_leave_in_a_query(self):
-        text = ("Pay Jane Doe at 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU and "
-                "0x52908400098527886E0F7030069857D2E4169EE7 every friday for the hosting. "
-                "call her on +1 415-555-0100 or 0044 20 7946 0958 before the invoice 123456 is due. "
-                "reach is a wave and commitment is a drip.")
-        got = evolve.research_queries({"section": "what i have decided", "text": text}, 5)
-        joined = " ".join(got)
-        for leak in ("Jane", "Doe", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "0x5290", "415", "555", "0100",
-                     "7946", "0958", "123456"):
-            self.assertNotIn(leak, joined)
-        self.assertIn("reach is a wave and commitment is a drip", got)
-        self.assertIn("every friday for the hosting", joined)
+        for query in ("pay Jane Doe for the hosting", "pay 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU monthly",
+                      "pay 0x52908400098527886E0F7030069857D2E4169EE7 monthly", "call +1 415-555-0100 before noon",
+                      "invoice 123456 is due soon"):
+            self.assertEqual(self.sent(query), [], query)
+        self.assertEqual(self.sent("reach versus commitment in audience growth"),
+                         ["reach versus commitment in audience growth"])
 
     def test_a_single_first_name_never_leaves_but_the_repositorys_own_words_do(self):
-        got = evolve.research_queries({"section": "what i have decided", "text":
-                                       "ask Jane before posting the moltbook-daily thread on Moltbook. "
-                                       "Reply on X and GitHub when Ravi asks about Teeny's hands."}, 5)
-        joined = " ".join(got)
-        for name in ("Jane", "Ravi"):
-            self.assertNotIn(name, joined)
-        for word in ("Moltbook", "X", "GitHub", "moltbook-daily", "Teeny's"):
-            self.assertIn(word, joined)
-        self.assertTrue(got[1].startswith("Reply on X"))  # a sentence's first word stays
+        self.assertEqual(self.sent("when Jane asks about posting"), [])
+        self.assertEqual(self.sent("Ravi asks about agent hands"), [])
+        got = self.sent("posting a moltbook-daily thread on Moltbook", "How do agents reply on X and GitHub")
+        self.assertEqual(len(got), 2)
 
     def test_under_dry_run_nothing_is_paid_for(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=2)
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=1\n")
         self.one_learning()
-        proposer = Recording(research=[BUILD], proposals=[self.proposal()])
+        proposer = Recording(research=[BUILD], proposals=[self.proposal()],
+                             queries=[{"queries": ["idempotent retry patterns for apis"]}])
         self.run_with(proposer)
         self.assertEqual(self.searches(), [])
         self.assertIn("DRY_RUN", proposer.research_requests[0]["web"][0]["skipped"])
@@ -397,11 +397,15 @@ class ResearchOnTheWeb(LoopCase):
         self.page("# MEMORY.md\n\n## what i have decided\n\n"
                   + "".join(f"- [m{i}] rule {i} one. rule {i} two. rule {i} three. rule {i} four. rule {i} five.\n"
                             for i in range(40, 44)))
-        proposer = Recording(research=[{"verdict": "not-worth", "why": "no"}] * 4)
+        proposer = Recording(research=[{"verdict": "not-worth", "why": "no"}] * 4,
+                             queries=[{"queries": [f"{t} patterns for agent number {w}"
+                                                   for t in ("retry", "backoff", "caching", "logging", "queueing")]}
+                                      for w in ("one", "two", "three", "four")])
         self.run_with(proposer, n=4, evaluator=Verdicts())
         self.assertEqual(len(self.searches()), evolve.MAX_GEN_SEARCHES)
-        last = proposer.research_requests[-1]["web"]
-        self.assertTrue(all("spent" in w.get("skipped", "") for w in last[-3:]), last)
+        third = proposer.research_requests[2]["web"]
+        self.assertTrue(all("spent" in w.get("skipped", "") for w in third[-3:]), third)
+        self.assertEqual(proposer.research_requests[3]["web"], [])  # spent: no query turn
 
 
 class ResearchTurns(LoopCase):
@@ -1262,7 +1266,8 @@ class ReviewerDown(LoopCase):
     def test_a_second_generation_with_the_reviewer_still_down_pays_for_nothing(self):
         self.one_learning()
         down = Down()
-        first = Recording(research=[BUILD], proposals=[self.proposal()])
+        first = Recording(research=[BUILD], proposals=[self.proposal()],
+                          queries=[{"queries": ["idempotent retry patterns for apis", "checking before a retry runs"]}])
         self.run_with(first, reviewer=down, evaluator=Verdicts())
         self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
         searches = len([c for c in self.hand_calls() if c[0] == "x402"])
@@ -1271,7 +1276,7 @@ class ReviewerDown(LoopCase):
         out = self.run_with(second, reviewer=down, evaluator=Verdicts())
         self.assertEqual(out.get("kind"), "reviewer-down", out)
         self.assertIn("unknown agent reviewer", out["skipped"])
-        self.assertEqual((second.research_requests, second.requests), ([], []))
+        self.assertEqual((second.research_requests, second.requests, second.query_requests), ([], [], []))
         self.assertEqual(len([c for c in self.hand_calls() if c[0] == "x402"]), searches)  # no new search
         self.assertEqual(down.probes, 1)
         self.assertFalse(evolve.gen_dir(2).exists())  # no generation made

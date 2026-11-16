@@ -29,7 +29,7 @@ def check(queries, n=5, learning=LEARNING):
 class CheckQueries(unittest.TestCase):
     def test_model_queries_are_validated_and_only_the_good_ones_are_sent(self):
         got = check([GOOD, "  how do agents avoid duplicate side effects  ", "too short", "x " * 13,
-                     "a" * (evolve.MAX_MODEL_QUERY_CHARS - 10) + " b c d", "line one\nline two three",
+                     "a" * evolve.MAX_MODEL_QUERY_CHARS + " b c d", "line one\nline two three",
                      GOOD.upper().lower(), 42])
         self.assertEqual(got["sent"], [GOOD, "how do agents avoid duplicate side effects"])
         whys = [d["why"] for d in got["dropped"]]
@@ -101,7 +101,7 @@ class QueryTurn(LoopCase):
     def searched(self):
         return [c[5] for c in self.hand_calls() if c[0] == "x402"]
 
-    def saved(self):
+    def research_file(self):
         return json.loads((evolve.gen_dir(1) / "cand-1.research.json").read_text())
 
     def test_only_validated_queries_reach_the_search_and_the_research_says_which(self):
@@ -114,12 +114,12 @@ class QueryTurn(LoopCase):
         (request,) = proposer.query_requests
         self.assertEqual(request["learning"]["id"], "m36")
         self.assertEqual(request["n"], 3)
-        queries = self.saved()["research"]["queries"]
+        queries = self.research_file()["research"]["queries"]
         self.assertEqual(queries["proposed"], [GOOD, private, "nov 14 funding round"])
         self.assertEqual(queries["sent"], [GOOD])
         self.assertEqual([d["query"] for d in queries["dropped"]], [private, "nov 14 funding round"])
         self.assertTrue(all(d["why"] for d in queries["dropped"]))
-        self.assertEqual([w["query"] for w in self.saved()["research"]["web"]], [GOOD])
+        self.assertEqual([w["query"] for w in self.research_file()["research"]["web"]], [GOOD])
         self.assertEqual(proposer.research_requests[0]["web"][0]["query"], GOOD)
 
     def test_a_failed_query_turn_runs_no_search(self):
@@ -129,15 +129,26 @@ class QueryTurn(LoopCase):
         self.run_with(proposer, evaluator=Verdicts())
         self.assertEqual(self.searched(), [])
         self.assertEqual(proposer.research_requests[0]["web"], [])
-        self.assertIn("boom", self.saved()["research"]["queries"]["error"])
+        self.assertIn("boom", self.research_file()["research"]["queries"]["error"])
 
-    def test_an_answer_with_nothing_usable_runs_no_search(self):
-        for n, answer in enumerate(({"queries": []}, {"queries": ["Jane Doe"]}, {"verdict": "build"})):
-            with self.subTest(answer=answer):
-                self.one_learning(f"learning number {'i' * (n + 1)}: before retrying, check it went through.")
-                proposer = Querying(queries=[answer], research=[BUILD], proposals=[self.proposal()])
-                self.run_with(proposer, n=1, evaluator=Verdicts())
-                self.assertEqual(self.searched(), [])
+    def nothing_usable(self, answer):
+        self.one_learning()
+        proposer = Querying(queries=[answer], research=[BUILD], proposals=[self.proposal()])
+        self.run_with(proposer, evaluator=Verdicts())
+        self.assertEqual(len(proposer.query_requests), 1)
+        self.assertEqual(self.searched(), [])
+        self.assertEqual(proposer.research_requests[0]["web"], [])
+        return self.research_file()["research"]["queries"]
+
+    def test_an_empty_answer_runs_no_search(self):
+        self.assertEqual(self.nothing_usable({"queries": []})["sent"], [])
+
+    def test_every_query_dropped_runs_no_search(self):
+        got = self.nothing_usable({"queries": ["Jane Doe retry policy", "nov 14 deposit"]})
+        self.assertEqual(len(got["dropped"]), 2)
+
+    def test_an_answer_out_of_shape_runs_no_search(self):
+        self.assertIn("queries", self.nothing_usable({"verdict": "build"})["error"])
 
     def test_no_query_turn_when_searches_are_off(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_RESEARCH_SEARCHES=0)
@@ -146,7 +157,7 @@ class QueryTurn(LoopCase):
         self.run_with(proposer, evaluator=Verdicts())
         self.assertEqual(proposer.query_requests, [])
         self.assertEqual(self.searched(), [])
-        self.assertNotIn("queries", self.saved()["research"])
+        self.assertNotIn("queries", self.research_file()["research"])
 
     def test_no_query_turn_for_a_promise(self):
         self.page("# MEMORY.md\n\n## promises and open threads\n\n- [m12] promise to nyna: answer her first.\n")
@@ -168,7 +179,7 @@ class QueryTurn(LoopCase):
         third = proposer.research_requests[2]["web"]
         self.assertTrue(all("spent" in w.get("skipped", "") for w in third[-3:]), third)
         self.assertEqual(proposer.research_requests[3]["web"], [])
-        self.assertFalse((evolve.gen_dir(1) / "searches.json").read_text().count("13"))
+        self.assertEqual(json.loads((evolve.gen_dir(1) / "searches.json").read_text())["used"], evolve.MAX_GEN_SEARCHES)
 
     def test_under_dry_run_the_queries_are_written_but_nothing_is_paid_for(self):
         (self.root / "secrets" / "teeny.env").write_text("DRY_RUN=1\n")
@@ -198,7 +209,7 @@ class QueryTurn(LoopCase):
         self.assertEqual(len(self.searched()), 2)  # nor is a search paid for twice
         self.assertEqual([w["query"] for w in again.research_requests[0]["web"]],
                          [GOOD, "exponential backoff with jitter for apis"])
-        self.assertEqual(self.saved()["research"]["queries"]["sent"], [GOOD, "exponential backoff with jitter for apis"])
+        self.assertEqual(self.research_file()["research"]["queries"]["sent"], [GOOD, "exponential backoff with jitter for apis"])
 
 
 class AskQueryTurn(LoopCase):

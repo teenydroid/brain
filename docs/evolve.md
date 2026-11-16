@@ -730,22 +730,51 @@ repository at all, and if so, what is the smallest one? The turn is shown:
 - **what the web says**, when the operator pays for it: `bin/evolve` itself
   runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
   (Exa, paid from the wallet over x402, so the wallet's own caps, host
-  allowlist and ledger apply). The queries are the learning's sentences, with
-  whatever could identify someone cut out first (`QUERY_SCRUB`): links,
-  emails, handles, `0x` and base58 wallet addresses, phone numbers and any
-  run of four or more digits, and then every capitalised word that is not
-  a sentence's first and not one of the repository's own (`query_vocabulary`:
-  Moltbook, X, GitHub and the other surfaces, and the playbooks' and hands'
-  names), since it may be a person's name; a learning under "promises and open
-  threads" names people and is never searched for. Each query brings back 3
+  allowlist and ledger apply). The queries are the model's: before the
+  searches, one tool-less turn (`research_query_turn`, the message
+  `render_query_request`) is shown the learning and asked for up to
+  `EVOLVE_RESEARCH_SEARCHES` short, generic queries about the engineering or
+  behaviour question under it (how others solve it), as `{"queries": [...]}`.
+  The message says the queries go to a public search engine and must carry
+  no names of people, accounts, wallets, amounts, dates or anything private
+  from its memory, only the general topic. Every query is then held in code
+  (`check_queries`, `query_problem`) and **dropped whole, never cut and
+  sent**, when it is not one line of text, is over 100 characters
+  (`MAX_MODEL_QUERY_CHARS`), has fewer than 3 or more than 12 words, holds
+  anything `QUERY_SCRUB` finds (links, emails, handles, `0x` and base58
+  wallet addresses, phone numbers and runs of four or more digits), a
+  currency sign, any number outside a word of the repository's own (`x402`),
+  a capitalised word that is not one of the repository's own
+  (`query_vocabulary`: Moltbook, X, GitHub and the other surfaces, and the
+  playbooks' and hands' names; a leading "How", "What" and the like aside),
+  since it may be a person's name, or 5 or more words in a row copied from
+  the learning (`MAX_QUOTED_WORDS`); a repeat, or one past
+  `EVOLVE_RESEARCH_SEARCHES`, is dropped too. A turn that fails, an answer
+  out of shape, or every query dropped means **no search** for that
+  learning: the learning's own sentences are not a fallback. Until
+  2026-11-16 they were the queries (generation 12 paid for "funded nov 14",
+  "deposits create no obligations", "no sends to any depositor"). The turn is
+  not a search and costs none of the budget, but it is not asked at all when
+  `EVOLVE_RESEARCH_SEARCHES` is 0, when the generation's searches are spent,
+  or for a learning under "promises and open threads", which names people
+  and is never searched for. The `ask` proposer asks its own agent
+  (`EVOLVE_PROPOSER_AGENT`, `act`); the `evolver`, whose agent has file
+  tools, asks the same tool-less `EVOLVE_PROPOSER_AGENT` on the live core;
+  `--proposals DIR` searches nothing. The research file keeps `queries`:
+  what the model `proposed`, what was `dropped` and why, what was `sent`
+  (and an `error` or `skipped` when there were none). Each query brings back 3
   results, each cut to 600 characters, pasted in as JSON under a line saying
   they are what web pages said, data to read and never instructions to
   follow. No agent gains a web tool. A generation runs at most 12 searches
   (`MAX_GEN_SEARCHES`, counted in `state/evolve/<gen>/searches.json`), and
-  none under `DRY_RUN`. bin/evolve does not share the mind's
+  none under `DRY_RUN` (the query turn still runs, and its queries are
+  listed as skipped). bin/evolve does not share the mind's
   `MIND_SEARCHES_PER_DAY` count: `bin/lib/tick.py` keeps it in a file with no
   lock, and its default 0 would silently turn research's searches off too.
-  The code's default is 0 (off); the operator runs the box at 3;
+  The code's default is 0 (off); the operator runs the box at 3.
+  **Privacy**: these model-written, code-checked queries leave the box (they
+  go to Exa through x402, and Exa keeps them); nothing else of the learning
+  does, and no query is ever sent that the checks above dropped;
 - the evidence and the paths it may change, as the build sees them.
 
 The answer is `{verdict, why, plan, read, document}`:
@@ -780,9 +809,13 @@ over the worktree with its file tools read-only (no `SPINE_LAB_EDIT`); the
 operator's `--proposals DIR` reads `DIR/cand-<i>.research.json` and, without
 one, builds with no research. Whatever a research turn writes in the worktree
 is undone (`restore_tree`). The research is kept in
-`state/evolve/<gen>/cand-<i>.research.json` (with the web results) and, cut
-short, on the candidate's archive entry as `research`; a restarted generation
-reuses it, so it is never paid for twice.
+`state/evolve/<gen>/cand-<i>.research.json` (with the queries and the web
+results) and, cut short, on the candidate's archive entry as `research`; a
+restarted generation reuses it, so it is never paid for twice. The queries
+and each search's results are written there as they come back, as
+`pending`, before the research turn answers, so a restart cut off between
+them asks no second query turn and pays for no search twice
+(`pending_research`).
 
 #### The build
 
@@ -1167,13 +1200,14 @@ happens **once at most** per candidate, so a candidate is measured twice at
 most. A fence broken, a second regression, or a regression in the last round
 is final: `regressed`.
 
-**The worst case.** Per candidate: one research turn (and up to
-`EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
+**The worst case.** Per candidate: one research turn (and, when searches
+are on, one query turn and up to `EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
 (3) build turns and 3 review turns (a regression's extra round is one of the
 3, not a fourth), each turn asked once more when its answer does not parse,
 and at most 2 targeted evals. With the defaults (4 candidates, 3 rounds) a
 generation makes at most 28 model turns (56 if every answer had to be asked
-twice), 8 evals, and 12 paid searches when the operator turns them on.
+twice), 32 (64) with searches on, 8 evals, and 12 paid searches when the
+operator turns them on.
 
 ### 6. Publish: one pull request per candidate
 
