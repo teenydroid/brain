@@ -1699,8 +1699,8 @@ the network's public endpoint, and the core is given the same URL.
 
 | Verb | | Does |
 |---|---|---|
-| `address` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. |
-| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). |
+| `address [--account giveaway]` | R | Teeny's Solana address (`wallet_status`) and its Solscan page, `evm`: the EVM address with its explorer page per network (`usable` only on mainnet), and `btc`: the Bitcoin address with its mempool.space page. `--account giveaway`: the Tiny Drops pool instead, Solana index 1 (`m/44'/501'/1'/0'`, from the core's `wallet_account`), which only `hands/giveaway`'s settle and clawback sign with. Funding the pool is the operator sending $TINY there. |
+| `balance` | R | SOL from the core (`wallet_balances`) and USDC read straight from Solana JSON-RPC (`getTokenAccountsByOwner`, jsonParsed, the cluster's pinned mint), each `{raw, display}`. On mainnet also `evm.networks.<network>`: ETH from the core and USDC by `eth_call`, and `btc`: BTC from the core (its Esplora endpoint, `OPENHUMAN_WALLET_RPC_BTC`); a network that cannot be read carries `error` and does not stop the others. Also `tiny`, read the same way (`{raw, display, mint}`, or `{error}` when that one read fails, which never hides the rest). `--account giveaway`: the pool's address, its SOL (fees and rent) and its round mint (`tiny`: $TINY on mainnet, `GIVEAWAY_DEVNET_MINT` on devnet). Read only. |
 | `tiny` | R | Teeny's $TINY, in tokens: `{mint, owner, cluster, raw, decimals, amount}`. One `getTokenAccountsByOwner` read over the same RPC as USDC, summed over every account for the mint; nothing is signed. The mint is `TINY_MINT`, else the one in `brain/CONTEXT.md`. No token account is `amount` 0, with 6 decimals (a pump.fun mint's). $TINY lives on mainnet, so on devnet it reads 0. |
 | `conversions [--max N]` | R | The swaps and bridges (`wallet_conversions`), newest first. |
 | `x402 log [--max N]` | R | The paid HTTP requests (`x402_requests`), newest first. |
@@ -2698,8 +2698,8 @@ are code's. The round files it publishes are the contract in
 | `judge` | A | `{round_id, entry_id, reasons, text}`, after the deadline and before the draw, for an entry eligible so far and not Teeny's. `text` must carry the tag; it is threaded under the round post (`hands/x follow-up`), and only once it is out is the pick recorded. The other playbook output. |
 | `entries [ID]` | J | Every round not drawn yet: its entries from `hands.db` alone, never X (a test fails on any X call). The webhook stores each direct reply to the round post in `x_mentions` (with `conversation_id`, and the author's age and followers when X sends them); one entry per account, from its replies made before the deadline. The first reply is the entry. Its address is bound from the first of its replies that carries exactly one valid Solana address, leaving out the $TINY and USDC mints, the token and Rewards programs and the giveaway wallet, so a later reply can supply an address the first lacked but never replace one it had. Nothing else a reply says changes anything. A nested reply is not pushed by the webhook, so the rules say "reply to the drop post itself". An open round's file is published to the diary once (and again only if it changes). |
 | `draw [ID]` | J | After the deadline. Waits (`rule: waiting_for_judge`) for the best-reply pick up to 24 hours past the deadline, then draws without it (`best_skipped`); with no prize or nobody eligible it does not wait. The seed is the first finalized Solana block at or after the deadline (`GIVEAWAY_RPC_URL`; `rule: seed_not_final` until there is one): `seed.sha256 = sha256("<id>:<blockhash>")`. Every entrant gets a reason: held by the guard, not screened yet, Teeny's own, classed as an agent (`hands/world`), account under 90 days, under 25 followers, a near-duplicate of an earlier reply (word-set Jaccard 0.8 once the tag, addresses, handles, links and the entry template's words are out, and only between replies of at least 4 such words), no address (Teeny's own index-0 address, asked of the core, never binds), an address another account entered first, or not following @teenydroid (`x_follows`). The eligible handles are sorted by `sha256(seed || handle)`. Walking that order, each candidate the webhook told too little about (follow, age or followers) goes into one batched `hands/x users` call, at most `GIVEAWAY_X_LOOKUPS_PER_ROUND` a round; past that a candidate is `unverifiable`, and a candidate who fails is replaced by the next. The best-reply winner is checked the same way. A person who wins twice gets one leaf with the sum. A milestone not reached, or nobody eligible, makes the round `void`. |
-| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`) for the distribution, funded with exactly the round's total. Until PR 5b fills that step in, it is refused (`chain_not_ready`): the round stays `drawn`, published with `distributor` and `vault` null, and nothing is signed. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
-| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution, which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
+| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`, below) for the distribution, funded with exactly the round's total. A refusal there (any `rule` below, or `chain_not_ready` when no spine binary is found) leaves the round `drawn`, published with `distributor` and `vault` null, and nothing is signed; the next run tries again. An outcome it cannot know is an error naming `in_doubt`, never resent. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
+| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution (CloseMerkleDistribution), which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
 | `due` | J | `entries`, then `draw`, `settle` and `clawback` for every round each is due for. One round's refusal never stops the others. |
 
 The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
@@ -2709,8 +2709,58 @@ The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
 `deploy/teeny.env.example`; with the switch off no round is opened, judged,
 drawn or settled. `GIVEAWAY_AUTHORITY` (the giveaway wallet's address) and
 `GIVEAWAY_RPC_URL` (a Solana JSON-RPC for the round's cluster) are needed to
-settle and to draw. Only `open` and `judge` may be a playbook's output, and an
-input runs only `status` and `announcements` (bin/lib/playbook.py).
+settle and to draw. On devnet, `GIVEAWAY_DEVNET_MINT` names a Token-2022 test
+mint (6 decimals) that stands in for $TINY, which exists on mainnet only. Only
+`open` and `judge` may be a playbook's output, and an input runs only `status`
+and `announcements` (bin/lib/playbook.py).
+
+**The chain step** (`giveaway/onchain.py`, signed in the core). The giveaway
+wallet is the core's Solana account index 1; its key never leaves the core, and
+it signs only under `[wallet_policy.accounts.solana_1]`, which
+`bin/lib/wallet_config.py` writes at every boot from these caps
+(`giveaway/caps.py`, `policy_account`): the Rewards program alone, and the
+round mint at `GIVEAWAY_POOL_MAX_TINY` a transaction and
+`GIVEAWAY_SEASON_MAX_TINY` in any 24 hours. With `GIVEAWAYS` off, or the caps
+not sane, or `GIVEAWAY_CLUSTER` not the core's `WALLET_CLUSTER`, the section is
+not written and the core refuses whatever index 1 is asked to sign (index 0's
+policy is written byte for byte as without it). One step:
+
+1. Refused first unless the round's cluster is the core's (`rule: cluster`),
+   `GIVEAWAY_RPC_URL` answers with that cluster's genesis hash (`cluster`), and
+   `GIVEAWAY_AUTHORITY` is the address the core has for index 1
+   (`wallet_account`; `rule: authority`).
+2. `teeny-spine giveaway-tx create|close` (`spine/src/giveaway_tx.rs`) builds
+   the unsigned legacy transaction over a fresh blockhash: one
+   CreateMerkleDistribution (amount = total_amount = the round total, the
+   root, the clawback time, not revocable; a throwaway seed keypair, made and
+   signed with there, gives the distribution its address) or
+   CloseMerkleDistribution. Its bytes match `@solana/web3.js` encoding the
+   program as `web/src/lib/distributor.ts` does
+   (`hands/tests/giveaway/fixtures/rewards_tx.json`).
+3. The attempt is recorded in `giveaway_chain` before anything is sent.
+4. `wallet_prepare_program {accountIndex: 1}` with `expectedDebits` the
+   round total of the mint (none for a close). The quote is checked against
+   the round, not the builder: one instruction, to the Rewards program, the
+   round's accounts in order, data carrying exactly its root, total and
+   clawback time (`rule: quote`), and a clean simulation debiting exactly the
+   total (`rule: simulation`). A `WALLET_POLICY_REFUSED` is `rule:
+   core_policy`.
+5. `wallet_execute_prepared_program`, then up to 60 seconds for the cluster
+   to confirm. A failure on chain is `failed` (nothing made; the next run
+   tries again).
+
+A round never gets a second distribution: an attempt `done` is the answer,
+and one sent but unknown (`in_doubt`) is settled from the chain on the next
+run, as `done` when the distribution is there and matches the round, or as
+`dead` (tried afresh) only once the chain's finalized block height has passed
+its blockhash's last valid height, when it can never land. Until then the
+step is an error naming `in_doubt`.
+
+The pinned job `giveaway-settle` (`bin/giveaway-run`, hourly at :33, never
+caught up) runs `due`, then, with `GIVEAWAYS` on, `bin/act giveaway-judge`
+when `announcements.to_judge` has a round and `bin/act giveaway-post` when a
+countdown, winners, claim-open or closing-soon post is owed (each at most
+once a run; a playbook not yet written is skipped).
 
 ## `lore`: proof events for lore episodes
 
@@ -2868,7 +2918,7 @@ creates its own tables:
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
-| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications` |
+| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications`, `giveaway_chain` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |

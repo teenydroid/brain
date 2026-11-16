@@ -59,6 +59,29 @@ class ReadsTest(Scratch):
         with self.assertRaises(hand.HandError):
             reads.tiny()
 
+    def test_the_giveaway_wallet_is_read_only(self):
+        pool = "GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB"
+        mint = "9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP"
+        self.core.answers["openhuman.wallet_account"] = {"chain": "solana", "address": pool, "index": 1,
+                                                         "derivationPath": "m/44'/501'/1'/0'", "label": "giveaway"}
+        self.chain.answers["getBalance"] = {"context": {"slot": 1}, "value": 25_000_000}
+        self.chain.answers["getTokenAccountsByOwner"] = token_accounts(40_000_500_000, mint=mint)
+        self.configure(GIVEAWAY_DEVNET_MINT=mint)
+        out = reads.giveaway_balance()
+        self.assertEqual((out["address"], out["index"], out["derivation_path"]), (pool, 1, "m/44'/501'/1'/0'"))
+        self.assertEqual(out["sol"], {"raw": "25000000", "display": "0.025"})
+        self.assertEqual(out["tiny"], {"raw": "40000500000", "display": "40000.5", "mint": mint})
+        self.assertEqual(self.core.params("openhuman.wallet_account"), [{"chain": "solana", "accountIndex": 1}])
+        self.assertEqual(self.chain.calls[-1]["params"][:2], [pool, {"mint": mint}])
+        self.assertEqual(reads.giveaway_address()["url"], f"https://solscan.io/account/{pool}?cluster=devnet")
+        self.assertEqual(self.core.methods(), ["openhuman.wallet_account"] * 2)
+        self.assertEqual(self.moved(), [])
+
+    def test_no_giveaway_wallet_in_the_core_is_an_error(self):
+        self.core.answers["openhuman.wallet_account"] = {"chain": "solana"}
+        with self.assertRaises(hand.HandError):
+            reads.giveaway_address()
+
     def test_balance_survives_a_failed_tiny_read(self):
         self.configure(TINY_MINT="not-a-mint")
         out = reads.balance()
