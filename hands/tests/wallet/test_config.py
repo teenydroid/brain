@@ -19,7 +19,7 @@ wallet_config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wallet_config)
 
 
-class WalletConfigTest(unittest.TestCase):
+class ConfigCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -34,6 +34,8 @@ class WalletConfigTest(unittest.TestCase):
             code = wallet_config.main(["wallet_config.py", str(self.config), str(self.env)])
         return code, out.getvalue(), err.getvalue(), tomllib.loads(self.config.read_text())
 
+
+class WalletConfigTest(ConfigCase):
     def test_caps_become_a_capped_policy_that_applies_to_rpc_executes(self):
         code, out, _, doc = self.run_it(CAPS)
         self.assertEqual(code, 0)
@@ -120,3 +122,110 @@ class WalletConfigTest(unittest.TestCase):
         _, out, _, _ = self.run_it({**CAPS, "LIFI_API_KEY": "lk-1", "DEBRIDGE_API_KEY": "dk 2"})
         self.assertIn("export LIFI_API_KEY=lk-1\n", out)
         self.assertIn("export DEBRIDGE_API_KEY='dk 2'\n", out)
+
+
+#: What the writer put in the file for wallet.support's CAPS on devnet before
+#: the giveaway wallet existed. Index 0's policy must stay exactly this.
+INDEX_0_DEVNET = """[wallet_policy]
+automation_enabled = true
+apply_to_interactive = true
+
+[[wallet_policy.assets]]
+chain = "solana"
+symbol = "SOL"
+per_tx_max_raw = 250000000
+daily_max_raw = 500000000
+recipient_weekly_max_raw = 300000000
+
+[[wallet_policy.assets]]
+chain = "solana"
+symbol = "USDC"
+token_address = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+per_tx_max_raw = 50000000
+daily_max_raw = 100000000
+recipient_weekly_max_raw = 60000000
+"""
+
+DEVNET_MINT = "9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP"
+REWARDS = "REWArDioXgQJ2fZKkfu9LCLjQfRwYWVVfsvcsR5hoXi"
+TINY = "2AF7CqwieUjUPALL7icuZtL3X7wENdjUjGBMmfV2pump"
+GIVEAWAY = {
+    "GIVEAWAYS": "1",
+    "GIVEAWAY_POOL_MAX_TINY": "100000",
+    "GIVEAWAY_SEASON_MAX_TINY": "250000.5",
+    "GIVEAWAY_ROUNDS_PER_WEEK": "2",
+    "GIVEAWAY_MAX_PER_WINNER_TINY": "40000",
+    "GIVEAWAY_CLAWBACK_DAYS": "30",
+    "GIVEAWAY_X_LOOKUPS_PER_ROUND": "1",
+    "GIVEAWAY_CLUSTER": "devnet",
+    "GIVEAWAY_DEVNET_MINT": DEVNET_MINT,
+}
+
+
+class GiveawayPolicyTest(ConfigCase):
+    """[wallet_policy.accounts.solana_1]: the giveaway wallet's own section,
+    written from hands/giveaway's caps only when they are on and sane."""
+
+    def test_index_0_is_byte_for_byte_what_it_was_with_or_without_giveaways(self):
+        self.run_it(CAPS)
+        self.assertEqual(self.config.read_text(), INDEX_0_DEVNET)
+        self.run_it({**CAPS, **GIVEAWAY})
+        text = self.config.read_text()
+        self.assertTrue(text.startswith(INDEX_0_DEVNET + "\n[wallet_policy.accounts.solana_1]\n"), text)
+
+    def test_on_writes_the_rewards_program_and_the_round_mint_under_the_caps(self):
+        code, out, err, doc = self.run_it({**CAPS, **GIVEAWAY})
+        self.assertEqual((code, err), (0, ""))
+        section = doc["wallet_policy"]["accounts"]["solana_1"]
+        self.assertEqual(section["allowed_programs"], [REWARDS])
+        self.assertEqual(section["mints"], [{"mint": DEVNET_MINT, "per_tx_max_raw": 100_000 * 10**6, "daily_max_raw": 250_000_500_000}])
+        self.assertIn("export OPENHUMAN_SOLANA_CLUSTER=devnet\n", out)
+
+    def test_mainnet_pays_tiny(self):
+        env = {**CAPS, **GIVEAWAY, "WALLET_CLUSTER": "mainnet", "GIVEAWAY_CLUSTER": "mainnet"}
+        _, _, _, doc = self.run_it(env)
+        self.assertEqual(doc["wallet_policy"]["accounts"]["solana_1"]["mints"][0]["mint"], TINY)
+
+    def test_off_or_unusable_writes_no_section_and_never_closes_index_0(self):
+        cases = (
+            ({**GIVEAWAY, "GIVEAWAYS": "0"}, None),
+            ({k: v for k, v in GIVEAWAY.items() if k != "GIVEAWAYS"}, None),
+            ({**GIVEAWAY, "GIVEAWAY_POOL_MAX_TINY": "0"}, "GIVEAWAY_POOL_MAX_TINY"),
+            ({**GIVEAWAY, "GIVEAWAY_CLUSTER": "mainnet"}, "the core's wallet is on devnet"),
+            ({**GIVEAWAY, "GIVEAWAY_DEVNET_MINT": ""}, "GIVEAWAY_DEVNET_MINT"),
+        )
+        for giveaway, why in cases:
+            code, _, err, doc = self.run_it({**CAPS, **giveaway})
+            self.assertEqual(code, 0, giveaway)
+            self.assertNotIn("accounts", doc["wallet_policy"], giveaway)
+            self.assertEqual(self.config.read_text(), INDEX_0_DEVNET)
+            if why:
+                self.assertIn(why, err)
+            else:
+                self.assertEqual(err, "")
+
+    def test_a_section_left_from_before_is_replaced_or_removed(self):
+        self.config.write_text('api_url = "x"\n\n[wallet_policy.accounts.solana_1]\nallowed_programs = ["Evil"]\n\n'
+                               '[[wallet_policy.accounts.solana_1.mints]]\nmint = "M"\nper_tx_max_raw = 9\ndaily_max_raw = 9\n\n'
+                               '[wallet_policy.accounts.solana_7]\nallowed_programs = []\n')
+        _, _, _, doc = self.run_it({**CAPS, **GIVEAWAY})
+        self.assertEqual(list(doc["wallet_policy"]["accounts"]), ["solana_1"])
+        self.assertEqual(doc["wallet_policy"]["accounts"]["solana_1"]["allowed_programs"], [REWARDS])
+        first = self.config.read_text()
+        self.run_it({**CAPS, **GIVEAWAY})
+        self.assertEqual(self.config.read_text(), first)
+        _, _, _, doc = self.run_it(CAPS)
+        self.assertNotIn("accounts", doc["wallet_policy"])
+        self.assertEqual(doc["api_url"], "x")
+
+    def test_check_names_the_giveaway_wallet_and_fails_when_it_is_on_but_broken(self):
+        self.env.write_text("".join(f"{k}={v}\n" for k, v in {**CAPS, **GIVEAWAY}.items()))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 0)
+        self.assertIn("giveaway wallet (solana index 1): 100000 a round", out.getvalue())
+        self.env.write_text("".join(f"{k}={v}\n" for k, v in {**CAPS, **GIVEAWAY, "GIVEAWAY_CLUSTER": "mainnet"}.items()))
+        err = io.StringIO()
+        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+            self.assertEqual(wallet_config.main(["x", "--check", str(self.env)]), 1)
+        self.assertIn("GIVEAWAY_CLUSTER is mainnet", err.getvalue())

@@ -47,8 +47,8 @@ command = "bin/heartbeat"
 # that only read, propose or tend (self-improve, build-idea, pick-request,
 # goals, speculate, world-scan, moltbook-follow, moltbook-curate) catch up
 # instead. The posts do not: X is at most four posts a day five hours apart,
-# and a gm or a take hours late is the wrong post, so the X posts and brief
-# (and the Moltbook posts) keep waiting for their next slot. A playbook never
+# and a gm or a take hours late is the wrong post, so the X posts, brief and
+# peer-quote (and the Moltbook posts) keep waiting for their next slot. A playbook never
 # catches up in the quiet hours, and bin/act's max_per_day still holds.
 #
 # A slot lost to the model provider is another matter: on 2026-11-14 a 402
@@ -73,7 +73,10 @@ command = "bin/heartbeat"
 # minutes after `take` and `show`, which skip when a brief is queued. The
 # nightly `shiplog` runs ten minutes after `show` and takes the night's slot
 # only when show and the brief left it empty: it reads `hands/x slot` first,
-# and a shut slot skips before any model turn. Replies to mentions are not
+# and a shut slot skips before any model turn. The outward quote of a peer
+# (`peer-quote`, 11:00 and 19:00) draws on the same four posts: it posts only
+# at relevance 5 and at most once a day, and the gap and the cap apply to it as
+# to any post. Replies to mentions are not
 # posts and keep running, under a looser bar. Moltbook is its own
 # audience and is where Teeny grows: eight to ten posts a day, a post every
 # hour from 07:40 until its nine are out, unless there is nothing new to say (`moltbook-general`,
@@ -121,6 +124,16 @@ command = "bin/act show"
 schedule = "0 15 * * 1-6"
 tz = "Asia/Kolkata"
 command = "bin/act take"
+
+# The outward quote: up to three scored suggestions a run from the peers' new
+# posts (brain/x-peers.txt), and hands/x peer-suggest posts one only when its
+# relevance is 5 of 5 and at most once a day, so the 19:00 run does nothing if
+# the 11:00 one posted. Most runs end in a skip. No catch-up: a late quote is
+# the wrong quote.
+[jobs.peer-quote]
+schedule = "0 11,19 * * *"
+tz = "Asia/Kolkata"
+command = "bin/act peer-quote"
 
 # The weekly growth diary (brain/playbooks/growth.md): world score W in real
 # numbers, what grew and what failed, in take's Sunday 15:00 slot.

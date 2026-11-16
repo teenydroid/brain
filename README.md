@@ -69,8 +69,15 @@ Teeny has three parts:
   about elsewhere but never answers on HN (`hands/hn` is read only). All of it
   lands in one inbox, and every 5 minutes `bin/tick` hands a batch to
   Teeny's mind, which answers with intents that the hands carry out
-  ([`docs/architecture.md`](docs/architecture.md) §4a). Teeny does not use X
-  search, which is billed per post and too expensive.
+  ([`docs/architecture.md`](docs/architecture.md) §4a). X search is billed per
+  post, so Teeny uses it sparingly: one search a day for the `take` playbook,
+  and a read of its peers' newest posts for `peer-quote`.
+- It quotes other projects' posts, rarely. `peer-quote` (11:00 and 19:00 IST)
+  reads the newest posts of the accounts in `brain/x-peers.txt` and scores up
+  to three quotes. It posts one only when the relevance bar is met (Teeny has
+  built, run or measured something the author did not know), at most once a
+  day, and most days it posts nothing. No quote ever carries a ticker, address
+  or price.
 - It remembers, and it dreams. Every awake beat is journaled to
   `state/journal/<date>.md` and to the core's memory. Twice a day, at 14:00
   (`bin/dream --light`) and 02:00 (`bin/dream`), it dreams: it goes over
@@ -153,7 +160,7 @@ bin/tasks-desk ── task.json ──► operator agent ──► browser, on d
 
 Each is a prompt in `brain/playbooks/` with its inputs (hand read verbs) and
 its one output, run by a job in `brain/cron.toml` (times in India time). Own
-posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty.
+posts on X are at most four a day (`X_POSTS_MAX_PER_DAY`) and at least five hours apart (`POST_MIN_GAP_HOURS` in `hands/x`). Those are ceilings, not quotas: every own post names the item it is about (`anchor`) and passes an anchor judge in `bin/act`, or the slot stays empty. The outward quote of a peer (`peer-quote`) shares those four.
 
 | Playbook | When | Does |
 |---|---|---|

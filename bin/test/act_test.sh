@@ -577,6 +577,20 @@ check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
 check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
+# --- one answer carrying a batch: hands/x peer-suggest --------------------------------
+# The peer-quote playbook hands all its scored suggestions to `hands/x
+# peer-suggest` in one item, which keeps them all and posts the top one only
+# when it clears the bar: the batch reaches the hand whole, with the picture.
+reset
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "my evals caught 3", "relevance": 5, "why": "w", "source": "s", "format": "quote"}], "image": "teeny waving at a lighthouse"}'
+out="$(run peer-quote)"
+check "the whole batch reaches the hand in one call, with the picture's media id" \
+  grep -q '^x peer-suggest DRY_RUN= stdin={"candidates":\[{"quote_of":"201","text":"my evals caught 3","relevance":5,"why":"w","source":"s","format":"quote"}\],"media_ids":\["1234567890"\]}$' "$FAKE_HANDS"
+check "only the picture's description goes past bin/act's guard (publish guards the quote it posts)" test "$(hand_calls guard)" = 1
+check "and the action is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "--check takes the verb" test "$("$act" --check peer-quote | jq -r .output)" = "hand:x peer-suggest"
+
 # --- drafts that are not usable ------------------------------------------------------------
 reset
 answer 'sure! here is a post: gm'

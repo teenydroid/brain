@@ -21,7 +21,7 @@ from typing import Any, Mapping
 
 from .. import hand, tags
 from . import open_db, twitr
-from . import cache, media
+from . import cache, media, mentions, peers
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 
@@ -136,12 +136,22 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     if not approved:
         text = _guarded(text, kind, context={"anchor": anchor})
     rules.check_length(text)
+    # A quote of somebody else's post is outward: it goes to their community.
+    quoted = None
+    if quote_of:
+        x = x or twitr.client()
+        quoted = _quoted(cache.reads(x), quote_of)
+    if quoted is not None:
+        rules.check_outward(text)
     live = not hand.dry_run()
     conn = _db()
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("posting"):
         rules.check_gap(conn)
         rules.check_daily_cap(conn)
+        if quoted is not None:
+            reads = cache.reads(x)
+            rules.check_peer_rotation(conn, quoted["authorId"], lambda post_id: _author_of(reads, post_id))
         rules.check_repeat(conn, text)
         rules.check_link_budget(conn, text)
         if not live:
@@ -155,10 +165,43 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # The post is out. A ledger that cannot record it is logged, not
         # raised: an error here would invite a retry that posts it twice.
         try:
-            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor, **tagged)
+            rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor,
+                              quote_author=quoted["authorId"] if quoted else None, **tagged)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
+        # A quote of a peer (brain/x-peers.txt) is a touch, whoever quoted.
+        if quoted is not None:
+            try:
+                peers.record_touch(quoted, post_id, tagged.get("format"))
+            except Exception as exc:  # noqa: BLE001
+                print(f"hands/x: published {post_id} but could not record the peer touch: {type(exc).__name__}",
+                      file=sys.stderr)
     return {"id": post_id, "kind": kind, "text": text}
+
+
+def _quoted(reads: Any, quote_of: str) -> Json | None:
+    """The post a quote quotes, when somebody else wrote it; None when it is
+    the account's own. Not knowing who wrote it fails closed, as a reply's
+    target does."""
+    target = reads.get_post(quote_of)
+    if target is None:
+        raise hand.Refused(f"X does not have post {quote_of} (deleted, protected or not visible); nothing was published",
+                           rule="target")
+    if not target.get("authorId"):
+        raise hand.Refused(f"could not tell who wrote post {quote_of}, so nothing was published", rule="target")
+    if target["authorId"] == reads.identity()["id"]:
+        return None
+    return target
+
+
+def _author_of(reads: Any, post_id: str) -> str | None:
+    """Who wrote an earlier quoted post, for a ledger row that predates
+    `quote_author`. A post X no longer shows is nobody's."""
+    try:
+        post = reads.get_post(post_id)
+    except XError:
+        return None
+    return post.get("authorId") if post else None
 
 
 def _thread_draft(body: Any) -> tuple[list[str], list[str], str | None]:
@@ -275,7 +318,8 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     rules.check_length(text)
     rules.check_not_own(target, account["id"])
     live = not hand.dry_run()
-    conn = _db()
+    conn = open_db(rules.SCHEMA + mentions.SCHEMA)
+    rules.check_engaged_first(conn, target, account, lambda post_id: _author_of(reads, post_id))
     rules.check_attachments(conn, media_ids, gif_id, live=live)
     with hand.lock("replying"):
         rules.check_not_replied(conn, to)

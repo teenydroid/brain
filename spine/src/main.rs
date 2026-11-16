@@ -9,9 +9,14 @@
 //! (`wallet_backend.rs`, `lifi.rs`, `debridge.rs`), and keeping the
 //! browser's pictures of pages as files (`browser_pictures.rs`); what Teeny does lives in
 //! `brain/` and `bin/`. `bin/spine` runs it.
+//!
+//! One subcommand is Teeny's own: `teeny-spine giveaway-tx create|close`
+//! builds a Tiny Drops round's unsigned transaction (`giveaway_tx.rs`). It
+//! starts no host, loads no module and holds no key of Teeny's.
 
 mod browser_pictures;
 mod debridge;
+mod giveaway_tx;
 mod lifi;
 mod wallet_backend;
 
@@ -19,6 +24,11 @@ use openhuman_rpc::embed::process;
 
 fn main() {
     restore_default_sigpipe();
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some(giveaway_tx::COMMAND) {
+        std::process::exit(giveaway_tx::run(&args[1..]));
+    }
 
     // Before anything logs, as upstream's binary does. Not fatal: the
     // dispatcher loads it again and reports a failure itself.
@@ -37,7 +47,6 @@ fn main() {
     // names (`TEENY_BROWSER_PICTURES`), where hands/tasks collects them.
     browser_pictures::install();
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(err) = openhuman_rpc::host::cli(&args) {
         eprintln!("{err}");
         std::process::exit(1);

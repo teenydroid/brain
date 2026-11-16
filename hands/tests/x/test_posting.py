@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from unittest import mock
 
-from .support import HOUR, MINUTE, T0, Guard, Scratch, shout
+from .support import HOUR, MINUTE, T0, Guard, Scratch, me, shout
 from teeny_hands import hand
 from teeny_hands.x import posting_rules, publish
 from teeny_hands.x.client import XError
@@ -25,10 +25,19 @@ class Posting(Scratch):
         super().setUp()
         self.at(T0)
         self.created = self.x.route("POST", "/2/tweets", {"data": {"id": "100"}}, status=201)
+        # A quote looks up the post it quotes (who wrote it) and the account.
+        me(self.x, "1000")
+        self.quotable("555", "42", "builder")
         self.guard = Guard()
         patcher = mock.patch.object(publish, "check_outbound", self.guard)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def quotable(self, post_id: str, author_id: str, username: str, text: str = "shipped a memory layer today") -> None:
+        self.x.route("GET", f"/2/tweets/{post_id}", {
+            "data": {"id": post_id, "text": text, "author_id": author_id, "conversation_id": post_id},
+            "includes": {"users": [{"id": author_id, "username": username}]},
+        })
 
     def use_guard(self, guard: Guard) -> Guard:
         self.guard = guard
@@ -276,6 +285,7 @@ class GapTest(Posting):
         self.assertEqual(len(self.posted()), 2)
 
     def test_the_default_gap_is_five_hours_less_twenty_minutes(self):
+        # Four slots a day, the outward quote one of them: five hours apart.
         self.configure(POST_MIN_GAP_HOURS=None)
         publish.post({"anchor": "hn:1", "text": "gm"})
         self.at(T0 + 5 * HOUR - 21 * MINUTE)
@@ -340,8 +350,8 @@ class GapTest(Posting):
 
 
 class DailyCapTest(Posting):
-    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY); replies are
-    never counted."""
+    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the slots and
+    the outward quote share them; replies are never counted."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi",
@@ -355,6 +365,11 @@ class DailyCapTest(Posting):
         for n, (kind, text) in enumerate(zip(kinds, self.TEXTS)):
             posting_rules.record_post(conn, f"8{n}", kind, text, created_at=at + n * 60, quote_of="5" if kind == "quote" else None)
 
+    def test_a_fourth_post_in_a_day_goes_out(self):
+        self.earlier(kinds=("post", "post", "post"))
+        publish.post({"anchor": "hn:1", "text": "a fourth thing about lighthouses and moss"})
+        self.assertEqual(len(self.posted()), 1)
+
     def test_a_fifth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
         self.earlier()
         with self.assertRaises(hand.Refused) as caught:
@@ -365,11 +380,6 @@ class DailyCapTest(Posting):
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
             publish.post({"anchor": "hn:1", "text": "a fifth thing about lighthouses and moss"})
-
-    def test_a_fourth_post_in_a_day_goes_out(self):
-        self.earlier(kinds=("post", "post", "post"))
-        publish.post({"anchor": "hn:1", "text": "a fourth thing about lighthouses and moss"})
-        self.assertEqual(len(self.posted()), 1)
 
     def test_the_next_utc_day_starts_again(self):
         self.earlier()
@@ -585,3 +595,150 @@ class RepeatTest(Posting):
         with self.assertRaises(hand.Refused) as caught:
             publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.assertEqual(caught.exception.detail["rule"], "repeat")
+
+
+class LedgerColumnsTest(Posting):
+    """x_posts gained `anchor` and `quote_author` on different branches: a
+    ledger made before either, or with only one, ends up with both."""
+
+    def columns(self, conn) -> set[str]:
+        return {r[1] for r in conn.execute("PRAGMA table_info(x_posts)")}
+
+    def test_a_ledger_with_neither_column_gets_both(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL,"
+                     " in_reply_to TEXT, quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        posting_rules.add_tag_columns(conn)
+        self.assertLessEqual({"anchor", "quote_author", "format", "experiment"}, self.columns(conn))
+
+    def test_a_ledger_with_only_one_of_them_gets_the_other(self):
+        for have, want in (("anchor", "quote_author"), ("quote_author", "anchor")):
+            with self.subTest(have=have):
+                conn = hand.db()
+                conn.execute("DROP TABLE IF EXISTS x_posts")
+                conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL,"
+                             " in_reply_to TEXT, quote_of TEXT, media TEXT NOT NULL DEFAULT '[]',"
+                             f" created_at REAL NOT NULL, {have} TEXT)")
+                posting_rules.add_tag_columns(conn)
+                self.assertIn(want, self.columns(conn))
+                posting_rules.record_post(conn, "9", "quote", "t", quote_of="5", anchor="5", quote_author="42")
+                self.assertEqual(conn.execute("SELECT anchor, quote_author FROM x_posts").fetchone()[:], ("5", "42"))
+                posting_rules.add_tag_columns(conn)  # again: nothing to add
+
+
+class OutwardTest(Posting):
+    """A quote of somebody else's post goes out to their community: it never
+    carries a ticker, a contract address or a launchpad link (rule:
+    outward_ticker), whatever the guard allowed."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+
+    def test_refuses_a_ticker_an_address_or_pump_fun_on_a_quote_of_someone_else(self):
+        for text in (
+            "agents with memory are next, $SOL holders know",
+            "good thread. TINY was built the same way",
+            "we keep ours at 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+            "same contract style as 0x6B175474E89094C44Da98b954EedeAC495271d0F",
+            "launched mine on pump.fun last week",
+            "launched mine on Pump.Fun last week",
+        ):
+            with self.subTest(text=text), self.assertRaises(hand.Refused) as caught:
+                publish.post({"text": text, "quote_of": "555"})
+            self.assertEqual(caught.exception.detail["rule"], "outward_ticker", text)
+            self.assertTrue(caught.exception.detail["rewrite"])
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.ledger(), [])
+
+    def test_refused_as_a_rehearsal_too(self):
+        self.configure(DRY_RUN="1")
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "buy $TINY", "quote_of": "555"})
+        self.assertEqual(caught.exception.detail["rule"], "outward_ticker")
+
+    def test_a_plain_quote_goes_out_and_tiny_in_lowercase_is_a_word(self):
+        result = publish.post({"text": "a tiny agent kept the same memory layer for a week, it held", "quote_of": "555"})
+        self.assertEqual(result["kind"], "quote")
+        self.assertEqual(self.posted(), [{"text": "a tiny agent kept the same memory layer for a week, it held", "quote_tweet_id": "555"}])
+
+    def test_an_own_post_or_a_quote_of_its_own_post_is_not_outward(self):
+        self.quotable("556", "1000", "teenydroid")
+        publish.post({"text": "my own thread, $TINY holders", "quote_of": "556"})
+        self.at(T0 + HOUR)
+        publish.post({"anchor": "hn:1", "text": "the $TINY page has the numbers"})
+        self.assertEqual(len(self.posted()), 2)
+
+    def test_the_guard_s_text_is_what_is_checked(self):
+        self.use_guard(Guard(transform=lambda text: text + " $TINY"))
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "kept the same layer", "quote_of": "555"})
+        self.assertEqual(caught.exception.detail["rule"], "outward_ticker")
+
+    def test_a_quote_of_a_post_x_does_not_have_is_refused(self):
+        self.x.route("GET", "/2/tweets/404", {"errors": [{"title": "Not Found Error"}]})
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "kept the same layer", "quote_of": "404"})
+        self.assertEqual(caught.exception.detail["rule"], "target")
+        self.assertEqual(self.posted(), [])
+
+    def test_a_quote_whose_author_is_unknown_fails_closed(self):
+        self.x.route("GET", "/2/tweets/557", {"data": {"id": "557", "text": "no author"}})
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "kept the same layer", "quote_of": "557"})
+        self.assertEqual(caught.exception.detail["rule"], "target")
+        self.assertEqual(self.posted(), [])
+
+
+class PeerRotationTest(Posting):
+    """No author is quoted twice within 7 days (rule: peer_rotation)."""
+
+    settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
+
+    def setUp(self):
+        super().setUp()
+        self.quotable("560", "42", "builder", "a second post by the same builder")
+        self.quotable("570", "43", "otherbuilder", "a post by somebody else")
+
+    def test_a_second_quote_of_one_author_inside_seven_days_is_refused(self):
+        publish.post({"text": "the memory layer held for a week here", "quote_of": "555"})
+        self.at(T0 + 7 * 24 * HOUR - MINUTE)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "and the eval numbers agree", "quote_of": "560"})
+        refused = caught.exception
+        self.assertEqual((refused.detail["rule"], refused.detail["last_quote_id"]), ("peer_rotation", "100"))
+        self.assertEqual(refused.detail["next_at"], "2026-09-21T07:00:00.000Z")
+        self.assertEqual(len(self.posted()), 1)
+
+    def test_another_author_or_a_week_later_goes_out(self):
+        publish.post({"text": "the memory layer held for a week here", "quote_of": "555"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
+        self.at(T0 + HOUR)
+        publish.post({"text": "my cache made the same mistake", "quote_of": "570"})
+        self.x.route("POST", "/2/tweets", {"data": {"id": "102"}}, status=201)
+        self.at(T0 + 7 * 24 * HOUR + MINUTE)
+        publish.post({"text": "and the eval numbers agree", "quote_of": "560"})
+        self.assertEqual(len(self.posted()), 3)
+        self.assertEqual([r["quote_author"] for r in self.ledger()], ["42", "43", "42"])
+
+    def test_a_quote_recorded_before_the_author_was_kept_is_looked_up(self):
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        posting_rules.record_post(conn, "90", "quote", "an older quote", quote_of="555", created_at=T0 - 24 * HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "and the eval numbers agree", "quote_of": "560"})
+        self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["last_quote_id"]), ("peer_rotation", "90"))
+
+    def test_refused_as_a_rehearsal_too(self):
+        publish.post({"text": "the memory layer held for a week here", "quote_of": "555"})
+        self.configure(DRY_RUN="1", POST_MIN_GAP_HOURS="0", POST_GAP_TOLERANCE_MINUTES="0")
+        self.at(T0 + HOUR)
+        with self.assertRaises(hand.Refused) as caught:
+            publish.post({"text": "and the eval numbers agree", "quote_of": "560"})
+        self.assertEqual(caught.exception.detail["rule"], "peer_rotation")
+
+    def test_own_posts_are_never_rotated(self):
+        self.quotable("556", "1000", "teenydroid", "my own post")
+        self.quotable("558", "1000", "teenydroid", "my other post")
+        publish.post({"text": "this one aged well", "quote_of": "556"})
+        self.at(T0 + HOUR)
+        publish.post({"text": "and this one did not", "quote_of": "558"})
+        self.assertEqual(len(self.posted()), 2)

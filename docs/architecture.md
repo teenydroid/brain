@@ -776,7 +776,11 @@ How the day's beats become the page every prompt carries:
   with up to four pictures). `brief` runs at 15:05 and 23:05, and `take` and
   `show` skip when a brief is queued, so a brief takes the next free slot;
   `shiplog` at 23:10 posts only when the night's slot is still empty (`hands/x
-  slot`). Replies to mentions are not counted and need no anchor.
+  slot`). The outward quote of a peer (`peer-quote`, 11:00 and 19:00, posted
+  only at relevance 5 and at most once a day) is one of the four, so it needs
+  a slot the others left open: `hands/x peer-suggest` runs the same anchor
+  judge itself, against the quoted post, and a no is a skip kept in
+  `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
 ## 5. Roster
 

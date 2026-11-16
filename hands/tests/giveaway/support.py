@@ -8,6 +8,7 @@ leaves them, so nothing here reads X for an entry."""
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import hashlib
 import json
 from typing import Any
@@ -44,6 +45,7 @@ CAPS = {
     "GIVEAWAY_CLAWBACK_DAYS": "30",
     "GIVEAWAY_X_LOOKUPS_PER_ROUND": "1",
     "GIVEAWAY_CLUSTER": "devnet",
+    "GIVEAWAY_DEVNET_MINT": solana.b58encode(bytes([42]) * 32),
     "GIVEAWAY_AUTHORITY": AUTHORITY,
     "GIVEAWAY_RPC_URL": "http://fake-rpc.invalid",
 }
@@ -118,7 +120,11 @@ class GiveawayCase(Scratch):
         draw.rpc = self.solana
         self.addCleanup(setattr, draw, "rpc", original)
         self.chain_fake = FakeChain()
+        chain.use(chain.NOT_READY)  # never the real core; a test puts its own in front
         self.addCleanup(chain.use, None)
+        # hands/x's publish leaves its connection to the GC (a CLI exits);
+        # collect it here so a whole run does not pile up open files.
+        self.addCleanup(gc.collect)
 
     # --- rounds -------------------------------------------------------------------------
 

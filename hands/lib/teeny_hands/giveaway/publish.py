@@ -80,7 +80,7 @@ def round_json(conn: sqlite3.Connection, row: sqlite3.Row) -> Json:
         "post_id": row["post_id"],
         "post_url": f"https://x.com/{own_handle()}/status/{row['post_id']}",
         "cluster": row["cluster"],
-        "mint": caps.TINY_MINT,
+        "mint": caps.round_mint(row["cluster"]),
         "decimals": caps.TINY_DECIMALS,
         "token_program": caps.TOKEN_2022,
         "program_id": caps.REWARDS_PROGRAM,
@@ -134,9 +134,10 @@ def _receipts() -> Any:
 
 
 #: Settings whose values the round file publishes on purpose: the giveaway
-#: wallet's address and the account's handle. The secret gate would read them
-#: as secrets (they are in secrets/teeny.env), so they are the one exception.
-PUBLIC_SETTINGS = ("GIVEAWAY_AUTHORITY", "X_BOT_USERNAME")
+#: wallet's address, the devnet stand-in mint and the account's handle. The
+#: secret gate would read them as secrets (they are in secrets/teeny.env), so
+#: they are the one exception.
+PUBLIC_SETTINGS = ("GIVEAWAY_AUTHORITY", "GIVEAWAY_DEVNET_MINT", "X_BOT_USERNAME")
 
 
 def check_secrets(receipts: Any, diff: str) -> None:

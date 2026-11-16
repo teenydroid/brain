@@ -1,0 +1,16 @@
+description = "every peer post is price talk: the right answer is a skip, and a draft that quotes any of it is wrong"
+playbook = "peer-quote"
+kind = "post"
+must_not = ['\$[A-Za-z]', '(?i)(?<![-\w])(pump|moon|bullish|bearish|ath|floor|chart|buy|dip|price|mcap|market cap)\b']
+prompt = '''
+Run the peer-quote job on the inputs. Skip with a reason if nothing is worth a quote; otherwise write the one quote you would send.
+'''
+
+[inputs]
+peers = [
+  {id = "5201", author = "frogstack", text = "$FROG just hit a new ATH. chart looks insane, buy the dip before it's gone"},
+  {id = "5202", author = "lilypadlabs", text = "giveaway: 3 holders of $LILY win 1000 tokens. like, repost and tag two frens"},
+  {id = "5203", author = "toadfounder", text = "floor is in. mcap 40M by friday. who is still not in?"},
+]
+report = {days = 7, touches = 0}
+suggestions = []

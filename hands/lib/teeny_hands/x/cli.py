@@ -10,6 +10,12 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  whoami                 the account's own id and username
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
   R  slot                   whether an own post would pass the gap and the day's cap now: {open: true} or {why}
+  R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted]
+                            the newest original posts of the accounts in brain/x-peers.txt, screened
+  A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source, format}], "media_ids"?}:
+                            all kept, the top one quoted only when it clears the bar (x/peers.py)
+  R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
+  R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
   A  post-thread            stdin {"posts": [2 to 5 texts], "anchor", "media_ids"?, "gif_id"?, "format"?, "experiment"?}; one own post, each later text a reply to the one before (not `thread`, the read above)
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
@@ -39,7 +45,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import cache, media, mentions, metrics, publish, twitr, webhook
+from . import cache, media, mentions, metrics, peers, publish, twitr, webhook
 from .client import MAX_USER_IDS, number_setting
 from .model import SearchOptions
 
@@ -154,6 +160,36 @@ def _metrics(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return metrics.refresh() if args.action == "refresh" else metrics.listing(args.days)
 
 
+def _peers(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return peers.read(args.max_age_hours, args.per_peer, skip_quoted=args.skip_quoted)
+
+
+def _peers_suggest(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    return peers.suggest(body)
+
+
+def _peers_suggestions(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return peers.suggestions(args.days)
+
+
+def _peers_report(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return peers.report(args.days)
+
+
+def _hours(value: str) -> float:
+    number = float(value)
+    if not 1 <= number <= 168:
+        raise argparse.ArgumentTypeError("--max-age-hours is 1..168 (X searches the last 7 days)")
+    return number
+
+
+def _per_peer(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= 5:
+        raise argparse.ArgumentTypeError("--per-peer is 1..5")
+    return number
+
+
 def _days(value: str) -> int:
     number = int(value)
     if not 1 <= number <= 30:
@@ -204,6 +240,20 @@ def parser() -> argparse.ArgumentParser:
     verb("whoami", _whoami, "the account's own id and username")
     verb("links", _links, "today's link posts against the daily cap (reads the ledger only)")
     verb("slot", _slot, "whether an own post would pass the gap and the day's cap now (reads the ledger only)")
+    reading = verb("peers", _peers, "the newest posts of the accounts in brain/x-peers.txt")
+    reading.add_argument("--max-age-hours", type=_hours, default=8.0)
+    reading.add_argument("--per-peer", type=_per_peer, default=2)
+    reading.add_argument("--skip-quoted", action="store_true", help="leave out peers quoted in the last 7 days")
+    peer_verbs = reading.add_subparsers(dest="peers_verb")
+    listed = peer_verbs.add_parser("suggestions", help="what was suggested, posted and skipped")
+    listed.add_argument("--days", type=_days, default=7)
+    listed.set_defaults(handler=_peers_suggestions, takes_body=False)
+    reported = peer_verbs.add_parser("report", help="per peer: touches, who answered, how the quote did")
+    reported.add_argument("--days", type=_days, default=14)
+    reported.set_defaults(handler=_peers_report, takes_body=False)
+    # One word, as a playbook's `hand:x <verb>` output names it (peer-quote).
+    verb("peer-suggest", _peers_suggest, "up to 3 scored quote suggestions; the top one posted only past the bar",
+         body=True)
     verb("post", _post, "an own post or a quote (JSON on stdin)", body=True)
     verb("post-thread", _post_thread, "a thread of 2 to 5 posts, one own post (JSON on stdin)", body=True)
     verb("reply", _reply, "a reply (JSON on stdin)", body=True).add_argument("--to", required=True)

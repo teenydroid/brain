@@ -244,7 +244,7 @@ def open_round(body: Any) -> Json:
                 raise hand.Refused(f"the announcement must carry {store.tag(round_id)!r}", rule="tag", tag=store.tag(round_id))
             from ..x import publish as x_publish
 
-            posted = x_publish.post({"text": text, "anchor": f"giveaway:{store.tag(round_id)}"})
+            posted = x_publish.post({"text": text, "anchor": f"giveaway:{round_id}"})
             if posted.get("dry_run"):
                 return {"dry_run": True, "would_open": {"id": round_id, "tag": store.tag(round_id),
                                                         "pool_tiny": caps.display(plan["pool"])},
@@ -667,6 +667,7 @@ def settle_round(round_id: int) -> Json:
                 raise hand.Refused(f"round {round_id} is {row['status']}, not drawn", rule="status")
             leaves, root, total = _tree(conn, row)
             authority = _authority()
+            mint = caps.current_mint(row["cluster"])
             clawback_at = row["clawback_at"] or hand.now() + the_caps.clawback_days * store.DAY
             if hand.dry_run():
                 by_entry = {leaf["entry_id"]: leaf for leaf in leaves}
@@ -694,7 +695,7 @@ def settle_round(round_id: int) -> Json:
                 raise hand.HandError(f"round {round_id}'s stored root no longer matches its draw; a person has to look")
             row = _round(conn, round_id)
             published = publish.sync(conn, round_id)
-            plan = {"round_id": round_id, "cluster": row["cluster"], "mint": caps.TINY_MINT, "decimals": caps.TINY_DECIMALS,
+            plan = {"round_id": round_id, "cluster": row["cluster"], "mint": mint, "decimals": caps.TINY_DECIMALS,
                     "token_program": caps.TOKEN_2022, "program_id": caps.REWARDS_PROGRAM, "authority": row["authority"],
                     "merkle_root": row["merkle_root"], "total_amount": int(row["total_raw"]),
                     "clawback_ts": int(row["clawback_at"]), "leaves": len(leaves)}
@@ -726,7 +727,8 @@ def clawback_round(round_id: int) -> Json:
                 raise hand.Refused(f"round {round_id} is {row['status']}, not settled", rule="status")
             if hand.now() < row["clawback_at"]:
                 raise hand.Refused("claims are still open", rule="clawback_at", wait_seconds=int(row["clawback_at"] - hand.now()) + 1)
-            plan = {"round_id": round_id, "cluster": row["cluster"], "mint": caps.TINY_MINT, "token_program": caps.TOKEN_2022,
+            plan = {"round_id": round_id, "cluster": row["cluster"], "mint": caps.round_mint(row["cluster"]),
+                    "token_program": caps.TOKEN_2022,
                     "program_id": caps.REWARDS_PROGRAM, "authority": row["authority"], "distributor": row["distributor"],
                     "vault": row["vault"], "distribution_seed": row["distribution_seed"]}
             if hand.dry_run():
