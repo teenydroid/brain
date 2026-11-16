@@ -1730,6 +1730,9 @@ def research_one(cfg: Config, proposer: Proposer, tree: Path, gdir: Path, i: int
         restore_tree(tree, before)
     if got is None:
         return None
+    if got.get("dropped"):
+        say(f"candidate {i}: research named {len(got['dropped'])} path(s) it cannot be shown, dropped: "
+            + ", ".join(f"{d['path']} ({d['why']})" for d in got["dropped"])[:300])
     if web:
         got["web"] = web
     write_json(gdir / f"cand-{i}.research.json",
