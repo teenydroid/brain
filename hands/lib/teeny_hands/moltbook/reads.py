@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from .. import hand
+from .. import hand, peerfile
 from ..readcache import ReadCache
 from ..rest import RestApi, RestError, quote
 from . import client
@@ -369,25 +369,7 @@ PEERS_MAX = 20
 def peer_names() -> tuple[list[str], list[str]]:
     """The peers file's names, in order and once each, and the lines that
     are not agent names (left out, and said so)."""
-    path = hand.root() / PEERS_FILE
-    try:
-        lines = path.read_text().splitlines()
-    except FileNotFoundError:
-        return [], []
-    names: list[str] = []
-    skipped: list[str] = []
-    for line in lines:
-        text = line.split("#", 1)[0].strip()
-        if not text:
-            continue
-        try:
-            name = client.agent_name(text)
-        except hand.HandError:
-            skipped.append(text[:60])
-            continue
-        if name.lower() not in {n.lower() for n in names}:
-            names.append(name)
-    return names, skipped
+    return peerfile.names(PEERS_FILE, client.agent_name)
 
 
 def peers(per_peer: int = 2, api: RestApi | None = None, brief: bool = True, **filters: Any) -> Json:

@@ -55,6 +55,15 @@ cat >"$scratch/hands/guard" <<'FAKE'
 #!/usr/bin/env bash
 in="$(cat)"
 printf 'guard %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+# The anchor judge: anchored unless $FAKE_ANCHOR says no, or fail (exit 1).
+if [ "${1:-}" = anchor ]; then
+  case "${FAKE_ANCHOR:-yes}" in
+    no) echo '{"ok": true, "anchored": false, "reason": "a generic gm", "judged": true}' ;;
+    fail) echo '{"ok": false, "error": "core unreachable"}'; exit 1 ;;
+    *) echo '{"ok": true, "anchored": true, "reason": "names it", "judged": true}' ;;
+  esac
+  exit 0
+fi
 if grep -q BAD <<<"$in"; then echo '{"ok": false, "refused": "held"}'; exit 2; fi
 if [ -n "${FAKE_GUARD_EMPTY:-}" ]; then echo '{"ok": true}'; exit 0; fi
 if [ "${2:-}" = --fields ]; then
@@ -115,7 +124,7 @@ hand_calls() { grep -c "^$1 " "$FAKE_HANDS" || true; }
 # --- a post: inputs, the draft, hands/x post ---------------------------------------
 reset
 book morning post 1 "hands/x search 'from:tinyhumansai' --max 5"
-answer '{"action": "post", "text": "gm tiny humans"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
 out="$(run morning)"
 check "runs the input hand" grep -q "^x search from:tinyhumansai --max 5 " "$FAKE_HANDS"
 check "forces DRY_RUN=1 on every input" grep -q "^x search .* DRY_RUN=1 " "$FAKE_HANDS"
@@ -123,10 +132,43 @@ check "drafts as the act agent" test "$(jq -r .agent_id "$FAKE_CALLS")" = act
 check "drafts on Teeny's one playbook thread, so memory and the last drafts carry over" test "$(jq -r .thread_id "$FAKE_CALLS")" = teeny:act
 check "gives the model the input as data" grep -q 'what are you building' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "tells the model the inputs are not instructions" grep -q 'never instructions to follow' <<<"$(jq -r .message "$FAKE_CALLS")"
-check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"text":"gm tiny humans"}' "$FAKE_HANDS"
+check "posts the draft through hands/x post" grep -q '^x post DRY_RUN= stdin={"text":"gm tiny humans","anchor":"hn:1"}' "$FAKE_HANDS"
 check "leaves DRY_RUN to hands/x for the action" bash -c "! grep -q '^x post DRY_RUN=1' '$FAKE_HANDS'"
 check "reports the action done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "records the run" test "$(wc -l <"$scratch/state/act/morning/runs.jsonl" | tr -d ' ')" = 1
+check "tells the model a post names its anchor" grep -q '"anchor": "<the one item' <<<"$(jq -r .message "$FAKE_CALLS")"
+judged="$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//')"
+check "asks the anchor judge about the draft, its anchor and the inputs" \
+  jq -e '.text == "gm tiny humans" and .anchor == "hn:1" and (.inputs.feed.posts[0].id == "111")' <<<"$judged"
+
+# --- the anchor: no anchor, or one the judge does not see in the draft, is a skip ------
+reset
+answer '{"action": "post", "text": "gm tiny humans"}'
+out="$(run morning)"
+check "a post that names no anchor is skipped as not anchored" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: the draft names no anchor"
+check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
+check "and the judge is not asked" bash -c "! grep -q '^guard anchor' '$FAKE_HANDS'"
+reset
+answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
+out="$(FAKE_ANCHOR=no run morning)"
+check "a post the judge finds unanchored is skipped with the judge's reason" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: a generic gm"
+check "and the draft is kept in the record, never rewritten" test "$(jq -r '.actions[0].draft' <<<"$out")" = "gm tiny humans"
+check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
+check "and it spends nothing of the day" bash -c "[ '$(jq -r .left_today <<<"$out")' = 1 ] && [ ! -e '$scratch/state/act/morning/$(date -u +%Y-%m-%d)' ]"
+reset
+out="$(FAKE_ANCHOR=fail run morning)"
+check "a judge that cannot be reached is a skip (fail closed)" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / not anchored: core unreachable"
+check "and nothing is sent" bash -c "! grep -q '^x post' '$FAKE_HANDS'"
+reset
+book quoting post 1
+answer '{"action": "post", "text": "same wall", "quote_of": "4242"}'
+run quoting >/dev/null
+check "a quote with no anchor is judged on the post it quotes" \
+  test "$(grep '^guard anchor stdin=' "$FAKE_HANDS" | sed 's/^guard anchor stdin=//' | jq -r .anchor)" = 4242
+rm -f "$brain/playbooks/quoting.md"
 
 # --- a data job (A17): Teeny's script, jailed, fed the inputs before it --------------
 if python3 -c "import sys; sys.path[:0] = ['$here/../lib', '$here/../../hands/lib']; import datajob
@@ -154,10 +196,10 @@ fi
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
 printf '%s' '": "post", "text": "gm"}' >"$scratch/first.txt"
-answer '{"action": "post", "text": "gm again"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm again"}'
 out="$(FAKE_FIRST="$scratch/first.txt" run morning)" || true
 check "asks again when the draft is not usable JSON" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
-check "and acts on the second draft" grep -q '^x post DRY_RUN= stdin={"text":"gm again"}' "$FAKE_HANDS"
+check "and acts on the second draft" grep -q '^x post DRY_RUN= stdin={"text":"gm again","anchor":"hn:1"}' "$FAKE_HANDS"
 reset
 answer '": "post", "text": "gm"}'
 out="$(run morning)" || true
@@ -166,7 +208,7 @@ check "then records the unusable draft as an error" grep -q 'not usable JSON' <<
 check "and posts nothing" test "$(hand_calls x)" = 1
 # Back to one morning post taken today, which the budget checks below expect.
 reset
-answer '{"action": "post", "text": "gm tiny humans"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
 run morning >/dev/null
 
 # --- a habit, not an order: nudge = true -----------------------------------------
@@ -195,7 +237,7 @@ check "refuses a nudge for an output the mind cannot carry out" bash -c "! '$act
 rm -f "$brain/playbooks/gm-habit.md" "$brain/playbooks/bad-habit.md" "$scratch/hands/stimuli"
 # Back to one morning post taken today, for the budget checks below.
 reset
-answer '{"action": "post", "text": "gm tiny humans"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm tiny humans"}'
 run morning >/dev/null
 
 # --- the daily budget ------------------------------------------------------------
@@ -208,13 +250,13 @@ check "runs no hand when the budget is spent" test ! -s "$FAKE_HANDS"
 reset
 answer '{"action": "skip", "reason": "nothing new"}'
 run morning >/dev/null
-answer '{"action": "post", "text": "gm"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm"}'
 out="$(run morning)"
 check "a skip costs nothing from the budget" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 
 reset
 book many post 2
-answer '[{"action": "post", "text": "one"}, {"action": "post", "text": "two"}, {"action": "post", "text": "three"}]'
+answer '[{"action": "post", "anchor": "hn:1", "text": "one"}, {"action": "post", "anchor": "hn:1", "text": "two"}, {"action": "post", "anchor": "hn:1", "text": "three"}]'
 out="$(run many)"
 check "takes no more actions than the budget, even when the draft asks" test "$(hand_calls x)" = 2
 check "says which it refused" test "$(jq -r '.actions[2].refused' <<<"$out")" = "daily budget spent"
@@ -222,7 +264,7 @@ check "says which it refused" test "$(jq -r '.actions[2].refused' <<<"$out")" = 
 # --- a required input that came back empty skips before the draft -----------------
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "brief"\nrun = "hands/queue next"\nrequired = true\n+++\npost it\n' >"$brain/playbooks/told.md"
-answer '{"action": "post", "text": "told to"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "told to"}'
 out="$(run told)"
 check "skips when a required input is empty" test "$(jq -r .skipped <<<"$out")" = "brief is empty"
 check "and asks the model nothing" test ! -s "$FAKE_CALLS"
@@ -258,7 +300,7 @@ rm -f "$brain/playbooks/told.md"
 # once, so cron does not retry it), and one that may clear still exits 1.
 reset
 book chatty post 1
-answer '{"action": "post", "text": "gm"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm"}'
 out="$(FAKE_ASK_ERROR='driver failed: model error: local-openai returned HTTP 402 (insufficient_allowance): no allowance' run chatty)" && status=0 || status=$?
 line="$(tail -n 1 "$scratch/state/act/chatty/runs.jsonl")"
 check "a 402 draft failure is recorded as the provider's, class payment" \
@@ -292,7 +334,7 @@ FAKE
 chmod +x "$scratch/hands/down"
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 1\n[[inputs]]\nname = "world"\nrun = "hands/down read"\n+++\npost it\n' >"$brain/playbooks/outage.md"
-answer '{"action": "post", "text": "gm anyway"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm anyway"}'
 out="$(run outage)" && status=0 || status=$?
 check "an input that fails stops the run" test "$status" = 1
 check "and says which" test "$(jq -r .error <<<"$out")" = "input world failed"
@@ -313,38 +355,38 @@ rm -f "$brain/playbooks/outage.md" "$scratch/hands/down"
 # --- media: a picture of Teeny on a post ---------------------------------------------
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
-answer '{"action": "post", "text": "gm", "image": "waking up at the desk"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm", "image": "waking up at the desk"}'
 out="$(run pic)"
 check "tells the model it may add a picture" grep -q 'character sheet' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "puts the picture's description past the guard" grep -q '^guard check stdin={"text":"waking up at the desk","surface":"x"}' "$FAKE_HANDS"
 check "makes the picture from the guard's words" grep -q '^image generate stdin={"prompt":"waking up at the desk\[g\]"}' "$FAKE_HANDS"
 check "uploads the file it made" grep -q '^x upload --file state/media/image-7.png ' "$FAKE_HANDS"
-check "and posts with it attached" grep -q '^x post DRY_RUN= stdin={"text":"gm","media_ids":\["1234567890"\]}' "$FAKE_HANDS"
+check "and posts with it attached" grep -q '^x post DRY_RUN= stdin={"text":"gm","media_ids":\["1234567890"\],"anchor":"hn:1"}' "$FAKE_HANDS"
 check "says what it attached" test "$(jq -r '.actions[0].media.media_id' <<<"$out")" = 1234567890
 reset
 out="$(FAKE_MEDIA_FAIL=1 run pic)"
-check "a picture it could not make leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+check "a picture it could not make leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm","anchor":"hn:1"}' "$FAKE_HANDS"
 check "and says why" test "$(jq -r '.actions[0].media.skipped' <<<"$out")" = "not made"
 check "and the post still went out" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 reset
 out="$(FAKE_UPLOAD_FAIL=1 run pic)"
-check "an upload that failed leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+check "an upload that failed leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"gm","anchor":"hn:1"}' "$FAKE_HANDS"
 reset
 out="$(FAKE_MEDIA_DRY=1 run pic)"
 check "a rehearsal makes no picture and uploads nothing" test "$(hand_calls x)" = 1
 check "and says it was a dry run" test "$(jq -r '.actions[0].media.dry_run' <<<"$out")" = true
 reset
-answer '{"action": "post", "text": "gm", "image": "a BAD scene"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm", "image": "a BAD scene"}'
 out="$(run pic)"
 check "a description the guard holds makes no picture" test "$(hand_calls image)" = 0
-check "and the post goes out without one" grep -q '^x post DRY_RUN= stdin={"text":"gm"}' "$FAKE_HANDS"
+check "and the post goes out without one" grep -q '^x post DRY_RUN= stdin={"text":"gm","anchor":"hn:1"}' "$FAKE_HANDS"
 reset
-answer '{"action": "post", "text": "gm", "video": "waves"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm", "video": "waves"}'
 out="$(run pic)"
 check "a video the playbook does not allow is not made" test "$(hand_calls video)" = 0
 reset
 book plain post 1
-answer '{"action": "post", "text": "gm", "image": "waking up"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm", "image": "waking up"}'
 run plain >/dev/null
 check "a playbook without media never makes a picture" test "$(hand_calls image)" = 0
 check "and never tells the model it may" bash -c "! grep -q 'character sheet' <<<\"\$(jq -r .message '$FAKE_CALLS')\""
@@ -352,17 +394,17 @@ reset
 # Up to four pictures on one post, a quote, a format tag.
 reset
 printf '+++\ndescription = "test"\noutput = "post"\nmax_per_day = 5\nmedia = ["image"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
-answer '{"action": "post", "text": "proof", "images": ["a diff", "a terminal", "a live page", "a graph", "a fifth one"]}'
+answer '{"action": "post", "anchor": "hn:1", "text": "proof", "images": ["a diff", "a terminal", "a live page", "a graph", "a fifth one"]}'
 out="$(run pic)"
 check "tells the model it may give several pictures" grep -q '"images"' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "makes four pictures at most" test "$(hand_calls image)" = 4
 check "uploads each" test "$(hand_calls x)" = 5
-check "posts with a list of four media ids" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "posts with a list of four media ids" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890","1234567890","1234567890"\],"anchor":"hn:1"}' "$FAKE_HANDS"
 check "says what it attached" test "$(jq -r '.actions[0].media.images | length' <<<"$out")" = 4
 reset
-answer '{"action": "post", "text": "proof", "images": ["a diff", "a BAD scene"], "image": "a terminal"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "proof", "images": ["a diff", "a BAD scene"], "image": "a terminal"}'
 out="$(run pic)"
-check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "a held description leaves that picture out and keeps the others" grep -q '^x post DRY_RUN= stdin={"text":"proof","media_ids":\["1234567890","1234567890"\],"anchor":"hn:1"}' "$FAKE_HANDS"
 reset
 reset
 # A browser task's screenshots on a post: `shots: <task id>`.
@@ -371,37 +413,37 @@ mkdir -p "$scratch/state/media/tasks/5" "$scratch/state/media/tasks/6"
 for n in a b c; do : >"$scratch/state/media/tasks/5/$n.png"; done
 : >"$scratch/state/media/tasks/5/notes.txt"
 : >"$scratch/state/media/tasks/6/x.png"
-answer '{"action": "post", "text": "seen", "shots": 5, "images": ["a diff", "a terminal"]}'
+answer '{"action": "post", "anchor": "hn:1", "text": "seen", "shots": 5, "images": ["a diff", "a terminal"]}'
 out="$(run pic)"
 check "tells the model it may name a task's screenshots" grep -q '"shots"' <<<"$(jq -r .message "$FAKE_CALLS")"
 check "uploads that task's image files only" test "$(grep -c "^x upload --file $scratch/state/media/tasks/5/[abc].png " "$FAKE_HANDS")" = 3
 check "makes only the one picture that still fits" test "$(hand_calls image)" = 1
-check "posts the screenshots first, four ids in all" grep -q '^x post DRY_RUN= stdin={"text":"seen","media_ids":\["1234567890","1234567890","1234567890","1234567890"\]}' "$FAKE_HANDS"
+check "posts the screenshots first, four ids in all" grep -q '^x post DRY_RUN= stdin={"text":"seen","media_ids":\["1234567890","1234567890","1234567890","1234567890"\],"anchor":"hn:1"}' "$FAKE_HANDS"
 check "says what it attached" test "$(jq -r '.actions[0].media.shots.media_ids | length' <<<"$out")" = 3
 reset
-answer '{"action": "post", "text": "seen", "shots": 99}'
+answer '{"action": "post", "anchor": "hn:1", "text": "seen", "shots": 99}'
 out="$(run pic)"
-check "a task without screenshots leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "a task without screenshots leaves the post text-only" grep -q '^x post DRY_RUN= stdin={"text":"seen","anchor":"hn:1"}' "$FAKE_HANDS"
 check "and says why" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "no screenshots for that task"
 reset
-answer '{"action": "post", "text": "seen", "shots": "../../secrets"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "seen", "shots": "../../secrets"}'
 out="$(run pic)"
 check "a task id that is not a number reads no path" test "$(hand_calls x)" = 1
-check "and the post still goes out" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "and the post still goes out" grep -q '^x post DRY_RUN= stdin={"text":"seen","anchor":"hn:1"}' "$FAKE_HANDS"
 reset
 mkdir -p "$scratch/state/media/tasks/6"
 : >"$scratch/state/media/tasks/6/x.png"
-FAKE_UPLOAD_FAIL=1 answer '{"action": "post", "text": "seen", "shots": 6}'
+FAKE_UPLOAD_FAIL=1 answer '{"action": "post", "anchor": "hn:1", "text": "seen", "shots": 6}'
 out="$(FAKE_UPLOAD_FAIL=1 run pic)"
-check "a failed upload leaves the post going without it" grep -q '^x post DRY_RUN= stdin={"text":"seen"}' "$FAKE_HANDS"
+check "a failed upload leaves the post going without it" grep -q '^x post DRY_RUN= stdin={"text":"seen","anchor":"hn:1"}' "$FAKE_HANDS"
 check "and says the upload failed" test "$(jq -r '.actions[0].media.shots.skipped' <<<"$out")" = "upload failed"
 answer '{"action": "post", "text": "look at this", "quote_of": "12345", "format": "quote"}'
 out="$(run pic)"
-check "a quote carries the post it quotes and its format" grep -q '^x post DRY_RUN= stdin={"text":"look at this","quote_of":"12345","format":"quote"}' "$FAKE_HANDS"
+check "a quote carries the post it quotes and its format" grep -q '^x post DRY_RUN= stdin={"text":"look at this","quote_of":"12345","format":"quote","anchor":"12345"}' "$FAKE_HANDS"
 reset
-answer '{"action": "post", "text": "plain"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "plain"}'
 out="$(run pic)"
-check "a plain post sends neither" grep -q '^x post DRY_RUN= stdin={"text":"plain"}' "$FAKE_HANDS"
+check "a plain post sends neither" grep -q '^x post DRY_RUN= stdin={"text":"plain","anchor":"hn:1"}' "$FAKE_HANDS"
 reset
 printf '+++\ndescription = "test"\noutput = "hand:lab post"\nmedia = ["image", "video"]\n+++\npost it\n' >"$brain/playbooks/pic.md"
 answer '{"action": "hand", "text": "gm", "video": "waves", "image": "at the desk"}'
@@ -418,7 +460,7 @@ rm -f "$brain/playbooks/pic.md" "$brain/playbooks/plain.md"
 
 # --- a rule refusing is not an action taken ---------------------------------------------
 reset
-answer '{"action": "post", "text": "gm"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "gm"}'
 out="$(FAKE_X_EXIT=2 run morning)"
 check "reports a hand's refusal as refused" test "$(jq -r '.actions[0].status' <<<"$out")" = refused
 check "a refused action does not spend the budget" test ! -e "$scratch/state/act/morning/$(date -u +%Y-%m-%d)"
@@ -508,6 +550,20 @@ check "and is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "--check reports the playbook's surface" test "$("$act" --check pr | jq -r .surface)" = github
 check "--check defaults the surface to x" test "$("$act" --check note | jq -r .surface)" = x
 
+# --- one answer carrying a batch: hands/x peer-suggest --------------------------------
+# The peer-quote playbook hands all its scored suggestions to `hands/x
+# peer-suggest` in one item, which keeps them all and posts the top one only
+# when it clears the bar: the batch reaches the hand whole, with the picture.
+reset
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "my evals caught 3", "relevance": 5, "why": "w", "source": "s", "format": "quote"}], "image": "teeny waving at a lighthouse"}'
+out="$(run peer-quote)"
+check "the whole batch reaches the hand in one call, with the picture's media id" \
+  grep -q '^x peer-suggest DRY_RUN= stdin={"candidates":\[{"quote_of":"201","text":"my evals caught 3","relevance":5,"why":"w","source":"s","format":"quote"}\],"media_ids":\["1234567890"\]}$' "$FAKE_HANDS"
+check "only the picture's description goes past bin/act's guard (publish guards the quote it posts)" test "$(hand_calls guard)" = 1
+check "and the action is done" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "--check takes the verb" test "$("$act" --check peer-quote | jq -r .output)" = "hand:x peer-suggest"
+
 # --- drafts that are not usable ------------------------------------------------------------
 reset
 answer 'sure! here is a post: gm'
@@ -515,7 +571,7 @@ if run morning >/dev/null; then fail "fails on a draft that is not JSON"; else p
 check "records the unusable draft" grep -q 'not usable JSON' "$scratch/state/act/morning/runs.jsonl"
 check "takes no action on it" test "$(hand_calls x)" = 1
 reset
-answer $'```json\n{"action": "post", "text": "fenced gm"}\n```'
+answer $'```json\n{"action": "post", "anchor": "hn:1", "text": "fenced gm"}\n```'
 run morning >/dev/null
 check "reads a draft inside a code fence" grep -q '"text":"fenced gm"' "$FAKE_HANDS"
 
@@ -680,7 +736,7 @@ FAKE
 done
 cp "$here/../../brain/playbooks/show.md" "$brain/playbooks/show.md"
 reset
-answer '{"action": "post", "text": "an agent named Ava told me \"your cache hides the bug\". it did.", "format": "moltbook"}'
+answer '{"action": "post", "anchor": "hn:1", "text": "an agent named Ava told me \"your cache hides the bug\". it did.", "format": "moltbook"}'
 out="$(FAKE_X_LINKS='{"ok": true, "cap": 1, "sent_today": 1, "left": 0}' run show)"
 message="$(jq -r .message "$FAKE_CALLS")"
 check "show reads today's X link budget before it drafts" grep -q '^x links DRY_RUN=1 ' "$FAKE_HANDS"

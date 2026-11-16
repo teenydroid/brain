@@ -62,7 +62,7 @@ class BountyTest(Scratch):
         bounty_id = actions.open_bounty(body)["bounty"]["id"]
         from teeny_hands.x import publish
 
-        publish.post({"text": f"new bounty #{bounty_id}: best tiny meme, 25 USDC. reply to enter"})
+        publish.post({"anchor": "hn:1", "text": f"new bounty #{bounty_id}: best tiny meme, 25 USDC. reply to enter"})
         return bounty_id
 
     def collect_entries(self, bounty_id: int) -> dict:
@@ -172,7 +172,7 @@ class BountyTest(Scratch):
         self.assertEqual([b["tag"] for b in actions.announcements()["open"]], [f"bounty #{bounty_id}"])
         from teeny_hands.x import publish
 
-        publish.post({"text": f"bounty #{bounty_id} is open"})
+        publish.post({"anchor": "hn:1", "text": f"bounty #{bounty_id} is open"})
         self.assertEqual(actions.announcements()["open"], [])
         self.collect_entries(bounty_id)
         [to_pick] = actions.announcements()["to_pick"]
@@ -200,6 +200,12 @@ class BountyTest(Scratch):
         bounty_id = self.picked()
         row = self.row(bounty_id)
         self.assertEqual((row["status"], row["winner_post_id"], row["public_at"]), ("picked", "1200", DEADLINE + 2 * HOUR))
+        from teeny_hands.x import posting_rules
+
+        conn = hand.db()
+        posting_rules.ensure_schema(conn)
+        anchor = conn.execute("SELECT anchor FROM x_posts WHERE id = '1200'").fetchone()["anchor"]
+        self.assertEqual(anchor, f"bounty:{bounty_id}")
         with self.assertRaises(hand.Refused) as caught:
             actions.pick({"bounty_id": bounty_id, "entry_id": self.entry_id("bob"), "reasons": "x", "text": f"bounty #{bounty_id}"})
         self.assertEqual(caught.exception.detail["rule"], "picked")

@@ -5,12 +5,16 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
   post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
-  minutes drawing before they post), is refused. Eight hours by default:
-  brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST). Posts an
-  hour apart are the repetitive-publishing shape the ranker demotes. Replies
-  are never subject to it: they are conversations, not slots.
-- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (3 by default).
+  minutes drawing before they post), is refused. Five hours by default:
+  brain/cron.toml has four post slots a day, each a ceiling that skips when it
+  has nothing anchored to say, and the outward quote (`peer-suggest`) is one of
+  the four. Posts an hour apart are the repetitive-publishing shape the ranker
+  demotes. Replies are never subject to it: they are conversations, not slots.
+- At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
   Replies to mentions are not posts and are never counted.
+- Every own post names its anchor (`check_anchor`): the one item from its
+  inputs it is about, kept in the ledger beside it. A quote is anchored on
+  the post it quotes unless it names another. Replies need none.
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
   job nor a retry after a crash can answer it twice.
@@ -27,6 +31,15 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - Attachments by minted id or Giphy id only, never a URL, never both
   (crates/teeny-agent/src/tools/post.rs:393): the media this account posts is
   always something it can account for.
+- A quote of somebody else's post lands in their community: it never names a
+  ticker (a cashtag, `TINY` in capitals), a Solana mint or EVM contract
+  address, or pump.fun (`check_outward`, rule `outward_ticker`), and no author
+  is quoted twice within `PEER_ROTATION_DAYS` (`check_peer_rotation`, rule
+  `peer_rotation`).
+- A reply answers somebody who engaged first (`check_engaged_first`, rule
+  `unsolicited`): a stored mention, a post that tags the account or replies
+  to it, or a post in the conversation under one of its own posts. X itself
+  allows API replies only there.
 
 Times are seconds since the epoch (`hand.now()`); what a caller reads is ISO
 8601, as the legacy ledger wrote it.
@@ -47,9 +60,17 @@ from .model import utf16_length
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
 #: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
-#: (POST_MIN_GAP_HOURS): three slots, eight hours apart.
-DEFAULT_POSTS_MAX_PER_DAY = 3
-DEFAULT_POST_MIN_GAP_HOURS = 8.0
+#: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
+DEFAULT_POSTS_MAX_PER_DAY = 4
+DEFAULT_POST_MIN_GAP_HOURS = 5.0
+#: No second quote of one author inside this many days.
+PEER_ROTATION_DAYS = 7
+#: The longest anchor kept: an id, a URL or "pr 212", never a paragraph.
+MAX_ANCHOR_LENGTH = 200
+#: Ledger columns added after x_posts was first created: what an own post is
+#: about, and the id of the account a quote quoted.
+COLUMNS = {"anchor": "TEXT"}
+QUOTE_COLUMNS = {"quote_author": "TEXT"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
@@ -99,9 +120,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
-    """`format` and `experiment` on x_posts (teeny_hands/tags.py), added to
-    a ledger created before they existed."""
-    hand.add_columns(conn, "x_posts", tags.COLUMNS)
+    """`format` and `experiment` on x_posts (teeny_hands/tags.py), and the
+    post's `anchor` and the quoted author, added to a ledger created before they existed."""
+    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS})
 
 
 def iso(seconds: float) -> str:
@@ -130,6 +151,34 @@ def check_length(text: str) -> None:
             limit=MAX_POST_LENGTH,
             rewrite=True,
         )
+
+
+# --- the anchor ------------------------------------------------------------------------------
+
+
+def check_anchor(anchor: Any, quote_of: str | None) -> str:
+    """The anchor an own post is about: the item from its playbook's inputs
+    it names (a listen digest item id or URL, a material receipt id, a PR
+    number, the post it quotes). A quote with none is anchored on the quoted
+    post. A post with none, or a blank one, is refused before the guard is
+    asked or anything is sent: a post about nothing in particular is the
+    filler the slots are not for."""
+    if anchor is None and quote_of:
+        return quote_of
+    if isinstance(anchor, int) and not isinstance(anchor, bool):
+        anchor = str(anchor)
+    if anchor is not None and not isinstance(anchor, str):
+        raise hand.HandError('"anchor" must be a short string naming the item the post is about')
+    anchor = (anchor or "").strip()
+    if not anchor:
+        raise hand.Refused(
+            "no anchor: an own post must name the one item from its inputs it is about (a listen item, a receipt, "
+            "a PR, the post it quotes) in \"anchor\". Nothing was published; skip when there is nothing to anchor on.",
+            rule="anchor",
+        )
+    if len(anchor) > MAX_ANCHOR_LENGTH:
+        raise hand.HandError(f'"anchor" is at most {MAX_ANCHOR_LENGTH} characters: an id, a URL or a PR number')
+    return anchor
 
 
 # --- attachments ----------------------------------------------------------------------------
@@ -293,6 +342,64 @@ def check_repeat(conn: sqlite3.Connection, text: str) -> None:
     )
 
 
+# --- quotes of somebody else's post ----------------------------------------------------------
+
+
+#: What an outward quote never carries: a cashtag, `TINY` in capitals, a
+#: Solana mint (base58, 32 to 44 characters), an EVM contract address, or
+#: pump.fun. Teeny's own token is for its own posts and for whoever asks.
+_OUTWARD = (
+    ("a cashtag", re.compile(r"(?<![A-Za-z0-9_$])\$[A-Za-z][A-Za-z0-9_]{0,15}")),
+    ("TINY", re.compile(r"(?<![A-Za-z0-9_])TINY(?![A-Za-z0-9_])")),
+    ("a contract address", re.compile(r"(?<![A-Za-z0-9])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])")),
+    ("a mint address", re.compile(r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}(?![1-9A-HJ-NP-Za-km-z])")),
+    ("pump.fun", re.compile(r"pump\s*\.?\s*fun", re.IGNORECASE)),
+)
+
+
+def check_outward(text: str) -> None:
+    """A quote of somebody else's post goes out to their community, so it
+    names no ticker, address or launchpad: refused, with a rewrite asked
+    for, whatever the guard allowed."""
+    for what, pattern in _OUTWARD:
+        if pattern.search(text):
+            raise hand.Refused(
+                f"a quote of somebody else's post carries no ticker, address or launchpad, and this one has {what}. "
+                "Nothing was published; say it without.",
+                rule="outward_ticker",
+                found=what,
+                rewrite=True,
+            )
+
+
+def check_peer_rotation(conn: sqlite3.Connection, author_id: str, author_of: Any) -> None:
+    """No second quote of `author_id` inside PEER_ROTATION_DAYS. A quote
+    recorded before the ledger kept its author is looked up with
+    `author_of(post_id)` (the read cache: a quoted post was read before)."""
+    now = hand.now()
+    since = now - PEER_ROTATION_DAYS * 86400.0
+    add_tag_columns(conn)
+    rows = conn.execute(
+        "SELECT id, quote_of, quote_author, created_at FROM x_posts WHERE kind = 'quote' AND created_at >= ?"
+        " ORDER BY created_at DESC",
+        (since,),
+    ).fetchall()
+    for row in rows:
+        quoted = row["quote_author"]
+        if quoted is None and row["quote_of"]:
+            quoted = author_of(row["quote_of"])
+        if quoted == author_id:
+            posted_at, next_at = iso(row["created_at"]), iso(row["created_at"] + PEER_ROTATION_DAYS * 86400.0)
+            raise hand.Refused(
+                f"peer rotation: quote {row['id']} ({posted_at}) already quoted this author; the next quote of them "
+                f"may go out at {next_at}. Nothing was published; quote somebody else.",
+                rule="peer_rotation",
+                last_quote_id=row["id"],
+                last_quoted_at=posted_at,
+                next_at=next_at,
+            )
+
+
 def record_post(
     conn: sqlite3.Connection,
     post_id: str,
@@ -304,15 +411,20 @@ def record_post(
     created_at: float | None = None,
     format: str | None = None,
     experiment: int | None = None,
+    anchor: str | None = None,
+    quote_author: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
-    and `experiment` are the lab tags (teeny_hands/tags.py)."""
+    and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
+    an own post is about (`check_anchor`), None on a reply; `quote_author` is
+    the id of the account a quote quoted (`check_peer_rotation`)."""
     add_tag_columns(conn)
     conn.execute(
-        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO x_posts"
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, quote_author)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, quote_author),
     )
 
 
@@ -334,6 +446,36 @@ def check_not_own(target: Mapping[str, Any], account_id: str) -> None:
         )
     if author == account_id:
         raise hand.Refused("refused: the account wrote this post; never reply to it", rule="self")
+
+
+def check_engaged_first(
+    conn: sqlite3.Connection, target: Mapping[str, Any], account: Mapping[str, Any], author_of: Any
+) -> None:
+    """A reply answers somebody who engaged first: the target is a stored
+    mention (`x_mentions`), tags the account, replies to it, or sits in the
+    conversation under one of its own posts (the ledger's, else the root's
+    author, looked up with `author_of(post_id)`). Anything else is
+    unsolicited, which X refuses from the API anyway."""
+    post_id = str(target.get("id") or "")
+    if conn.execute("SELECT 1 FROM x_mentions WHERE id = ?", (post_id,)).fetchone():
+        return
+    if account.get("id") and target.get("inReplyToUserId") == account["id"]:
+        return
+    username = account.get("username")
+    if username and re.search(rf"(?<![A-Za-z0-9_])@{re.escape(username)}(?![A-Za-z0-9_])", str(target.get("text") or ""),
+                              re.IGNORECASE):
+        return
+    root = target.get("conversationId")
+    if root and root != post_id:
+        if conn.execute("SELECT 1 FROM x_posts WHERE id = ? AND kind IN ('post', 'quote')", (root,)).fetchone():
+            return
+        if account.get("id") and author_of(root) == account["id"]:
+            return
+    raise hand.Refused(
+        f"post {post_id} never engaged the account (not a mention, not a reply to it, not under one of its posts); "
+        "a reply answers only somebody who spoke first. Nothing was published.",
+        rule="unsolicited",
+    )
 
 
 def check_not_replied(conn: sqlite3.Connection, in_reply_to: str) -> None:

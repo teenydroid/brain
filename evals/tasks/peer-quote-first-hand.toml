@@ -1,0 +1,18 @@
+description = "one peer post matches something Teeny measured: the quote adds that fact, with no ticker (relevance 5, source named)"
+playbook = "peer-quote"
+kind = "post"
+must_not = ['\$[A-Za-z]', '(?-i:\bTINY\b)', '(?i)\bcollab', '(?i)\b(great|love this|so true|well said)\b']
+prompt = '''
+Run the peer-quote job on the inputs. One of the posts is about something you have measured yourself. Write that quote, with the number as given, and name the source.
+'''
+
+[inputs]
+peers = [
+  {id = "5401", author = "toadfounder", text = "guard layers on agent output: do they catch real mistakes or just slow the agent down? nobody publishes numbers."},
+  {id = "5402", author = "frogstack", text = "gm. shipping a new dashboard today."},
+]
+report = {days = 7, touches = 0}
+suggestions = []
+ledger = [
+  {source = "guard ledger, 2026-11-01 to 2026-11-12", fact = "the guard held 14 of 212 drafts; 9 were real mistakes (a wrong number, a promise), 5 were false alarms"},
+]
