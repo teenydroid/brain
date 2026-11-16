@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Teeny acting on what it learned (docs/evolve.md, "The loop"). The work is
-# bin/lib/evolve.py.
+# bin/lib/evolve.py, except the standalone gate, which is bin/lib/evolve_gate.py.
+#   bin/evolve gate CANDIDATE [--base REF]
+#       The standalone gate (docs/evolve.md, "The gate"): check a proposed
+#       new version of Teeny -- a checkout at CANDIDATE, against REF
+#       (default main) -- with plain code and no AI model, and decide
+#       whether it is safe to test. Prints one JSON result and exits 0 if
+#       the candidate passes, 2 if it breaks any rule (listing every broken
+#       rule), or 1 if the gate itself fails to run. It never writes to the
+#       candidate, never needs the network or a running core, and works with
+#       OH_URL unset.
 #
 #   bin/evolve run [--candidates N] [--proposals DIR] [--detach]
 #       One generation in state/evolve/<gen>/: up to N open learnings from
@@ -34,6 +43,11 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
 need git python3 jq
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The gate is standalone: it takes no --detach, no EVOLVE switch, no core.
+if [ "${1:-}" = gate ]; then
+  shift
+  exec python3 "$here/lib/evolve_gate.py" "$@"
+fi
 args=()
 detach=0
 for arg in "$@"; do
