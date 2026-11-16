@@ -25,6 +25,7 @@ library only, and no sibling imports: CI runs the base's copy on its own.
 from __future__ import annotations
 
 import argparse
+import functools
 import posixpath
 import re
 import subprocess
@@ -93,6 +94,10 @@ def parse_patterns(text: str) -> list[str]:
     return out
 
 
+# Cached: bin/evolve asks frozen_pattern about every tracked file against
+# every pattern (context_pack, the gate), and building each regex by hand
+# again for every path took seconds a candidate.
+@functools.lru_cache(maxsize=None)
 def _regex(pattern: str) -> re.Pattern[str]:
     # `**` crosses `/`, `*` and `?` do not; a trailing `/` is the directory.
     # Whatever the pattern matches, everything beneath it matches too.

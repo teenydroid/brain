@@ -23,6 +23,8 @@ Neither available: nothing runs, and the gate says the tests could not be
 run (a finding).
 
     python3 bin/lib/sandbox.py status JOBS_DIR   which one works here
+    python3 bin/lib/sandbox.py health JOBS_DIR   whether the runner's heartbeat
+                                                 is fresh (the service's healthcheck)
 """
 
 from __future__ import annotations
@@ -438,12 +440,29 @@ def status(jobs: Path) -> tuple[bool, str]:
                    "from here")
 
 
+def health(jobs: Path, env: Any = None) -> tuple[bool, str]:
+    """The sandbox service's own healthcheck (deploy/compose.yaml): whether
+    its runner's heartbeat is fresh. The check runs as the service's root,
+    which has no capability past JOBS's 0700, so it first becomes the
+    checkout's owner (SANDBOX_UID, SANDBOX_GID), for good: it is a process
+    of its own and does nothing after."""
+    env = os.environ if env is None else env
+    if os.geteuid() == 0:
+        uid, gid = env.get("SANDBOX_UID", ""), env.get("SANDBOX_GID", "")
+        if not (uid.isdigit() and gid.isdigit()) or int(uid) == 0:
+            return False, "SANDBOX_UID and SANDBOX_GID must be set, and not root, to read the heartbeat"
+        os.setgroups([])
+        os.setresgid(int(gid), int(gid), int(gid))
+        os.setresuid(int(uid), int(uid), int(uid))
+    return sidecar_ready(jobs)
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) == 2 and argv[0] == "status":
-        ok, detail = status(Path(argv[1]))
-        print(detail)
+    if len(argv) == 2 and argv[0] in ("status", "health"):
+        ok, detail = (status if argv[0] == "status" else health)(Path(argv[1]))
+        print(detail or "the sandbox runner is answering")
         return 0 if ok else 1
-    print("usage: sandbox.py status JOBS_DIR", file=sys.stderr)
+    print("usage: sandbox.py status|health JOBS_DIR", file=sys.stderr)
     return 2
 
 

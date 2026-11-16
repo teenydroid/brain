@@ -201,6 +201,16 @@ services:
       SANDBOX_TEST_UID: "65534"
       SANDBOX_TEST_GID: "65534"
     entrypoint: ["python3", "-I", "/opt/sandbox/sandbox-runner", "/sandbox", "/work"]
+    # Not the image's HEALTHCHECK (curl to the core on :7788, which never
+    # runs here): the runner's heartbeat, /sandbox/ready, touched every 10 s
+    # and stale after 60 s. The check drops to SANDBOX_UID to read it, since
+    # this root cannot pass state/sandbox/'s 0700.
+    healthcheck:
+      test: ["CMD", "python3", "-I", "/opt/sandbox/sandbox.py", "health", "/sandbox"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     volumes:
       - ../state/sandbox:/sandbox
       - ../bin/sandbox-runner:/opt/sandbox/sandbox-runner:ro

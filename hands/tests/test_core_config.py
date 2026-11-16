@@ -22,6 +22,14 @@ spec.loader.exec_module(core_config)  # type: ignore[union-attr]
 from teeny_hands import websites  # noqa: E402
 
 
+def automation_module():
+    path = REPO / "bin" / "lib" / "core_sections" / "automation.py"
+    spec = importlib.util.spec_from_file_location("core_section_automation_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
 class CoreConfigTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -32,6 +40,10 @@ class CoreConfigTest(unittest.TestCase):
         os.environ.pop("TEENY_CAPTCHA_SOLVER", None)
         os.environ.pop("TEENY_CAPTCHA_MODEL", None)
         os.environ.pop("TEENY_CAPTCHA_PROVIDER", None)
+        # The secrets the sections read are the test's own, never the box's.
+        self.secrets = Path(self.tmp.name) / "secrets"
+        self.secrets.mkdir()
+        os.environ["TEENY_SECRETS"] = str(self.secrets)
         # The sections make state/ folders under the root they are given.
         self.root = Path(self.tmp.name) / "root"
         (self.root / "deploy").mkdir(parents=True)
@@ -94,6 +106,38 @@ class CoreConfigTest(unittest.TestCase):
         browser = self.written()["browser"]
         self.assertEqual(browser["keychain_command"], str(self.root / "bin" / "keychain-fill"))
         self.assertTrue((REPO / "bin" / "keychain-fill").is_file())
+
+    def proxy_setup(self, spine_env: str, domains: str | None = None) -> None:
+        (self.secrets / "spine.env").write_text(spine_env)
+        if domains is not None:
+            (self.root / "deploy" / "browser-proxy-domains.txt").write_text(domains)
+
+    def test_without_a_proxy_secret_the_browser_routes_nothing(self):
+        self.proxy_setup("LADDER_URL=http://ladder:6969/v1\nBROWSER_PROXY_URL=\n", "reddit.com\n")
+        self.assertNotIn("upstream_proxies", self.written()["browser"])
+        (self.secrets / "spine.env").unlink()
+        self.assertNotIn("upstream_proxies", self.written()["browser"])
+
+    def test_the_proxy_secret_routes_the_operators_domains_through_it(self):
+        url = "http://resi%40user:p%3Ass@gate.proxy.example:7000"
+        self.proxy_setup(
+            f"# the residential exit\nexport BROWSER_PROXY_URL='{url}'\n",
+            "# Reddit\nReddit.com\nredd.it  # short links\n\nreddit.com\n",
+        )
+        browser = self.written()["browser"]
+        self.assertEqual(browser["upstream_proxies"], [{"domains": ["reddit.com", "redd.it"], "url": url}])
+        # The rest of the browser table is unchanged.
+        self.assertEqual(browser["profile_mode"], "persistent")
+
+    def test_a_proxy_secret_without_domains_routes_nothing(self):
+        self.proxy_setup("BROWSER_PROXY_URL=http://u:p@gate.proxy.example:7000\n", "# none yet\n")
+        self.assertNotIn("upstream_proxies", self.written()["browser"])
+
+    def test_the_checked_in_domain_list_routes_reddit(self):
+        domains = automation_module().proxy_domains(REPO)
+        for host in ("reddit.com", "redd.it", "redditstatic.com", "redditmedia.com", "redditmail.com"):
+            self.assertIn(host, domains)
+        self.assertTrue(all(d and "*" not in d and "/" not in d for d in domains))
 
     def test_the_browser_saves_its_own_pictures_where_the_task_desk_collects_them(self):
         # Without it the operator's tasks ended with no screenshot: its

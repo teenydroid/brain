@@ -12,13 +12,19 @@ from . import support
 from teeny_hands.guard import holds
 
 GUARD = support.HERE.parent.parent / "guard"
+NO_BACKOFF = ("import runpy, sys, time; time.sleep = lambda seconds: None; sys.argv = sys.argv[1:]; "
+              "runpy.run_path(sys.argv[0], run_name='__main__')")
 
 
 class Cli(support.Scratch):
-    def guard(self, *argv, body=None):
+    def guard(self, *argv, body=None, no_backoff=False):
+        # NO_BACKOFF: the shim runs with time.sleep stubbed out, so a judge
+        # that cannot be reached is asked all its times without the minute of
+        # waits between asks (RETRY_BACKOFFS), as the in-process tests patch.
+        run = ["-c", NO_BACKOFF, str(GUARD)] if no_backoff else [str(GUARD)]
         done = subprocess.run(
             # -B: the run writes no bytecode into the checkout.
-            [sys.executable, "-I", "-B", str(GUARD), *argv],
+            [sys.executable, "-I", "-B", *run, *argv],
             # No body is an empty stdin, never the runner's own (which can block).
             input="" if body is None else (body if isinstance(body, str) else json.dumps(body)),
             capture_output=True,
@@ -69,7 +75,7 @@ class CheckTest(Cli):
         (self.root / "state").mkdir(exist_ok=True)
         (self.root / "state" / "core.url").write_text("http://127.0.0.1:9\n")
         (self.root / "secrets" / "core.token").write_text("tok\n")
-        code, out = self.guard("check", body={"text": "hello world"})
+        code, out = self.guard("check", body={"text": "hello world"}, no_backoff=True)
         self.assertEqual((code, out["refused"], out["category"]), (2, "held", "unknown"))
 
     def test_asks_the_judge_through_the_core(self):
