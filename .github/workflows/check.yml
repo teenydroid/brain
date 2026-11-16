@@ -100,7 +100,7 @@ jobs:
       - run: bin/test/doctor_test.sh
 
   # The hands' unit tests on Python 3.11 (the image's version), about 3,100 of
-  # them, dealt out by whole module across four runners (bin/test/hands_shard.py):
+  # them, dealt out by whole test class across four runners (bin/test/hands_shard.py):
   # in one job they outgrew its 30 minutes on 2026-11-16. Every module runs in
   # exactly one shard, so the four together are `python3 -m unittest discover
   # -s hands/tests -t hands/tests`. None needs a core.

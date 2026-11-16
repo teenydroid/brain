@@ -7,12 +7,13 @@ took over half an hour for all of it.
     python3 bin/test/hands_shard.py --shards 4 --list     # which shard runs what
 
 It discovers exactly what `python3 -m unittest discover -s hands/tests -t
-hands/tests` does, then deals out whole test modules (a module's tests stay
-together and in order, so setUpClass and setUpModule run as they always did)
-to the shard that has the least work so far, heaviest module first. Every
-module lands in exactly one shard, so the shards together run every test once.
-A module that fails to import is a failing test in its shard, as it is under
-plain discovery. Standard library only.
+hands/tests` does, then deals out whole test classes (a class's tests stay
+together and in discovery order, so setUpClass runs as it always did) to the
+shard that has the least work so far, heaviest first. A module that defines
+setUpModule or tearDownModule is dealt whole (none does yet). Every test lands
+in exactly one shard, so the shards together run each test once, as plain
+discovery does. A module that fails to import is a failing test in its shard,
+as it is under plain discovery. Standard library only.
 """
 
 from __future__ import annotations
@@ -24,18 +25,18 @@ from pathlib import Path
 
 TESTS = Path(__file__).resolve().parents[2] / "hands" / "tests"
 
-#: Seconds per test for the modules that are far slower than the rest (most
-#: tests take milliseconds), measured on a full run on 2026-11-16: the evolve
+#: Seconds per test on the runner for the modules far slower than the rest,
+#: measured in CI on 2026-11-16 (the rest average about 0.05 s): the evolve
 #: modules build candidates in scratch git worktrees and run bin/doctor on
 #: them. Only the balance between shards rests on these; a module missing here
 #: still runs, weighted as DEFAULT_COST a test.
 COST = {
-    "test_evolve": 2.0,
-    "test_evolve_loop": 3.0,
-    "test_evolve_lab": 6.0,
-    "test_tick": 1.0,
-    "babysit.test_deploy": 5.0,
-    "test_reflect": 0.5,
+    "test_evolve": 3.5,
+    "test_evolve_loop": 4.3,
+    "test_evolve_lab": 6.7,
+    "test_tick": 0.5,
+    "babysit.test_deploy": 2.2,
+    "test_reflect": 0.25,
 }
 DEFAULT_COST = 0.05
 
@@ -48,24 +49,33 @@ def flatten(suite: unittest.TestSuite):
             yield item
 
 
-def modules(start: Path) -> dict[str, list[unittest.TestCase]]:
-    """Every discovered test, by the module it lives in, in discovery order."""
+def module_of(group: str) -> str:
+    return group.split(":", 1)[0]
+
+
+def groups_of(start: Path) -> dict[str, list[unittest.TestCase]]:
+    """Every discovered test, by `module:Class` (by `module` alone for a
+    module with module fixtures), in discovery order."""
     suite = unittest.TestLoader().discover(str(start), top_level_dir=str(start))
     out: dict[str, list[unittest.TestCase]] = {}
     for test in flatten(suite):
-        # A module that does not import is a _FailedTest named after it.
         name = test.__class__.__module__
         if name.startswith("unittest."):
-            name = test.id()
-        out.setdefault(name, []).append(test)
+            # A module that does not import is a _FailedTest named after it.
+            key = test.id()
+        else:
+            module = sys.modules.get(name)
+            whole = any(hasattr(module, f) for f in ("setUpModule", "tearDownModule"))
+            key = name if whole else f"{name}:{test.__class__.__qualname__}"
+        out.setdefault(key, []).append(test)
     return out
 
 
 def deal(groups: dict[str, list[unittest.TestCase]], shards: int) -> list[list[str]]:
-    """Module names per shard: heaviest first, each to the lightest shard."""
+    """Group names per shard: heaviest first, each to the lightest shard."""
     load = [0.0] * shards
     out: list[list[str]] = [[] for _ in range(shards)]
-    weight = {name: len(tests) * COST.get(name, DEFAULT_COST) for name, tests in groups.items()}
+    weight = {name: len(tests) * COST.get(module_of(name), DEFAULT_COST) for name, tests in groups.items()}
     for name in sorted(groups, key=lambda n: (-weight[n], n)):
         i = min(range(shards), key=lambda k: (load[k], k))
         out[i].append(name)
@@ -85,19 +95,20 @@ def main(argv: list[str]) -> int:
     # As `-m unittest discover -t hands/tests` does: the tests import their
     # siblings (and `support`) from there.
     sys.path.insert(0, str(TESTS))
-    groups = modules(TESTS)
+    groups = groups_of(TESTS)
     dealt = deal(groups, args.shards)
     if args.list:
         for i, names in enumerate(dealt, 1):
             count = sum(len(groups[n]) for n in names)
-            print(f"shard {i}: {count} tests in {len(names)} modules: {' '.join(sorted(names))}")
+            cost = sum(len(groups[n]) * COST.get(module_of(n), DEFAULT_COST) for n in names)
+            print(f"shard {i}: {count} tests, about {cost:.0f} s: {' '.join(sorted(names))}")
         return 0
     names = set(dealt[args.shard - 1])
     # Discovery order, so the run is the plain run with other modules left out.
     suite = unittest.TestSuite(t for name, tests in groups.items() if name in names for t in tests)
     total = sum(len(t) for t in groups.values())
     print(f"shard {args.shard}/{args.shards}: {suite.countTestCases()} of {total} tests, "
-          f"{len(names)} of {len(groups)} modules", file=sys.stderr)
+          f"{len(names)} of {len(groups)} classes", file=sys.stderr)
     result = unittest.TextTestRunner(verbosity=2 if args.verbose else 1).run(suite)
     return 0 if result.wasSuccessful() else 1
 
