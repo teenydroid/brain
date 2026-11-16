@@ -20,6 +20,12 @@
             whether an own post says something specific about its anchor that
             the inputs support (anchor.py; bin/act asks before a post). A
             verdict, never a hold: anything but a clear yes is anchored false
+  clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
+            "reason", "judged"}: whether someone who has never heard of Teeny
+            could say the post back with nothing to ask about (clarity.py;
+            bin/act and bin/tick ask before an own post). `meaning` is what
+            the author meant it to say, `quoted` the post it quotes. A
+            verdict, never a hold: anything but a clear yes is clear false
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -37,7 +43,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, gate, holds
+from . import anchor, clarity, gate, holds
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -95,6 +101,14 @@ def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     if not isinstance(name, str) or not name.strip():
         raise hand.HandError("anchor must name the item the post is about")
     return anchor.judge(body["text"], name.strip(), body.get("inputs"))
+
+
+def clarity_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    body = _body(body, "meaning", "quoted")
+    if not body["text"].strip():
+        raise hand.HandError("text must not be empty")
+    return clarity.judge(body["text"], _optional(body, "meaning", str, "a string"),
+                         _optional(body, "quoted", str, "a string"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -265,7 +279,7 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check)):
+    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("clarity", clarity_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")

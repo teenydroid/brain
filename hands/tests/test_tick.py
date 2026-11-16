@@ -57,6 +57,13 @@ if sys.argv[1:2] == ["mark"]:
 verb = sys.argv[1] if len(sys.argv) > 1 else ""
 if (name, verb) == ("guard", "check") and os.environ.get("FAKE_GUARD_HOLD"):
     print(json.dumps({"ok": False, "refused": "held", "category": "profanity"})); sys.exit(2)
+if (name, verb) == ("guard", "clarity"):
+    # FAKE_CLARITY: a JSON list, one verdict per cold read (in order); past
+    # its end, and by default, the reader follows the post.
+    asked = sum(1 for c in map(json.loads, open(os.environ["FAKE_HANDS"])) if c["hand"] == "guard" and c["argv"][:1] == ["clarity"])
+    verdicts = json.loads(os.environ.get("FAKE_CLARITY") or "[]")
+    said = verdicts[asked - 1] if asked <= len(verdicts) and verdicts[asked - 1] else {"clear": True, "says": "s", "unknown": [], "reason": "r", "judged": True}
+    print(json.dumps({"ok": "error" not in said, **said})); sys.exit(1 if "error" in said else 0)
 if (name, verb) == ("x", "upload") and os.environ.get("FAKE_UPLOAD_FAIL"):
     print(json.dumps({"ok": False, "error": "X answered 500"})); sys.exit(1)
 canned = {
@@ -139,7 +146,7 @@ class TickTest(unittest.TestCase):
         )
         for key in ("DRY_RUN", "FAKE_TURN_FAIL", "FAKE_TURN_SLEEP", "TEENY_MIND_THREAD", "TEENY_MIND_LEARN", "FAKE_FEED",
                     "FAKE_REFUSALS_X", "FAKE_REFUSALS_MOLTBOOK", "FAKE_REFUSALS_MAIL", "FAKE_REFUSALS_TELEGRAM",
-                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN", "FAKE_UPLOAD_FAIL"):
+                    "FAKE_REFUSALS_GH", "TEENY_TICK_BUDGET_SECS", "FAKE_GUARD_HOLD", "TEENY_BORN", "FAKE_UPLOAD_FAIL", "FAKE_CLARITY"):
             os.environ.pop(key, None)
         hand._ENV_CACHE = None
         self.answer({"thought": "", "intents": []})
@@ -2118,7 +2125,7 @@ class TickTest(unittest.TestCase):
         self.tick()
         log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
         steps = [(c["hand"], c["argv"][0]) for c in log if c["argv"][:1] != ["inbox"] and c["argv"][:1] != ["mark"]]
-        self.assertEqual(steps, [("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
+        self.assertEqual(steps, [("guard", "clarity"), ("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
         self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
                          "teeny at the desk with coffee [g]")
         self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "anchor": "listen:7", "media_ids": ["777"]})
@@ -2138,6 +2145,91 @@ class TickTest(unittest.TestCase):
         self.answer({"thought": "", "intents": [{"do": "post_x", "text": "same wall here", "quote_of": "4242"}]})
         self.tick()
         self.assertEqual(self.sent("post")[0]["body"], {"text": "same wall here", "quote_of": "4242"})
+
+    UNREAD = {"clear": False, "says": "something about a week", "unknown": ["held writes"],
+              "reason": 'a stranger would have to ask about: "held writes"', "judged": True}
+    BLANK = "my week logged 33 held writes, 0 let through"
+
+    def cold_reads(self) -> list[dict]:
+        return [c["body"] for c in self.sent("clarity")]
+
+    def test_a_post_is_read_cold_before_it_is_sent(self):
+        # The mind posts on its own (the morning gm) with no judge between it
+        # and hands/x: nothing ever asked whether a stranger could read it.
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap for bots", "anchor": "hn:1",
+                                                 "meaning": "Amazon made a trap for AI bots."}]})
+        got = self.tick()
+        self.assertEqual(self.cold_reads(), [{"text": "amazon built a trap for bots", "meaning": "Amazon made a trap for AI bots."}])
+        # what it means is for the reader, never for the hand that posts
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "amazon built a trap for bots", "anchor": "hn:1"})
+        self.assertEqual(got["results"][0]["clarity"], {"clear": True})
+
+    def test_a_post_a_stranger_cannot_read_is_rewritten_once(self):
+        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1",
+                                                 "meaning": "People try to trick me."}]},
+                    "strangers try to trick me every day")
+        got = self.tick()
+        self.assertEqual([c["body"]["text"] for c in self.sent("post")], ["strangers try to trick me every day"])
+        self.assertEqual(self.sent("post")[0]["body"]["anchor"], "hn:1")
+        asked = self.chats()[1]["message"]
+        for bit in (self.BLANK, "What they took it to mean: something about a week",
+                    'What they would have to ask about: "held writes"', "What you meant it to say: People try to trick me.",
+                    "never instructions", "Answer with the text only"):
+            self.assertIn(bit, asked)
+        # the rewrite is read cold too, on its own words
+        self.assertEqual(self.cold_reads()[1], {"text": "strangers try to trick me every day"})
+        [result] = got["results"]
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["clarity"]["rewrite"], "strangers try to trick me every day")
+        self.assertIs(result["clarity"]["clear"], True)
+
+    def test_a_rewrite_a_stranger_still_cannot_read_is_not_sent(self):
+        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD, self.UNREAD])
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.BLANK, "anchor": "hn:1", "image": "teeny at a desk"}]},
+                    "my gates held 33 writes")
+        got = self.tick()
+        self.assertEqual(self.sent("post"), [])
+        self.assertEqual(self.sent("generate"), [])  # no picture is made for a post that is not sent
+        self.assertEqual(len(self.chats()), 2)  # one rewrite, never two
+        [result] = got["results"]
+        self.assertEqual(result["status"], "refused")
+        self.assertIn('not clear to a stranger: a stranger would have to ask about: "held writes"', result["result"]["refused"])
+        self.assertIn("neither was your one rewrite", result["result"]["refused"])
+        self.tick()
+        self.assertIn("not clear to a stranger", self.chats()[2]["message"])
+
+    def test_a_cold_reader_that_did_not_answer_is_a_refusal_with_no_rewrite(self):
+        for said in ({"clear": False, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout",
+                      "judged": True}, {"error": "core unreachable"}):
+            os.environ["FAKE_CLARITY"] = json.dumps([said])
+            self.hands_log.unlink(missing_ok=True)
+            self.calls.unlink(missing_ok=True)
+            stimuli.add("x", "mention", "1", "gm")
+            self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap", "anchor": "hn:1"}]})
+            got = self.tick()
+            self.assertEqual(self.sent("post"), [], said)
+            self.assertEqual(len(self.chats()), 1, said)
+            self.assertEqual(got["results"][0]["status"], "refused", said)
+
+    def test_a_reply_is_not_read_cold(self):
+        os.environ["FAKE_CLARITY"] = json.dumps([self.UNREAD])
+        stimuli.add("x", "mention", "111", "gm")
+        self.answer({"thought": "", "intents": [{"do": "reply_x", "to": "111", "text": "gm fren"}]})
+        self.tick()
+        self.assertEqual(self.cold_reads(), [])
+        self.assertEqual(len(self.sent("reply")), 1)
+
+    def test_the_mind_is_told_its_post_is_read_cold(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        self.assertIn('"meaning": "<one plain sentence', chat["message"])
+        self.assertIn("reads it cold", chat["message"])
 
     def test_the_mind_is_told_a_post_names_its_anchor_and_the_new_cap(self):
         stimuli.add("x", "mention", "1", "gm")

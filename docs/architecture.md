@@ -769,7 +769,11 @@ How the day's beats become the page every prompt carries:
   post names its `anchor` (the one item from its inputs it is about; a quote's
   is the quoted post) and `bin/act` asks the anchor judge (`hands/guard
   anchor`) before it goes: a post that says nothing specific about its anchor
-  is a free skip, never a softer rewrite. The slots in IST: `x-quote` 04:30 (one
+  is a free skip, never a softer rewrite. Then the cold reader (`hands/guard
+  clarity`) reads the post alone, as someone who has never heard of Teeny: it
+  must say the post back and have nothing to ask about. A draft it cannot
+  follow gets one rewrite, with what the reader took from it, and a second no
+  is a skip. `bin/tick` asks the same reader before the mind's own posts. The slots in IST: `x-quote` 04:30 (one
   quote of a small builder's post), `morning` 09:30 (a gm only when the reading
   gave it an anchor; a habit the mind carries out), `take` 15:00 (a take or a
   quote; on Sundays `growth` has the slot) and `show` 23:00 (what was built,

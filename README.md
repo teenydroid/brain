@@ -58,7 +58,9 @@ Teeny has three parts:
   when the morning's reading gave it an anchor (`morning`, 09:30), a take
   (`take`, 15:00) and what it built (`show`, 23:00), plus whatever the team
   queued with `hands/brief add` (`brief`) in the next free slot. Every own post
-  names the item it is about and passes an anchor judge, or it is skipped. A
+  names the item it is about and passes an anchor judge, then a cold reader
+  who has never heard of Teeny and must be able to say the post back, or it is
+  skipped. A
   post may carry a picture or a clip of Teeny made by `hands/image` and
   `hands/video`.
 - It answers what people say to it. X pushes mentions, replies and quotes to a
