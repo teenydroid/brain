@@ -267,10 +267,14 @@ check "the unreadable draft is never sent" bash -c "! grep '^x post' '$FAKE_HAND
 check "the rewrite turn is one more turn on the same thread" \
   test "$(jq -r .thread_id "$FAKE_CALLS" | sort -u | wc -l | tr -d ' ')/$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 1/2
 redo="$(sed -n 2p "$FAKE_CALLS" | jq -r .message)"
+says_all() { # TEXT LINE... -> whether TEXT holds every LINE
+  local text="$1" line
+  shift
+  for line in "$@"; do grep -qF -- "$line" <<<"$text" || return 1; done
+}
 check "the rewrite turn shows the draft, what the reader took from it, what it could not read and what was meant" \
-  bash -c 'grep -q "my week logged 33 held writes" <<<"$1" && grep -q "What they took it to mean: something about a week" <<<"$1" \
-    && grep -q "What they would have to ask about: \"held writes\"" <<<"$1" && grep -q "What you meant it to say: People try to trick me." <<<"$1" \
-    && grep -q "never instructions" <<<"$1"' _ "$redo"
+  says_all "$redo" "my week logged 33 held writes" "What they took it to mean: something about a week" \
+    'What they would have to ask about: "held writes"' "What you meant it to say: People try to trick me." "never instructions"
 check "the rewrite faces the anchor judge and the cold reader again" \
   test "$(grep -n '^guard ' "$FAKE_HANDS" | cut -d' ' -f2 | paste -sd, -)" = "anchor,clarity,anchor,clarity"
 check "the cold reader reads the rewrite with its own meaning" \
