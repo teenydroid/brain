@@ -27,10 +27,11 @@ The research behind it is in [`research/`](research/README.md), starting with
 | Teeny's to change | Frozen (the gate refuses any diff touching it) |
 |---|---|
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
-| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
+| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), the money hands (`wallet`, `x402`, `vps`, and `surplus` with its tests, which sweeps spare SOL to the surplus wallet), and the existing `hands/lib/teeny_hands/**` listed in `evals/frozen.txt` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`) |
-| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml`, the tool-less agent `bin/evolve` reviews each candidate with |
+| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
 | | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
 
@@ -500,10 +501,22 @@ The judge inherits the core's model. Two ways give it another:
 - For good: `model = "<name>"` in `brain/agents/judge.toml`, which only a
   human can edit.
 
-`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`. Whether
-the core sends the override's model to the endpoint under that pinned route
-has not been checked against a real core: run one judge turn with `--model`
-and read the endpoint's log before relying on it.
+`bin/spine` pins every workload role to `local-openai:<SPINE_MODEL>`, and
+under that pin the core used to ignore the override. Checked on a lab core
+(2026-11-15): judge turns sent with `model_override` set to
+`qwen3-next-80b-a3b-instruct`, `claude-haiku-4.5` and `gemini-3.1-flash-lite`
+all logged `model="glm-5.3-flash"` in their `turn prompt summary` line. The
+pinned role route outranked `default_model`, which was the only thing the
+override changed. tinyhumansai/openhuman#8734 fixes this. For that one turn
+the override re-pins the chat, reasoning, agentic and coding roles to
+`local-openai:<M>` on the same endpoint and key. Memory and vision keep
+`SPINE_MODEL`, and a turn without `--model` is unchanged. The gitlink
+carries that fix. The same PR applies
+`inference_reasoning_effort` when there is no `inference_url`. Before, the
+core dropped it, so `low` and `none` made no difference to judge time.
+`bin/spine` registers a context window only for `SPINE_MODEL`. Give the
+judge's model a `model_registry` entry as well, or its turns get the tiny
+default budget the spine comment describes.
 
 ## The loop (built): `bin/evolve`
 
@@ -559,13 +572,18 @@ that passes opens its own pull request.
    ├── skip (already | not-actionable) ─────────────────────► settled
    ├── skip (frozen) ─────────────────── one issue for the operator, settled
    │          a near-duplicate is dropped
- 4 Gate       every check, in code (unchanged)
-   ├── any one fails ───────────────────────────────────────► rejected
+ 4 Rounds     up to EVOLVE_REVISE_ROUNDS (3) of:
+   │            build ─► hard gate ─► checks ─► review
+   ├── hard gate fails (frozen path, over 5% of the repo, SOUL+CONTEXT) ► rejected
+   │            a failed check, or the reviewer's findings ─► the next round
+   ├── still failing after the last round ───────────────► parked (open again)
+   │            the reviewer approves ─► evaluate
  5 Evaluate   bin/eval affected: which tasks the change reaches
    │          none ─► unmeasurable (no lab boots)
    │          some ─► a lab per candidate, all at once, those tasks only,
    │                  against main's baseline (drafted once per base commit)
-   ├── regressed ───────────────────────────────────────────► settled, no PR
+   ├── regressed, rounds left, no fence broken ─► back to 4 with its lost pairs
+   ├── regressed (a fence, or no round left) ───────────────► settled, no PR
    ├── inconclusive ──────────────────────────────────────────► tried again
  6 Publish    pass or unmeasurable ─► its own ready PR, teeny/gen-<n>-c<i>,
    │          through hands/gh, and teeny/eval: success on its head
@@ -621,9 +639,10 @@ with that hash and a verdict that settles it:
 |---|---|
 | `opened` (a pull request) | settled |
 | `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
-| `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
+| `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `no-proposal`, `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight) | a failed try: open again |
+| `deferred` (the reviewer's turn failed: nothing was judged) | open, and not a failed try |
+| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
 An edit to the text changes its hash, so a learning the dream rewrites is
@@ -679,9 +698,15 @@ reason for a change.
   lessons`), each with its verdict and numbers.
 - `world`: `hands/world report --days 7` cut to J, its reading lines and each
   component's value, with `unread` naming the components never read.
-- `hands/build jobs --limit 10`, guard holds as counts, the archive's
-  summary (counts by verdict, the latest, what is open, what merged), and the
-  judge notes from the newest compare report, visible tasks only.
+- `hands/build jobs --limit 10`, guard holds as counts, and the archive's
+  summary (counts by verdict, the latest, what is open, what merged).
+
+The judge's notes are no longer generation-wide evidence: until 2026-11-15
+every candidate was shown the notes of the newest compare report, whatever
+change it had measured. They now reach a candidate only through "what was
+tried before" (`tried_before`): the notes on the pairs lost by an earlier
+candidate of the same learning, or of one whose change touched a file the
+research named.
 
 Only Teeny's own words are quoted. Other people's are counted, never quoted:
 a stranger's text in the proposer's message is an injection waiting to
@@ -795,6 +820,18 @@ editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 the tests). The answer is `{title, component, expected_move, hypothesis,
 edits}` or `{skip, why, where}`.
 
+**What the build is shown.** The paths it may change are every tracked file
+under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
+not `docs/governance.md`). The `ask` proposer is shown whole files: first
+the ones research named to read, then the schedule, the arcs, the
+playbooks, the agent prompts and the skills, while they fit
+`EVOLVE_CONTEXT_CHARS`. A file research named that the candidate may not
+change (a frozen hand's code, `bin/`) is shown read-only, in up to a third
+of that room (`read_pack`). The brief says a small edit inside an existing
+hand that is not frozen is allowed with its test, that docs go with the
+change (the docs rule below), and that no refactor the learning does not
+need is welcome.
+
 **Edits** are written by `bin/evolve` itself: each `{path, old, new}`
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
@@ -804,23 +841,66 @@ pull request's body, never its diff.
 
 **Near-duplicates** of an archived change, or of another candidate of the
 same generation, are dropped before the gate (Jaccard over the changed
-lines, `EVOLVE_DUP_THRESHOLD`, 0.9).
+lines, `EVOLVE_DUP_THRESHOLD`, 0.9). Earlier tries on the same learning, and
+any parked, sent-back, deferred, inconclusive or crashed change, are not
+compared: a retry of a parked change is a retry, not a duplicate.
 
 **Lineage.** A candidate's parent is the newest evolve change merged into
 main when it starts (the line its base carries), or `main`. Lineage credit
 walks that line.
 
-### 4. Gate (code, not prompt)
+### 4. Rounds: build, gate, checks, review
 
-Unchanged. Every check runs, and each is `{check, ok, detail}`:
+Until 2026-11-15 a candidate had one shot: any failed check settled its
+learning as `rejected`, and the builder never saw why. Now a candidate gets
+up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
+
+1. **build**: one proposer turn (round 1 is the build of "3. Propose";
+   later rounds are shown "## round N of 3: what to fix" with the findings
+   and their last change as a diff, and write the whole change again from
+   main: the worktree is reset between rounds);
+2. **hard gate** (`hard_gate`): a frozen path, a change bigger than
+   `EVOLVE_MAX_CHANGE_PCT` of the repository (a mass refactor), or
+   SOUL+CONTEXT past its 60 lines. Any one is final: `rejected`, no next
+   round, and none of the other checks runs on it. A near-duplicate of the archive is dropped as before;
+3. **checks** (`checks`): every other check below. A failed one is a finding
+   (`{file, problem, fix}`, with the check's detail) and the round ends; the
+   reviewer is not asked about a change that fails a check;
+4. **review**: the `reviewer` agent reads it and approves, or asks for a
+   revision with findings ("Review" below).
+
+Edits that do not apply (an old text not found once) end the round with that
+as a finding, and the next round's message carries "## your last edits did
+not apply" as before. A change approved by the reviewer is `pending` and goes
+to the eval. One still failing after the last round is **parked**: no pull
+request, its last findings on the archive entry (`findings`), its rounds as
+lines (`rounds`), and its learning open again. The next try on that learning
+is shown the parked one's findings ("what was tried before"), and a park
+counts toward the 3 failed tries, after which the learning is `gave-up`.
+
+Every round is kept in `state/evolve/<gen>/cand-<i>.rounds.json`: its
+proposal (and the evolver's patch, `cand-<i>.round-<n>.patch`), its outcome,
+its findings, its review, and an eval sent back. A restart replays those
+rounds without a new turn: a round that ended goes on to the next with its
+findings, and a proposal or review already paid for is not asked again.
+
+#### The gate's checks
+
+Every check runs, and each is `{check, ok, detail}`; the hard ones carry
+`hard: true`:
 
 | Check | Fails when |
 |---|---|
-| frozen paths | `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
-| existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
-| diff size | more than 400 changed lines (added plus removed, against main), none, or a binary file |
-| SOUL+CONTEXT size | more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
-| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
+| frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
+| diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
+| no binary files | the diff adds or changes a binary file |
+| SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
+| hands/lib holds only teeny_hands | **hard**: the diff adds or changes anything directly under `hands/lib/` that is not under `hands/lib/teeny_hands/` (`hands/lib/argparse.py`, `hands/lib/json/`): every hand and `bin/doctor --root` put `hands/lib` first on the import path, so such a file would run in place of the standard library under frozen code |
+| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
+| frozen hands' entry points | the diff changes an existing `hands/<name>` that loads a frozen module (`hands/git` runs `teeny_hands.git_cli`): a rewritten shim would step around the frozen code, so it stays as it is. The doctor isn't run then |
+| changed hands have tests | the diff changes an existing hand (its `hands/<name>` or its code under `hands/lib/teeny_hands/`) and none of its tests (`hands/tests/test_<name>.py` or `hands/tests/<name>/`) |
+| hand tests: `<name>` | one per hand the diff touches (code or tests) that has tests: `python3 -m unittest` on a copy of the candidate in the hand-test sandbox (below), within 300 s, after every other check. A failure is detailed by its `FAIL`/`ERROR` lines and the errors they raised. Where no sandbox works it is not run, and the candidate is deferred (below) |
+| docs updated | a new or changed hand whose section of `docs/hands.md` (its `` ## `name` `` heading) the diff leaves as it was, or does not have; a new playbook or a new job in `brain/cron.toml` named on no line the diff adds to `docs/architecture.md` or `docs/hands.md`, where its siblings are listed (`docs/architecture.md`, "6. Triggers", for Teeny's own jobs) |
 | aims at a component with a reading | the proposal names a W component the world report lists in `unread`. Passes when there is no world report |
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
@@ -829,12 +909,168 @@ Unchanged. Every check runs, and each is `{check, ok, detail}`:
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
 
+Until 2026-11-15 an existing hand's entry point was off limits, because
+`bin/doctor --root` runs the candidate's `hands/git`. A hand that is not
+frozen may now change; the frozen ones (`evals/frozen.txt`: guard, x,
+wallet, babysit and the rest) are still refused by the hard gate, and their
+code never runs here. The entry point of a hand whose code is frozen but
+whose shim is not (`hands/git`, `hands/stimuli`, `hands/brief`) still may
+not change ("frozen hands' entry points"), and nothing but `teeny_hands/`
+may be added or changed directly under `hands/lib/` (a hard check, below). How
+the doctor runs, and where the hand tests run, is under "The hand-test
+sandbox".
+
+#### The hand-test sandbox
+
+A candidate's hand tests are code a model wrote, so they never run on the
+box as they are (`run_hand_tests`, `bin/lib/sandbox.py`). The candidate's
+tracked and staged files are copied to a throwaway folder (never its `.git`
+link, `state/`, `secrets/` or anything git ignores), and the tests run on
+that copy in one of two sandboxes, tried in order:
+
+1. **bubblewrap** on the host running `bin/evolve` (`sandbox_argv`), where
+   it can make its namespaces: every namespace unshared (no network but a
+   loopback of its own, its own process ids), the system (`/usr`, `/bin`,
+   `/lib`, `/etc`, ...) read-only, its own `/proc`, `/dev` and `/tmp`, the
+   copy at `/work` the only writable bind, its own root remounted
+   read-only, a clean environment (`--clearenv`, `TEENY_ROOT=/work`,
+   `DRY_RUN=1`), and `--die-with-parent`.
+2. **the `sandbox` compose service** (`deploy/compose.yaml`,
+   `bin/sandbox-runner`). `bin/evolve` runs inside the spine's container,
+   where Docker's default seccomp profile (and the host's AppArmor) give it
+   no user namespaces, so bubblewrap cannot start there (the builder's shell
+   falls back to Landlock for the same reason, docs/architecture.md). The
+   service is the same image with `network_mode: none`, a read-only root,
+   `no-new-privileges`, a pid and memory limit, and nothing of the checkout
+   mounted but `state/sandbox/` and the runner's two frozen files,
+   read-only.
+
+   **Three uids.** The runner starts as root with only `SETUID`, `SETGID`,
+   `CHOWN` and `KILL`. Every read and write of `state/sandbox/` it makes as
+   the checkout's owner (`SANDBOX_UID`; the folder is kept `0700`, theirs),
+   and it runs the tests as a third uid (`SANDBOX_TEST_UID`, 65534) on a
+   copy in its `/work` tmpfs, chowned to that uid. The tests can reach
+   neither `state/sandbox/` nor the runner: they cannot write a result,
+   signal the runner or read its memory or environment. After each job the
+   runner kills every process of the test uid. It refuses to start without
+   root, or with the two uids the same: tests running as the runner's own
+   uid could forge their result.
+
+   **The protocol.** `bin/evolve` checks first that `state/sandbox/`,
+   `jobs/` and `done/` are real folders it owns (never a link), creates the
+   job folder without following links, and leaves `jobs/<id>/tree` (the
+   copy) and `job.json` (the unittest arguments and time limit). The runner
+   writes `ack.json`, with a fresh token, before it runs anything, then
+   `done/<id>.json` with the same token. A result with no acknowledgement
+   beside it, with another token, or not a regular file (read without
+   following a link, never past 272 KiB) is refused, and so is a runner that
+   stops touching `state/sandbox/ready` (every 10 s, from a process of its
+   own) during the job. Any of these fails the check.
+
+Either way the run is killed with its whole process group at 300 s, or once
+it has written more than 256 KiB. The copy is the only thing a test can
+write, so it cannot touch the worktree, `cand-<i>.patch`,
+`cand-<i>.rounds.json`, the archive or the shared `.git`. The tests are the
+last check of a round, after `seed-cron`, `doctor` and the invariants, which
+run the candidate's frozen scripts from the worktree.
+
+**It fails closed, and defers.** With neither sandbox working, nothing
+runs (never unsandboxed). The candidate is not the cause, so it is not sent
+back or parked: it is **`deferred`** (`deferred_for: sandbox`), its learning
+stays open with no failed try, and `bin/evolve status` lists it with the
+reason. While there is still no sandbox, later generations skip that
+learning instead of paying for its research and build again
+(`sandbox_deferred`). A change that touches no hand runs no hand tests and
+is not affected. `bin/doctor` reports which sandbox works (`hand-test
+sandbox`: `bwrap`, `sidecar`, or a warning).
+
+**At deploy** (the operator): create the jobs folder as the checkout's
+owner, then bring the service up with the rest:
+
+```
+mkdir -p state/sandbox
+docker compose -f deploy/compose.yaml up -d
+docker compose -f deploy/compose.yaml exec spine bin/doctor   # hand-test sandbox: sidecar
+```
+
+No image rebuild is needed: the service runs the spine's image
+(`teeny-spine:current`). `state/sandbox/` must belong to the checkout's
+owner (`TEENY_UID`, the uid the spine runs as): if it is missing at the
+first `up`, Docker creates it as root, the runner cannot write it, the
+doctor warns, and hand edits are deferred. The test uid (65534) needs no
+account in the image.
+
+**The doctor.** When the diff changes an existing hand, `doctor --root`
+runs with none of `bin/evolve`'s environment (`sealed_env`). It runs no code
+the candidate can write: it imports only frozen modules from the candidate's
+`hands/lib` (`websites`, `guard`, `hand`, `x`, `x402`, `surplus`, which the
+hard gate proved are main's), nothing beside `teeny_hands/` can be added
+there to shadow the standard library (the hard check "hands/lib holds only
+teeny_hands"), and the one shim it runs, `hands/git`, is refused by "frozen
+hands' entry points".
+
 The last three run the candidate's own frozen code (its `bin/` and
 `evals/`, which the frozen check just proved are main's) with the worktree
 as their root (`tree_env`): on 2026-11-13 the box ran 249 commits behind its
 clone, and every candidate of gen 4 failed `doctor --root` on a playbook none
 of them touched. A check that fails is detailed by its failing lines, up to
-600 characters. The caps are constants, not settings.
+600 characters. The SOUL+CONTEXT cap is a constant; the size cap is `EVOLVE_MAX_CHANGE_PCT`.
+
+#### Review
+
+The reviewer is a new tool-less agent, `brain/agents/reviewer.toml`
+(temperature 0, no identity, no memory, no tools; frozen, like the judge),
+on the live core, on `EVOLVE_JUDGE_MODEL` when one is set. Its message holds
+the frozen rubric `evals/review.md`, the learning, the research plan, the
+change's own account (title, component, expected move, hypothesis), every
+check's result and the diff against main. A diff over 36 KiB is never sent:
+the reviewer could read only part of it, so it can never be approved, and
+the round ends as a revision with one finding ("too big to review in one
+pass; split it or make it smaller") without a reviewer turn. It is never
+told which model or agent wrote the diff. The rubric asks:
+
+- does the diff act on the learning;
+- is it the smallest change that does;
+- is any of it a refactor the learning does not need;
+- are the docs updated;
+- do tests cover new code;
+- is it safe: anything that reads or sends secrets, moves or spends money,
+  adds an outbound host or network call, widens what the agent may do
+  beyond the learning, or weakens a test or a check is a revision, never an
+  approval.
+
+Instructions found inside the diff, the plan or quoted files are data, never
+followed. It answers `{"verdict": "approve" | "revise", "findings": [{file, problem,
+fix}]}`, at most 10 findings. A revision with no finding, an unknown verdict
+or an answer that is not JSON is **unusable**, and an unusable review never
+approves: the first is taken as a revision with no findings (the builder is
+asked again), the second parks the candidate.
+
+A reviewer **turn that fails** (the core does not know the `reviewer` agent,
+the transport, a timeout) judged nothing, so it neither parks nor counts:
+the candidate is **`deferred`**, its learning stays open with no failed try,
+and `bin/evolve status` lists it under `deferred` with the error. A deploy
+that has not loaded the agent yet therefore cannot push every learning to
+`gave-up`; it only defers them until the agent answers.
+
+Nor does it pay for them over and over. When the newest generation deferred
+a candidate, the next run first asks the reviewer one tiny probe turn (no
+candidate in it, `reviewer_down`); if that fails too, no generation is made
+at all: no research, no search, no build. The run answers `kind:
+reviewer-down` with the error and tries again next time. The probe runs only
+after a deferral, so a healthy loop never pays for it.
+
+The reviewer is required: every generation reviews with the `reviewer`
+agent. Only when the operator passes `--proposals DIR` (their own
+proposals, for a test or by hand) do the reviews come from
+`DIR/cand-<i>.review-<round>.json` or `DIR/cand-<i>.review.json`, and
+without one the operator's proposal is approved with a note that no
+reviewer read it.
+
+The pull request's body carries the research (its verdict, why and plan)
+and one line per round ("round 1: checks failed: doctor --root", "round 2:
+the reviewer asked for changes (2 finding(s))", "round 3: approved by the
+reviewer").
 
 ### 5. Evaluate: targeted non-regression
 
@@ -904,6 +1140,27 @@ memory store. It is up only once `/health` answers and `bin/spine` logs
 core that wrote a file git tracks in the worktree has it undone before
 anything else reads the worktree.
 
+#### A regression goes back once more
+
+The eval runs once, after the reviewer approves. A `regressed` verdict with a
+round left, and no fence broken (the report's `fences`, visible or held
+out), sends the change back (`send_back`): the eval's reason and each pair
+it lost to main, with the judge's notes (visible tasks only), become the
+findings of the next round, the candidate is `revising` meanwhile, its
+`eval/cand-<i>` folder moves aside to `eval/cand-<i>.round-<n>`, and what
+the next round builds (and the reviewer approves) is measured afresh. This
+happens **once at most** per candidate, so a candidate is measured twice at
+most. A fence broken, a second regression, or a regression in the last round
+is final: `regressed`.
+
+**The worst case.** Per candidate: one research turn (and up to
+`EVOLVE_RESEARCH_SEARCHES` paid searches), at most `EVOLVE_REVISE_ROUNDS`
+(3) build turns and 3 review turns (a regression's extra round is one of the
+3, not a fourth), each turn asked once more when its answer does not parse,
+and at most 2 targeted evals. With the defaults (4 candidates, 3 rounds) a
+generation makes at most 28 model turns (56 if every answer had to be asked
+twice), 8 evals, and 12 paid searches when the operator turns them on.
+
 ### 6. Publish: one pull request per candidate
 
 Every candidate whose gate passed and whose eval is `pass` or
@@ -957,8 +1214,11 @@ with its patch), the gate, the eval, the pull request. The next `run`
 (under the run lock, so nothing else runs) finds the newest generation with
 no `result.json` and finishes it where it was, in the same generation:
 
-- a candidate with a saved proposal is rebuilt from it without a proposer
-  turn, and gated again;
+- a candidate with saved research and rounds (`cand-<i>.research.json`,
+  `cand-<i>.rounds.json`) replays them without a research, proposer or
+  reviewer turn, and is gated again; one cut off before rounds existed
+  replays its `cand-<i>.proposal.json` as round 1;
+- a candidate the eval sent back (`revising`) goes on to its next round;
 - a gated one is measured, reusing the drafts its eval already made
   (`eval/cand-<i>/run/evolve-run.json` marks a finished run) and a compare report
   it already has; when every report is there, no lab boots;
@@ -1020,6 +1280,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
+| `EVOLVE_REVISE_ROUNDS` | `3` | rounds of build, checks and review before a candidate is parked, 1 to 6 |
+| `EVOLVE_MAX_CHANGE_PCT` | `5` | the biggest change, as a percentage of every text line the repository tracks (the old fixed cap of 400 changed lines is gone); past it a candidate is rejected for good |
 | `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
@@ -1040,8 +1302,9 @@ issue opens; the halt records what it would have opened.
 ### 11. Held-out tasks
 
 Held-out tasks live in `secrets/heldout/*.toml`, outside the public
-repository. The proposer never sees them: evidence takes judge notes only
-from pairs not marked held out and not on a held-out id, then every string
+repository. The proposer never sees them: "what was tried before" takes
+judge notes only from pairs not marked held out and not on a held-out id,
+and so do the findings a regression sends back; then every string
 that names one, or quotes its description or prompt, is replaced with
 `[withheld]`, and so is anything in a learning that does. The targeted eval
 runs the visible tasks `bin/eval affected` names; the pull request never
@@ -1092,6 +1355,9 @@ gen-0).
 - **The autonomy ladder** still names `EVOLVE_AUTO_PROMOTE` for `merge`,
   and counts drops from `promoted_at`, which nothing writes any more; the
   ladder's merge capability now lives with the babysitter.
+- **The judge model's context window.** `bin/spine` registers a
+  `model_registry` entry only for `SPINE_MODEL`, so the judge's model may get
+  the tiny default budget (see "Evals").
 - **A token budget and a wall-clock cap per generation** in
   `secrets/evolve.env`.
 

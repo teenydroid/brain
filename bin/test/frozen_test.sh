@@ -29,6 +29,7 @@ cp "$repo/evals/frozen.txt" "$fx/evals/frozen.txt"
 for f in bin/act bin/lib/teeny.sh evals/judge.md evals/tasks/morning.toml spine/src/main.rs \
   deploy/compose.yaml Cargo.lock Cargo.toml .github/workflows/check.yml DIRECTIVE.md \
   hands/guard hands/x hands/moltbook hands/lib/teeny_hands/hand.py \
+  hands/surplus hands/lib/teeny_hands/surplus/sweep.py hands/tests/surplus/test_sweep.py \
   hands/lib/teeny_hands/guard/__init__.py hands/lib/teeny_hands/x/post.py \
   brain/SOUL.md brain/agents/act.toml brain/agents/act.md brain/agents/judge.toml \
   brain/agents/teeny.toml brain/agents/teeny.md brain/agents/builder.toml brain/agents/operator.toml \
@@ -90,6 +91,14 @@ commit
 passes "an edit to a hand that is not guard or x passes"
 
 # --- the frozen paths ----------------------------------------------------------
+branch
+put hands/surplus "a wrapper with another address"
+put hands/lib/teeny_hands/surplus/sweep.py "sweep elsewhere"
+put hands/tests/surplus/test_sweep.py "a weaker test"
+commit
+refuses "the surplus sweep, its library and its tests are refused" hands/surplus \
+  hands/lib/teeny_hands/surplus/sweep.py hands/tests/surplus/test_sweep.py
+
 branch
 put bin/act "loosened"
 commit
