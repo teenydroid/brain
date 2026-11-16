@@ -5,13 +5,16 @@ guard and before DRY_RUN; nothing else in the hand posts.
 - The gap between own posts (crates/teeny-cadence/src/cadence.rs): an own
   post less than `POST_MIN_GAP_HOURS` after the last one, less
   `POST_GAP_TOLERANCE_MINUTES` (the jobs fire on the hour and then spend
-  minutes drawing before they post), is refused. Four hours by default:
-  brain/cron.toml has three slots a day (07:00, 15:00 and 23:00 IST) and one
-  outward quote at 11:00 or 19:00 IST (`peer-suggest`). Posts an hour apart
-  are the repetitive-publishing shape the ranker demotes. Replies are never
-  subject to it: they are conversations, not slots.
+  minutes drawing before they post), is refused. Five hours by default:
+  brain/cron.toml has four post slots a day, each a ceiling that skips when it
+  has nothing anchored to say, and the outward quote (`peer-suggest`) is one of
+  the four. Posts an hour apart are the repetitive-publishing shape the ranker
+  demotes. Replies are never subject to it: they are conversations, not slots.
 - At most `X_POSTS_MAX_PER_DAY` own posts and quotes a UTC day (4 by default).
   Replies to mentions are not posts and are never counted.
+- Every own post names its anchor (`check_anchor`): the one item from its
+  inputs it is about, kept in the ledger beside it. A quote is anchored on
+  the post it quotes unless it names another. Replies need none.
 - One reply per post (crates/teeny-jobs/src/reply/job.rs:464), claimed
   before X is called and keyed on the post replied to, so neither a second
   job nor a retry after a crash can answer it twice.
@@ -57,12 +60,16 @@ from .model import utf16_length
 #: The hard cap, as X counts it for plain text.
 MAX_POST_LENGTH = 280
 #: Own posts a UTC day (X_POSTS_MAX_PER_DAY), and the hours between them
-#: (POST_MIN_GAP_HOURS): three slots and one outward quote, four hours apart.
+#: (POST_MIN_GAP_HOURS): four slots at most, five hours apart.
 DEFAULT_POSTS_MAX_PER_DAY = 4
-DEFAULT_POST_MIN_GAP_HOURS = 4.0
+DEFAULT_POST_MIN_GAP_HOURS = 5.0
 #: No second quote of one author inside this many days.
 PEER_ROTATION_DAYS = 7
-#: x_posts.quote_author: the id of the account a quote quoted.
+#: The longest anchor kept: an id, a URL or "pr 212", never a paragraph.
+MAX_ANCHOR_LENGTH = 200
+#: Ledger columns added after x_posts was first created: what an own post is
+#: about, and the id of the account a quote quoted.
+COLUMNS = {"anchor": "TEXT"}
 QUOTE_COLUMNS = {"quote_author": "TEXT"}
 
 SCHEMA = """
@@ -114,8 +121,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
     """`format` and `experiment` on x_posts (teeny_hands/tags.py), and the
-    quoted author, added to a ledger created before they existed."""
-    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **QUOTE_COLUMNS})
+    post's `anchor` and the quoted author, added to a ledger created before they existed."""
+    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS})
 
 
 def iso(seconds: float) -> str:
@@ -144,6 +151,34 @@ def check_length(text: str) -> None:
             limit=MAX_POST_LENGTH,
             rewrite=True,
         )
+
+
+# --- the anchor ------------------------------------------------------------------------------
+
+
+def check_anchor(anchor: Any, quote_of: str | None) -> str:
+    """The anchor an own post is about: the item from its playbook's inputs
+    it names (a listen digest item id or URL, a material receipt id, a PR
+    number, the post it quotes). A quote with none is anchored on the quoted
+    post. A post with none, or a blank one, is refused before the guard is
+    asked or anything is sent: a post about nothing in particular is the
+    filler the slots are not for."""
+    if anchor is None and quote_of:
+        return quote_of
+    if isinstance(anchor, int) and not isinstance(anchor, bool):
+        anchor = str(anchor)
+    if anchor is not None and not isinstance(anchor, str):
+        raise hand.HandError('"anchor" must be a short string naming the item the post is about')
+    anchor = (anchor or "").strip()
+    if not anchor:
+        raise hand.Refused(
+            "no anchor: an own post must name the one item from its inputs it is about (a listen item, a receipt, "
+            "a PR, the post it quotes) in \"anchor\". Nothing was published; skip when there is nothing to anchor on.",
+            rule="anchor",
+        )
+    if len(anchor) > MAX_ANCHOR_LENGTH:
+        raise hand.HandError(f'"anchor" is at most {MAX_ANCHOR_LENGTH} characters: an id, a URL or a PR number')
+    return anchor
 
 
 # --- attachments ----------------------------------------------------------------------------
@@ -376,17 +411,20 @@ def record_post(
     created_at: float | None = None,
     format: str | None = None,
     experiment: int | None = None,
+    anchor: str | None = None,
     quote_author: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
-    and `experiment` are the lab tags (teeny_hands/tags.py); `quote_author`
-    is the id of the account a quote quoted (`check_peer_rotation`)."""
+    and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
+    an own post is about (`check_anchor`), None on a reply; `quote_author` is
+    the id of the account a quote quoted (`check_peer_rotation`)."""
     add_tag_columns(conn)
     conn.execute(
-        "INSERT OR REPLACE INTO x_posts (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment,"
-        " quote_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO x_posts"
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, quote_author)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment, quote_author),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, quote_author),
     )
 
 

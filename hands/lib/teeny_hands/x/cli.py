@@ -9,13 +9,14 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  search QUERY [--max N] a recent search
   R  whoami                 the account's own id and username
   R  links                  today's link posts against X_LINK_POSTS_MAX_PER_DAY: {cap, sent_today, left}
+  R  slot                   whether an own post would pass the gap and the day's cap now: {open: true} or {why}
   R  peers [--max-age-hours H] [--per-peer N] [--skip-quoted]
                             the newest original posts of the accounts in brain/x-peers.txt, screened
   A  peer-suggest           stdin {"candidates": [{quote_of, text, relevance, why, source, format}], "media_ids"?}:
                             all kept, the top one quoted only when it clears the bar (x/peers.py)
   R  peers suggestions [--days N]  what was suggested, posted and skipped (7 days)
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
-  A  post                   stdin {"text", "media_ids"?, "gif_id"?, "quote_of"?}
+  A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
@@ -97,6 +98,10 @@ def _whoami(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 def _links(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
     return publish.link_budget()
+
+
+def _slot(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
+    return publish.slot()
 
 
 def _post(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
@@ -218,6 +223,7 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--max", type=_max, default=None)
     verb("whoami", _whoami, "the account's own id and username")
     verb("links", _links, "today's link posts against the daily cap (reads the ledger only)")
+    verb("slot", _slot, "whether an own post would pass the gap and the day's cap now (reads the ledger only)")
     reading = verb("peers", _peers, "the newest posts of the accounts in brain/x-peers.txt")
     reading.add_argument("--max-age-hours", type=_hours, default=8.0)
     reading.add_argument("--per-peer", type=_per_peer, default=2)

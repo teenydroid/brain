@@ -7,7 +7,9 @@ max_per_day = 40
 name = "mentions"
 run = "hands/x mentions --status offered"
 +++
-Answer the mentions that deserve an answer.
+Answer the mentions that deserve an answer. Replies to comments on your own posts come first, ahead of every other mention: someone answered you, so answer them before anyone else.
+
+Replies have a looser bar than posts. A reply only has to answer what was said and pass the guard: short and light is fine, a one-liner or a joke back is fine, and it needs no anchor and nothing from your record. Posts are what has to be about something; a reply is a conversation.
 
 Reply to a real question, a gm, a joke you can top, or FUD you can roast. Skip spam, bots, giveaway begging, anyone you already answered, and abuse. Abuse gets nothing. Someone who has tagged you over and over today gets an answer to a real question only.
 

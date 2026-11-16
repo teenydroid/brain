@@ -189,7 +189,7 @@ class GiphyTest(Uploading):
         self.initialize("image/gif", "tweet_gif", len(GIF))
         self.x.route("POST", "/2/media/upload/m1/append", {})
         self.x.route("POST", "/2/media/upload/m1/finalize", {"data": {"id": "m1"}})
-        publish.post({"text": "gm", "gif_id": "abc123"})
+        publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "abc123"})
         self.assertEqual(self.x.requests("POST", "/2/tweets")[0].json(), {"text": "gm", "media": {"media_ids": ["m1"]}})
         self.assertEqual(self.x.requests("GET", "/v1/gifs/abc123")[0].query["api_key"], "giphy-KEY-FAKE")
         self.assertEqual(self.minted()[0]["source"], "giphy:abc123")
@@ -197,26 +197,26 @@ class GiphyTest(Uploading):
     def test_refuses_a_gif_giphy_does_not_have(self):
         self.x.route("GET", "/v1/gifs/nope", {"message": "Not Found"}, status=404)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "gm", "gif_id": "nope"})
+            publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "nope"})
         self.assertNotIn("giphy-KEY-FAKE", caught.exception.reason)
         self.assertEqual(self.x.requests("POST", "/2/tweets"), [])
 
     def test_never_downloads_a_rendition_from_somewhere_else(self):
         self.giphy("abc123", "https://evil.example/abc123.gif")
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm", "gif_id": "abc123"})
+            publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "abc123"})
         self.assertEqual(self.x.requests("POST", "/2/tweets"), [])
 
     def test_skips_a_rendition_over_the_x_limit(self):
         self.giphy("big", f"{self.x.base}/media/big.gif", size=str(16 * 1024 * 1024))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm", "gif_id": "big"})
+            publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "big"})
         self.assertEqual(self.x.requests("GET", "/media/big.gif"), [])
 
     def test_without_a_giphy_key_a_gif_is_refused(self):
         self.configure(GIPHY_API_KEY=None, GIPHY_API_BASE=self.x.base)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm", "gif_id": "abc123"})
+            publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "abc123"})
         self.assertEqual(self.x.writes(), [])
 
     def test_a_gif_that_cannot_be_fetched_releases_the_reply_claim(self):

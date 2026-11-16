@@ -26,7 +26,7 @@ class TagsTest(Scratch):
         return [dict(r) for r in conn.execute("SELECT * FROM x_posts ORDER BY created_at")]
 
     def test_a_post_records_its_format_and_experiment(self):
-        publish.post({"text": "gm from the lab", "format": "gm", "experiment": 2})
+        publish.post({"anchor": "hn:1", "text": "gm from the lab", "format": "gm", "experiment": 2})
         row = self.ledger()[0]
         self.assertEqual((row["text"], row["format"], row["experiment"]), ("gm from the lab", "gm", 2))
         self.assertEqual(self.x.requests("POST", "/2/tweets")[0].json(), {"text": "gm from the lab"})
@@ -40,7 +40,7 @@ class TagsTest(Scratch):
 
     def test_a_bad_tag_is_an_error_and_nothing_is_sent(self):
         with self.assertRaises(hand.HandError):
-            publish.post({"text": "gm", "format": "GM!!"})
+            publish.post({"anchor": "hn:1", "text": "gm", "format": "GM!!"})
         self.assertEqual(self.x.writes(), [])
 
     def test_an_old_ledger_gains_the_columns_and_keeps_its_rows(self):

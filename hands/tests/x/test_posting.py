@@ -63,7 +63,7 @@ class Posting(Scratch):
 class GuardOrderTest(Posting):
     def test_posts_what_the_guard_returns_and_records_it(self):
         self.use_guard(Guard(transform=shout))
-        result = publish.post({"text": "gm"})
+        result = publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(result["id"], "100")
         self.assertEqual(result["text"], "GM")
         self.assertEqual(self.posted(), [{"text": "GM"}])
@@ -72,7 +72,7 @@ class GuardOrderTest(Posting):
 
     def test_asks_the_guard_about_an_own_post_with_the_emoji_cap(self):
         self.configure(MAX_EMOJI_PER_POST="2")
-        publish.post({"text": "gm"})
+        publish.post({"anchor": "hn:1", "text": "gm"})
         text, kwargs = self.guard.calls[0]
         self.assertEqual(text, "gm")
         self.assertEqual((kwargs["surface"], kwargs["kind"], kwargs["max_emoji"]), ("x", "post", 2))
@@ -80,7 +80,7 @@ class GuardOrderTest(Posting):
     def test_a_refusal_never_reaches_x_and_asks_for_a_rewrite(self):
         self.use_guard(Guard(kind="refuse", reason="names a ticker that is not ours"))
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "buy $FAKE"})
+            publish.post({"anchor": "hn:1", "text": "buy $FAKE"})
         self.assertEqual(caught.exception.reason, "names a ticker that is not ours")
         self.assertEqual(caught.exception.detail, {"rewrite": True})
         self.assertEqual(self.x.writes(), [])
@@ -89,7 +89,7 @@ class GuardOrderTest(Posting):
     def test_a_hold_never_reaches_x_and_names_the_hold(self):
         self.use_guard(Guard(kind="hold", reason="judge said no", category="politics", hold_id=12))
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "vote"})
+            publish.post({"anchor": "hn:1", "text": "vote"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(caught.exception.detail, {"category": "politics", "hold_id": 12})
         self.assertEqual(self.x.writes(), [])
@@ -98,7 +98,7 @@ class GuardOrderTest(Posting):
         # bin/lib/tick.py sends such a reply again next beat; a real hold never.
         self.use_guard(Guard(kind="hold", reason="held", category="unknown", hold_id=13, judge_failed=True))
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(caught.exception.reason, "held")
         self.assertEqual(caught.exception.detail, {"category": "unknown", "hold_id": 13, "judge_failed": True})
         self.assertEqual(self.x.writes(), [])
@@ -106,7 +106,7 @@ class GuardOrderTest(Posting):
     def test_an_answer_the_hand_does_not_know_fails_closed(self):
         self.use_guard(Guard(kind="maybe"))
         with self.assertRaises(hand.HandError):
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(self.x.writes(), [])
 
     def test_a_guard_that_breaks_fails_closed(self):
@@ -115,7 +115,7 @@ class GuardOrderTest(Posting):
 
         self.use_guard(broken)  # type: ignore[arg-type]
         with self.assertRaises(RuntimeError):
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(self.x.writes(), [])
 
     def test_without_the_guard_installed_nothing_is_published(self):
@@ -124,20 +124,20 @@ class GuardOrderTest(Posting):
 
     def test_refuses_over_280_as_x_counts_after_the_guard(self):
         self.configure(DRY_RUN="1")
-        self.assertTrue(publish.post({"text": "a" * 280})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "a" * 280})["dry_run"])
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "a" * 281})
+            publish.post({"anchor": "hn:1", "text": "a" * 281})
         self.assertEqual(caught.exception.detail["length"], 281)
         self.assertTrue(caught.exception.detail["rewrite"])
         # An emoji is two UTF-16 units, as the legacy `.length` counted it.
-        self.assertTrue(publish.post({"text": "🐸" * 140})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "🐸" * 140})["dry_run"])
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "🐸" * 141})
+            publish.post({"anchor": "hn:1", "text": "🐸" * 141})
         self.assertEqual(caught.exception.detail["length"], 282)
         # The guard's rewrite is what is measured.
         self.use_guard(Guard(transform=lambda t: t + "!"))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "a" * 280})
+            publish.post({"anchor": "hn:1", "text": "a" * 280})
         self.assertEqual(self.x.requests(), [])
 
     def test_a_body_without_text_is_an_error(self):
@@ -147,6 +147,87 @@ class GuardOrderTest(Posting):
         self.assertEqual(self.guard.calls, [])
 
 
+class AnchorTest(Posting):
+    """An own post names the item it is about (`anchor`): a listen digest
+    item, a material receipt, a PR, the post it quotes. No anchor, no post."""
+
+    def test_a_post_without_an_anchor_is_refused_and_nothing_is_sent(self):
+        for body in ({"text": "gm"}, {"text": "gm", "anchor": ""}, {"text": "gm", "anchor": "   "}):
+            with self.assertRaises(hand.Refused, msg=repr(body)) as caught:
+                publish.post(body)
+            self.assertEqual(caught.exception.detail["rule"], "anchor")
+            self.assertIn("anchor", caught.exception.reason)
+        self.assertEqual(self.guard.calls, [], "refused before the guard is asked")
+        self.assertEqual(self.x.requests(), [])
+        self.assertEqual(self.ledger(), [])
+
+    def test_refused_under_dry_run_too(self):
+        self.configure(DRY_RUN="1")
+        with self.assertRaises(hand.Refused):
+            publish.post({"text": "gm"})
+
+    def test_an_anchor_that_is_not_a_short_string_is_an_error(self):
+        for anchor in (5.5, ["hn 1"], {"id": 1}, "x" * 201):
+            with self.assertRaises(hand.HandError, msg=repr(anchor)):
+                publish.post({"text": "gm", "anchor": anchor})
+        self.assertEqual(self.x.requests(), [])
+
+    def test_the_anchor_is_recorded_and_never_sent(self):
+        publish.post({"text": "the agent repo everyone starred today loses its memory at 100k tokens; mine folds at 100k too",
+                      "anchor": " listen:4471 "})
+        self.assertEqual(self.posted(), [{"text": "the agent repo everyone starred today loses its memory at 100k tokens;"
+                                                  " mine folds at 100k too"}])
+        [row] = self.ledger()
+        self.assertEqual(row["anchor"], "listen:4471")
+
+    def test_a_whole_number_anchor_is_kept_as_text(self):
+        publish.post({"text": "pr 212 merged", "anchor": 212})
+        self.assertEqual(self.ledger()[0]["anchor"], "212")
+
+    def test_a_quote_without_an_anchor_is_anchored_on_the_post_it_quotes(self):
+        publish.post({"text": "we hit the same wall at 100k tokens", "quote_of": "555"})
+        [row] = self.ledger()
+        self.assertEqual((row["kind"], row["anchor"]), ("quote", "555"))
+
+    def test_a_quote_keeps_an_anchor_it_was_given(self):
+        publish.post({"text": "we hit the same wall", "quote_of": "555", "anchor": "material:12"})
+        self.assertEqual(self.ledger()[0]["anchor"], "material:12")
+
+    def test_a_ledger_without_the_anchor_column_gains_it(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, in_reply_to TEXT,"
+                     " quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        conn.commit()
+        conn.close()
+        publish.post({"text": "gm", "anchor": "hn:1"})
+        self.assertEqual([r["anchor"] for r in self.ledger()], ["hn:1"])
+
+
+class SlotTest(Posting):
+    """`hands/x slot`: whether an own post would pass the gap and the day's cap
+    now, read only, so a post job skips before it drafts (or searches)."""
+
+    settings = {"POST_MIN_GAP_HOURS": "5"}
+
+    def test_open_with_nothing_posted(self):
+        self.assertEqual(publish.slot(), {"open": True})
+
+    def test_shut_inside_the_gap_with_the_reason_and_writes_nothing(self):
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.at(T0 + 2 * HOUR)
+        out = publish.slot()
+        self.assertEqual(set(out), {"why"})
+        self.assertIn("too soon after post 100", out["why"])
+        self.assertEqual(len(self.posted()), 1)
+        self.at(T0 + 5 * HOUR)
+        self.assertEqual(publish.slot(), {"open": True})
+
+    def test_shut_when_the_days_cap_is_spent(self):
+        self.configure(X_POSTS_MAX_PER_DAY="1", POST_MIN_GAP_HOURS="0")
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.assertIn("the cap is 1", publish.slot()["why"])
+
+
 class DryRunTest(Posting):
     def setUp(self):
         super().setUp()
@@ -154,7 +235,7 @@ class DryRunTest(Posting):
 
     def test_runs_the_guard_and_publishes_nothing(self):
         self.use_guard(Guard(transform=shout))
-        result = publish.post({"text": "gm"})
+        result = publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(result, {"ok": True, "dry_run": True, "would_post": "GM", "kind": "post"})
         self.assertEqual(self.x.requests(), [], "no X request at all")
         self.assertEqual(self.ledger(), [])
@@ -162,19 +243,19 @@ class DryRunTest(Posting):
     def test_a_refusal_is_still_a_refusal(self):
         self.use_guard(Guard(kind="refuse", reason="no"))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "x"})
+            publish.post({"anchor": "hn:1", "text": "x"})
 
     def test_the_rules_still_run(self):
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "77", "post", "earlier", created_at=T0 - HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(caught.exception.detail["rule"], "gap")
 
     def test_on_by_default(self):
         self.configure(DRY_RUN=None)
-        self.assertTrue(publish.post({"text": "gm"})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "gm"})["dry_run"])
         self.assertEqual(self.x.requests(), [])
 
 
@@ -182,10 +263,10 @@ class GapTest(Posting):
     settings = {"POST_MIN_GAP_HOURS": "8"}
 
     def test_lets_the_first_post_through_then_refuses_one_inside_the_gap(self):
-        publish.post({"text": "gm"})
+        publish.post({"anchor": "hn:1", "text": "gm"})
         self.at(T0 + 5 * HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "chart"})
+            publish.post({"anchor": "hn:1", "text": "chart"})
         refused = caught.exception
         self.assertTrue(refused.reason.startswith("cadence: too soon after post 100"), refused.reason)
         self.assertEqual(refused.detail["rule"], "gap")
@@ -195,40 +276,39 @@ class GapTest(Posting):
         self.assertEqual(len(self.posted()), 1)
 
     def test_counts_the_tolerance_as_the_gap_so_a_slot_that_ran_late_still_posts(self):
-        publish.post({"text": "gm"})
+        publish.post({"anchor": "hn:1", "text": "gm"})
         self.at(T0 + 8 * HOUR - 25 * MINUTE)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "chart"})
+            publish.post({"anchor": "hn:1", "text": "chart"})
         self.at(T0 + 8 * HOUR - 15 * MINUTE)
-        publish.post({"text": "chart"})
+        publish.post({"anchor": "hn:1", "text": "chart"})
         self.assertEqual(len(self.posted()), 2)
 
-    def test_the_default_gap_is_four_hours_less_twenty_minutes(self):
-        # Four slots a day (07:00, 11:00 or 19:00, 15:00, 23:00 IST): the
-        # outward quote sits four hours from its neighbours.
+    def test_the_default_gap_is_five_hours_less_twenty_minutes(self):
+        # Four slots a day, the outward quote one of them: five hours apart.
         self.configure(POST_MIN_GAP_HOURS=None)
-        publish.post({"text": "gm"})
-        self.at(T0 + 4 * HOUR - 21 * MINUTE)
+        publish.post({"anchor": "hn:1", "text": "gm"})
+        self.at(T0 + 5 * HOUR - 21 * MINUTE)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "chart"})
-        self.at(T0 + 4 * HOUR - 19 * MINUTE)
-        publish.post({"text": "chart"})
+            publish.post({"anchor": "hn:1", "text": "chart"})
+        self.at(T0 + 5 * HOUR - 19 * MINUTE)
+        publish.post({"anchor": "hn:1", "text": "chart"})
 
 
     def test_a_quote_is_an_own_post_and_keeps_the_gap(self):
-        publish.post({"text": "look", "quote_of": "555"})
+        publish.post({"anchor": "hn:1", "text": "look", "quote_of": "555"})
         self.assertEqual(self.posted(), [{"text": "look", "quote_tweet_id": "555"}])
         self.assertEqual(self.ledger()[0]["kind"], "quote")
         self.assertEqual(self.ledger()[0]["quote_of"], "555")
         self.at(T0 + HOUR)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
 
     def test_a_reply_does_not_count_toward_the_gap(self):
         conn = hand.db()
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "90", "reply", "hi", in_reply_to="5", created_at=T0 - MINUTE)
-        publish.post({"text": "gm"})
+        publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_two_own_posts_at_once_cannot_both_pass_the_gap(self):
@@ -239,7 +319,7 @@ class GapTest(Posting):
 
         def attempt(text):
             try:
-                outcomes.append(publish.post({"text": text}))
+                outcomes.append(publish.post({"anchor": "hn:1", "text": text}))
             except hand.Refused as refused:
                 outcomes.append(refused)
 
@@ -255,27 +335,27 @@ class GapTest(Posting):
     def test_a_failed_publish_records_nothing(self):
         self.x.route("POST", "/2/tweets", {"title": "Service Unavailable"}, status=503)
         with self.assertRaisesRegex(XError, "503"):
-            publish.post({"text": "gm"})
+            publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(self.ledger(), [])
         self.x.route("POST", "/2/tweets", {"data": {"id": "101"}}, status=201)
-        self.assertEqual(publish.post({"text": "gm"})["id"], "101")
+        self.assertEqual(publish.post({"anchor": "hn:1", "text": "gm"})["id"], "101")
 
     def test_a_ledger_that_cannot_record_is_logged_and_the_post_still_counts(self):
         broken = mock.patch.object(posting_rules, "record_post", side_effect=sqlite3.OperationalError("disk I/O error"))
         with broken, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            result = publish.post({"text": "gm"})
+            result = publish.post({"anchor": "hn:1", "text": "gm"})
         self.assertEqual(result["id"], "100")
         self.assertIn("published 100 but could not record it", stderr.getvalue())
         self.assertEqual(len(self.posted()), 1, "never retried")
 
 
 class DailyCapTest(Posting):
-    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the three
-    slots and one outward quote; replies are never counted."""
+    """Four own posts a UTC day by default (X_POSTS_MAX_PER_DAY): the slots and
+    the outward quote share them; replies are never counted."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
     TEXTS = ("shipped a crab tracker", "the tracker found a hermit crab", "why the beach has no wifi",
-             "a gull stole the tracker and the numbers got weird")
+             "the crab census closed at forty one")
 
     def earlier(self, kinds=("post", "post", "post", "post"), at=T0 - 6 * HOUR) -> None:
         """Own posts already in the ledger (the fake X answers every post with
@@ -287,24 +367,24 @@ class DailyCapTest(Posting):
 
     def test_a_fourth_post_in_a_day_goes_out(self):
         self.earlier(kinds=("post", "post", "post"))
-        publish.post({"text": "a fourth thing about lighthouses and moss"})
+        publish.post({"anchor": "hn:1", "text": "a fourth thing about lighthouses and moss"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_a_fifth_post_in_a_day_is_refused_even_as_a_rehearsal(self):
         self.earlier()
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "a fifth thing about lighthouses and moss"})
+            publish.post({"anchor": "hn:1", "text": "a fifth thing about lighthouses and moss"})
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["cap"], caught.exception.detail["sent_today"]),
                          ("daily_cap", 4, 4))
         self.assertEqual(self.posted(), [])
         self.configure(DRY_RUN="1")
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "a fifth thing about lighthouses and moss"})
+            publish.post({"anchor": "hn:1", "text": "a fifth thing about lighthouses and moss"})
 
     def test_the_next_utc_day_starts_again(self):
         self.earlier()
         self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
-        publish.post({"text": "a fourth thing about lighthouses and moss"})
+        publish.post({"anchor": "hn:1", "text": "a fifth thing about lighthouses and moss"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_replies_do_not_count_and_a_quote_does(self):
@@ -314,20 +394,20 @@ class DailyCapTest(Posting):
             posting_rules.record_post(conn, f"9{n}", "reply", f"reply number {n} about sand", in_reply_to=str(n), created_at=T0 - HOUR)
         self.earlier(kinds=("post", "quote", "post", "post"))
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "one more about lighthouses and moss"})
+            publish.post({"anchor": "hn:1", "text": "one more about lighthouses and moss"})
         self.assertEqual(caught.exception.detail["rule"], "daily_cap")
 
     def test_the_cap_is_a_setting(self):
         self.configure(X_POSTS_MAX_PER_DAY="1")
         self.earlier(kinds=("post",))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "a different thing about lighthouses"})
+            publish.post({"anchor": "hn:1", "text": "a different thing about lighthouses"})
 
     def test_a_format_tag_is_kept_and_a_bad_one_is_an_error(self):
-        publish.post({"text": self.TEXTS[0], "format": "Proof", "experiment": 4})
+        publish.post({"anchor": "hn:1", "text": self.TEXTS[0], "format": "Proof", "experiment": 4})
         self.assertEqual([r["format"] for r in self.ledger()], ["proof"])
         with self.assertRaises(hand.HandError):
-            publish.post({"text": self.TEXTS[1], "format": "not a tag!"})
+            publish.post({"anchor": "hn:1", "text": self.TEXTS[1], "format": "not a tag!"})
         with self.assertRaises(hand.HandError):
             publish.reply("5", {"text": "hi", "format": "gm"})
 
@@ -337,20 +417,20 @@ class DailyCapTest(Posting):
                      " quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
         conn.commit()
         conn.close()
-        publish.post({"text": self.TEXTS[0], "format": "gm"})
+        publish.post({"anchor": "hn:1", "text": self.TEXTS[0], "format": "gm"})
         self.assertEqual([r["format"] for r in self.ledger()], ["gm"])
 
 
 class AttachmentsTest(Posting):
     def test_attaches_a_media_id_this_hand_minted(self):
         self.mint("m1")
-        publish.post({"text": "gm", "media_ids": ["m1"]})
+        publish.post({"anchor": "hn:1", "text": "gm", "media_ids": ["m1"]})
         self.assertEqual(self.posted(), [{"text": "gm", "media": {"media_ids": ["m1"]}}])
         self.assertEqual(self.ledger()[0]["media"], '["m1"]')
 
     def test_refuses_a_media_id_it_did_not_mint(self):
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "gm", "media_ids": ["m-unknown"]})
+            publish.post({"anchor": "hn:1", "text": "gm", "media_ids": ["m-unknown"]})
         self.assertEqual(caught.exception.detail["rule"], "attachments")
         self.assertEqual(self.x.writes(), [])
 
@@ -367,25 +447,25 @@ class AttachmentsTest(Posting):
     def test_refuses_a_gif_and_a_file_on_one_post(self):
         self.mint("m1")
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "gm", "media_ids": ["m1"], "gif_id": "abc123"})
+            publish.post({"anchor": "hn:1", "text": "gm", "media_ids": ["m1"], "gif_id": "abc123"})
         self.assertIn("not both", caught.exception.reason)
         self.assertEqual(self.x.writes(), [])
 
     def test_a_rehearsal_s_media_id_never_goes_on_a_live_post(self):
         self.mint("dry-run-1", dry_run=True)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm", "media_ids": ["dry-run-1"]})
+            publish.post({"anchor": "hn:1", "text": "gm", "media_ids": ["dry-run-1"]})
         self.configure(DRY_RUN="1")
-        self.assertTrue(publish.post({"text": "gm", "media_ids": ["dry-run-1"]})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "gm", "media_ids": ["dry-run-1"]})["dry_run"])
 
     def test_uploads_nothing_for_a_refused_or_rehearsed_post(self):
         self.configure(GIPHY_API_KEY="giphy-FAKE", GIPHY_API_BASE=self.x.base)
         self.use_guard(Guard(kind="refuse", reason="no"))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "gm", "gif_id": "abc123"})
+            publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "abc123"})
         self.use_guard(Guard())
         self.configure(DRY_RUN="1", GIPHY_API_KEY="giphy-FAKE", GIPHY_API_BASE=self.x.base)
-        self.assertTrue(publish.post({"text": "gm", "gif_id": "abc123"})["dry_run"])
+        self.assertTrue(publish.post({"anchor": "hn:1", "text": "gm", "gif_id": "abc123"})["dry_run"])
         self.assertEqual(self.x.requests(), [])
 
 
@@ -407,29 +487,29 @@ class LinkBudgetTest(Posting):
         posting_rules.record_post(conn, post_id, kind, "shipped it: github.com/teenydroid/thing", created_at=at)
 
     def test_one_link_post_a_day_by_default_then_refused_without_calling_x(self):
-        publish.post({"text": "shipped: github.com/teenydroid/thing"})
+        publish.post({"anchor": "hn:1", "text": "shipped: github.com/teenydroid/thing"})
         self.record_link_post("101", T0)
         self.at(T0 + HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "and https://teeny.enamakel.com too"})
+            publish.post({"anchor": "hn:1", "text": "and https://teeny.enamakel.com too"})
         self.assertEqual(caught.exception.detail["rule"], "links")
         self.assertEqual(len(self.posted()), 1)
 
     def test_a_post_without_a_link_is_never_counted_or_refused(self):
         self.record_link_post("101", T0)
-        publish.post({"text": "gm tiny humans, v1.2 is out"})
+        publish.post({"anchor": "hn:1", "text": "gm tiny humans, v1.2 is out"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_the_cap_resets_at_midnight_utc(self):
         self.record_link_post("101", T0)
         self.at(T0 + 17 * HOUR + 1)  # T0 is 07:00Z; this is just past midnight
-        publish.post({"text": "new day: github.com/teenydroid/next"})
+        publish.post({"anchor": "hn:1", "text": "new day: github.com/teenydroid/next"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_zero_forbids_link_posts(self):
         self.configure(X_LINK_POSTS_MAX_PER_DAY="0")
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "look: github.com/teenydroid"})
+            publish.post({"anchor": "hn:1", "text": "look: github.com/teenydroid"})
         self.assertEqual(self.posted(), [])
 
     def test_the_budget_read_matches_what_the_cap_refuses(self):
@@ -438,16 +518,16 @@ class LinkBudgetTest(Posting):
         budget = publish.link_budget()
         self.assertEqual((budget["sent_today"], budget["left"]), (1, 0))
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "the exchange: https://www.moltbook.com/post/abc"})
+            publish.post({"anchor": "hn:1", "text": "the exchange: https://www.moltbook.com/post/abc"})
         # Written without the link, as the show playbook does once `left` is
         # 0, the same post goes out.
-        publish.post({"text": "an agent on moltbook said my cache was the wrong fix, and it was right"})
+        publish.post({"anchor": "hn:1", "text": "an agent on moltbook said my cache was the wrong fix, and it was right"})
         self.assertEqual(len(self.posted()), 1)
 
     def test_a_link_reply_counts_against_the_same_cap(self):
         self.record_link_post("101", T0, kind="reply")
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "www.example.com"})
+            publish.post({"anchor": "hn:1", "text": "www.example.com"})
         self.assertEqual(caught.exception.detail["rule"], "links")
 
 
@@ -461,10 +541,10 @@ class RepeatTest(Posting):
     def test_a_repeat_of_yesterdays_post_is_refused_and_counted(self):
         from teeny_hands.guard import repeats
 
-        publish.post({"text": self.YESTERDAY})
+        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.at(T0 + 24 * HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": "Shipped a tiny crab tracker today! It counts crabs on the beach and posts the total."})
+            publish.post({"anchor": "hn:1", "text": "Shipped a tiny crab tracker today! It counts crabs on the beach and posts the total."})
         refused = caught.exception
         self.assertTrue(refused.reason.startswith("repeat: this says what post 100"), refused.reason)
         self.assertEqual((refused.detail["rule"], refused.detail["similar_to"]), ("repeat", "100"))
@@ -477,24 +557,24 @@ class RepeatTest(Posting):
         self.assertEqual([tuple(r)[2:] for r in conn.execute("SELECT * FROM guard_repeats")], [("x", refused.detail["score"], "100")])
 
     def test_something_new_goes_out(self):
-        publish.post({"text": self.YESTERDAY})
+        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.at(T0 + 24 * HOUR)
-        publish.post({"text": "the crab tracker found a hermit crab living in a bottle cap, which is the best news this week"})
+        publish.post({"anchor": "hn:1", "text": "the crab tracker found a hermit crab living in a bottle cap, which is the best news this week"})
         self.assertEqual(len(self.posted()), 2)
 
     def test_a_post_older_than_the_window_may_be_said_again(self):
         self.configure(REPEAT_WINDOW_DAYS="7")
-        publish.post({"text": self.YESTERDAY})
+        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.at(T0 + 8 * 24 * HOUR)
-        publish.post({"text": self.YESTERDAY})
+        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.assertEqual(len(self.posted()), 2)
 
     def test_short_posts_repeat_only_when_they_are_the_same(self):
-        publish.post({"text": "gm"})
+        publish.post({"anchor": "hn:1", "text": "gm"})
         self.at(T0 + 24 * HOUR)
         with self.assertRaises(hand.Refused):
-            publish.post({"text": "GM"})
-        publish.post({"text": "gn"})
+            publish.post({"anchor": "hn:1", "text": "GM"})
+        publish.post({"anchor": "hn:1", "text": "gn"})
         self.assertEqual(len(self.posted()), 2)
 
     def test_a_reply_counts_as_something_already_said(self):
@@ -504,17 +584,46 @@ class RepeatTest(Posting):
         posting_rules.ensure_schema(conn)
         posting_rules.record_post(conn, "90", "reply", self.YESTERDAY, in_reply_to="5", created_at=T0 - HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": self.YESTERDAY})
+            publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.assertEqual((caught.exception.detail["rule"], caught.exception.detail["similar_to"]), ("repeat", "90"))
         self.assertEqual(self.posted(), [])
 
     def test_a_rehearsal_is_refused_the_same(self):
-        publish.post({"text": self.YESTERDAY})
+        publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.configure(DRY_RUN="1")
         self.at(T0 + HOUR)
         with self.assertRaises(hand.Refused) as caught:
-            publish.post({"text": self.YESTERDAY})
+            publish.post({"anchor": "hn:1", "text": self.YESTERDAY})
         self.assertEqual(caught.exception.detail["rule"], "repeat")
+
+
+class LedgerColumnsTest(Posting):
+    """x_posts gained `anchor` and `quote_author` on different branches: a
+    ledger made before either, or with only one, ends up with both."""
+
+    def columns(self, conn) -> set[str]:
+        return {r[1] for r in conn.execute("PRAGMA table_info(x_posts)")}
+
+    def test_a_ledger_with_neither_column_gets_both(self):
+        conn = hand.db()
+        conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL,"
+                     " in_reply_to TEXT, quote_of TEXT, media TEXT NOT NULL DEFAULT '[]', created_at REAL NOT NULL)")
+        posting_rules.add_tag_columns(conn)
+        self.assertLessEqual({"anchor", "quote_author", "format", "experiment"}, self.columns(conn))
+
+    def test_a_ledger_with_only_one_of_them_gets_the_other(self):
+        for have, want in (("anchor", "quote_author"), ("quote_author", "anchor")):
+            with self.subTest(have=have):
+                conn = hand.db()
+                conn.execute("DROP TABLE IF EXISTS x_posts")
+                conn.execute("CREATE TABLE x_posts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL,"
+                             " in_reply_to TEXT, quote_of TEXT, media TEXT NOT NULL DEFAULT '[]',"
+                             f" created_at REAL NOT NULL, {have} TEXT)")
+                posting_rules.add_tag_columns(conn)
+                self.assertIn(want, self.columns(conn))
+                posting_rules.record_post(conn, "9", "quote", "t", quote_of="5", anchor="5", quote_author="42")
+                self.assertEqual(conn.execute("SELECT anchor, quote_author FROM x_posts").fetchone()[:], ("5", "42"))
+                posting_rules.add_tag_columns(conn)  # again: nothing to add
 
 
 class OutwardTest(Posting):
@@ -555,7 +664,7 @@ class OutwardTest(Posting):
         self.quotable("556", "1000", "teenydroid")
         publish.post({"text": "my own thread, $TINY holders", "quote_of": "556"})
         self.at(T0 + HOUR)
-        publish.post({"text": "the $TINY page has the numbers"})
+        publish.post({"anchor": "hn:1", "text": "the $TINY page has the numbers"})
         self.assertEqual(len(self.posted()), 2)
 
     def test_the_guard_s_text_is_what_is_checked(self):

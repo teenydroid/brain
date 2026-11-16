@@ -1591,7 +1591,7 @@ class TickTest(unittest.TestCase):
                "rewrite": True}
         os.environ["FAKE_REFUSALS_X"] = json.dumps([own])
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.LONG}]}, "a post that fits")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": self.LONG, "anchor": "hn:1"}]}, "a post that fits")
         got = self.tick()
         self.assertEqual(got["results"][0]["status"], "done")
         self.assertEqual([c["body"]["text"] for c in self.hand_calls()], [self.LONG.strip(), "a post that fits"])
@@ -2114,14 +2114,38 @@ class TickTest(unittest.TestCase):
 
     def test_a_post_can_carry_a_picture_of_teeny(self):
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm lab", "image": "teeny at the desk with coffee"}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm lab", "anchor": "listen:7", "image": "teeny at the desk with coffee"}]})
         self.tick()
         log = [json.loads(l) for l in self.hands_log.read_text().splitlines()]
         steps = [(c["hand"], c["argv"][0]) for c in log if c["argv"][:1] != ["inbox"] and c["argv"][:1] != ["mark"]]
         self.assertEqual(steps, [("guard", "check"), ("image", "generate"), ("x", "upload"), ("x", "post")])
         self.assertEqual(log[[i for i, c in enumerate(log) if c["argv"][:1] == ["generate"]][0]]["body"]["prompt"],
                          "teeny at the desk with coffee [g]")
-        self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "media_ids": ["777"]})
+        self.assertEqual([c for c in log if c["argv"][:1] == ["post"]][0]["body"], {"text": "gm lab", "anchor": "listen:7", "media_ids": ["777"]})
+
+    def test_a_post_without_an_anchor_is_refused_before_any_picture_is_made(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "gm", "image": "teeny waking up"}]})
+        self.tick()
+        self.assertEqual(self.sent("post"), [])
+        self.assertEqual(self.sent("generate"), [])
+        entry = self.runs()[-1]["results"][0]
+        self.assertEqual(entry["status"], "refused")
+        self.assertIn("anchor", entry["result"]["refused"])
+
+    def test_a_quote_is_anchored_on_the_post_it_quotes(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "same wall here", "quote_of": "4242"}]})
+        self.tick()
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "same wall here", "quote_of": "4242"})
+
+    def test_the_mind_is_told_a_post_names_its_anchor_and_the_new_cap(self):
+        stimuli.add("x", "mention", "1", "gm")
+        self.answer({"thought": "", "intents": []})
+        self.tick()
+        [chat] = self.chats()
+        self.assertIn('{"do": "post_x", "text": "...", "anchor": "<', chat["message"])
+        self.assertIn("at most 4 times a day, 5 hours apart", chat["message"])
 
     def test_the_mind_can_post_on_moltbook_and_follow_there(self):
         stimuli.add("x", "mention", "1", "gm")
@@ -2260,13 +2284,13 @@ class TickTest(unittest.TestCase):
         folder = self.shots(7, ("a.png", "b.png", "c.png"))
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [{
-            "do": "post_x", "text": "the page", "shots": 7, "images": ["a diff", "a terminal"]}]})
+            "do": "post_x", "text": "the page", "anchor": "pr:12", "shots": 7, "images": ["a diff", "a terminal"]}]})
         self.tick()
         uploads = [c for c in self.sent("upload") if c["hand"] == "x"]
         self.assertEqual([c["argv"] for c in uploads[:3]],
                          [["upload", "--file", str(folder / n)] for n in ("a.png", "b.png", "c.png")])
         self.assertEqual(len(self.sent("generate")), 1)
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "the page", "media_ids": ["777"] * 4})
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "the page", "anchor": "pr:12", "media_ids": ["777"] * 4})
         self.assertEqual(len(self.runs()[-1]["results"][0]["media"]["shots"]["media_ids"]), 3)
 
     def test_a_reply_can_carry_screenshots(self):
@@ -2281,28 +2305,28 @@ class TickTest(unittest.TestCase):
         self.shots(8, ("a.png",))
         stimuli.add("x", "mention", "1", "gm")
         self.answer({"thought": "", "intents": [
-            {"do": "post_x", "text": "unknown task", "shots": 404}]})
+            {"do": "post_x", "text": "unknown task", "anchor": "pr:12", "shots": 404}]})
         self.tick()
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "unknown task"})
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "unknown task", "anchor": "pr:12"})
         entry = self.runs()[-1]["results"][0]
         self.assertEqual(entry["status"], "done")
         self.assertEqual(entry["media"]["shots"]["skipped"], "no screenshots for that task")
 
     def test_a_shots_value_that_is_not_a_task_id_reads_no_path(self):
         stimuli.add("x", "mention", "1", "gm")
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "shots": "../../secrets"}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "anchor": "pr:12", "shots": "../../secrets"}]})
         self.tick()
         self.assertEqual(self.sent("upload"), [])
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "t"})
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "t", "anchor": "pr:12"})
         self.assertIn("task id", self.runs()[-1]["results"][0]["media"]["shots"]["skipped"])
 
     def test_a_failed_screenshot_upload_leaves_the_post_going(self):
         self.shots(9, ("a.png",))
         stimuli.add("x", "mention", "1", "gm")
         os.environ["FAKE_UPLOAD_FAIL"] = "1"
-        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "shots": 9}]})
+        self.answer({"thought": "", "intents": [{"do": "post_x", "text": "t", "anchor": "pr:12", "shots": 9}]})
         self.tick()
-        self.assertEqual(self.sent("post")[0]["body"], {"text": "t"})
+        self.assertEqual(self.sent("post")[0]["body"], {"text": "t", "anchor": "pr:12"})
         self.assertEqual(self.runs()[-1]["results"][0]["media"]["shots"]["skipped"], "upload failed")
 
     def test_a_deferred_reply_keeps_its_screenshot_ids(self):

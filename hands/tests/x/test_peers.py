@@ -185,8 +185,9 @@ class ReadTest(PeersBase):
 
 
 class SuggestBase(PeersBase):
-    """A read first (the suggest bar checks quote_of against it), and the
-    gap off so a test can post twice in a day."""
+    """A read first (the suggest bar checks quote_of against it), the gap off
+    so a test can post twice in a day, and the anchor judge (a model call)
+    stood in for: it passes unless a test sets `self.anchor_verdict`."""
 
     settings = {"POST_MIN_GAP_HOURS": "0", "POST_GAP_TOLERANCE_MINUTES": "0"}
 
@@ -195,6 +196,11 @@ class SuggestBase(PeersBase):
         self.peers_file("alice\nbob_builder\n")
         self.fresh(T0)
         peers.read(skip_quoted=True)
+        self.anchor_verdict = {"anchored": True, "reason": "ok", "judged": True}
+        self.judged = mock.Mock(side_effect=lambda *args: dict(self.anchor_verdict))
+        judge = mock.patch("teeny_hands.guard.anchor.judge", self.judged)
+        judge.start()
+        self.addCleanup(judge.stop)
 
     def fresh(self, now: float) -> None:
         """The peers' newest posts, as a search at `now` finds them."""
@@ -230,6 +236,36 @@ class SuggestTest(SuggestBase):
         self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "source"))
         self.assertEqual(self.posted(), [])
         self.assertEqual(self.statuses(), [("201", 5, "skipped", "source")])
+
+    def test_the_anchor_judge_reads_the_draft_against_the_quoted_post(self):
+        peers.suggest({"candidates": [self.candidate("202", 5)]})
+        [(text, anchor, inputs)] = [c.args for c in self.judged.call_args_list]
+        self.assertEqual((text, anchor), (self.TEXTS["202"], "202"))
+        self.assertEqual(inputs["quoted_post"]["text"], "our agent forgets everything overnight")
+        self.assertEqual(inputs["source"], "x_post_metrics: 14 days of my own replies")
+        [row] = self.table("x_posts")
+        self.assertEqual(row["anchor"], "202")
+
+    def test_a_judge_drop_is_a_kept_skip_with_its_reason_not_an_error(self):
+        self.anchor_verdict = {"anchored": False, "reason": "it says nothing about the post", "judged": True}
+        out = peers.suggest({"candidates": [self.candidate("202", 5), self.candidate("201", 4)]})
+        self.assertIsNone(out["posted"])
+        self.assertEqual(out["skipped"]["rule"], "anchor")
+        self.assertIn("it says nothing about the post", out["skipped"]["reason"])
+        self.assertEqual(self.posted(), [])
+        self.assertEqual(self.statuses(), [("202", 5, "skipped", "anchor"), ("201", 4, "kept", None)])
+        self.assertIn("it says nothing about the post", self.table("x_peer_candidates")[0]["reason"])
+        self.assertEqual(self.table("x_posts"), [])
+
+    def test_a_judge_that_cannot_answer_is_a_skip_too(self):
+        self.anchor_verdict = {"anchored": False, "reason": "the anchor judge could not be reached", "judged": True}
+        out = peers.suggest({"candidates": [self.candidate("202", 5)]})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "anchor"))
+        self.assertEqual(self.posted(), [])
+
+    def test_a_suggestion_below_the_bar_is_never_judged(self):
+        peers.suggest({"candidates": [self.candidate(relevance=4)]})
+        self.judged.assert_not_called()
 
     def test_a_5_whose_post_was_not_in_the_last_read_posts_nothing(self):
         out = peers.suggest({"candidates": [self.candidate("999")]})

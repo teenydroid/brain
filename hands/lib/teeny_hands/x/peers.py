@@ -4,8 +4,9 @@ communities around other crypto-AI projects, kept rare and specific.
   peers           R  the newest original posts of the accounts in
                      brain/x-peers.txt, through the search cache, screened
   peer-suggest    A  up to 3 scored quote suggestions; all kept, the top one
-                     posted only when it clears every bar (one word, as a
-                     playbook's `hand:x <verb>` output names it)
+                     posted only when it clears every bar, the anchor judge's
+                     included (one word, as a playbook's `hand:x <verb>`
+                     output names it)
   peers suggestions  R  what was suggested, posted and skipped, and why
   peers report    R  per peer: touches, who then spoke to Teeny, how the
                      quote did
@@ -35,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from .. import hand, peerfile
-from . import cache, mentions, open_db
+from . import cache, mentions, open_db, twitr
 from . import posting_rules as rules
 from .client import XApi, XError, number_setting
 from .model import Json, SearchOptions
@@ -333,6 +334,31 @@ def _bar(conn: sqlite3.Connection, top: Json) -> tuple[str, str] | None:
     return None
 
 
+def _anchored(top: Json, x: XApi | None) -> tuple[str, str] | None:
+    """Why the anchor judge (`hands/guard anchor`, which bin/act asks before a
+    `post` output) does not pass the top suggestion, or None when it does. A
+    quote is anchored on the post it quotes (`posting_rules.check_anchor`), so
+    the judge reads the draft against that post, the source and the why. A post
+    X cannot show is left to `publish.post`, which refuses it as `target`."""
+    from ..guard import anchor as anchor_judge
+
+    try:
+        quoted = cache.reads(x or twitr.client()).get_post(top["quote_of"])
+    except (XError, OSError):
+        quoted = None
+    if quoted is None:
+        return None
+    inputs = {
+        "quoted_post": {k: quoted[k] for k in ("id", "text", "authorUsername") if quoted.get(k)},
+        "source": top["source"],
+        "why": top["why"],
+    }
+    verdict = anchor_judge.judge(top["text"], top["quote_of"], inputs)
+    if verdict["anchored"]:
+        return None
+    return "anchor", f"not anchored: {verdict['reason'] or 'the anchor judge did not pass it'}; kept, not posted"
+
+
 def _author(conn: sqlite3.Connection, post_id: str) -> str | None:
     row = conn.execute("SELECT author_username FROM x_peer_reads WHERE post_id = ?", (post_id,)).fetchone()
     return row[0] if row else None
@@ -351,7 +377,7 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
     live = not hand.dry_run()
     conn = _db()
     with hand.lock("x-peer-suggest"):
-        bar = _bar(conn, top)
+        bar = _bar(conn, top) or _anchored(top, x)
         status = "skipped" if bar else ("posting" if live else "kept")
         batch = secrets.token_hex(6)
         now = hand.now()
