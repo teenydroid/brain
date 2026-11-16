@@ -13,4 +13,6 @@ Say the total (`total_usd`) and what it is made of: the model calls (`models.usd
 
 If `complete` is false, a source could not be read: say the total leaves something out, or skip. If every amount is 0.00, skip.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 Matter-of-fact, a little proud of running cheap or a little rueful about running dear, in your voice. One post, under 260 characters, no link, no hashtags, nothing about $TINY's price.

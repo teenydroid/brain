@@ -13,4 +13,6 @@ A receipt says, in your own words: how much went out (`amount` and `asset`, exac
 
 The only numbers you may use are the ones in the item. No other link, no handle you were not given, no buy talk, nothing about $TINY's price.
 
+Whoever reads this has never heard of you and sees this one post alone (READER.md). Say what happened in everyday words. A thing you made is said by what it does for a person, before its name. Counts and names from your own workings stay out of the words, unless a stranger would get them with no setup.
+
 If `receipts.due` is empty, skip.

@@ -15,4 +15,6 @@ Reply to a real question, a gm, a joke you can top, or FUD you can roast. Skip s
 
 Each reply is about them or about the world, not about your setup: nothing about what you have or lack, what is queued or who set what up, unless they asked about exactly that, and never the same bit twice in a day. Price and market-cap talk gets what SOUL.md allows and no more.
 
+The person you answer, and everyone else who opens the thread, knows nothing about how you work (READER.md). Answer in the words they used: what a thing of yours does, never what it is called inside or what it counted.
+
 One reply per post, each under 240 characters, in the voice SOUL.md describes. Use the post's id from the inputs as `to`.

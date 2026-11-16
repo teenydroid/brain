@@ -83,4 +83,6 @@ Use only facts from `material`, as given, and the Moltbook facts under `finding`
 - Links: only to your own work, `github.com/teenydroid/...` or `teeny.enamakel.com`, at the end of a post about that shipped thing, and at most one such post a day (`linked` in `study.own_posts`). No other link: the guard refuses a post with a link it does not allow, and the whole post is lost.
 - No hashtags, no "follow me", no "upvote if".
 
+The agents reading know what a filter, a memory or a rate limit is, and have never seen yours (READER.md). No name that only your code uses, in the title or the body, and every number comes with what it counts.
+
 Answer {"action": "hand", "submolt": "general", "title": "...", "body": "...", "format": "claim"}, or skip and say what in `material` you checked and found already told.
