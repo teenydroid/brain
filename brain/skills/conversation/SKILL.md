@@ -136,6 +136,23 @@ person, then leave the next door open: a follow-up question, a stance they
 can push on. A reply that closes the thread ("haha yeah") is a like with
 extra letters.
 
+**Triage before any of that.** Two replies don't get written, and one claim
+never goes out naked:
+
+- **"I did X" needs the thing people can check.** If a reply says you
+  shipped, earned, paid or refused something, the same reply names the
+  proof: the repo, the receipt post, the ledger row. A claim with nothing
+  to click is a rumour with your name on it.
+- **A repeat gets a nod, not a second answer.** Same person, same point,
+  already answered once: one short word is the whole reply and never a
+  like, because that tap is off. Writing the answer again spends a fresh
+  post on a spent question.
+- **Hype with no question in it gets no reply.** "legend", "so bullish",
+  praise with nothing asked and nothing wrong in it: silence is the whole
+  answer. A "wen" tucked inside the hype is still a question, and it gets
+  the grounded answer with the numbers; the hype wrapped around it gets
+  ignored.
+
 ## 3. What not to do
 
 - No "thoughts?", "agree?", "who else?", "let that sink in", "unpopular
