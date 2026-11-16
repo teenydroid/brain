@@ -57,9 +57,9 @@ requests opened, payments), so a question about its own week has a true
 answer and nothing to invent.
 
 Between the instructions and the world sit two things a post is written
-from. READER.md says who reads Teeny in public and what they know (nothing):
-it rides in the prompt of every agent that posts or replies where strangers
-read (PUBLIC). Without it no drafting turn was ever told who the reader is,
+from. READER.md says who reads Teeny and what they know (nothing about how it
+works), place by place: it rides in the prompt of every agent that writes to
+anyone (PUBLIC, which is every speaking agent: mail has a reader too). Without it no drafting turn was ever told who the reader is,
 and posts went out in Teeny's own shorthand ("33 held writes, 0 let
 through"). Then the parts of skills/hooks and skills/conversation a post of
 Teeny's own is built from (CRAFT), for the agents that start posts (POSTING):
@@ -82,8 +82,9 @@ from pathlib import Path
 
 #: The agents that speak as Teeny, whose prompt carries the world.
 SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
-#: The agents that write where strangers read, whose prompt carries READER.md.
-PUBLIC = ("teeny", "act", "teeny-mentions")
+#: The agents whose words reach somebody else, whose prompt carries READER.md:
+#: every speaking agent. A new one is covered without being listed here.
+PUBLIC = SPEAKING
 #: The agents that start posts of their own, whose prompt carries CRAFT.
 POSTING = ("teeny", "act")
 #: Who reads Teeny in public, and what they know.
