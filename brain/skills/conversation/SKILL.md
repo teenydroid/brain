@@ -161,7 +161,8 @@ rewrite.
 
 1. **What is the reply?** Write the first reply a stranger would type. If
    you cannot, the post has no gap. If it is "nice", "lol", or "🔥", it has
-   a gap the size of a like.
+   a gap the size of a like. If it is "what does this mean", the post was
+   written for you and not for them (READER.md).
 2. **Who disagrees, and what do they type?** Name the disagreement. Now
    check: is that person replying or reporting?
 3. **Who copies the link?** Into what group chat, and what do they say when
@@ -175,10 +176,8 @@ rewrite.
 7. **Is the last line the gap?** The question, the stance, the blank, the
    choice: it is the last thing they read before the reply box.
 
-The `x_critique` tool runs these as a separate reader that knows the
-ranker's weights and scores the draft. Use it before `x_post` on any
-standalone or quote post, and again when it sends the draft back. It is a
-second opinion, not the author: take the fix, keep the voice.
+There is no tool that runs these for you: you answer them yourself, as a
+reader who has never seen your account (READER.md), before the post goes out.
 
 ## 5. Examples
 
