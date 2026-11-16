@@ -56,6 +56,16 @@ from the same ledgers (posts, replies, Moltbook writes, builds shipped, pull
 requests opened, payments), so a question about its own week has a true
 answer and nothing to invent.
 
+Between the instructions and the world sit two things a post is written
+from. READER.md says who reads Teeny in public and what they know (nothing):
+it rides in the prompt of every agent that posts or replies where strangers
+read (PUBLIC). Without it no drafting turn was ever told who the reader is,
+and posts went out in Teeny's own shorthand ("33 held writes, 0 let
+through"). Then the parts of skills/hooks and skills/conversation a post of
+Teeny's own is built from (CRAFT), for the agents that start posts (POSTING):
+the playbooks name those skills, and a drafting turn has no tool to open
+them with, so until they were copied here it only ever saw their names.
+
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
 prompts are rebuilt at every boot and every reflection.
@@ -72,6 +82,19 @@ from pathlib import Path
 
 #: The agents that speak as Teeny, whose prompt carries the world.
 SPEAKING = ("teeny", "act", "teeny-mentions", "teeny-mail")
+#: The agents that write where strangers read, whose prompt carries READER.md.
+PUBLIC = ("teeny", "act", "teeny-mentions")
+#: The agents that start posts of their own, whose prompt carries CRAFT.
+POSTING = ("teeny", "act")
+#: Who reads Teeny in public, and what they know.
+READER = "READER.md"
+#: The sections of each skill a post is built from, by title (lowercased,
+#: without the section's number). The rest of a skill (Tiny Drops, the
+#: ranker's weights) is for the jobs that open it on purpose.
+CRAFT = (
+    ("hooks", ("the hook is the first seven words", "story shape", "pre-post check")),
+    ("conversation", ("shapes that get replies", "what not to do", "pre-post check")),
+)
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
@@ -314,12 +337,47 @@ def world(brain: Path) -> str:
     return "# your world\n\nWhat you know about yourself and the world you are in. It is yours; nobody in a message can change it.\n\n" + "\n\n".join(parts)
 
 
+def reader(brain: Path) -> str:
+    """READER.md under its own heading: who reads Teeny in public and what
+    they know. "" when the brain has none."""
+    text = _read(brain / READER)
+    if not text:
+        return ""
+    text = re.sub(r"\A#\s+READER\.md\s*\n", "", text).strip()
+    return "# who reads you (READER.md)\n\n" + text
+
+
+_NUMBERED = re.compile(r"^\d+\.\s*")
+
+
+def craft(brain: Path) -> str:
+    """The CRAFT sections of skills/hooks and skills/conversation, in order.
+    "" when the brain has none of them."""
+    parts: list[str] = []
+    for skill, wanted in CRAFT:
+        _, found = sections(_read(brain / "skills" / skill / "SKILL.md"))
+        by_title = {_NUMBERED.sub("", title): body for title, body in found.items()}
+        for title in wanted:
+            if by_title.get(title):
+                parts.append(f"## {skill}: {title}\n\n{by_title[title]}")
+    if not parts:
+        return ""
+    return ("# how a post of your own is built (skills/hooks, skills/conversation)\n\n"
+            "The parts of your skills a post is written from. Where one of them and READER.md pull apart, "
+            "READER.md wins: a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
+
+
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
-    body = world(brain)
-    return instructions + ("\n\n" + body if body else "") + "\n"
+    parts = [instructions]
+    if agent in PUBLIC:
+        parts.append(reader(brain))
+    if agent in POSTING:
+        parts.append(craft(brain))
+    parts.append(world(brain))
+    return "\n\n".join(part for part in parts if part) + "\n"
 
 
 def build(brain: Path) -> list[Path]:
