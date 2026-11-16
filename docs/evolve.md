@@ -1301,7 +1301,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
 | `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |
 | `EVOLVE_MAX_MEMORY_LOSS` | `0.5` | evolve-watch reverts when memory accuracy falls this far |
-| `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS` | `2.0`, `3` | a spike: at least this many events, at this many times the week's rate |
+| `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS`, `EVOLVE_WATCH_P` | `2.0`, `3`, `0.01` | a spike: at least this many events, and a rate over this many times the week's that an exact test puts under this p |
+| `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
 
 Two more halts don't latch and open one issue a day: a doctor report
@@ -1333,8 +1334,28 @@ and every run record `merged_at` and `merge_sha`) for `EVOLVE_WATCH_HOURS`
 
 - a last-good boot since the merge
 - for the first 24 hours, guard holds and failed cron runs against the 7
-  days before it: a spike is at least `EVOLVE_WATCH_MIN_EVENTS` events at
-  more than `EVOLVE_WATCH_SPIKE` times the week's daily rate
+  days before it: a spike is at least `EVOLVE_WATCH_MIN_EVENTS` events and
+  evidence, not a ratio, that the rate rose past `EVOLVE_WATCH_SPIKE` times
+  the week's. Given the N events of both windows, the after window's count
+  would be Binomial(N, q) at exactly that rise, with q = SPIKE·T_after /
+  (SPIKE·T_after + 7 days); the count is a spike when its upper tail is under
+  `EVOLVE_WATCH_P` (0.01; `evals.binomial_tails`). Four in a day against two
+  a day is p 0.49 and no spike; twenty is p 2e-6. Against a silent week four
+  in a day is the least that is (p 0.002).
+- the cron failures counted are only those the change could have caused,
+  in both windows alike. Left out, and kept as counts under `left_out` in
+  the watch's private checks: a run that failed within
+  `EVOLVE_WATCH_BOOT_MINS` (10) of a spine boot in `state/boots.jsonl` (a
+  deploy or restart kills what is running and the core is unreachable while
+  it comes back), a run whose output carries an infrastructure or provider
+  error (`INFRA_ERROR`: the core unreachable, HTTP 402/408/429/5xx, a
+  dropped stream, a timeout), and, when the change touches only
+  `brain/playbooks/<name>.md`, every job but `bin/act <name>`. Any other
+  change reaches every job. A prompt the core's guard refuses still counts
+  (a playbook's wording can trip it) when the job is one the change reaches.
+  This came from gen-9-c4: a moltbook-curate edit reverted on four failures,
+  two from a deploy restart and two from other playbooks' prompt-guard
+  refusals, one of which failed the same way the day before the merge.
 - once, the persona and memory probes on the live core, against gen-0
 - at 72 hours, J from `hands/world history`: lower than at the merge
 
