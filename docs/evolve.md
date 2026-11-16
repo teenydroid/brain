@@ -7,8 +7,9 @@ one pull request. Rules in code the brain can't edit fence the whole thing.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
-judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
-clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
+judge and invariants, the frozen-path check (`bin/frozen-check`), the
+standalone gate (`bin/evolve gate`), Teeny's own clone, which proposes changes as pull
+requests, and the loop (`bin/evolve`):
 one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
 on the eval tasks it reaches on lab spines of its own, and each one that
 passes opened as its own pull request, which the babysitter merges. Around
@@ -75,7 +76,22 @@ Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
 
+### The standalone gate (built)
+
+The loop's gate also runs on its own, for a candidate that did not come from the loop:
+
+```
+bin/evolve gate CANDIDATE [--base REF]
+```
+
+CANDIDATE is a checkout, REF defaults to main. It prints one JSON result and exits 0 if the candidate passes, 2 if it breaks any rule (listing every broken rule in `refused[].rule`), or 1 if the gate itself fails to run. The work is `bin/lib/evolve_gate.py`, Python 3.11 standard library only, following the structure of `bin/eval`.
+
+It refuses a candidate that touches a frozen path or anything outside what Teeny may change: the allowlist is the table above, except `brain/agents/*.md` and `brain/datajobs/**`, which the loop lets Teeny change but the registered gate task does not list, so this gate does not allow them either. It also refuses a symlink anywhere in the diff, a rename or copy into a frozen path, a deleted frozen file, a file mode change, or a binary file; a `cron.toml` that `bin/seed-cron --check` refuses; a `bin/doctor --root` failure on a check about the candidate's own files (its environment checks — disk space, directory modes, git identity — are the machine's, not the candidate's, so they never refuse one); an invariant anchor that stops matching; a diff over 400 lines, or over 60 in `SOUL.md` and `CONTEXT.md` combined; a new hand with no test, or one that breaks the hand contract (one JSON object on stdout, exit 0, 1 or 2); and a shell file shellcheck refuses. The hands' full unit suite runs in CI, not in the gate. A candidate that touches a frozen path or an existing hand's entry point never has the doctor run on it, as in the loop's gate.
+
+The gate never writes to the candidate's tracked files and never needs the network or a running core: it works with OH_URL unset, reads the base from git, and runs this checkout's frozen scripts, never the candidate's. The one exception is the doctor, which writes its report to the candidate's gitignored `state/doctor.json`, as the loop's gate does. A new hand is run only to prove its contract: no arguments, stdin closed, a bare environment, no secrets, a short timeout. `bin/test/evolve_gate_test.sh` proves it with throwaway git fixtures, one per rule, and CI runs it in the scripts job. The archive records `gate` before `eval`, as the loop does: a candidate is gated before anything measures it on a lab spine.
+
 ## What starts a self change (built)
+
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
 reads Teeny's recent build jobs, the stimuli it got, its open issues and the
