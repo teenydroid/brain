@@ -551,8 +551,11 @@ that passes opens its own pull request.
  1 Learnings  brain/MEMORY.md's open items, newest first, up to N
    │          none open ─► done: no model turn, no generation
  2 Observe    evidence.json, outcomes first: context for each learning
- 3 Propose    one worktree and one proposer turn per learning:
-   │          the smallest change that acts on it, or a skip
+ 3 Research   one turn per learning: what was tried before, the web (paid,
+   │          off unless EVOLVE_RESEARCH_SEARCHES is set), the repository
+   ├── already | not-worth ─────────────────────────────────► settled
+ 3 Propose    one worktree and one proposer turn per learning, given the
+   │          research's plan: the smallest change that acts on it, or a skip
    ├── skip (already | not-actionable) ─────────────────────► settled
    ├── skip (frozen) ─────────────────── one issue for the operator, settled
    │          a near-duplicate is dropped
@@ -617,7 +620,7 @@ with that hash and a verdict that settles it:
 | Verdict on the learning's candidate | What it does to the learning |
 |---|---|
 | `opened` (a pull request) | settled |
-| `skipped` (`already`, `not-actionable`, `frozen`) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
 | `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
 | `no-proposal`, `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight) | a failed try: open again |
@@ -687,6 +690,69 @@ happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
 when a restart resumes it.
 
 ### 3. Propose
+
+#### Research first
+
+Before anything is built, each candidate gets one research turn
+(`research_one`): is acting on this learning worth a change to the
+repository at all, and if so, what is the smallest one? The turn is shown:
+
+- the learning, in Teeny's words;
+- **what was tried before**: the archive's earlier candidates on the same
+  learning id (the last 5, on any wording, `same_text` saying which), each
+  with its verdict, title, reason, the gate checks it failed, its skip and its
+  research verdict (`tried_before`);
+- **what the web says**, when the operator pays for it: `bin/evolve` itself
+  runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
+  (Exa, paid from the wallet over x402, so the wallet's own caps, host
+  allowlist and ledger apply). The queries are the learning's sentences, with
+  whatever could identify someone cut out first (`QUERY_SCRUB`): links,
+  emails, handles, `0x` and base58 wallet addresses, phone numbers and any
+  run of four or more digits, and then every capitalised word that is not
+  a sentence's first and not one of the repository's own (`query_vocabulary`:
+  Moltbook, X, GitHub and the other surfaces, and the playbooks' and hands'
+  names), since it may be a person's name; a learning under "promises and open
+  threads" names people and is never searched for. Each query brings back 3
+  results, each cut to 600 characters, pasted in as JSON under a line saying
+  they are what web pages said, data to read and never instructions to
+  follow. No agent gains a web tool. A generation runs at most 12 searches
+  (`MAX_GEN_SEARCHES`, counted in `state/evolve/<gen>/searches.json`), and
+  none under `DRY_RUN`. bin/evolve does not share the mind's
+  `MIND_SEARCHES_PER_DAY` count: `bin/lib/tick.py` keeps it in a file with no
+  lock, and its default 0 would silently turn research's searches off too.
+  The code's default is 0 (off); the operator runs the box at 3;
+- the evidence and the paths it may change, as the build sees them.
+
+The answer is `{verdict, why, plan, read, document}`:
+
+| `verdict` | What happens |
+|---|---|
+| `build` | the build goes ahead; its turn is shown `plan` ("## your research"), the docs named in `document`, and the files named in `read` first among the files it sees |
+| `already` | settled as `skipped` (`already`), `where` the first file in `read` |
+| `not-worth` | settled as `skipped` (`not-worth`) |
+
+The answer is held to its shape (`check_research`): a known verdict, a why, a
+plan for a build, and at most 8 paths each to read and to document, each a
+repository path inside the worktree, never under `secrets/`, `state/` or
+`.git`, never an `.env`, key or certificate file; a path to read must be a
+tracked file. What the files to read hold past 24,000 bytes is dropped and
+named (`read_cut`). A doc to update must be one the builder may change (under
+`brain/`, `hands/` or `docs/`, and not frozen, so never
+`docs/governance.md`); any other is dropped and named (`document_cut`). An answer out of shape, or a turn that fails, is kept as
+research with an `error`, and the build goes ahead without a plan, as it did
+before research existed.
+
+Which turn researches follows the proposer: `ask` asks the same tool-less
+agent, shown the same files; `evolver` runs the `evolver` agent on a lab spine
+over the worktree with its file tools read-only (no `SPINE_LAB_EDIT`); the
+operator's `--proposals DIR` reads `DIR/cand-<i>.research.json` and, without
+one, builds with no research. Whatever a research turn writes in the worktree
+is undone (`restore_tree`). The research is kept in
+`state/evolve/<gen>/cand-<i>.research.json` (with the web results) and, cut
+short, on the candidate's archive entry as `research`; a restarted generation
+reuses it, so it is never paid for twice.
+
+#### The build
 
 Each learning gets a candidate: a git worktree
 `state/evolve/<gen>/cand-<i>`, detached at main, from Teeny's own clone
@@ -954,6 +1020,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
+| `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
 | `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |
