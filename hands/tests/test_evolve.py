@@ -7,6 +7,7 @@ boots), GitHub is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
