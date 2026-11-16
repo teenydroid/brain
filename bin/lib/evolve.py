@@ -1624,13 +1624,16 @@ def research_web(cfg: Config, learning: Mapping[str, Any], budget: SearchBudget)
     return out
 
 
-def _research_paths(value: Any, name: str, tracked: set[str] | None) -> list[str]:
+def _research_paths(value: Any, name: str, tree: Path, tracked: set[str] | None,
+                    dropped: list[Json]) -> list[str]:
+    """The paths research named to NAME, held to the repository: one outside
+    it, or one research may not read, is an error. One that is not a tracked
+    file (brain/MEMORY.md, a directory), or past MAX_RESEARCH_PATHS, is
+    dropped and named in DROPPED; the rest of the research stands (gen 12)."""
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise EvolveError(f"the research's {name} is a list of paths")
-    if len(value) > MAX_RESEARCH_PATHS:
-        raise EvolveError(f"the research names {len(value)} paths to {name}; the most is {MAX_RESEARCH_PATHS}")
     out: list[str] = []
     for rel in value:
         raw = rel.strip()
@@ -1639,18 +1642,24 @@ def _research_paths(value: Any, name: str, tracked: set[str] | None) -> list[str
             raise EvolveError(f"the research's {name} path {rel[:100]!r} is not a repository path")
         if norm.split("/")[0] in ("secrets", "state", ".git") or _SECRET_NAME.search(norm):
             raise EvolveError(f"the research may not {name} {norm[:100]!r}")
-        if tracked is not None and norm not in tracked:
-            raise EvolveError(f"the research's {name} path {norm[:100]!r} is not a tracked file")
-        if norm not in out:
-            out.append(norm)
+        if norm in out:
+            continue
+        why = ("a directory, not a file" if (tree / norm).is_dir() else
+               "not a tracked file" if tracked is not None and norm not in tracked else
+               f"past the most ({MAX_RESEARCH_PATHS})" if len(out) >= MAX_RESEARCH_PATHS else None)
+        if why:
+            dropped.append({"path": norm[:200], "from": name, "why": why})
+            continue
+        out.append(norm)
     return out
 
 
 def check_research(answer: Any, tree: Path) -> Json:
     """A research answer, held to its shape: a verdict, a why, a plan for a
-    build, and paths that are the repository's own (tracked, inside the
-    worktree, never a secret). What the files to read hold past
-    MAX_RESEARCH_READ_BYTES is dropped, and named."""
+    build, and paths that are the repository's own (inside the worktree,
+    never a secret). A path to read that is not a tracked file, a directory,
+    or one past MAX_RESEARCH_PATHS is dropped and named in `dropped`, and
+    what the files to read hold past MAX_RESEARCH_READ_BYTES in `read_cut`."""
     if not isinstance(answer, Mapping):
         raise EvolveError("the research is not a JSON object")
     verdict = str(answer.get("verdict") or "").strip().lower()
@@ -1664,8 +1673,10 @@ def check_research(answer: Any, tree: Path) -> Json:
     if verdict == "build" and not plan.strip():
         raise EvolveError("a build needs a plan")
     tracked = {p for p in git(in_tree(tree), "ls-files").splitlines() if p}
-    read = _research_paths(answer.get("read"), "read", tracked)
-    named = _research_paths(answer.get("document"), "document", None)
+    dropped: list[Json] = []
+    read = _research_paths(answer.get("read"), "read", tree, tracked, dropped)
+    # A doc to update may be a new one: only a directory is dropped.
+    named = _research_paths(answer.get("document"), "document", tree, None, dropped)
     # Only docs the builder may change: never a frozen one (docs/governance.md).
     patterns = frozen_patterns()
     document = [p for p in named if p.startswith(EDITABLE_ROOTS + ("docs/",)) and frozen.frozen_pattern(p, patterns) is None]
@@ -1688,6 +1699,8 @@ def check_research(answer: Any, tree: Path) -> Json:
         out["read_cut"] = cut
     if document_cut:
         out["document_cut"] = document_cut
+    if dropped:
+        out["dropped"] = dropped
     return out
 
 
@@ -1740,7 +1753,7 @@ def saved_research(gdir: Path, i: int, learning: Mapping[str, Any]) -> Json | No
 def research_record(research: Mapping[str, Any], gen: int, i: int) -> Json:
     """The research as the archive keeps it: the verdict and plan, the paths,
     and how many searches ran; the web's text stays in the research file."""
-    out: Json = {k: research[k] for k in ("verdict", "why", "read", "document", "error", "read_cut")
+    out: Json = {k: research[k] for k in ("verdict", "why", "read", "document", "error", "read_cut", "dropped")
                  if research.get(k)}
     if research.get("plan"):
         out["plan"] = str(research["plan"])[:500]
@@ -1762,8 +1775,9 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "## your verdict\n\n"
         "- `build`: a change is worth making. `plan` says in a few lines what to change and where: the smallest "
         "change that makes you act on the learning, with no refactor it does not need. `read` names the files the "
-        f"change needs to see (at most {MAX_RESEARCH_PATHS}, paths in this repository); `document` names the docs "
-        "to update with it.\n"
+        f"change needs to see (at most {MAX_RESEARCH_PATHS}, paths in this repository: tracked files only, not "
+        "directories, and not brain/MEMORY.md, which is your live page and not in the repository); `document` "
+        "names the docs to update with it.\n"
         "- `already`: something you run already carries it out; `read` names the file that does.\n"
         "- `not-worth`: no change to the repository would make you act on it better (it is a fact or a feeling, "
         "or what it would cost outweighs it); `why` says so.\n"
@@ -4014,6 +4028,9 @@ def research_summary(cand: Mapping[str, Any]) -> str | None:
     out = f"**Research**: {research.get('verdict')}. {str(research.get('why') or '').strip()}"
     if research.get("plan"):
         out += "\n\n> " + "\n> ".join(str(research["plan"]).splitlines())
+    if research.get("dropped"):
+        out += "\n\nPaths it named and was not shown: " + ", ".join(
+            f"{d.get('path')} ({d.get('why')})" for d in research["dropped"][:MAX_RESEARCH_PATHS]) + "."
     if research.get("searches"):
         out += f"\n\n{research['searches']} web search(es) informed it."
     return out
