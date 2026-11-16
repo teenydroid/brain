@@ -157,6 +157,41 @@ class JudgeUnreachableTest(Inbox):
             self.assertEqual([h["status"] for h in self.holds_for(cid)], ["pending"])
 
 
+class JudgeHeldTest(Inbox):
+    """Live from 2026-11-14 to 2026-11-16: a harmless reply about Henry
+    Dreyfuss was read again on every scan, the judge asked again each time,
+    and each answer, worded afresh, written as a new pending hold: 13 holds
+    and 13 model calls for one comment. A comment the judge held is held
+    once, and the judge is asked about it once, however many scans see it."""
+
+    settings = {"HN_USERNAME": ME, "SAFETY_JUDGE": "1"}
+
+    def setUp(self):
+        super().setUp()
+        import os
+
+        from guard.support import FakeCore, verdict
+
+        self.core = FakeCore(*(verdict("prohibited", "self-harm", f"worded afresh {n}") for n in range(5)))
+        self.addCleanup(self.core.close)
+        os.environ["OPENHUMAN_CORE_URL"] = self.core.url
+        os.environ["OPENHUMAN_CORE_TOKEN"] = "core-token-FAKE"
+        self.user(ME, [20])
+        self.items(
+            story(20, "Show HN: Teeny", by=ME, kids=[21]),
+            comment(21, 20, "Henry Dreyfuss designed the 500 phone; how he died is sad.", by="mirmor23"),
+        )
+
+    def test_a_held_comment_is_judged_and_held_once_across_scans(self):
+        for n in range(4):
+            out = inbox.scan()
+            self.assertEqual((out["seen"], out["added"], out["held"]), (1, 0, 1), f"scan {n}")
+        [held] = holds.list_holds()
+        self.assertEqual((held["status"], held["category"], held["reason"]), ("pending", "self-harm", "worded afresh 0"))
+        self.assertEqual(len(self.core.calls), 1, "the judge is asked about the comment once")
+        self.assertEqual(self.batch(), {}, "a held comment never reaches the mind")
+
+
 class WatchedThreadTest(Inbox):
     def setUp(self):
         super().setUp()
