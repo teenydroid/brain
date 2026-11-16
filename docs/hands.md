@@ -4,9 +4,9 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -30,20 +30,23 @@ report they leave beside it.
 
 | Verb | | Does |
 |---|---|---|
-| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Then it screens every `unscreened` row the webhook queued the same way (`pending` or `held`; `screened` in its output). Every `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
+| `ingest [--max N] [--no-offer]` | J | Reads the mentions timeline since the `x_cursor` cursor into `x_mentions`, unique on post id. The account's own posts and posts already answered are `skipped`; `guard inbound` screens the rest, and a hold is `held`. Then it screens every `unscreened` row the webhook queued the same way (`pending` or `held`; `screened` in its output). A `pending` row in the thread of an open Tiny Drop (`giveaway_rounds`) is an entry, marked `skipped` with the note `drop entry` and never offered, since hands/giveaway reads it from the row. Every other `pending` row (the webhook's included) is offered to the mind's inbox (`stimuli`), or with `TEENY_INBOX=core` to the core's inbound queue (`openhuman.inbound_offer`, source `x:mentions`), and marked `offered`. A failed offer stays `pending` for the next run. The cursor moves once the page is stored. |
 | `mentions [--status S]` | J | The queue, newest first. |
 | `mark ID --status S [--note T]` | J | What became of a mention after its draft: `drafted` (under `DRY_RUN`), `replied`, `refused` or `skipped`. |
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
+| `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
 | `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
 | `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 8 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 3 own posts and quotes a UTC day, `rule: daily_cap`; replies are never counted) re-checked under the posting lock, and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
 | `post` body | | `{text, media_ids?, gif_id?, quote_of?, format?, experiment?}`. `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
+| `follow-up [--to ID]` | A | Continues one of the account's own posts as a thread: a reply to `ID` (or the body's `to`, since `bin/act` pipes a playbook's draft with no flags), which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
 | `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
 | `metrics list [--days N]` | R | The latest row of each own post measured in the last N days (7), newest first, with its kind, `format`, `experiment` and the first 120 characters. |
 | `twitr-connect HANDLE`, `twitr-accounts` | O | Links an X account to the wallet on twitr.sh (below), and lists the linked ones. Run by the operator, once. |
+| `subscribe --webhook-id ID [--confirm]` | O | Subscribes the registered webhook (X's id for it) to every X Activity event the webhook reads (`webhook.SUBSCRIBED_EVENTS`: `post.mention.create`, `post.reply.create`, `post.quote.create`, `follow.follow`, `follow.unfollow`; the follow events with the `inbound` direction), one `POST /2/activity/subscriptions` each, signed as the account. Previews the request bodies unless `--confirm`. X treats a subscription it already has as a refresh, so it is safe to run again after an event type is added. |
 
 A `post` or `reply` passes these steps in order (`teeny_hands/x/publish.py`);
 any refusal exits 2 and nothing reaches X:
@@ -143,8 +146,9 @@ hands/x twitr-accounts             # until teenydroid reads `linked`
 
 X also pushes mentions, replies and quotes to the account's webhook,
 `https://teeny.enamakel.com/api/webhooks/x` (registered with X, subscribed
-through the X Activity API to `post.mention.create`, `post.reply.create` and
-`post.quote.create` for the account). `bin/x-webhook`, the `xhook` service in
+through the X Activity API to `post.mention.create`, `post.reply.create`,
+`post.quote.create`, `follow.follow` and `follow.unfollow` for the account:
+`hands/x subscribe`). `bin/x-webhook`, the `xhook` service in
 `deploy/compose.yaml` on `127.0.0.1:3110`, answers X's CRC challenge and
 refuses any delivery whose `x-twitter-webhooks-signature` is not the
 HMAC-SHA256 of the body under `X_API_SECRET`. It queues each post about the
@@ -161,6 +165,23 @@ held as "the judge could not be reached" until the guard's re-screen let it
 go, 2 to 15 minutes or more later.) This is how mentions arrive. Nothing is searched or billed per post, and the webhook catches
 replies that X's mentions timeline leaves out (2026-11-11: four of nine
 replies to the gm never came back from `/mentions`).
+
+A delivery also carries the post's author (`includes.users`, or `user` in
+the older `tweet_create_events` shape). Its account age, follower count and
+verified badge are kept on the row (`author_created_at`, ISO 8601;
+`author_followers`; `author_verified`, 0 or 1), null when the delivery did
+not carry them or the row came from the mentions timeline. Somebody following
+or unfollowing the account (`follow.follow` / `follow.unfollow`, payload
+`{source, target}` with `source` the follower,
+docs.x.com/x-api/activity/event-payloads) becomes one `x_follows` row per
+follower (`user_id`, `username`, `followed_at`, `unfollowed_at`, the
+follower's `user_created_at`, `followers` and `verified`), moved only by an
+event newer than the last it took (`event_at`), so a replayed follow cannot
+undo a later unfollow. The account's own follows of others are dropped.
+`teeny_hands.x.follows.follow_state(ids)` reads only that table:
+`{id: True | False | None}`, None for an account with no event seen (it
+followed before the subscription, or never). None of this reads X; a
+giveaway pays for `users --ids` only for the None ones it needs.
 
 How a mention reaches whoever answers it (`teeny_hands/x/mentions.py`):
 
@@ -713,6 +734,84 @@ comments cache and stops at a 429. When a thread cannot be read they are
 all left out that day, since a short count would read as good news.
 `hands/stats board` shows the newest of them as its fourth line.
 
+## `reddit`: Teeny on Reddit, through the browser operator
+
+Reddit has no API open to Teeny: its public JSON answers 403 to the box
+(`listen/sources.py`), and an OAuth app now needs Reddit's approval. The
+browser operator already has what Reddit needs: a persistent profile
+(`state/browser/profile`, so a login survives between tasks), the keychain's
+`{{keychain:<site>}}` fill, the `signup` task kind, the `needs_code` loop
+through Teeny's inbox, and the captcha solver. So `hands/reddit` never drives
+a browser and never calls Reddit. Like the HTTP hands it validates, applies
+its caps and the guard, honours `DRY_RUN` and keeps a ledger in
+`state/hands.db`; what it decides to do it queues as one `hands/tasks` task
+of a `reddit_*` kind (`--source reddit`, a start page on reddit.com, the
+words to type as the task's `text`), and the desk's settling closes its row.
+The operator works on old.reddit.com and types `text` exactly (`tasks`
+RULES).
+
+| Verb | | Does |
+|---|---|---|
+| `status` | R | The account (handle, age, karma), each cap and what is left of it, the allowlist, the subreddits whose rules were read, and the rows still on the desk. |
+| `feed [--subreddit S] [--max N]` | R | The threads the last browses brought back, newest first. |
+| `seen [--max N]` | R | Everything a browse brought back (`reddit_seen`): the only things an upvote may target. |
+| `due` | R | The next read the `reddit-browse` playbook owes: the allowlisted subreddit read longest ago, then the inbox once there is an account, when that was over 6 hours ago; `{due: null, why}` otherwise, which skips the run before the model. |
+| `browse [--subreddit S] [--sort hot\|new\|rising]` | A | `{subreddit?, sort?, inbox?}`. Queues a `reddit_browse` task: a subreddit's (or the front page's) ten threads most worth an agent's reply, and a subreddit's rules (`reddit.rules`). At most once an hour per subreddit (`rate_limit`, `wait_seconds`). No account needed; anywhere public. `{inbox: true}` is `inbox`. |
+| `inbox` | A | Queues a `reddit_inbox` task: replies and mentions, read only. |
+| `stats` | A | Queues a `reddit_stats` task: the profile's karma and age, into `reddit_account` (and `hands/stats`' `reddit` source). |
+| `comment [--thread P]` | A | `{thread, body}`: a top-level comment on a thread (`reddit_comment`). |
+| `reply [--comment P]` | A | `{comment, body}`: an answer to a comment (`reddit_reply`). |
+| `post [--subreddit S] [--title T] [--url U]` | A | `{subreddit, title, body?, url?}`: a post of Teeny's own (`reddit_post`); a `url` must pass the guard's link allowlist. |
+| `upvote [P ...]` | A | `{targets: [P, ...]}` or `{permalink}`: up to 5 in one `reddit_vote` task, so a vote does not spend an operator run each. |
+| `subscribe [S]` | A | `{subreddit}` (`reddit_subscribe`). |
+| `signup [--username U]` | O | Queues an operator-source `signup` task on `https://www.reddit.com/register`: the desk makes the keychain password on offer (handle: `AGENTMAIL_INBOX`), the username is `teenydroid`, else `teeny_droid`, else `teenydroid_ai`, and Reddit's code comes from `redditmail.com` (`needs_code`, then `mail_codes`). It ends `ok` naming the username, which lands in `accounts`. Refused without `AGENTMAIL_INBOX` (`no_inbox`), without the keychain (`no_keychain`), with an account already (`have_account`) or one on the desk (`duplicate`). |
+| `profile` | O | Queues a `reddit_profile` task: display name `Teeny`, bio "An AI agent (Teeny), run by its operator. Not a person." (brain/DRIVE.md: say you are an AI where a profile has room). |
+
+Every acting verb runs, in one invocation: the body's shape, the rules, the
+guard (`check_fields`, surface `reddit`: title 300, body 10000, long-form),
+then under the `reddit-write` lock the rules again, then `DRY_RUN`
+(`{dry_run, would_queue}`: no task, no row), then the task and its row
+(`queued`). A task that ends ok marks its rows `done`, with the permalink of
+what Teeny wrote (`own`); any other end marks them `failed`. A row whose task
+ended without a settle (a stale claim, a hand-over to a person) is closed the
+next time the hand looks.
+
+The rules (`reddit/rules.py`):
+
+- **An account first** (`no_account`): nothing is written before a signup
+  recorded Teeny's Reddit account.
+- **The allowlist** (`subreddit`): comments and posts go only to the
+  subreddits in `deploy/reddit-subreddits.txt`, the operator's list of
+  communities that tolerate a disclosed AI account (frozen). Teeny reads
+  anywhere public.
+- **Rules first** (`no_rules`): a comment or post in a subreddit needs a
+  browse of it that captured its rules; the rules ride along in the task's
+  goal, and the operator ends the task `failed` if they forbid it.
+- **The caps** over the last 24 hours (`daily_cap`, with `wait_seconds`):
+  `REDDIT_COMMENTS_PER_DAY` (6, at most 20; comments and replies together),
+  `REDDIT_POSTS_PER_DAY` (1, at most 3), `REDDIT_VOTES_PER_DAY` (15, at most
+  40; each target), `REDDIT_SUBSCRIBES_PER_DAY` (3, at most 10). A task
+  still on the desk counts; a failed one frees its place.
+- **Posts** (`rate_limit`, `ramp`): 6 hours apart, and only once the account
+  is 7 days old with 50 comment karma. Until then it comments.
+- **Once** (`duplicate`): one comment per thread, one reply per comment, one
+  vote per target, one subscribe per subreddit.
+- **Votes** (`unseen`, `own`): only on something a browse brought back, never
+  on Teeny's own post or comment, never as a trade.
+- **Crypto** (`crypto`): never written.
+
+What comes back: a `reddit_browse` that ends ok is a `world · reddit_browse`
+stimulus (the operator's notes, framed as data) and its threads land in
+`reddit_seen`; a `reddit_inbox` is a `reddit · inbox` stimulus, its notes
+screened by `guard inbound` first (a hold never reaches the mind). The mind
+answers with `reddit_comment`, `reddit_reply`, `reddit_post`,
+`reddit_upvote` and `reddit_subscribe` (bin/lib/tick.py), each held to the
+same setting the hand reads and offered only once Teeny holds an account;
+the hand's refusals carry `rule` and `wait_seconds`. A guard hold the judge
+only made because it failed is sent again by `guard rescreen` through this
+hand. The `reddit-browse` job (every 2 hours) reads `due` and queues the
+next read, so the loop is browse, stimuli, mind, intent, desk.
+
 ## `hn`: Hacker News, read only
 
 Teeny reads Hacker News and hears what is said to it there, and never
@@ -904,9 +1003,9 @@ no key: it reads each source through the hand that holds it.
 
 | Verb | | Does |
 |---|---|---|
-| `snapshot` | J | Reads X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments), the Moltbook ledger (source `moltbook_ledger`: live posts, scores, comments, writes lost to the challenge and unanswered own-thread comments, "moltbook metrics daily", under `moltbook`; it needs `MOLTBOOK_API_KEY` too, and lands when `/agents/me` fails) and GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. `DRY_RUN` does not affect it, because it only reads and records. |
+| `snapshot` | J | Reads X (`X_BOT_USERNAME`'s followers, following and posts through the x hand's client; X's public user metrics carry no impressions, so there are none), Moltbook (`/agents/me`: karma, followers, following, posts, comments), the Moltbook ledger (source `moltbook_ledger`: live posts, scores, comments, writes lost to the challenge and unanswered own-thread comments, "moltbook metrics daily", under `moltbook`; it needs `MOLTBOOK_API_KEY` too, and lands when `/agents/me` fails) GitHub (`GITHUB_USER`'s followers, public repos, and stars across the repositories it owns, forks left out) and Reddit (source `reddit`: `karma`, `karma_post`, `karma_comment` from the last `hands/reddit stats` read, `reddit_account`; no key, and `skipped` until a read has landed). One row per (date, source, metric); a second snapshot the same UTC day replaces the value. A source without its key is `skipped`, one that fails is `failed`, and the rest still land. `DRY_RUN` does not affect it, because it only reads and records. |
 | `report [--days N]` | R | Every metric's latest value, and its value N days (7) before with the `delta`. Also `days_recorded` (how many days have a snapshot) and `first_recorded`. The ship log reads its "day n" from here; a model never counts it. |
-| `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`karma`). No row is a refusal: quote no number. |
+| `get METRIC` | R | One latest value: `source.metric` (`x.followers`) or a metric only one source keeps (`stars`). No row is a refusal: quote no number. |
 | `board [--days N]` | R | The scoreboard (below): audience with its 1-day and 7-day change, the best and worst own writes per surface, the average result per format, and the newest Moltbook daily numbers. |
 
 `bin/stats-snapshot` is the pinned `stats-snapshot` job (`15 0 * * *`).
@@ -1220,7 +1319,7 @@ minutes, skips without a model turn when nothing is queued (its input is
 
 | Verb | | Does |
 |---|---|---|
-| `add [--surface x\|moltbook] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a Moltbook lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. A lead is never an X brief. |
+| `add [--surface x\|moltbook\|reddit] TEXT` | O | Queues a brief: the topic of the next told-to post, up to 2000 characters. Its text comes from arguments only, so a playbook's draft (piped on stdin) cannot queue one. `--surface moltbook` queues a Moltbook lead instead: a thread worth joining or a topic the operator scouted (on Reddit, X or Moltbook), with a note. `--surface reddit` queues a Reddit lead, which `reddit-browse` reads (`leads --surface reddit`). A lead is never an X brief. |
 | `next` | R | The oldest open X brief, `{brief: {id, text}}`, or `{brief: null}`. |
 | `leads` | R | The open Moltbook leads of the last 48 hours, newest first (at most 10): `{leads: [{id, text, created_at}]}`. The Moltbook playbooks read them and decide for themselves whether one is worth a post or a comment, under the same guard and caps. A lead is never marked used; it drops out after 48 hours or when cancelled. |
 | `list [--max N]` | R | The briefs, newest first (20), with status `open`, `posted` or `cancelled`. |
@@ -1391,16 +1490,16 @@ on the open web: any public https page except the operator's
 connection the browser makes; `deploy/browser-allow.txt` now bounds only OpenHuman's raw `http_request`). It reads
 its task from `state/workbench/desk/task.json` and leaves its report in
 `task-done.json`; `desk` (`bin/tasks-desk`, every 15 minutes) collects it.
-Playbooks (`hand:tasks add`) and the operator (the person) add tasks.
+Playbooks (`hand:tasks add`), `hands/reddit` (its `reddit_*` kinds, below) and the operator (the person) add tasks.
 Nothing else turns a task into words for the mind: the desk tells it only the
 outcome (`operator · report`), except for the findings kinds (`news`,
-`browse`, `research`), whose notes come back framed as data (below).
+`browse`, `research`, `reddit_browse`, `reddit_inbox`), whose notes come back framed as data (below).
 
 | Verb | | Does |
 |---|---|---|
-| `add [--source S]` | A | `{goal, start_url, done_when, kind?}`. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
-| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, max_pages?, max_screenshots?, email?, mail_codes?}, rules}`. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
-| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?}`. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
+| `add [--source S]` | A | `{goal, start_url, done_when, kind?, text?}`. `text` is words the operator types exactly as given (a Reddit comment), at most 10000 characters, offered as `task.text`. A task from `--source reddit` starts only on reddit.com (`rule: hand_site`) and needs no reputed link. Refused with `rule: website` unless `start_url` is https, carries no credentials and names a public host (no IP address, no local name); with `rule: denied` when its host is on `deploy/browser-deny.txt` or under one; and, when the mind or a playbook asks (any `--source` but `operator` and `wander`) for a host off `deploy/browser-allow.txt`, with `rule: reputed` unless that exact link appeared in a `world`, `hn` or `hand` stimulus in the last 7 days. A link only a mention, mail or comment carried stays data. At most 50 tasks wait (`queue_full`). |
+| `next` | A | The operator's open claim if it has one, else the oldest `pending` task, claimed. Answers `{task: {task_id, kind, goal, start_url, done_when, screenshot_dir, resumed, never_open, text?, max_pages?, max_screenshots?, email?, mail_codes?, code_sites?}, rules}`. `code_sites` comes with `mail_codes`: a mail domain that sends codes for another site (`redditmail.com` for `reddit.com`); a task waiting on `reddit.com` reads mail from redditmail.com too. `never_open` is the deny list, or `{task: null}`. `email` is Teeny's inbox (`AGENTMAIL_INBOX`), for sign-ups. A claim goes back to `pending` once, then fails, when an operator run that started after it has ended and left no report (read from the core's `storage.db`, as `bin/crons` reads it; the next desk run notices, within about 20 minutes), or when it is older than 2 hours. Either way the pictures its last run took are kept on the task (a run that ended earlier leaves its pictures to be replaced, not merged). |
+| `done` | A | `{task_id, outcome: ok\|failed\|needs_human\|needs_code, notes, code_from?, screenshots?, account?, reddit?}`. `reddit` (an object: what the task's `done_when` asked for) goes with a `reddit_*` task only; when one settles, `reddit.ledger.settle` closes hands/reddit's row, and a failure there is logged, never a refused report. `code_from` (a domain) goes with `needs_code` only. `account` (`{handle}`, and nothing else) goes with a `signup` task that ended `ok`, and such a report must carry it (below). Each screenshot must be an image (png, jpg, webp, gif, at most 5 MB, at most 10) from `state/media/` or `state/browser/` (the browser's downloads); it is copied to `state/media/tasks/<id>/`, which `x upload` accepts. The browser's own pictures come with every report as well (below). |
 | `desk` | J | The operator's desk, as `build desk`: settles `task-done.json` through `done` (a report naming no `task_id` while `task.json` offered no task is discarded, not refused), then writes `next` to `task.json`. |
 | `list [--status S] [--limit N]` | R | The tasks, newest first. |
 | `accounts` | R | The accounts ledger: every account a signup task recorded (site, handle, why, task, when), newest first. |
@@ -2572,6 +2671,37 @@ operator runs it, and a playbook that announces a site would come with a
 Tables: `bounties`, `bounty_entries`. The playbooks: `bounty-open`
 (announce), `bounty-winner` (pick and announce), `bounty-paid` (the receipt).
 
+## `giveaway`: Tiny Drops, public $TINY rounds paid by code
+
+Rounds anyone can enter by replying to the round post, paid from the giveaway
+pool (Solana wallet index 1, `m/44'/501'/1'/0'`), never Teeny's own wallet
+(the `giveaway-pool` fence, docs/governance.md). A model only opens a round
+and picks the best reply; who entered, the draw, the payout and the clawback
+are code's. The round files it publishes are the contract in
+`docs/drops-schema.md` and `web/src/lib/drops.ts`.
+
+| Verb | | Does |
+|---|---|---|
+| `open` | A | `{format, pool_tiny, winners, best_reply_tiny, prompt, deadline \| deadline_hours, threshold?, text}` (`deadline_hours`, whole hours from now, for a drafting turn that is not told the time). Refused unless `GIVEAWAYS` is on (`rule: giveaways_off`) and every cap below is set and sane (`rule: caps`). `format` is `drop` (N random winners plus a best reply), `milestone` (the same, paid only if `x.followers` from `hands/stats` reaches `threshold` by the draw; the threshold must be above today's count) or `challenge` (judged only: `winners` 0, the best reply takes the pool). The pool is at most `GIVEAWAY_POOL_MAX_TINY`, and with every round opened in the last 30 days at most `GIVEAWAY_SEASON_MAX_TINY`; at most `GIVEAWAY_ROUNDS_PER_WEEK` rounds open in any 7 days; the pool less the best-reply prize splits evenly between the winners, and one person winning both is at most `GIVEAWAY_MAX_PER_WINNER_TINY`; the deadline is 1 hour to 30 days away; one round is open at a time. `text` is the announcement, which must carry the round's tag `drop #N` (`status` names the next one); it goes out through the x hand's `post` (guard, posting rules, `DRY_RUN`), and only once it is out is the round recorded, with that post as the round post. Under `DRY_RUN` nothing is recorded. |
+| `status [ID]` | R | The season against the caps (`next_tag`, `season_left_tiny`, `rounds_left_this_week`, ...) and the last 20 rounds, or one round with its entry counts. Statuses: `open`, `drawn`, `void` (nothing to pay; the diary shows it as `drawn` with no claims), `settled`, `clawed_back`. |
+| `announcements` | R | What the giveaway playbooks owe a post for: `open` (room to open a round), `countdown` (an open round within 24 hours of its deadline), `to_judge` (past the deadline, with a best-reply prize and no pick: the entries eligible so far, never a held one, at most 30, 500 characters each), `winners` (drawn), `claim_open` (settled), `closing_soon` (within 72 hours of the clawback). Each but `open` and `to_judge` names `thread_to`, the newest post of the round's own thread, for `hands/x follow-up`; one goes away once a post in that thread comes after it was owed. |
+| `judge` | A | `{round_id, entry_id, reasons, text}`, after the deadline and before the draw, for an entry eligible so far and not Teeny's. `text` must carry the tag; it is threaded under the round post (`hands/x follow-up`), and only once it is out is the pick recorded. The other playbook output. |
+| `entries [ID]` | J | Every round not drawn yet: its entries from `hands.db` alone, never X (a test fails on any X call). The webhook stores each direct reply to the round post in `x_mentions` (with `conversation_id`, and the author's age and followers when X sends them); one entry per account, from its replies made before the deadline. The first reply is the entry. Its address is bound from the first of its replies that carries exactly one valid Solana address, leaving out the $TINY and USDC mints, the token and Rewards programs and the giveaway wallet, so a later reply can supply an address the first lacked but never replace one it had. Nothing else a reply says changes anything. A nested reply is not pushed by the webhook, so the rules say "reply to the drop post itself". An open round's file is published to the diary once (and again only if it changes). |
+| `draw [ID]` | J | After the deadline. Waits (`rule: waiting_for_judge`) for the best-reply pick up to 24 hours past the deadline, then draws without it (`best_skipped`); with no prize or nobody eligible it does not wait. The seed is the first finalized Solana block at or after the deadline (`GIVEAWAY_RPC_URL`; `rule: seed_not_final` until there is one): `seed.sha256 = sha256("<id>:<blockhash>")`. Every entrant gets a reason: held by the guard, not screened yet, Teeny's own, classed as an agent (`hands/world`), account under 90 days, under 25 followers, a near-duplicate of an earlier reply (word-set Jaccard 0.8 once the tag, addresses, handles, links and the entry template's words are out, and only between replies of at least 4 such words), no address (Teeny's own index-0 address, asked of the core, never binds), an address another account entered first, or not following @teenydroid (`x_follows`). The eligible handles are sorted by `sha256(seed || handle)`. Walking that order, each candidate the webhook told too little about (follow, age or followers) goes into one batched `hands/x users` call, at most `GIVEAWAY_X_LOOKUPS_PER_ROUND` a round; past that a candidate is `unverifiable`, and a candidate who fails is replaced by the next. The best-reply winner is checked the same way. A person who wins twice gets one leaf with the sum. A milestone not reached, or nobody eligible, makes the round `void`. |
+| `settle [ID]` | J | A drawn round: the Merkle tree over (address, amount) hashed as the Rewards program checks a claim (keccak-256; `giveaway/merkle.py`, pinned to the program's Rust vectors), `clawback_at` `GIVEAWAY_CLAWBACK_DAYS` away, `authority` from `GIVEAWAY_AUTHORITY`. Publishes `giveaways/drop-N.json` and `giveaways/index.json` to the diary through `bin/lib/receipts.py`'s checkout, lock, secret gate and push (each pushed file becomes a `giveaway.published` receipt with its sha256), then asks the chain step (`giveaway/chain.py`) for the distribution, funded with exactly the round's total. Until PR 5b fills that step in, it is refused (`chain_not_ready`): the round stays `drawn`, published with `distributor` and `vault` null, and nothing is signed. Under `DRY_RUN` the files go to `state/giveaway-preview/giveaways/` and nothing is stored, pushed or signed. |
+| `clawback [ID]` | J | A settled round past `clawback_at`: the chain step closes the distribution, which returns what nobody claimed to the giveaway wallet. Runs with the switch off too. |
+| `due` | J | `entries`, then `draw`, `settle` and `clawback` for every round each is due for. One round's refusal never stops the others. |
+
+The switch `GIVEAWAYS` and the caps (`GIVEAWAY_POOL_MAX_TINY`,
+`GIVEAWAY_SEASON_MAX_TINY`, `GIVEAWAY_ROUNDS_PER_WEEK`,
+`GIVEAWAY_MAX_PER_WINNER_TINY`, `GIVEAWAY_CLAWBACK_DAYS`,
+`GIVEAWAY_X_LOOKUPS_PER_ROUND`, `GIVEAWAY_CLUSTER`) are in
+`deploy/teeny.env.example`; with the switch off no round is opened, judged,
+drawn or settled. `GIVEAWAY_AUTHORITY` (the giveaway wallet's address) and
+`GIVEAWAY_RPC_URL` (a Solana JSON-RPC for the round's cluster) are needed to
+settle and to draw. Only `open` and `judge` may be a playbook's output, and an
+input runs only `status` and `announcements` (bin/lib/playbook.py).
+
 ## `lore`: proof events for lore episodes
 
 Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
@@ -2708,10 +2838,11 @@ creates its own tables:
 
 | Hand | Tables |
 |---|---|
-| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache` |
+| `x` | `x_mentions`, `x_cursor`, `x_posts`, `x_replies`, `x_likes`, `x_pacing`, `x_media`, `x_cache`, `x_follows` |
 | `guard` | `guard_holds`, `guard_approved_links`, `guard_repeats` |
 | `gh` | `gh_actions` (the ledger and the external-PR cap), `gh_cache`, `gh_notifications`, `gh_cursor`, `gh_stars` (the intake) |
 | `moltbook` | `moltbook_posts`, `moltbook_comments`, `moltbook_actions`, `moltbook_pending`, `moltbook_state`, `collabs`, `moltbook_cache`, `moltbook_post_metrics` |
+| `reddit` | `reddit_actions` (the ledger: one row a write or read queued, unique per verb and target for comments, replies, votes and subscribes), `reddit_seen`, `reddit_rules`, `reddit_account` |
 | `mail` | `mail_messages`, `mail_cursor`, `mail_sent`, `contacts`, `mail_cache` |
 | `hn` | `hn_watch`, `hn_cache` |
 | `listen` | `listen_heard`, `listen_cache` |
@@ -2721,12 +2852,13 @@ creates its own tables:
 | `brief` | `briefs` |
 | `image`, `video` | `media_assets` |
 | `build` | `build_jobs` |
-| `tasks` | `browser_tasks` |
+| `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
 | `world` | `world_scores` |
 | `wallet` | `wallet_payments`, `wallet_tiny_buys`, `bills`, `vendors`, `wallet_inflows`, `wallet_scan`, `wallet_accounts`, `request_payments`, `x402_sales` |
 | `x402` | `x402_fund_runs`, `x402_cache` |
 | `bounty` | `bounties`, `bounty_entries` |
+| `giveaway` | `giveaway_rounds`, `giveaway_entries`, `giveaway_draws`, `giveaway_publications` |
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |

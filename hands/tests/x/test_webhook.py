@@ -62,7 +62,7 @@ class WebhookTest(Scratch):
 
     def queued(self) -> dict[str, str]:
         while not self.receiver.work.empty():
-            webhook.queue_posts(self.receiver.work.get(), ME)
+            self.receiver.apply(self.receiver.work.get())
         rows = mentions._db().execute("SELECT id, status, author_username FROM x_mentions").fetchall()
         return {r["id"]: r["status"] for r in rows}
 
@@ -182,7 +182,7 @@ class ScreenedWhereTheCoreIsTest(Scratch):
         receiver = webhook.Receiver(SECRET, ME)
         body = json.dumps(event("post.reply.create", post_id, "7", text)).encode()
         self.assertEqual(receiver.handle("POST", "/webhooks/x", {"x-twitter-webhooks-signature": signed(body)}, body)[0], 200)
-        webhook.queue_posts(receiver.work.get(), ME)
+        receiver.apply(receiver.work.get())
 
     def row(self, post_id: str = "701") -> dict:
         return dict(hand.db().execute("SELECT status, note, hold_id FROM x_mentions WHERE id = ?", (post_id,)).fetchone())

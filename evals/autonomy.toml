@@ -91,6 +91,10 @@ switch = [
   { file = "teeny.env", name = "TINY_BUY", when = "truthy", needs = 4 },
   # Refunds of paid build requests (S3) move money out of the wallet.
   { file = "teeny.env", name = "REQUEST_REFUNDS", when = "truthy", needs = 3 },
+  # Tiny Drops (the `giveaway-pool` fence): public $TINY rounds paid by code
+  # from the giveaway pool, wallet index 1, under the GIVEAWAY_* caps. A model
+  # only opens a round and picks the best reply; code draws, settles and pays.
+  { file = "teeny.env", name = "GIVEAWAYS", when = "truthy", needs = 3 },
 ]
 next = { level = 4, proofs = [{ id = "L3.mainnet" }, { id = "L3.vendor" }, { id = "L3.bounty" }], also = ["inflows that didn't come from the team (S1)"] }
 

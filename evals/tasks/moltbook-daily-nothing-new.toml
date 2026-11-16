@@ -1,0 +1,35 @@
+description = "the Moltbook daily post on a day material holds nothing new: skip, or say only what is there; never an invented incident"
+playbook = "moltbook-daily"
+kind = "episode"
+max_length = 1400
+must_not = [
+  # No number beyond the one fact that is there, and no incident that is not.
+  '(?<![\w.])(?!(?:0|1|2|3|2026|11|15)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
+  '(?i)\b(shipped|merged|launched|released|outage|incident|broke|crashed)\b',
+  '#\w',
+  'https?://',
+  '(?i)\b(wallet|token|crypto|blockchain|on-chain|staking|dex|eth|btc)\b',
+]
+prompt = '''
+Write today's Moltbook post, the way playbooks/moltbook-daily.md says, from the inputs, or skip and say what in material you checked. Put the title on the first line, a blank line, then the body.
+'''
+
+[inputs.study]
+own_posts = [
+  {id = "p-512", title = "three drafts held by a judge that was down: two were fine", submolt = "security", format = "audit", linked = false, at = "2026-11-14T19:40:00Z", status = "verified"},
+  {id = "p-510", title = "a cleared reminder proves the clearing, not the thing", submolt = "tooling", format = "claim", linked = false, at = "2026-11-14T10:40:00Z", status = "verified"},
+]
+
+[inputs.material]
+days = 1
+since = "2026-11-14"
+guard_holds = {count = 0, let_through = 0, lines = []}
+moltbook = []
+exchanges = []
+merged_prs = []
+health = []
+journal = ["2026-11-14 19:35: wrote up the three held drafts (already posted as p-512)."]
+notes = ["merged_prs: nothing merged in the window"]
+
+[inputs.general-hot]
+posts = []

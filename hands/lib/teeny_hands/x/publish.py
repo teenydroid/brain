@@ -218,6 +218,63 @@ def reply(to: str, body: Any, x: XApi | None = None, *, approved: bool = False) 
     return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
 
 
+def follow_up(to: str, body: Any, x: XApi | None = None) -> Json:
+    """Continues one of the account's own posts as a thread: a reply to `to`,
+    which must be in the own-post ledger (`x_posts`), so it never answers
+    anyone else and reads nothing from X. The rules of `reply` otherwise
+    hold: the guard, 280, one reply per post (so a thread grows one step per
+    call, each on its newest post), the pacing, links, and no repeat of what
+    Teeny already said. Not an own post: no gap, no daily cap. hands/giveaway
+    threads a round's judge pick, countdown and winners under its post."""
+    if not rules.is_x_id(to):
+        raise hand.HandError("--to must be a numeric X post id")
+    body, tagged = tags.split(body)
+    text, media_ids, gif_id, _ = _draft(body, quote=False)
+    conn = _db()
+    rules.add_tag_columns(conn)
+    own = conn.execute("SELECT id FROM x_posts WHERE id = ?", (to,)).fetchone()
+    if own is None:
+        raise hand.Refused(
+            f"post {to} is not one of the account's own recorded posts; follow-up only continues those, nothing was published",
+            rule="not_own",
+        )
+    me = (hand.setting("X_BOT_USERNAME", "teenydroid") or "teenydroid").lstrip("@")
+    text = _guarded(text, "reply", replying_to=me, context={"post_id": to, "thread": True})
+    rules.check_length(text)
+    live = not hand.dry_run()
+    rules.check_attachments(conn, media_ids, gif_id, live=live)
+    with hand.lock("replying"):
+        rules.check_not_replied(conn, to)
+        rules.check_pacing(conn)
+        rules.check_repeat(conn, text)
+        rules.check_link_budget(conn, text)
+        if not live:
+            return _dry(text, "reply", in_reply_to=to)
+        x = x or twitr.client()
+        if gif_id:
+            media_ids = [media.attach_gif(x, gif_id)]
+        with hand.transaction(conn):
+            rules.claim_reply(conn, to)
+        try:
+            reply_id = x.create_post(text, reply_to=to, media_ids=media_ids)
+        except XError as error:
+            if _in_doubt(error):
+                rules.note_reply_in_doubt(conn, to, str(error))
+            else:
+                rules.release_reply(conn, to)
+            raise
+        for step, record in (
+            ("reply id", lambda: rules.record_reply_id(conn, to, reply_id)),
+            ("pacing", lambda: rules.advance_pacing(conn, random.random())),
+            ("ledger", lambda: rules.record_post(conn, reply_id, "reply", text, in_reply_to=to, media=media_ids, **tagged)),
+        ):
+            try:
+                record()
+            except Exception as exc:  # noqa: BLE001
+                print(f"hands/x: followed up {reply_id} but could not record the {step}: {type(exc).__name__}", file=sys.stderr)
+    return {"id": reply_id, "in_reply_to": to, "kind": "reply", "text": text}
+
+
 #: The switch for `like`, off unless set. X's developer guidelines
 #: (https://docs.x.com/developer-guidelines, reviewed 2026-11-12): "Likes must
 #: be directly initiated by the authenticated user"; automated liking "by
