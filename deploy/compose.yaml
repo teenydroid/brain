@@ -220,6 +220,10 @@ services:
     image: teeny-web:current
     build:
       context: ../web
+      args:
+        # /rewards reads Solana from the browser; baked in at build time.
+        NEXT_PUBLIC_SOLANA_RPC: ${NEXT_PUBLIC_SOLANA_RPC:-}
+        NEXT_PUBLIC_SOLANA_RPC_DEVNET: ${NEXT_PUBLIC_SOLANA_RPC_DEVNET:-}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${WEB_PORT:-3120}:3000"

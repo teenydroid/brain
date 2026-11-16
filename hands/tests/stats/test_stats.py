@@ -95,7 +95,19 @@ class StatsTest(unittest.TestCase):
         out = collect.snapshot()
         self.assertEqual(set(out["written"]), {"x"})
         self.assertEqual(out["skipped"], {"moltbook": "MOLTBOOK_API_KEY not set",
-                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set"})
+                                          "moltbook_ledger": "MOLTBOOK_API_KEY not set", "github": "GITHUB_TOKEN not set",
+                                          "reddit": "nothing read yet"})
+
+    def test_reddit_karma_comes_from_the_last_profile_read(self):
+        from teeny_hands.reddit import rules
+
+        conn = rules.db()
+        conn.execute("INSERT INTO reddit_account (handle, karma_post, karma_comment, age_days, checked_at)"
+                     " VALUES ('teenydroid', 4, 61, 9, ?)", (T0,))
+        conn.close()
+        out = collect.snapshot()
+        self.assertEqual(out["written"]["reddit"], {"karma": 65.0, "karma_post": 4.0, "karma_comment": 61.0})
+        self.assertNotIn("reddit", out.get("skipped", {}))
 
     def test_a_failing_source_does_not_stop_the_others(self):
         self.fake.route("GET", "/agents/me", {"success": False, "error": "down"}, status=500)

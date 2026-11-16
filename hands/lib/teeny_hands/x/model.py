@@ -119,6 +119,22 @@ def to_user(raw: Any, handle: str) -> Json | None:
     return user
 
 
+def to_looked_up_user(raw: Any) -> Json | None:
+    """An account from a lookup by ids (`GET /2/users`): its age, followers,
+    and whether it follows the account the lookup signed as
+    (`connection_status` holds `followed_by`)."""
+    if not isinstance(raw, Mapping) or not raw.get("id"):
+        return None
+    metrics = raw.get("public_metrics") if isinstance(raw.get("public_metrics"), Mapping) else {}
+    status = raw.get("connection_status") if isinstance(raw.get("connection_status"), list) else []
+    user: Json = {"id": str(raw["id"])}
+    _put(user, "username", raw.get("username"))
+    _put(user, "createdAt", raw.get("created_at"))
+    _put(user, "followers", _int(metrics.get("followers_count")))
+    user["followsMe"] = "followed_by" in status
+    return user
+
+
 def to_identity(raw: Any, fallback_username: str) -> Json | None:
     """The account the credentials act as, read from the token."""
     if not isinstance(raw, Mapping) or not raw.get("id"):

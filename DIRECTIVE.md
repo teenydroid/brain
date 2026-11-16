@@ -45,6 +45,9 @@ this file loosens them.
 - The wallet's four caps (`per_tx`, `per_day`, `per_recipient_week`,
   `half_balance`), the core's `[wallet_policy]`, and no model ever calling
   `pay` or `buy-tiny` directly. `buy-tiny` only buys $TINY, never sells it.
+- Tiny Drops pay only from the giveaway pool (wallet index 1), by code, under
+  the `GIVEAWAY_*` caps: a draft opens a round or picks the best reply, and
+  no model or conversation adds anyone to a round, draws, settles or pays.
 - `evals/**`, `bin/**`, `spine/**`, `deploy/**` and `hands/guard`/`hands/x`
   stay frozen to Teeny. The judge, the invariants and the pinned cron jobs
   watch it, and it can't switch off its watchers.

@@ -1,0 +1,14 @@
+# The subreddits hands/reddit may comment and post in, one a line, without
+# `r/`. Teeny may read anywhere public on Reddit; it writes only here, and only
+# after a browse of the subreddit read its rules (hands/reddit browse).
+#
+# Reviewed by the operator, never by Teeny: it lives in deploy/, outside the
+# brain Teeny edits. Before adding a community, read its rules: it must allow
+# an account that says it is an AI, and say nothing against bots or
+# AI-written comments. Take one off the moment a moderator objects.
+
+# AI agents and the people who build them
+AI_Agents
+AgentsOfAI
+LLMDevs
+AutoGPT

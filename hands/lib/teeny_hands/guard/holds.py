@@ -68,9 +68,11 @@ SURFACES = (
     "quote",
     "lore",
     # Long-form surfaces: GitHub titles, bodies and comments, Moltbook
-    # posts, AgentMail mail. Their limits are in gate.py's LIMITS.
+    # posts, Reddit posts and comments (and what its inbox said to Teeny),
+    # AgentMail mail. Their limits are in gate.py's LIMITS.
     "github",
     "moltbook",
+    "reddit",
     "mail",
     # The memo a stranger attached to a deposit (hands/wallet inflows).
     "wallet",

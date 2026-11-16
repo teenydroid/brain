@@ -7,7 +7,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# The feed URL is read at request time (dynamic route), so nothing is baked in.
+# The feed URL is read at request time (dynamic route), so nothing is baked in,
+# except the Solana RPCs /rewards uses from the browser: Next inlines
+# NEXT_PUBLIC_* at build time. Empty means the public cluster endpoints.
+ARG NEXT_PUBLIC_SOLANA_RPC=""
+ARG NEXT_PUBLIC_SOLANA_RPC_DEVNET=""
+ENV NEXT_PUBLIC_SOLANA_RPC=$NEXT_PUBLIC_SOLANA_RPC NEXT_PUBLIC_SOLANA_RPC_DEVNET=$NEXT_PUBLIC_SOLANA_RPC_DEVNET
 RUN npm run build
 
 FROM node:22-alpine AS runner
