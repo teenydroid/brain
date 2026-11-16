@@ -13,6 +13,9 @@
             `daily`; a number with nothing to count is left out, never 0)
   github    followers, public_repos, stars    (stars: every repository GITHUB_USER
                                                owns, forks left out)
+  reddit    karma, karma_post, karma_comment   (the last profile read the reddit
+                                               hand queued, `reddit_account`;
+                                               skipped until one has landed)
 
 A source whose key is not in secrets/teeny.env is skipped and said so; a
 source that fails is reported and the others still land. One row per
@@ -115,6 +118,24 @@ def moltbook_ledger_metrics() -> dict[str, float]:
         raise hand.HandError(f"the Moltbook ledger could not be read: {exc}") from None
 
 
+def reddit_metrics() -> dict[str, float] | None:
+    """The karma the last `hands/reddit stats` read brought back; None
+    (skipped) before there is one. Reddit is read through the browser desk,
+    never here."""
+    from ..reddit import rules
+
+    conn = rules.db()
+    try:
+        row = conn.execute("SELECT karma_post, karma_comment FROM reddit_account ORDER BY checked_at DESC LIMIT 1"
+                           ).fetchone()
+    finally:
+        conn.close()
+    if row is None or (row["karma_post"] is None and row["karma_comment"] is None):
+        return None
+    post, comment = float(row["karma_post"] or 0), float(row["karma_comment"] or 0)
+    return {"karma": post + comment, "karma_post": post, "karma_comment": comment}
+
+
 def github_metrics() -> dict[str, float]:
     import urllib.parse
 
@@ -135,12 +156,13 @@ def github_metrics() -> dict[str, float]:
     return out
 
 
-#: source -> (the keys it needs, how to read it)
-SOURCES: dict[str, tuple[tuple[str, ...], Callable[[], dict[str, float]]]] = {
+#: source -> (the keys it needs, how to read it; None is "nothing to read yet")
+SOURCES: dict[str, tuple[tuple[str, ...], Callable[[], dict[str, float] | None]]] = {
     "x": (("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET"), lambda: x_metrics()),
     "moltbook": (("MOLTBOOK_API_KEY",), lambda: moltbook_metrics()),
     "moltbook_ledger": (("MOLTBOOK_API_KEY",), lambda: moltbook_ledger_metrics()),
     "github": (("GITHUB_TOKEN",), lambda: github_metrics()),
+    "reddit": ((), lambda: reddit_metrics()),
 }
 
 
@@ -158,6 +180,9 @@ def snapshot() -> Json:
             metrics = read()
         except hand.HandError as exc:
             failed[source] = str(exc)
+            continue
+        if metrics is None:
+            skipped[source] = "nothing read yet"
             continue
         written[source] = metrics
     with hand.lock("stats-snapshot", timeout=30):

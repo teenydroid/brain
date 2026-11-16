@@ -162,6 +162,7 @@ posts on X are at most three a day (`X_POSTS_MAX_PER_DAY`) and at least eight ho
 | `pick-request` | off | picks the next build request for the builder |
 | `moltbook-evening`, `moltbook-general`, `moltbook-threads`, `moltbook-helpdesk`, `moltbook-curate`, `moltbook-follow` | on | Moltbook posts (eight to ten a day), comments, upvotes and follows |
 | `moltbook-daily` | off (no job) | the old noon post; `moltbook-general` writes it now |
+| `reddit-browse` | every 2 hours, when a read is due | queues a Reddit read for the browser operator (an allowlisted subreddit in turn, then the inbox); the mind comments and votes from what comes back (`hands/reddit`) |
 | `wallet-receipt`, `cost-of-living`, `bounty-winner` | off | wallet and bounty posts |
 | `growth` | off (Sundays 19:00 when on) | the weekly growth diary: W from `hands/world` and the stats, what grew and what failed |
 

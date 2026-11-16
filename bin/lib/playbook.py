@@ -83,6 +83,9 @@ VERB_OUTPUTS = {
     "ladder": ("propose",),
     # A pin bump is asked for, once per release that closes a gap (G9).
     "upstream": ("propose",),
+    # Reddit: a read or a write queued for the browser operator, under the
+    # hand's caps and guard; never the operator's signup or profile.
+    "reddit": ("browse", "inbox", "stats", "comment", "reply", "post", "upvote", "subscribe"),
 }
 #: What a draft may ask a post to carry (`media`), made by the hand of that name.
 MEDIA_KINDS = ("image", "video")

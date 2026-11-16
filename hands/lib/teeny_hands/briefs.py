@@ -1,10 +1,11 @@
 """hands/brief: what the team tells Teeny to post about (docs/hands.md, "brief").
 
-  O  add [--surface x|moltbook] TEXT
+  O  add [--surface x|moltbook|reddit] TEXT
                         queue a brief: what the next told-to post is about
-                        (x, the default), or a Moltbook lead (moltbook)
+                        (x, the default), or a Moltbook or Reddit lead
   R  next               the oldest open X brief, or {"brief": null}
-  R  leads              the open Moltbook leads of the last 48 hours
+  R  leads [--surface moltbook|reddit]
+                        the open leads of the last 48 hours (Moltbook's by default)
   R  list [--max N]     the briefs, newest first
   A  post {id, text, media_ids?}  post `text` (Teeny's draft of brief `id`),
                         with any picture bin/act attached, through hands/x
@@ -21,7 +22,8 @@ pacing refusal or an error leaves it open for the next run.
 
 A Moltbook lead is the operator scouting for Teeny: a Moltbook thread worth
 joining, or a topic seen on Reddit, X or Moltbook, with a note. It is never
-an X brief. The Moltbook playbooks read `leads` as one input among others and
+an X brief. A Reddit lead is the same for Reddit: a thread or a subreddit
+the operator saw, which the reddit-browse playbook reads. The Moltbook playbooks read `leads` as one input among others and
 decide for themselves whether a lead is worth a post or a comment, under the
 same guard and caps as anything else they write. A lead is never marked used:
 it drops out after LEAD_HOURS, or when the operator cancels it, and the
@@ -49,13 +51,15 @@ CREATE TABLE IF NOT EXISTS briefs (
   post_id    TEXT,
   post_text  TEXT,
   done_at    REAL,
-  surface    TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook'))
+  surface    TEXT NOT NULL DEFAULT 'x' CHECK (surface IN ('x', 'moltbook', 'reddit'))
 );
 CREATE INDEX IF NOT EXISTS briefs_status ON briefs (status, created_at);
 """
 
 MAX_TEXT = 2000
-SURFACES = ("x", "moltbook")
+SURFACES = ("x", "moltbook", "reddit")
+#: The surfaces a lead may be for.
+LEAD_SURFACES = ("moltbook", "reddit")
 #: How long a Moltbook lead is offered: a thread two days old has moved on.
 LEAD_HOURS = 48
 MAX_LEADS = 10
@@ -73,7 +77,30 @@ def _db():
         except sqlite3.OperationalError as exc:
             if "duplicate column" not in str(exc):
                 raise
+    _widen_surfaces(conn)
     return conn
+
+
+def _widen_surfaces(conn: sqlite3.Connection) -> None:
+    """A ledger whose surface CHECK predates a surface in SURFACES is
+    copied into a table with today's CHECK, rows and ids kept. SQLite cannot
+    change a CHECK in place."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'briefs'").fetchone()
+    sql = row[0] if row is not None else ""
+    if "CHECK (surface IN" not in sql or all(f"'{s}'" in sql for s in SURFACES):
+        return
+    columns = "id, text, status, created_at, post_id, post_text, done_at, surface"
+    with hand.transaction(conn):
+        again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'briefs'").fetchone()[0]
+        if all(f"'{s}'" in again for s in SURFACES):
+            return  # another process widened it meanwhile
+        conn.execute("ALTER TABLE briefs RENAME TO briefs_narrow")
+        conn.execute("DROP INDEX IF EXISTS briefs_status")
+        for statement in SCHEMA.split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        conn.execute(f"INSERT INTO briefs ({columns}) SELECT {columns} FROM briefs_narrow")
+        conn.execute("DROP TABLE briefs_narrow")
 
 
 def _public(row) -> Json:
@@ -113,13 +140,15 @@ def next_open() -> Json:
         conn.close()
 
 
-def leads() -> Json:
+def leads(surface: str = "moltbook") -> Json:
+    if surface not in LEAD_SURFACES:
+        raise hand.Refused(f"a lead is for one of {', '.join(LEAD_SURFACES)}")
     conn = _db()
     try:
         rows = conn.execute(
-            "SELECT id, text, created_at FROM briefs WHERE status = 'open' AND surface = 'moltbook' AND created_at >= ?"
+            "SELECT id, text, created_at FROM briefs WHERE status = 'open' AND surface = ? AND created_at >= ?"
             " ORDER BY created_at DESC, id DESC LIMIT ?",
-            (hand.now() - LEAD_HOURS * 3600, MAX_LEADS),
+            (surface, hand.now() - LEAD_HOURS * 3600, MAX_LEADS),
         ).fetchall()
         return {"leads": [{"id": r["id"], "text": r["text"], "created_at": r["created_at"]} for r in rows]}
     finally:
@@ -220,11 +249,12 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler, takes_body=body)
         return sub
 
-    adding = verb("add", lambda a, _: add(" ".join(a.text), a.surface), "queue a brief or a Moltbook lead (operator)")
+    adding = verb("add", lambda a, _: add(" ".join(a.text), a.surface), "queue a brief or a lead (operator)")
     adding.add_argument("--surface", choices=SURFACES, default="x")
     adding.add_argument("text", nargs="+")
     verb("next", lambda a, _: next_open(), "the oldest open X brief")
-    verb("leads", lambda a, _: leads(), "the open Moltbook leads of the last 48 hours")
+    verb("leads", lambda a, _: leads(a.surface), "the open leads of the last 48 hours").add_argument(
+        "--surface", choices=LEAD_SURFACES, default="moltbook")
     verb("list", lambda a, _: listing(a.max), "the briefs, newest first").add_argument(
         "--max", type=_bounded(1, 100, "--max"), default=20
     )
