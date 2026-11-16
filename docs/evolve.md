@@ -29,7 +29,7 @@ The research behind it is in [`research/`](research/README.md), starting with
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
 | `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), the money hands (`wallet`, `x402`, `vps`, and `surplus` with its tests, which sweeps spare SOL to the surplus wallet), and the existing `hands/lib/teeny_hands/**` listed in `evals/frozen.txt` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
-| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml`, the tool-less agent `bin/evolve` reviews each candidate with |
+| `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml` and `querier.toml`, the tool-less agents `bin/evolve` reviews each candidate and writes its research queries with |
 | new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
 | `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
@@ -732,7 +732,8 @@ repository at all, and if so, what is the smallest one? The turn is shown:
   (Exa, paid from the wallet over x402, so the wallet's own caps, host
   allowlist and ledger apply). The queries are the model's: before the
   searches, one tool-less turn (`research_query_turn`, the message
-  `render_query_request`) is shown the learning and asked for up to
+  `render_query_request`) is shown the learning, and only the learning (its
+  id, section and text: no evidence, files or history), and asked for up to
   `EVOLVE_RESEARCH_SEARCHES` short, generic queries about the engineering or
   behaviour question under it (how others solve it), as `{"queries": [...]}`.
   The message says the queries go to a public search engine and must carry
@@ -757,9 +758,15 @@ repository at all, and if so, what is the smallest one? The turn is shown:
   not a search and costs none of the budget, but it is not asked at all when
   `EVOLVE_RESEARCH_SEARCHES` is 0, when the generation's searches are spent,
   or for a learning under "promises and open threads", which names people
-  and is never searched for. The `ask` proposer asks its own agent
-  (`EVOLVE_PROPOSER_AGENT`, `act`); the `evolver`, whose agent has file
-  tools, asks the same tool-less `EVOLVE_PROPOSER_AGENT` on the live core;
+  and is never searched for. The turn runs on its own agent,
+  `EVOLVE_QUERY_AGENT` (`querier`, `brain/agents/querier.toml`: no tools, no
+  memory, no identity, temperature 0.1, frozen), for the `ask` and the
+  `evolver` proposers alike, never on the proposer's own: `act` loads Teeny's
+  memory, and the code checks above cannot tell a person's name written in
+  lowercase from any other word, so the only private text the query turn
+  ever sees is the one learning in its message. A core that has not loaded
+  the agent (a new agent file needs a spine restart) fails the turn, and
+  that learning is not searched for; it never falls back to `act`.
   `--proposals DIR` searches nothing. The research file keeps `queries`:
   what the model `proposed`, what was `dropped` and why, what was `sent`
   (and an `error` or `skipped` when there were none). Each query brings back 3
@@ -1323,6 +1330,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
+| `EVOLVE_QUERY_AGENT` | `querier` | the tool-less, memoryless agent the research query turn runs on, for every proposer |
 | `EVOLVE_CONTEXT_CHARS` | `60000` | how much file text a proposer turn is shown, then cut to fit the core's 64 KiB prompt screen |
 | `EVOLVE_ISSUE_REPO` | `teenydroid/brain` | where a halt's issue, and a frozen learning's, opens |
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |

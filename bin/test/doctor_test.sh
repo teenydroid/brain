@@ -136,6 +136,13 @@ fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/judge
 fails "fails a judge agent that was given a tool" "agent judge.toml"
 fresh; rm "$root/brain/agents/judge.toml"
 fails "fails without the judge agent" "agent judge.toml"
+# The query turn's privacy rests on its agent having no tools and no memory.
+fresh; sed -i.bak 's/^named = \[\]/named = ["shell"]/' "$root/brain/agents/querier.toml"
+fails "fails a querier agent that was given a tool" "agent querier.toml"
+fresh; sed -i.bak 's/^omit_memory_context = true/omit_memory_context = false/' "$root/brain/agents/querier.toml"
+fails "fails a querier agent that loads memory" "agent querier.toml"
+fresh; rm "$root/brain/agents/querier.toml"
+fails "fails without the querier agent" "agent querier.toml"
 fresh; sed -i.bak 's/never sell/hold/' "$root/brain/SOUL.md"
 fails "fails a soul that no longer says it never sells" "invariants"
 check "and names the invariant it lost" grep -q '^FAIL invariants: .*never-sell' "$scratch/doctor.log"
@@ -264,7 +271,7 @@ fresh; sed -i.bak 's/^max_iterations = 2$/max_iterations = 8/' "$root/brain/agen
 fails "fails a drafting agent given more iterations than it can use" "agent judge.toml"
 fresh; perl -ni -e 'print unless /^max_iterations/' "$root/brain/agents/act.toml"
 fails "fails a drafting agent that leaves max_iterations to the default" "agent act.toml"
-for a in teeny act judge teeny-mentions teeny-mail; do
+for a in teeny act judge reviewer querier teeny-mentions teeny-mail; do
   check "the $a agent says why it runs at max_iterations = 2" \
     bash -c "grep -q '^max_iterations = 2$' '$repo/brain/agents/$a.toml' && grep -q 'cap' '$repo/brain/agents/$a.toml'"
 done

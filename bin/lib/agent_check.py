@@ -9,6 +9,7 @@ needs; exits non-zero with the reason otherwise:
 - the drafting agents (NO_TOOLS) have no tools at all and never act on a
   schedule: they read text strangers wrote;
 - the drafting agents run at exactly NO_TOOLS_MAX_ITERATIONS (see there);
+- the judge, reviewer and querier (MEMORYLESS) load no memory and no identity;
 - only the agents written to act from cron (SCHEDULED) may set
   `scheduled_actions`, and those must set it, name their tools explicitly
   (never the wildcard), and leave out the tools their role must not have;
@@ -32,7 +33,11 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("teeny", "act", "judge", "reviewer", "teeny-mentions", "teeny-mail")
+NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail")
+#: The tool-less agents that must also load no memory and no identity: they
+#: are not Teeny, and are shown only what their message carries (the
+#: querier's queries leave the box).
+MEMORYLESS = ("judge", "reviewer", "querier")
 #: A drafting agent's turn is one model call: with no tools it cannot loop.
 #: But the vendored harness pauses a session turn when it reaches
 #: max_iterations even after a final answer (the CapPauser in
@@ -93,6 +98,8 @@ def check(path: Path) -> str:
         if doc.get("max_iterations") != NO_TOOLS_MAX_ITERATIONS:
             raise SystemExit(f"the {agent} agent must set max_iterations = {NO_TOOLS_MAX_ITERATIONS} "
                              "(1 trips the harness's cap pause on every turn; more is a loop it has no tools for)")
+        if agent in MEMORYLESS and not (doc.get("omit_memory_context") is True and doc.get("omit_identity") is True):
+            raise SystemExit(f"the {agent} agent must set omit_memory_context = true and omit_identity = true")
         return agent
     if agent in EDITORS:
         if scheduled:

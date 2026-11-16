@@ -207,6 +207,9 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_CREDIT_DECAY": ("0.5", float, 0.0, 1.0),
     "EVOLVE_PROPOSER": ("ask", str, None, None),
     "EVOLVE_PROPOSER_AGENT": ("act", str, None, None),
+    # The agent the research query turn runs on, for every proposer: no
+    # tools, no memory (brain/agents/querier.toml), never the proposer's own.
+    "EVOLVE_QUERY_AGENT": ("querier", str, None, None),
     "EVOLVE_ISSUE_REPO": ("teenydroid/brain", str, None, None),
     "EVOLVE_EVALUATOR": ("lab", str, None, None),
     "EVOLVE_LAB_PORT": ("7790", int, 1024, 65000),
@@ -1044,8 +1047,9 @@ class AskProposer:
 
     name = "ask"
 
-    def __init__(self, agent: str) -> None:
+    def __init__(self, agent: str, query_agent: str | None = None) -> None:
         self.agent = agent
+        self.query_agent = query_agent or SETTINGS["EVOLVE_QUERY_AGENT"][0]
 
     def propose(self, request: Json) -> Any:
         """One turn, and one more on a fresh thread when its answer does not
@@ -1060,8 +1064,12 @@ class AskProposer:
         return self._json_turn(request, render_research_request(fit_request(request, render=render_research_request)))
 
     def queries(self, request: Json) -> Any:
-        """The query turn (research_query_turn): the same tool-less turn,
-        shown only the learning, answering the web searches to run for it."""
+        """The query turn (research_query_turn): a tool-less turn on the
+        query agent (EVOLVE_QUERY_AGENT: no memory, no identity), never this
+        proposer's own, shown only the learning, answering the web searches
+        to run for it. A core without that agent fails the turn: no search."""
+        if self.query_agent != self.agent:
+            return AskProposer(self.query_agent, self.query_agent).queries(request)
         return self._json_turn(request, render_query_request(request))
 
     def _json_turn(self, request: Json, message: str) -> Any:
@@ -1156,8 +1164,8 @@ class EvolverProposer:
 
     def queries(self, request: Json) -> Any:
         """The query turn: never this agent (it has file tools), but the
-        tool-less EVOLVE_PROPOSER_AGENT on the live core, as AskProposer."""
-        return AskProposer(self.cfg["EVOLVE_PROPOSER_AGENT"]).queries(request)
+        tool-less, memoryless EVOLVE_QUERY_AGENT on the live core."""
+        return AskProposer(self.cfg["EVOLVE_QUERY_AGENT"], self.cfg["EVOLVE_QUERY_AGENT"]).queries(request)
 
     def _propose(self, request: Json, tree: Path, folder: Path, port: int, message: str | None = None,
                  edit: bool = True) -> Any:
@@ -1183,7 +1191,7 @@ class EvolverProposer:
 def make_proposer(cfg: Config, folder: str | None) -> Proposer:
     spec = f"file:{folder}" if folder else cfg["EVOLVE_PROPOSER"]
     if spec == "ask":
-        return AskProposer(cfg["EVOLVE_PROPOSER_AGENT"])
+        return AskProposer(cfg["EVOLVE_PROPOSER_AGENT"], cfg["EVOLVE_QUERY_AGENT"])
     if spec == "evolver":
         return EvolverProposer(cfg)
     if spec.startswith("file:"):

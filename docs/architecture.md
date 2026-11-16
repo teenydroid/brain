@@ -64,7 +64,7 @@ So **models draft, and operator-written scripts act.** In practice:
 - The script asks a tool-less agent for a draft over the core's JSON-RPC
   (`openhuman.inference_agent_chat` with an `agent_id`, through `bin/ask`).
   The drafting agents (`act`, `teeny`, `teeny-mentions`, `teeny-mail`,
-  `judge`) have no tools at all. They answer in JSON.
+  `judge`, and bin/evolve's `reviewer` and `querier`) have no tools at all. They answer in JSON.
 - The script then calls the hands that act. Each acting verb runs the guard
   and its own rules *itself*, in the same invocation, so a script that
   forgets them still cannot post unchecked.
@@ -989,7 +989,7 @@ cannot pass ends the task `needs_human`. `bin/doctor`
 and `bin/lib/cron_policy.py` refuse a definition that loses the opt-in or
 its named tools, gives the builder the browser or a wallet tool, or gives
 the operator the shell or file writes. The drafting agents (`act`, `judge`,
-`teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
+`reviewer`, `querier`, `teeny-mentions`, `teeny-mail`) keep no tools and may never opt in.
 
 **How they reach the hands: a desk, not a call.** The core's workspace is
 `brain/` and its action directory is the checkout, so `workspace_only` alone

@@ -213,41 +213,124 @@ class QueryTurn(LoopCase):
 
 
 class AskQueryTurn(LoopCase):
-    def test_the_ask_proposer_writes_its_queries_on_a_tool_less_turn_before_research(self):
-        self.x402()
-        self.live()
+    """The query turn runs on EVOLVE_QUERY_AGENT (brain/agents/querier.toml:
+    no tools, no memory, no identity), never on the proposer's own agent,
+    which loads Teeny's memory."""
+
+    def fake_oh(self, refuse=()):
+        """A core that logs each turn and answers the query and research
+        turns; an agent in REFUSE is one it has not loaded."""
         calls = self.root / "oh.log"
         fake = self.root / "fake-oh"
         fake.write_text(
             "#!/usr/bin/env python3\nimport json, sys\n"
             f"open({str(calls)!r}, 'a').write(sys.argv[2] + '\\n')\n"
-            "msg = json.loads(sys.argv[2])['message']\n"
+            "params = json.loads(sys.argv[2])\n"
+            f"if params.get('agent_id') in {tuple(refuse)!r}:\n"
+            "    sys.exit('unknown agent: ' + params['agent_id'])\n"
+            "msg = params['message']\n"
             "answer = {'queries': [" + repr(GOOD) + "]} if msg.startswith('# evolve research queries') "
             "else {'verdict': 'not-worth', 'why': 'a feeling'}\n"
             "print(json.dumps({'response': json.dumps(answer)}))\n")
         fake.chmod(0o755)
         os.environ["TEENY_OH"] = str(fake)
-        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask", EVOLVE_RESEARCH_SEARCHES=2)
+        return calls
+
+    def generation(self, **settings):
+        self.x402()
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask", EVOLVE_RESEARCH_SEARCHES=2,
+                    **settings)
         self.one_learning()
         evolve.run_generation(evolve.load_config(), 1, None, publisher=__import__("test_evolve").FakePublisher())
+
+    def test_the_ask_proposer_writes_its_queries_on_the_memoryless_query_agent_not_its_own(self):
+        calls = self.fake_oh()
+        self.generation()
         turns = [json.loads(line) for line in calls.read_text().splitlines()]
-        self.assertEqual([t["agent_id"] for t in turns], ["act", "act"])
+        self.assertEqual([t["agent_id"] for t in turns], ["querier", "act"])
         self.assertTrue(turns[0]["message"].startswith("# evolve research queries"))
         self.assertTrue(turns[1]["message"].startswith("# evolve research: generation 1"))
         self.assertEqual([c[5] for c in self.hand_calls() if c[0] == "x402"], [GOOD])
 
-    def test_the_evolver_writes_its_queries_on_the_tool_less_proposer_agent_not_its_own(self):
+    def test_the_query_agent_is_a_setting(self):
+        calls = self.fake_oh()
+        self.generation(EVOLVE_QUERY_AGENT="plain")
+        turns = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertEqual([t["agent_id"] for t in turns], ["plain", "act"])
+
+    def test_a_query_agent_the_core_has_not_loaded_means_no_search_and_no_fallback_to_the_proposer(self):
+        calls = self.fake_oh(refuse=("querier",))
+        self.generation()
+        turns = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertEqual([t["agent_id"] for t in turns], ["querier", "act"])
+        self.assertTrue(turns[1]["message"].startswith("# evolve research: generation 1"))
+        self.assertEqual([c[5] for c in self.hand_calls() if c[0] == "x402"], [])
+        research = json.loads((evolve.gen_dir(1) / "cand-1.research.json").read_text())["research"]
+        self.assertIn("unknown agent: querier", research["queries"]["error"])
+        self.assertEqual(research["queries"]["sent"], [])
+
+    def test_the_query_message_carries_the_learning_and_nothing_else_of_the_request(self):
+        seen = []
+
+        def turn(self, request, message):
+            seen.append(message)
+            return json.dumps({"queries": [GOOD]})
+
+        request = {"gen": 1, "cand": 1, "learning": LEARNING, "n": 2,
+                   "evidence": {"secret": "a private evidence line"}, "files": {"brain/MEMORY.md": "memory text"}}
+        with unittest.mock.patch.object(evolve.AskProposer, "_turn", turn):
+            evolve.AskProposer("act", "querier").queries(request)
+        self.assertIn(LEARNING["text"], seen[0])
+        self.assertNotIn("a private evidence line", seen[0])
+        self.assertNotIn("memory text", seen[0])
+
+    def test_the_evolver_writes_its_queries_on_the_query_agent_not_its_own_or_the_proposers(self):
         seen = []
 
         def turn(self, request, message):
             seen.append((self.agent, message))
             return json.dumps({"queries": [GOOD]})
 
-        cfg = {"EVOLVE_PROPOSER_AGENT": "act", "EVOLVE_EVOLVER_AGENT": "evolver", "EVOLVE_LAB_PORT": 7790}
+        cfg = {"EVOLVE_PROPOSER_AGENT": "act", "EVOLVE_QUERY_AGENT": "querier", "EVOLVE_EVOLVER_AGENT": "evolver",
+               "EVOLVE_LAB_PORT": 7790}
         with unittest.mock.patch.object(evolve.AskProposer, "_turn", turn):
             got = evolve.EvolverProposer(cfg).queries({"gen": 1, "cand": 1, "learning": LEARNING, "n": 2})
         self.assertEqual(got, {"queries": [GOOD]})
-        self.assertEqual(seen[0][0], "act")
+        self.assertEqual([a for a, _ in seen], ["querier"])
+
+
+class QueryAgentFile(unittest.TestCase):
+    """brain/agents/querier.toml: what the query turn's privacy rests on."""
+
+    def setUp(self):
+        import tomllib
+        self.path = HERE.parent.parent / "brain" / "agents" / "querier.toml"
+        with open(self.path, "rb") as fh:
+            self.doc = tomllib.load(fh)
+
+    def test_it_has_no_tools_no_memory_and_no_identity(self):
+        self.assertEqual(self.doc["id"], evolve.SETTINGS["EVOLVE_QUERY_AGENT"][0])
+        self.assertEqual(self.doc["tools"]["named"], [])
+        self.assertIs(self.doc["omit_memory_context"], True)
+        self.assertIs(self.doc["omit_identity"], True)
+        self.assertLessEqual(self.doc["temperature"], 0.2)
+        self.assertNotIn("scheduled_actions", self.doc)
+
+    def test_its_prompt_says_nothing_private_goes_in_a_query(self):
+        prompt = self.doc["system_prompt"]["inline"].lower()
+        for word in ("search", "public", "names", "accounts", "wallets", "amounts", "dates"):
+            self.assertIn(word, prompt)
+
+    def test_doctor_holds_it_to_the_tool_less_posture(self):
+        sys.path.insert(0, str(HERE.parent.parent / "bin" / "lib"))
+        import agent_check
+        self.assertIn("querier", agent_check.NO_TOOLS)
+        self.assertEqual(agent_check.check(self.path), "querier")
+
+    def test_it_is_frozen(self):
+        frozen = (HERE.parent.parent / "evals" / "frozen.txt").read_text().splitlines()
+        self.assertIn("brain/agents/querier.toml", frozen)
 
 
 if __name__ == "__main__":
