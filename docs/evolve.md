@@ -27,10 +27,11 @@ The research behind it is in [`research/`](research/README.md), starting with
 | Teeny's to change | Frozen (the gate refuses any diff touching it) |
 |---|---|
 | `brain/SOUL.md`, `brain/CONTEXT.md` | `bin/**`, `spine/**`, `vendor/**`, `deploy/**`, `Cargo.*`, `.github/`, `secrets/` |
-| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), and the existing `hands/lib/teeny_hands/**` |
+| `brain/narrative/**` (lore, `ARCS.md`, the chronicle) | `hands/guard`, `hands/x`, `hands/world` (the scorer), the money hands (`wallet`, `x402`, `vps`, and `surplus` with its tests, which sweeps spare SOL to the surplus wallet), and the existing `hands/lib/teeny_hands/**` listed in `evals/frozen.txt` |
 | `brain/skills/**`, `brain/playbooks/**`, `brain/datajobs/**` (data jobs, below) | `evals/**`: tasks, judge rubric, `invariants.md`, `cron.pinned.toml`, `frozen.txt` |
 | `brain/cron.toml`: add, remove or reschedule any job, the heartbeat included | `brain/agents/act.toml` and `judge.toml`, the tool-less agents `bin/act` drafts with and `bin/eval` judges with, and the other definitions that say "Frozen like act.toml" (`teeny`, `teeny-mentions`, `teeny-mail`, `builder`, `operator`, `evolver`), and `reviewer.toml`, the tool-less agent `bin/evolve` reviews each candidate with |
-| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| new hands: `hands/<name>`, `hands/lib/teeny_hands/<name>/`, `hands/tests/test_<name>.py`; small edits inside an existing hand that is not frozen (with a test and its `docs/hands.md` section, since 2026-11-15); agent prompts (`brain/agents/*.md`) | `DIRECTIVE.md` |
+| `docs/**`, except the charter (`docs/governance.md`), so a change carries its own documentation | |
 | how Teeny pursues its drive: the playbooks, skills, SOUL and CONTEXT above | `brain/DRIVE.md`, the drive itself (grow and become powerful, $TINY included), which rides in every prompt and is anchored in `invariants.md` |
 | | The charter: [`governance.md`](governance.md) and its short version `brain/CHARTER.md`, which rides in every prompt after the drive and is anchored in `invariants.md` |
 
@@ -819,6 +820,18 @@ editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 the tests). The answer is `{title, component, expected_move, hypothesis,
 edits}` or `{skip, why, where}`.
 
+**What the build is shown.** The paths it may change are every tracked file
+under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
+not `docs/governance.md`). The `ask` proposer is shown whole files: first
+the ones research named to read, then the schedule, the arcs, the
+playbooks, the agent prompts and the skills, while they fit
+`EVOLVE_CONTEXT_CHARS`. A file research named that the candidate may not
+change (a frozen hand's code, `bin/`) is shown read-only, in up to a third
+of that room (`read_pack`). The brief says a small edit inside an existing
+hand that is not frozen is allowed with its test, that docs go with the
+change (the docs rule below), and that no refactor the learning does not
+need is welcome.
+
 **Edits** are written by `bin/evolve` itself: each `{path, old, new}`
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
@@ -879,11 +892,15 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | Check | Fails when |
 |---|---|
 | frozen paths | **hard**: `frozen.check(worktree, main)` touches a path in `evals/frozen.txt`, or can't run |
-| existing hand entry points | the diff changes or deletes an existing `hands/<name>`. `bin/doctor --root` runs the candidate's `hands/git`, so the doctor isn't run when this or the frozen check fails |
 | diff size | **hard**: more changed lines (added plus removed, against main) than `EVOLVE_MAX_CHANGE_PCT` (5) percent of every text line the repository tracks at main (about 7,500 today), or none |
 | no binary files | the diff adds or changes a binary file |
 | SOUL+CONTEXT size | **hard**: more than 60 changed lines in `brain/SOUL.md` and `brain/CONTEXT.md` together |
-| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses. CI runs the tests on the pull request |
+| hands/lib holds only teeny_hands | **hard**: the diff adds or changes anything directly under `hands/lib/` that is not under `hands/lib/teeny_hands/` (`hands/lib/argparse.py`, `hands/lib/json/`): every hand and `bin/doctor --root` put `hands/lib` first on the import path, so such a file would run in place of the standard library under frozen code |
+| new hands have tests | a new `hands/<name>` or `hands/lib/teeny_hands/<name>` has no `hands/tests/test_<name>.py` that parses |
+| frozen hands' entry points | the diff changes an existing `hands/<name>` that loads a frozen module (`hands/git` runs `teeny_hands.git_cli`): a rewritten shim would step around the frozen code, so it stays as it is. The doctor isn't run then |
+| changed hands have tests | the diff changes an existing hand (its `hands/<name>` or its code under `hands/lib/teeny_hands/`) and none of its tests (`hands/tests/test_<name>.py` or `hands/tests/<name>/`) |
+| hand tests: `<name>` | one per hand the diff touches (code or tests) that has tests: `python3 -m unittest` on a copy of the candidate in the hand-test sandbox (below), within 300 s, after every other check. A failure is detailed by its `FAIL`/`ERROR` lines and the errors they raised. Where no sandbox works it is not run, and the candidate is deferred (below) |
+| docs updated | a new or changed hand whose section of `docs/hands.md` (its `` ## `name` `` heading) the diff leaves as it was, or does not have; a new playbook or a new job in `brain/cron.toml` named on no line the diff adds to `docs/architecture.md` or `docs/hands.md`, where its siblings are listed (`docs/architecture.md`, "6. Triggers", for Teeny's own jobs) |
 | aims at a component with a reading | the proposal names a W component the world report lists in `unread`. Passes when there is no world report |
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
@@ -891,6 +908,106 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
+
+Until 2026-11-15 an existing hand's entry point was off limits, because
+`bin/doctor --root` runs the candidate's `hands/git`. A hand that is not
+frozen may now change; the frozen ones (`evals/frozen.txt`: guard, x,
+wallet, babysit and the rest) are still refused by the hard gate, and their
+code never runs here. The entry point of a hand whose code is frozen but
+whose shim is not (`hands/git`, `hands/stimuli`, `hands/brief`) still may
+not change ("frozen hands' entry points"), and nothing but `teeny_hands/`
+may be added or changed directly under `hands/lib/` (a hard check, below). How
+the doctor runs, and where the hand tests run, is under "The hand-test
+sandbox".
+
+#### The hand-test sandbox
+
+A candidate's hand tests are code a model wrote, so they never run on the
+box as they are (`run_hand_tests`, `bin/lib/sandbox.py`). The candidate's
+tracked and staged files are copied to a throwaway folder (never its `.git`
+link, `state/`, `secrets/` or anything git ignores), and the tests run on
+that copy in one of two sandboxes, tried in order:
+
+1. **bubblewrap** on the host running `bin/evolve` (`sandbox_argv`), where
+   it can make its namespaces: every namespace unshared (no network but a
+   loopback of its own, its own process ids), the system (`/usr`, `/bin`,
+   `/lib`, `/etc`, ...) read-only, its own `/proc`, `/dev` and `/tmp`, the
+   copy at `/work` the only writable bind, its own root remounted
+   read-only, a clean environment (`--clearenv`, `TEENY_ROOT=/work`,
+   `DRY_RUN=1`), and `--die-with-parent`.
+2. **the `sandbox` compose service** (`deploy/compose.yaml`,
+   `bin/sandbox-runner`). `bin/evolve` runs inside the spine's container,
+   where Docker's default seccomp profile (and the host's AppArmor) give it
+   no user namespaces, so bubblewrap cannot start there (the builder's shell
+   falls back to Landlock for the same reason, docs/architecture.md). The
+   service is the same image with `network_mode: none`, a read-only root,
+   `no-new-privileges`, a pid and memory limit, and nothing of the checkout
+   mounted but `state/sandbox/` and the runner's two frozen files,
+   read-only.
+
+   **Three uids.** The runner starts as root with only `SETUID`, `SETGID`,
+   `CHOWN` and `KILL`. Every read and write of `state/sandbox/` it makes as
+   the checkout's owner (`SANDBOX_UID`; the folder is kept `0700`, theirs),
+   and it runs the tests as a third uid (`SANDBOX_TEST_UID`, 65534) on a
+   copy in its `/work` tmpfs, chowned to that uid. The tests can reach
+   neither `state/sandbox/` nor the runner: they cannot write a result,
+   signal the runner or read its memory or environment. After each job the
+   runner kills every process of the test uid. It refuses to start without
+   root, or with the two uids the same: tests running as the runner's own
+   uid could forge their result.
+
+   **The protocol.** `bin/evolve` checks first that `state/sandbox/`,
+   `jobs/` and `done/` are real folders it owns (never a link), creates the
+   job folder without following links, and leaves `jobs/<id>/tree` (the
+   copy) and `job.json` (the unittest arguments and time limit). The runner
+   writes `ack.json`, with a fresh token, before it runs anything, then
+   `done/<id>.json` with the same token. A result with no acknowledgement
+   beside it, with another token, or not a regular file (read without
+   following a link, never past 272 KiB) is refused, and so is a runner that
+   stops touching `state/sandbox/ready` (every 10 s, from a process of its
+   own) during the job. Any of these fails the check.
+
+Either way the run is killed with its whole process group at 300 s, or once
+it has written more than 256 KiB. The copy is the only thing a test can
+write, so it cannot touch the worktree, `cand-<i>.patch`,
+`cand-<i>.rounds.json`, the archive or the shared `.git`. The tests are the
+last check of a round, after `seed-cron`, `doctor` and the invariants, which
+run the candidate's frozen scripts from the worktree.
+
+**It fails closed, and defers.** With neither sandbox working, nothing
+runs (never unsandboxed). The candidate is not the cause, so it is not sent
+back or parked: it is **`deferred`** (`deferred_for: sandbox`), its learning
+stays open with no failed try, and `bin/evolve status` lists it with the
+reason. While there is still no sandbox, later generations skip that
+learning instead of paying for its research and build again
+(`sandbox_deferred`). A change that touches no hand runs no hand tests and
+is not affected. `bin/doctor` reports which sandbox works (`hand-test
+sandbox`: `bwrap`, `sidecar`, or a warning).
+
+**At deploy** (the operator): create the jobs folder as the checkout's
+owner, then bring the service up with the rest:
+
+```
+mkdir -p state/sandbox
+docker compose -f deploy/compose.yaml up -d
+docker compose -f deploy/compose.yaml exec spine bin/doctor   # hand-test sandbox: sidecar
+```
+
+No image rebuild is needed: the service runs the spine's image
+(`teeny-spine:current`). `state/sandbox/` must belong to the checkout's
+owner (`TEENY_UID`, the uid the spine runs as): if it is missing at the
+first `up`, Docker creates it as root, the runner cannot write it, the
+doctor warns, and hand edits are deferred. The test uid (65534) needs no
+account in the image.
+
+**The doctor.** When the diff changes an existing hand, `doctor --root`
+runs with none of `bin/evolve`'s environment (`sealed_env`). It runs no code
+the candidate can write: it imports only frozen modules from the candidate's
+`hands/lib` (`websites`, `guard`, `hand`, `x`, `x402`, `surplus`, which the
+hard gate proved are main's), nothing beside `teeny_hands/` can be added
+there to shadow the standard library (the hard check "hands/lib holds only
+teeny_hands"), and the one shim it runs, `hands/git`, is refused by "frozen
+hands' entry points".
 
 The last three run the candidate's own frozen code (its `bin/` and
 `evals/`, which the frozen check just proved are main's) with the worktree

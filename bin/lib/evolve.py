@@ -32,8 +32,8 @@ one per open learning:
                for the operator. A near-duplicate of the archive is dropped.
   3 rounds     up to EVOLVE_REVISE_ROUNDS of build, hard gate (frozen paths,
                EVOLVE_MAX_CHANGE_PCT of the repository, SOUL+CONTEXT: final),
-               checks (entry points, tests, purpose checks, seed-cron,
-               doctor, invariants) and review (the `reviewer` agent, rubric
+               checks (tests, a changed hand's own tests run, the docs
+               rule, purpose checks, seed-cron, doctor, invariants) and review (the `reviewer` agent, rubric
                evals/review.md). A failed check or a revision goes back to
                the builder as findings; still failing after the last round
                is `parked`, its learning open again.
@@ -84,9 +84,11 @@ import math
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tomllib
@@ -106,6 +108,7 @@ import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
 import probes as probes_lib  # noqa: E402
+import sandbox as sandbox_lib  # noqa: E402
 
 Json = dict[str, Any]
 
@@ -1171,8 +1174,30 @@ def frozen_patterns() -> list[str]:
     return frozen.parse_patterns((CODE / frozen.LIST_PATH).read_text(encoding="utf-8"))
 
 
-#: Where a candidate may change files (less the frozen paths).
-EDITABLE_ROOTS = ("brain/", "hands/")
+#: Where a candidate may change files (less the frozen paths): docs/ since
+#: 2026-11-15, so a change can carry its own documentation.
+EDITABLE_ROOTS = ("brain/", "hands/", "docs/")
+
+
+def read_pack(tree: Path, read: Iterable[str], editable: Iterable[str], budget: int) -> dict[str, str]:
+    """The files research named to read that the candidate may not change
+    (a frozen hand's code, bin/), shown whole and read-only, while they fit
+    BUDGET. check_research already held each to a tracked, non-secret path."""
+    can = set(editable)
+    out: dict[str, str] = {}
+    used = 0
+    for rel in read:
+        if rel in can or rel in out:
+            continue
+        try:
+            text = (tree / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if used + len(text) > budget:
+            continue
+        out[rel] = text
+        used += len(text)
+    return out
 
 
 def context_pack(tree: Path, touched: Iterable[str], budget: int) -> tuple[list[str], dict[str, str]]:
@@ -1237,7 +1262,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
     return [
         learning_text(request["learning"]),
         "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
-        f"schedule or a new hand that makes you act on it from today, {how}. One learning, one change, one pull "
+        f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
+        f"act on it from today, {how}. One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
@@ -1272,6 +1298,14 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         + ("" if edits_in_place else "- Edit only the files shown below, whole, or add new files.\n")
         + "- A new hand is hands/<name>, hands/lib/teeny_hands/<name>/ and hands/tests/test_<name>.py together, "
         "and a playbook in the same change that calls it.\n"
+        "- A small edit inside an existing hand that is not frozen is yours to make: change or add its test "
+        "(hands/tests/test_<name>.py or hands/tests/<name>/) in the same change. bin/evolve runs that hand's "
+        "tests, and a failing one comes back to you.\n"
+        "- Docs go with the change: a new or changed hand touches its own section of docs/hands.md (its "
+        "`## `name`` heading); a new playbook or cron job is named on a line of docs/architecture.md (\"6. "
+        "Triggers\") or docs/hands.md, where its siblings are listed.\n"
+        "- No refactor the learning does not need: no renames, moves, reformatting or tidying of anything the "
+        "learning is not about.\n"
         "- Do not repeat a change already in the archive or in this generation.",
     ]
 
@@ -1322,10 +1356,13 @@ def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: A
     render = render or render_request
     if len(render(request).encode("utf-8")) <= limit:
         return request
-    fitted = dict(request, files=dict(request["files"]), omitted=list(request.get("omitted", [])))
-    for rel in sorted(fitted["files"], key=lambda r: len(fitted["files"][r].encode("utf-8")), reverse=True):
-        del fitted["files"][rel]
-        fitted["omitted"].append(rel)
+    fitted = dict(request, files=dict(request["files"]), readonly=dict(request.get("readonly") or {}),
+                  omitted=list(request.get("omitted", [])))
+    shown = [("readonly", r) for r in fitted["readonly"]] + [("files", r) for r in fitted["files"]]
+    for key, rel in sorted(shown, key=lambda kr: len(fitted[kr[0]][kr[1]].encode("utf-8")), reverse=True):
+        del fitted[key][rel]
+        if key == "files":
+            fitted["omitted"].append(rel)
         if len(render(fitted).encode("utf-8")) <= limit:
             break
     return fitted
@@ -1359,6 +1396,8 @@ def render_request(request: Json) -> str:
     parts.append("## the paths you may change\n\n" + "\n".join(request["editable"]))
     for rel, text in request["files"].items():
         parts.append(f"## file: {rel}\n\n````text\n{text}\n````")
+    for rel, text in (request.get("readonly") or {}).items():
+        parts.append(f"## file (read only, not yours to change): {rel}\n\n````text\n{text}\n````")
     if request.get("omitted"):
         parts.append("## files left out to fit the message\n\nThese are editable but not shown; change them only "
                      "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
@@ -2386,11 +2425,255 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     return checks
 
 
+#: How long one hand's tests may run in the gate.
+HAND_TEST_SECS = 300
+#: Where a new playbook or job of Teeny's is listed beside its siblings.
+SIBLING_DOCS = ("docs/architecture.md", "docs/hands.md")
+
+
+def _test_hand(path: str) -> str | None:
+    """The hand whose tests PATH is: hands/tests/test_<name>.py or
+    hands/tests/<name>/..."""
+    parts = path.split("/")
+    if parts[:2] != ["hands", "tests"] or len(parts) < 3:
+        return None
+    if len(parts) == 3:
+        match = re.fullmatch(r"test_(\w+)\.py", parts[2])
+        return match.group(1) if match else None
+    return parts[2]
+
+
+def _hand_tests(tree: Path, name: str, at: str | None = None) -> list[str] | None:
+    """`python -m unittest` arguments for hand NAME's tests in TREE (the
+    paths written as under AT, where the sandbox mounts the tree), or None
+    when it has none."""
+    tests = tree / "hands" / "tests"
+    inside = f"{at or tree}/hands/tests"
+    if (tests / f"test_{name}.py").is_file():
+        return ["discover", "-s", inside, "-t", inside, "-p", f"test_{name}.py"]
+    if (tests / name / "__init__.py").is_file():
+        return ["discover", "-s", f"{inside}/{name}", "-t", inside]
+    return None
+
+
+def frozen_shim(tree: Path, base: str, path: str) -> str | None:
+    """The frozen module an existing hand's entry point (hands/<name>, as of
+    BASE) loads, if any: hands/git runs teeny_hands.git_cli, which is frozen,
+    and a shim rewritten to run something else would step around it."""
+    text = git(in_tree(tree), "show", f"{base}:{path}", check=False)
+    try:
+        patterns = frozen.base_patterns(tree, base)
+    except frozen.FrozenError:
+        patterns = frozen_patterns()
+    for module in re.findall(r"teeny_hands\.([\w.]+)", text):
+        parts = module.split(".")
+        for rel in (f"hands/lib/teeny_hands/{'/'.join(parts)}.py", f"hands/lib/teeny_hands/{parts[0]}.py",
+                    f"hands/lib/teeny_hands/{parts[0]}/__init__.py"):
+            if frozen.frozen_pattern(rel, patterns):
+                return rel
+    return None
+
+
+# --- the hand-test sandbox ---------------------------------------------------------------------------
+#
+# A candidate's hand tests are model-written code. They never run on the box
+# as they are (bin/lib/sandbox.py): a copy of the candidate's tracked files
+# runs under bubblewrap where it can make its namespaces, else in the
+# `sandbox` compose service (no network, read-only root, nothing of the
+# checkout but state/sandbox/). With neither, nothing runs, and a change to
+# hand code is sent back with a finding: it does not ship from a box with no
+# sandbox (docs/evolve.md, "The hand-test sandbox").
+
+SANDBOX_BIN = sandbox_lib.BWRAP
+#: Where the copy of the candidate is mounted inside bwrap.
+SANDBOX_ROOT = "/work"
+#: The system directories mounted read-only (when they exist).
+SANDBOX_SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/etc")
+NO_SANDBOX = "hand tests could not be run in a sandbox here ({why}); a change to hand code waits for one"
+
+
+def sandbox_binary() -> str | None:
+    return shutil.which(SANDBOX_BIN)
+
+
+def sandbox_ready(binary: str | None = None) -> tuple[bool, str]:
+    return sandbox_lib.bwrap_ready(binary)
+
+
+def sandbox_jobs() -> Path:
+    """Where bin/evolve leaves jobs for the sandbox service: state/sandbox/,
+    the one folder of the checkout that service mounts."""
+    return state_dir() / "sandbox"
+
+
+def sandbox_env() -> dict[str, str]:
+    """The environment inside bwrap: nothing of this process's."""
+    return sandbox_lib.sandbox_env(SANDBOX_ROOT)
+
+
+def sandbox_argv(binary: str, copy: Path, command: list[str]) -> list[str]:
+    """bwrap's command line: COPY at SANDBOX_ROOT read-write, the system
+    read-only, its own /proc, /dev and /tmp, every namespace unshared, a
+    clean environment, then COMMAND."""
+    argv = [binary, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
+    for key, value in sorted(sandbox_env().items()):
+        argv += ["--setenv", key, value]
+    for path in SANDBOX_SYSTEM:
+        argv += ["--ro-bind-try", path, path]
+    python = Path(sys.executable).resolve()
+    if not str(python).startswith(("/usr/", "/bin/")):
+        argv += ["--ro-bind", str(Path(sys.base_prefix).resolve()), str(Path(sys.base_prefix).resolve())]
+    argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(copy), SANDBOX_ROOT,
+             "--remount-ro", "/", "--chdir", SANDBOX_ROOT, "--", *command]
+    return argv
+
+
+def copy_candidate(tree: Path, dest: Path) -> None:
+    """The candidate's tracked and staged files, copied into DEST: never its
+    .git link, state/, secrets/ or anything git ignores."""
+    for rel in git(in_tree(tree), "ls-files", "-z", "--cached").split("\0"):
+        if not rel:
+            continue
+        src = tree / rel
+        if src.is_symlink() or not src.is_file():
+            continue
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+
+
+def run_contained(argv: list[str], timeout: float) -> tuple[int | None, str]:
+    """ARGV in a session of its own; at TIMEOUT, or past
+    sandbox.MAX_OUTPUT_BYTES of output, the whole process group is killed.
+    (returncode or None, its output)."""
+    code, out, why = sandbox_lib.run_contained(argv, timeout)
+    if why == "output":
+        out += f"\nFAILED (output over {sandbox_lib.MAX_OUTPUT_BYTES} bytes: killed)"
+    return code, out
+
+
+class NoSandbox(EvolveError):
+    """No sandbox can run a candidate's hand tests here: nothing ran. The
+    candidate is deferred (its learning open, no try counted), never
+    shipped, and never run unsandboxed."""
+
+
+def run_hand_tests(tree: Path, name: str) -> tuple[bool, str]:
+    """Hand NAME's tests (`python -m unittest`) on a copy of the candidate,
+    in bwrap or the sandbox service, within HAND_TEST_SECS. With neither,
+    nothing runs: NoSandbox. A sandbox folder that is not what it should be
+    (a link, another owner) fails the check. A failure is detailed by its
+    FAIL and ERROR lines and the errors they raised, with no path of the
+    box."""
+    target = _hand_tests(tree, name, at=".")
+    if target is None:
+        return True, "no tests"
+    ready, why = sandbox_ready()
+    if ready:
+        with tempfile.TemporaryDirectory(prefix="evolve-sandbox-") as scratch:
+            copy = Path(scratch) / "tree"
+            copy_candidate(tree, copy)
+            try:
+                code, out = run_contained(sandbox_argv(sandbox_binary() or SANDBOX_BIN, copy,
+                                                       [str(Path(sys.executable).resolve()), "-m", "unittest",
+                                                        *target]), HAND_TEST_SECS)
+            except OSError as exc:
+                return False, str(exc)[:MAX_CHECK_DETAIL]
+    else:
+        side, side_why = sandbox_lib.sidecar_ready(sandbox_jobs())
+        if not side:
+            raise NoSandbox(NO_SANDBOX.format(why=f"{why}; {side_why}"))
+        try:
+            code, out, failed = sandbox_lib.submit(sandbox_jobs(), lambda dest: copy_candidate(tree, dest), target,
+                                                   HAND_TEST_SECS)
+        except (sandbox_lib.SandboxError, OSError) as exc:
+            return False, f"the sandbox's folder is not as it should be: {exc}"[:MAX_CHECK_DETAIL]
+        if failed and failed not in ("timeout", "output"):
+            return False, f"the sandbox gave no trustworthy result: {failed}"[:MAX_CHECK_DETAIL]
+        if failed == "output":
+            out += f"\nFAILED (output over {sandbox_lib.MAX_OUTPUT_BYTES} bytes: killed)"
+    if code is None and "output over" not in out:
+        return False, f"timed out after {HAND_TEST_SECS} s"
+    lines = out.strip().splitlines()
+    if code == 0:
+        detail = " ".join(lines[-3:])
+    else:
+        keep = [line.strip() for line in lines
+                if re.match(r"(FAIL|ERROR): |\w+(Error|Exception)\b|FAILED \(", line.strip())]
+        detail = " | ".join(keep) or " ".join(lines[-3:])
+    for where, to in ((SANDBOX_ROOT, "."), (str(tree), "."), (str(evolve_dir()), "state/evolve"), (str(root()), "."),
+                      (str(CODE), ".")):
+        detail = detail.replace(where, to)
+    return code == 0, detail[:MAX_CHECK_DETAIL]
+
+
+def sealed_env(tree: Path) -> dict[str, str]:
+    """The environment a candidate's own hand code runs in during the gate:
+    nothing of this process's (no core token, no keys a container passes
+    in), its root, state and secrets inside the worktree, DRY_RUN on. It
+    still runs as this user, on this box's network and filesystem."""
+    home = tree / "state" / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home), "LANG": "C.UTF-8",
+            "TEENY_ROOT": str(tree), "TEENY_STATE": str(tree / "state"), "TEENY_SECRETS": str(tree / "secrets"),
+            "TEENY_HANDS": str(tree / "hands"), "OPENHUMAN_WORKSPACE": str(tree / "brain"), "DRY_RUN": "1",
+            "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+
+
+def hand_section(text: str | None, name: str) -> str | None:
+    """Hand NAME's section of docs/hands.md: from its `## `name`` heading
+    to the next `## ` heading, or None."""
+    if text is None:
+        return None
+    lines, start = text.splitlines(), None
+    for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            if start is not None:
+                return "\n".join(lines[start:idx])
+            if f"`{name}`" in line:
+                start = idx
+    return "\n".join(lines[start:]) if start is not None else None
+
+
+def docs_missing(tree: Path, base: str, changes: list[tuple[str, str]], hands_changed: list[str]) -> list[str]:
+    """The docs rule: a new or changed hand touches its own section of
+    docs/hands.md; a new playbook or cron job of Teeny's is named on an added
+    line where its siblings are listed (SIBLING_DOCS)."""
+    missing = []
+    before = git(in_tree(tree), "show", f"{base}:docs/hands.md", check=False) or None
+    try:
+        after = (tree / "docs" / "hands.md").read_text(encoding="utf-8")
+    except OSError:
+        after = None
+    for name in hands_changed:
+        now_ = hand_section(after, name)
+        if now_ is None:
+            missing.append(f"docs/hands.md has no section for hands/{name} (a `## `{name}`` heading)")
+        elif now_ == hand_section(before, name):
+            missing.append(f"hands/{name} changed but its section in docs/hands.md did not")
+    new_books = [Path(p).stem for s, p in changes if s == "A" and p.startswith("brain/playbooks/") and p.endswith(".md")]
+    jobs_before = _jobs_of(git(in_tree(tree), "show", f"{base}:brain/cron.toml", check=False) or None) or {}
+    try:
+        jobs_after = _jobs_of((tree / "brain" / "cron.toml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        jobs_after = {}
+    new_jobs = sorted(set(jobs_after) - set(jobs_before))
+    added = added_lines(staged_patch(tree, base))
+    doc_lines = [line for rel in SIBLING_DOCS for line in added.get(rel, [])]
+    for kind, names in (("playbook", new_books), ("cron job", new_jobs)):
+        for name in names:
+            if not any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", line) for line in doc_lines):
+                missing.append(f"the new {kind} `{name}` is named on no added line of {' or '.join(SIBLING_DOCS)}, "
+                               "where its siblings are listed")
+    return missing
+
+
 #: The checks whose failure is final (docs/evolve.md, "4. Gate"): a frozen
-#: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository, and
-#: SOUL+CONTEXT past their cap. Every other check is a finding the builder
-#: is sent back to fix.
-HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size")
+#: path, a change bigger than EVOLVE_MAX_CHANGE_PCT of the repository,
+#: SOUL+CONTEXT past their cap, and a file in hands/lib beside teeny_hands
+#: (it would shadow the standard library under frozen code). Every other
+#: check is a finding the builder is sent back to fix.
+HARD_CHECKS = ("frozen paths", "diff size", "SOUL+CONTEXT size", "hands/lib holds only teeny_hands")
 #: EVOLVE_MAX_CHANGE_PCT's default, for a gate run outside a generation.
 DEFAULT_MAX_CHANGE_PCT = 5.0
 _TRACKED_LINES: dict[str, int] = {}
@@ -2433,6 +2716,15 @@ def hard_gate(tree: Path, base: str, max_pct: float = DEFAULT_MAX_CHANGE_PCT) ->
          f"{lines}/{cap} changed lines ({max_pct:g}% of the {tracked_lines(tree, base)} the repository tracks)")
     soul = sum((a or 0) + (r or 0) for a, r, p in stats if p in SOUL_CONTEXT)
     note("SOUL+CONTEXT size", soul <= MAX_SOUL_CONTEXT_LINES, f"{soul}/{MAX_SOUL_CONTEXT_LINES} changed lines")
+    # Every hand puts hands/lib first on its path, and bin/doctor --root
+    # imports the candidate's hands/lib: a file there beside teeny_hands
+    # (hands/lib/argparse.py) would stand in for the standard library under
+    # frozen code. Only teeny_hands/ lives there.
+    shadow = sorted(p for _, p in name_status(tree, base)
+                    if p.startswith("hands/lib/") and not p.startswith("hands/lib/teeny_hands/"))
+    note("hands/lib holds only teeny_hands", not shadow,
+         f"adds or changes {', '.join(shadow)}: hands/lib/ is on every hand's import path, so only "
+         "hands/lib/teeny_hands/ may live there" if shadow else "nothing beside teeny_hands")
     return checks
 
 
@@ -2448,10 +2740,6 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
         out.append({"check": name, "ok": ok, "detail": detail})
 
     changes = name_status(tree, base)
-    # bin/doctor --root runs the candidate's hands/git: an entry point that
-    # exists on main stays as it is (new hands are Teeny's to add).
-    touched_entry = [p for s, p in changes if _hand_name(p) and p.count("/") == 1 and s != "A"]
-    note("existing hand entry points", not touched_entry, ", ".join(touched_entry) or "none changed")
     binary = [p for a, r, p in numstat(tree, base) if a is None or r is None]
     note("no binary files", not binary, f"binary: {', '.join(binary)}" if binary else "none")
     new_hands = sorted({n for s, p in changes if s == "A" and (n := _hand_name(p))
@@ -2466,7 +2754,25 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
             untested.append(name)
     note("new hands have tests", not untested,
          f"no hands/tests/test_<name>.py that parses for: {', '.join(untested)}" if untested
-         else (f"{', '.join(new_hands)} (run by CI, never here)" if new_hands else "no new hand"))
+         else (f"{', '.join(new_hands)} (run below)" if new_hands else "no new hand"))
+    # Since 2026-11-15 an existing hand that is not frozen may change (the
+    # frozen ones are refused by the hard gate): with a test, and its docs.
+    # Its entry point may not, when what it loads is frozen.
+    shims = [(p, lib) for s, p in changes if s != "A" and p.count("/") == 1 and _hand_name(p)
+             and (lib := frozen_shim(tree, base, p))]
+    note("frozen hands' entry points", not shims,
+         "; ".join(f"{p} runs {lib}, which is frozen: its entry point stays as it is" for p, lib in shims)
+         or "none changed")
+    hands_changed = sorted({n for _, p in changes if (n := _hand_name(p))})
+    edited = [n for n in hands_changed if n not in new_hands]
+    tests_touched = {n for _, p in changes if (n := _test_hand(p))}
+    no_test = [n for n in edited if n not in tests_touched]
+    note("changed hands have tests", not no_test,
+         f"changes {', '.join('hands/' + n for n in no_test)} with no change to its tests (hands/tests/test_<name>.py "
+         "or hands/tests/<name>/): a change to a hand changes or adds a test" if no_test
+         else (f"{', '.join(edited)}: tests changed too" if edited else "no existing hand changed"))
+    missing = docs_missing(tree, base, changes, hands_changed)
+    note("docs updated", not missing, "; ".join(missing) if missing else "nothing that needs docs, or they are updated")
     out.extend(purpose_checks(tree, base, changes, new_hands, component, evidence))
     # The candidate is checked by the frozen code it would merge beside: its
     # own bin/ and evals/, which the frozen check just proved are main's.
@@ -2477,16 +2783,35 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
     # candidate that touches a frozen path is rejected already, and its own
     # scripts never run: this checkout's give the other checks their detail.
     code, env = (tree, tree_env(tree)) if frozen_ok else (CODE, code_env())
+    # bin/doctor --root runs the candidate's own hands/git: an existing hand
+    # the candidate changed runs with none of this process's environment.
+    doctor_env = sealed_env(tree) if edited else env
     ok, detail = _run_check([str(code / "bin" / "seed-cron"), "--check", "--file", str(tree / "brain" / "cron.toml"),
                              "--pinned", str(code / "evals" / "cron.pinned.toml")], env)
     note("seed-cron --check", ok, detail)
-    if frozen_ok and not touched_entry:
-        ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], env)
+    if frozen_ok and not shims:
+        ok, detail = _run_check([str(code / "bin" / "doctor"), "--root", str(tree)], doctor_env)
         note("doctor --root", ok, detail)
     else:
-        note("doctor --root", False, "not run: the candidate touches a frozen path or a hand's entry point")
+        note("doctor --root", False, "not run: the candidate touches a frozen path, or the entry point of a hand "
+                                     "whose code is frozen")
     ok, detail = _run_check([str(code / "bin" / "eval"), "invariants", "--root", str(tree)], env)
     note("eval invariants", ok, detail)
+    # Last, after every check that runs the candidate's (frozen) scripts, and
+    # on a copy in the sandbox: nothing a test does can reach them.
+    for name in sorted(set(hands_changed) | tests_touched):
+        if _hand_tests(tree, name) is None:
+            continue
+        if not frozen_ok:
+            note(f"hand tests: {name}", False, "not run: the candidate touches a frozen path")
+            continue
+        try:
+            ok, detail = run_hand_tests(tree, name)
+        except NoSandbox as exc:
+            out.append({"check": f"hand tests: {name}", "ok": False, "detail": str(exc)[:MAX_CHECK_DETAIL],
+                        "no_sandbox": True})
+            continue
+        note(f"hand tests: {name}", ok, detail)
     return out
 
 
@@ -3455,9 +3780,15 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                                   "note": research["why"]}, gate={"ok": False, "checks": []})
             return entry
         if research.get("read"):
-            # The files research named come first in what the build is shown.
-            editable, files = context_pack(tree, research["read"], cfg["EVOLVE_CONTEXT_CHARS"])
-            request.update(editable=editable, files={} if in_place else files)
+            # The files research named come first in what the build is shown;
+            # those it may not change are shown read-only, in up to a third
+            # of the room.
+            budget_chars = cfg["EVOLVE_CONTEXT_CHARS"]
+            readonly = {} if in_place else read_pack(tree, research["read"], editable, budget_chars // 3)
+            editable, files = context_pack(tree, research["read"],
+                                           budget_chars - sum(len(t) for t in readonly.values()))
+            request.update(editable=editable, files={} if in_place else files, readonly=readonly)
+
         if not research.get("error"):
             request["research"] = research
     research_files = [*(research or {}).get("read", []), *(research or {}).get("document", [])]
@@ -3566,6 +3897,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         if not entry["gate"]["hard_ok"]:
             entry["verdict"] = "rejected"
             entry["rounds"] = [round_line(r) for r in rounds if r.get("outcome")]
+            return entry
+        no_box = [c for c in entry["gate"]["checks"] if c.get("no_sandbox")]
+        if no_box:
+            # Its hand tests cannot run here: not the change's fault. Never
+            # run unsandboxed, never shipped; left open, and no try.
+            say(f"candidate {i}: no sandbox for its hand tests; deferred")
+            entry.update(verdict=DEFERRED, deferred_for="sandbox", reason=no_box[0]["detail"],
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
             return entry
         if not entry["gate"]["ok"]:
             findings = [{**f, "check": c["check"]} for c, f in zip(
@@ -3894,13 +4233,34 @@ def send_back(cfg: Config, cand: Json, heldout_ids: set[str]) -> bool:
     return True
 
 
+def sandbox_available() -> bool:
+    return sandbox_ready()[0] or sandbox_lib.sidecar_ready(sandbox_jobs())[0]
+
+
+def sandbox_deferred(entries: Mapping[str, Json]) -> set[tuple[str, str]]:
+    """The learnings (id, hash) whose newest candidate was deferred for want
+    of a hand-test sandbox: while there is still none, a generation does not
+    pay for their research and build again."""
+    newest: dict[tuple[str, str], Json] = {}
+    for e in entries.values():
+        ref = e.get("learning")
+        if not isinstance(ref, Mapping):
+            continue
+        key = (str(ref.get("id")), str(ref.get("hash")))
+        if key not in newest or (e.get("gen") or 0, e.get("cand") or 0) > (newest[key].get("gen") or 0,
+                                                                           newest[key].get("cand") or 0):
+            newest[key] = e
+    return {k for k, e in newest.items() if e.get("verdict") == DEFERRED and e.get("deferred_for") == "sandbox"}
+
+
 def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None:
     """Why the reviewer is down, when the newest generation deferred a
     candidate for a failed reviewer turn and a cheap probe (one tiny turn,
     no candidate in it) still fails; else None. Only then: a generation
     whose reviewer answered pays for no probe."""
     latest = next_gen() - 1
-    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest for e in entries.values()):
+    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and e.get("deferred_for") != "sandbox"
+               for e in entries.values()):
         return None
     probe = getattr(reviewer, "probe", None)
     if probe is None:
@@ -3988,7 +4348,11 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         n, cut = runway.cap_candidates(n)
         if cut:
             say(f"runway: {cut}")
-        picks = [item.ref() for item in open_learnings(entries, learnings)[:n]]
+        waiting_for_box = sandbox_deferred(entries) if not sandbox_available() else set()
+        if waiting_for_box:
+            say(f"no hand-test sandbox yet: {len(waiting_for_box)} learning(s) wait for one")
+        picks = [item.ref() for item in open_learnings(entries, learnings)
+                 if (item.id, item.hash) not in waiting_for_box][:n]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer

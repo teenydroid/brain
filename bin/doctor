@@ -380,6 +380,16 @@ if [ -x "$root/hands/git" ]; then
   run "git" "$root/hands/git" check
 fi
 
+# The hand-test sandbox bin/evolve runs a candidate's hand tests in
+# (bin/lib/sandbox.py): bubblewrap here, or the `sandbox` compose service. A
+# warning, not a failure: without one a change to hand code is sent back,
+# never shipped, and everything else still works.
+if sandbox="$(python3 "$TEENY_ROOT/bin/lib/sandbox.py" status "$state/sandbox" 2>&1)"; then
+  note "hand-test sandbox" ok "$sandbox"
+else
+  note "hand-test sandbox" warn "$(tail -n 1 <<<"$sandbox")"
+fi
+
 # --- optional: the hands' tests --------------------------------------------------------
 if [ "$full" = 1 ]; then
   run "hands tests" python3 -m unittest discover -s "$root/hands/tests" -t "$root/hands/tests"
