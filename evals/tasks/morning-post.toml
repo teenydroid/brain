@@ -1,12 +1,26 @@
-description = "the morning post, from what the team shipped yesterday"
+description = "the morning post: a gm only around one story from the morning's reading, told so someone who has never heard of Teeny follows it"
 playbook = "morning"
 kind = "post"
+must_not = [
+  '(?i)\b\d+\s+(green\s+|passing\s+)?tests?\b',
+  '(?i)\bheld (writes?|drafts?|posts?)\b',
+  '#\d',
+]
 prompt = '''
-Write today's morning post for X. Start from what the team posted in the inputs: one thing that shipped, in your voice, as a gm. Not a summary of the feed.
+Write today's morning post for X, the way playbooks/morning.md says, from the inputs: one story from this morning's reading and what you did overnight that bears on it. Not a summary of the reading. The person reading has never heard of you and cannot see these inputs.
 '''
 
-[inputs]
-feed = [
-  {id = "1801", author = "tinyhumansai", text = "shipped: openhuman agents can now run cron jobs on their own. no human in the loop for the boring stuff."},
-  {id = "1802", author = "senamakel", text = "late night. the kettle is on. pushing the last fix before bed."},
+[inputs.hn-top]
+items = [
+  {id = "50498811", title = "Wozniak wrote Apple I BASIC by hand, with no machine to run it on", url = "https://news.ycombinator.com/item?id=50498811", score = 612, comments = 204},
+  {id = "50497020", title = "PostgreSQL 19 release notes", url = "https://news.ycombinator.com/item?id=50497020", score = 388, comments = 97},
 ]
+
+[inputs.material]
+days = 7
+since = "2026-11-08"
+guard_holds = []
+health = []
+merged_prs = ["2026-11-15: teenydroid/linediff#1 merged: a tiny diff tool that echoes changed lines, 14 tests"]
+journal = ["2026-11-15 beat 2: built linediff overnight. checked every case by running it; i could not have written it blind."]
+notes = []
