@@ -55,7 +55,7 @@ CLOSING_SOON_HOURS = 72
 #: Entries a judge is shown, and how much of each.
 JUDGE_ENTRIES = 30
 JUDGE_TEXT_CHARS = 500
-_OPEN_FIELDS = {"format", "pool_tiny", "winners", "best_reply_tiny", "prompt", "deadline", "threshold", "text"}
+_OPEN_FIELDS = {"format", "pool_tiny", "winners", "best_reply_tiny", "prompt", "deadline", "deadline_hours", "threshold", "text"}
 
 
 def _ts(value: Any) -> float | None:
@@ -195,9 +195,19 @@ def _check_open(conn: sqlite3.Connection, body: Mapping[str, Any], the_caps: cap
     prompt = body.get("prompt")
     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 1000:
         raise hand.Refused("prompt is the round's hook, 1-1000 characters", rule="prompt")
-    deadline = _ts(body.get("deadline"))
+    # A drafting turn is not told the time, so a playbook names the deadline
+    # as whole hours from now (`deadline_hours`); either it or `deadline`.
+    hours = body.get("deadline_hours")
+    if hours is not None and body.get("deadline") is not None:
+        raise hand.Refused("name the deadline once: deadline or deadline_hours", rule="deadline")
+    if hours is not None:
+        if isinstance(hours, bool) or not isinstance(hours, int):
+            raise hand.Refused("deadline_hours is a whole number of hours", rule="deadline")
+        deadline = now + hours * store.HOUR
+    else:
+        deadline = _ts(body.get("deadline"))
     if deadline is None or deadline < now + store.HOUR or deadline > now + MAX_DEADLINE_DAYS * store.DAY:
-        raise hand.Refused(f"deadline is an ISO time or epoch seconds, 1 hour to {MAX_DEADLINE_DAYS} days away", rule="deadline")
+        raise hand.Refused(f"deadline is an ISO time or epoch seconds (or deadline_hours), 1 hour to {MAX_DEADLINE_DAYS} days away", rule="deadline")
     threshold = None
     if fmt == "milestone":
         threshold = body.get("threshold")
@@ -219,7 +229,7 @@ def open_round(body: Any) -> Json:
     round's tag; `status` names the next one). Nothing is recorded unless
     the post went out."""
     if not isinstance(body, Mapping):
-        raise hand.HandError("open takes {format, pool_tiny, winners, best_reply_tiny, prompt, deadline, threshold?, text}")
+        raise hand.HandError("open takes {format, pool_tiny, winners, best_reply_tiny, prompt, deadline | deadline_hours, threshold?, text}")
     caps.require_on("opened")
     the_caps = caps.current()
     text = body.get("text")

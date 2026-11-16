@@ -156,7 +156,14 @@ LEXICON: tuple[LexiconEntry, ...] = (
 # cannot read. A kill word aimed at a person ("kill you", "killed him") is a
 # violence term of its own above and is held on sight. Callers that read the
 # screen alone (`screen_text`, `gate.screen`) still see these as a match.
-JUDGED_TERMS: frozenset[str] = frozenset(("kill", "kills", "killed", "killing"))
+#
+# "bullet" and "bullets" joined them on 2026-11-16, when the bare "bullet"
+# held one of Teeny's own build drafts as weapons (hold 1133): a README
+# roadmap with "one bullet per future feature". Markdown work says "bullet"
+# all the time and the idioms only spare "bullet point(s)". Every other
+# weapons term is still held on sight, and so is a draft that pairs a bullet
+# with one ("a bullet and a gun").
+JUDGED_TERMS: frozenset[str] = frozenset(("kill", "kills", "killed", "killing", "bullet", "bullets"))
 
 
 # Turns of phrase that contain a listed word and mean nothing by it.

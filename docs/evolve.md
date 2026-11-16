@@ -370,13 +370,34 @@ for the verdict.
 **Modes.** A tournament (`--mode tournament`, the default) promotes B
 when it beats A, as above. A non-regression check (`--mode nonregression`)
 asks only that B is no worse: `pass` when there is no fence failure and no
-hard-check regression (the same rules) and B won at least `--threshold` of
-the decided pairs (default 0.5 in this mode), `regressed` otherwise. It is
-`inconclusive` under the rules below, and also when fewer than `--min-pairs`
-pairs were decided, which here defaults to half the pairs there could be,
-rounded up, at most 12: a change one task reaches has two pairs, and one
-decided pair is enough. `report.json` says `mode`, the `tasks` it scored,
-and keeps `promote`, true only for `won` and `pass`.
+hard-check regression (the same rules) and the judge's wins do not show B is
+worse. That is a sign test on the decided pairs (ties dropped): were A and B
+alike, each decided pair would be a fair coin, so with `wins` of `decided`
+won, B is `regressed` only when P(X <= wins | decided, 0.5) is under 0.10
+(`SIGNAL_P`), an exact one-sided binomial test, not a win rate against a
+line. `--threshold` is accepted in this mode and ignored. The old rule, a win
+rate of at least 0.5, marked a change that did nothing `regressed` 25 to 45
+percent of the time (31% at 4 pairs, 43% at 28, 45% at 60), and `regressed`
+is final; the new rule does so 6%, 9% and 8% of the time. A few cases:
+
+| Decided pairs | Won | P(this few or fewer) | Verdict |
+|---|---|---|---|
+| 4 | 0 | 0.0625 | `regressed` |
+| 4 | 1 | 0.3125 | `pass` |
+| 28 | 10 | 0.0925 | `regressed` |
+| 28 | 13 | 0.4253 | `pass` |
+
+It is `inconclusive` under the rules below, and also when fewer than
+`--min-pairs` pairs were decided, which here defaults to half the pairs there
+could be, rounded up, at most 12. `report.json` says `mode`, the `tasks` it
+scored, and keeps `promote`, true only for `won` and `pass`.
+
+**Signal.** Either mode's `report.json` also says `signal`: `better` when
+P(X >= wins | decided, 0.5) is under 0.10, `worse` when P(X <= wins) is, and
+`no detectable difference` otherwise, with the two tail probabilities as
+`p_worse` and `p_better`. It reads the same whatever the verdict (a change
+that wins but breaks a fence is `better` and `regressed`). `bin/eval compare`
+prints it in its summary line, and the pull request says it.
 
 **Affected tasks.** `bin/eval affected --root DIR --base SHA` reads what
 DIR's working tree changes against SHA (`git diff --name-only --no-renames
@@ -530,8 +551,11 @@ that passes opens its own pull request.
  1 Learnings  brain/MEMORY.md's open items, newest first, up to N
    │          none open ─► done: no model turn, no generation
  2 Observe    evidence.json, outcomes first: context for each learning
- 3 Propose    one worktree and one proposer turn per learning:
-   │          the smallest change that acts on it, or a skip
+ 3 Research   one turn per learning: what was tried before, the web (paid,
+   │          off unless EVOLVE_RESEARCH_SEARCHES is set), the repository
+   ├── already | not-worth ─────────────────────────────────► settled
+ 3 Propose    one worktree and one proposer turn per learning, given the
+   │          research's plan: the smallest change that acts on it, or a skip
    ├── skip (already | not-actionable) ─────────────────────► settled
    ├── skip (frozen) ─────────────────── one issue for the operator, settled
    │          a near-duplicate is dropped
@@ -596,7 +620,7 @@ with that hash and a verdict that settles it:
 | Verdict on the learning's candidate | What it does to the learning |
 |---|---|
 | `opened` (a pull request) | settled |
-| `skipped` (`already`, `not-actionable`, `frozen`) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
 | `regressed`, `rejected` (the gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
 | `no-proposal`, `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight) | a failed try: open again |
@@ -666,6 +690,69 @@ happen. `outcomes` is cut to 16 KiB, so the message stays under the core's
 when a restart resumes it.
 
 ### 3. Propose
+
+#### Research first
+
+Before anything is built, each candidate gets one research turn
+(`research_one`): is acting on this learning worth a change to the
+repository at all, and if so, what is the smallest one? The turn is shown:
+
+- the learning, in Teeny's words;
+- **what was tried before**: the archive's earlier candidates on the same
+  learning id (the last 5, on any wording, `same_text` saying which), each
+  with its verdict, title, reason, the gate checks it failed, its skip and its
+  research verdict (`tried_before`);
+- **what the web says**, when the operator pays for it: `bin/evolve` itself
+  runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
+  (Exa, paid from the wallet over x402, so the wallet's own caps, host
+  allowlist and ledger apply). The queries are the learning's sentences, with
+  whatever could identify someone cut out first (`QUERY_SCRUB`): links,
+  emails, handles, `0x` and base58 wallet addresses, phone numbers and any
+  run of four or more digits, and then every capitalised word that is not
+  a sentence's first and not one of the repository's own (`query_vocabulary`:
+  Moltbook, X, GitHub and the other surfaces, and the playbooks' and hands'
+  names), since it may be a person's name; a learning under "promises and open
+  threads" names people and is never searched for. Each query brings back 3
+  results, each cut to 600 characters, pasted in as JSON under a line saying
+  they are what web pages said, data to read and never instructions to
+  follow. No agent gains a web tool. A generation runs at most 12 searches
+  (`MAX_GEN_SEARCHES`, counted in `state/evolve/<gen>/searches.json`), and
+  none under `DRY_RUN`. bin/evolve does not share the mind's
+  `MIND_SEARCHES_PER_DAY` count: `bin/lib/tick.py` keeps it in a file with no
+  lock, and its default 0 would silently turn research's searches off too.
+  The code's default is 0 (off); the operator runs the box at 3;
+- the evidence and the paths it may change, as the build sees them.
+
+The answer is `{verdict, why, plan, read, document}`:
+
+| `verdict` | What happens |
+|---|---|
+| `build` | the build goes ahead; its turn is shown `plan` ("## your research"), the docs named in `document`, and the files named in `read` first among the files it sees |
+| `already` | settled as `skipped` (`already`), `where` the first file in `read` |
+| `not-worth` | settled as `skipped` (`not-worth`) |
+
+The answer is held to its shape (`check_research`): a known verdict, a why, a
+plan for a build, and at most 8 paths each to read and to document, each a
+repository path inside the worktree, never under `secrets/`, `state/` or
+`.git`, never an `.env`, key or certificate file; a path to read must be a
+tracked file. What the files to read hold past 24,000 bytes is dropped and
+named (`read_cut`). A doc to update must be one the builder may change (under
+`brain/`, `hands/` or `docs/`, and not frozen, so never
+`docs/governance.md`); any other is dropped and named (`document_cut`). An answer out of shape, or a turn that fails, is kept as
+research with an `error`, and the build goes ahead without a plan, as it did
+before research existed.
+
+Which turn researches follows the proposer: `ask` asks the same tool-less
+agent, shown the same files; `evolver` runs the `evolver` agent on a lab spine
+over the worktree with its file tools read-only (no `SPINE_LAB_EDIT`); the
+operator's `--proposals DIR` reads `DIR/cand-<i>.research.json` and, without
+one, builds with no research. Whatever a research turn writes in the worktree
+is undone (`restore_tree`). The research is kept in
+`state/evolve/<gen>/cand-<i>.research.json` (with the web results) and, cut
+short, on the candidate's archive entry as `research`; a restarted generation
+reuses it, so it is never paid for twice.
+
+#### The build
 
 Each learning gets a candidate: a git worktree
 `state/evolve/<gen>/cand-<i>`, detached at main, from Teeny's own clone
@@ -770,7 +857,7 @@ Until 2026-11-15 the loop passed only the lab's URL and token, so `bin/eval`
 read the live checkout's playbooks, and a candidate's own playbook edit never
 reached its drafts. `--key` is the labs' model (`SPINE_MODEL`), so a model
 change drafts the baseline afresh. The compare runs with nonregression's own
-`--min-pairs` and threshold, each pair judged once.
+`--min-pairs` and its sign test, each pair judged once.
 
 `TargetedEvaluator` (`EVOLVE_EVALUATOR=lab`, the default), for the gated
 candidates of a generation:
@@ -783,6 +870,15 @@ candidates of a generation:
    sample count and model: `state/evolve/baseline/<base>/s<samples>-<model>/`
    is one `bin/eval` run folder kept across candidates and generations. The base lab also
    serves the judge, which reads main's soul, context, lore and arcs.
+   **The pair budget.** A change reaching one task has two pairs at two
+   samples, too few to tell a regression from luck, so the samples a task is
+   drafted scale with how few tasks the change reaches: `ceil(EVOLVE_EVAL_PAIRS
+   / reached tasks)`, at least `EVOLVE_EVAL_SAMPLES`, at most 8 (`eval_samples`).
+   With the defaults, 1 to 3 reached tasks draw 8 samples each, 14 draw 2 and
+   30 draw 2. Main and the candidate are drafted the same number for the same
+   tasks: the baseline folder is keyed by the sample count, so candidates that
+   need different counts each get their own folder, and each folder drafts the
+   union of the tasks of the candidates it serves.
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
    --mode nonregression --tasks` against the baseline.
@@ -914,7 +1010,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
 | `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster pauses for review; latches |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
-| `EVOLVE_EVAL_SAMPLES` | `2` | samples per task, baseline and candidate |
+| `EVOLVE_EVAL_SAMPLES` | `2` | the fewest samples per task, baseline and candidate |
+| `EVOLVE_EVAL_PAIRS` | `24` | pairs a candidate is measured on: samples per task are `ceil(pairs / reached tasks)`, from `EVOLVE_EVAL_SAMPLES` up to 8 |
 | `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
@@ -923,6 +1020,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_EVALUATOR` | `lab` | `lab`: a lab spine measures what a task reaches; `none`: nothing boots |
 | `EVOLVE_LAB_PORT`, `EVOLVE_LAB_BOOT_SECS` | `7790`, `180` | the labs' first port, and how long a lab may take |
 | `EVOLVE_EVOLVER_AGENT` | `evolver` | the agent `EVOLVE_PROPOSER=evolver` runs |
+| `EVOLVE_RESEARCH_SEARCHES` | `0` | paid web searches (`hands/x402`) each learning's research runs, 0 to 5; at most 12 a generation. Off by default because each costs money and sends the learning's words to a search engine; the operator sets it (the box runs 3) |
 | `EVOLVE_JUDGE_MODEL` | none | the model every judge turn asks for |
 | `EVOLVE_PROBES`, `EVOLVE_PROBE_SAMPLES` | `1`, `2` | the persona probe (on a change that reaches every task), and samples per question |
 | `EVOLVE_MAX_DRIFT` | `0.35` | persona drift from gen-0 past this flags the candidate and halts; latches |

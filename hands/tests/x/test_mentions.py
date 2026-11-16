@@ -100,6 +100,20 @@ class IngestTest(IngestBase):
         self.assertEqual(self.screened, ["14"], "only a mention that could be answered is screened")
         self.assertEqual(self.core.calls, [])
 
+    def test_a_reply_entering_an_open_drop_is_screened_but_never_offered(self):
+        # A drop's entries are replies to its post: the giveaway hand reads
+        # them, and answering each one would be reply spam.
+        conn = hand.db()
+        conn.execute("CREATE TABLE giveaway_rounds (id INTEGER PRIMARY KEY, status TEXT NOT NULL, post_id TEXT)")
+        conn.execute("INSERT INTO giveaway_rounds VALUES (1, 'open', 'c12'), (2, 'clawed_back', 'c13')")
+        self.x.route("GET", MENTIONS, page(("13", "9", "old drop, real q"), ("12", "7", "drop #1 my answer"), ("11", "8", "wen moon")))
+        out = mentions.ingest()
+        self.assertEqual(self.statuses(), {"11": "offered", "12": "skipped", "13": "offered"})
+        self.assertEqual(out["offered"], 2)
+        self.assertIn("12", self.screened, "an entry is still screened: a held one cannot win")
+        note = conn.execute("SELECT note FROM x_mentions WHERE id = '12'").fetchone()["note"]
+        self.assertEqual(note, "drop entry")
+
     def test_a_failed_offer_leaves_the_mention_pending_for_the_next_run(self):
         self.core.replies = [{"jsonrpc": "2.0", "id": 1, "error": {"message": "COMPONENT_DISABLED:eventqueues"}}]
         self.x.route("GET", MENTIONS, page(("11", "8", "wen moon")))

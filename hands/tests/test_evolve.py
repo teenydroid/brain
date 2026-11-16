@@ -216,7 +216,7 @@ class EvolveCase(unittest.TestCase):
         (self.props / f"cand-{i}.json").write_text(json.dumps({"skip": f"no change for {i}", "why": why,
                                                                "where": where}))
 
-    def playbook_edit(self, line, path="brain/playbooks/moltbook-daily.md"):
+    def playbook_edit(self, line, path="brain/playbooks/moltbook-follow.md"):
         """A line added to PATH. The default is a playbook no eval task
         drafts from, so `bin/eval affected` (the real one) says the change is
         unmeasurable and nothing boots."""
@@ -330,7 +330,7 @@ class Learnings(EvolveCase):
             def propose(self, request):
                 seen.append(evolve.render_request(request))
                 old = "a sentence that is not in the file" if len(seen) == 1 else ""
-                path = "brain/playbooks/moltbook-daily.md"
+                path = "brain/playbooks/moltbook-follow.md"
                 if old:
                     return {"title": "t", "component": "attention", "expected_move": "+1%",
                             "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
@@ -439,7 +439,7 @@ class OnePullRequestPerCandidate(EvolveCase):
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub, evaluator=Verdicts())
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1", "teeny/gen-1-c2"])
-        self.assertEqual(pub.prs[0]["files"], ["brain/playbooks/moltbook-daily.md"])
+        self.assertEqual(pub.prs[0]["files"], ["brain/playbooks/moltbook-follow.md"])
         self.assertEqual(pub.prs[1]["files"], ["brain/playbooks/pr-merged.md"])  # each its own change only
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "opened"])
         entries = self.entries()
@@ -461,7 +461,7 @@ class OnePullRequestPerCandidate(EvolveCase):
         self.run_gen(1, publisher=pub, evaluator=Verdicts())
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
         self.assertRegex(pub.prs[0]["branch"], r"^teeny/gen-\d+(-c\d+)?$")
-        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/moltbook-daily.md"))
+        self.assertIn("Check first.", git("--git-dir", str(self.src), "show", "teeny/gen-1-c1:brain/playbooks/moltbook-follow.md"))
 
     def test_candidates_are_measured_under_the_eval_lock(self):
         """The babysitter's deploy waits on state/locks/eval.lock before it
@@ -1334,6 +1334,9 @@ class AskProposerTurn(EvolveCase):
                            "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
                         "n=$(cat " + str(count) + " 2>/dev/null || echo 0); echo $((n + 1)) >" + str(count) + "\n"
                         "if [ \"$n\" = 0 ]; then a='" + cut.replace("'", "'\\''") + "'; else a='"
                         + good.replace("'", "'\\''") + "'; fi\n"
@@ -1344,6 +1347,7 @@ class AskProposerTurn(EvolveCase):
         out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         messages = [json.loads(line)["message"] for line in calls.read_text().splitlines()]
+        messages = [m for m in messages if not m.startswith("# evolve research")]
         self.assertEqual(len(messages), 2)
         self.assertIn("could not be read as JSON", messages[1])
 
@@ -1358,7 +1362,9 @@ class AskProposerTurn(EvolveCase):
         with unittest.mock.patch.object(evolve, "world_report", return_value={
                 "J": 0.1, "components": [{"component": "attention", "value": 5}, {"component": "money", "value": None}]}):
             evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
-        message = json.loads(calls.read_text().splitlines()[0])["message"]
+        # The build's message, after the research turn's (whose answer here does not parse as research).
+        message = next(m for m in (json.loads(line)["message"] for line in calls.read_text().splitlines())
+                       if m.startswith("# evolve: "))
         self.assertLess(message.index("What came of what you made"), message.index("The score, your builds"))
         self.assertIn("Anything aimed at money: never read", message)
         # money is not offered as a label (in the instructions: a playbook

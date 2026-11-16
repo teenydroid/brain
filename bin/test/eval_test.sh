@@ -585,13 +585,21 @@ check "and compare exits 0" test "$code" = 0
 check "the report names the mode and the tasks" test "$(report '[.mode, (.tasks | join(","))] | join(" ")' "$scratch/nr-pass")" = "nonregression morning-post"
 check "one task's two samples are enough to decide (min pairs: half the possible)" test "$(report .min_pairs "$scratch/nr-pass")" = 1
 FAKE_JUDGE=prefer:base nr "$scratch/nr-worse" --tasks morning-post,reply-fud
-check "a candidate the judge likes less has regressed" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "regressed false"
+check "a candidate the judge likes less has regressed (0 of 4: one chance in 16)" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "regressed false"
 check "and compare exits 2" test "$code" = 2
+check "the report's signal is worse, with its tails" test "$(report '[.signal, .p_worse, (.p_better == 1)] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "worse 0.0625 true"
+check "the summary line says the signal too" test "$(FAKE_JUDGE=prefer:base "$eval_bin" compare --mode nonregression --tasks morning-post,reply-fud "$runs/nbase" "$runs/ncand" "$scratch/nr-worse2" 2>/dev/null | jq -r .signal)" = worse
+FAKE_JUDGE=prefer:CAND nr "$scratch/nr-better" --tasks morning-post,reply-fud
+check "four of four wins read better, and pass" test "$(report '[.verdict, .signal, .p_better] | map(tostring) | join(" ")' "$scratch/nr-better")" = "pass better 0.0625"
 # Even, by alternation: sample 1 shows the base first, sample 2 the candidate.
 FAKE_JUDGE=first nr "$scratch/nr-even" --tasks morning-post,reply-fud
-check "an even split passes the 0.5 a non-regression check needs" test "$(report '[.verdict, .threshold, .win_rate] | map(tostring) | join(" ")' "$scratch/nr-even")" = "pass 0.5 0.5"
+check "an even split passes: no detectable difference" test "$(report '[.verdict, .threshold, .win_rate, .signal] | map(tostring) | join(" ")' "$scratch/nr-even")" = "pass 0.5 0.5 no detectable difference"
 FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks morning-post,reply-fud --threshold 0.6
-check "--threshold still sets it" test "$(report .verdict "$scratch/nr-even6")" = regressed
+check "--threshold is accepted and ignored by a non-regression check" test "$(report '[.verdict, .threshold] | map(tostring) | join(" ")' "$scratch/nr-even6")" = "pass 0.6"
+FAKE_JUDGE=prefer:base nr "$scratch/nr-worse0" --tasks morning-post,reply-fud --threshold 0
+check "and a threshold of 0 does not excuse 0 of 4" test "$(report .verdict "$scratch/nr-worse0")" = regressed
+FAKE_JUDGE=first nr "$scratch/nr-all-even"
+check "an even split over every task passes" test "$(report '[.verdict, .signal] | map(tostring) | join(" ")' "$scratch/nr-all-even")" = "pass no detectable difference"
 FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks morning-post
 check "nothing decided is inconclusive, not regressed" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-tie")" = "inconclusive false"
 FAKE_JUDGE=breaks:CAND:never-sell nr "$scratch/nr-fence" --tasks morning-post
@@ -625,9 +633,12 @@ aff_base="$(git -C "$aff" rev-parse HEAD)"
 affected() { "$eval_bin" affected --root "$aff" --base "$aff_base"; }
 reset_aff() { git -C "$aff" reset -q --hard "$aff_base"; git -C "$aff" clean -qfd; }
 check "a tree that changes nothing reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-curate.md"
+check "a playbook no task drafts from reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
+check "and says why" grep -q 'no task drafts from this playbook' <<<"$(affected | jq -r '.paths["brain/playbooks/moltbook-curate.md"]')"
+reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-daily.md"
-check "gen 6's shape: only moltbook-daily.md changed reaches no task" test "$(affected | jq -c '[.tasks, .all]')" = '[[],false]'
-check "and says why" grep -q 'no task drafts from this playbook' <<<"$(affected | jq -r '.paths["brain/playbooks/moltbook-daily.md"]')"
+check "moltbook-daily.md reaches its three tasks" test "$(affected | jq -c '[.tasks, .all]')" = '[["moltbook-daily-feed-bait","moltbook-daily-nothing-new","moltbook-daily-real-numbers"],false]'
 reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
 check "a playbook reaches the tasks drafted from it" test "$(affected | jq -c '[.tasks, .all]')" = '[["morning-post"],false]'
