@@ -63,6 +63,42 @@ class SelfMergeVerdictTest(SelfMergeScratch):
         result = audit.audit(REPO, 7)
         self.assertEqual((result["verdict"], self.rules(result)["eval_untrusted"]), ("waiting", "wait"))
 
+    def test_the_combined_status_carries_no_creator_so_the_list_is_read_for_it(self):
+        # GitHub's combined status (/commits/{ref}/status) has no `creator`
+        # on its statuses; only the list (/commits/{ref}/statuses) does.
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr()
+        result = audit.audit(REPO, 7)
+        self.assertNotIn("eval_untrusted", self.rules(result))
+        self.assertEqual(result["verdict"], "ready", result["findings"])
+        self.assertTrue(result["self_merge"])
+
+    def test_a_strangers_newer_eval_status_is_not_masked_by_an_older_trusted_one(self):
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr(statuses=[eval_status(creator="mallory")],
+                       status_list=[eval_status(creator="mallory"), eval_status(creator="teenydroid")])
+        result = audit.audit(REPO, 7)
+        self.assertEqual((result["verdict"], self.rules(result)["eval_untrusted"]), ("waiting", "wait"))
+        self.assertFalse(result["self_merge"])
+
+    def test_an_operators_newer_eval_status_counts_over_an_older_strangers(self):
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr(statuses=[eval_status(creator="senamakel")],
+                       status_list=[eval_status(creator="senamakel"), eval_status(creator="mallory")])
+        self.assertEqual(audit.audit(REPO, 7)["verdict"], "ready")
+
+    def test_an_eval_status_the_list_does_not_show_is_untrusted(self):
+        # The combined view has it but the list (which names the creator) does not.
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr(status_list=[])
+        result = audit.audit(REPO, 7)
+        self.assertEqual((result["verdict"], self.rules(result)["eval_untrusted"]), ("waiting", "wait"))
+
+    def test_a_maintainers_pr_reads_no_status_list(self):
+        self.pull_request()
+        audit.audit(REPO, 7)
+        self.assertFalse([r for r in self.gh.requests("GET") if r.path.endswith("/statuses")])
+
     def test_a_builder_teeny_slug_pr_still_needs_review(self):
         self.configure(BABYSIT_SELF_MERGE="1")
         for branch in ("teeny/self-4-fix-cron", "teeny/gen-5-fix-cron", "teeny/gen-x"):
