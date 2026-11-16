@@ -297,9 +297,10 @@ class PromptsTest(unittest.TestCase):
 
     #: The outputs through which a playbook's words reach somebody else: an
     #: own post or a reply, and the hands that publish what the draft wrote.
-    #: (hand:build, hand:tasks and the like brief Teeny's own workers.)
+    #: (hand:build, hand:tasks and hand:reddit browse brief Teeny's own
+    #: workers; what it then says on Reddit is the mind's, under teeny.md.)
     WRITES_TO_PEOPLE = re.compile(
-        r"^(post|reply|hand:(x|brief|firsts|bounty open|giveaway open|requests vote-open|mail|reddit)\b.*"
+        r"^(post|reply|hand:(x|brief|firsts|bounty open|giveaway open|requests vote-open|mail)\b.*"
         r"|hand:moltbook (post|comment|helpdesk))$")
 
     def test_every_playbook_that_writes_to_people_names_the_reader(self):
