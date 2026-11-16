@@ -195,8 +195,6 @@ class Research(LoopCase):
                          ({**BUILD, "read": ["secrets/teeny.env"]}, "may not read"),
                          ({**BUILD, "read": ["../outside"]}, "not a repository path"),
                          ({**BUILD, "read": ["/etc/passwd"]}, "not a repository path"),
-                         ({**BUILD, "read": ["brain/no-such-file.md"]}, "not a tracked file"),
-                         ({**BUILD, "read": [f"brain/playbooks/{n}.md" for n in range(9)]}, "the most is 8"),
                          ({**BUILD, "document": ["deploy/prod.env"]}, "may not document"))):
             with self.subTest(why=why):
                 tree = self.worktree(f"t{n}")
@@ -209,6 +207,57 @@ class Research(LoopCase):
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
         self.assertNotIn("research", proposer.requests[0])
         self.assertIn("may not read", self.entries()["g1c1"]["research"]["error"])
+
+    def test_an_untracked_or_directory_path_is_dropped_and_the_plan_kept(self):
+        # Generation 12: brain/MEMORY.md (live memory, never tracked) and a
+        # directory each threw the whole research away, and the build ran
+        # with no plan.
+        tree = self.worktree("t")
+        got = evolve.check_research({**BUILD, "read": ["brain/MEMORY.md", "hands/lib/teeny_hands/x402",
+                                                       "brain/playbooks/moltbook-daily.md", "brain/no-such-file.md"],
+                                     "document": ["docs/hands.md", "brain/playbooks"]}, tree)
+        self.assertEqual((got["verdict"], got["why"], got["plan"]), ("build", BUILD["why"], BUILD["plan"]))
+        self.assertEqual(got["read"], ["brain/playbooks/moltbook-daily.md"])
+        self.assertEqual(got["document"], ["docs/hands.md"])
+        self.assertNotIn("error", got)
+        self.assertEqual(got["dropped"], [
+            {"path": "brain/MEMORY.md", "from": "read", "why": "not a tracked file"},
+            {"path": "hands/lib/teeny_hands/x402", "from": "read", "why": "a directory, not a file"},
+            {"path": "brain/no-such-file.md", "from": "read", "why": "not a tracked file"},
+            {"path": "brain/playbooks", "from": "document", "why": "a directory, not a file"}])
+
+    def test_paths_past_the_most_are_dropped_not_fatal(self):
+        tree = self.worktree("t")
+        names = sorted(git("-C", str(tree), "ls-files", "brain/playbooks").split())[:evolve.MAX_RESEARCH_PATHS + 2]
+        got = evolve.check_research({**BUILD, "read": ["brain/MEMORY.md", *names]}, tree)
+        self.assertEqual(got["plan"], BUILD["plan"])
+        self.assertEqual(len(got["read"]) + len(got.get("read_cut", [])), evolve.MAX_RESEARCH_PATHS)
+        self.assertEqual([d["path"] for d in got["dropped"]],
+                         ["brain/MEMORY.md", *names[evolve.MAX_RESEARCH_PATHS:]])
+        self.assertIn(f"past the most ({evolve.MAX_RESEARCH_PATHS})", got["dropped"][-1]["why"])
+
+    def test_a_dropped_path_keeps_the_plan_for_the_build_and_the_pr_says_so(self):
+        self.one_learning()
+        self.live()
+        proposer = Recording(research=[{**BUILD, "read": ["brain/MEMORY.md", *BUILD["read"]]}],
+                             proposals=[self.proposal()])
+        pub = FakePublisher()
+        self.run_with(proposer, publisher=pub, evaluator=Verdicts())
+        (request,) = proposer.requests
+        self.assertEqual(request["research"]["plan"], BUILD["plan"])
+        entry = self.entries()["g1c1"]
+        self.assertNotIn("error", entry["research"])
+        self.assertEqual(entry["research"]["dropped"][0]["path"], "brain/MEMORY.md")
+        (pr,) = pub.prs
+        self.assertIn("> add one bullet to moltbook-daily", pr["body"])
+        self.assertIn("brain/MEMORY.md (not a tracked file)", pr["body"])
+
+    def test_the_research_prompt_asks_for_tracked_files_only(self):
+        self.one_learning()
+        proposer = Recording(research=[{"verdict": "not-worth", "why": "x"}])
+        self.run_with(proposer)
+        message = evolve.render_research_request({**proposer.research_requests[0], "files": {}})
+        self.assertIn("tracked files only, not directories, and not brain/MEMORY.md", message)
 
     def test_docs_to_update_are_only_ones_the_builder_may_change(self):
         tree = self.worktree("t")
@@ -459,6 +508,31 @@ class ReviewLoop(LoopCase):
             self.assertEqual(self.entries()[f"g{gen}c1"]["verdict"], "parked")
         learning = evolve.read_learnings()[0]
         self.assertEqual(evolve.learning_state(self.entries(), learning), ("gave-up", 3))
+
+    def test_a_proposal_missing_a_field_goes_back_to_the_builder_as_a_finding(self):
+        # Generation 12, candidate 4: "the proposal needs a hypothesis" ended
+        # the candidate on its first answer.
+        self.one_learning()
+        bare = {k: v for k, v in self.proposal(path=UNREACHED).items() if k != "hypothesis"}
+        proposer = Recording(research=[BUILD], proposals=[bare, self.proposal(path=UNREACHED)])
+        out = self.run_with(proposer)
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        first, second = proposer.requests
+        self.assertEqual(second["round"], 2)
+        self.assertIn("the proposal needs a hypothesis", second["findings"][0]["problem"])
+        self.assertIn("the proposal needs a hypothesis", evolve.render_request(second))
+        self.assertEqual(self.entries()["g1c1"]["rounds"][0], "round 1: the proposal needs a hypothesis")
+
+    def test_a_proposal_out_of_shape_every_round_is_one_no_proposal_try(self):
+        self.one_learning()
+        bare = {k: v for k, v in self.proposal().items() if k != "hypothesis"}
+        proposer = Recording(research=[BUILD], proposals=[bare, {**bare, "component": "nope"}, bare])
+        out = self.run_with(proposer)
+        self.assertEqual(len(proposer.requests), 3)  # EVOLVE_REVISE_ROUNDS
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+        self.assertIn("needs a hypothesis", self.entries()["g1c1"]["reason"])
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 1))
 
     def test_a_frozen_path_is_final_with_no_second_round(self):
         self.one_learning()
