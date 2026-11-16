@@ -25,6 +25,9 @@ deploy/**
 # The browser's deny list, named although deploy/** covers it: the one fence
 # on the open web, never Teeny's to edit.
 deploy/browser-deny.txt
+# The hosts the browser reaches through the operator's residential proxy
+# (BROWSER_PROXY_URL): which sites spend the proxy, never Teeny's to widen.
+deploy/browser-proxy-domains.txt
 Cargo.*
 .github/
 secrets/
