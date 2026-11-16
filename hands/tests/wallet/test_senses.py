@@ -168,6 +168,15 @@ class WatchTest(Scratch):
             self.assertIn({"memcmp": {"offset": 0, "bytes": TINY}}, params[1]["filters"])
         self.assertEqual(self.moved(), [])
 
+    def test_holders_are_read_from_the_real_token_program_and_token_2022(self):
+        # $TINY is a Token-2022 mint: a wrong program id there counts none of
+        # its holders, so the ids are written out here, never taken from senses.
+        self.chain.answers["getTokenAccountsByOwner"] = token_accounts(0, TINY)
+        self.chain.answers["getProgramAccounts"] = []
+        senses.daily()
+        programs = sorted(params[0] for params in self.chain.params("getProgramAccounts"))
+        self.assertEqual(programs, ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"])
+
     def test_a_failed_holder_read_is_said_never_guessed(self):
         self.chain.answers["getTokenAccountsByOwner"] = token_accounts(0, TINY)
         out = senses.daily()
