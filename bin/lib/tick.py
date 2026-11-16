@@ -65,6 +65,13 @@
    measured here, and only a fit goes to the same hand (guard again). Still
    over, empty, failed, or out of time: refused as the hand said, never cut.
    The entry says `rewritten` and `rewrite` (the lengths).
+9. An own post on X (post_x) is read cold before any picture is made or
+   anything is sent (hands/guard clarity): someone who has never heard of
+   Teeny, shown only the words, must be able to say them back with nothing
+   to ask about. A no the reader gave after reading gets one rewrite from
+   the mind, with what the reader took from it and could not read, and the
+   rewrite is read cold too. Still a no, a reader that did not answer, or
+   out of time: refused, and the mind is told why. The entry says `clarity`.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
