@@ -1125,7 +1125,8 @@ class SurplusIsFrozen(LoopCase):
                 check = next(c for c in entry["gate"]["checks"] if c["check"] == "frozen paths")
                 self.assertTrue(check["hard"])
                 self.assertIn(path, check["detail"])
-                self.one_learning(f"before retrying anything, check whether it already went through ({path}).")
+                # A learning of its own for the next path: a rewording would stay settled.
+                self.page(f"# MEMORY.md\n\n## what i have decided\n\n- [m{40 + len(path)}] keep {path} as it is.\n")
 
 
 class HandsLibShadow(LoopCase):
