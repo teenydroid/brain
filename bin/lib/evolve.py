@@ -4326,8 +4326,30 @@ def eval_text(cand: Mapping[str, Any]) -> str:
             + (f" (signal: {ev['signal']})" if ev.get("signal") else "")
             + f"; regressions: {len(regressions) or 'none'}; fences: {len(fences) or 'none'}."
             + (f" {ev.get('reason')}." if ev.get("reason") else "")
+            + noise_text(ev.get("base_noise"))
             + (f"\n\nPersona drift from gen-0: {cand['probe'].get('drift')}." if isinstance(cand.get("probe"), Mapping)
                else ""))
+
+
+def noise_text(noise: Any) -> str:
+    """The tasks main failed its own hard checks on, as the eval report says
+    it: a check main fails is noisy (or wrong), and what it says of the
+    candidate is worth that much."""
+    if not isinstance(noise, Mapping) or not noise:
+        return ""
+    return ("\n\nNoisy hard checks (main failed its own): "
+            + ", ".join(f"`{t}` {n.get('failed')}/{n.get('of')}" for t, n in sorted(noise.items())) + ".")
+
+
+def baseline_noise() -> Json:
+    """Main's own hard-check failures per task over every cached baseline
+    (state/evolve/baseline/*/*/drafts.jsonl), for `status`: the tasks whose
+    checks are noisy, worst first. Nothing is switched off by it."""
+    rows = [r for path in sorted(evolve_dir().glob("baseline/*/*/drafts.jsonl")) for r in read_jsonl(path)]
+    noise = evals_lib.base_noise(rows)
+    return {t: {"failed": n["failed"], "of": n["of"], "rate": round(n["failed"] / n["of"], 2),
+                "checks": sorted(n["checks"], key=lambda c: -n["checks"][c])[:3]}
+            for t, n in sorted(noise.items(), key=lambda kv: (-kv[1]["failed"] / kv[1]["of"], kv[0]))}
 
 
 def status_text(cand: Mapping[str, Any]) -> str:
@@ -5169,6 +5191,7 @@ def status() -> Json:
         "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
         "generations": latest, "today": generations_today(),
         "unfinished": [g for g in unfinished()],
+        "noisy_tasks": baseline_noise(),
         "learnings": {"open": [{"id": item.id, "section": item.section, "first_seen": iso(item.first_seen)
                                 if item.first_seen else None, "text": item.text[:160]}
                                for item in open_learnings(entries, learnings)],
