@@ -4678,25 +4678,87 @@ def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None
 
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
                    publisher: Publisher | None = None, evaluator: Evaluator | None = None,
-                   reviewer: Reviewer | None = None) -> Json:
-    """One generation (_run_generation). One that raises is ended, not left
-    for the next run to resume: resumable() would take it again and the same
-    exception would end every run after it, with no other learning ever
-    reaching a proposer. What it was doing is recorded as a failed try."""
-    progress: Json = {"picks": [], "cands": [], "queue": []}
+                   reviewer: Reviewer | None = None, scheduled: bool = False) -> Json:
+    """One generation (_run_generation). SCHEDULED: the pinned job started it
+    (`run --scheduled`), and it counts against EVOLVE_GENERATIONS_PER_DAY;
+    otherwise a person did, against EVOLVE_MANUAL_GENERATIONS_PER_DAY. One
+    that raises is ended, not left for the next run to resume: resumable()
+    would take it again and the same exception would end every run after
+    it, with no other learning ever reaching a proposer. What it was doing
+    is recorded as `crashed`, no failed try, and the operator is told
+    (report_crash). The exception goes on up: the run exits non-zero."""
+    progress: Json = {"picks": [], "cands": [], "queue": [], "publisher": publisher}
     try:
-        return _run_generation(cfg, n, proposals, publisher, evaluator, progress, reviewer)
+        return _run_generation(cfg, n, proposals, publisher, evaluator, progress, reviewer, scheduled)
     except Exception as exc:
-        end_crashed(progress, exc)
+        try:
+            end_crashed(progress, exc)
+        finally:
+            report_crash(cfg, progress, exc)
         raise
+
+
+def last_crash_path() -> Path:
+    return evolve_dir() / "last-crash.json"
+
+
+def crash_site(exc: BaseException) -> str:
+    """Where EXC was raised, in this repository's code: each of its frames
+    as file:function, innermost last, then the innermost one's line (gen 14:
+    evolve.py:observe > evolve_evidence.py:outcomes > evolve_evidence.py:failing)."""
+    frames = [f for f in traceback.extract_tb(exc.__traceback__)
+              if Path(f.filename).resolve().is_relative_to(CODE)]
+    if not frames:
+        return ""
+    chain = " > ".join(f"{Path(f.filename).name}:{f.name}" for f in frames[-6:])
+    last = frames[-1]
+    return f"{chain} (line {last.lineno}: {(last.line or '').strip()[:160]})"
+
+
+def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -> Json:
+    """Tells of a generation that raised, the way a halt is told: a line in
+    the log (state/evolve/evolve.log under --detach, where the cron call's
+    `ok` hid gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
+    status`, and a `crash` halt through stop(), which never latches (the next
+    scheduled run tries again) and files one issue a day (its key). Its own
+    failure never hides the crash."""
+    gen = progress.get("gen")
+    error = f"{type(exc).__name__}: {exc}"
+    for where, to in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+        error = error.replace(where, to)
+    error = error[:300]
+    site = crash_site(exc)
+    who = f"gen {gen}" if gen is not None else "the run"
+    say(f"{who} crashed: {error}" + (f" at {site}" if site else ""))
+    crash: Json = {"gen": gen, "at": iso(now()), "error": error, "where": site or None}
+    try:
+        publisher = progress.get("publisher")
+        if publisher is None and not dry_run():
+            publisher = HandsPublisher()
+        halt = Halt("crash", f"{who} raised {error}" + (f" at {site}" if site else "")
+                    + ". Its learnings stay open, charged no try.", latch=False,
+                    extra={"gen": gen, "error": error})
+        entry = stop(cfg, halt, publisher)
+        crash["issue"] = entry.get("issue")
+        if crash["issue"] == "already filed":
+            filed = [r.get("issue") for r in read_jsonl(halts_log()) if r.get("key") == halt.key and r.get("issue")
+                     and r.get("issue") != "already filed"]
+            crash["issue"] = filed[-1] if filed else None
+        if entry.get("dry_run"):
+            crash["dry_run"] = True
+    except Exception as err:  # noqa: BLE001 - the crash itself is what must be told
+        crash["issue_error"] = str(err)[:300]
+    write_json(last_crash_path(), crash)
+    return crash
 
 
 def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
     """Ends a generation that raised: every candidate still in flight (or
-    pending, or without a verdict) becomes `crashed`, which counts as a
-    failed try for its learning (learning_state), and each picked learning
-    that never got a candidate records one too. Then result.json, so the
-    next run starts a new generation instead of resuming this one."""
+    pending, or without a verdict) becomes `crashed`, which charges its
+    learning no failed try (learning_state: the loop's fault, not the
+    learning's), and each picked learning that never got a candidate records
+    one too. Then result.json, so the next run starts a new generation
+    instead of resuming this one, and it spends none of the day's cap."""
     gen = progress.get("gen")
     if gen is None:
         return
@@ -4704,19 +4766,20 @@ def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
     for cand in [*progress.get("queue", []), *progress.get("cands", [])]:
         if cand.get("verdict") in SETTLED or (cand.get("verdict") not in (*IN_FLIGHT, "pending", None)):
             continue
-        cand.update(verdict="crashed", crashed=reason)
+        cand.update(verdict=CRASHED, crashed=reason)
         record(cand)
     have = set(archive())
     for i, ref in enumerate(progress.get("picks", []), 1):
         if cand_id(gen, i) not in have:
-            record({"id": cand_id(gen, i), "gen": gen, "cand": i, "learning": ref, "verdict": "crashed",
+            record({"id": cand_id(gen, i), "gen": gen, "cand": i, "learning": ref, "verdict": CRASHED,
                     "crashed": reason})
     if not (gen_dir(gen) / "result.json").exists():
         write_json(gen_dir(gen) / "result.json", {"gen": gen, "crashed": reason, "at": iso(now())})
 
 
 def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher: Publisher | None,
-                    evaluator: Evaluator | None, progress: Json, reviewer: Reviewer | None = None) -> Json:
+                    evaluator: Evaluator | None, progress: Json, reviewer: Reviewer | None = None,
+                    scheduled: bool = False) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
     if halt_path().exists():
@@ -4726,8 +4789,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         return {"ok": True, "kind": "busy", "skipped": "a dream is still writing MEMORY.md"}
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
+    progress["publisher"] = publisher
     resume_gen = resumable()
-    halts = halts_before(cfg, new_generation=resume_gen is None)
+    halts = halts_before(cfg, new_generation=resume_gen is None, scheduled=scheduled)
     if halts:
         return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
                 "halts": [stop(cfg, h, publisher) for h in halts]}
@@ -4778,7 +4842,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         gen_dir(gen).mkdir(parents=True)
         write_json(gen_dir(gen) / "generation.json", {
             "gen": gen, "started_at": iso(now()), "base": base, "source": src.kind, "candidates": len(picks),
-            "dry_run": dry_run(), "learnings": picks, **({"runway": cut} if cut else {})})
+            "trigger": SCHEDULED if scheduled else MANUAL, "dry_run": dry_run(), "learnings": picks,
+            **({"runway": cut} if cut else {})})
     gdir = gen_dir(gen)
     progress.update(gen=gen, picks=picks)
     held = heldout_tasks()
@@ -5224,6 +5289,15 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
             "history": "available" if history is not None else "no hands/world history"}
 
 
+def last_crash() -> Json | None:
+    """state/evolve/last-crash.json (report_crash), or None."""
+    try:
+        got = json.loads(last_crash_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return got if isinstance(got, dict) else None
+
+
 def status() -> Json:
     """What a person asks before a restart or a merge: the open learnings,
     the open evolve pull requests, and where each candidate of the newest
@@ -5239,7 +5313,8 @@ def status() -> Json:
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
     return {
         "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
-        "generations": latest, "today": generations_today(),
+        "generations": latest, "today": generations_today(), "today_by_hand": generations_today(scheduled=False),
+        "last_crash": last_crash(),
         "unfinished": [g for g in unfinished()],
         "learnings": {"open": [{"id": item.id, "section": item.section, "first_seen": iso(item.first_seen)
                                 if item.first_seen else None, "text": item.text[:160]}
@@ -5307,6 +5382,9 @@ def main(argv: list[str]) -> int:
     run_p = verbs.add_parser("run", help="one generation: a candidate per open learning")
     run_p.add_argument("--candidates", type=int, default=None)
     run_p.add_argument("--proposals", default=None, help="DIR of cand-<i>.json proposals (the file proposer)")
+    run_p.add_argument("--scheduled", action="store_true",
+                       help="the pinned job's run: counts against EVOLVE_GENERATIONS_PER_DAY (by hand, leave it off: "
+                            "EVOLVE_MANUAL_GENERATIONS_PER_DAY)")
     verbs.add_parser("watch", help="evolve-watch: the newest merge, reverted when it hurts")
     prb = verbs.add_parser("probe", help="the persona and memory probes on the live core")
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
@@ -5320,11 +5398,12 @@ def main(argv: list[str]) -> int:
         if args.verb == "run":
             if args.candidates is not None and not 1 <= args.candidates <= 8:
                 raise EvolveError("--candidates is 1..8")
+            usable_tmpdir()
             with run_lock() as held:
                 if not held:
                     out = {"ok": True, "kind": "busy", "detail": "a generation is already running"}
                 else:
-                    out = run_generation(cfg, args.candidates, args.proposals)
+                    out = run_generation(cfg, args.candidates, args.proposals, scheduled=args.scheduled)
         elif args.verb == "watch":
             with run_lock("evolve-watch") as held:
                 out = watch(cfg) if held else {"ok": True, "kind": "busy", "detail": "evolve-watch is already running"}
@@ -5339,6 +5418,12 @@ def main(argv: list[str]) -> int:
     except (EvolveError, probes_lib.ProbeError) as exc:
         say(str(exc))
         print(json.dumps({"ok": False, "error": str(exc)}))
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a crashed generation (report_crash told of it): its traceback, and not 0
+        if args.verb != "run":
+            raise
+        traceback.print_exc()
+        print(json.dumps({"ok": False, "crashed": f"{type(exc).__name__}: {exc}"[:300]}))
         return 1
     print(json.dumps(out, ensure_ascii=False))
     return 0
