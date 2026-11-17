@@ -57,7 +57,9 @@ proposer turn.
 
 `credit` asks GitHub which pull requests merged, writes each merged
 generation's chronicle page into the live brain, and records ΔJ (HGM) for the
-ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one.
+ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one,
+and scores every merged candidate's `check` at each horizon it has reached
+(bin/lib/evolve_outcomes.py): worked, no-effect, hurt or no-data.
 
 The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
 the default. Too many generations today, a red doctor, a last-good boot, or J
