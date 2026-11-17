@@ -93,7 +93,9 @@ CURATE_PATCH = ("diff --git a/brain/playbooks/moltbook-curate.md b/brain/playboo
                 "@@ -16 +16 @@\n-old line\n+new line\n")
 
 
-class WatchNoise(EvolveCase):
+class CronCase(EvolveCase):
+    """A scratch spine with storage.db at TEENY_STORAGE, checked at CHECKED."""
+
     def setUp(self):
         super().setUp()
         for name in ("guard", "world"):
@@ -141,6 +143,9 @@ class WatchNoise(EvolveCase):
         out = evolve.watch(evolve.load_config())
         state = json.loads((evolve.secrets_dir() / "evolve-watch" / "state.json").read_text())
         return out, state["g9c4"]["checks"]["cron failures"]
+
+
+class WatchNoise(CronCase):
 
     def test_the_g9c4_failures_are_not_a_spike(self):
         self.merge()
@@ -206,6 +211,25 @@ class WatchNoise(EvolveCase):
         out, got = self.watched()
         self.assertTrue(out["reverted"])
         self.assertEqual(got["after"], 7)
+
+
+class CronFailuresFeedBoth(CronCase):
+    """observe() and watch() both read storage.db's failed cron runs, in two
+    shapes: observe a count per job (evolve_evidence.outcomes), watch each
+    run with its output. One once shadowed the other and every generation
+    crashed in observe (gen 14, 2026-11-17)."""
+
+    def test_observe_lists_a_failing_cron_job_with_its_count(self):
+        self.cron([(CHECKED - HOUR, "J-curate", BROKEN), (CHECKED - 2 * HOUR, "J-curate", BROKEN)])
+        failing = evolve.observe({})["outcomes"]["failing"]
+        self.assertIn({"job": "teeny.moltbook-curate", "failed_runs": 2}, [
+            {k: r[k] for k in ("job", "failed_runs")} for r in failing])
+
+    def test_watch_still_reads_each_failed_run(self):
+        self.cron([(CHECKED - HOUR, "J-curate", BROKEN)])
+        runs = evolve._cron_failure_runs(CHECKED - DAY)
+        self.assertEqual(runs, [{"at": CHECKED - HOUR, "job": "bin/act moltbook-curate", "output": BROKEN}])
+        self.assertEqual(evolve._cron_failure_counts(CHECKED - DAY), {"teeny.moltbook-curate": 1})
 
 
 if __name__ == "__main__":
