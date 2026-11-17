@@ -756,8 +756,8 @@ recorded on the candidate as `infra: {stage, detail}` and charges no try:
   finding for the builder.
 - **propose**: the proposer's turn never answered (the provider refused or
   erred, as gen 15's candidate 2 did with `local-openai returned HTTP 400`,
-  the core unreachable, a timeout). A failed turn is asked once more in the
-  run, 30 s later (not one that timed out); failing again, the candidate is
+  the core unreachable, a timeout). A failed build turn is asked once more
+  in the run, 30 s later (not one that timed out); failing again, the candidate is
   `deferred` (`deferred_for: infra`). An answer that came back but holds no
   usable proposal (not JSON after its retry, a missing field every round)
   is still `no-proposal`, a failed try. A failed research turn already costs

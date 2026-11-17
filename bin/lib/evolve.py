@@ -1105,9 +1105,9 @@ class AskProposer:
             if not str(exc).startswith(("not JSON", "no JSON")):
                 raise
             say(f"candidate {request['cand']}: the answer did not parse ({str(exc)[:120]}); asking once more")
-            retry = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
+            again = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
                      "Answer again, the same way, JSON only, and keep the hypothesis short.")
-            return first_json(self._turn(request, retry, False))
+            return first_json(self._turn(request, again, retry))
 
     def _turn(self, request: Json, message: str, retry: bool = False) -> str:
         """One turn. RETRY (the build turn only): one that failed is asked
