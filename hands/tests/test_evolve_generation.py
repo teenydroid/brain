@@ -161,6 +161,36 @@ class WholeGeneration(EvolveCase):
             self.assertIn(section, outcomes, outcomes.get("nothing_recorded"))
         self.assertFalse((evolve.evolve_dir() / "last-crash.json").exists())
 
+    def test_a_dry_run_generation_turns_a_finding_from_the_run_logs_into_a_candidate(self):
+        """moltbook-curate's upvotes refused as `duplicate` five times this
+        week: with the two learnings on the page taking the other slots, the
+        finding is the third candidate, and its check is that very count."""
+        path = evolve.state_dir() / "act" / "moltbook-curate" / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as fh:
+            for k in range(5):
+                fh.write(json.dumps({"at": evolve.iso(T0 - (k + 1) * DAY), "ok": True, "playbook": "moltbook-curate",
+                                     "actions": [{"action": "hand", "status": "refused", "result": {
+                                         "ok": False, "refused": "already upvoted", "rule": "duplicate"}}]}) + "\n")
+        self.propose(3, [self.playbook_edit("Upvote only what you have not upvoted.",
+                                            path="brain/playbooks/moltbook-curate.md")])
+        done = self.run_cli("run", "--candidates", "3", "--proposals", str(self.props))
+        self.assertEqual(done.returncode, 0, done.stderr[-3000:])
+        out = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual([c["learning"] for c in out["candidates"]],
+                         ["m44", "m36", "f:refusals:moltbook-curate:duplicate"])
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["dry-run"] * 3)
+        entry = evolve.archive()["g1c3"]
+        self.assertEqual(entry["learning"]["events"], 5)
+        self.assertEqual(entry["check"], {"kind": "refusals", "rule": "duplicate", "playbook": "moltbook-curate",
+                                          "direction": "fall"})
+        status = subprocess.run([str(REPO / "bin" / "evolve"), "status"], capture_output=True, text=True,
+                                env=dict(os.environ), timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(status.returncode, 0, status.stderr[-2000:])
+        shown = json.loads(status.stdout)["findings"]["current"]
+        self.assertEqual([(f["id"], f["events"], f["state"]) for f in shown],
+                         [("f:refusals:moltbook-curate:duplicate", 5, "settled")])
+
 
 if __name__ == "__main__":
     unittest.main()
