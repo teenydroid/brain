@@ -5,7 +5,8 @@ must_not = [
   # Any number that is not in the inputs (or a count of what the inputs list).
   '(?<![\w.])(?!(?:1|2|3|4|7|9|12|118|130)(?!\w|[.,]\d))\d+(?:[.,]\d+)*',
   '%',
-  '#\w',
+  # A hashtag, not a pull request number: "merged #3" names the PR in the inputs.
+  '#(?!\d+(?!\w))\w',
 ]
 prompt = '''
 Write tonight's ship log, the way playbooks/shiplog.md says, from the GitHub activity and the stats report in the inputs.

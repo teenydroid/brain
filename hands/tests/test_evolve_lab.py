@@ -6,6 +6,8 @@ and the core is a stand-in (TEENY_OH)."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import random
@@ -87,7 +89,20 @@ elif agent == "act":
         sys.exit("model error: local-openai returned: provider stream ended before a completion signal")
     task = re.search(r"^# eval: (\S+)", message, re.M).group(1)
     port = os.environ.get("OH_URL", "").rsplit(":", 1)[-1]
-    answer = json.dumps({"text": f"gm {task} from the {who} on {port}"})
+    text = f"gm {task} from the {who} on {port}"
+    # FAKE_CAND_LONG: every candidate draft fails the length check. With
+    # FAKE_CAND_LONG_FIRST (a file holding N), only the first N do.
+    long = who == "CAND" and os.environ.get("FAKE_CAND_LONG")
+    if who == "CAND" and os.environ.get("FAKE_CAND_LONG_FIRST"):
+        import fcntl
+        with open(os.environ["FAKE_CAND_LONG_FIRST"], "r+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            left = int(fh.read() or 0)
+            fh.seek(0)
+            fh.truncate()
+            fh.write(str(max(0, left - 1)))
+        long = left > 0
+    answer = json.dumps({"text": text + " CAND" * 400 if long else text})
 elif agent == "judge" and message.startswith("# persona probe"):
     answer = json.dumps({"same": 0.2 if os.environ.get("FAKE_DRIFT") else 1.0})
 elif agent == "judge":
@@ -110,7 +125,8 @@ elif agent == "evolver":
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
     answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
-                         "expected_move": "+1% engaged reach", "hypothesis": "Names travel further."})
+                         "expected_move": "+1% engaged reach", "check": {"kind": "judged", "surface": "moltbook"},
+                         "hypothesis": "Names travel further."})
 else:
     sys.exit(f"unexpected agent {agent}")
 print(json.dumps({"response": answer}))
@@ -163,7 +179,7 @@ class LabCase(EvolveCase):
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
                   "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
-                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT"):
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT", "FAKE_CAND_LONG", "FAKE_CAND_LONG_FIRST"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
@@ -395,6 +411,62 @@ class TargetedEvaluation(LabCase):
         self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["morning-post", "morning-post"])
         runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
         self.assertEqual(runs, ["s1-m-1", "s1-m-2"])
+
+    def test_a_hard_check_regression_that_does_not_hold_up_on_fresh_drafts_passes(self):
+        """Gen 11: the first pass's two samples fail a hard check main passed,
+        by chance. The task is drafted afresh on both labs, main's too (not
+        the cached baseline), the fresh pairs fail no more on the candidate,
+        and the verdict is the judge's."""
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
+        first = self.root / "long-first"
+        first.write_text("1")
+        os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        ev = self.entries()["g1c1"]["eval"]
+        self.assertEqual(ev["verdict"], "pass", ev.get("reason"))
+        self.assertEqual(ev["suspects"], ["morning-post"])
+        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "refuted")
+        self.assertIn("did not hold up", ev["reason"])
+        base = [d for d in self.drafts() if d[0] == self.port]
+        cand = [d for d in self.drafts() if d[0] == self.port + 1]
+        self.assertEqual((len(base), len(cand)), (1 + 6, 1 + 6))
+        confirm = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "compare" / "confirm"
+        self.assertEqual(len(evolve.read_jsonl(confirm / "base" / "drafts.jsonl")), 6)
+        (cached,) = (evolve.evolve_dir() / "baseline").glob("*/s1-m-1/drafts.jsonl")
+        self.assertEqual(len(evolve.read_jsonl(cached)), 1)  # the cache is left as it was
+        self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
+
+    def test_a_hard_check_regression_that_holds_up_on_fresh_drafts_is_regressed(self):
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
+        os.environ["FAKE_CAND_LONG"] = "1"
+        self.edit(1, "morning")
+        out = self.run_gen(1, publisher=Refusing())
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
+        ev = self.entries()["g1c1"]["eval"]
+        self.assertEqual(ev["regressions"], ["morning-post"])
+        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "confirmed")
+        self.assertIn("confirmed: morning-post on 6 fresh pair", ev["reason"])
+
+    def test_a_restart_between_the_compare_and_its_confirmation_confirms_without_judging_again(self):
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
+        os.environ["FAKE_CAND_LONG"] = "1"
+        self.edit(1, "morning")
+        real = evolve.TargetedEvaluator._confirm
+        with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm",
+                                        side_effect=evolve.EvolveError("cut off")):
+            self.run_gen(1, publisher=Refusing())
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "unevaluated")
+        judged = len([c for c in self.core_turns() if c.get("agent_id") == "judge"])
+        (evolve.gen_dir(1) / "result.json").unlink()
+        rows = [r for r in evolve.read_jsonl(evolve.archive_path())
+                if not (r.get("id") == "g1c1" and r.get("verdict") != "pending")]
+        evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
+        with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm", real):
+            self.run_gen(1, publisher=Refusing())
+        self.assertEqual(self.entries()["g1c1"]["eval"]["confirmation"]["morning-post"]["state"], "confirmed")
+        # Only the six fresh pairs were judged after the restart.
+        self.assertEqual(len([c for c in self.core_turns() if c.get("agent_id") == "judge"]) - judged, 6)
 
     def test_samples_per_task_fill_the_pair_budget_within_the_floor_and_the_cap(self):
         """ceil(EVOLVE_EVAL_PAIRS / reached tasks), at least EVOLVE_EVAL_SAMPLES, at most 8."""
@@ -812,6 +884,49 @@ class Probe(EvolveCase):
         out = evolve.probe_cmd(evolve.load_config(), ask=same)
         self.assertLessEqual(out["drift"], 0.05)
 
+
+
+class AA(LabCase):
+    """`bin/evolve aa`: main measured against itself, through the same
+    evaluator, with nothing archived, no pull request and no generation."""
+
+    def test_main_against_itself_passes_and_leaves_no_generation_behind(self):
+        self.lab_config(EVOLVE_PROBES=1)
+        line = evolve.aa(evolve.load_config(), ["morning-post", "reply-fud"])
+        self.assertEqual((line["kind"], line["verdict"], line["false_regressed"]), ("aa", "pass", False))
+        self.assertEqual((line["tasks"], line["samples"], line["suspects"]), (2, 1, []))
+        self.assertGreater(line["turns"], 0)
+        self.assertEqual(evolve.read_jsonl(evolve.evolve_dir() / "aa.jsonl"), [line])
+        self.assertEqual(list(evolve.archive()), ["main"])  # the seed only
+        self.assertEqual(evolve.next_gen(), 1)
+        self.assertEqual(evolve.generations_today(), 0)
+        self.assertFalse((evolve.evolve_dir() / "baseline").exists())  # main drafted afresh, in its own folder
+        folder = evolve.evolve_dir() / line["folder"]
+        self.assertEqual(sorted(p.name for p in folder.glob("lab-*")), [])
+        self.assertFalse((folder / "cand-1").exists())
+        self.assertFalse(any(c["message"].startswith("# probe:") for c in self.core_turns()))
+        self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
+
+    def test_a_flaky_first_pass_is_reported_and_confirmed_away(self):
+        self.lab_config(EVOLVE_CONFIRM_SAMPLES=6)
+        first = self.root / "long-first"
+        first.write_text("1")
+        os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
+        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        self.assertEqual((line["first_verdict"], line["verdict"]), ("regressed", "pass"))
+        self.assertEqual(line["confirmation"], {"morning-post": "refuted"})
+
+    def test_the_command_prints_one_json_line_and_refuses_an_unknown_task(self):
+        self.lab_config()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(evolve.main(["aa", "--tasks", "nope"]), 1)
+        self.assertIn("no eval task nope", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(evolve.main(["aa", "--tasks", "morning-post"]), 0)
+        (line,) = out.getvalue().splitlines()
+        self.assertEqual(json.loads(line)["verdict"], "pass")
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,13 @@
 #   bin/evolve credit            merges found, chronicled, ΔJ credited up the lineage
 #   bin/evolve status            open learnings, open evolve PRs, each candidate's state
 #   bin/evolve resume            clear a latched halt
+#   bin/evolve aa [--tasks IDS] [--detach]
+#       A/A: the targeted eval with main as both sides (an identical
+#       candidate), on IDS or every task, main drafted afresh. Prints one JSON
+#       line ({verdict, false_regressed, first_verdict, suspects, ...}) and
+#       appends it to state/evolve/aa.jsonl; anything but `pass` is the
+#       evaluator's mistake. No pull request, no learning tried, no
+#       generation. Takes the generation's lock (its labs use the same ports).
 #
 # Off unless secrets/evolve.env sets EVOLVE=1, so the pinned job is safe to
 # seed. With EVOLVE_EVALUATOR=lab (the default) a candidate a task reaches is
@@ -46,6 +53,7 @@ done
 if [ "$detach" = 1 ]; then
   log_name=evolve lock=evolve
   if [ "${args[0]:-}" = watch ]; then log_name=watch lock=evolve-watch; fi
+  if [ "${args[0]:-}" = aa ]; then log_name=aa; fi
   exec python3 "$here/lib/detach.py" --log "evolve/$log_name.log" --lock "$lock" -- \
     "$here/evolve" ${args[@]+"${args[@]}"}
 fi

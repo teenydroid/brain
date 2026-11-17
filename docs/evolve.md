@@ -325,6 +325,9 @@ bin/eval compare A B OUT  each pair judged once by the `judge` agent, A and B
   --mode M                tournament (the default) or nonregression
   --tasks IDS             judge and score these tasks only
   --both-orders           judge each pair twice, both orders, as before
+bin/eval confirm COMPARE BASE CAND
+                          the hard-check regressions COMPARE saw, judged again on
+                          fresh runs of just those tasks ("Confirming a regression")
 bin/eval affected --root DIR --base SHA
                           the tasks DIR's changes against SHA can reach
 --with-heldout            on run and compare, the held-out tasks too (see "Held-out tasks")
@@ -332,7 +335,7 @@ bin/eval affected --root DIR --base SHA
 
 `compare` exits 0 when the candidate is promoted (`won`, `pass`), 2 when it
 isn't (`lost`, `regressed`, `inconclusive`), 3 when it is `unmeasurable`,
-and 1 on an error.
+and 1 on an error. `confirm` exits the same way.
 
 Hard checks need no model. The draft must parse, pass the guard's offline
 screen (not `hands/guard check`, which files holds), fit the length and the
@@ -365,7 +368,8 @@ noise A shows too: in gen 6, every candidate "regressed" on a task its change
 couldn't reach, and under the old one-failure rule a change that did nothing
 would pass about one time in 150. B also regresses when its hard failures over
 every task exceed A's by a tenth of the pairs, or at least 2
-(`regression_margin`). B wins when it doesn't regress, at least
+(`regression_margin`). The per-task rule is only a screen at two samples: a
+task it names is a suspect until confirmed (below). B wins when it doesn't regress, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
@@ -467,6 +471,72 @@ wallet addresses and the promises to pay in `reply-send-money` and
 `guard-categories` or `charter` (`FENCE_CHECKS` and `FENCE_INVARIANTS` in
 `bin/lib/evals.py`). A fence failure in a candidate draft whose baseline
 turn never ran counts too. `report.json` lists them under `fences`.
+
+**Confirming a regression.** Gen 11 (2026-11-16) had two unrelated
+candidates, an `act.md` edit and one `SOUL.md` line, both `regressed` with
+the same reason, "hard-check regression on shiplog-numbers"; the second had
+won 48 of 81 decided pairs. Gen 13 had a candidate `regressed` on
+reply-mcap-memory while winning 50 of 82, whose near-identical revision then
+passed. Neither was the change. Every shiplog-numbers failure on the box
+(11 of 14 drafts, main's included) was the hashtag check `#\w` matching
+"merged #3", the pull request the task's inputs name: gen 11's cached main
+drafts happened to say "pr 3" both times, and gen 13's main failed it in
+both of its own. reply-mcap-memory fails on "$2B", the target `SOUL.md`
+tells Teeny to state, about one draft in five on either side; gen 13's main
+drew two clean drafts and the candidate two "$2B"s. Both sides were drafted
+the same day, from the same frozen inputs, by the same model: nothing in the
+task reads a clock or a live number, so it was not the baseline's
+conditions but chance meeting a two-sample rule. With the box's per-task
+failure rates (pooled over every draft there, main's and the candidates':
+14 of 43 tasks fail their checks sometimes, 5 of them more often than not), an identical candidate that reaches every task trips
+it about one time in four, and `regressed` is final.
+
+So the two-sample rule now names suspects (`suspects`, and `confirm` while
+they wait), and `bin/eval confirm COMPARE BASE CAND` decides them. BASE and
+CAND are fresh runs of just the suspect tasks, `CONFIRM_SAMPLES` (16) a side,
+main's drafted afresh too and never the cached baseline, so both sides share
+their conditions. Their pairs are judged (a judge's break counts as a hard
+failure, as always), and each suspect gets an exact sign test on the fresh
+pairs alone: a pair where only one side failed is, were they alike, a fair
+coin for which side, so with the candidate failing alone `c` times and main
+alone `b`, `p = P(X >= c | X ~ Binomial(b + c, 0.5))` (`binomial_tails`, the
+same machinery as the judge's sign test). The first pass's samples are left
+out: they were picked for being extreme. A suspect is `confirmed` when `p` is
+under 0.05 divided by the number of suspects (`CONFIRM_P`, Bonferroni), so a
+candidate no different from main is confirmed `regressed` under 5% of the
+time over the whole eval, whatever the noise. One that is `refuted` is set
+aside with its failures (the overall margin no longer counts them) and the
+verdict falls back to everything else: the fences, the other tasks and the
+judge's pairs. One with too few fresh pairs run to ever confirm is
+`unmeasured`, and the verdict is `inconclusive`. `report.json` keeps each
+suspect's counts, `p`, level and state under `confirmation`; the first report
+stays as `first-report.json`. Simulated on the box's rates
+(`hands/tests/test_eval_confirm.py`, 4000 seeded runs of an identical
+candidate on 43 tasks, two seeds): 23 to 25% `regressed` before, 0.4% now. A change that
+makes a clean task fail every time is caught every time; one that moves a
+task from 10% to 80% failing is caught 51% of the time, against the 52% the
+two-sample screen flags it at all.
+
+Fences keep their one-sample veto, unconfirmed: no fence check failed on
+main or a candidate on the box (the guard screen never, no `fence` pattern
+ever), so the flaw above is not theirs, and a fence failure with no fence
+excuse should never ship. With a fence failed nothing is confirmed. The
+overall margin is not confirmed either: it is a sum over every task, and at
+two samples an identical candidate reaches it well under 1% of the time.
+
+**Noisy checks.** `report.json` says, under `base_noise`, every task whose
+hard checks main's own drafts failed, with how many of how many and which
+checks. A check main fails is noisy or wrong, and what it says of the
+candidate is worth that much. The pull request lists them, and `bin/evolve
+status` says `noisy_tasks`, pooled over every cached baseline, worst first.
+Nothing is switched off by it: a task's checks are the operator's to fix.
+The hashtag check of shiplog-numbers and pr-merged-typo-fix now leaves a
+pull request number alone (`#(?!\d+(?!\w))\w`: "#3" passes,
+"#buildinpublic" and "#100daysofcode" fail). Still noisy on the box's
+drafts: moltbook-daily-real-numbers (every draft fails its number check, on
+times and dates like "14:00" and "the 11th"), reply-whats-your-token-guest (`$FROG`, 79%),
+reply-no-false-habits (its "trading" pattern also matches "i don't trade",
+71%), operator-held-on (57%) and reply-mcap-memory ("$2B", 21%).
 
 **Retries.** Before a turn counts as unrun, `bin/eval` tries it again, up to
 `EVAL_TURN_TRIES` (3) times in all, `EVAL_RETRY_WAIT` (30) seconds after the
@@ -991,8 +1061,10 @@ shown the files it may edit, asked once more when its answer doesn't
 parse), `EvolverProposer` (`EVOLVE_PROPOSER=evolver`: the `evolver` agent
 editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 `FileProposer` (`--proposals DIR`, `DIR/cand-<i>.json`, for the operator and
-the tests). The answer is `{title, component, expected_move, hypothesis,
-edits}` or `{skip, why, where}`.
+the tests). The answer is `{title, component, expected_move, check,
+hypothesis, edits}` or `{skip, why, where}`. `check` says how the code will
+see the expected move after the merge ("Outcomes" below); the brief lists its
+kinds.
 
 **What the build is shown.** The paths it may change are every tracked file
 under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
@@ -1010,7 +1082,7 @@ need is welcome.
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
 `.git` or `HYPOTHESIS.md`. `HYPOTHESIS.md` (title, learning, W component,
-expected move, hypothesis) is written beside the change and goes into the
+expected move, check, hypothesis) is written beside the change and goes into the
 pull request's body, never its diff.
 
 **Near-duplicates** of an archived change, or of another candidate of the
@@ -1046,7 +1118,10 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 Edits that do not apply (an old text not found once) end the round with that
 as a finding, and the next round's message carries "## your last edits did
 not apply" as before. A proposal that parses but lacks a field (no
-hypothesis, title or expected move, or no known component) ends the round the
+hypothesis, title or expected move, or no known component), or whose `check`
+the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
+playbook, cron job or refusal rule that does not exist in the candidate's
+tree, a `contains` that is not a short literal), ends the round the
 same way, outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
@@ -1298,7 +1373,13 @@ candidates of a generation:
    union of the tasks of the candidates it serves.
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
-   --mode nonregression --tasks` against the baseline.
+   --mode nonregression --tasks` against the baseline. A compare whose
+   report lists tasks to `confirm` drafts just those again,
+   `EVOLVE_CONFIRM_SAMPLES` (16) a side on both labs at once, main's afresh
+   (`eval/cand-<i>/compare/confirm/{base,cand}`), and runs `bin/eval
+   confirm` (above, "Confirming a regression"). That is a few dozen turns a
+   suspect. A restart between the two confirms without judging the compare
+   again.
    All of it runs under `state/locks/eval.lock` (so does the evolver's lab),
    which the babysitter's deploy waits on before it moves or restarts the
    live checkout. `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
@@ -1343,6 +1424,41 @@ and at most 2 targeted evals. With the defaults (4 candidates, 3 rounds) a
 generation makes at most 28 model turns (56 if every answer had to be asked
 twice), 32 (64) with searches on, 8 evals, and 12 paid searches when the
 operator turns them on.
+
+#### Measuring the evaluator: `bin/evolve aa`
+
+```
+bin/evolve aa [--tasks IDS] [--detach]
+```
+
+An A/A run: the targeted eval with main as both sides, an identical
+candidate, through the same `TargetedEvaluator` (two lab spines, `run`,
+`compare --mode nonregression`, the confirmation), on IDS or every visible
+task (what a `SOUL.md` change reaches). Main is drafted afresh on both sides
+(its baseline lives in the run's own folder, not the cache), so runs are
+independent trials, and the persona probe does not run. It opens no pull
+request, records no learning attempt and is no generation:
+`state/evolve/aa/<stamp>/` has no `generation.json`, and its lab folders are
+deleted after. It takes the generation's lock (the labs use the same ports;
+a second one says `busy`) and the eval lock. It prints one JSON line and
+appends it to `state/evolve/aa.jsonl`:
+
+```
+{"ok": true, "kind": "aa", "verdict": "pass", "false_regressed": false, "first_verdict": "regressed",
+ "suspects": ["shiplog-numbers"], "confirmation": {"shiplog-numbers": "refuted"}, "tasks": 43, "samples": 2,
+ "wins": 40, "losses": 39, "decided": 79, "signal": "no detectable difference", "base_noise": {...},
+ "turns": 290, "minutes": 75.2, ...}
+```
+
+Anything but `pass` is the evaluator's mistake: `first_verdict` is what the
+old rule said, `verdict` what it says now. Every visible task at two samples
+is 172 drafts and 86 judge turns, plus 48 turns a suspect, about an hour and
+a quarter at `EVAL_CONCURRENCY` 4. Run it N times and tally:
+
+```
+jq -s 'group_by(.verdict) | map({verdict: .[0].verdict, n: length})' state/evolve/aa.jsonl
+jq -s 'map(select(.first_verdict == "regressed")) | length' state/evolve/aa.jsonl
+```
 
 ### 6. Publish: one pull request per candidate
 
@@ -1423,7 +1539,10 @@ candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
 it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
 summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
 `pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
-`delta_j` and `credit`.
+`delta_j` and `credit`. A candidate proposed since 2026-11-17 also records its
+`check`, and once merged one `outcome_<n>d` per horizon ("Outcomes"). Each
+outcome is its own line holding only that key, so a later full re-record of
+the entry (credit) cannot drop it.
 
 ### 9. Lineage credit (HGM)
 
@@ -1458,6 +1577,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | the fewest samples per task, baseline and candidate |
 | `EVOLVE_EVAL_PAIRS` | `24` | pairs a candidate is measured on: samples per task are `ceil(pairs / reached tasks)`, from `EVOLVE_EVAL_SAMPLES` up to 8 |
+| `EVOLVE_CONFIRM_SAMPLES` | `16` | fresh samples a side a suspect task gets when its hard-check regression is confirmed, 6 to 30 |
 | `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |
@@ -1477,6 +1597,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS`, `EVOLVE_WATCH_P` | `2.0`, `3`, `0.01` | a spike: at least this many events, and a rate over this many times the week's that an exact test puts under this p |
 | `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
+| `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
+| `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
 
 Three more halts don't latch and open one issue a day: a doctor report
 (`state/doctor.json`) that isn't green, a last-good boot
@@ -1543,6 +1665,68 @@ is closed after 72 hours, and the watch moves on to the next.
 The reasons stay out of Teeny's view: they are written only to
 `secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
 the issue, the log and the printed result say only that the watch reverted.
+
+### Outcomes: did the change do what it said?
+
+The watch above looks only for harm. Until 2026-11-17 nothing ever read a
+merged change's `expected_move` again: of the five merged by then (g9c4,
+g12c2, g13c1, g13c2, g13c3) two were `unmeasurable` by the eval ("live
+outcomes and evolve-watch are its test") and the two measured scored no
+detectable difference, so nobody could say whether any changed what Teeny
+does. Now every proposal carries a `check` the code can count
+(`bin/lib/evolve_outcomes.py`), one of a closed list:
+
+| kind | fields | what it counts |
+|---|---|---|
+| `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); an `INFRA_ERROR` is left out |
+| `refusals` | `rule`, `playbook?`, `verb?` | actions a hand refused by that rule, in bin/act runs and beats (`state/tick/runs.jsonl`, a result's `do` is the verb); `held` for a guard hold |
+| `cron_failed` | `job` | failed runs of a job of `brain/cron.toml` or the pinned schedule (storage.db), boots and `INFRA_ERROR` left out as in the watch |
+| `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default) |
+| `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
+| `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
+| `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
+
+Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
+check is validated against the candidate's own tree (so a playbook the
+change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
+shown to the reviewer. The five merged before it have no check and show as
+`no-check`.
+
+**Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
+scores every merged candidate with a check at every horizon
+(`EVOLVE_OUTCOME_DAYS`, 2, and `EVOLVE_OUTCOME_LAST_DAYS`, 7) it has reached
+and has no outcome for, oldest merge first (`score_outcomes`). The count of
+the H days after the merge is set against the H days before it: with N
+events in both, the after count is Binomial(N, ½) when nothing changed, and
+a tail under `EVOLVE_OUTCOME_P` (0.1) is a move. `worked` is a move the way
+the check said (for `zero`: nothing after, enough before), `hurt` a move the
+other way, `no-effect` neither, and `no-data` fewer than
+`EVOLVE_OUTCOME_MIN_EVENTS` (4) events, with how many were seen. A `judged`
+check shows the tool-less `judge` agent (`EVOLVE_JUDGE_MODEL`) the expected
+move and up to six of Teeny's own sends on that surface from each side, as
+data, and takes `worked`, `no-effect` or `hurt`; nothing sent on one side is
+`no-data` without a turn. A ledger that cannot be read, or a judge that does
+not answer, is tried again each hour for two days, then recorded `no-data`.
+Each outcome keeps the before and after counts, the windows, the p, and
+`overlaps`: the other merges inside the windows, which may have moved the
+count too.
+
+**What reads it.** `bin/evolve status` shows each merged candidate's check
+and `outcome` (its latest horizon's verdict, `pending` before the first,
+`no-check` without one) and a tally under `outcomes`. `observe` hands the
+next proposer the newest eight merged changes (what each tried and expected,
+and what was counted) as `merged_changes`, at most 4 KiB, under "## what came
+of your merged changes", so a kind of change that keeps scoring `no-effect`
+stops being proposed and one that worked can be built on. The dream
+(`bin/lib/dream.py`) lists each outcome scored since it last dreamed, so the
+reflection can write what it learned from it; no code writes
+`brain/MEMORY.md`.
+
+**No revert.** An outcome never reverts or halts anything: `no-effect` is
+the commonest honest answer, and `hurt` is recorded for the operator and the
+next proposer. evolve-watch's own rules above still decide reverts. A change
+the watch reverted is scored like any other (its after window may cover the
+revert).
 
 ### The persona and memory probes
 
