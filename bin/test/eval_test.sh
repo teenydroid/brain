@@ -550,7 +550,7 @@ confirmed "$scratch/both" "$scratch/refuted"
 check "fresh drafts that pass set the regression aside" test "$(report '[.verdict, .promote, .confirmation["morning-post"].state] | map(tostring) | join(" ")' "$scratch/refuted")" = "won true refuted"
 check "and confirm exits 0" test "$code" = 0
 check "the fresh pairs are judged, and only those" test "$(judge_turns) $(wc -l <"$scratch/refuted/confirm-judged.jsonl" | tr -d ' ')" = "6 6"
-check "the first report is kept" test "$(report .verdict "$scratch/refuted/first-report.json")" = lost
+check "the first report is kept" test "$(jq -r .verdict "$scratch/refuted/first-report.json")" = lost
 fail_some "$runs/ccand/drafts.jsonl" morning-post 1 2 3 4 5 6
 confirmed "$scratch/both" "$scratch/held"
 check "fresh drafts failing where main's pass confirm it" test "$(report '[.verdict, .confirmation["morning-post"].state] | map(tostring) | join(" ")' "$scratch/held")" = "lost confirmed"

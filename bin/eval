@@ -247,7 +247,10 @@ confirm() {
   out="$1" base="$2/drafts.jsonl" cand="$3/drafts.jsonl"
   [ -s "$out/report.json" ] || die "no report.json in $out"
   tasks="$(jq -r '(.confirm // []) | join(",")' "$out/report.json")" || die "$out/report.json does not read"
-  [ -n "$tasks" ] || summary "$out/report.json"
+  if [ -z "$tasks" ]; then
+    summary "$out/report.json"
+    exit 0
+  fi
   if [ ! -s "$base" ] || [ ! -s "$cand" ]; then die "both confirmation runs need a drafts.jsonl"; fi
   unset_heldout
   local ask=("$TEENY_ROOT/bin/ask" --agent judge)
