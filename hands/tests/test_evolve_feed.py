@@ -157,12 +157,14 @@ class Replay(EvolveCase):
         self.assertEqual(self.state("m19", M19_G15, 15, GEN15), ("open", 0))
 
 
-class FollowTheId(EvolveCase):
+class ArchiveCase(EvolveCase):
     def entry(self, eid, verdict, lid, text, when=T0, **extra):
         gen, cand = (int(x) for x in eid[1:].split("c"))
         evolve.record({"id": eid, "gen": gen, "cand": cand, "verdict": verdict, "at": at(when),
                        "learning": ref(lid, text), **extra})
 
+
+class FollowTheId(ArchiveCase):
     def test_failed_tries_follow_the_id_across_a_rewording(self):
         self.entry("g1c1", "no-proposal", "m62", "some visits can just be visits.")
         self.entry("g2c1", "parked", "m62", "Some visits can just be visits!")
@@ -189,7 +191,7 @@ class FollowTheId(EvolveCase):
         self.assertEqual(item.ref()["hash"], evolve.learning_hash("some  visits can just be visits."))
 
 
-class SkipCoolOff(FollowTheId):
+class SkipCoolOff(ArchiveCase):
     """A skip as `already` or `not-worth` holds for EVOLVE_SKIP_COOLOFF_DAYS
     (doubling with each skip of the same learning) while the text has not
     materially changed; a material change reopens it at once."""
@@ -232,7 +234,7 @@ class SkipCoolOff(FollowTheId):
         self.assertEqual(self.state(T0 + 60 * DAY), "settled")
 
 
-class PickOrder(FollowTheId):
+class PickOrder(ArchiveCase):
     PAGE = ("# MEMORY.md\n\n## what i am in the middle of\n\n- [m70] drawing dated self-portraits.\n\n"
             "## what i have decided\n\n- [m62] some visits can just be visits.\n- [m61] answer direct questions first.\n"
             "- [m60] no numbers from memory.\n")
@@ -267,7 +269,7 @@ class PickOrder(FollowTheId):
         self.assertIsNone(got["m61"])
 
 
-class Status(FollowTheId):
+class Status(ArchiveCase):
     def test_status_says_why_each_learning_is_not_open(self):
         self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n"
                   "- [m61] answer direct questions first.\n- [m60] no numbers from memory.\n"
