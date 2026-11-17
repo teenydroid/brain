@@ -456,7 +456,9 @@ class TargetedEvaluation(LabCase):
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm",
                                         side_effect=evolve.EvolveError("cut off")):
             self.run_gen(1, publisher=Refusing())
-        self.assertEqual(self.entries()["g1c1"]["verdict"], "unevaluated")
+        # The confirmation could not run: not measured, so deferred, no try.
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
+        self.assertEqual(self.entries()["g1c1"]["infra"]["stage"], "eval")
         judged = len([c for c in self.core_turns() if c.get("agent_id") == "judge"])
         (evolve.gen_dir(1) / "result.json").unlink()
         rows = [r for r in evolve.read_jsonl(evolve.archive_path())
