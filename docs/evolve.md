@@ -1472,8 +1472,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 
 Three more halts don't latch and open one issue a day: a doctor report
 (`state/doctor.json`) that isn't green, a last-good boot
-(`state/spine-fallback.json`), and a generation that crashed (`crash`,
-section 0). A halt that latches writes
+(`state/spine-fallback.json`), and a generation that crashed (`crash`, see
+"The loop", after `bin/evolve status`). A halt that latches writes
 `state/evolve/halt.json`, and every later run refuses until `bin/evolve
 resume`; one that latches in the middle of a run (persona drift) leaves what
 passed `waiting`. Each halt opens one issue, through `hands/gh open-issue`,
