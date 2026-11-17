@@ -150,8 +150,8 @@ check "status lists the open learnings" test "$(jq -r '[.learnings.open[].id] | 
 check "and each candidate's state" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
 check "and the open evolve pull requests" test "$(jq -r '.open_prs | length' <<<"$out")" = 0
 printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
-out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
-check "too many generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
+out="$("$evolve" run --scheduled --proposals "$root/props" 2>/dev/null)"
+check "too many scheduled generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
 check "and under DRY_RUN files no issue" test "$(jq -r '.halts[0].dry_run' <<<"$out")" = true
 check "and never calls hands/gh" bash -c "! grep -q '^gh ' '$FAKE_CALLS'"
 check "resume answers" test "$("$evolve" resume 2>/dev/null | jq -r .resumed)" = true
@@ -159,7 +159,7 @@ check "a bad threshold refuses the run" bash -c "printf 'EVOLVE_CANDIDATES=99\n'
 
 # --- the pinned jobs -------------------------------------------------------------------------------
 jobs="$(python3 "$repo/bin/lib/cron_policy.py" "$repo/brain/cron.toml" "$repo/evals/cron.pinned.toml")"
-check "evolve is pinned, after each dream, and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.tz)|\(.command)|\(.enabled)"' <<<"$jobs")" = "40 2,14 * * *|Asia/Kolkata|bin/evolve run --detach|true"
+check "evolve is pinned, after each dream, and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve") | "\(.expr)|\(.tz)|\(.command)|\(.enabled)"' <<<"$jobs")" = "40 2,14 * * *|Asia/Kolkata|bin/evolve run --scheduled --detach|true"
 check "each dream comes before it" test "$(jq -r '[.[] | select(.name == "teeny.dream" or .name == "teeny.dream-midday") | .expr] | sort | join(";")' <<<"$jobs")" = "0 14 * * *;0 2 * * *"
 check "evolve-credit is pinned, daily" test "$(jq -r '.[] | select(.name == "teeny.evolve-credit") | "\(.expr)|\(.command)"' <<<"$jobs")" = "50 3 * * *|bin/evolve credit"
 check "evolve-watch is pinned, hourly and detached" test "$(jq -r '.[] | select(.name == "teeny.evolve-watch") | "\(.expr)|\(.command)"' <<<"$jobs")" = "20 * * * *|bin/evolve watch --detach"

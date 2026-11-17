@@ -256,11 +256,13 @@ command = "bin/guard-rescreen"
 # the operator turns the loop on; EVOLVE=0 is the kill switch, and its halt
 # thresholds live in the same file. Detached: a generation outlasts the 300 s
 # a cron shell call gets (docs/oh-gaps.md, G12); it logs to
-# state/evolve/evolve.log.
+# state/evolve/evolve.log. --scheduled: this job's runs are the ones
+# EVOLVE_GENERATIONS_PER_DAY counts; a run by hand (no flag) counts against
+# EVOLVE_MANUAL_GENERATIONS_PER_DAY instead.
 [jobs.evolve]
 schedule = "40 2,14 * * *"
 tz = "Asia/Kolkata"
-command = "bin/evolve run --detach"
+command = "bin/evolve run --scheduled --detach"
 
 # Lineage credit (bin/evolve credit): which evolve pull requests merged
 # (whoever merged them), each merged generation's chronicle page, and for

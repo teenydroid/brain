@@ -1435,7 +1435,9 @@ class CrashedGenerations(EvolveCase):
     died in observe() under a detached cron call that said `ok`, and nothing
     told anyone)."""
 
-    CRASH = AttributeError("'list' object has no attribute 'items'")
+    @property
+    def CRASH(self):
+        return AttributeError("'list' object has no attribute 'items'")
 
     def setUp(self):
         super().setUp()
