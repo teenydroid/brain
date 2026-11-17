@@ -4900,15 +4900,15 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
 
 def waiting(entries: Mapping[str, Json], learnings: list[Learning]) -> list[Json]:
     """Candidates that passed and wait under the open-PR cap, oldest first.
-    One whose learning has been rewritten since is stale: its learning is
-    open again, for a new candidate."""
-    current = {(item.id, item.hash) for item in learnings}
+    One whose learning has materially changed since (or left the page) is
+    stale: its learning is open again, for a new candidate."""
+    current = {item.id: item for item in learnings}
     out = []
     for e in sorted(entries.values(), key=lambda e: (e.get("gen") or 0, e.get("cand") or 0)):
         if e.get("verdict") != "waiting":
             continue
         ref = e.get("learning") or {}
-        if (ref.get("id"), ref.get("hash")) not in current:
+        if ref.get("id") not in current or not carries(e, current[ref["id"]]):
             e["verdict"] = "stale"
             record(e)
             continue
@@ -5007,20 +5007,18 @@ def sandbox_available() -> bool:
     return sandbox_ready()[0] or sandbox_lib.sidecar_ready(sandbox_jobs())[0]
 
 
-def sandbox_deferred(entries: Mapping[str, Json]) -> set[tuple[str, str]]:
-    """The learnings (id, hash) whose newest candidate was deferred for want
-    of a hand-test sandbox: while there is still none, a generation does not
-    pay for their research and build again."""
-    newest: dict[tuple[str, str], Json] = {}
-    for e in entries.values():
-        ref = e.get("learning")
-        if not isinstance(ref, Mapping):
-            continue
-        key = (str(ref.get("id")), str(ref.get("hash")))
-        if key not in newest or (e.get("gen") or 0, e.get("cand") or 0) > (newest[key].get("gen") or 0,
-                                                                           newest[key].get("cand") or 0):
-            newest[key] = e
-    return {k for k, e in newest.items() if e.get("verdict") == DEFERRED and e.get("deferred_for") == "sandbox"}
+def sandbox_deferred(entries: Mapping[str, Json], learnings: list[Learning]) -> set[str]:
+    """The learnings (ids) whose newest candidate, on a text the current one
+    does not materially differ from, was deferred for want of a hand-test
+    sandbox: while there is still none, a generation does not pay for their
+    research and build again."""
+    out = set()
+    for item in learnings:
+        past = history(entries, item.id)
+        if (past and carries(past[-1], item) and past[-1].get("verdict") == DEFERRED
+                and past[-1].get("deferred_for") == "sandbox"):
+            out.add(item.id)
+    return out
 
 
 def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None:
@@ -5182,11 +5180,11 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         n, cut = runway.cap_candidates(n)
         if cut:
             say(f"runway: {cut}")
-        waiting_for_box = sandbox_deferred(entries) if not sandbox_available() else set()
+        waiting_for_box = sandbox_deferred(entries, learnings) if not sandbox_available() else set()
         if waiting_for_box:
             say(f"no hand-test sandbox yet: {len(waiting_for_box)} learning(s) wait for one")
-        picks = [item.ref() for item in open_learnings(entries, learnings)
-                 if (item.id, item.hash) not in waiting_for_box][:n]
+        picks = [item.ref() for item in open_learnings(entries, learnings, cfg["EVOLVE_SKIP_COOLOFF_DAYS"])
+                 if item.id not in waiting_for_box][:n]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer
@@ -5671,9 +5669,14 @@ def status() -> Json:
     entries = archive()
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
     learnings = read_learnings()
+    try:
+        cooloff = load_config()["EVOLVE_SKIP_COOLOFF_DAYS"]
+    except EvolveError:
+        cooloff = default_cooloff()
     states: dict[str, list[str]] = {}
+    stood = {item.id: standing(entries, item, cooloff) for item in learnings}
     for item in learnings:
-        states.setdefault(learning_state(entries, item)[0], []).append(item.id)
+        states.setdefault(stood[item.id].state, []).append(item.id)
     latest = next_gen() - 1
     current = [e for e in entries.values() if e.get("gen") == latest]
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
@@ -5684,8 +5687,11 @@ def status() -> Json:
         "unfinished": [g for g in unfinished()],
         "noisy_tasks": baseline_noise(),
         "learnings": {"open": [{"id": item.id, "section": item.section, "first_seen": iso(item.first_seen)
-                                if item.first_seen else None, "text": item.text[:160]}
-                               for item in open_learnings(entries, learnings)],
+                                if item.first_seen else None, "text": item.text[:160],
+                                **{k: v for k in ("failed", "infra") if (v := getattr(stood[item.id], k))}}
+                               for item in open_learnings(entries, learnings, cooloff)],
+                      "not_open": [standing_brief(item, stood[item.id]) for item in learnings
+                                   if stood[item.id].state != "open"],
                       "by_state": states},
         "open_prs": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "pr_url": e.get("pr_url"),
                       "branch": e.get("branch"), "status": (e.get("status") or {}).get("state")}
