@@ -60,10 +60,11 @@ generation's chronicle page into the live brain, and records ΔJ (HGM) for the
 ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one.
 
 The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
-the default. Too many generations today, a red doctor, a last-good boot, or J
-rising faster than EVOLVE_MAX_J_RISE each stop the loop and open one issue
-(deduplicated); a J rise, persona drift and an evolve-watch revert latch
-until `resume`. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
+the default. Too many scheduled generations today (or by hand, a cap of its
+own), a red doctor, a last-good boot, or J rising faster than
+EVOLVE_MAX_J_RISE each stop the loop and open one issue (deduplicated); a J
+rise, persona drift and an evolve-watch revert latch until `resume`. A
+generation that crashes opens one too, a day, and never latches. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
 DRY_RUN=0) nothing is pushed, opened or filed: each candidate writes what it
 would have opened.
 
