@@ -12,7 +12,9 @@
 #    (state/act/<name>/<date>); a skip is free.
 # 2. The inputs: each is a hand verb, run with DRY_RUN=1 forced, so even a
 #    mislabelled verb cannot write. Their JSON goes to the model as data. A
-#    hand that fails stops the run, unless the input is `optional`.
+#    hand that fails stops the run, unless the input is `optional`. They are
+#    cut to fit (bin/lib/act_fit.py: lists lose items from the end, so they
+#    stay JSON) under the 64 KiB the core's prompt screen takes in one turn.
 # 3. The draft (or, for a playbook with `nudge = true`, a nudge to Teeny's
 #    mind instead, which decides on its next beat): one turn as the `act` agent (brain/agents/act.toml): no tools,
 #    so no shell and no file writes, whoever started it. It answers JSON.
