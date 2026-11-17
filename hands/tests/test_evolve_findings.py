@@ -1,5 +1,5 @@
 """Findings: bin/evolve's second source of candidates (bin/lib/evolve_findings.py;
-docs/evolve.md, "1. Learnings and findings").
+docs/evolve.md, "1b. Findings").
 
 By 2026-11-17 every evolve change that merged (g9c4, g12c2, g13c1-3, g15c1,
 g15c4) was a "don't do X" rule from an item of brain/MEMORY.md, and the page

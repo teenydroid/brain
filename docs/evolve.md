@@ -1733,6 +1733,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 |---|---|---|
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
+| `EVOLVE_FINDING_SLOTS` | `2` | of those, at most this many findings (1b), strongest first; findings also take what no open learning takes; 0 turns findings off, 0 to 8 |
 | `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
 | `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more halts that run (`generations`), with one issue a day. Crashed and cut-off ones don't count |
 | `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more halts that run (`manual-generations`), with one issue a day |

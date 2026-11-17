@@ -1,6 +1,6 @@
 """Findings: what the run logs and ledgers show is not working, as bin/evolve's
 second source of candidates next to the learnings of brain/MEMORY.md
-(docs/evolve.md, "1. Learnings and findings").
+(docs/evolve.md, "1b. Findings").
 
 By 2026-11-17 every evolve change that merged was a "don't do X" rule from a
 MEMORY item, the page was running out of open learnings, and the ledgers kept
