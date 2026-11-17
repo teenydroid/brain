@@ -1082,7 +1082,7 @@ class AskProposer:
         parse (gen 3's "Unterminated string": an answer cut short, which a
         second turn usually is not). A turn that fails outright is not
         retried."""
-        return self._json_turn(request, render_request(fit_request(request)))
+        return self._json_turn(request, render_request(fit_request(request)), retry=True)
 
     def research(self, request: Json) -> Any:
         """The research turn (research_one): the same tool-less turn, shown
@@ -1098,21 +1098,24 @@ class AskProposer:
             return AskProposer(self.query_agent, self.query_agent).queries(request)
         return self._json_turn(request, render_query_request(request))
 
-    def _json_turn(self, request: Json, message: str) -> Any:
+    def _json_turn(self, request: Json, message: str, retry: bool = False) -> Any:
         try:
-            return first_json(self._turn(request, message))
+            return first_json(self._turn(request, message, retry))
         except EvolveError as exc:
             if not str(exc).startswith(("not JSON", "no JSON")):
                 raise
             say(f"candidate {request['cand']}: the answer did not parse ({str(exc)[:120]}); asking once more")
             retry = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
                      "Answer again, the same way, JSON only, and keep the hypothesis short.")
-            return first_json(self._turn(request, retry))
+            return first_json(self._turn(request, retry, False))
 
-    def _turn(self, request: Json, message: str) -> str:
+    def _turn(self, request: Json, message: str, retry: bool = False) -> str:
+        """One turn. RETRY (the build turn only): one that failed is asked
+        once more, TURN_RETRY_SECS later. The research and query turns are
+        not: a failed one costs nothing (the build goes on without it)."""
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
-        for attempt in range(2):
+        for attempt in range(2 if retry else 1):
             try:
                 done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(),
                                       timeout=900)
@@ -1122,7 +1125,7 @@ class AskProposer:
                 raise ProposerTurnFailed(f"the proposer's turn could not start: {exc}"[:300]) from None
             if done.returncode == 0:
                 return done.stdout
-            if attempt == 0:
+            if retry and attempt == 0:
                 say(f"candidate {request['cand']}: the proposer's turn failed "
                     f"({done.stderr.strip()[-160:]}); asking once more")
                 time.sleep(TURN_RETRY_SECS)
