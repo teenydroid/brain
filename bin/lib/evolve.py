@@ -688,8 +688,27 @@ _FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 
 def learning_hash(text: str) -> str:
     """A learning's text, whitespace and case folded, as a short hash: the
-    same words hash the same however the page wraps them."""
+    same words hash the same however the page wraps them. Kept on every
+    candidate for the record; what a learning is, is its id (`carries`)."""
     return hashlib.sha256(" ".join(str(text).split()).casefold().encode("utf-8")).hexdigest()[:16]
+
+
+def content_words(text: str) -> set[str]:
+    """A text's words that say something: three letters or more, no stopword."""
+    return {w for w in _words(str(text)) if len(w) >= 3 and w not in STOPWORDS}
+
+
+def novelty(before: str, after: str) -> float:
+    """The share of AFTER's content words that BEFORE does not have: 0 for a
+    rewording or a reordering, 1 for a text all new."""
+    new = content_words(after)
+    if not new:
+        return 0.0
+    return len(new - content_words(before)) / len(new)
+
+
+def materially_differs(before: str, after: str) -> bool:
+    return novelty(before, after) >= MATERIAL_SHARE
 
 
 @dataclass
@@ -699,7 +718,7 @@ class Learning:
     text: str
     hash: str
     order: int  # its place on the page
-    first_seen: float | None = None  # the oldest snapshot carrying this text
+    first_seen: float | None = None  # the oldest snapshot carrying this text, or a rewording of it
 
     def ref(self) -> Json:
         return {"id": self.id, "hash": self.hash, "section": self.section,
@@ -730,65 +749,171 @@ def read_learnings() -> list[Learning]:
     learnings = page_learnings(text)
     seen = first_seen()
     for item in learnings:
-        item.first_seen = seen.get((item.id, item.hash))
+        ages = [when for text_, when in seen.get(item.id, {}).values() if not materially_differs(text_, item.text)]
+        item.first_seen = min(ages) if ages else None
     return learnings
 
 
-def first_seen() -> dict[tuple[str, str], float]:
-    """(id, hash) -> when the oldest snapshot carrying that text was written
-    (its mtime). A text in no snapshot is newer than every one of them."""
+def first_seen() -> dict[str, dict[str, tuple[str, float]]]:
+    """id -> hash -> (that text, when the oldest snapshot carrying it was
+    written: its mtime). A text in no snapshot is newer than every one."""
     paths: list[Path] = []
     for folder, pattern in SNAPSHOT_GLOBS:
         paths += [p for p in (state_dir() / folder).glob(pattern) if p.is_file()]
     paths = sorted(paths, key=lambda p: p.stat().st_mtime)[-MAX_SNAPSHOTS:]
-    out: dict[tuple[str, str], float] = {}
+    out: dict[str, dict[str, tuple[str, float]]] = {}
     for path in paths:
         try:
             text, at = path.read_text(encoding="utf-8"), path.stat().st_mtime
         except (OSError, UnicodeDecodeError):
             continue
         for item in page_learnings(text):
-            key = (item.id, item.hash)
-            out[key] = min(out.get(key, at), at)
+            texts = out.setdefault(item.id, {})
+            if item.hash not in texts or at < texts[item.hash][1]:
+                texts[item.hash] = (item.text, at)
     return out
+
+
+def history(entries: Mapping[str, Json], item_id: str) -> list[Json]:
+    """Every archived candidate on this learning id, whatever its wording,
+    oldest first."""
+    return sorted((e for e in entries.values() if isinstance(e.get("learning"), Mapping)
+                   and e["learning"].get("id") == item_id),
+                  key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))
+
+
+def carries(entry: Mapping[str, Any], item: Learning) -> bool:
+    """Whether ENTRY was a candidate on this learning as it reads now: its
+    id, and a text the current one does not materially differ from (the
+    same hash, or a rewording). An entry without its text needs the hash."""
+    ref = entry.get("learning") or {}
+    if ref.get("id") != item.id:
+        return False
+    if ref.get("hash") == item.hash:
+        return True
+    return isinstance(ref.get("text"), str) and not materially_differs(ref["text"], item.text)
 
 
 def attempts_on(entries: Mapping[str, Json], item: Learning) -> list[Json]:
     """The archive's candidates for this learning as it reads now."""
-    return sorted((e for e in entries.values() if isinstance(e.get("learning"), Mapping)
-                   and e["learning"].get("id") == item.id and e["learning"].get("hash") == item.hash),
-                  key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))
+    return [e for e in history(entries, item.id) if carries(e, item)]
 
 
-def learning_state(entries: Mapping[str, Json], item: Learning) -> tuple[str, int]:
+def _settles(entry: Mapping[str, Any]) -> bool:
+    return entry.get("verdict") in SETTLED or (entry.get("verdict") == DRY_SETTLED and dry_run())
+
+
+def _when(entry: Mapping[str, Any]) -> float | None:
+    for key in ("at", "recorded_at"):
+        try:
+            return dt.datetime.strptime(str(entry.get(key)), "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=dt.timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def _cooling(entry: Mapping[str, Any]) -> bool:
+    return entry.get("verdict") == "skipped" and (entry.get("skip") or {}).get("why") in COOLING_SKIPS
+
+
+def cooloff_until(past: list[Json], skip: Mapping[str, Any], days: int) -> float | None:
+    """When a cooling skip stops holding: `days` after it, doubled for each
+    earlier cooling skip of the same learning (PAST, its history). None for
+    any other settling verdict, which holds until the text changes."""
+    when = _when(skip)
+    if not _cooling(skip) or when is None:
+        return None
+    doublings = min(sum(1 for e in past if _cooling(e) and e is not skip), MAX_COOLOFF_DOUBLINGS)
+    return when + days * 86400 * 2 ** doublings
+
+
+def default_cooloff() -> int:
+    return int(SETTINGS["EVOLVE_SKIP_COOLOFF_DAYS"][0])
+
+
+@dataclass
+class Standing:
+    """Where a learning stands: open | settled | in-flight | gave-up; its
+    failed tries on this text, the deferrals and crashes the box caused on
+    its id, the candidate that settled it (or is in flight), and when a
+    cooling skip stops holding."""
+    state: str
+    failed: int = 0
+    infra: int = 0
+    by: Json | None = None
+    until: float | None = None
+
+
+def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | None = None) -> Standing:
+    """A learning is settled by its latest settling verdict (SETTLED; a dry
+    run's, under DRY_RUN) when the current text does not materially differ
+    from the one it was settled on, and, for a cooling skip, until its
+    cool-off ends. Its failed tries are those on texts it does not
+    materially differ from: a rewording keeps the count, a material change
+    starts it again."""
+    days = default_cooloff() if cooloff_days is None else cooloff_days
+    past = history(entries, item.id)
+    infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
+    settling = [e for e in past if _settles(e)]
+    if settling and carries(settling[-1], item):
+        until = cooloff_until(past, settling[-1], days)
+        if until is None or now() < until:
+            return Standing("settled", 0, infra, settling[-1], until)
+    tries = [e for e in past if carries(e, item)]
+    flying = [e for e in tries if e.get("verdict") in IN_FLIGHT]
+    if flying:
+        return Standing("in-flight", 0, infra, flying[-1])
+    failed = sum(1 for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED))
+    return Standing("gave-up" if failed >= MAX_ATTEMPTS else "open", failed, infra)
+
+
+def learning_state(entries: Mapping[str, Json], item: Learning, cooloff_days: int | None = None) -> tuple[str, int]:
     """open | settled | in-flight | gave-up, and how many tries failed."""
-    tries = attempts_on(entries, item)
-    if any(e.get("verdict") in SETTLED for e in tries):
-        return "settled", 0
-    if dry_run() and any(e.get("verdict") == DRY_SETTLED for e in tries):
-        return "settled", 0
-    if any(e.get("verdict") in IN_FLIGHT for e in tries):
-        return "in-flight", 0
-    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred", CRASHED))
-    return ("gave-up" if failed >= MAX_ATTEMPTS else "open"), failed
+    got = standing(entries, item, cooloff_days)
+    return got.state, got.failed
 
 
-def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None = None) -> list[Learning]:
-    """The open learnings, the ones to act on first first: fewest failed
-    tries, then the newest text (the latest snapshot to first carry it; a
-    text in none is the newest of all, written by the last reflection),
-    then the higher id (ids only grow), then page order. The reflection
-    rewrites the page twice a day, so what it just wrote is what Teeny
-    learned today."""
+def pick_key(item: Learning, got: Standing) -> tuple:
+    """What goes first: a rule or a promise before a status note; fewest
+    failed tries, so one stuck learning doesn't hold the line; fewest
+    deferrals and crashes, so one the box keeps failing drifts back without
+    being given up on; the newest text (the latest snapshot to first carry
+    it or a rewording of it; a text in none is the newest of all, written by
+    the last reflection); the higher id (ids only grow); page order."""
+    newest = float("inf")
+    return (item.section in STATUS_SECTIONS, got.failed, got.infra,
+            -(item.first_seen if item.first_seen is not None else newest), -_id_number(item.id), item.order)
+
+
+def open_learnings(entries: Mapping[str, Json], learnings: list[Learning] | None = None,
+                   cooloff_days: int | None = None) -> list[Learning]:
+    """The open learnings, the ones to act on first first (`pick_key`). The
+    reflection rewrites the page twice a day, so what it just wrote is what
+    Teeny learned today."""
     learnings = read_learnings() if learnings is None else learnings
     out = []
     for item in learnings:
-        state, failed = learning_state(entries, item)
-        if state == "open":
-            out.append((failed, item))
-    newest = float("inf")
-    return [item for _, item in sorted(out, key=lambda p: (
-        p[0], -(p[1].first_seen if p[1].first_seen is not None else newest), -_id_number(p[1].id), p[1].order))]
+        got = standing(entries, item, cooloff_days)
+        if got.state == "open":
+            out.append((pick_key(item, got), item))
+    return [item for _, item in sorted(out, key=lambda p: p[0])]
+
+
+def standing_brief(item: Learning, got: Standing) -> Json:
+    """One learning's standing as `status` shows it: why one is not open."""
+    out: Json = {"id": item.id, "state": got.state}
+    if got.by:
+        out.update(by=got.by.get("id"), verdict=got.by.get("verdict"))
+        if isinstance(got.by.get("skip"), Mapping) and got.by["skip"].get("why"):
+            out["why"] = got.by["skip"]["why"]
+        if got.by.get("pr_number"):
+            out["pr"] = got.by["pr_number"]
+    if got.until is not None:
+        out["until"] = iso(got.until)
+    if got.state == "gave-up":
+        out["tries"] = got.failed
+    return out
 
 
 def _id_number(item_id: str) -> int:
