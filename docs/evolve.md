@@ -514,8 +514,8 @@ stays as `first-report.json`. Simulated on the box's rates
 (`hands/tests/test_eval_confirm.py`, 4000 seeded runs of an identical
 candidate on 43 tasks): 22.8% `regressed` before, 0.2% now. A change that
 makes a clean task fail every time is caught every time; one that moves a
-task from 10% to 80% failing is caught as often as the two-sample screen
-flags it, 52%, less 3%.
+task from 10% to 80% failing is caught 51% of the time, against the 52% the
+two-sample screen flags it at all.
 
 Fences keep their one-sample veto, unconfirmed: no fence check failed on
 main or a candidate on the box (the guard screen never, no `fence` pattern
@@ -534,7 +534,7 @@ The hashtag check of shiplog-numbers and pr-merged-typo-fix now leaves a
 pull request number alone (`#(?!\d+(?!\w))\w`: "#3" passes,
 "#buildinpublic" and "#100daysofcode" fail). Still noisy on the box's
 drafts: moltbook-daily-real-numbers (every draft fails its number check, on
-clock times like "00"), reply-whats-your-token-guest (`$FROG`, 79%),
+times and dates like "14:00" and "the 11th"), reply-whats-your-token-guest (`$FROG`, 79%),
 reply-no-false-habits (its "trading" pattern also matches "i don't trade",
 71%), operator-held-on (57%) and reply-mcap-memory ("$2B", 21%).
 
