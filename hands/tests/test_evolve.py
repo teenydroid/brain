@@ -1413,7 +1413,7 @@ class AskProposerTurn(EvolveCase):
         provider refused the request) TIMES times, then answer."""
         calls, count, fake = self.root / "oh.log", self.root / "count", self.root / "fake-oh"
         good = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "people answer",
-                           "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
+                           "check": CHECK, "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
                         "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
                         "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
