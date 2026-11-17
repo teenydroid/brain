@@ -84,6 +84,21 @@ FIELDS: dict[str, dict[str, bool]] = {  # field: required
     "judged": {"surface": True, "kind_of": False, "contains": False},
 }
 DIRECTIONS = ("fall", "rise", "zero")
+#: Plain words for a direction, read as the direction they name.
+DIRECTION_WORDS = {
+    "fall": ("fall", "down", "decrease", "drop", "fewer", "less", "lower"),
+    "rise": ("rise", "up", "increase", "grow", "more", "higher"),
+    "zero": ("zero", "none", "stop", "0"),
+}
+#: Fields a check may carry that change nothing the code counts, dropped
+#: rather than sent back (gen 16, candidate 2 lost two of its three rounds
+#: to `direction` on a judged check): a note or reason, and a horizon,
+#: which is the operator's (EVOLVE_OUTCOME_DAYS), never the proposer's. A
+#: field that would narrow or redirect the count (`contains` where it is
+#: not read, a playbook on a kind that takes none) is ambiguous: still sent
+#: back.
+DROPPABLE = ("note", "notes", "why", "reason", "description", "label", "name", "title", "days", "horizon",
+             "horizon_days", "window", "window_days", "by_when")
 VERDICTS = ("worked", "no-effect", "hurt", "no-data")
 #: What a candidate with no check, or not yet scored, shows.
 NO_CHECK, PENDING = "no-check", "pending"
@@ -170,20 +185,44 @@ def _rule_known(tree: Path, rule: str) -> bool:
     return False
 
 
-def validate(check: Any, tree: Path) -> Json:
+def _direction(value: Any) -> str | None:
+    word = str(value).strip().lower() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+    return next((d for d, words in DIRECTION_WORDS.items() if word in words), None)
+
+
+#: Fields whose values are names the code matches exactly in lower case.
+_LOWER = ("surface", "kind_of", "verb", "hold_direction", "category")
+
+
+def validate(check: Any, tree: Path, dropped: list[str] | None = None) -> Json:
     """CHECK in its stored shape, or BadCheck saying what to fix. TREE is the
     candidate's worktree with its edits, so a playbook or job the change
-    itself adds counts."""
+    itself adds counts.
+
+    Normalised, not sent back, where nothing is ambiguous: the kind, a
+    surface, verb or category in any case; a direction in plain words
+    (`down`, `increase`, `none`); `direction` on a judged check, which a
+    judge never reads; and the DROPPABLE extras. Each field dropped is
+    appended to DROPPED. Still sent back: an unknown kind or field, a field
+    that would change what is counted on a kind that does not take it, a
+    missing or unreadable direction on a counted kind, a playbook, job or
+    rule that does not exist, an unreadable `contains`."""
     if not isinstance(check, Mapping) or not check:
         raise BadCheck("the proposal needs a check: an object naming one kind (" + ", ".join(KINDS) + ")")
     kind = check.get("kind")
+    kind = kind.strip().lower() if isinstance(kind, str) else kind
     if kind not in KINDS:
-        raise BadCheck(f"the check's kind is one of {', '.join(KINDS)}, not {str(kind)[:40]!r}")
+        raise BadCheck(f"the check's kind is one of {', '.join(KINDS)}, not {str(check.get('kind'))[:40]!r}")
     fields = FIELDS[kind]
     allowed = {"kind", *fields, *(() if kind == "judged" else ("direction",))}
-    extra = sorted(set(check) - allowed)
+    drop = {k for k in check if k not in allowed and (k in DROPPABLE or (kind == "judged" and k == "direction"))}
+    extra = sorted(set(check) - allowed - drop)
     if extra:
-        raise BadCheck(f"a {kind} check takes {', '.join(sorted(allowed - {'kind'}))}; not {', '.join(extra)}")
+        raise BadCheck(f"a {kind} check takes {', '.join(sorted(allowed - {'kind'}))}"
+                       f"{' and no direction' if kind == 'judged' else ''}; not {', '.join(extra)}")
+    if dropped is not None:
+        dropped.extend(sorted(drop))
+    check = {k: v for k, v in check.items() if k not in drop}
     for name, required in fields.items():
         if required and check.get(name) in (None, ""):
             raise BadCheck(f"a {kind} check needs `{name}`")
@@ -197,11 +236,12 @@ def validate(check: Any, tree: Path) -> Json:
             continue
         if not isinstance(value, str):
             raise BadCheck(f"the check's `{name}` is a string")
-        out[name] = value.strip()
+        out[name] = value.strip().lower() if name in _LOWER else value.strip()
     if kind != "judged":
-        if check.get("direction") not in DIRECTIONS:
+        direction = _direction(check.get("direction"))
+        if direction is None:
             raise BadCheck(f"the check needs a direction: {', '.join(DIRECTIONS)}")
-        out["direction"] = check["direction"]
+        out["direction"] = direction
 
     book = out.get("playbook")
     if book is not None:
@@ -269,21 +309,26 @@ def brief_text(horizons: Iterable[int]) -> str:
     days = " and ".join(str(d) for d in horizons)
     lines = [f"## how your change is checked\n\nSay how the code will see your expected move, as `check`. {days} "
              "days after the merge it counts the same span before the merge and after it, and scores your change "
-             "worked, no-effect, hurt or no-data; your next proposals see what it scored. `direction` is fall, rise "
-             "or zero. The kinds:"]
+             "worked, no-effect, hurt or no-data; your next proposals see what it scored. Every kind but `judged` "
+             "takes a `direction`: fall, rise or zero. The kinds, each with the fields it takes (? is optional):"]
     for kind, what in KINDS.items():
         fields = ", ".join(f"{n}{'' if req else '?'}" for n, req in FIELDS[kind].items())
-        lines.append(f"- `{kind}` {{{fields}{'' if kind == 'judged' else ', direction'}}}: {what}")
+        lines.append(f"- `{kind}` {{{fields}{'' if kind == 'judged' else ', direction'}}}: {what}"
+                     + (". `judged` takes no direction: the judge reads your expected move" if kind == "judged"
+                        else ""))
     lines.append("For example, stored ids that 404 in curate should stop: "
                  '{"kind": "act_failed", "playbook": "moltbook-curate", "contains": "404", "direction": "fall"}; '
-                 'no likes on X: {"kind": "actions", "surface": "x", "verb": "like", "direction": "zero"}. '
+                 'no likes on X: {"kind": "actions", "surface": "x", "verb": "like", "direction": "zero"}; '
+                 'replies that read differently, which no count shows: '
+                 '{"kind": "judged", "surface": "x", "kind_of": "reply"}. '
                  "Name only a playbook, cron job or refusal rule that exists (or that this change adds); a check the "
                  "code cannot count comes back to you. Prefer a count to `judged`.")
     return "\n".join(lines)
 
 
 ANSWER_FIELD = ('"check": {"kind": "<one of the kinds under how your change is checked>", '
-                '"<its fields>": "...", "direction": "fall|rise|zero"}')
+                '"<each field that kind lists>": "..."}')
+
 
 
 # --- the evidence ---------------------------------------------------------------------------------------

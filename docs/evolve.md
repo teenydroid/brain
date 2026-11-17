@@ -1333,7 +1333,7 @@ hypothesis, title or expected move, or no known component), or whose `check`
 the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
 playbook, cron job or refusal rule that does not exist in the candidate's
 tree, a `contains` that is not a short literal), ends the round the
-same way, outcome `out-of-shape`, with a finding that names the missing
+same way, unless a shape repair mends it first ("Outcomes" below), outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
 is `no-proposal`, one failed try like a park. An answer that is not JSON at
@@ -1908,6 +1908,37 @@ check is validated against the candidate's own tree (so a playbook the
 change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
 shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
+
+**Normalised, not sent back** (since 2026-11-17, gen 16: candidate 2 on m25
+spent two of its three rounds on `direction` added to a `judged` check, and
+was parked). Where nothing is ambiguous the check is normalised and the
+normalised one is stored: the kind, a surface, verb or category in any case;
+a direction in plain words (`down`, `increase`, `none`); `direction` on a
+`judged` check, which the judge never reads; and extras that change nothing
+counted (a note or reason, a horizon, which is the operator's). Still sent
+back: an unknown kind or field, a field that would narrow or redirect the
+count on a kind that does not take it (`contains` on `actions`, a
+`playbook` on `judged`), a missing or unreadable direction on a counted kind,
+a playbook, job or rule that does not exist, an unreadable `contains`. The
+brief's answer shape no longer shows a `direction` for every kind; it says
+`judged` takes none, with a judged example.
+
+**Shape repairs** (`repair_shape`, since 2026-11-17). Gen 16 lost two build
+rounds to answer-shape slips, not to the change: candidate 2 to a judged
+check's `direction` (now normalised), candidate 3 (m19) to a proposal that
+named no W component. When a proposal's change is there but its answer lacks
+or spoils a field (`component`, `title`, `expected_move`, `hypothesis`, or a
+`check` the code cannot count), a proposer that can (`ask`, and `evolver`
+through the proposer agent's tool-less turn on the live core) is asked once
+for those fields alone: a small turn shown its own account and what was
+wrong. Only the asked fields are taken from the answer, never edits; the
+result must pass the same validation, is written into that round's proposal
+(marked `repaired`, so a restart replays it) and goes on to the gate in the
+same round. A failed turn or a still-unusable answer falls back to the
+finding and the next round, as before (`repair_failed`). At most
+`MAX_SHAPE_REPAIRS` (2) a candidate, tried or not, so it cannot loop. Nothing
+is defaulted in code: a component guessed is a label the proposer never
+chose. A finding (evolve_findings) carries its own check and is never asked to repair it.
 
 **Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
 scores every merged candidate with a check at every horizon
