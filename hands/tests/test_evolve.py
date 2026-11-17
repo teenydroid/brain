@@ -1536,10 +1536,14 @@ class CrashedGenerations(EvolveCase):
             with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
                 with self.assertRaises(AttributeError):
                     self.run_gen(4, publisher=pub)
-        # Never given up on: all still open, the crashed ones behind the rest.
-        order = [x.id for x in evolve.open_learnings(self.entries())]
-        self.assertEqual(sorted(order), sorted(ORDER))
-        self.assertEqual(order[-4:], ORDER[:4])
+        # Never given up on: all still open, no failed try, and the more
+        # crashes a learning carries, the further back it goes.
+        learnings = evolve.read_learnings()
+        self.assertEqual(sorted(x.id for x in evolve.open_learnings(self.entries())), sorted(ORDER))
+        stood = {x.id: evolve.standing(self.entries(), x) for x in learnings}
+        self.assertEqual({s.failed for s in stood.values()}, {0})
+        order = [x.id for x in evolve.open_learnings(self.entries()) if x.section != "what i am in the middle of"]
+        self.assertEqual([stood[i].infra for i in order], sorted(stood[i].infra for i in order))
 
     def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
         pub = FakePublisher()
