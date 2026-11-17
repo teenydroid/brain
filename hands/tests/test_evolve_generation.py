@@ -54,11 +54,10 @@ def ledgers(state: Path) -> None:
     from teeny_hands.listen import ledger
     from teeny_hands.moltbook import rules as moltbook
     from teeny_hands.stats import collect
-    from teeny_hands.x import mentions, metrics
-    from teeny_hands.x import posting_rules
+    from teeny_hands.x import mentions, metrics  # mentions' makes x_posts too
 
     for make in (build_requests._db, stimuli.db, ideas.db, jobs.db, ledger.db, moltbook.db, collect.db, mentions._db,
-                 metrics.db, posting_rules.db):
+                 metrics.db):
         make().close()
     with holds._store():
         pass
