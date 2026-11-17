@@ -110,7 +110,8 @@ elif agent == "evolver":
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
     answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
-                         "expected_move": "+1% engaged reach", "check": {"kind": "judged", "surface": "moltbook"}, "hypothesis": "Names travel further."})
+                         "expected_move": "+1% engaged reach", "check": {"kind": "judged", "surface": "moltbook"},
+                         "hypothesis": "Names travel further."})
 else:
     sys.exit(f"unexpected agent {agent}")
 print(json.dumps({"response": answer}))

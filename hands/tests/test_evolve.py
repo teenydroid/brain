@@ -213,7 +213,8 @@ class EvolveCase(unittest.TestCase):
     def propose(self, i, edits, component="attention", title=None):
         (self.props / f"cand-{i}.json").write_text(json.dumps({
             "title": title or f"candidate {i}", "component": component, "expected_move": "+1% in a week",
-            "check": CHECK, "hypothesis": f"Hypothesis {i}: what is weak, the change, the effect.", "edits": edits}))
+            "check": CHECK, "hypothesis": f"Hypothesis {i}: what is weak, the change, the effect.",
+            "edits": edits}))
 
     def skip(self, i, why, where=""):
         (self.props / f"cand-{i}.json").write_text(json.dumps({"skip": f"no change for {i}", "why": why,
@@ -338,7 +339,8 @@ class Learnings(EvolveCase):
                     return {"title": "t", "component": "attention", "expected_move": "+1%",
                             "check": CHECK, "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
                 text = (REPO / path).read_text(encoding="utf-8")
-                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK, "hypothesis": "h",
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK,
+                        "hypothesis": "h",
                         "edits": [{"path": path, "old": text, "new": text + line + "\n"}]}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Retry()):
@@ -357,7 +359,8 @@ class Learnings(EvolveCase):
 
             def propose(self, request):
                 calls.append(request)
-                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK, "hypothesis": "h",
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK,
+                        "hypothesis": "h",
                         "edits": [{"path": "brain/SOUL.md", "old": "not in the file", "new": "x"}]}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Wrong()):
