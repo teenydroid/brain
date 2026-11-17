@@ -11,10 +11,12 @@ nobody could say whether any of them changed what Teeny does."""
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -481,9 +483,6 @@ class Wired(EvolveCase):
         self.assertNotIn("outcomes", out)
         self.assertEqual(evolve.status()["outcomes"]["no-check"], 1)
 
-
-import os  # noqa: E402
-import unittest.mock  # noqa: E402
 
 if __name__ == "__main__":
     unittest.main()
