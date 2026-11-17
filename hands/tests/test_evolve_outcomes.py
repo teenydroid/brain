@@ -479,7 +479,7 @@ class Wired(EvolveCase):
         self.assertNotIn("should rise", (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text())
 
     def test_a_bad_check_alone_is_asked_for_again_without_spending_a_round(self):
-        seen, rechecks = [], []
+        seen, repairs = [], []
         edit = self.playbook_edit("Follow back only who answered.")
 
         class Fixes:
@@ -490,24 +490,75 @@ class Wired(EvolveCase):
                 return {"title": "t", "component": "attention", "expected_move": "fewer failed follows",
                         "hypothesis": "h", "check": {"kind": "vibes"}, "edits": [edit]}
 
-            def recheck(self, request):
-                rechecks.append(request)
-                return {"check": Wired.CHECK}
+            def repair(self, request):
+                repairs.append(request)
+                return {"check": Wired.CHECK, "edits": [{"path": "brain/SOUL.md", "old": "", "new": "x"}]}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Fixes()):
             self.run_gen(1)
         self.assertEqual(len(seen), 1)
-        self.assertEqual(len(rechecks), 1)
-        self.assertIn("vibes", rechecks[0]["problem"])
-        self.assertEqual(rechecks[0]["proposal"]["expected_move"], "fewer failed follows")
+        self.assertEqual(len(repairs), 1)
+        self.assertEqual(repairs[0]["missing"], ["check"])
+        self.assertIn("vibes", repairs[0]["problem"])
+        self.assertEqual(repairs[0]["proposal"]["expected_move"], "fewer failed follows")
         entry = self.entries()["g1c1"]
         self.assertEqual(entry["check"], Wired.CHECK)
+        self.assertNotIn("brain/SOUL.md", (evolve.evolve_dir() / "1" / "cand-1.patch").read_text())  # edits kept
         rounds = json.loads((evolve.evolve_dir() / "1" / "cand-1.rounds.json").read_text())
         rounds = rounds["rounds"] if isinstance(rounds, dict) else rounds
-        self.assertEqual(rounds[0]["proposal"]["check"], Wired.CHECK)  # a restart replays the fixed check
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0]["proposal"]["check"], Wired.CHECK)  # a restart replays the repaired check
+        self.assertEqual(rounds[0]["repaired"], ["check"])
         self.assertNotEqual(rounds[0].get("outcome"), "out-of-shape")
 
-    def test_a_recheck_that_is_still_bad_falls_back_to_a_finding(self):
+    def test_a_missing_component_is_asked_for_alone_keeping_the_edits(self):
+        # Gen 16, candidate 3 (learning m19): round 2 was sent back as "the
+        # proposal names no W component", a whole build round for one field.
+        seen, repairs = [], []
+        edit = self.playbook_edit("Follow back only who answered.")
+
+        class NoComponent:
+            name = "no-component"
+
+            def propose(self, request):
+                seen.append(request)
+                return {"title": "t", "expected_move": "fewer failed follows", "hypothesis": "h",
+                        "check": Wired.CHECK, "edits": [edit]}
+
+            def repair(self, request):
+                repairs.append(request)
+                return {"component": "attention", "title": "a new title is not asked for"}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=NoComponent()):
+            self.run_gen(1)
+        self.assertEqual((len(seen), len(repairs)), (1, 1))
+        self.assertEqual(repairs[0]["missing"], ["component"])
+        entry = self.entries()["g1c1"]
+        self.assertEqual((entry["component"], entry["title"]), ("attention", "t"))
+        self.assertIn("Follow back only who answered.", (evolve.evolve_dir() / "1" / "cand-1.patch").read_text())
+
+    def test_shape_repairs_are_capped_and_then_cost_rounds_as_before(self):
+        seen, repairs = [], []
+        edit = self.playbook_edit("Follow back only who answered.")
+
+        class Hopeless:
+            name = "hopeless"
+
+            def propose(self, request):
+                seen.append(request)
+                return {"title": "t", "expected_move": "m", "hypothesis": "h", "check": Wired.CHECK, "edits": [edit]}
+
+            def repair(self, request):
+                repairs.append(request)
+                return {"component": "vibes"}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Hopeless()):
+            out = self.run_gen(1)
+        self.assertEqual(len(repairs), evolve.MAX_SHAPE_REPAIRS)
+        self.assertEqual(len(seen), 3)  # EVOLVE_REVISE_ROUNDS, each still a round
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+
+    def test_a_repair_that_is_still_bad_falls_back_to_a_finding(self):
         seen = []
         edit = self.playbook_edit("Follow back only who answered.")
 
@@ -520,7 +571,7 @@ class Wired(EvolveCase):
                 return {"title": "t", "component": "attention", "expected_move": "fewer failed follows",
                         "hypothesis": "h", "check": check, "edits": [edit]}
 
-            def recheck(self, request):
+            def repair(self, request):
                 return {"check": {"kind": "still vibes"}}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Stubborn()):
@@ -529,19 +580,22 @@ class Wired(EvolveCase):
         self.assertIn("the check", seen[1]["findings"][0]["problem"])
         self.assertEqual(self.entries()["g1c1"]["check"], Wired.CHECK)
 
-    def test_the_ask_proposers_recheck_is_one_small_turn_about_the_check_alone(self):
+    def test_the_ask_proposers_repair_is_one_small_turn_about_the_missing_fields(self):
         messages = []
         proposer = evolve.AskProposer("act", "querier")
         with unittest.mock.patch.object(evolve.AskProposer, "_turn",
                                         lambda self, req, msg: messages.append(msg) or '{"check": {"kind": "judged"}}'):
-            got = proposer.recheck({"gen": 1, "cand": 1, "problem": "the check's kind is one of ..., not 'vibes'",
-                                    "proposal": {"title": "t", "expected_move": "fewer failed follows",
-                                                 "check": {"kind": "vibes"}}, "horizons": (2, 7)})
+            got = proposer.repair({"gen": 1, "cand": 1, "missing": ["check", "component"],
+                                   "problem": "the check's kind is one of ..., not 'vibes'",
+                                   "proposal": {"title": "t", "expected_move": "fewer failed follows",
+                                                "check": {"kind": "vibes"}}, "horizons": (2, 7)})
         self.assertEqual(got, {"check": {"kind": "judged"}})
         self.assertEqual(len(messages), 1)
         self.assertIn("not 'vibes'", messages[0])
         self.assertIn("fewer failed follows", messages[0])
         self.assertIn("`judged`", messages[0])
+        self.assertIn("capability", messages[0])  # the components, for `component`
+        self.assertIn("your edits stay as they are", messages[0])
         self.assertLess(len(messages[0].encode()), 8 * 1024)
 
     def test_the_proposer_is_told_the_check_kinds(self):
