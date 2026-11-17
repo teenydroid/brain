@@ -192,6 +192,9 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE": ("0", int, 0, 1),
     # Up to this many open learnings each generation, one candidate each.
     "EVOLVE_CANDIDATES": ("4", int, 1, 8),
+    # Days a learning skipped as `already` or `not-worth` is not asked about
+    # again while its text has not materially changed; doubled for each skip.
+    "EVOLVE_SKIP_COOLOFF_DAYS": ("7", int, 1, 365),
     # Two: the pinned job runs after the night's dream and after midday's.
     # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
