@@ -298,19 +298,16 @@ class FalseRegressRate(unittest.TestCase):
         self.assertGreater(self.rate("new", cand_rates), 0.99)
 
     def test_a_partial_regression_is_caught_about_as_often_as_before(self):
-        """From 10% to 80%: the two-sample screen finds it about half the
-        time, under either rule; confirming it loses little of that."""
-        cand_rates = rates()
-        base_rates = list(cand_rates)
+        """From 10% to 80%: the two-sample screen flags it when the candidate
+        fails both samples and main neither, 0.8² x 0.9² = 52% of the time,
+        under either rule. Confirming it keeps at least nine tenths of that."""
+        cand_rates, base_rates = rates(), rates()
         cand_rates[-1], base_rates[-1] = 0.8, 0.1
+        screened = 0.8 ** 2 * 0.9 ** 2
         rng = random.Random(7)
-        old = new = 0
-        for _ in range(self.TRIALS):
-            failures = failures_of(rng, base_rates, cand_rates, 2)
-            old += old_rule(failures)
-            new += new_rule(rng, failures, base_rates, cand_rates)
-        self.assertGreater(new / self.TRIALS, 0.85 * (old / self.TRIALS) - 0.25)  # the noise floor's kills are gone
-        self.assertGreater(new / self.TRIALS, 0.4)
+        new = sum(new_rule(rng, failures_of(rng, base_rates, cand_rates, 2), base_rates, cand_rates)
+                  for _ in range(self.TRIALS))
+        self.assertGreater(new / self.TRIALS, 0.9 * screened)
 
 
 if __name__ == "__main__":
