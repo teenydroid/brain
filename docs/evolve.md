@@ -1886,7 +1886,7 @@ same round. A failed turn or a still-unusable answer falls back to the
 finding and the next round, as before (`repair_failed`). At most
 `MAX_SHAPE_REPAIRS` (2) a candidate, tried or not, so it cannot loop. Nothing
 is defaulted in code: a component guessed is a label the proposer never
-chose. A learning that carries its own check is never asked to repair it.
+chose. A finding (evolve_findings) carries its own check and is never asked to repair it.
 
 **Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
 scores every merged candidate with a check at every horizon

@@ -4760,8 +4760,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             # kept, no round spent (gen 16, candidate 2). Still wrong, it
             # goes back as a finding, next round, as before.
             check = None
-            # A learning that carries its own check: not the proposer's to fix.
-            if learning.get("check") is None and shape_repairs(rounds) < MAX_SHAPE_REPAIRS:
+            # A finding's own check (evolve_findings) is not the proposer's to fix.
+            if not evolve_findings.is_finding(learning) and shape_repairs(rounds) < MAX_SHAPE_REPAIRS:
                 rec["repair_failed"] = ["check"]  # an attempt, until it works
                 fixed = repair_shape(proposer, request, proposal, ["check"], exc, rnd)
                 try:
