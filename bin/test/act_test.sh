@@ -424,6 +424,7 @@ answer '{"action": "post", "text": "strangers try to trick me every day"}'
 started=$SECONDS
 out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_REWRITE_MAX_SECS=3 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
 took=$((SECONDS - started))
+echo "DEBUG $out" >&2; cat "$scratch/stderr" >&2
 check "with the whole budget left, one rewrite turn is still capped ($took s)" \
   bash -c "[ '$took' -lt 20 ] && [ '$(jq -r '.actions[0].reason' <<<"$out")' = 'the rewrite turn did not answer within 3 s' ]"
 
