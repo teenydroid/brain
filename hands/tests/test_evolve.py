@@ -5,6 +5,8 @@ the hands it reads are stand-ins (TEENY_HANDS), bin/eval is the real one
 (a change to a playbook no task drafts from is unmeasurable, so nothing
 boots), GitHub is a fake publisher, and the clock is pinned (EVOLVE_NOW)."""
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -1428,7 +1430,12 @@ class AskProposerTurn(EvolveCase):
 class CrashedGenerations(EvolveCase):
     """A generation that raises before it writes result.json is resumed by
     the next run, which raises again, so no other learning ever gets a turn.
-    It is ended instead, and what it was doing counts as a failed try."""
+    It is ended instead. A crash is the loop's fault, not the learning's: it
+    charges no failed try, and the operator hears of it (2026-11-17: gen 14
+    died in observe() under a detached cron call that said `ok`, and nothing
+    told anyone)."""
+
+    CRASH = AttributeError("'list' object has no attribute 'items'")
 
     def setUp(self):
         super().setUp()
@@ -1443,14 +1450,12 @@ class CrashedGenerations(EvolveCase):
                 self.run_gen(1, publisher=pub, evaluator=Verdicts())
         self.assertTrue((evolve.gen_dir(1) / "result.json").exists())
         self.assertEqual(evolve.unfinished(), [])
-        learning = evolve.read_learnings()[-1]
-        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 1))
         out = self.run_gen(1, publisher=pub, evaluator=Verdicts())
         self.assertNotIn("resumed", out)
         self.assertEqual(out["gen"], 2)
         self.assertEqual(len(pub.prs), 1)
 
-    def test_a_crashed_publish_is_a_failed_try_not_a_pr(self):
+    def test_a_crash_charges_the_learnings_no_failed_try(self):
         self.page("# MEMORY.md\n\n## what i have decided\n\n- [m62] some visits can just be visits.\n")
         self.propose(1, [self.playbook_edit("Check first.")])
         with unittest.mock.patch.object(evolve, "pr_text", side_effect=RuntimeError("boom")):
@@ -1459,6 +1464,271 @@ class CrashedGenerations(EvolveCase):
         verdicts = [e.get("verdict") for e in self.entries().values() if e.get("gen") == 1]
         self.assertIn("crashed", verdicts)
         self.assertNotIn("opened", verdicts)
+        learning = evolve.read_learnings()[-1]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+
+    def test_crashing_in_observe_every_run_never_gives_a_learning_up(self):
+        pub = FakePublisher()
+        for _ in range(evolve.MAX_ATTEMPTS + 1):
+            with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+                with self.assertRaises(AttributeError):
+                    self.run_gen(4, publisher=pub)
+        self.assertEqual([x.id for x in evolve.open_learnings(self.entries())][:4], ORDER[:4])
+
+    def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
+        pub = FakePublisher()
+        for _ in range(2):
+            with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+                with self.assertRaises(AttributeError):
+                    self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 1)  # one a day, not one a run
+        self.assertIn("crash", pub.issues[0]["title"])
+        self.assertIn("'list' object has no attribute 'items'", pub.issues[0]["body"])
+        self.assertIn("observe", pub.issues[0]["body"])  # where it raised
+        self.assertFalse(evolve.halt_path().exists())  # the next run still tries
+        crashes = [r for r in evolve.read_jsonl(evolve.halts_log()) if r.get("kind") == "crash"]
+        self.assertEqual(len(crashes), 1)
+        self.propose(1, [self.playbook_edit("Check first.")])
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+        os.environ["EVOLVE_NOW"] = str(T0 + DAY)
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+            with self.assertRaises(AttributeError):
+                self.run_gen(1, publisher=pub)
+        self.assertEqual(len(pub.issues), 2)  # a new day, a new issue
+
+    def test_status_shows_the_last_crash(self):
+        self.assertIsNone(evolve.status()["last_crash"])
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
+            with self.assertRaises(AttributeError):
+                self.run_gen(1, publisher=FakePublisher())
+        crash = evolve.status()["last_crash"]
+        self.assertEqual(crash["gen"], 1)
+        self.assertIn("AttributeError", crash["error"])
+        self.assertEqual(crash["at"], evolve.iso(T0))
+        self.assertEqual(crash["issue"], 101)
+
+    def test_a_crashed_run_exits_non_zero_with_a_line_in_the_log(self):
+        os.environ["DRY_RUN"] = "1"  # the command line's own publisher: nothing reaches GitHub
+        err = io.StringIO()
+        with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()) as out:
+            code = evolve.main(["run", "--proposals", str(self.props)])
+        self.assertNotEqual(code, 0)
+        self.assertIn("gen 1 crashed: AttributeError: 'list' object has no attribute 'items'", err.getvalue())
+        self.assertIn("Traceback", err.getvalue())
+        self.assertFalse(json.loads(out.getvalue().strip().splitlines()[-1])["ok"])
+
+
+class InfraFailures(EvolveCase):
+    """What the loop could not judge is not a verdict on the idea. Gen 10's
+    candidates 2 and 3 failed `doctor --root` on a mktemp in a scratch dir
+    the cron call had already deleted, and were rejected for good (m57, m34;
+    the operator landed both by hand, #333 and #334); gen 11's candidate 4
+    was held because the guard's judge could not be reached, a failed try.
+    Each now leaves its learning open, charges no try, and says what broke."""
+
+    MKTEMP = ("ok   brain/CHARTER.md: 17 lines ok   brain/CONTEXT.md: 240 lines mktemp: failed to create file via "
+              "template './brain/artifacts/sandbox-scratch/shell-NDFb3s/tmp.XXXXXXXXXX': No such file or directory")
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m57] no dotted tokens in outbound telegram text.\n")
+
+    def doctor_says(self, detail):
+        real = evolve._run_check
+
+        def run_check(argv, env, timeout=600):
+            if argv[1:2] == ["--root"] and argv[0].endswith("/doctor"):
+                return False, detail
+            return real(argv, env, timeout)
+
+        return unittest.mock.patch.object(evolve, "_run_check", side_effect=run_check)
+
+    def learning(self):
+        return evolve.read_learnings()[0]
+
+    def test_a_check_the_environment_broke_defers_the_learning(self):
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        with self.doctor_says(self.MKTEMP):
+            out = self.run_gen(1, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["deferred_for"], "infra")
+        self.assertEqual(entry["infra"]["stage"], "gate")
+        self.assertEqual(entry["infra"]["check"], "doctor --root")
+        self.assertIn("mktemp", entry["infra"]["detail"])
+        self.assertEqual(len(evolve.load_rounds(evolve.gen_dir(1), 1, entry["learning"])), 1)  # no round spent on it
+        self.assertEqual(evolve.learning_state(self.entries(), self.learning()), ("open", 0))
+        # Tried again next run, and this time the doctor is fine.
+        out = self.run_gen(1, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["learning"], "m57")
+        self.assertEqual(out["candidates"][0]["verdict"], "opened")
+
+    def test_a_check_failing_on_a_file_the_change_touched_is_a_real_finding(self):
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        detail = "FAIL brain/playbooks/moltbook-follow.md: No space left on device"
+        with self.doctor_says(detail):
+            out = self.run_gen(1, evaluator=Verdicts())
+        self.assertNotEqual(out["candidates"][0]["verdict"], "deferred")
+        self.assertNotIn("infra", self.entries()["g1c1"])
+
+    def test_a_check_that_fails_for_its_own_reason_is_a_real_finding(self):
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        with self.doctor_says("FAIL playbook moltbook-follow: an unknown verb `wave`"):
+            out = self.run_gen(1, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "parked")
+
+    def test_a_pull_request_held_because_the_judge_was_unreachable_is_published_next_run(self):
+        from teeny_hands import hand as hand_lib
+
+        class Held(FakePublisher):
+            def open_pr(self, src, tree, branch, base, title, body):
+                self.head = git("-C", str(tree), "rev-parse", "HEAD").strip()
+                raise hand_lib.Refused("held", category="unknown", hold_id=7, field="body")
+
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        held = Held()
+        out = self.run_gen(1, publisher=held, evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "waiting")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["infra"]["stage"], "publish")
+        self.assertIn("judge", entry["infra"]["detail"])
+        self.assertNotIn("pr_error", entry)
+        self.assertEqual(evolve.learning_state(self.entries(), self.learning()), ("in-flight", 0))
+        # The next run publishes it as it was: no new build, no new eval, and
+        # the same commit, so the branch the first try pushed takes it.
+        pub, again = FakePublisher(), Verdicts()
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m57] no dotted tokens in outbound telegram text.\n")
+        out = self.run_gen(1, publisher=pub, evaluator=again)
+        self.assertEqual(again.asked, [])
+        self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "opened")
+        self.assertEqual(self.entries()["g1c1"]["head_sha"], held.head)
+
+    def test_a_pull_request_the_guard_held_on_a_verdict_is_still_refused(self):
+        from teeny_hands import hand as hand_lib
+
+        class Held(FakePublisher):
+            def open_pr(self, *a, **k):
+                raise hand_lib.Refused("held", category="hate", hold_id=7, field="body")
+
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        out = self.run_gen(1, publisher=Held(), evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "pr-error")
+
+    def test_a_pull_request_github_errored_on_waits_for_the_next_run(self):
+        from teeny_hands import hand as hand_lib
+
+        class Down(FakePublisher):
+            def open_pr(self, *a, **k):
+                raise hand_lib.HandError("GitHub answered 502 Bad Gateway")
+
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        out = self.run_gen(1, publisher=Down(), evaluator=Verdicts())
+        self.assertEqual(out["candidates"][0]["verdict"], "waiting")
+        self.assertIn("502", self.entries()["g1c1"]["infra"]["detail"])
+
+    def test_a_lab_that_does_not_boot_defers_the_learning(self):
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_EVALUATOR="lab")
+        # moltbook-daily is drafted by eval tasks: the change is measured.
+        self.propose(1, [self.playbook_edit("Name the source in prose.", "brain/playbooks/moltbook-daily.md")])
+        boot = unittest.mock.patch.object(evolve.lab_lib, "start",
+                                          side_effect=evolve.lab_lib.LabError("did not answer in 180 s"))
+        with boot:
+            out = self.run_gen(1)
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertEqual((entry["deferred_for"], entry["infra"]["stage"]), ("infra", "eval"))
+        self.assertIn("did not answer", entry["infra"]["detail"])
+        self.assertEqual(evolve.learning_state(self.entries(), self.learning()), ("open", 0))
+
+    def test_an_infra_deferral_costs_no_reviewer_probe(self):
+        self.propose(1, [self.playbook_edit("Name the source in prose.")])
+        with self.doctor_says(self.MKTEMP):
+            self.run_gen(1, evaluator=Verdicts())
+
+        class Probed:
+            name = "probed"
+
+            def probe(self):
+                raise AssertionError("probed the reviewer over a deferral that was not the reviewer's")
+
+        self.assertIsNone(evolve.reviewer_down(self.entries(), Probed()))
+
+    def test_a_missing_tmpdir_is_replaced_before_a_run(self):
+        os.environ["TMPDIR"] = str(self.root / "gone" / "shell-NDFb3s")
+        try:
+            evolve.usable_tmpdir()
+            tmp = Path(os.environ["TMPDIR"])
+            self.assertTrue(tmp.is_dir())
+            self.assertEqual(tmp, evolve.state_dir() / "tmp" / "evolve")
+            self.assertEqual(subprocess.run(["mktemp"], capture_output=True, env=dict(os.environ)).returncode, 0)
+        finally:
+            os.environ.pop("TMPDIR", None)
+            os.environ.pop("TEMP", None)
+            os.environ.pop("TMP", None)
+
+
+class ScheduledCap(EvolveCase):
+    """EVOLVE_GENERATIONS_PER_DAY counts the pinned job's runs only
+    (`bin/evolve run --scheduled`). On 2026-11-16 three runs by hand spent
+    the day's three, and the 21:10 scheduled run halted on `generations`.
+    Runs by hand have a cap of their own, EVOLVE_MANUAL_GENERATIONS_PER_DAY."""
+
+    def setUp(self):
+        super().setUp()
+        self.live()
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1, EVOLVE_MANUAL_GENERATIONS_PER_DAY=2)
+
+    def test_runs_by_hand_do_not_spend_the_scheduled_runs(self):
+        pub = FakePublisher()
+        for line in ("One.", "Two."):
+            self.propose(1, [self.playbook_edit(line)])
+            self.assertIn("gen", self.run_gen(1, publisher=pub))
+        self.assertEqual(evolve.generations_today(), 0)
+        self.propose(1, [self.playbook_edit("Three.")])
+        out = self.run_gen(1, publisher=pub, scheduled=True)
+        self.assertIn("gen", out)
+        meta = json.loads((evolve.gen_dir(out["gen"]) / "generation.json").read_text())
+        self.assertEqual(meta["trigger"], "scheduled")
+        self.assertEqual(json.loads((evolve.gen_dir(1) / "generation.json").read_text())["trigger"], "manual")
+        self.assertEqual(evolve.generations_today(), 1)
+        self.assertEqual(self.run_gen(1, publisher=pub, scheduled=True)["skipped"], "halted: generations")
+
+    def test_runs_by_hand_have_their_own_cap(self):
+        pub = FakePublisher()
+        for line in ("One.", "Two."):
+            self.propose(1, [self.playbook_edit(line)])
+            self.run_gen(1, publisher=pub)
+        out = self.run_gen(1, publisher=pub)
+        self.assertEqual(out["skipped"], "halted: manual-generations")
+        self.assertIn("EVOLVE_MANUAL_GENERATIONS_PER_DAY", out["halts"][0]["detail"])
+        self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))  # the schedule's own run still goes
+
+    def test_a_generation_from_before_the_trigger_was_recorded_counts_as_scheduled(self):
+        old = evolve.gen_dir(1)
+        old.mkdir(parents=True)
+        (old / "generation.json").write_text(json.dumps({"gen": 1, "started_at": evolve.iso(T0), "base": "abc",
+                                                        "learnings": []}))
+        (old / "result.json").write_text(json.dumps({"gen": 1}))
+        self.assertEqual(evolve.generations_today(), 1)
+
+    def test_a_crashed_generation_spends_no_scheduled_run(self):
+        with unittest.mock.patch.object(evolve, "observe", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self.run_gen(1, publisher=FakePublisher(), scheduled=True)
+        self.assertEqual(evolve.generations_today(), 0)
+        self.propose(1, [self.playbook_edit("One.")])
+        self.assertIn("gen", self.run_gen(1, publisher=FakePublisher(), scheduled=True))
+
+    def test_the_command_line_takes_scheduled(self):
+        os.environ["DRY_RUN"] = "1"
+        self.propose(1, [self.playbook_edit("One.")])
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(evolve.main(["run", "--scheduled", "--proposals", str(self.props)]), 0)
+        self.assertEqual(json.loads((evolve.gen_dir(1) / "generation.json").read_text())["trigger"], "scheduled")
 
 
 class ProposerPromptFitsTheScreenTest(unittest.TestCase):
