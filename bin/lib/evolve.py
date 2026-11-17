@@ -1252,7 +1252,10 @@ def apply_edits(tree: Path, edits: Any) -> list[str]:
 def hypothesis_text(proposal: Mapping[str, Any], learning: Mapping[str, Any] | None) -> str:
     title = str(proposal.get("title") or "").strip() or "an untitled change"
     lines = [f"# {title}", ""]
-    if learning:
+    if learning and evolve_findings.is_finding(learning):
+        lines.append(f"- finding: [{learning['id']}] ({learning.get('kind')}): {learning.get('events')} over "
+                     f"{learning.get('days')} days")
+    elif learning:
         lines.append(f"- learning: [{learning['id']}] ({learning['section']})")
     lines += [f"- W component: {proposal.get('component')}",
               f"- expected move: {str(proposal.get('expected_move') or '').strip()}",
@@ -2249,8 +2252,11 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
            "The paths you may change are listed below, and the files are shown whole.")
     return [
         learning_text(request["learning"]),
-        "This is something you learned. Before anything is built, decide whether acting on it is worth a change "
-        "to your repository, and if it is, what the smallest change is. " + how,
+        ("This is what your ledgers show. Before anything is built, decide whether a change to what you write "
+         "would move it (never how often or where you post), and if it would, what the smallest change is. "
+         if evolve_findings.is_finding(request["learning"]) else
+         "This is something you learned. Before anything is built, decide whether acting on it is worth a change "
+         "to your repository, and if it is, what the smallest change is. ") + how,
         "## your verdict\n\n"
         "- `build`: a change is worth making. `plan` says in a few lines what to change and where: the smallest "
         "change that makes you act on the learning, with no refactor it does not need. `read` names the files the "
@@ -4718,7 +4724,10 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         try:
             # Against the tree with its edits: a playbook or job the change
             # adds can be checked. What the code cannot count goes back.
-            check = evolve_outcomes.validate(proposal.get("check"), tree)
+            # A finding's check is the count it was drawn from, whatever
+            # the proposer named: `worked` means that number moved.
+            check = evolve_outcomes.validate(learning["check"] if evolve_findings.is_finding(learning)
+                                             else proposal.get("check"), tree)
         except evolve_outcomes.BadCheck as exc:
             say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
             findings = [{"file": "", "problem": f"the check: {exc}"[:300],
@@ -4941,8 +4950,14 @@ def pr_text(cand: Json) -> tuple[str, str]:
     hyp = (evolve_dir() / cand["hypothesis"]).read_text(encoding="utf-8")[:4000]
     stats = cand.get("diff_stats", {})
     said = "\n> ".join(str(learning.get("text") or "").splitlines())
+    if evolve_findings.is_finding(learning):
+        what = (f"**What my ledgers show** ([{learning.get('id')}], a finding bin/evolve drew from the run logs and "
+                f"ledgers: {learning.get('events')} over {learning.get('days')} days):\n\n> {said}\n\n"
+                f"Its check is that very count: {evolve_outcomes.describe(learning.get('check'))}.")
+    else:
+        what = f"**What I learned** ([{learning.get('id')}], {learning.get('section')}, brain/MEMORY.md):\n\n> {said}"
     body = "\n\n".join([
-        f"**What I learned** ([{learning.get('id')}], {learning.get('section')}, brain/MEMORY.md):\n\n> {said}",
+        what,
         hyp.strip(),
         f"**Lineage**: {cand['id']}, parent {cand['parent']}; {stats.get('files')} file(s), "
         f"+{stats.get('added')} -{stats.get('removed')}; diff {str(cand.get('diff_hash'))[:12]}.",
