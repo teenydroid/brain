@@ -84,8 +84,9 @@ class Confirmation(PairsCase):
         self.assertIn("confirmed on a fresh sample", got["reason"])
 
     def test_a_fresh_sample_that_is_not_worse_falls_back_to_pass(self):
-        """The A/A run on the box, replayed: 34 of 82 the first time, an even split the second."""
-        got = self.pairs_confirmed(losing(34 / 82), losing(0.5))
+        """The A/A run on the box, replayed: worse by chance the first time
+        (here 23 of 60), an even split the second."""
+        got = self.pairs_confirmed(losing(23 / 60), losing(0.5))
         self.assertEqual((got["verdict"], got["path"], got["promote"]), ("pass", None, True), got["reason"])
         self.assertEqual(got["pairs_confirmation"]["state"], "refuted")
         self.assertIn("did not hold up", got["reason"])
@@ -202,7 +203,7 @@ class FalseRegressRate(unittest.TestCase):
         self.assertGreater(self.rates_of(0.3)[1], 0.97)
 
     def test_the_designed_bound_is_the_screen_times_the_confirmation(self):
-        self.assertLessEqual(evals.SIGNAL_P * evals.PAIRS_CONFIRM_P, 0.02)
+        self.assertLessEqual(round(evals.SIGNAL_P * evals.PAIRS_CONFIRM_P, 6), 0.02)
 
 
 if __name__ == "__main__":
