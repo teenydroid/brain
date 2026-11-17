@@ -5365,7 +5365,7 @@ def main(argv: list[str]) -> int:
         elif args.verb == "aa":
             # The labs' ports are a generation's: never both at once.
             with run_lock() as held:
-                out = (aa(cfg, [t for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
+                out = (aa(cfg, [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
                        else {"ok": True, "kind": "busy", "detail": "a generation is running"})
         else:
             out = resume()
