@@ -313,6 +313,12 @@ def load_config(path: Path | None = None) -> Config:
     return Config(values)
 
 
+def outcome_horizons(cfg: Config | None = None) -> tuple[int, ...]:
+    """The days after a merge its check is scored at (evolve_outcomes)."""
+    get = (lambda k: cfg[k]) if cfg is not None else (lambda k: int(SETTINGS[k][0]))
+    return evolve_outcomes.horizons(get("EVOLVE_OUTCOME_DAYS"), get("EVOLVE_OUTCOME_LAST_DAYS"))
+
+
 def dry_run() -> bool:
     """hands' rule: on unless secrets/teeny.env says DRY_RUN=0; the
     environment can only force it on."""
@@ -1323,6 +1329,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "came of what you made, the last 7 days) is context for it, not a reason of its own.\n\n"
         "Name the one W component your change would show up in (one of: " + ", ".join(readable) + "), as a "
         "label. Pick the change for what it does to people, never for the number.",
+        evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons()),
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
@@ -4027,7 +4034,7 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
     request: Json = {"gen": gen, "cand": i, "learning": learning, "unread": unread_components(evidence),
                      "evidence": evidence, "siblings": siblings, "editable": editable,
                      "files": {} if in_place else files, "frozen": frozen_patterns(), "tree": str(tree),
-                     "gen_dir": str(gdir), "rounds": rounds_max,
+                     "gen_dir": str(gdir), "rounds": rounds_max, "horizons": outcome_horizons(cfg),
                      "max_lines": max_change_lines(tree, base, cfg["EVOLVE_MAX_CHANGE_PCT"])}
     if rounds:
         entry["resumed"] = True
@@ -4112,7 +4119,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 rounds.append(rec)
             findings = [{"file": "", "problem": str(exc)[:300],
                          "fix": "answer every field: title, component (one of " + ", ".join(COMPONENTS)
-                                + "), expected_move and hypothesis, each a non-empty string, with your edits"}]
+                                + "), expected_move and hypothesis, each a non-empty string, and a check, with "
+                                  "your edits"}]
             keep(rec, "out-of-shape", findings)
             continue
         except (EvolveError, OSError) as exc:
@@ -4136,8 +4144,18 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                              "fix": "copy each old text character for character from the file, so it occurs once"}]
                 keep(rec, "did-not-apply", findings)
                 continue
+        try:
+            # Against the tree with its edits: a playbook or job the change
+            # adds can be checked. What the code cannot count goes back.
+            check = evolve_outcomes.validate(proposal.get("check"), tree)
+        except evolve_outcomes.BadCheck as exc:
+            say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
+            findings = [{"file": "", "problem": f"the check: {exc}"[:300],
+                         "fix": "name one check the code can count (how your change is checked), or `judged`"}]
+            keep(rec, "out-of-shape", findings)
+            continue
         entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
-                     expected_move=proposal["expected_move"].strip()[:500])
+                     expected_move=proposal["expected_move"].strip()[:500], check=check)
         (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
         full = staged_patch(tree, base)
         stats = numstat(tree, base)
@@ -4199,7 +4217,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                 review = check_review(reviewer.review({
                     "gen": gen, "cand": i, "round": rnd, "learning": learning,
                     "plan": (research or {}).get("plan") if research and not research.get("error") else None,
-                    "proposal": {k: proposal.get(k) for k in ("title", "component", "expected_move", "hypothesis")},
+                    "proposal": {k: proposal.get(k) for k in ("title", "component", "expected_move", "check",
+                                                              "hypothesis")},
                     "checks": entry["gate"]["checks"], "diff": full}))
             except ReviewTurnFailed as exc:
                 # The turn never ran (an agent the core does not know, the
