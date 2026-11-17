@@ -134,7 +134,7 @@ what i keep in mind.
 """
 #: The page's learnings in the order a generation takes them (no snapshots:
 #: the higher id first).
-ORDER = ["m62", "m61", "m57", "m44", "m36", "m15", "m12"]
+ORDER = ["m62", "m61", "m57", "m44", "m36", "m12", "m15"]
 
 
 class EvolveCase(unittest.TestCase):
@@ -285,10 +285,12 @@ class Learnings(EvolveCase):
         (mid / "20261112T0200Z-night.md").write_text('---\n{"slot": "night"}\n---\n' + newer)
         os.utime(mid / "20261112T0200Z-night.md", (T0 - DAY, T0 - DAY))
         self.page(PAGE.replace("- [m12] promise to nyna: answer her first whenever she surfaces.",
-                               "- [m12] promise to nyna: answered nov 15. answer her first whenever she surfaces."))
+                               "- [m12] promise to nyna: answered nov 15; owed next: the receipt, posted where "
+                               "replies render."))
         order = [item.id for item in evolve.open_learnings(self.entries())]
         self.assertEqual(order[0], "m12")  # rewritten after every snapshot
-        self.assertEqual(order[1:], [x for x in ORDER if x != "m12"])  # the rest: all first seen 5 days ago, by id
+        # The rest: all first seen 5 days ago, by id; the status note last.
+        self.assertEqual(order[1:], [x for x in ORDER if x != "m12"])
 
     def test_an_unchanged_learning_that_was_already_carried_out_is_not_re_asked(self):
         self.live()
@@ -1534,7 +1536,10 @@ class CrashedGenerations(EvolveCase):
             with unittest.mock.patch.object(evolve, "observe", side_effect=self.CRASH):
                 with self.assertRaises(AttributeError):
                     self.run_gen(4, publisher=pub)
-        self.assertEqual([x.id for x in evolve.open_learnings(self.entries())][:4], ORDER[:4])
+        # Never given up on: all still open, the crashed ones behind the rest.
+        order = [x.id for x in evolve.open_learnings(self.entries())]
+        self.assertEqual(sorted(order), sorted(ORDER))
+        self.assertEqual(order[-4:], ORDER[:4])
 
     def test_a_crash_files_one_issue_a_day_and_does_not_latch(self):
         pub = FakePublisher()
