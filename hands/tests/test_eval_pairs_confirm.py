@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from test_eval_confirm import CHECK, BOX_RATES, N_TASKS, ConfirmCase, failures_of, new_rule, rates, run_of  # noqa: E402
+from test_eval_confirm import CHECK, ConfirmCase, failures_of, new_rule, rates, run_of  # noqa: E402
 from test_eval_score import TASKS, clean_run, drafted, verdict  # noqa: E402
 
 import evals  # noqa: E402
