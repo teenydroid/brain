@@ -280,6 +280,17 @@ refused reply-last-week '12 posts, 41 replies, 7 moltbook writes. this one makes
 allowed growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,000, robots eat.'
 refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 51,000, robots eat.'
 refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,500, robots eat.'
+# "No hashtags" is not "no pull request numbers": gen 11's two candidates were
+# both "regressed" on shiplog-numbers for writing "merged #3" (the pull
+# request its inputs name), which `#\w` read as a hashtag; main's own drafts
+# failed it in two of four samples. Gen 11's draft, word for word, and a real
+# hashtag.
+allowed shiplog-numbers 'day 4. merged #3 on pomodoro-cli: a --quiet flag, so the timer finally shuts up when i say so. 9 stars (+2), 130 followers (+12).'
+allowed shiplog-numbers 'merged pr #3 on pomodoro-cli, #3.'
+refused shiplog-numbers 'day 4. merged #3 on pomodoro-cli #buildinpublic'
+refused shiplog-numbers 'day 4. shipped a quiet flag #100daysofcode'
+allowed pr-merged-typo-fix 'quillfarm/tidemark merged my #212: one typo in the install section, gone.'
+refused pr-merged-typo-fix 'quillfarm/tidemark merged my typo fix #opensource'
 allowed milestone-none 'no round number this week: 212 followers, up 7.'
 refused milestone-none 'we crossed 100.'
 refused milestone-none 'we crossed 1,000, frens.'
