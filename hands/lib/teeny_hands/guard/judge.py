@@ -25,10 +25,12 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from .. import hand
 from .style import prefix_units
+
+T = TypeVar("T")
 
 # Longer than this and it is not a post; the judge reads the front of it.
 MAX_JUDGED_LENGTH = 6_000
@@ -270,23 +272,38 @@ def judge(text: str, direction: str) -> JudgeVerdict:
     model = hand.setting("SAFETY_JUDGE_MODEL")
     if model:
         params["model_override"] = model
-    # An unreadable answer is asked again at once (within UNREADABLE_ASKS):
-    # some models (glm-5.3-flash through Surplus, about one answer in eight)
-    # come back with the opening of the JSON cut off. So is a call that failed
-    # for a reason that may pass (the same provider drops its stream in
-    # windows: "provider stream ended before a completion signal"), after a
-    # wait (RETRY_BACKOFFS; the long ones out of LONG_WAITS). Both share the
-    # MAX_ASKS asks and the JUDGE_BUDGET. The last failure of either kind, or
-    # a failure that will not pass, still holds; nothing here ever turns into
-    # a pass. Only when the next ask is made changes, never what an answer
-    # means.
+    verdict, error = ask(params, lambda reply: read(_answer(reply)), budget=JUDGE_BUDGET, timeout=JUDGE_TIMEOUT)
+    if verdict is not None:
+        return verdict
+    return _fail_closed(UNREADABLE if error is None else f"{UNREACHABLE}: {error}")
+
+
+def ask(params: dict[str, Any], read_reply: Callable[[Any], T | None], *, budget: float,
+        timeout: float) -> tuple[T | None, str | None]:
+    """Asks the core's simple chat PARAMS until READ_REPLY reads a verdict
+    out of a reply, and returns (verdict, None). When no ask gives one, it
+    returns (None, the last failed call's error), or (None, None) when the
+    last ask came back unreadable. Shared by this judge and the anchor
+    judge (anchor.py), which fail closed on anything but a verdict.
+
+    An unreadable answer is asked again at once (within UNREADABLE_ASKS):
+    some models (glm-5.3-flash through Surplus, about one answer in eight)
+    come back with the opening of the JSON cut off. So is a call that failed
+    for a reason that may pass (the same provider drops its stream in
+    windows: "provider stream ended before a completion signal"), after a
+    wait (RETRY_BACKOFFS; the long ones out of LONG_WAITS). Both share the
+    MAX_ASKS asks and the BUDGET, and each ask gets at most TIMEOUT of what
+    is left of it. The last failure of either kind, or a failure that will
+    not pass, still fails; nothing here ever turns into a verdict the model
+    did not give. Only when the next ask is made changes, never what an
+    answer means."""
     global _long_waited
-    failure = UNREADABLE
+    error: str | None = None
     failed_calls = 0
     started = time.monotonic()
     for attempt in range(MAX_ASKS):
         if attempt:
-            if failure == UNREADABLE:
+            if error is None:
                 if attempt >= UNREADABLE_ASKS:
                     break
                 wait = 0.0
@@ -295,22 +312,22 @@ def judge(text: str, direction: str) -> JudgeVerdict:
             long = wait if failed_calls > _SHORT_WAITS else 0.0
             if long and _long_waited + long > LONG_WAITS:
                 break
-            if JUDGE_BUDGET - (time.monotonic() - started) - wait < MIN_ASK_SECS:
+            if budget - (time.monotonic() - started) - wait < MIN_ASK_SECS:
                 break
             if wait:
                 _long_waited += long
                 time.sleep(wait)
-        left = JUDGE_BUDGET - (time.monotonic() - started)
+        left = budget - (time.monotonic() - started)
         try:
-            reply = hand.core("inference_agent_chat_simple", params, timeout=min(JUDGE_TIMEOUT, left))
-        except Exception as error:  # noqa: BLE001 - any failure to ask is a hold, never a pass
-            failure = f"{UNREACHABLE}: {error}"
+            reply = hand.core("inference_agent_chat_simple", params, timeout=min(timeout, left))
+        except Exception as failure:  # noqa: BLE001 - any failure to ask is a failure, never a verdict
+            error = str(failure)
             failed_calls += 1
-            if permanent(str(error)):
+            if permanent(error):
                 break
             continue
-        verdict = read(_answer(reply))
+        verdict = read_reply(reply)
         if verdict is not None:
-            return verdict
-        failure = UNREADABLE
-    return _fail_closed(failure)
+            return verdict, None
+        error = None
+    return None, error

@@ -9,12 +9,19 @@ anchored or not. A no is a skip in bin/act ("not anchored: <reason>"):
 nothing is sent and no daily budget is spent. The judge never rewrites the
 draft, so a draft cannot be made vaguer to pass.
 
-It asks the way the guard's content judge does (judge.py): one message to
-the core's simple chat, with `SAFETY_JUDGE_MODEL` when one is set, the
-answer read out of whatever text comes back. And it fails closed the same
-way: a judge it cannot reach, or an answer it cannot read, is a no. The
-asks are fewer (ASKS): a post that misses its slot costs nothing, where a
-held reply leaves someone waiting.
+It asks the way the guard's content judge does, through the same asking
+loop (judge.ask): one message to the core's simple chat, with
+`SAFETY_JUDGE_MODEL` when one is set, the answer read out of whatever text
+comes back. An unreadable answer is asked again at once; a call that failed
+for a reason that may pass (Surplus dropping its stream, which it does in
+windows of minutes) is asked again after the guard judge's growing waits; a
+permanent error is not asked again. And it fails closed the same way: a
+judge it cannot reach, or an answer it cannot read, is a no.
+
+On 2026-11-16 the 23:00 show post was skipped as "the anchor judge could
+not be reached: ... provider stream ended before a completion signal": its
+two asks went seconds apart, both inside one drop window. The asks now
+spread over a minute, inside BUDGET.
 
 `ANCHOR_JUDGE`, default on, as `SAFETY_JUDGE` is: only a clear off turns it
 off, and then every draft passes unasked.
@@ -26,16 +33,21 @@ import json
 from typing import Any
 
 from .. import hand
-from .judge import _answer, permanent
+from .judge import _answer, ask
 
 #: The most characters of the inputs' JSON the judge reads; the front of
 #: each playbook's inputs is what the draft was written from.
 MAX_INPUTS_CHARS = 16_000
 #: How long one ask may take.
 TIMEOUT = 60.0
-#: Asks for one draft: a second only after an unreadable answer or a call
-#: that failed for a reason that may pass.
-ASKS = 2
+#: How long all the asks for one draft may take together, waits included
+#: (judge.ask). bin/act judges inside the 300 s the core gives a cron shell
+#: call, after a draft turn that takes about three minutes (show, 2026-11-16:
+#: 186 s), and the cold reader and the send still follow. 90 s is less than
+#: the two 60 s asks the judge had before, so a run is never longer than it
+#: could already be, and it still holds all five asks the guard judge makes
+#: when each fails fast (waits 2 + 6 + 15 + 30 s, the fifth ask at about 57 s).
+BUDGET = 90.0
 UNREACHABLE = "the anchor judge could not be reached"
 UNREADABLE = "the anchor judge answered in an unreadable shape"
 
@@ -92,17 +104,8 @@ def judge(text: str, anchor: str, inputs: Any) -> dict[str, Any]:
     model = hand.setting("SAFETY_JUDGE_MODEL")
     if model:
         params["model_override"] = model
-    failure = UNREADABLE
-    for _ in range(ASKS):
-        try:
-            reply = hand.core("inference_agent_chat_simple", params, timeout=TIMEOUT)
-        except Exception as error:  # noqa: BLE001 - any failure to ask is a no, never a pass
-            failure = f"{UNREACHABLE}: {error}"
-            if permanent(str(error)):
-                break
-            continue
-        verdict = _read(_answer(reply))
-        if verdict is not None:
-            return {**verdict, "judged": True}
-        failure = UNREADABLE
-    return {"anchored": False, "reason": failure, "judged": True}
+    verdict, error = ask(params, lambda reply: _read(_answer(reply)), budget=BUDGET, timeout=TIMEOUT)
+    if verdict is not None:
+        return {**verdict, "judged": True}
+    # Any failure to judge is a no, never a pass.
+    return {"anchored": False, "reason": UNREADABLE if error is None else f"{UNREACHABLE}: {error}", "judged": True}
