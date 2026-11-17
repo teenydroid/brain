@@ -665,12 +665,12 @@ class Restarts(EvolveCase):
     def test_resuming_does_not_count_as_another_generation_today(self):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
-        self.run_gen(1, evaluator=Verdicts())
+        self.run_gen(1, evaluator=Verdicts(), scheduled=True)
         self.cut_off(1, "gate")
-        out = self.run_gen(1, evaluator=Verdicts())
+        out = self.run_gen(1, evaluator=Verdicts(), scheduled=True)
         self.assertTrue(out.get("resumed"), out)
         self.assertEqual(evolve.generations_today(), 1)
-        self.assertEqual(self.run_gen(1)["skipped"], "halted: generations")
+        self.assertEqual(self.run_gen(1, scheduled=True)["skipped"], "halted: generations")
 
     def test_a_generation_from_before_learnings_is_marked_interrupted_not_resumed(self):
         old = evolve.gen_dir(8)
@@ -1190,16 +1190,16 @@ class Halts(EvolveCase):
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
         pub = FakePublisher()
-        self.assertIn("gen", self.run_gen(1, publisher=pub))
-        out = self.run_gen(1, publisher=pub)
+        self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
+        out = self.run_gen(1, publisher=pub, scheduled=True)
         self.assertEqual(out["skipped"], "halted: generations")
         self.assertEqual(len(pub.issues), 1)
         self.assertIn("generations", pub.issues[0]["title"])
-        self.run_gen(1, publisher=pub)
+        self.run_gen(1, publisher=pub, scheduled=True)
         self.assertEqual(len(pub.issues), 1)  # one issue, not one a run
         self.assertFalse(evolve.halt_path().exists())  # it does not latch
         os.environ["EVOLVE_NOW"] = str(T0 + DAY)
-        self.assertIn("gen", self.run_gen(1, publisher=pub))
+        self.assertIn("gen", self.run_gen(1, publisher=pub, scheduled=True))
 
 
     def test_status_says_whether_a_generation_is_running(self):
@@ -1238,8 +1238,8 @@ class Halts(EvolveCase):
         os.environ["DRY_RUN"] = "1"
         self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=1)
         self.propose(1, [self.playbook_edit("One.")])
-        self.run_gen(1, publisher=Refusing())
-        out = self.run_gen(1, publisher=Refusing())
+        self.run_gen(1, publisher=Refusing(), scheduled=True)
+        out = self.run_gen(1, publisher=Refusing(), scheduled=True)
         self.assertTrue(out["halts"][0]["dry_run"])
         self.assertIn("would_open_issue", out["halts"][0])
 
