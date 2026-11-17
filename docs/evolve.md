@@ -923,8 +923,105 @@ runway tier when the wallet is low) open learnings, in this order:
    new;
 5. the higher id (ids only grow), then page order (`pick_key`).
 
-With no open learning (and no waiting candidate) the run stops there: no
-evidence, no model turn, no generation directory.
+With no open learning or finding (and no waiting candidate) the run stops
+there: no evidence, no model turn, no generation directory.
+
+### 1b. Findings
+
+By 2026-11-17 every evolve change that merged (g9c4, g12c2, g13c1-3, g15c1,
+g15c4) was a "don't do X" rule from a MEMORY item, the page had six open
+learnings left, and the run logs and ledgers kept counting what plainly did
+not work. A **finding** is one such count, drawn in code with no model in the
+loop (`bin/lib/evolve_findings.py`), over the last `EVOLVE_OUTCOME_LAST_DAYS`
+(7) days. The kinds are a closed list:
+
+| Kind | Id | What is counted | Its check |
+|---|---|---|---|
+| `act_failed` | `f:act_failed:<playbook>` | failed `bin/act` runs of a playbook in `brain/playbooks/`, leaving out what the provider or the box failed: a run bin/act marked `failure: provider`, one from before it marked them whose stderr `provider_error.classify` names, and one `INFRA_ERROR` matches | `act_failed {playbook}` |
+| `refusals` | `f:refusals:<playbook or beat verb>:<rule>` | a hand refusing one playbook's actions, or one verb of the mind's beats (`tick/runs.jsonl`), by one rule in `CONTENT_RULES`: what was written or aimed at (`duplicate`, `short_id`, `own_comment`, `once_per_parent`, `once_per_post`, `unknown_parent`, `crypto`, ...). Never a cap or pacing rule (`daily_cap`, `rate_limit`, `pacing`, `own_thread_reserve`, ...): a cap that fires is the fence working | `refusals {rule, playbook or verb}` |
+| `guard_holds` | `f:guard_holds:<surface>:<category>` | the guard holding Teeny's own drafts on one surface in one category, real verdicts only (`unknown`, a judge that could not be reached or answered out of shape, is left out), with the playbooks and beats whose drafts they were (by `hold_id` in the run logs) | `guard_holds {category, surface}` |
+
+A finding needs at least `EVOLVE_OUTCOME_MIN_EVENTS` (4) events, so its check
+can be scored at all. **Its number is its check's count**: the events a
+finding states are `evolve_outcomes.count` of its own `check` over its window,
+and a finding-driven proposal ships with that check whatever the proposer
+names, so `worked` means the very number the finding was drawn from fell. Its
+statement says the number, the window, the days it fell on and what the hands,
+the guard or the core said (the three commonest, ids folded), and it points
+at the playbook (`brain/playbooks/<name>.md`), or for a beat at
+`brain/SOUL.md` and `brain/CONTEXT.md` (the beat's prompt itself is
+`bin/lib/tick.py`, frozen). A few example rows go with it as data.
+
+Only the hands', the guard's and the core's own words reach a finding, cut to
+160 characters with links, emails and handles taken out; a draft's text,
+which quotes people, and anything a stranger wrote are never read, so no turn
+that sees a finding sees a stranger's words.
+
+What the box held on 2026-11-17 (19:43 UTC, 7 days):
+
+| Finding | Events | What it says |
+|---|---|---|
+| `f:refusals:upvote_moltbook:duplicate` | 17 | 15 × "already did upvote-comment", 2 × upvote-post |
+| `f:refusals:comment_moltbook:own_comment` | 10 | "that comment is Teeny's own" |
+| `f:act_failed:self-improve` | 9 (3 days) | the core flagged the draft prompt for security review, every run |
+| `f:refusals:moltbook-curate:duplicate` | 7 | 4 × upvote-post, 3 × upvote-comment already done |
+| `f:refusals:comment_moltbook:once_per_parent` | 5 | "Teeny has already answered that comment" |
+| `f:refusals:comment_moltbook:short_id` | 5 | a shortened Moltbook id |
+| `f:act_failed:moltbook-threads` | 4 (2 days) | 3 × prompt blocked by the core's security policy, 1 × an unknown body field |
+| `f:refusals:moltbook-helpdesk:once_per_post` | 4 | a second top-level comment on a post |
+
+No guard category reached 4 on one surface (links: 3 on GitHub, 2 on Moltbook,
+1 each on X and Telegram; the 27 judge-unreachable holds are left out).
+
+**Reach is not a kind yet.** The ledgers cannot state it soundly. `x_posts`
+does not say which playbook or beat wrote a post (the run logs attribute 5 of
+the week's 14 posts to `take` and `show`, the mind's `post_x` wrote the rest),
+and every one of the 14 drew people (5 to 21 likes, 1 to 9 replies at its
+last checkpoint), so "drew nobody" holds for none. Likes and reposts are
+counts with no names, so "from outside the usual circle" can only be said of
+replies; and no check kind counts engagement, so a reach finding would ship
+with a check that cannot say whether it moved. What the week does show: 92
+replies on X against 14 posts, a quarter of the replies (24) to one account
+and 55 to the six most-answered; posts drew about 200 impressions each, the
+replies 27. To make reach a kind: record the playbook or beat on every
+`x_posts`, `moltbook_posts` and `moltbook_comments` row; record per post how
+many of the people who answered (or liked, where X names them) had never
+engaged before; and add a share check kind (the share of a source's posts
+that drew a stranger, before and after), since a count of silent posts falls
+just as well when Teeny posts less.
+
+**A finding stands by its attempts, never its wording**, which carries its
+numbers and moves every hour (`finding_standing`; its hash is its id's):
+
+| Its latest settling candidate | What it does to the finding |
+|---|---|
+| `opened`, the pull request still open | settled |
+| `opened` and merged, its check not yet scored | settled |
+| merged, scored `worked` | settled while the number stays at or under the level it was settled at; open when it grows past it |
+| merged, scored `no-effect` or `hurt` | open again; "what was tried before" carries the attempt with its `merged` flag and `outcome` |
+| merged, `no-data` | settled until the last horizon is scored, then open |
+| `skipped` `already` or `not-worth` | cools off like a learning's (`EVOLVE_SKIP_COOLOFF_DAYS`, doubling) |
+| anything else that settles (a `frozen` or `not-actionable` skip, `rejected`, `duplicate`, `regressed`, `flagged`, a closed pull request, `dry-run`) | settled until the number grows past its level |
+
+Failed tries count from the latest settling candidate; `MAX_ATTEMPTS` (3) of
+them give the finding up until the number grows past the highest it stood at
+in them. In flight, deferred and crashed work as for a learning.
+
+**The mix.** A run's `EVOLVE_CANDIDATES` take up to `EVOLVE_FINDING_SLOTS`
+(default 2; 0 turns the source off) open findings, strongest first (the most
+events), and open learnings the rest in their own order; findings next in
+line take any slot no open learning fills (`evolve_findings.mix`). With four
+candidates, six open learnings and three findings: two learnings, two
+findings; with one open learning: one learning, three findings.
+
+A finding goes through the same research, proposal, rounds, gate, eval and
+pull request as a learning, with the same fences. Its turns are told it is
+counted, not something Teeny wrote, that a finding may change what Teeny
+writes and never how often or where it posts, and that its check is set.
+The hypothesis names it (`- finding: [f:...] (kind): N over 7 days`) and the
+pull request opens with **What my ledgers show**, the statement and its check.
+`bin/evolve status` lists every current finding (`findings.current`: id,
+kind, events, days, check, state and what settled it) and `findings.slots`.
 
 ### 2. Observe
 
