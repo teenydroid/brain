@@ -746,6 +746,19 @@ def orders(turn: int, both: bool) -> tuple[str, ...]:
     return ("first",) if turn % 2 else ("second",)
 
 
+def pair_orders(pairs: list[dict], both: bool) -> list[tuple[str, ...]]:
+    """orders() for each of PAIRS, by its sample and its task's place among
+    the tasks judged, never by its place in the list: each task's samples
+    alternate (an even count is shown each way equally often), and an odd
+    count's spare sample alternates across tasks. The judge picks draft 2
+    in 55.7% of the 483 decided pairs on the box (gens 11 and 13 and the
+    first A/A run, p = 0.014), so this keeps that off either side; keyed by
+    the pair's place in the list, one pair not drafted turned every later
+    task's order round."""
+    place = {t: i for i, t in enumerate(sorted({p["task"] for p in pairs}))}
+    return [orders(p["sample"] + place[p["task"]], both) for p in pairs]
+
+
 def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path, ask: list[str],
           both_orders: bool = False, tasks: set[str] | None = None) -> int:
     """Every pair (of TASKS, when given), judged by `ask` (bin/ask --agent
@@ -755,9 +768,9 @@ def judge(evals: Path, brain: Path, base_path: Path, cand_path: Path, out: Path,
     so a tie. Up to EVAL_CONCURRENCY turns at once."""
     jobs = []
     plan = []
-    for turn, pair in enumerate(pairs(base_path, cand_path, tasks), 1):
+    judged = pairs(base_path, cand_path, tasks)
+    for pair, shown in zip(judged, pair_orders(judged, both_orders)):
         task = load_task(evals, pair["task"])
-        shown = orders(turn, both_orders)
         plan.append((pair, shown))
         for way in shown:
             drafts = {"1": pair["base"], "2": pair["cand"]} if way == "first" else {"1": pair["cand"], "2": pair["base"]}
