@@ -141,6 +141,40 @@ class Validate(unittest.TestCase):
         self.bad({"kind": "actions", "surface": "moltbook", "verb": "downvote", "direction": "zero"}, "verb")
         self.bad({"kind": "judged"}, "surface")
 
+    def test_a_judged_check_carrying_a_direction_is_normalised_not_sent_back(self):
+        # Gen 16, candidate 2 (2026-11-17, learning m25): two of its three
+        # rounds went on these exact checks, each sent back for `direction`,
+        # which a judged check never uses; the candidate was parked.
+        dropped = []
+        self.assertEqual(eo.validate({"direction": "rise", "kind": "judged", "surface": "x"}, self.tree, dropped),
+                         {"kind": "judged", "surface": "x"})
+        self.assertEqual(dropped, ["direction"])
+        self.assertEqual(self.ok({"direction": "zero", "kind": "judged", "kind_of": "post", "surface": "x"}),
+                         {"kind": "judged", "surface": "x", "kind_of": "post"})
+
+    def test_harmless_slips_are_normalised(self):
+        self.assertEqual(self.ok({"kind": " Judged", "surface": "X"}), {"kind": "judged", "surface": "x"})
+        self.assertEqual(self.ok({"kind": "actions", "surface": "X", "verb": "Like", "direction": "None"})
+                         ["direction"], "zero")
+        self.assertEqual(self.ok({"kind": "act_failed", "playbook": "moltbook-curate", "direction": "down"})
+                         ["direction"], "fall")
+        self.assertEqual(self.ok({"kind": "outbound", "surface": "x", "direction": "Increase"})["direction"], "rise")
+        dropped = []
+        got = eo.validate({"kind": "act_failed", "playbook": "moltbook-curate", "direction": "fall", "days": 2,
+                           "note": "the 404s", "why": "stored ids"}, self.tree, dropped)
+        self.assertEqual(got, {"kind": "act_failed", "playbook": "moltbook-curate", "direction": "fall"})
+        self.assertEqual(sorted(dropped), ["days", "note", "why"])
+
+    def test_what_would_change_the_count_is_still_sent_back(self):
+        # A field the kind does not take but that would narrow or redirect
+        # the count is ambiguous: dropping it would score something else.
+        self.bad({"kind": "judged", "surface": "x", "playbook": "moltbook-curate"}, "playbook")
+        self.bad({"kind": "act_failed", "playbook": "moltbook-curate", "kind_of": "post", "direction": "fall"},
+                 "kind_of")
+        self.bad({"kind": "actions", "surface": "x", "verb": "like", "contains": "gm", "direction": "zero"},
+                 "contains")
+        self.bad({"kind": "act_failed", "playbook": "moltbook-curate", "direction": "sideways"}, "direction")
+
     def test_a_new_playbook_in_the_same_change_counts(self):
         with tempfile.TemporaryDirectory() as tmp:
             tree = Path(tmp)
@@ -423,6 +457,93 @@ class Wired(EvolveCase):
         self.assertEqual(entry["check"], Wired.CHECK)
         self.assertIn("act_failed", (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text())
 
+    GEN16 = {"direction": "rise", "kind": "judged", "surface": "x"}
+
+    def test_the_gen16_check_costs_no_round(self):
+        seen = []
+        edit = self.playbook_edit("Follow back only who answered.")
+
+        class Once:
+            name = "once"
+
+            def propose(self, request):
+                seen.append(request)
+                return {"title": "t", "component": "attention", "expected_move": "fewer failed follows",
+                        "hypothesis": "h", "check": dict(Wired.GEN16), "edits": [edit]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Once()):
+            self.run_gen(1)
+        self.assertEqual(len(seen), 1)
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["check"], {"kind": "judged", "surface": "x"})
+        self.assertNotIn("should rise", (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text())
+
+    def test_a_bad_check_alone_is_asked_for_again_without_spending_a_round(self):
+        seen, rechecks = [], []
+        edit = self.playbook_edit("Follow back only who answered.")
+
+        class Fixes:
+            name = "fixes"
+
+            def propose(self, request):
+                seen.append(request)
+                return {"title": "t", "component": "attention", "expected_move": "fewer failed follows",
+                        "hypothesis": "h", "check": {"kind": "vibes"}, "edits": [edit]}
+
+            def recheck(self, request):
+                rechecks.append(request)
+                return {"check": Wired.CHECK}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Fixes()):
+            self.run_gen(1)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(len(rechecks), 1)
+        self.assertIn("vibes", rechecks[0]["problem"])
+        self.assertEqual(rechecks[0]["proposal"]["expected_move"], "fewer failed follows")
+        entry = self.entries()["g1c1"]
+        self.assertEqual(entry["check"], Wired.CHECK)
+        rounds = json.loads((evolve.evolve_dir() / "1" / "cand-1.rounds.json").read_text())
+        rounds = rounds["rounds"] if isinstance(rounds, dict) else rounds
+        self.assertEqual(rounds[0]["proposal"]["check"], Wired.CHECK)  # a restart replays the fixed check
+        self.assertNotEqual(rounds[0].get("outcome"), "out-of-shape")
+
+    def test_a_recheck_that_is_still_bad_falls_back_to_a_finding(self):
+        seen = []
+        edit = self.playbook_edit("Follow back only who answered.")
+
+        class Stubborn:
+            name = "stubborn"
+
+            def propose(self, request):
+                seen.append(request)
+                check = {"kind": "vibes"} if len(seen) == 1 else Wired.CHECK
+                return {"title": "t", "component": "attention", "expected_move": "fewer failed follows",
+                        "hypothesis": "h", "check": check, "edits": [edit]}
+
+            def recheck(self, request):
+                return {"check": {"kind": "still vibes"}}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Stubborn()):
+            self.run_gen(1)
+        self.assertEqual(len(seen), 2)
+        self.assertIn("the check", seen[1]["findings"][0]["problem"])
+        self.assertEqual(self.entries()["g1c1"]["check"], Wired.CHECK)
+
+    def test_the_ask_proposers_recheck_is_one_small_turn_about_the_check_alone(self):
+        messages = []
+        proposer = evolve.AskProposer("act", "querier")
+        with unittest.mock.patch.object(evolve.AskProposer, "_turn",
+                                        lambda self, req, msg: messages.append(msg) or '{"check": {"kind": "judged"}}'):
+            got = proposer.recheck({"gen": 1, "cand": 1, "problem": "the check's kind is one of ..., not 'vibes'",
+                                    "proposal": {"title": "t", "expected_move": "fewer failed follows",
+                                                 "check": {"kind": "vibes"}}, "horizons": (2, 7)})
+        self.assertEqual(got, {"check": {"kind": "judged"}})
+        self.assertEqual(len(messages), 1)
+        self.assertIn("not 'vibes'", messages[0])
+        self.assertIn("fewer failed follows", messages[0])
+        self.assertIn("`judged`", messages[0])
+        self.assertLess(len(messages[0].encode()), 8 * 1024)
+
     def test_the_proposer_is_told_the_check_kinds(self):
         seen = []
 
@@ -438,6 +559,11 @@ class Wired(EvolveCase):
         for kind in eo.KINDS:
             self.assertIn(kind, seen[0])
         self.assertIn('"check"', seen[0])
+        # The answer shape no longer shows a direction for every kind, and
+        # judged says it takes none, with an example of its own.
+        self.assertNotIn('"direction": "fall|rise|zero"}', seen[0])
+        self.assertIn("`judged` takes no direction", seen[0])
+        self.assertIn('{"kind": "judged", "surface": "x", "kind_of": "reply"}', seen[0])
 
     def merged(self, cid, at, check=None, **kw):
         evolve.record({"id": cid, "gen": int(cid[1:].split("c")[0]), "cand": 1, "parent": "main", "verdict": "opened",
