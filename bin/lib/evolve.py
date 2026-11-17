@@ -3316,14 +3316,17 @@ class Baseline:
 class Unevaluated:
     """EVOLVE_EVALUATOR=none: no lab boots. A change no task reaches is
     still unmeasurable (that needs no core); one that reaches a task is
-    unevaluated, and opens nothing."""
+    unevaluated, and opens nothing. An evaluator whose own machinery failed
+    (`bin/eval affected`, a lab that did not boot, the baseline, a run or a
+    compare that errored) says `infra`: the change was not measured, and
+    the generation defers it (`done` in _run_generation)."""
 
     def evaluate(self, cands: list[Json], done: Any) -> None:
         for cand in cands:
             try:
                 plan = affected(cand)
             except EvolveError as exc:
-                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
+                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300], "infra": True})
                 continue
             if not plan["tasks"]:
                 done(cand, unmeasurable(plan))
@@ -3372,7 +3375,7 @@ class TargetedEvaluator:
             try:
                 plans[cand["id"]] = affected(cand)
             except EvolveError as exc:
-                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
+                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300], "infra": True})
         measured = [c for c in cands if c["id"] in plans and plans[c["id"]]["tasks"]]
         for cand in cands:
             if cand["id"] in plans and not plans[cand["id"]]["tasks"]:
@@ -3400,7 +3403,7 @@ class TargetedEvaluator:
                                        self.base_tree / "brain")
             except EvolveError as exc:
                 for cand in measured:
-                    done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300]})
+                    done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300], "infra": True})
                 return
             share = max(1, self.cfg["EVAL_CONCURRENCY"] // max(1, len(fresh)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(measured)) as pool:
@@ -3410,7 +3413,8 @@ class TargetedEvaluator:
                     try:
                         got = future.result()
                     except (EvolveError, probes_lib.ProbeError) as exc:
-                        got = {"verdict": "unevaluated", "reason": f"the evaluation failed: {exc}"[:300]}
+                        got = {"verdict": "unevaluated", "reason": f"the evaluation failed: {exc}"[:300],
+                               "infra": True}
                     done(cand, got)
         finally:
             self.close()
@@ -4274,6 +4278,16 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             entry.update(verdict=DEFERRED, deferred_for="sandbox", reason=no_box[0]["detail"],
                          rounds=[round_line(r) for r in rounds if r.get("outcome")])
             return entry
+        failed = [c for c in entry["gate"]["checks"] if not c["ok"]]
+        if failed and all(c.get("infra") for c in failed):
+            # Every check that failed, failed for the box (infra_reason):
+            # nothing was judged. No round is spent on it, and no try.
+            say(f"candidate {i}: `{failed[0]['check']}` failed for the box ({failed[0]['infra']}); deferred")
+            entry.update(verdict=DEFERRED, deferred_for="infra",
+                         reason=f"`{failed[0]['check']}` failed for the box: {failed[0]['infra']}"[:300],
+                         infra={"stage": "gate", "check": failed[0]["check"], "detail": failed[0]["detail"]},
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
+            return entry
         if not entry["gate"]["ok"]:
             findings = [{**f, "check": c["check"]} for c, f in zip(
                 [c for c in entry["gate"]["checks"] if not c["ok"]], check_findings(entry["gate"]))]
@@ -4445,16 +4459,21 @@ def new_branch(tree: Path, branch: str) -> str:
 EVOLVE_BRANCH = re.compile(r"teeny/gen-\d+(-c\d+)?")
 
 
-def commit_branch(tree: Path, branch: str, title: str) -> str:
+def commit_branch(tree: Path, branch: str, title: str, at: str | None = None) -> str:
     """Commits the candidate on BRANCH; returns it. A branch of that name
     left in Teeny's clone by a try whose push failed is replaced, never
     suffixed: the name is the babysitter's contract (the push itself is
-    never forced, so a branch already on GitHub refuses it)."""
+    never forced, so a branch already on GitHub refuses it). Dated AT (the
+    candidate's start), so a publish tried again after its push went
+    through (gen 11: pushed, then the pull request held) makes the same
+    commit, which the pushed branch already has."""
     if not EVOLVE_BRANCH.fullmatch(branch):
         raise EvolveError(f"{branch} is not a teeny/gen-<n>-c<i> branch")
     git(in_tree(tree), "switch", "-q", "-C", branch)
     stage(tree)
-    git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
+    when = evolve_evidence.epoch(at) if at else None
+    dated = {"GIT_AUTHOR_DATE": f"@{int(when)} +0000", "GIT_COMMITTER_DATE": f"@{int(when)} +0000"} if when else None
+    git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title, env=dated)
     return branch
 
 
@@ -4479,7 +4498,7 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
     tree = None
     try:
         tree = ensure_tree(src, cand)
-        branch = commit_branch(tree, branch, title)
+        branch = commit_branch(tree, branch, title, cand.get("at"))
         hits = [h.path for h in frozen.check(tree, cand["base"], branch)]
         if hits:
             raise EvolveError(f"the committed branch touches frozen paths: {', '.join(hits)}")
@@ -4487,6 +4506,15 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
         assert publisher is not None
         opened = publisher.open_pr(src, tree, branch, cand["base"], title, body)
     except Exception as exc:  # noqa: BLE001 - a refusal (the guard, a rule, the frozen check) stays on the candidate
+        broke = publish_infra(exc)
+        if broke:
+            # Not the change's: the next run publishes it as it is (its
+            # commit is the same, so a branch this try pushed takes it).
+            cand.pop("pr_error", None)
+            cand.update(verdict="waiting", waiting=f"publishing failed for the box, tried again next run: {broke}"[:300],
+                        infra={"stage": "publish", "detail": broke})
+            say(f"candidate {cand['cand']}: publishing failed for the box ({broke[:160]}); it waits for the next run")
+            return {"waiting": cand["waiting"]}
         cand.update(verdict="pr-error", pr_error=str(getattr(exc, "reason", None) or exc)[:300])
         return {"pr_error": cand["pr_error"]}
     finally:
@@ -4635,7 +4663,7 @@ def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None
     no candidate in it) still fails; else None. Only then: a generation
     whose reviewer answered pays for no probe."""
     latest = next_gen() - 1
-    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and e.get("deferred_for") != "sandbox"
+    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and not e.get("deferred_for")
                for e in entries.values()):
         return None
     probe = getattr(reviewer, "probe", None)
@@ -4807,7 +4835,12 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
                     **({"report": got["report"]} if got.get("report") else {}),
                     **({"probe": got["probe"]} if got.get("probe") else {}))
         halt = drift_halt(cfg, cand)
-        if halt is not None:
+        if got.get("infra"):
+            # The eval could not run (a lab that did not boot, the baseline,
+            # the judge): not measured, so not the change's verdict. No try.
+            cand.update(verdict=DEFERRED, deferred_for="infra", reason=str(got.get("reason") or "")[:300],
+                        infra={"stage": "eval", "detail": str(got.get("reason") or "")[:300]})
+        elif halt is not None:
             cand["verdict"] = "flagged"
             halted.append(stop(cfg, halt, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
