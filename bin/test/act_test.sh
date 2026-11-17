@@ -25,12 +25,20 @@ printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
 # $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
 [ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
-# $FAKE_FIRST, when the file is there, answers the first call only.
-if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
-  jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
-  rm -f "$FAKE_FIRST"
-  exit 0
+# $FAKE_REDRAFT_SLEEP: a rewrite turn takes that many seconds (the 11-minute
+# rewrite of 2026-11-17).
+if [ -n "${FAKE_REDRAFT_SLEEP:-}" ] && jq -r .message <<<"$2" | grep -q 'one rewrite'; then
+  sleep "$FAKE_REDRAFT_SLEEP"
 fi
+# $FAKE_FIRST, when the file is there, answers the first call only, and
+# $FAKE_SECOND the call after it.
+for once in "${FAKE_FIRST:-}" "${FAKE_SECOND:-}"; do
+  if [ -n "$once" ] && [ -s "$once" ]; then
+    jq -cn --rawfile a "$once" '{response: $a}'
+    rm -f "$once"
+    exit 0
+  fi
+done
 jq -cn --rawfile a "$FAKE_ANSWER" '{response: $a}'
 FAKE
 # The hands: each logs "<hand> <args> DRY_RUN=<v> stdin=<json>" and answers.
