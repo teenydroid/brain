@@ -454,13 +454,9 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
         for run in _act_runs(src, check["playbook"]):
             if not _inside(_epoch(run.get("at")), since, until):
                 continue
-            errors = [a for a in run.get("actions") or [] if isinstance(a, Mapping) and a.get("status") == "error"]
-            if run.get("ok") is not False and not errors:
-                continue
-            said = " ".join([str(run.get("error") or ""), *(json.dumps(a, ensure_ascii=False) for a in errors)])
-            if src.infra.search(said) or not _has(said, check.get("contains")):
-                continue
-            n += 1
+            said = act_failure(run, src.infra)
+            if said is not None and _has(said, check.get("contains")):
+                n += 1
         return n
     if kind == "refusals":
         n = 0
