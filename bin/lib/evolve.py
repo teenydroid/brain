@@ -3265,10 +3265,18 @@ class TargetedEvaluator:
     boots no lab at all. EVAL_CONCURRENCY is the budget for every turn in
     flight: the baseline gets all of it, then each of the K candidates a
     Kth. The persona probe runs only when the change reaches every task
-    (SOUL, CONTEXT), since it is many turns."""
+    (SOUL, CONTEXT), since it is many turns.
 
-    def __init__(self, cfg: Config, src: Source, base: str, gdir: Path) -> None:
+    A hard-check regression the compare sees is confirmed before it counts
+    (`_confirm`). PLANS stands in for `affected` (by candidate id),
+    BASELINE_ROOT for the baseline cache, and PROBES=False skips the persona
+    probe: `bin/evolve aa` measures main against itself with all three."""
+
+    def __init__(self, cfg: Config, src: Source, base: str, gdir: Path, plans: Mapping[str, Json] | None = None,
+                 baseline_root: Path | None = None, probes: bool = True) -> None:
         self.cfg, self.src, self.base, self.gdir = cfg, src, base, gdir
+        self.plans, self.baseline_root = dict(plans or {}), baseline_root
+        self.probes = probes and bool(cfg["EVOLVE_PROBES"])
         self.base_lab: lab_lib.Lab | None = None
         self.base_tree: Path | None = None
 
