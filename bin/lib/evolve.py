@@ -4633,11 +4633,20 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             # adds can be checked. What the code cannot count goes back.
             check = evolve_outcomes.validate(proposal.get("check"), tree)
         except evolve_outcomes.BadCheck as exc:
-            say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
-            findings = [{"file": "", "problem": f"the check: {exc}"[:300],
-                         "fix": "name one check the code can count (how your change is checked), or `judged`"}]
-            keep(rec, "out-of-shape", findings)
-            continue
+            # The check alone is wrong: asked for once more, the change
+            # kept, no round spent (gen 16, candidate 2). Still wrong, it
+            # goes back as a finding, next round, as before.
+            check = fix_check(proposer, request, learning, proposal, rnd, exc, tree)
+            if check is None:
+                say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
+                findings = [{"file": "", "problem": f"the check: {exc}"[:300],
+                             "fix": "name one check the code can count (how your change is checked), or `judged`"}]
+                keep(rec, "out-of-shape", findings)
+                continue
+            rec["proposal"] = proposal = {**proposal, "check": check}
+            save_rounds(gdir, i, learning, rounds)
+        # The check as it is stored (normalised) is the one the pull request names.
+        proposal = {**proposal, "check": check}
         entry.update(title=proposal["title"].strip().splitlines()[0][:120], component=proposal["component"],
                      expected_move=proposal["expected_move"].strip()[:500], check=check)
         (tree / HYPOTHESIS).write_text(hypothesis_text(proposal, learning), encoding="utf-8")
@@ -4757,6 +4766,31 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                  rounds=[round_line(r) for r in rounds if r.get("outcome")])
     entry.setdefault("gate", {"ok": False, "checks": []})
     return entry
+
+
+def fix_check(proposer: Proposer, request: Json, learning: Mapping[str, Any], proposal: Mapping[str, Any], rnd: int,
+              problem: Exception, tree: Path) -> Json | None:
+    """The check-only re-ask: when a proposal is fine but for its check, a
+    proposer that can (`recheck`, a small tool-less turn) is asked for the
+    check alone, once, and its answer validated as any check is. None when
+    it cannot, its turn fails, or the answer is still no check: the caller
+    sends the problem back as a finding. Never for a learning that carries
+    its own check, which the proposer cannot change."""
+    ask = getattr(proposer, "recheck", None)
+    if ask is None or learning.get("check") is not None:
+        return None
+    try:
+        answer = ask({"gen": request["gen"], "cand": request["cand"], "round": rnd, "problem": str(problem)[:400],
+                      "horizons": request.get("horizons"),
+                      "proposal": {k: proposal.get(k) for k in ("title", "expected_move", "check")}})
+    except (EvolveError, OSError) as exc:
+        say(f"candidate {request['cand']}: the check-only re-ask failed ({str(exc)[:120]})")
+        return None
+    check = answer.get("check") if isinstance(answer, Mapping) and "check" in answer else answer
+    try:
+        return evolve_outcomes.validate(check, tree)
+    except evolve_outcomes.BadCheck:
+        return None
 
 
 def gate_table(cand: Mapping[str, Any]) -> str:
