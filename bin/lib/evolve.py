@@ -877,6 +877,8 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
     materially differ from: a rewording keeps the count, a material change
     starts it again."""
     days = default_cooloff() if cooloff_days is None else cooloff_days
+    if evolve_findings.is_finding(item):
+        return finding_standing(entries, item, days)
     past = history(entries, item.id)
     infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
     settling = [e for e in past if _settles(e)]
@@ -890,6 +892,86 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
         return Standing("in-flight", 0, infra, flying[-1])
     failed = sum(1 for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED))
     return Standing("gave-up" if failed >= MAX_ATTEMPTS else "open", failed, infra)
+
+
+def _level(entry: Mapping[str, Any]) -> int:
+    """The number a finding stood at when ENTRY was a candidate on it."""
+    value = (entry.get("learning") or {}).get("events")
+    return value if isinstance(value, int) else 0
+
+
+def _finding_held(entry: Mapping[str, Any], past: list[Json], item: Any, days: int) -> tuple[bool, float | None]:
+    """Whether the settling ENTRY still holds a finding, and until when.
+    A change that merged holds it until its check is scored (each
+    candidate's check, evolve_outcomes), and then: `worked`, while the
+    number stays at or under where it was; `no-effect` or `hurt`, not at
+    all; `no-data`, until the last horizon is scored. A pull request still
+    open holds it. A cooling skip holds it for its cool-off, as a
+    learning's. Anything else (a frozen or not-actionable skip, a rejected,
+    duplicate, regressed or flagged change, a closed pull request, a dry
+    run's) holds it until the number grows past where it was."""
+    recurs = item.events > _level(entry)
+    if entry.get("verdict") == "opened" and entry.get("merged_at"):
+        spans = _configured_horizons()
+        got = evolve_outcomes.outcome_of(entry, spans)
+        if got in ("no-effect", "hurt"):
+            return False, None
+        if got == "no-data":
+            return evolve_outcomes.key(max(spans)) not in entry, None
+        return got == evolve_outcomes.PENDING or not recurs, None
+    if entry.get("verdict") == "opened" and not entry.get("closed"):
+        return True, None
+    until = cooloff_until(past, entry, days)
+    if until is not None:
+        return now() < until, until
+    return not recurs, None
+
+
+def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) -> Standing:
+    """Where a finding (bin/lib/evolve_findings.py) stands. A finding is its
+    id, and its text carries its numbers, which move every hour: it is
+    settled by its latest settling candidate as long as `_finding_held`
+    says, never by its wording. Its failed tries are those since that
+    candidate; MAX_ATTEMPTS of them give it up until the number grows past
+    the highest it stood at in them."""
+    past = history(entries, item.id)
+    infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
+    settling = [e for e in past if _settles(e)]
+    tries = past
+    if settling:
+        held, until = _finding_held(settling[-1], past, item, cooloff_days)
+        if held:
+            return Standing("settled", 0, infra, settling[-1], until)
+        tries = past[past.index(settling[-1]) + 1:]
+    flying = [e for e in tries if e.get("verdict") in IN_FLIGHT]
+    if flying:
+        return Standing("in-flight", 0, infra, flying[-1])
+    failed = [e for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED)]
+    if len(failed) >= MAX_ATTEMPTS and item.events <= max(_level(e) for e in failed):
+        return Standing("gave-up", len(failed), infra)
+    return Standing("open", len(failed), infra)
+
+
+def read_findings(cfg: "Config | None" = None) -> list[Any]:
+    """The findings over the last EVOLVE_OUTCOME_LAST_DAYS days, strongest
+    first (evolve_findings.draw, on the ledgers and run logs a merged
+    change's check is counted on); none when EVOLVE_FINDING_SLOTS is 0.
+    Findings that cannot be drawn never hold up the learnings: none, and
+    the log says why."""
+    cfg = cfg or load_config()
+    if cfg["EVOLVE_FINDING_SLOTS"] <= 0:
+        return []
+    try:
+        return evolve_findings.draw(outcome_sources(cfg), CODE, now(), cfg["EVOLVE_OUTCOME_LAST_DAYS"],
+                                    cfg["EVOLVE_OUTCOME_MIN_EVENTS"])
+    except Exception as exc:  # noqa: BLE001 - the learnings go ahead without findings
+        say(f"findings: none drawn ({type(exc).__name__}: {str(exc)[:200]})")
+        return []
+
+
+def open_findings(entries: Mapping[str, Json], findings: list[Any], cooloff_days: int | None = None) -> list[Any]:
+    """The open findings, strongest first."""
+    return [f for f in findings if standing(entries, f, cooloff_days).state == "open"]
 
 
 def learning_state(entries: Mapping[str, Json], item: Learning, cooloff_days: int | None = None) -> tuple[str, int]:
