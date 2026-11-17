@@ -890,6 +890,59 @@ check "the link-free show post goes out instead of being refused" test "$(jq -r 
 check "with no link in it" bash -c "grep '^x post ' '$FAKE_HANDS' | grep -q 'Ava' && ! grep '^x post ' '$FAKE_HANDS' | grep -q 'moltbook.com'"
 rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$scratch/hands/moltbook" "$scratch/hands/brief"
 
+# --- inputs too big for the core's prompt screen ---------------------------------------
+# The core holds a turn whose message is over 64 KiB (MAX_PROMPT_BYTES,
+# reason input.oversized) as "flagged for security review", every time. On
+# 2026-11-15, -16 and -17 self-improve's eight inputs made an 86,357-char
+# draft message (two of them cut at 20,000 chars mid-JSON and so escaped as
+# strings), and the draft turn failed in two seconds each day.
+reset
+cat >"$scratch/hands/big" <<'FAKE'
+#!/usr/bin/env bash
+# big N TAG: a hand answer of N jobs, each about 300 bytes.
+printf 'big %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+jq -cn --argjson n "$1" --arg t "$2" '{ok: true, jobs: [range($n) | {id: "\($t)-\(.)", summary: ("job \(.) of \($t): " + ("x" * 260))}]}'
+FAKE
+chmod +x "$scratch/hands/big"
+{
+  printf '+++\ndescription = "test"\noutput = "none"\nmax_per_day = 1\n'
+  for spec in "builds 90 b" "archive 80 a" "stimuli 60 s" "people 30 p" "pending 3 q"; do
+    read -r input n tag <<<"$spec"
+    printf '[[inputs]]\nname = "%s"\nrun = "hands/big %s %s"\n' "$input" "$n" "$tag"
+  done
+  printf '+++\ndo the thing\n'
+} >"$brain/playbooks/huge.md"
+answer '{"action": "note", "text": "drafted"}'
+out="$(run huge)"
+message="$(jq -r .message "$FAKE_CALLS")"
+inputs_json="$(sed -n '/^```json$/,/^```$/p' <<<"$message" | sed '1d;$d')"
+check "a draft over the core's 64 KiB prompt screen is cut to fit under it" \
+  test "$(LC_ALL=C; printf '%s' "$message" | wc -c)" -le 65536
+check "and the draft turn runs" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
+check "every input still reaches the model" \
+  jq -e '(keys | sort) == ["archive", "builds", "pending", "people", "stimuli"]' <<<"$inputs_json"
+check "a cut input stays JSON, with whole items from the front of its list" \
+  jq -e '(.builds.jobs | type) == "array" and (.builds.jobs | length) > 0 and (.builds.jobs | length) < 90
+    and .builds.jobs[0].id == "b-0" and (.builds.jobs | all(.summary | endswith("x")))' <<<"$inputs_json"
+check "the small inputs are left whole" jq -e '(.pending.jobs | length) == 3' <<<"$inputs_json"
+check "the cut falls on the big inputs, not the small ones" jq -e '(.people.jobs | length) >= (.builds.jobs | length)' <<<"$inputs_json"
+check "the model is told which inputs were cut" grep -q 'cut to fit: archive, builds' <<<"$message"
+check "and the run's record says so" jq -e '.cut | index("builds")' "$scratch/state/act/huge/runs.jsonl"
+# One input over the 20,000-char share is cut by items too: before, it was
+# cut mid-JSON and went to the model as one escaped string.
+reset
+book bigone none 1 "hands/big 90 b"
+out="$(run bigone)"
+inputs_json="$(jq -r .message "$FAKE_CALLS" | sed -n '/^```json$/,/^```$/p' | sed '1d;$d')"
+check "an input over its share goes to the model as JSON, not a cut string" \
+  jq -e '(.feed | type) == "object" and (.feed.jobs | length) < 90 and (.feed | tojson | length) <= 20000' <<<"$inputs_json"
+reset
+book smallone none 1 "hands/big 3 b"
+out="$(run smallone)"
+check "an input that fits is passed untouched, with no cut note" \
+  bash -c "! grep -q 'cut to fit' <<<'$(jq -r .message "$FAKE_CALLS" | tr -d "'")' && ! jq -e 'has(\"cut\")' '$scratch/state/act/smallone/runs.jsonl' >/dev/null"
+rm -f "$brain/playbooks/huge.md" "$brain/playbooks/bigone.md" "$brain/playbooks/smallone.md" "$scratch/hands/big"
+
 # --- the repository's own playbooks parse ------------------------------------------------
 for path in "$here/../../brain/playbooks"/*.md; do
   name="$(basename "$path" .md)"
