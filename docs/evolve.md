@@ -801,7 +801,7 @@ recorded on a text the current one does not *materially* differ from:
 | Verdict on the learning's candidate | What it does to the learning |
 |---|---|
 | `opened` (a pull request) | settled |
-| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled; `already` and `not-worth` for a cool-off (below) |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
 | `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
@@ -985,9 +985,11 @@ repository at all, and if so, what is the smallest one? The turn is shown:
 
 - the learning, in Teeny's words;
 - **what was tried before**: the archive's earlier candidates on the same
-  learning id (the last 5, on any wording, `same_text` saying which), each
-  with its verdict, title, reason, the gate checks it failed, its skip and its
-  research verdict (`tried_before`);
+  learning id (the last 5, on any wording, `same_text` saying which and
+  `text` giving a materially different one, always with the one that settled
+  it, `settled` and `merged`), each with its verdict, title, pull request,
+  reason, the gate checks it failed, its skip and its research verdict
+  (`tried_before`);
 - **what the web says**, when the operator pays for it: `bin/evolve` itself
   runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
   (Exa, paid from the wallet over x402, so the wallet's own caps, host

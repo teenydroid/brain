@@ -14,10 +14,12 @@ one per open learning:
   0 learnings  brain/MEMORY.md's items under "what i have decided", "promises
                and open threads" and "what i am in the middle of" (never the
                people), each with its id and a hash of its text. One is open
-               while no archive entry carries `learning: {id, hash}` with a
-               verdict that settles it; an edit to its text opens it again.
-               The newest first, by the reflection snapshots (`open_learnings`).
-               None open: nothing runs, not even a model turn.
+               unless its id's latest settling verdict was on a text the
+               current one does not materially differ from (`standing`); an
+               `already` or `not-worth` skip holds only for a cool-off.
+               Rules and promises first, then the least failed and deferred,
+               the newest text first (`pick_key`). None open: nothing runs,
+               not even a model turn.
   1 observe    evidence.json, outcomes first (bin/lib/evolve_evidence.py),
                supporting context for the learning, never a held-out task.
   2 research   one turn per learning (research_one): what was tried before,
