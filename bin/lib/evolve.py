@@ -3508,7 +3508,7 @@ def halts_log() -> Path:
 
 @dataclass
 class Halt:
-    kind: str  # generations | j-rise | doctor | fallback | persona-drift | watch-revert
+    kind: str  # generations | manual-generations | j-rise | doctor | fallback | persona-drift | watch-revert | crash
     detail: str
     latch: bool
     extra: Json = field(default_factory=dict)
@@ -3520,21 +3520,35 @@ class Halt:
         return self.kind if self.latch else f"{self.kind}:{day(now())}"
 
 
-def generations_today() -> int:
+#: Who started a generation (generation.json `trigger`): the pinned job
+#: (`bin/evolve run --scheduled`) or a person (`bin/evolve run`). One written
+#: before the trigger was recorded counts as scheduled, as it always did.
+SCHEDULED, MANUAL = "scheduled", "manual"
+
+
+def generations_today(scheduled: bool = True) -> int:
+    """Today's generations started by the schedule (SCHEDULED), or by hand,
+    that ran: one a restart cut off or one that crashed is not counted. On
+    2026-11-16 three runs by hand spent the day's cap and the 21:10
+    scheduled run halted, so each kind is counted against its own cap."""
     today = day(now())
     count = 0
     for meta in evolve_dir().glob("*/generation.json"):
         try:
-            started = json.loads(meta.read_text(encoding="utf-8")).get("started_at", "")
+            got = json.loads(meta.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        count += str(started).startswith(today) and not _cut_off(meta.parent)
+        if not isinstance(got, dict) or (got.get("trigger", SCHEDULED) == SCHEDULED) != scheduled:
+            continue
+        count += str(got.get("started_at", "")).startswith(today) and not _cut_off(meta.parent)
     return count
 
 
 def _cut_off(gdir: Path) -> bool:
+    """Whether a restart ended the generation in GDIR, or it crashed."""
     try:
-        return bool(json.loads((gdir / "result.json").read_text(encoding="utf-8")).get("interrupted"))
+        result = json.loads((gdir / "result.json").read_text(encoding="utf-8"))
+        return bool(result.get("interrupted") or result.get("crashed"))
     except (OSError, ValueError, AttributeError):
         return False
 
@@ -3594,10 +3608,12 @@ def doctor_recheck() -> None:
         pass
 
 
-def halts_before(cfg: Config, new_generation: bool = True) -> list[Halt]:
+def halts_before(cfg: Config, new_generation: bool = True, scheduled: bool = True) -> list[Halt]:
     """What stops a run before it does anything. The day's cap counts only
     against starting a generation: finishing one a restart cut off is not
-    one more. A red doctor report is checked again before it counts."""
+    one more. A scheduled run is held to EVOLVE_GENERATIONS_PER_DAY, one by
+    hand to EVOLVE_MANUAL_GENERATIONS_PER_DAY, each counting its own kind.
+    A red doctor report is checked again before it counts."""
     out = []
     red = doctor_red()
     if red:
@@ -3608,9 +3624,13 @@ def halts_before(cfg: Config, new_generation: bool = True) -> list[Halt]:
     if fallback_path().exists():
         out.append(Halt("fallback", "the spine booted state/last-good (state/spine-fallback.json); a person clears "
                         "it once main boots again", latch=False))
-    if new_generation and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
-        out.append(Halt("generations", f"{generations_today()} generation(s) today; the most is "
+    if new_generation and scheduled and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
+        out.append(Halt("generations", f"{generations_today()} scheduled generation(s) today; the most is "
                         f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)", latch=False))
+    manual = cfg["EVOLVE_MANUAL_GENERATIONS_PER_DAY"]
+    if new_generation and not scheduled and generations_today(scheduled=False) >= manual:
+        out.append(Halt("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
+                        f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)", latch=False))
     rise = j_rise(world_history(), cfg["EVOLVE_J_WINDOW_DAYS"])
     if rise is not None and rise > cfg["EVOLVE_MAX_J_RISE"]:
         out.append(Halt("j-rise", f"J rose {rise:.3f} in {cfg['EVOLVE_J_WINDOW_DAYS']} day(s); the most before a "
@@ -3661,10 +3681,11 @@ def stop(cfg: Config, halt: Halt, publisher: "Publisher | None") -> Json:
     if halt.latch:
         write_json(halt_path(), {"kind": halt.kind, "detail": halt.detail, "at": iso(now()), **halt.extra})
     title = f"bin/evolve stopped: {halt.kind}"
+    then = ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
+            else "Its next scheduled run tries again; one issue a day, however often it crashes."
+            if halt.kind == "crash" else "It runs again tomorrow.")
     body = (f"The evolve loop stopped itself.\n\n- halt: {halt.kind}\n- why: {halt.detail}\n- at: {iso(now())}\n\n"
-            + ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
-               else "It runs again tomorrow.")
-            + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
+            + then + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
     entry = {**file_issue(cfg, halt.key, halt.kind, title, body, publisher), "detail": halt.detail}
     say(f"halted ({halt.kind}): {halt.detail}" + ("; its issue is already filed" if entry.get("issue") == "already filed"
                                                    else ""))
