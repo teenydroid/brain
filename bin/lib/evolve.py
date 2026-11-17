@@ -3298,7 +3298,7 @@ class TargetedEvaluator:
         plans: dict[str, Json] = {}
         for cand in cands:
             try:
-                plans[cand["id"]] = affected(cand)
+                plans[cand["id"]] = self.plans.get(cand["id"]) or affected(cand)
             except EvolveError as exc:
                 done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
         measured = [c for c in cands if c["id"] in plans and plans[c["id"]]["tasks"]]
@@ -3312,7 +3312,8 @@ class TargetedEvaluator:
         # folder per sample count (its folder name has it), each drafting the
         # union of the tasks of the candidates that count serves.
         key = model_key()
-        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]["tasks"]), key) for c in measured}
+        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]["tasks"]), key, self.baseline_root)
+                     for c in measured}
         try:
             try:
                 # A restart that finds every report it needs boots nothing.
@@ -3359,11 +3360,14 @@ class TargetedEvaluator:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        return report if isinstance(report, dict) and report.get("tasks", tasks) == tasks else None
+        # A regression still waiting to be confirmed is not a verdict yet.
+        if not isinstance(report, dict) or report.get("tasks", tasks) != tasks or report.get("confirm"):
+            return None
+        return report
 
     def _reusable(self, cand: Json, plan: Json) -> bool:
         """Measured before a restart, and needing no probe: nothing to boot."""
-        return self._saved_report(cand, plan["tasks"]) is not None and not (plan["all"] and self.cfg["EVOLVE_PROBES"])
+        return self._saved_report(cand, plan["tasks"]) is not None and not (plan["all"] and self.probes)
 
     def _env(self, core: Mapping[str, str], concurrency: int) -> dict[str, str]:
         return code_env(**core, EVAL_CONCURRENCY=str(concurrency))
@@ -3375,14 +3379,14 @@ class TargetedEvaluator:
         report_path = compare / "report.json"
         report = self._saved_report(cand, tasks)
         probe = None
-        if report is None or (plan["all"] and self.cfg["EVOLVE_PROBES"]):
+        if report is None or (plan["all"] and self.probes):
             before = snapshot(tree)
             lab = self._boot(f"cand-{cand['cand']}", tree, self.gdir / f"lab-{cand['cand']}",
                              self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
             try:
                 if report is None:
                     report = self._measure(cand, tasks, run, compare, baseline, lab.env(), base_env, share)
-                if plan["all"] and self.cfg["EVOLVE_PROBES"]:
+                if plan["all"] and self.probes:
                     probe = self._probe(cand, lab.env(), base_env)
             finally:
                 lab_lib.stop(lab)
@@ -3399,6 +3403,10 @@ class TargetedEvaluator:
     def _measure(self, cand: Json, tasks: list[str], run: Path, compare: Path, baseline: Baseline,
                  cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
         samples, key = self._samples(tasks), model_key()
+        # A compare cut off before its confirmation is confirmed, not judged again.
+        pending = self._pending(compare) if _ran(run, tasks, samples, key) else None
+        if pending is not None:
+            return self._confirm(cand, pending["confirm"], compare, cand_env, base_env, share)
         if not _ran(run, tasks, samples, key):
             # --brain: the task's playbook prompt is read from the brain the
             # lab serves, the candidate's worktree; without it bin/eval read
@@ -3419,6 +3427,52 @@ class TargetedEvaluator:
         # 0 pass, 2 regressed or inconclusive, 3 unmeasurable, 1 an error.
         if done.returncode not in (0, 2, 3) or not (compare / "report.json").is_file():
             raise EvolveError(f"the compare failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
+        report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        if report.get("confirm"):
+            report = self._confirm(cand, report["confirm"], compare, cand_env, base_env, share)
+        return report
+
+    @staticmethod
+    def _pending(compare: Path) -> Json | None:
+        """COMPARE's report when it still lists tasks to confirm."""
+        try:
+            report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return report if isinstance(report, dict) and report.get("confirm") else None
+
+    def _confirm(self, cand: Json, tasks: list[str], compare: Path, cand_env: Mapping[str, str],
+                 base_env: Mapping[str, str], share: int) -> Json:
+        """The hard-check regressions the compare saw, confirmed (docs/evolve.md,
+        "Confirming a regression"): TASKS drafted afresh EVOLVE_CONFIRM_SAMPLES
+        times on both labs at once, main's too (never the cached baseline,
+        so both sides draft under the same conditions), then `bin/eval
+        confirm` judges the fresh pairs and scores the compare again. A few
+        tasks, so a few dozen turns."""
+        samples, key = self.cfg["EVOLVE_CONFIRM_SAMPLES"], model_key()
+        folder = compare / "confirm"
+        assert self.base_tree is not None
+        sides = {"base": (base_env, self.base_tree / "brain"),
+                 "cand": (cand_env, evolve_dir() / cand["worktree"] / "brain")}
+
+        def draft(side: str) -> subprocess.CompletedProcess:
+            env, brain = sides[side]
+            return _eval(["run", "--only", ",".join(tasks), "--samples", str(samples), "--brain", str(brain),
+                          "--key", key, str(folder / side)], self._env(env, share))
+
+        say(f"candidate {cand['cand']}: confirming the hard-check regression on {', '.join(tasks)}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            runs = dict(zip(sides, pool.map(draft, sides)))
+        for side, done in runs.items():
+            if done.returncode != 0:
+                raise EvolveError(f"the {side} confirmation run failed: "
+                                  f"{(done.stderr.strip() or done.stdout.strip())[-300:]}")
+        judge = ["--judge-model", self.cfg.judge_model] if self.cfg.judge_model else []
+        done = _eval(["confirm", "--judge-root", str(judge_root(self.src, cand["base"], self.gdir)), *judge,
+                      str(compare), str(folder / "base"), str(folder / "cand")], self._env(base_env, share))
+        report = self._pending(compare)
+        if done.returncode not in (0, 2) or report is not None:
+            raise EvolveError(f"the confirmation failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
         return json.loads((compare / "report.json").read_text(encoding="utf-8"))
 
     def _probe(self, cand: Json, cand_env: Mapping[str, str], base_env: Mapping[str, str]) -> Json:
@@ -3454,7 +3508,7 @@ def eval_summary(report: Mapping[str, Any], tasks: list[str], plan: Mapping[str,
     """A compare report's numbers, without its pairs (or anything held out)."""
     out: Json = {"verdict": report.get("verdict"), "tasks": tasks, "all": bool(plan.get("all"))}
     for key in ("reason", "wins", "losses", "ties", "decided", "signal", "p_worse", "p_better", "regressions",
-                "fences", "unmeasured_tasks", "judge_model"):
+                "suspects", "confirmation", "fences", "unmeasured_tasks", "base_noise", "judge_model"):
         if report.get(key) is not None:
             out[key] = report[key]
     return out
