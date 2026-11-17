@@ -817,6 +817,11 @@ def regression_margin(pairs: int) -> int:
     return max(2, -(-pairs // 10))
 
 
+#: What `regressions` names when no one task regressed but the hard failures
+#: over every task rose past regression_margin().
+OVERALL = "(hard failures overall)"
+
+
 def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
     wins = sum(p["winner"] == "cand" for p in pairs)
     losses = sum(p["winner"] == "base" for p in pairs)
@@ -825,11 +830,14 @@ def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
     # sample the baseline passed it: one stray failure in two samples is the
     # noise the baseline shows too (gen 6: four candidates, each "regressed"
     # on tasks its change could not reach, so a no-op passed about 1 time in
-    # 150). Many stray failures together still keep it out.
+    # 150). Many stray failures together still keep it out. At two samples
+    # this is only a screen: a check main fails half the time trips it one
+    # time in sixteen, so what it finds is confirmed before it condemns
+    # (confirm_regressions).
     regressions = sorted(t for t, n in failures.items() if n["cand"] - n["base"] >= n["pairs"])
     rise = sum(n["cand"] for n in failures.values()) - sum(n["base"] for n in failures.values())
     if rise >= regression_margin(len(pairs)) and not regressions:
-        regressions = ["(hard failures overall)"]
+        regressions = [OVERALL]
     return {"wins": wins, "losses": losses, "ties": len(pairs) - decided, "decided": decided,
             "win_rate": wins / decided if decided else 0.0, "regressions": regressions,
             "hard_failure_rise": rise}
