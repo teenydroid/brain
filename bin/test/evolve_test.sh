@@ -149,7 +149,14 @@ out="$("$evolve" status 2>/dev/null)"
 check "status lists the open learnings" test "$(jq -r '[.learnings.open[].id] | join(",")' <<<"$out")" = m61
 check "and each candidate's state" test "$(jq -r '.candidates[0].verdict' <<<"$out")" = dry-run
 check "and the open evolve pull requests" test "$(jq -r '.open_prs | length' <<<"$out")" = 0
-printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
+# Both generations so far were runs by hand: they spend none of the schedule's.
+printf 'EVOLVE=1\nEVOLVE_GENERATIONS_PER_DAY=1\nEVOLVE_MANUAL_GENERATIONS_PER_DAY=2\nEVOLVE_EVALUATOR=none\n' >"$root/secrets/evolve.env"
+propose 1 "A wave, then a drip."
+out="$("$evolve" run --proposals "$root/props" 2>/dev/null)"
+check "a third run by hand today halts on its own cap" test "$(jq -r .skipped <<<"$out")" = "halted: manual-generations"
+out="$("$evolve" run --scheduled --proposals "$root/props" 2>/dev/null)"
+check "and the scheduled run still goes" test "$(jq -r '[.candidates[].learning] | join(",")' <<<"$out")" = m61
+check "and says it was scheduled" test "$(jq -r .trigger "$root/state/evolve/3/generation.json")" = scheduled
 out="$("$evolve" run --scheduled --proposals "$root/props" 2>/dev/null)"
 check "too many scheduled generations today halts the run" test "$(jq -r .skipped <<<"$out")" = "halted: generations"
 check "and under DRY_RUN files no issue" test "$(jq -r '.halts[0].dry_run' <<<"$out")" = true
