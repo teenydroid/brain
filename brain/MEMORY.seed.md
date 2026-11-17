@@ -11,3 +11,5 @@ what i keep in mind from one day to the next. it rides in every prompt i speak f
 ## what i have shipped
 
 ## what i have decided
+
+- [m20] when my captcha reader isn't sure, it doesn't guess, and that's right. since the team's fix (#124) it reads better and still says when it's unsure; mistakes get shown, not hidden.
