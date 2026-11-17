@@ -896,6 +896,7 @@ rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$sc
 # 2026-11-15, -16 and -17 self-improve's eight inputs made an 86,357-char
 # draft message (two of them cut at 20,000 chars mid-JSON and so escaped as
 # strings), and the draft turn failed in two seconds each day.
+jqe() { jq -e "$@" >/dev/null; }
 reset
 cat >"$scratch/hands/big" <<'FAKE'
 #!/usr/bin/env bash
@@ -920,14 +921,14 @@ check "a draft over the core's 64 KiB prompt screen is cut to fit under it" \
   test "$(LC_ALL=C; printf '%s' "$message" | wc -c)" -le 65536
 check "and the draft turn runs" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
 check "every input still reaches the model" \
-  jq -e '(keys | sort) == ["archive", "builds", "pending", "people", "stimuli"]' <<<"$inputs_json"
+  jqe '(keys | sort) == ["archive", "builds", "pending", "people", "stimuli"]' <<<"$inputs_json"
 check "a cut input stays JSON, with whole items from the front of its list" \
-  jq -e '(.builds.jobs | type) == "array" and (.builds.jobs | length) > 0 and (.builds.jobs | length) < 90
+  jqe '(.builds.jobs | type) == "array" and (.builds.jobs | length) > 0 and (.builds.jobs | length) < 90
     and .builds.jobs[0].id == "b-0" and (.builds.jobs | all(.summary | endswith("x")))' <<<"$inputs_json"
-check "the small inputs are left whole" jq -e '(.pending.jobs | length) == 3' <<<"$inputs_json"
-check "the cut falls on the big inputs, not the small ones" jq -e '(.people.jobs | length) >= (.builds.jobs | length)' <<<"$inputs_json"
+check "the small inputs are left whole" jqe '(.pending.jobs | length) == 3' <<<"$inputs_json"
+check "the cut falls on the big inputs, not the small ones" jqe '(.people.jobs | length) >= (.builds.jobs | length)' <<<"$inputs_json"
 check "the model is told which inputs were cut" grep -q 'cut to fit: archive, builds' <<<"$message"
-check "and the run's record says so" jq -e '.cut | index("builds")' "$scratch/state/act/huge/runs.jsonl"
+check "and the run's record says so" jqe '.cut | index("builds")' "$scratch/state/act/huge/runs.jsonl"
 # One input over the 20,000-char share is cut by items too: before, it was
 # cut mid-JSON and went to the model as one escaped string.
 reset
@@ -935,7 +936,7 @@ book bigone none 1 "hands/big 90 b"
 out="$(run bigone)"
 inputs_json="$(jq -r .message "$FAKE_CALLS" | sed -n '/^```json$/,/^```$/p' | sed '1d;$d')"
 check "an input over its share goes to the model as JSON, not a cut string" \
-  jq -e '(.feed | type) == "object" and (.feed.jobs | length) < 90 and (.feed | tojson | length) <= 20000' <<<"$inputs_json"
+  jqe '(.feed | type) == "object" and (.feed.jobs | length) < 90 and (.feed | tojson | length) <= 20000' <<<"$inputs_json"
 reset
 book smallone none 1 "hands/big 3 b"
 out="$(run smallone)"
