@@ -3673,7 +3673,8 @@ def eval_summary(report: Mapping[str, Any], tasks: list[str], plan: Mapping[str,
     """A compare report's numbers, without its pairs (or anything held out)."""
     out: Json = {"verdict": report.get("verdict"), "tasks": tasks, "all": bool(plan.get("all"))}
     for key in ("reason", "wins", "losses", "ties", "decided", "signal", "p_worse", "p_better", "regressions",
-                "suspects", "confirmation", "fences", "unmeasured_tasks", "base_noise", "judge_model"):
+                "suspects", "confirmation", "pairs_confirmation", "path", "fences", "unmeasured_tasks", "base_noise",
+                "judge_model"):
         if report.get(key) is not None:
             out[key] = report[key]
     return out
@@ -3752,6 +3753,10 @@ def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
         "first_verdict": first.get("verdict"), "reason": got.get("reason"),
         "suspects": report.get("suspects") or [],
         "confirmation": {t: c.get("state") for t, c in (report.get("confirmation") or {}).items()},
+        # What made it anything but a pass (fence, hard, pairs or measure),
+        # and what the first pass alone would have said.
+        "path": report.get("path") if verdict != "pass" else None, "first_path": first.get("path"),
+        "pairs_confirmation": (report.get("pairs_confirmation") or {}).get("state"),
         "tasks": len(picked), "samples": eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(picked)),
         **{k: report.get(k) for k in ("wins", "losses", "ties", "decided", "signal", "p_worse", "p_better")},
         "base_noise": {t: f"{n['failed']}/{n['of']}" for t, n in (report.get("base_noise") or {}).items()},
