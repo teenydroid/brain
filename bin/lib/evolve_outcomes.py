@@ -394,6 +394,23 @@ def _refusal_rule(result: Any) -> str | None:
     return HELD_RULE if result.get("refused") == HELD_RULE else None
 
 
+def act_failure(run: Mapping[str, Any], infra: re.Pattern) -> str | None:
+    """What a bin/act run that failed said (its error, the core's stderr
+    and its failed actions), when the failure is the playbook's: None for a
+    run that did not fail, one bin/act marked `failure: provider`
+    (bin/lib/provider_error.py), and one whose words INFRA matches. bin/act
+    puts the core's error in `stderr`; its `error` only says "the draft turn
+    failed" (2026-11-14: twelve moltbook-general runs on an HTTP 402)."""
+    errors = [a for a in run.get("actions") or [] if isinstance(a, Mapping) and a.get("status") == "error"]
+    if run.get("ok") is not False and not errors:
+        return None
+    if run.get("failure") == "provider":
+        return None
+    said = " ".join([str(run.get("error") or ""), str(run.get("stderr") or ""),
+                     *(json.dumps(a, ensure_ascii=False) for a in errors)])
+    return None if infra.search(said) else said
+
+
 def outbound_texts(check: Mapping[str, Any], db: _Db, since: float, until: float) -> list[tuple[float, str]] | None:
     """Teeny's own words sent on the check's surface in [SINCE, UNTIL), as
     (time, text), newest first; None when the ledger cannot be read."""
