@@ -804,8 +804,12 @@ bin/evolve probe [--baseline [--force]]  the probes on the live core
 bin/evolve credit | status | resume
 ```
 
-`bin/evolve status` lists the open learnings (and every learning by state:
-open, in flight, settled, gave up), the open evolve pull requests with their
+`bin/evolve status` lists the open learnings (each with its `failed` tries
+and `infra` deferrals and crashes, when it has any), why every other one is
+not open (`not_open`: `settled` with the candidate that settled it, its
+verdict, the skip's `why`, the `pr`, and for a cooling skip `until` when it
+is asked again; `in-flight` with its candidate; `gave-up` with its `tries`),
+every learning by state, the open evolve pull requests with their
 `teeny/eval` state, and each candidate of the newest generation and every
 waiting one, with its verdict. It says `"running": true` while a generation
 holds the lock: ask it before a restart. `today` and `today_by_hand` are the
@@ -837,13 +841,15 @@ item is what the reflection calls one. Each has its id (`[m36]`; an item
 without one is skipped, since the pull request names it), its section, its
 text, and a hash of the text with whitespace and case folded.
 
-A learning is **open** while no archive entry carries `learning: {id, hash}`
-with that hash and a verdict that settles it:
+A learning is its id. Every candidate is archived with `learning: {id, hash,
+section, text}`, and a learning's history is every entry with its id, whatever
+the hash. It is **open** unless its latest settling verdict (below) was
+recorded on a text the current one does not *materially* differ from:
 
 | Verdict on the learning's candidate | What it does to the learning |
 |---|---|
 | `opened` (a pull request) | settled |
-| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
+| `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled; `already` and `not-worth` for a cool-off (below) |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
 | `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
@@ -851,9 +857,57 @@ with that hash and a verdict that settles it:
 | `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated` (`EVOLVE_EVALUATOR=none` and a task reaches it), `pr-error` (a rule's refusal, or a hold on the guard's verdict), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
-An edit to the text changes its hash, so a learning the dream rewrites is
-open again. After `MAX_ATTEMPTS` (3) failed tries on one text, the loop
-stops asking about it (`gave-up` in status) until the text changes.
+**A rewording is not a new learning.** The dream rewrites an item's wording
+twice a day. Until 2026-11-17 a learning was its id and the hash of its text,
+so every rewrite opened it again: in generations 9 to 15, m68 (the build
+queue note) was picked four times (`no-proposal`, `already`, `already`,
+then again), m36 again after its pull request merged (#320) because the dream
+appended one clause, and m53 again after an `already` because two words went;
+9 of the 28 candidates were skips. Now a rewrite is **material** when at least
+half (`MATERIAL_SHARE`, 0.5) of the new text's content words (three letters or
+more, no stopword: `content_words`) are not in the text it was settled on
+(`novelty`). On the archive:
+
+| Learning | Settled on | Rewrite | Share new | Now |
+|---|---|---|---|---|
+| m68, build queue | gen 10 `already` | gen 11 | 0.36 | settled |
+| m68 | gen 11 `already` | gen 14 | 0.33 | settled |
+| m53, x402 rail | gen 12 `already` | gen 14 | 0 | settled |
+| m36, check before a retry | gen 12, merged #320 | gen 14 (one clause from an already-merged rule) | 0.17 | settled |
+| m45, how moltbook works | gen 9, merged #288 | gen 15 (`parent_id is the comment you answer`) | 0.07 | settled |
+| m19, moltbook pacing | gen 10 `already` | gen 15 (five new rules) | 0.58 | open |
+
+m45 is the borderline case: gen 15's second try did make a useful change
+(#351, the rule carried into two more playbooks), but its rewrite added two
+content words of thirty, and no word-count rule that keeps m68 and m36 settled
+opens it. The share is measured against the settled text, not the last one,
+so small rewrites add up: m68's text at gen 14 against gen 10's is 0.57, and
+had gen 11 not skipped it again it would have reopened there.
+
+Failed tries follow the id the same way: those on texts the current one does
+not materially differ from count, so a rewording keeps the count and a
+material change starts it again. After `MAX_ATTEMPTS` (3) the loop stops
+asking (`gave-up` in status) until the text materially changes. The hash
+stays on every entry, for the record.
+
+**A skip cools off.** A skip as `already` or `not-worth` judges the
+repository or the world, which change. It holds for `EVOLVE_SKIP_COOLOFF_DAYS`
+(7) from the candidate's start, doubled for each earlier such skip of the
+same learning (up to 16 times), and then the learning is asked about again; a
+material change opens it at once. Every other settling verdict (a pull
+request, a `frozen` or `not-actionable` skip, a measured verdict) holds until
+the text materially changes.
+
+**A reopened learning remembers.** Its research and build turns get "what was
+tried before" on the id: every row says whether it was on a materially
+different wording (`same_text` false, with that `text`), and the candidate
+that settled it is always among the rows, marked `settled` (and `merged`),
+with its title, pull request and skip note, so the proposer builds only what
+the text says now that it did not.
+
+A candidate waiting under the open-PR cap stays waiting through a rewording
+and goes `stale` on a material change; a learning deferred for want of a
+sandbox waits for one across a rewording too.
 
 **What the box broke is not a verdict on the idea.** Gen 10's candidates 2
 and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
@@ -897,15 +951,25 @@ deferral of the reviewer's).
 Each generation takes up to `EVOLVE_CANDIDATES` (default 4, cut by the
 runway tier when the wallet is low) open learnings, in this order:
 
-1. fewest failed tries first, so one stuck learning doesn't hold the line;
-2. the newest text first. The reflection keeps the page before each
+1. a rule or a promise before a status note: an item under "what i am in
+   the middle of" says where Teeny is (the x402 rail is funded, drawing
+   self-portraits), rarely a behaviour to change, and gens 9-15 skipped
+   most of them. One fills a slot only when no rule or promise is open;
+2. fewest failed tries first, so one stuck learning doesn't hold the line;
+3. fewest infrastructure deferrals and crashes on the id (`deferred_for:
+   infra`, `crashed`), which charge no try: one the box keeps failing (a
+   provider that refuses the prompt for that one learning) drifts to the
+   back instead of holding a slot every run, and is never given up on;
+4. the newest text first. The reflection keeps the page before each
    rewrite (`state/reflect/MEMORY-*.md`) and the dream keeps it after
    (`state/dream/snapshots/*.md`). A text's age is the oldest snapshot that
    carries it (by file time), and a text in no snapshot is the newest of
-   all: the last dream just wrote it. That is "what Teeny learned today",
-   which item order alone can't tell: the dream edits items in place, and
-   an old id with a new text is new;
-3. the higher id (ids only grow), then page order.
+   all: the last dream just wrote it. A rewording keeps its age: the oldest
+   snapshot carrying a text the current one does not materially differ
+   from. That is "what Teeny learned today", which item order alone can't
+   tell: the dream edits items in place, and an old id with a new text is
+   new;
+5. the higher id (ids only grow), then page order (`pick_key`).
 
 With no open learning (and no waiting candidate) the run stops there: no
 evidence, no model turn, no generation directory.
@@ -969,9 +1033,11 @@ repository at all, and if so, what is the smallest one? The turn is shown:
 
 - the learning, in Teeny's words;
 - **what was tried before**: the archive's earlier candidates on the same
-  learning id (the last 5, on any wording, `same_text` saying which), each
-  with its verdict, title, reason, the gate checks it failed, its skip and its
-  research verdict (`tried_before`);
+  learning id (the last 5, on any wording, `same_text` saying which and
+  `text` giving a materially different one, always with the one that settled
+  it, `settled` and `merged`), each with its verdict, title, pull request,
+  reason, the gate checks it failed, its skip and its research verdict
+  (`tried_before`);
 - **what the web says**, when the operator pays for it: `bin/evolve` itself
   runs up to `EVOLVE_RESEARCH_SEARCHES` searches through `hands/x402 search`
   (Exa, paid from the wallet over x402, so the wallet's own caps, host
@@ -1543,7 +1609,7 @@ once. Each run first asks GitHub about every one the archive holds open
 (`refresh_prs`), so a merge by the babysitter or a close by a person frees a
 slot at once. At the cap a passing candidate is `waiting`, and the next run
 opens it before anything new, with no proposer turn. A waiting candidate
-whose learning was rewritten since is `stale`; its learning is open again.
+whose learning has materially changed since is `stale`; its learning is open again.
 
 A refusal (the guard's verdict, a rule, the frozen check) is kept on the
 candidate as `pr_error`, a failed try. A publish the box failed (the judge
@@ -1622,6 +1688,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 |---|---|---|
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
+| `EVOLVE_SKIP_COOLOFF_DAYS` | `7` | days a learning skipped as `already` or `not-worth` is not asked again unless its text materially changes, doubled for each earlier such skip, 1 to 365 |
 | `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more halts that run (`generations`), with one issue a day. Crashed and cut-off ones don't count |
 | `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more halts that run (`manual-generations`), with one issue a day |
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
