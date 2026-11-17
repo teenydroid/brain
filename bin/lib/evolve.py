@@ -2197,7 +2197,7 @@ def render_review(request: Json) -> str:
     if request.get("plan"):
         parts.append("## the plan research made\n\n" + str(request["plan"]))
     parts.append("## the change's own account\n\n```json\n" + json.dumps(
-        {k: proposal.get(k) for k in ("title", "component", "expected_move", "hypothesis")}, ensure_ascii=False)[:4000]
+        {k: proposal.get(k) for k in ("title", "component", "expected_move", "check", "hypothesis")}, ensure_ascii=False)[:4000]
         + "\n```")
     parts.append("## the checks that ran on it\n\n```json\n" + json.dumps(
         [{k: c.get(k) for k in ("check", "ok", "detail")} for c in request.get("checks") or []],
