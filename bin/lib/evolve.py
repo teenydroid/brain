@@ -1263,6 +1263,12 @@ class AskProposer:
         the same files, answering whether the learning is worth a change."""
         return self._json_turn(request, render_research_request(fit_request(request, render=render_research_request)))
 
+    def recheck(self, request: Json) -> Any:
+        """A check-only re-ask (fix_check): one small tool-less turn shown
+        the change's account and the check's problem, answering the check
+        alone. Not asked again when it does not parse."""
+        return first_json(self._turn(request, evolve_outcomes.recheck_text(request)))
+
     def queries(self, request: Json) -> Any:
         """The query turn (research_query_turn): a tool-less turn on the
         query agent (EVOLVE_QUERY_AGENT: no memory, no identity), never this
@@ -1372,6 +1378,11 @@ class EvolverProposer:
                 return self._propose(request, tree, folder, port, render_evolver_research(request), edit=False)
         finally:
             restore_tree(tree, before)
+
+    def recheck(self, request: Json) -> Any:
+        """The check-only re-ask: no lab, no files, so the proposer agent's
+        tool-less turn on the live core, as the ask proposer asks it."""
+        return AskProposer(self.cfg["EVOLVE_PROPOSER_AGENT"], self.cfg["EVOLVE_QUERY_AGENT"]).recheck(request)
 
     def queries(self, request: Json) -> Any:
         """The query turn: never this agent (it has file tools), but the
