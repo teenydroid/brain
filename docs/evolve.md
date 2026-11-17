@@ -1187,7 +1187,8 @@ not apply" as before. A proposal that parses but lacks a field (no
 hypothesis, title or expected move, or no known component), or whose `check`
 the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
 playbook, cron job or refusal rule that does not exist in the candidate's
-tree, a `contains` that is not a short literal), ends the round the
+tree, a `contains` that is not a short literal; a proposer that can is first
+asked for the check alone, "Outcomes" below), ends the round the
 same way, outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
@@ -1758,6 +1759,30 @@ check is validated against the candidate's own tree (so a playbook the
 change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
 shown to the reviewer. The five merged before it have no check and show as
 `no-check`.
+
+**Normalised, not sent back** (since 2026-11-17, gen 16: candidate 2 on m25
+spent two of its three rounds on `direction` added to a `judged` check, and
+was parked). Where nothing is ambiguous the check is normalised and the
+normalised one is stored: the kind, a surface, verb or category in any case;
+a direction in plain words (`down`, `increase`, `none`); `direction` on a
+`judged` check, which the judge never reads; and extras that change nothing
+counted (a note or reason, a horizon, which is the operator's). Still sent
+back: an unknown kind or field, a field that would narrow or redirect the
+count on a kind that does not take it (`contains` on `actions`, a
+`playbook` on `judged`), a missing or unreadable direction on a counted kind,
+a playbook, job or rule that does not exist, an unreadable `contains`. The
+brief's answer shape no longer shows a `direction` for every kind; it says
+`judged` takes none, with a judged example.
+
+**A bad check alone costs no round.** When the rest of a proposal is fine
+and only its check cannot be used, a proposer that can (`ask`, and
+`evolver` through the proposer agent's tool-less turn on the live core) is
+asked once for the check alone (`fix_check`: the change's title, expected
+move and check, the problem, and the kinds; a few KiB). A usable answer is
+written into that round's proposal (so a restart replays it) and the round
+goes on to the gate. A failed turn or a still unusable check falls back to
+the finding and the next round, as before. A learning that carries its own
+check is never re-asked.
 
 **Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
 scores every merged candidate with a check at every horizon
