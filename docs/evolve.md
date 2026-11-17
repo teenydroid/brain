@@ -487,8 +487,8 @@ drew two clean drafts and the candidate two "$2B"s. Both sides were drafted
 the same day, from the same frozen inputs, by the same model: nothing in the
 task reads a clock or a live number, so it was not the baseline's
 conditions but chance meeting a two-sample rule. With the box's per-task
-failure rates (14 of 43 tasks fail main's own checks sometimes, 5 of them
-more often than not), an identical candidate that reaches every task trips
+failure rates (pooled over every draft there, main's and the candidates':
+14 of 43 tasks fail their checks sometimes, 5 of them more often than not), an identical candidate that reaches every task trips
 it about 23% of the time, and `regressed` is final.
 
 So the two-sample rule now names suspects (`suspects`, and `confirm` while
