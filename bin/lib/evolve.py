@@ -4918,8 +4918,12 @@ def score_outcomes(cfg: Config, entries: Mapping[str, Json], ask: probes_lib.Ask
     for entry, days in due:
         if entry["check"].get("kind") == "judged" and judge is None:
             judge = ask or probes_lib.bin_ask(code_env())
-        got = evolve_outcomes.score(entry, days, entries, src, now(), min_events=cfg["EVOLVE_OUTCOME_MIN_EVENTS"],
-                                    p=cfg["EVOLVE_OUTCOME_P"], ask=judge, model=cfg.judge_model)
+        try:
+            got = evolve_outcomes.score(entry, days, entries, src, now(), min_events=cfg["EVOLVE_OUTCOME_MIN_EVENTS"],
+                                        p=cfg["EVOLVE_OUTCOME_P"], ask=judge, model=cfg.judge_model)
+        except Exception as exc:  # noqa: BLE001 - one unreadable check never holds up the others
+            say(f"evolve-watch: {entry['id']}'s check at {days} days: {str(exc)[:200]}")
+            continue
         if got is None:
             continue
         record({"id": entry["id"], evolve_outcomes.key(days): got})
