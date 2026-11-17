@@ -45,6 +45,22 @@
 #       --judge-model (or EVAL_JUDGE_MODEL) runs every judge turn on model M
 #       through the core's per-turn `model_override`, without editing the
 #       frozen judge.toml; report.json records the model asked for.
+#   bin/eval confirm [--judge-root DIR] [--judge-model M] COMPARE BASE CAND
+#       Confirm the hard-check regressions a compare saw. COMPARE is that
+#       compare's OUT; its report.json lists under `confirm` the tasks the
+#       two-sample hard-check rule named (none when a fence failed). BASE and
+#       CAND are fresh runs of just those tasks (`run --only`, more samples,
+#       main's drafted afresh too, never the cached baseline). Their pairs are
+#       judged (OUT/confirm-judged.jsonl), and the compare is scored again:
+#       a task regresses only when, on the fresh pairs alone, the candidate
+#       fails a hard check where main passed so much more often than the
+#       other way round that two alike sides would do it under 5% of the time
+#       (an exact sign test, the 5% shared among the tasks confirmed). One
+#       that does not hold up is set aside and the rest of the verdict
+#       stands; one whose fresh drafts did not run is inconclusive. The first
+#       report is kept as OUT/first-report.json, the new one replaces
+#       report.json with each task's test under `confirmation`. Exits as
+#       compare does. With nothing to confirm it changes nothing.
 #   bin/eval affected --root DIR --base SHA
 #       The tasks a change can reach: {"tasks": [ids], "all": bool, "why":
 #       {id or "*": reason}, "paths": {path: reason}, "heldout": [ids]}
@@ -92,7 +108,7 @@ need jq python3
 evals="$TEENY_ROOT/evals"
 lib="$TEENY_ROOT/bin/lib/evals.py"
 usage() {
-  die "usage: bin/eval run [--samples N] [--only IDS | --tasks IDS] [--with-heldout] [--brain DIR] [--key K] OUT | compare [--mode tournament|nonregression] [--tasks IDS] [--both-orders] [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] [--judge-model M] BASE CAND OUT | affected --root DIR --base SHA | invariants [--root DIR]"
+  die "usage: bin/eval run [--samples N] [--only IDS | --tasks IDS] [--with-heldout] [--brain DIR] [--key K] OUT | compare [--mode tournament|nonregression] [--tasks IDS] [--both-orders] [--judge-root DIR] [--threshold X] [--min-pairs N] [--with-heldout] [--judge-model M] BASE CAND OUT | confirm [--judge-root DIR] [--judge-model M] COMPARE BASE CAND | affected --root DIR --base SHA | invariants [--root DIR]"
 }
 heldout_dir="${EVAL_HELDOUT_DIR:-$TEENY_SECRETS/heldout}"
 # The held-out tasks, switched on for evals.py; dies when there are none.
@@ -205,9 +221,44 @@ compare() {
   python3 "$lib" score "$base" "$cand" "$out/judged.jsonl" "$threshold" "$min_pairs" --mode "$mode" "${selected[@]}" |
     jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
   mv "$out/report.json.tmp" "$out/report.json"
+  summary "$out/report.json"
+}
+
+# REPORT's one summary line, and compare's exit: 0 promoted, 2 not.
+summary() {
   jq -c '{promote, verdict, signal, reason, wins, losses, ties, decided, win_rate, regressions}
-         + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$out/report.json"
-  [ "$(jq -r .promote "$out/report.json")" = true ] || exit 2
+         + (if (.confirm // []) != [] then {confirm} else {} end)
+         + (if .confirmation then {confirmation: (.confirmation | map_values(.state))} else {} end)
+         + (if .heldout then {heldout: (.heldout | {won, wins, losses, ties, decided, win_rate})} else {} end)' "$1"
+  [ "$(jq -r .promote "$1")" = true ] || exit 2
+}
+
+confirm() {
+  local judge_root="$TEENY_ROOT" judge_model="${EVAL_JUDGE_MODEL:-}" out base cand tasks
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --judge-root) judge_root="$(cd "$2" && pwd)"; shift 2 ;;
+      --judge-model) judge_model="$2"; shift 2 ;;
+      -*) usage ;;
+      *) break ;;
+    esac
+  done
+  [ $# -eq 3 ] || usage
+  out="$1" base="$2/drafts.jsonl" cand="$3/drafts.jsonl"
+  [ -s "$out/report.json" ] || die "no report.json in $out"
+  tasks="$(jq -r '(.confirm // []) | join(",")' "$out/report.json")" || die "$out/report.json does not read"
+  [ -n "$tasks" ] || summary "$out/report.json"
+  if [ ! -s "$base" ] || [ ! -s "$cand" ]; then die "both confirmation runs need a drafts.jsonl"; fi
+  unset_heldout
+  local ask=("$TEENY_ROOT/bin/ask" --agent judge)
+  [ -z "$judge_model" ] || ask+=(--model "$judge_model")
+  python3 "$lib" judge "$evals" "$judge_root/brain" "$base" "$cand" "$out/confirm-judged.jsonl" --tasks "$tasks" \
+    -- "${ask[@]}" >/dev/null
+  cp "$out/report.json" "$out/first-report.json"
+  python3 "$lib" rescore "$out/first-report.json" "$base" "$cand" "$out/confirm-judged.jsonl" |
+    jq --arg m "$judge_model" '. + {judge_model: (if $m == "" then null else $m end)}' >"$out/report.json.tmp"
+  mv "$out/report.json.tmp" "$out/report.json"
+  summary "$out/report.json"
 }
 
 affected() {
@@ -235,6 +286,6 @@ invariants() {
 }
 
 case "$cmd" in
-  run | compare | affected | invariants) "$cmd" "$@" ;;
+  run | compare | confirm | affected | invariants) "$cmd" "$@" ;;
   *) usage ;;
 esac
