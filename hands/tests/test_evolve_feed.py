@@ -293,6 +293,8 @@ class Status(ArchiveCase):
 class ReopenWithMemory(LoopCase):
     def test_a_reopened_learning_is_told_what_was_already_done_for_it(self):
         self.one_learning("before retrying anything, check whether it already went through.")
+        (evolve.evolve_dir() / "1").mkdir(parents=True)  # generation 1 ran and finished
+        (evolve.evolve_dir() / "1" / "result.json").write_text("{}")
         evolve.record({"id": "g1c1", "gen": 1, "cand": 1, "verdict": "opened", "at": at(T0),
                        "learning": ref("m36", "before retrying anything, check whether it already went through."),
                        "title": "check before a retry", "pr_url": "https://github.com/teenydroid/brain/pull/9",
