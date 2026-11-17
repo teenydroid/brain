@@ -6006,7 +6006,7 @@ def main(argv: list[str]) -> int:
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
     prb.add_argument("--force", action="store_true", help="with --baseline: replace an existing gen-0")
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
-    verbs.add_parser("status", help="open learnings, open pull requests, candidates, any halt")
+    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, any halt")
     verbs.add_parser("resume", help="clear a latched halt")
     aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
     aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
