@@ -4884,6 +4884,47 @@ def merged_entries(entries: Mapping[str, Json]) -> list[Json]:
                   key=lambda e: (str(e["merged_at"]), e["id"]))
 
 
+def outcome_sources(cfg: Config) -> evolve_outcomes.Sources:
+    """Where a merged change's check is counted: the ledgers, the bin/act
+    and beat run logs, and the failed cron runs a change could have caused
+    (`countable_failures`: a restart's and the provider's left out)."""
+
+    def cron(names: tuple[str, ...], since: float, until: float) -> list[float] | None:
+        rows = _cron_failure_runs(since)
+        if rows is None:
+            return None
+        rows = [r for r in rows if r["job"] in names and r["at"] < until]
+        return countable_failures(rows, _boot_times(), None, cfg)[0]
+
+    return evolve_outcomes.Sources(hands_db=state_dir() / "hands.db", act_dir=state_dir() / "act",
+                                   tick_runs=state_dir() / "tick" / "runs.jsonl", cron_failures=cron,
+                                   infra=INFRA_ERROR)
+
+
+def score_outcomes(cfg: Config, entries: Mapping[str, Json], ask: probes_lib.Ask | None = None) -> list[Json]:
+    """Each merged candidate's check at every horizon it has reached and not
+    been scored at (evolve_outcomes.due), recorded on its archive entry as
+    `outcome_<n>d` alone, so nothing else on the entry is rewritten. A
+    `judged` check asks the tool-less judge (EVOLVE_JUDGE_MODEL). Nothing
+    here reverts."""
+    due = evolve_outcomes.due(entries, outcome_horizons(cfg), now())
+    if not due:
+        return []
+    src = outcome_sources(cfg)
+    judge = None
+    out = []
+    for entry, days in due:
+        if entry["check"].get("kind") == "judged" and judge is None:
+            judge = ask or probes_lib.bin_ask(code_env())
+        got = evolve_outcomes.score(entry, days, entries, src, now(), min_events=cfg["EVOLVE_OUTCOME_MIN_EVENTS"],
+                                    p=cfg["EVOLVE_OUTCOME_P"], ask=judge, model=cfg.judge_model)
+        if got is None:
+            continue
+        record({"id": entry["id"], evolve_outcomes.key(days): got})
+        out.append({"id": entry["id"], "days": days, "verdict": got["verdict"]})
+    return out
+
+
 def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask | None = None) -> Json:
     """evolve-watch (pinned): the newest merged evolve change, for
     EVOLVE_WATCH_HOURS after its merge.
@@ -4897,17 +4938,26 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
 
     Any one of them opens a revert pull request for a person and latches a
     halt. The reasons go to secrets/evolve-watch/ alone: the pull request,
-    the issue, the halt and the log say only that the watch reverted."""
+    the issue, the halt and the log say only that the watch reverted.
+
+    First, every merged change's own check is scored at each horizon it has
+    reached (`score_outcomes`): recorded, never a reason to revert."""
     entries = archive()
+    try:
+        scored = score_outcomes(cfg, entries, ask)
+    except Exception as exc:  # noqa: BLE001 - scoring never stops the watch over harm
+        say(f"evolve-watch: scoring the merged changes failed: {str(exc)[:200]}")
+        scored = []
+    extra: Json = {"outcomes": scored} if scored else {}
     done = merged_entries(entries)
     if not done:
-        return {"ok": True, "watching": None}
+        return {"ok": True, "watching": None, **extra}
     cand = done[-1]
     gen = int(cand["gen"])
     states = _watch_state()
     rec = states.get(cand["id"], {})
     if rec.get("done"):
-        return {"ok": True, "watching": None, "last": cand["id"]}
+        return {"ok": True, "watching": None, "last": cand["id"], **extra}
     t0 = _when_of({"at": cand["merged_at"]}) or now()
     hours = (now() - t0) / 3600
     reasons: list[str] = []
@@ -4958,7 +5008,7 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
         if j0 is not None and j1 is not None and j1 < j0:
             reasons.append(f"J fell from {j0} to {j1} over {window} h")
     rec.update(last_check=iso(now()), checks=checks)
-    out: Json = {"ok": True, "watching": cand["id"], "hours": round(hours, 2)}
+    out: Json = {"ok": True, "watching": cand["id"], "hours": round(hours, 2), **extra}
     if reasons:
         _private_json(watch_dir() / f"{cand['id']}.json", {"id": cand["id"], "gen": gen, "reasons": reasons,
                                                           "checks": checks, "at": iso(now())})
@@ -5145,6 +5195,7 @@ def status() -> Json:
     for item in learnings:
         states.setdefault(learning_state(entries, item)[0], []).append(item.id)
     latest = next_gen() - 1
+    spans = _configured_horizons()
     current = [e for e in entries.values() if e.get("gen") == latest]
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
     return {
@@ -5165,6 +5216,13 @@ def status() -> Json:
         "deferred": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "reason": e.get("reason")}
                      for e in sorted(entries.values(), key=lambda e: (e.get("gen") or 0, e.get("cand") or 0))
                      if e.get("verdict") == DEFERRED and e.get("gen") == latest],
+        "merged": [{"id": e["id"], "title": e.get("title"), "merged_at": e.get("merged_at"),
+                    "check": evolve_outcomes.describe(e.get("check")),
+                    "outcome": evolve_outcomes.outcome_of(e, spans),
+                    **{evolve_outcomes.key(d).removeprefix("outcome_"): e[evolve_outcomes.key(d)]
+                       for d in spans if isinstance(e.get(evolve_outcomes.key(d)), Mapping)}}
+                   for e in merged_entries(entries)],
+        "outcomes": evolve_outcomes.tally(merged_entries(entries), spans),
         "summary": summary(entries),
     }
 
