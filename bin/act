@@ -600,21 +600,37 @@ while IFS= read -r item; do
         if [ -n "$why" ]; then
           first="$text"
           again=""
+          # A skip whose reason is not the reader's: the rewrite was too long
+          # or out of time.
+          reason=""
           # One rewrite, and only of a draft the reader read: a reader that
           # could not be reached would not read the rewrite either.
           case "$why" in "a stranger"*)
             many=0
             [ "$posts" = null ] || many=1
             redo="$(redraft "$text" "$cold" "$meaning" "$many")"
-            if [ "$many" = 1 ]; then
-              again_posts="$(jq -c 'if .action == "post" and (.posts | type) == "array" and (.posts | length) > 0
-                and (.posts | all(type == "string")) then .posts else null end' <<<"${redo:-null}" 2>/dev/null || echo null)"
-              [ "$again_posts" = null ] || again="$(jq -r 'join("\n\n")' <<<"$again_posts")"
-            else
-              again_posts=null
-              again="$(jq -r 'if .action == "post" and (.text | type) == "string" then .text else "" end' <<<"${redo:-null}" 2>/dev/null || true)"
+            reason="$(jq -r '.failed? // empty' <<<"${redo:-null}" 2>/dev/null || true)"
+            again_posts="$(rewritten "$redo" "$many")"
+            if [ "$again_posts" != null ]; then
+              # Held to X's limit before anything else: one turn to cut it
+              # down, then a skip. The judges read only a rewrite that fits.
+              over="$(too_long "$again_posts")"
+              if [ -n "$over" ]; then
+                cut_down="$(shorten "$again_posts" "$over" "$many")"
+                shorter="$(rewritten "$cut_down" "$many")"
+                reason="$(jq -r '.failed? // empty' <<<"${cut_down:-null}" 2>/dev/null || true)"
+                if [ "$shorter" != null ]; then
+                  redo="$cut_down"
+                  again_posts="$shorter"
+                  over="$(too_long "$again_posts")"
+                fi
+                [ -z "$over" ] || reason="$over"
+              fi
+              again="$(jq -r 'join("\n\n")' <<<"$again_posts")"
+              [ -z "$reason" ] || why="$reason"
             fi
-            if [ -n "$again" ]; then
+            if [ -n "$again" ] && [ -z "$reason" ]; then
+              [ "$many" = 1 ] || again_posts=null
               meaning="$(jq -r 'if (.meaning | type) == "string" then .meaning else "" end' <<<"$redo")"
               why="$(unanchored "$again" "$anchor")"
               if [ -n "$why" ]; then
