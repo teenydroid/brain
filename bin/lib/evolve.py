@@ -200,6 +200,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
     # Pairs a candidate is measured on: the samples per task are chosen to reach it (eval_samples).
     "EVOLVE_EVAL_PAIRS": ("24", int, 1, 200),
+    # Fresh samples a side a task gets when its hard-check regression is confirmed (bin/eval confirm).
+    "EVOLVE_CONFIRM_SAMPLES": (str(evals_lib.CONFIRM_SAMPLES), int, 6, 30),
     # The turns all of a run's labs keep in flight together; 1 during a provider outage.
     "EVAL_CONCURRENCY": (str(evals_lib.DEFAULT_CONCURRENCY), int, 1, evals_lib.MAX_CONCURRENCY),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
@@ -3203,12 +3205,13 @@ class Baseline:
     """Main's drafts at one base commit, one bin/eval run folder kept across
     candidates and generations (state/evolve/baseline/<base>/s<samples>-<key>/):
     bin/eval reuses the rows its run.json still matches, and drafts only the
-    tasks no earlier run did (`missing`, which this records)."""
+    tasks no earlier run did (`missing`, which this records). ROOT moves it
+    out of that cache (`bin/evolve aa` drafts main afresh every time)."""
 
-    def __init__(self, base: str, samples: int, key: str) -> None:
+    def __init__(self, base: str, samples: int, key: str, root: Path | None = None) -> None:
         self.base, self.samples, self.key = base, samples, key
         slug = re.sub(r"[^A-Za-z0-9._-]+", "_", key)[:60] or "default"
-        self.folder = evolve_dir() / "baseline" / base / f"s{samples}-{slug}"
+        self.folder = (root or evolve_dir() / "baseline") / base / f"s{samples}-{slug}"
 
     def tasks(self) -> set[str]:
         try:
