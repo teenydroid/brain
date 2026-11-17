@@ -63,8 +63,8 @@ KINDS = {
                 "in bin/act runs and beats; `playbook` or `verb` (a beat's `do`) narrows it",
     "cron_failed": "failed runs of a cron job of brain/cron.toml or the pinned schedule (a restart's and the "
                    "provider's left out)",
-    "guard_holds": "drafts the guard held (`direction` of the hold: outbound by default), by `category` "
-                   "and `surface`",
+    "guard_holds": "what the guard held (`hold_direction`: outbound, your own drafts, by default; or "
+                   "inbound), by `category` and `surface`",
     "outbound": "what you sent on a surface (x, moltbook, mail), by `kind_of` (x: post, reply, quote, "
                 "thread; moltbook: post, comment) and text that `contains` a literal",
     "actions": "what a hand did: x `like`; moltbook `upvote-post`, `upvote-comment`, `follow`; gh `comment`, "
@@ -272,7 +272,10 @@ def brief_text(horizons: Iterable[int]) -> str:
     for kind, what in KINDS.items():
         fields = ", ".join(f"{n}{'' if req else '?'}" for n, req in FIELDS[kind].items())
         lines.append(f"- `{kind}` {{{fields}{'' if kind == 'judged' else ', direction'}}}: {what}")
-    lines.append("Name only a playbook, cron job or refusal rule that exists (or that this change adds); a check the "
+    lines.append("For example, stored ids that 404 in curate should stop: "
+                 '{"kind": "act_failed", "playbook": "moltbook-curate", "contains": "404", "direction": "fall"}; '
+                 'no likes on X: {"kind": "actions", "surface": "x", "verb": "like", "direction": "zero"}. '
+                 "Name only a playbook, cron job or refusal rule that exists (or that this change adds); a check the "
                  "code cannot count comes back to you. Prefer a count to `judged`.")
     return "\n".join(lines)
 
