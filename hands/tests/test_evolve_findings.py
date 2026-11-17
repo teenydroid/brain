@@ -181,7 +181,8 @@ class Drawn(EvolveCase):
             self.ledger.tick(T0 - (k + 1) * HOUR, [{"do": "comment_moltbook", "status": "refused",
                                                     "intent": {"text": STRANGER},
                                                     "result": {"ok": False, "rule": "short_id",
-                                                               "refused": "x" * 500 + " @somebody https://evil.example"}}])
+                                                               "refused": "x" * 500
+                                                               + " @somebody https://evil.example"}}])
         ref = json.dumps(self.by_id()["f:refusals:comment_moltbook:short_id"].ref())
         self.assertNotIn("STRANGER", ref)
         self.assertNotIn("@somebody", ref)

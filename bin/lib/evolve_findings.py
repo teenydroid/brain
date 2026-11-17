@@ -240,19 +240,25 @@ def _refused(action: Json) -> Json:
     return {"said": scrub(said)} if isinstance(said, str) and said != eo.HELD_RULE else {}
 
 
+def _hold_id(action: Any) -> int | None:
+    result = action.get("result") if isinstance(action, dict) else None
+    hold = result.get("hold_id") if isinstance(result, dict) else None
+    return hold if isinstance(hold, int) else None
+
+
 def _drafted_by(src: eo.Sources, tree: Path, since: float, until: float) -> dict[int, str]:
     """hold id -> the playbook (`bin/act <name>`) or beat verb whose draft it held."""
     out: dict[int, str] = {}
     for book in _books(src, tree):
         for run in _runs(src, book, since, until):
             for a in run.get("actions") or []:
-                hold = (a.get("result") or {}).get("hold_id") if isinstance(a, dict) and isinstance(a.get("result"), dict) else None
-                if isinstance(hold, int):
+                hold = _hold_id(a)
+                if hold is not None:
                     out[hold] = f"playbook:{book}"
     for beat in _beats(src, since, until):
         for r in beat.get("results") or []:
-            hold = (r.get("result") or {}).get("hold_id") if isinstance(r, dict) and isinstance(r.get("result"), dict) else None
-            if isinstance(hold, int) and eo._RULE.match(str(r.get("do") or "")):
+            hold = _hold_id(r)
+            if hold is not None and eo._RULE.match(str(r.get("do") or "")):
                 out[hold] = f"verb:{r['do']}"
     return out
 
