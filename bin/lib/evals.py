@@ -1115,17 +1115,35 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
 
     # The verdict is the visible tasks'; the held-out ones are reported
     # beside it (docs/evolve.md, "Held-out tasks").
-    visible = _tally([p for p in pairs if not p["heldout"]], failures)
+    visible_pairs = [p for p in pairs if not p["heldout"]]
+    visible = _tally(visible_pairs, failures)
+    fenced = sorted({f["task"] for f in fences[False]})
+    # A fence failure rejects whatever else holds up, so it needs nothing
+    # confirmed; the overall margin is a sum, not a task to re-draft.
+    suspects = [t for t in visible["regressions"] if t != OVERALL]
+    pending = suspects if suspects and not fenced and confirm is None else []
+    confirmation = None
+    unconfirmed: list[str] = []
+    if suspects and not fenced and confirm is not None:
+        confirmation = confirm_regressions(suspects, _confirm_pairs(confirm, suspects))
+        # What did not hold up is set aside whole, the overall margin
+        # included: its two failures were picked for being extreme.
+        cleared = {t for t, c in confirmation.items() if c["state"] != "confirmed"}
+        visible = _tally(visible_pairs, {t: n for t, n in failures.items() if t not in cleared})
+        unconfirmed = sorted(t for t, c in confirmation.items() if c["state"] == "unmeasured")
     wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
     win_rate = visible["win_rate"]
     p_worse, p_better = binomial_tails(wins, decided)
     worse = mode == "nonregression" and p_worse < SIGNAL_P
-    fenced = sorted({f["task"] for f in fences[False]})
     regressions = sorted(set(visible["regressions"]) | set(fenced))
     # A regression seen in what did run rejects however much did not; too
     # little run otherwise decides nothing either way.
     unmeasured = _unmeasured(base, cand, visible_selected)
     unsure = None if regressions else _inconclusive(unmeasured)
+    if unconfirmed and not regressions:
+        why = (f"the hard-check regression first seen on {', '.join(unconfirmed)} could not be confirmed: "
+               "too few of its fresh drafts ran")
+        unsure = f"{unsure}; {why}" if unsure else f"inconclusive: {why}"
     if min_pairs is None:
         min_pairs = auto_min_pairs(unmeasured["samples"]) if mode == "nonregression" else 12
     short = decided < min_pairs
@@ -1135,8 +1153,15 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         others = [t for t in regressions if t not in fenced]
         if others:
             reason += f"; and on {', '.join(others)}"
+    elif regressions and confirmation:
+        held = [t for t in regressions if t in confirmation]
+        reason = f"hard-check regression on {', '.join(regressions)}"
+        if held:
+            reason += ", confirmed: " + "; ".join(_confirmation_text(t, confirmation[t]) for t in held)
     elif regressions:
         reason = f"hard-check regression on {', '.join(regressions)}"
+        if pending:
+            reason += " (not yet confirmed: `bin/eval confirm` drafts it afresh on both sides)"
     elif unsure:
         reason = unsure
     elif short:
