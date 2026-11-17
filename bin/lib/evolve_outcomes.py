@@ -52,6 +52,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+import provider_error
+
 Json = dict[str, Any]
 
 #: The check kinds, and what each counts. Each takes exactly the fields in
@@ -404,8 +406,9 @@ def act_failure(run: Mapping[str, Any], infra: re.Pattern) -> str | None:
     errors = [a for a in run.get("actions") or [] if isinstance(a, Mapping) and a.get("status") == "error"]
     if run.get("ok") is not False and not errors:
         return None
-    if run.get("failure") == "provider":
-        return None
+    if run.get("failure") == "provider" or (run.get("failure") is None and provider_error.classify(
+            str(run.get("stderr") or ""))):
+        return None  # a run from before bin/act marked them: its stderr says the same
     said = " ".join([str(run.get("error") or ""), str(run.get("stderr") or ""),
                      *(json.dumps(a, ensure_ascii=False) for a in errors)])
     return None if infra.search(said) else said

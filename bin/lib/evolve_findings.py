@@ -76,6 +76,9 @@ MAX_TEXT = 160
 MAX_REASONS = 3
 #: Taken out of whatever a hand echoes: links, emails, handles.
 SCRUB = (re.compile(r"https?://\S+|www\.\S+"), re.compile(r"\S+@\S+\.\S+"), re.compile(r"(?<!\w)@\w+"))
+#: An id (a UUID, a long number or hex run): the same refusal for another
+#: post reads as the same reason.
+IDS = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\b[0-9a-f]{8,}\b|\b\d{6,}\b", re.I)
 
 
 def scrub(text: Any, limit: int = MAX_TEXT) -> str:
@@ -84,6 +87,7 @@ def scrub(text: Any, limit: int = MAX_TEXT) -> str:
     line = " ".join(str(text or "").split())
     for pattern in SCRUB:
         line = pattern.sub("[…]", line)
+    line = IDS.sub("<id>", line)
     return line if len(line) <= limit else line[: limit - 1].rstrip() + "…"
 
 
@@ -164,18 +168,25 @@ def _act_failed(src: eo.Sources, tree: Path, since: float, until: float, days: i
         if not n:
             continue
         failed = [(r, said) for r in _runs(src, book, since, until) if (said := eo.act_failure(r, src.infra))]
-        reasons = _reasons(scrub(" ".join(x for x in (str(r.get("error") or ""), _core_said(r)) if x))
-                           for r, _ in failed)
+        reasons = _reasons(_failure_said(r) for r, _ in failed)
         on_days = len({_day(eo._epoch(r.get("at")) or 0) for r, _ in failed})
         text = (f"`bin/act {book}` failed {n} time{'s' if n != 1 else ''} in the last {days} days, on {on_days} "
                 f"day{'s' if on_days != 1 else ''}, not counting what the model provider or the box failed. What "
                 f"the runs said: {_said(reasons)}. The playbook is brain/playbooks/{book}.md; a failure its words "
                 "cause (a prompt the core flags, an action no hand takes) is fixed in its words.")
-        examples = [{"at": r.get("at"), "error": scrub(r.get("error")), "core": _core_said(r)}
-                    for r, _ in failed[-MAX_EXAMPLES:]]
+        examples = [{"at": r.get("at"), "said": _failure_said(r)} for r, _ in failed[-MAX_EXAMPLES:]]
         out.append(Finding(f"f:act_failed:{book}", "act_failed", book, n, days, check, text,
                            [f"brain/playbooks/{book}.md"], examples))
     return out
+
+
+def _failure_said(run: Json) -> str:
+    """A failed run in one short line: its error and the core's, or its
+    failed actions' errors."""
+    errors = [str((a.get("result") or {}).get("error") or a.get("action") or "")
+              for a in run.get("actions") or [] if isinstance(a, dict) and a.get("status") == "error"
+              and isinstance(a.get("result") or {}, dict)]
+    return scrub(" ".join(x for x in (str(run.get("error") or ""), _core_said(run), *errors) if x))
 
 
 def _core_said(run: Json) -> str:
@@ -209,13 +220,13 @@ def _refusals(src: eo.Sources, tree: Path, since: float, until: float, days: int
             continue
         reasons = _said(_reasons(row.get("said", "") for row in rows))
         if by == "playbook":
-            whose, files = f"of `bin/act {subject}`", [f"brain/playbooks/{subject}.md"]
+            whose, files = f"actions of `bin/act {subject}`", [f"brain/playbooks/{subject}.md"]
             where = f"The playbook is brain/playbooks/{subject}.md"
         else:
-            whose, files = f"`{subject}` of your beats (the mind)", list(MIND_FILES)
+            whose, files = f"`{subject}` actions of your beats (the mind)", list(MIND_FILES)
             where = ("The beat's own prompt is bin/lib/tick.py (frozen); what you write in a beat comes from "
                      + " and ".join(MIND_FILES))
-        text = (f"Your hands refused {n} action{'s' if n != 1 else ''} {whose} by the rule `{rule}` in the last "
+        text = (f"Your hands refused {n} {whose} by the rule `{rule}` in the last "
                 f"{days} days: each one something the words asked for that a hand would not do"
                 + (f". What the hand said: {reasons}" if reasons else "") + f". {where}.")
         out.append(Finding(f"f:refusals:{subject}:{rule}", "refusals", subject, n, days, check, text, files,
