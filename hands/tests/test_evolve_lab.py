@@ -111,6 +111,17 @@ elif agent == "judge":
     lose = os.environ.get("FAKE_LOSE_PORT")
     if len(hits) == 1 and lose and drafts[hits[0]].endswith(" on " + lose):
         hits = [{"1": "2", "2": "1"}[hits[0]]]
+    # FAKE_LOSE_FIRST (a file holding N): the first N pairs go to main.
+    elif len(hits) == 1 and os.environ.get("FAKE_LOSE_FIRST"):
+        import fcntl
+        with open(os.environ["FAKE_LOSE_FIRST"], "r+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            left = int(fh.read() or 0)
+            fh.seek(0)
+            fh.truncate()
+            fh.write(str(max(0, left - 1)))
+        if left > 0:
+            hits = [{"1": "2", "2": "1"}[hits[0]]]
     answer = json.dumps({"better": hits[0] if len(hits) == 1 else "tie", "breaks": {}, "notes": "warmer"})
 elif agent == "reviewer":
     answer = json.dumps({"verdict": "approve", "findings": []})
@@ -179,7 +190,7 @@ class LabCase(EvolveCase):
         self.core_calls = self.root / "core.log"
         for k in ("EVOLVE_LAB_SPINE", "FAKE_SPINE_LOG", "FAKE_SPINE_FAIL", "FAKE_SPINE_SCRIBBLE", "FAKE_CORE_CALLS",
                   "FAKE_BASE_PORT", "FAKE_DRIFT", "GITHUB_TOKEN", "FAKE_SPINE_READY_DELAY",
-                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT", "FAKE_CAND_LONG", "FAKE_CAND_LONG_FIRST"):
+                  "FAKE_CAND_DOWN", "EVAL_RETRY_WAIT", "FAKE_LOSE_PORT", "FAKE_CAND_LONG", "FAKE_CAND_LONG_FIRST", "FAKE_LOSE_FIRST"):
             self.saved.setdefault(k, os.environ.get(k))
             os.environ.pop(k, None)
         os.environ.update(EVOLVE_LAB_SPINE=str(spine), FAKE_SPINE_LOG=str(self.spine_log), TEENY_OH=str(fake),
@@ -355,9 +366,11 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in self.spines()),
                          [self.port, self.port + 1, self.port + 2])
         drafts = self.drafts()
-        # The baseline drafts the union of the tasks, once, with the whole budget.
+        # The baseline drafts the union of the tasks, once, with the whole budget;
+        # candidate 2's pairs said worse, so main also drafts a fresh sample of
+        # its task to confirm it, with candidate 2's share.
         self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
-                         [("morning-post", "4"), ("shiplog-numbers", "4")])
+                         [("morning-post", "4"), ("shiplog-numbers", "2"), ("shiplog-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
         self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
                          [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
@@ -447,6 +460,35 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(ev["regressions"], ["morning-post"])
         self.assertEqual(ev["confirmation"]["morning-post"]["state"], "confirmed")
         self.assertIn("confirmed: morning-post on 6 fresh pair", ev["reason"])
+
+    def test_pairs_worse_by_chance_are_confirmed_away_on_a_fresh_sample(self):
+        """The first A/A run: main lost to itself on the judge's pairs. The
+        pairs that say worse are judged again on a fresh sample of the same
+        tasks, both sides drafted afresh, and only that sample decides."""
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=4, EVOLVE_REVISE_ROUNDS=1)
+        first = self.root / "lose-first"
+        first.write_text("4")
+        os.environ["FAKE_LOSE_FIRST"] = str(first)
+        self.edit(1, "morning")
+        self.run_gen(1, publisher=Refusing())
+        ev = self.entries()["g1c1"]["eval"]
+        self.assertEqual(ev["verdict"], "pass", ev.get("reason"))
+        self.assertEqual(ev["pairs_confirmation"]["state"], "refuted")
+        self.assertIn("did not hold up", ev["reason"])
+        base = [d for d in self.drafts() if d[0] == self.port]
+        cand = [d for d in self.drafts() if d[0] == self.port + 1]
+        self.assertEqual((len(base), len(cand)), (4 + 4, 4 + 4))
+        fresh = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "compare" / "confirm-pairs"
+        self.assertEqual(len(evolve.read_jsonl(fresh / "base" / "drafts.jsonl")), 4)
+
+    def test_pairs_worse_on_a_fresh_sample_too_are_regressed_on_the_pairs_path(self):
+        self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=4, EVOLVE_REVISE_ROUNDS=1)
+        os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
+        self.edit(1, "morning")
+        out = self.run_gen(1, publisher=Refusing())
+        self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
+        ev = self.entries()["g1c1"]["eval"]
+        self.assertEqual((ev["path"], ev["pairs_confirmation"]["state"]), ("pairs", "confirmed"))
 
     def test_a_restart_between_the_compare_and_its_confirmation_confirms_without_judging_again(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
@@ -917,6 +959,18 @@ class AA(LabCase):
         line = evolve.aa(evolve.load_config(), ["morning-post"])
         self.assertEqual((line["first_verdict"], line["verdict"]), ("regressed", "pass"))
         self.assertEqual(line["confirmation"], {"morning-post": "refuted"})
+
+    def test_the_line_says_which_path_made_it_regressed(self):
+        self.lab_config(EVOLVE_EVAL_PAIRS=4)
+        os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
+        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        self.assertEqual((line["verdict"], line["path"], line["first_path"], line["pairs_confirmation"]),
+                         ("regressed", "pairs", "pairs", "confirmed"))
+
+    def test_a_pass_has_no_path(self):
+        self.lab_config()
+        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        self.assertEqual((line["verdict"], line["path"]), ("pass", None))
 
     def test_the_command_prints_one_json_line_and_refuses_an_unknown_task(self):
         self.lab_config()

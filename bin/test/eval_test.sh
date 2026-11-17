@@ -377,11 +377,12 @@ draft '{"text": "gm %TASK% from the CAND"}'
 capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare --both-orders "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
 check "and keeps each pair's orderings apart and its own verdict (both samples agree)" \
   test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
-# Once a pair: sample 1 shows the baseline first, sample 2 the candidate.
+# Once a pair, each task's samples shown each way once: the first task's
+# sample 1 shows the baseline first, the next task's the candidate, and so on.
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par1" >/dev/null 2>&1 || true
-check "judged once, the order alternates by sample" \
+check "judged once, the order alternates by sample within each task" \
   test "$(jq -r '"\(.task) \(.sample) \(.first.better // "-")\(.second.better // "-")"' "$scratch/par1/judged.jsonl" | sort | paste -sd, -)" = \
-  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 1-,humans-post 2 -2,morning-post 1 1-,morning-post 2 -2,reply-fud 1 2-,reply-fud 2 -1"
+  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 -2,humans-post 2 1-,morning-post 1 1-,morning-post 2 -2,reply-fud 1 -1,reply-fud 2 2-"
 check "and the one verdict decides the pair" test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par1/report.json")" = "4 4"
 FAKE_JUDGE=first "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par-first" >/dev/null 2>&1 || true
 check "a judge that always picks draft 1 favours each side equally often" \
@@ -634,6 +635,25 @@ FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks morning-post,reply-fud --thresho
 check "--threshold is accepted and ignored by a non-regression check" test "$(report '[.verdict, .threshold] | map(tostring) | join(" ")' "$scratch/nr-even6")" = "pass 0.6"
 FAKE_JUDGE=prefer:base nr "$scratch/nr-worse0" --tasks morning-post,reply-fud --threshold 0
 check "and a threshold of 0 does not excuse 0 of 4" test "$(report .verdict "$scratch/nr-worse0")" = regressed
+check "pairs that say worse ask to be confirmed" test "$(report '[.confirm_pairs, .path] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "true pairs"
+
+# --- confirm: worse pairs judged again on a fresh sample of both sides ---------------------------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 --only morning-post,reply-fud "$runs/pbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 --only morning-post,reply-fud "$runs/pcand" >/dev/null 2>&1
+pconfirm() { # JUDGE OUT: copy nr-worse to OUT and confirm its pairs with FAKE_JUDGE=JUDGE; exit code in $code
+  cp -R "$scratch/nr-worse" "$2"
+  code=0
+  FAKE_JUDGE="$1" "$eval_bin" confirm "$2" "$runs/pbase" "$runs/pcand" >/dev/null 2>&1 || code=$?
+}
+: >"$FAKE_CALLS"
+pconfirm prefer:CAND "$scratch/p-refuted"
+check "a fresh sample that is not worse passes" test "$code $(report '[.verdict, .pairs_confirmation.state, .confirm_pairs] | map(tostring) | join(" ")' "$scratch/p-refuted")" = "0 pass refuted false"
+check "its four fresh pairs are judged once each" test "$(judge_turns) $(wc -l <"$scratch/p-refuted/confirm-pairs-judged.jsonl" | tr -d ' ')" = "4 4"
+check "shown each way once within each task" test "$(jq -r 'if .first then "F" else "S" end' "$scratch/p-refuted/confirm-pairs-judged.jsonl" | paste -sd, -)" = "F,S,S,F"
+pconfirm prefer:base "$scratch/p-held"
+check "a fresh sample worse too is regressed, on the pairs path" test "$code $(report '[.verdict, .pairs_confirmation.state, .path] | map(tostring) | join(" ")' "$scratch/p-held")" = "2 regressed confirmed pairs"
 FAKE_JUDGE=first nr "$scratch/nr-all-even"
 check "an even split over every task passes" test "$(report '[.verdict, .signal] | map(tostring) | join(" ")' "$scratch/nr-all-even")" = "pass no detectable difference"
 FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks morning-post

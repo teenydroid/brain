@@ -3787,7 +3787,8 @@ class TargetedEvaluator:
         except (OSError, ValueError):
             return None
         # A regression still waiting to be confirmed is not a verdict yet.
-        if not isinstance(report, dict) or report.get("tasks", tasks) != tasks or report.get("confirm"):
+        if (not isinstance(report, dict) or report.get("tasks", tasks) != tasks or report.get("confirm")
+                or report.get("confirm_pairs")):
             return None
         return report
 
@@ -3832,7 +3833,7 @@ class TargetedEvaluator:
         # A compare cut off before its confirmation is confirmed, not judged again.
         pending = self._pending(compare) if _ran(run, tasks, samples, key) else None
         if pending is not None:
-            return self._confirm(cand, pending["confirm"], compare, cand_env, base_env, share)
+            return self._settle(cand, pending, tasks, samples, compare, cand_env, base_env, share)
         if not _ran(run, tasks, samples, key):
             # --brain: the task's playbook prompt is read from the brain the
             # lab serves, the candidate's worktree; without it bin/eval read
@@ -3854,29 +3855,42 @@ class TargetedEvaluator:
         if done.returncode not in (0, 2, 3) or not (compare / "report.json").is_file():
             raise EvolveError(f"the compare failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
         report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
-        if report.get("confirm"):
-            report = self._confirm(cand, report["confirm"], compare, cand_env, base_env, share)
+        return self._settle(cand, report, tasks, samples, compare, cand_env, base_env, share)
+
+    def _settle(self, cand: Json, report: Json, tasks: list[str], samples: int, compare: Path,
+                cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
+        """REPORT once nothing in it waits to be confirmed: its hard-check
+        suspects first (EVOLVE_CONFIRM_SAMPLES of just those tasks), then, if
+        its pairs alone still say worse, a fresh sample of every task it
+        measured at its own SAMPLES, both sides drafted afresh (docs/evolve.md,
+        "Confirming a regression")."""
+        for _ in range(2):
+            if report.get("confirm"):
+                report = self._confirm(cand, report["confirm"], self.cfg["EVOLVE_CONFIRM_SAMPLES"],
+                                       compare / "confirm", "the hard-check regression on " + ", ".join(report["confirm"]),
+                                       compare, cand_env, base_env, share)
+            elif report.get("confirm_pairs"):
+                report = self._confirm(cand, tasks, samples, compare / "confirm-pairs",
+                                       "the pairs that said worse, on a fresh sample", compare, cand_env, base_env,
+                                       share)
         return report
 
     @staticmethod
     def _pending(compare: Path) -> Json | None:
-        """COMPARE's report when it still lists tasks to confirm."""
+        """COMPARE's report when it still waits on a confirmation."""
         try:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        return report if isinstance(report, dict) and report.get("confirm") else None
+        return report if isinstance(report, dict) and (report.get("confirm") or report.get("confirm_pairs")) else None
 
-    def _confirm(self, cand: Json, tasks: list[str], compare: Path, cand_env: Mapping[str, str],
-                 base_env: Mapping[str, str], share: int) -> Json:
-        """The hard-check regressions the compare saw, confirmed (docs/evolve.md,
-        "Confirming a regression"): TASKS drafted afresh EVOLVE_CONFIRM_SAMPLES
-        times on both labs at once, main's too (never the cached baseline,
-        so both sides draft under the same conditions), then `bin/eval
-        confirm` judges the fresh pairs and scores the compare again. A few
-        tasks, so a few dozen turns."""
-        samples, key = self.cfg["EVOLVE_CONFIRM_SAMPLES"], model_key()
-        folder = compare / "confirm"
+    def _confirm(self, cand: Json, tasks: list[str], samples: int, folder: Path, what: str, compare: Path,
+                 cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
+        """WHAT, confirmed: TASKS drafted afresh SAMPLES times on both labs at
+        once into FOLDER, main's too (never the cached baseline, so both sides
+        draft under the same conditions), then `bin/eval confirm` judges the
+        fresh pairs and scores the compare again."""
+        key = model_key()
         assert self.base_tree is not None
         sides = {"base": (base_env, self.base_tree / "brain"),
                  "cand": (cand_env, evolve_dir() / cand["worktree"] / "brain")}
@@ -3886,7 +3900,7 @@ class TargetedEvaluator:
             return _eval(["run", "--only", ",".join(tasks), "--samples", str(samples), "--brain", str(brain),
                           "--key", key, str(folder / side)], self._env(env, share))
 
-        say(f"candidate {cand['cand']}: confirming the hard-check regression on {', '.join(tasks)}")
+        say(f"candidate {cand['cand']}: confirming {what}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             runs = dict(zip(sides, pool.map(draft, sides)))
         for side, done in runs.items():
@@ -3896,10 +3910,11 @@ class TargetedEvaluator:
         judge = ["--judge-model", self.cfg.judge_model] if self.cfg.judge_model else []
         done = _eval(["confirm", "--judge-root", str(judge_root(self.src, cand["base"], self.gdir)), *judge,
                       str(compare), str(folder / "base"), str(folder / "cand")], self._env(base_env, share))
-        report = self._pending(compare)
-        if done.returncode not in (0, 2) or report is not None:
+        report = json.loads((compare / "report.json").read_text(encoding="utf-8")) if done.returncode in (0, 2) else {}
+        if not report or (folder.name == "confirm" and report.get("confirm")) or \
+                (folder.name == "confirm-pairs" and report.get("confirm_pairs")):
             raise EvolveError(f"the confirmation failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
-        return json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        return report
 
     def _probe(self, cand: Json, cand_env: Mapping[str, str], base_env: Mapping[str, str]) -> Json:
         """The candidate's persona drift from gen-0. With no gen-0 yet, main's
@@ -3934,7 +3949,8 @@ def eval_summary(report: Mapping[str, Any], tasks: list[str], plan: Mapping[str,
     """A compare report's numbers, without its pairs (or anything held out)."""
     out: Json = {"verdict": report.get("verdict"), "tasks": tasks, "all": bool(plan.get("all"))}
     for key in ("reason", "wins", "losses", "ties", "decided", "signal", "p_worse", "p_better", "regressions",
-                "suspects", "confirmation", "fences", "unmeasured_tasks", "base_noise", "judge_model"):
+                "suspects", "confirmation", "pairs_confirmation", "path", "fences", "unmeasured_tasks", "base_noise",
+                "judge_model"):
         if report.get(key) is not None:
             out[key] = report[key]
     return out
@@ -4013,6 +4029,10 @@ def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
         "first_verdict": first.get("verdict"), "reason": got.get("reason"),
         "suspects": report.get("suspects") or [],
         "confirmation": {t: c.get("state") for t, c in (report.get("confirmation") or {}).items()},
+        # What made it anything but a pass (fence, hard, pairs or measure),
+        # and what the first pass alone would have said.
+        "path": report.get("path") if verdict != "pass" else None, "first_path": first.get("path"),
+        "pairs_confirmation": (report.get("pairs_confirmation") or {}).get("state"),
         "tasks": len(picked), "samples": eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(picked)),
         **{k: report.get(k) for k in ("wins", "losses", "ties", "decided", "signal", "p_worse", "p_better")},
         "base_noise": {t: f"{n['failed']}/{n['of']}" for t, n in (report.get("base_noise") or {}).items()},

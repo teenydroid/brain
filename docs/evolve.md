@@ -345,13 +345,18 @@ breaks an invariant counts as a hard failure too.
 The judge is blind: the drafts are "1" and "2", never "baseline" and
 "candidate". It reads the rubric, the invariants, and the soul, drive, context,
 lore and arcs of `--judge-root` (this checkout: main), never the candidate's.
-Each pair is judged once, and that verdict decides it. The order alternates
-from one judged pair to the next: the first pair shows the baseline as draft
-1, the second the candidate, and so on, held-out tasks the same way. With
-two samples of every task that is the baseline first on sample 1 and the
-candidate first on sample 2; with one sample (`EVOLVE_EVAL_SAMPLES=1`) it
-still alternates, across tasks. So a judge that favours a position favours
-each side equally often, to within one pair, instead of deciding nothing. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
+Each pair is judged once, and that verdict decides it. The order is set by
+the pair's sample and its task's place among the tasks judged
+(`pair_orders`): within a task the samples alternate, so an even count shows
+each side first equally often, and an odd count's spare sample alternates
+across tasks, held-out tasks the same way. So a judge that favours a
+position favours each side equally often, within every task, instead of
+deciding nothing. It does favour one: on the box the judge picked draft 2 in
+269 of 483 decided pairs (55.7%, gens 11 and 13 and the first A/A run; p =
+0.014 were it even). Until 2026-11-17 the order went by the pair's place in
+the list, which balanced every task only while no pair was dropped: one pair
+not drafted turned every later task's order round. Every compare on the box
+so far was balanced all the same. On glm-5.3-flash a judge turn took about 48 s (reasoning tokens at
 about 60 a second) and a draft about 25 s, so judging both orders was about
 80% of a candidate's half hour. `--both-orders` brings the old rule back:
 two judgings, and a pair decided only when they agree. An answer the judge
@@ -385,7 +390,9 @@ won, B is `regressed` only when P(X <= wins | decided, 0.5) is under 0.10
 line. `--threshold` is accepted in this mode and ignored. The old rule, a win
 rate of at least 0.5, marked a change that did nothing `regressed` 25 to 45
 percent of the time (31% at 4 pairs, 43% at 28, 45% at 60), and `regressed`
-is final; the new rule does so 6%, 9% and 8% of the time. A few cases:
+is final; the new rule does so 6%, 9% and 8% of the time, and a fresh
+sample now has to confirm it ("Confirming the pairs", below). A few first-pass
+cases:
 
 | Decided pairs | Won | P(this few or fewer) | Verdict |
 |---|---|---|---|
@@ -516,6 +523,47 @@ candidate on 43 tasks, two seeds): 23 to 25% `regressed` before, 0.4% now. A cha
 makes a clean task fail every time is caught every time; one that moves a
 task from 10% to 80% failing is caught 51% of the time, against the 52% the
 two-sample screen flags it at all.
+
+**Confirming the pairs.** A non-regression check's pairs are a screen
+too. The first `bin/evolve aa` (2026-11-17, main against itself, 46 tasks
+at two samples) came back `regressed` on pairs alone: main won 48 of 82
+decided pairs against itself, 7.5% for two alike sides, under the 10%
+`SIGNAL_P`. That was chance, not bias: both sides were drafted from the same
+commit and prompt hash (every message hash identical), with no retries, at
+the same length (255 and 257 characters on average) and close skip counts
+(11 and 14); the order was balanced within every task, and main won with
+either side shown first (23 to 18, 25 to 16). Across the box's six compares
+neither side is favoured. By design the sign test alone marks one identical
+candidate in about ten `regressed`.
+
+So pairs that say worse (`confirm_pairs`, `path: pairs`) are judged again
+on an independent sample: every task the compare measured, at its own
+sample count, both sides drafted afresh (`eval/cand-<i>/compare/confirm-pairs`),
+judged once a pair in the balanced order. `bin/eval confirm` decides it from
+that sample alone (`confirm_worse`): worse only when its wins would come up
+under 20% of the time for two alike sides (`PAIRS_CONFIRM_P`), so an
+identical candidate is `regressed` on pairs under 10% x 20% = 2% of the
+time. Otherwise the verdict is the non-regression pass; a fresh sample that
+decides too few pairs is `inconclusive`. Hard-check suspects are confirmed
+first, then the pairs. `pairs_confirmation` has the test. It costs one more
+first pass, and only when the pairs said worse: for a change reaching every
+task, 184 drafts and 92 judge turns, about 75 minutes.
+
+Simulated (`hands/tests/test_eval_pairs_confirm.py`, 4000 seeded runs, 92
+pairs, 11% ties, both paths together with the box's hard-check rates):
+
+| Candidate | `regressed` before | `regressed` now |
+|---|---|---|
+| identical (two seeds) | 30% / 30% | 1.5% / 1.9% |
+| loses decided pairs 60/40 | 75% (67% on the pairs) | 55% |
+| loses decided pairs 70/30 | 99% | 99% |
+
+A candidate that loses 60/40 is caught a little over half the time; the
+price of an identical one being `regressed` 1 time in 60 rather than 1 time
+in 3.
+
+`report.json`'s `path` says what made a verdict other than a pass: `fence`,
+`hard`, `pairs` or `measure` (too little ran).
 
 Fences keep their one-sample veto, unconfirmed: no fence check failed on
 main or a candidate on the box (the guard screen never, no `fence` pattern
@@ -1610,17 +1658,21 @@ appends it to `state/evolve/aa.jsonl`:
 {"ok": true, "kind": "aa", "verdict": "pass", "false_regressed": false, "first_verdict": "regressed",
  "suspects": ["shiplog-numbers"], "confirmation": {"shiplog-numbers": "refuted"}, "tasks": 43, "samples": 2,
  "wins": 40, "losses": 39, "decided": 79, "signal": "no detectable difference", "base_noise": {...},
- "turns": 290, "minutes": 75.2, ...}
+ "path": null, "first_path": "hard", "pairs_confirmation": null, "turns": 290, "minutes": 75.2, ...}
 ```
 
 Anything but `pass` is the evaluator's mistake: `first_verdict` is what the
-old rule said, `verdict` what it says now. Every visible task at two samples
-is 172 drafts and 86 judge turns, plus 48 turns a suspect, about an hour and
-a quarter at `EVAL_CONCURRENCY` 4. Run it N times and tally:
+old rule said, `verdict` what it says now, and `path` (`fence`, `hard`,
+`pairs`, `measure`) which path made it so (`first_path` the first pass's).
+Every visible task at two samples is 184 drafts and 92 judge turns, plus 48
+turns a hard-check suspect, plus as many again as the first pass when the
+pairs say worse: about an hour and a quarter at `EVAL_CONCURRENCY` 4, two
+and a half when the pairs are confirmed. Run it N times and tally:
 
 ```
 jq -s 'group_by(.verdict) | map({verdict: .[0].verdict, n: length})' state/evolve/aa.jsonl
 jq -s 'map(select(.first_verdict == "regressed")) | length' state/evolve/aa.jsonl
+jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path, n: length})' state/evolve/aa.jsonl
 ```
 
 ### 6. Publish: one pull request per candidate
