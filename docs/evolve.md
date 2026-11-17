@@ -7,7 +7,9 @@ one pull request. Rules in code the brain can't edit fence the whole thing.
 
 Built: `bin/act` and playbooks, the cron rules and pinned jobs, `bin/doctor`
 (which gates every boot), `bin/eval` with the frozen tasks, held-out tasks,
-judge and invariants, the frozen-path check (`bin/frozen-check`), Teeny's own
+judge and invariants, the frozen-path check (`bin/frozen-check`), the offline
+evolution gate (`bin/evolve-gate`), which refuses a candidate brain that
+breaks any of the eight saved rules before it is measured, Teeny's own
 clone, which proposes changes as pull requests, and the loop (`bin/evolve`):
 one candidate per open learning of `brain/MEMORY.md`, gated in code, measured
 on the eval tasks it reaches on lab spines of its own, and each one that
@@ -517,6 +519,64 @@ core dropped it, so `low` and `none` made no difference to judge time.
 `bin/spine` registers a context window only for `SPINE_MODEL`. Give the
 judge's model a `model_registry` entry as well, or its turns get the tiny
 default budget the spine comment describes.
+
+## The offline evolution gate (built): `bin/evolve-gate`
+
+`bin/evolve-gate` (its logic in `bin/lib/evolve_gate.py`, Python 3 standard
+library only) refuses a candidate brain that breaks any of the eight saved
+rules, before the loop measures it. It is the gate the Slop registry's
+approved scope names for this project: an independent offline checker, not
+the loop's own `gate()`.
+
+```
+bin/evolve-gate [--root DIR] BASE [HEAD]
+```
+
+BASE..HEAD is diffed from their merge base, as a pull request shows it;
+without HEAD, the working tree (staged, unstaged and untracked) is checked
+against BASE. It prints one JSON object on stdout and exits 0 when nothing
+is refused, 1 naming every refused rule, 2 for a usage or git error. The
+eight rules: a change touches a frozen path (the registry's allowlist:
+SOUL.md, CONTEXT.md, narrative/**, skills/**, playbooks/**, lessons.md,
+cron.toml, and new files only under hands/, hands/lib/teeny_hands/ and
+hands/tests/test_*.py; brain/agents/act.toml, brain/agents/judge.toml, the
+existing hands/lib/teeny_hands/**, hands/guard and hands/x stay frozen);
+getting out of that set some other way (a symlink, a rename or copy into a
+frozen path, a deleted frozen file, a mode change, a binary file, a path
+containing `...`, a file under hands/lib/ beside teeny_hands/);
+`bin/seed-cron --check` fails on the candidate's brain/cron.toml;
+`bin/doctor --root CANDIDATE` fails offline; an invariant anchor stops
+matching; over 400 changed lines, or over 60 in SOUL.md and CONTEXT.md; a
+new hand has no test that parses, or breaks the hand contract (one JSON
+object on stdout, exit 0, 1 or 2); the hands' unit tests or shellcheck fail.
+
+It never writes to the candidate checkout (the dynamic checks run on a
+throwaway copy), never needs the network or a running core, reads the base
+from git (the frozen list, the pinned cron jobs and the invariant anchors
+all come from `git show BASE:...`), and adds no new dependencies. It
+collects every violated rule instead of stopping at the first. The dynamic
+checks that execute candidate code (doctor, the hand probe, the hands'
+tests) run only when the diff touches no frozen path and holds no symlink:
+a candidate that rewrote frozen code could otherwise make the checker run
+its own code. A new hand's probe and tests run in bubblewrap or not at
+all: without a sandbox they are skipped and reported, never run
+unsandboxed. The gate's sandbox omits --proc: this container cannot mount
+it, and nothing the gate runs inside needs it. `bin/lib/sandbox.py`'s probe
+still asks for --proc, so it reports no sandbox here.
+
+Two things for the operator to settle. The registry's allowlist is
+narrower than the "What Teeny may change" table above: docs/**,
+brain/datajobs/**, brain/agents/*.md prompts and small edits in existing
+non-frozen hands are in the table but not in the registry's list, so the
+gate refuses them. And the loop has not adopted the gate yet: `bin/evolve`
+still calls its own `gate()`; wiring the loop to `bin/evolve-gate` is a
+separate decision.
+
+Tested by `bin/test/evolve_gate_test.sh` (the scripts-shell job): three
+positives, fifteen negatives (one per registry case), and the extras the
+registry names (a candidate breaking three rules lists all three; the gate
+leaves the candidate byte-for-byte unchanged), against a throwaway git
+repository holding a sliver of the real layout.
 
 ## The loop (built): `bin/evolve`
 
