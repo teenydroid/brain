@@ -4254,11 +4254,15 @@ def frozen_issue(cfg: Config, cand: Mapping[str, Any], where: str, note: str, pu
     operator, naming the learning and the path, once per learning text."""
     learning = cand["learning"]
     title = f"Teeny's [{learning['id']}] needs a frozen path: {where or 'unnamed'}"[:120]
-    body = (f"Teeny learned this ({learning['section']} on its page, brain/MEMORY.md):\n\n> "
+    finding = evolve_findings.is_finding(learning)
+    body = ((f"Teeny's ledgers show this (a finding bin/evolve drew from its run logs and ledgers, "
+             f"{learning.get('events')} over {learning.get('days')} days):\n\n> " if finding else
+             f"Teeny learned this ({learning['section']} on its page, brain/MEMORY.md):\n\n> ")
             + "\n> ".join(str(learning["text"]).splitlines())
             + f"\n\nIts evolve candidate {cand['id']} found that acting on it needs a frozen path, which only the "
             f"operator changes.\n\n- frozen path: `{where or 'not named'}`\n- why: {note or 'not given'}\n\n"
-            "bin/evolve will not ask about this learning again until its text changes.")
+            + ("bin/evolve will not ask about this finding again until its number grows." if finding else
+               "bin/evolve will not ask about this learning again until its text changes."))
     return file_issue(cfg, f"frozen:{learning['id']}:{learning['hash']}", "frozen-learning", title, body, publisher,
                       judge=True)
 
