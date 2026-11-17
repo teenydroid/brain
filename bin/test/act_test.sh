@@ -897,6 +897,8 @@ rm -f "$brain/playbooks/show.md" "$scratch/hands/gh" "$scratch/hands/stats" "$sc
 # draft message (two of them cut at 20,000 chars mid-JSON and so escaped as
 # strings), and the draft turn failed in two seconds each day.
 jqe() { jq -e "$@" >/dev/null; }
+# The inputs block of a draft message: the lines between ```json and ```.
+inputs_of() { awk '/^.{3}json$/ {on = 1; next} on && /^.{3}$/ {exit} on' <<<"$1"; }
 reset
 cat >"$scratch/hands/big" <<'FAKE'
 #!/usr/bin/env bash
@@ -916,7 +918,7 @@ chmod +x "$scratch/hands/big"
 answer '{"action": "note", "text": "drafted"}'
 out="$(run huge)"
 message="$(jq -r .message "$FAKE_CALLS")"
-inputs_json="$(sed -n '/^```json$/,/^```$/p' <<<"$message" | sed '1d;$d')"
+inputs_json="$(inputs_of "$message")"
 check "a draft over the core's 64 KiB prompt screen is cut to fit under it" \
   test "$(LC_ALL=C; printf '%s' "$message" | wc -c)" -le 65536
 check "and the draft turn runs" test "$(jq -r '.actions[0].status' <<<"$out")" = "done"
@@ -935,7 +937,7 @@ check "and the run's record says so" jqe '.cut | index("builds")' "$scratch/stat
 reset
 book bigone none 1 "hands/big 90 b"
 out="$(run bigone)"
-inputs_json="$(jq -r .message "$FAKE_CALLS" | sed -n '/^```json$/,/^```$/p' | sed '1d;$d')"
+inputs_json="$(inputs_of "$(jq -r .message "$FAKE_CALLS")")"
 check "an input over its share goes to the model as JSON, not a cut string" \
   jqe '(.feed | type) == "object" and (.feed.jobs | length) < 90 and (.feed | tojson | length) <= 20000' <<<"$inputs_json"
 reset
