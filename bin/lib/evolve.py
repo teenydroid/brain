@@ -1263,11 +1263,11 @@ class AskProposer:
         the same files, answering whether the learning is worth a change."""
         return self._json_turn(request, render_research_request(fit_request(request, render=render_research_request)))
 
-    def recheck(self, request: Json) -> Any:
-        """A check-only re-ask (fix_check): one small tool-less turn shown
-        the change's account and the check's problem, answering the check
-        alone. Not asked again when it does not parse."""
-        return first_json(self._turn(request, evolve_outcomes.recheck_text(request)))
+    def repair(self, request: Json) -> Any:
+        """A shape repair (repair_shape): one small tool-less turn shown the
+        change's account and what is missing or unusable, answering those
+        fields alone. Not asked again when it does not parse."""
+        return first_json(self._turn(request, repair_text(request)))
 
     def queries(self, request: Json) -> Any:
         """The query turn (research_query_turn): a tool-less turn on the
@@ -1379,10 +1379,10 @@ class EvolverProposer:
         finally:
             restore_tree(tree, before)
 
-    def recheck(self, request: Json) -> Any:
-        """The check-only re-ask: no lab, no files, so the proposer agent's
+    def repair(self, request: Json) -> Any:
+        """A shape repair: no lab, no files, so the proposer agent's
         tool-less turn on the live core, as the ask proposer asks it."""
-        return AskProposer(self.cfg["EVOLVE_PROPOSER_AGENT"], self.cfg["EVOLVE_QUERY_AGENT"]).recheck(request)
+        return AskProposer(self.cfg["EVOLVE_PROPOSER_AGENT"], self.cfg["EVOLVE_QUERY_AGENT"]).repair(request)
 
     def queries(self, request: Json) -> Any:
         """The query turn: never this agent (it has file tools), but the
@@ -4587,18 +4587,31 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             parked_why = f"round {rnd}: the builder skipped ({skip.why}): {skip.note}"[:300]
             break
         except ProposalShape as exc:
-            # An answer that parsed but lacks a field: told what, next round,
-            # like edits that did not apply (gen 12, candidate 4).
-            say(f"candidate {i}: {exc}; sent back")
-            if rec is None:
-                rec = {"round": rnd}
-                rounds.append(rec)
-            findings = [{"file": "", "problem": str(exc)[:300],
-                         "fix": "answer every field: title, component (one of " + ", ".join(COMPONENTS)
-                                + "), expected_move and hypothesis, each a non-empty string, and a check, with "
-                                  "your edits"}]
-            keep(rec, "out-of-shape", findings)
-            continue
+            # An answer that parsed but lacks a field: asked for the missing
+            # fields alone, the edits kept and no round spent (repair_shape;
+            # gen 16, candidate 3). Else told what, next round, like edits
+            # that did not apply (gen 12, candidate 4).
+            gaps = shape_gaps(answer) if rec is None else []
+            fixed = repair_shape(proposer, request, learning, answer, gaps, exc, rnd, rounds) if gaps else None
+            if fixed is None:
+                say(f"candidate {i}: {exc}; sent back")
+                if rec is None:
+                    rec = {"round": rnd, **({"repair_failed": gaps} if gaps and shape_repairs(rounds)
+                                            < MAX_SHAPE_REPAIRS else {})}
+                    rounds.append(rec)
+                findings = [{"file": "", "problem": str(exc)[:300],
+                             "fix": "answer every field: title, component (one of " + ", ".join(COMPONENTS)
+                                    + "), expected_move and hypothesis, each a non-empty string, and a check, with "
+                                      "your edits"}]
+                keep(rec, "out-of-shape", findings)
+                continue
+            proposal = fixed
+            rec = {"round": rnd, "proposal": proposal, "repaired": gaps}
+            if in_place:
+                rec["patch"] = f"cand-{i}.round-{rnd}.patch"
+                (gdir / rec["patch"]).write_text(staged_patch(tree, base), encoding="utf-8")
+            rounds.append(rec)
+            save_rounds(gdir, i, learning, rounds)
         except ProposerTurnFailed as exc:
             # The turn never answered: nothing was proposed, so not the
             # learning's failure. Left open, no try, whatever the round.
@@ -4636,7 +4649,15 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             # The check alone is wrong: asked for once more, the change
             # kept, no round spent (gen 16, candidate 2). Still wrong, it
             # goes back as a finding, next round, as before.
-            check = fix_check(proposer, request, learning, proposal, rnd, exc, tree)
+            check = None
+            if learning.get("check") is None:  # a learning's own check is not the proposer's to fix
+                fixed = repair_shape(proposer, request, learning, proposal, ["check"], exc, rnd, rounds)
+                try:
+                    check = evolve_outcomes.validate(fixed.get("check"), tree) if fixed else None
+                except evolve_outcomes.BadCheck:
+                    check = None
+                rec["repaired" if check is not None else "repair_failed"] = ["check"] if (
+                    fixed is not None or check is not None) else rec.get("repair_failed", [])
             if check is None:
                 say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
                 findings = [{"file": "", "problem": f"the check: {exc}"[:300],
