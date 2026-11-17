@@ -336,7 +336,7 @@ unclear() { # VERDICT -> why the draft is not clear to a stranger; nothing when 
 # over it gets one short turn to cut it down. Still over is a skip: the draft
 # the cold reader turned down is never sent in its place.
 POST_SURFACE=x
-POST_LIMIT="$(printf '[]' | python3 "$TEENY_ROOT/bin/lib/post_length.py" "$POST_SURFACE" | jq -r .limit)"
+POST_LIMIT="$(printf '[]' | python3 "$TEENY_ROOT/bin/lib/post_length.py" "$POST_SURFACE" | jq -r .limit)" || POST_LIMIT=280
 too_long() { # POSTS_JSON -> why the rewrite is over the limit; nothing when every text fits
   local measured
   measured="$(printf '%s' "$1" | python3 "$TEENY_ROOT/bin/lib/post_length.py" "$POST_SURFACE")" ||
@@ -645,7 +645,8 @@ while IFS= read -r item; do
             fi ;;
           esac
           if [ -n "$why" ]; then
-            results="$(jq -c --arg r "not clear to a stranger: ${why:0:300}" --arg a "$anchor" --arg t "$first" --arg n "$again" \
+            [ -n "$reason" ] || reason="not clear to a stranger: ${why:0:300}"
+            results="$(jq -c --arg r "$reason" --arg a "$anchor" --arg t "$first" --arg n "$again" \
               '. + [{action: "skip", reason: $r, draft: $t, anchor: $a} + (if $n == "" then {} else {rewrite: $n} end)]' <<<"$results")"
             continue
           fi
