@@ -5331,7 +5331,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     if not dry_run():
         refresh_prs(entries, publisher)
     learnings = read_learnings()
-    queue = waiting(entries, learnings)
+    # The second source: what the run logs and ledgers count as not working.
+    findings = read_findings(cfg)
+    queue = waiting(entries, [*learnings, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
@@ -5348,11 +5350,16 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         n, cut = runway.cap_candidates(n)
         if cut:
             say(f"runway: {cut}")
-        waiting_for_box = sandbox_deferred(entries, learnings) if not sandbox_available() else set()
+        waiting_for_box = sandbox_deferred(entries, [*learnings, *findings]) if not sandbox_available() else set()
         if waiting_for_box:
             say(f"no hand-test sandbox yet: {len(waiting_for_box)} learning(s) wait for one")
-        picks = [item.ref() for item in open_learnings(entries, learnings, cfg["EVOLVE_SKIP_COOLOFF_DAYS"])
-                 if item.id not in waiting_for_box][:n]
+        cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
+        # At most EVOLVE_FINDING_SLOTS findings, strongest first; they also
+        # take what no open learning takes (evolve_findings.mix).
+        picks = [item.ref() for item in evolve_findings.mix(
+            [item for item in open_learnings(entries, learnings, cooloff) if item.id not in waiting_for_box],
+            [item for item in open_findings(entries, findings, cooloff) if item.id not in waiting_for_box],
+            n, cfg["EVOLVE_FINDING_SLOTS"])]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer
