@@ -396,11 +396,12 @@ limit_line() { # MANY(0|1) -> the hard limit, said to the model
 
 shorten() { # POSTS_JSON WHY MANY(0|1) -> the shorten turn's first item as JSON, as turn() answers
   local ask
-  ask="$(jq -rn --arg p "$name" --argjson posts "$1" --arg why "$2" --arg many "$3" --arg limit "$(limit_line "$3")" --arg shape "$(shape "$3")" '
+  ask="$(jq -rn --arg p "$name" --argjson posts "$1" --arg why "$2" --arg limit "$(limit_line "$3")" --arg shape "$(shape "$3")" '
     "# playbook: \($p), one rewrite, cut to fit\n\n" +
     "Your rewrite is too long to send: \($why). \($limit)\n\n" +
-    "Your rewrite:\n<<<\n\($posts | join("\n\n---\n\n"))\n>>>\n\n" +
-    "Cut it to fit: the same item, the same point and the same plain words, with whatever is not needed left out. Every text at most \($posts | length | if . == 1 then "" else "" end)" + ($limit | capture("at most (?<n>[0-9]+)").n) + " characters. If it cannot be said in that, skip.\n\n" +
+    "Your rewrite" + (if ($posts | length) > 1 then " (its posts split by ---)" else "" end) +
+    ":\n<<<\n\($posts | join("\n---\n"))\n>>>\n\n" +
+    "Cut it to fit: the same item, the same point and the same plain words, with whatever is not needed left out. If it cannot be said in that, skip.\n\n" +
     "Answer with JSON only, no prose and no code fence: \($shape), or {\"action\": \"skip\", \"reason\": \"...\"}."')"
   turn "$ask"
 }
