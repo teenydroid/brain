@@ -92,6 +92,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -872,9 +873,10 @@ def git_env() -> dict[str, str]:
     }
 
 
-def git(where: list[str], *args: str, check: bool = True, input: str | None = None) -> str:
+def git(where: list[str], *args: str, check: bool = True, input: str | None = None,
+        env: Mapping[str, str] | None = None) -> str:
     done = subprocess.run(["git", *where, "-c", "core.hooksPath=/dev/null", *args], capture_output=True,
-                          text=True, env=git_env(), input=input)
+                          text=True, env={**git_env(), **(env or {})}, input=input)
     if check and done.returncode != 0:
         raise EvolveError(f"git {' '.join(args[:3])}: {done.stderr.strip()[-400:]}")
     return done.stdout
@@ -2503,7 +2505,7 @@ def _run_check(argv: list[str], env: Mapping[str, str], timeout: float = 600) ->
     except subprocess.TimeoutExpired:
         return False, f"timed out after {int(timeout)} s"
     except OSError as exc:
-        return False, str(exc)
+        return False, f"could not run: {exc}"
     lines = (done.stderr.strip() or done.stdout.strip()).splitlines()
     failing = [line.strip() for line in lines if line.startswith("FAIL")]
     if done.returncode != 0 and failing:
@@ -2528,6 +2530,73 @@ def tree_env(tree: Path) -> dict[str, str]:
     env.update(TEENY_ROOT=str(tree), OPENHUMAN_WORKSPACE=str(tree / "brain"), TEENY_STATE=str(tree / "state"),
                TEENY_SECRETS=str(tree / "secrets"), TEENY_HANDS=str(tree / "hands"))
     return env
+
+
+# --- what the box broke, not the change ----------------------------------------------------------------------
+#
+# A verdict is on the change only when the change was judged. Gen 10's
+# candidates 2 and 3 (2026-11-15) failed `doctor --root` on a mktemp under a
+# scratch dir the cron call had already deleted and were rejected for good;
+# the operator landed both by hand (#333, #334). Gen 11's candidate 4 was
+# held because the guard's judge could not be reached, a failed try. What
+# the loop could not judge is recorded as `infra` (stage and what broke) and
+# never charged to the learning: a gate check or an eval is `deferred`
+# (deferred_for "infra", asked about again next run), a publish `waiting`
+# (published by the next run as it is).
+
+#: A failed check's detail that says the box failed it, not the change: a
+#: temp dir that is gone, a full or read-only disk, no memory, a script that
+#: could not be started at all. Kept narrow: anything else is the change's.
+ENV_ERROR = re.compile(r"mktemp: failed to create|No space left on device|Disk quota exceeded|Read-only file system|"
+                       r"Cannot allocate memory|Too many open files|^could not run: ", re.I | re.M)
+
+
+def infra_reason(check: Mapping[str, Any], touched: Iterable[str]) -> str | None:
+    """What of the box broke CHECK, when it failed for the box: its detail
+    matches ENV_ERROR and names no path the change TOUCHED (a failure on a
+    file the diff wrote is the diff's, whatever it says)."""
+    if check.get("ok"):
+        return None
+    detail = str(check.get("detail") or "")
+    match = ENV_ERROR.search(detail)
+    if match is None or any(path and path in detail for path in touched):
+        return None
+    return match.group(0).strip()
+
+
+def publish_infra(exc: BaseException) -> str | None:
+    """Why a publish that raised EXC failed for the box, or None when the
+    refusal is the change's own. The box's: the guard held the pull request
+    only because its judge did not answer (a hold of category `unknown`,
+    guard/judge.py's fail-closed verdict), or GitHub, git or a hand erred
+    (HandError, OSError). The change's: a rule's refusal or a hold on a
+    verdict (hand.Refused), this script's own check (EvolveError: a frozen
+    path in the commit), anything else."""
+    from teeny_hands import hand as hand_lib
+
+    if isinstance(exc, hand_lib.Refused):
+        detail = exc.detail or {}
+        if exc.reason == "held" and detail.get("category") == "unknown":
+            return f"the guard held it because its judge could not answer (hold {detail.get('hold_id')})"
+        return None
+    if isinstance(exc, (hand_lib.HandError, OSError, subprocess.SubprocessError)) and not isinstance(exc, EvolveError):
+        return (str(exc) or type(exc).__name__)[:300]
+    return None
+
+
+def usable_tmpdir() -> None:
+    """TMPDIR (and TEMP, TMP) a directory that exists, or state/tmp/evolve.
+    A cron shell call's is a scratch dir of its own that the core deletes
+    when the call returns (brain/artifacts/sandbox-scratch/shell-*), which a
+    detached run outlives: before bin/lib/detach.py gave detached jobs one
+    of their own (#303), every mktemp in gen 10's `doctor --root` failed.
+    Whatever else hands a run a TMPDIR that is gone gets this one."""
+    if all(not os.environ.get(k) or Path(os.environ[k]).is_dir() for k in ("TMPDIR", "TEMP", "TMP")):
+        return
+    tmp = state_dir() / "tmp" / "evolve"
+    tmp.mkdir(parents=True, exist_ok=True)
+    os.environ.update(TMPDIR=str(tmp), TEMP=str(tmp), TMP=str(tmp))
+    tempfile.tempdir = None
 
 
 # --- the gate's purpose checks: what a change is for -------------------------------------------------------
@@ -3070,6 +3139,11 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
                         "no_sandbox": True})
             continue
         note(f"hand tests: {name}", ok, detail)
+    touched = {p for _, p in changes}
+    for c in out:
+        why = infra_reason(c, touched)
+        if why:
+            c["infra"] = why
     return out
 
 
