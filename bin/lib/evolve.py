@@ -104,6 +104,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
+import evolve_outcomes  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
 import live_checkout  # noqa: E402
@@ -237,6 +238,14 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # restart's, not the change's (`countable_failures`).
     "EVOLVE_WATCH_BOOT_MINS": ("10", int, 0, 120),
     "EVOLVE_WATCH_HOURS": ("72", int, 24, 336),
+    # Each merged change's `check` is scored this many days after the merge,
+    # and again at LAST_DAYS (bin/lib/evolve_outcomes.py): the events of the
+    # span after against the span before, under MIN_EVENTS no-data, a move
+    # past chance at P.
+    "EVOLVE_OUTCOME_DAYS": ("2", int, 1, 30),
+    "EVOLVE_OUTCOME_LAST_DAYS": ("7", int, 1, 60),
+    "EVOLVE_OUTCOME_MIN_EVENTS": ("4", int, 1, 1000),
+    "EVOLVE_OUTCOME_P": ("0.1", float, 0.0001, 0.5),
 }
 #: The choices a str setting may take (anything, when it is not listed).
 CHOICES = {"EVOLVE_EVALUATOR": ("lab", "none")}
@@ -983,7 +992,8 @@ def hypothesis_text(proposal: Mapping[str, Any], learning: Mapping[str, Any] | N
     if learning:
         lines.append(f"- learning: [{learning['id']}] ({learning['section']})")
     lines += [f"- W component: {proposal.get('component')}",
-              f"- expected move: {str(proposal.get('expected_move') or '').strip()}", ""]
+              f"- expected move: {str(proposal.get('expected_move') or '').strip()}",
+              f"- check: {evolve_outcomes.describe(proposal.get('check'))}", ""]
     lines.append(str(proposal.get("hypothesis") or "").strip())
     return "\n".join(lines).strip() + "\n"
 
@@ -1261,6 +1271,7 @@ def context_pack(tree: Path, touched: Iterable[str], budget: int) -> tuple[list[
 ANSWER_FIELDS = (
     '"title": "<one line>", "component": "<the W component it would show up in>", '
     '"expected_move": "<what people will see you do differently, and by when>", '
+    + evolve_outcomes.ANSWER_FIELD + ', '
     '"hypothesis": "<markdown: the learning in your words, what you do today that misses it, the change, how '
     'to tell it worked>"')
 SKIP_FIELDS = ('{"skip": "<one line: why>", "why": "already|frozen|not-actionable", '
