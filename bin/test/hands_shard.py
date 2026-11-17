@@ -34,6 +34,7 @@ COST = {
     "test_evolve": 3.5,
     "test_evolve_loop": 4.3,
     "test_evolve_lab": 6.7,
+    "test_evolve_generation": 10.0,
     "test_tick": 0.5,
     "babysit.test_deploy": 2.2,
     "test_reflect": 0.25,

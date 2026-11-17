@@ -456,7 +456,9 @@ class TargetedEvaluation(LabCase):
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm",
                                         side_effect=evolve.EvolveError("cut off")):
             self.run_gen(1, publisher=Refusing())
-        self.assertEqual(self.entries()["g1c1"]["verdict"], "unevaluated")
+        # The confirmation could not run: not measured, so deferred, no try.
+        self.assertEqual(self.entries()["g1c1"]["verdict"], "deferred")
+        self.assertEqual(self.entries()["g1c1"]["infra"]["stage"], "eval")
         judged = len([c for c in self.core_turns() if c.get("agent_id") == "judge"])
         (evolve.gen_dir(1) / "result.json").unlink()
         rows = [r for r in evolve.read_jsonl(evolve.archive_path())
@@ -534,14 +536,15 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(self.entries()["g1c1"]["verdict"], "flagged")
         self.assertTrue(evolve.halt_path().exists())
 
-    def test_a_lab_that_does_not_boot_leaves_the_candidate_unevaluated(self):
+    def test_a_lab_that_does_not_boot_defers_the_candidate_with_no_try(self):
         self.lab_config()
         os.environ["FAKE_SPINE_FAIL"] = "1"
         self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
         cand = self.entries()["g1c1"]
-        self.assertEqual(cand["verdict"], "unevaluated")
+        self.assertEqual((cand["verdict"], cand["deferred_for"]), ("deferred", "infra"))
         self.assertIn("lab spine", cand["eval_reason"])
+        self.assertIn("lab spine", cand["infra"]["detail"])
 
     def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
         self.lab_config(EVOLVE_PROBES=0)

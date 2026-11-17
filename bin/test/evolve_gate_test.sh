@@ -70,7 +70,7 @@ cat >"$fx/evals/cron.pinned.toml" <<'EOF'
 [jobs.evolve]
 schedule = "40 2,14 * * *"
 tz = "Asia/Kolkata"
-command = "bin/evolve run --detach"
+command = "bin/evolve run --scheduled --detach"
 
 [jobs.evolve-watch]
 schedule = "20 * * * *"
