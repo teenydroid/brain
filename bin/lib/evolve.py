@@ -5368,7 +5368,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             say(f"the reviewer still does not answer ({down[:160]}): no generation")
             picks = []
         if not picks:
-            out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings: nothing to act on"}
+            out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings or findings: nothing to act on"}
             if down:
                 out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
             if queue:
@@ -5899,9 +5899,11 @@ def status() -> Json:
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
     learnings = read_learnings()
     try:
-        cooloff = load_config()["EVOLVE_SKIP_COOLOFF_DAYS"]
+        cfg: Config | None = load_config()
+        cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
     except EvolveError:
-        cooloff = default_cooloff()
+        cfg, cooloff = None, default_cooloff()
+    findings = read_findings(cfg) if cfg is not None else []
     states: dict[str, list[str]] = {}
     stood = {item.id: standing(entries, item, cooloff) for item in learnings}
     for item in learnings:
@@ -5923,6 +5925,10 @@ def status() -> Json:
                       "not_open": [standing_brief(item, stood[item.id]) for item in learnings
                                    if stood[item.id].state != "open"],
                       "by_state": states},
+        "findings": {"slots": cfg["EVOLVE_FINDING_SLOTS"] if cfg is not None else None,
+                     "current": [{**standing_brief(f, got), "kind": f.kind, "events": f.events, "days": f.days,
+                                  "check": evolve_outcomes.describe(f.check), "text": f.text[:300]}
+                                 for f in findings for got in [standing(entries, f, cooloff)]]},
         "open_prs": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "pr_url": e.get("pr_url"),
                       "branch": e.get("branch"), "status": (e.get("status") or {}).get("state")}
                      for e in open_prs(entries)],
