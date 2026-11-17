@@ -15,6 +15,10 @@ night), with more to go on and one more thing it may do:
 - **What the core's memory holds**: the learnings written since the last
   dream (the journal, `remember`, the diary; `memory_items_list`, kind
   `learning`, never a conversation), each with a short alias, `[c3]`.
+- **What came of the merged evolve changes**: each change of Teeny's that
+  merged and had its `check` scored since the last dream (bin/evolve watch,
+  bin/lib/evolve_outcomes.py), what it said the change would do and what the
+  ledgers counted before and after: worked, no-effect, hurt or no-data.
 - **The scoreboard and the lab** (bin/lib/scoreboard.py): the board, the
   open experiments scored in code, the lab's lessons and "true right now"
   (balances and followers, read just now). The night dream may also answer
@@ -52,6 +56,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import evolve_outcomes  # noqa: E402
 import reflect  # noqa: E402
 import rhythm  # noqa: E402
 import scoreboard  # noqa: E402
@@ -318,6 +323,7 @@ def dream(light: bool = False) -> Json:
     sections += builder()
     held, aliases = learnings(since)
     sections += held
+    sections += evolve_outcomes.dream_section(hand.state_dir() / "evolve" / "archive.jsonl", since)
     # The scoreboard, the lab and what is true right now (bin/lib/scoreboard.py);
     # only the night carries out lab operations.
     sections += scoreboard.sections(score=True)

@@ -79,7 +79,7 @@ text = subprocess.run(["git", "--git-dir", sys.argv[1], "show", "main:brain/play
                       check=True, capture_output=True, text=True).stdout
 last = text.rstrip().splitlines()[-1]
 json.dump({"title": f"morning: {sys.argv[3][:30]}", "component": "attention", "expected_move": "+1% engaged reach",
-           "hypothesis": "The morning post opens the same way every day.",
+           "check": {"kind": "judged", "surface": "moltbook"}, "hypothesis": "The morning post opens the same way every day.",
            "edits": [{"path": "brain/playbooks/moltbook-follow.md", "old": last, "new": f"{last}\n\n{sys.argv[3]}"}]},
           open(sys.argv[2], "w"))
 PY
