@@ -91,7 +91,7 @@ UNREACHED = "brain/playbooks/pin-bump.md"
 class LoopCase(EvolveCase):
     def proposal(self, line="Check first.", path="brain/playbooks/moltbook-daily.md", title="check first"):
         return {"title": title, "component": "attention", "expected_move": "+1% in a week",
-                "check": {"kind": "judged", "surface": "moltbook"}, "hypothesis": "what is weak, the change, the effect", "edits": [self.playbook_edit(line, path)]}
+                "check": CHECK, "hypothesis": "what is weak, the change, the effect", "edits": [self.playbook_edit(line, path)]}
 
     def run_with(self, proposer, n=1, **kw):
         kw.setdefault("reviewer", Reviews())
@@ -441,7 +441,7 @@ REVISE = {"verdict": "revise", "findings": [{"file": "brain/playbooks/moltbook-d
 
 class ReviewLoop(LoopCase):
     def thinning(self):
-        return {"title": "fewer runs", "component": "attention", "expected_move": "+1%", "check": {"kind": "judged", "surface": "moltbook"}, "hypothesis": "h",
+        return {"title": "fewer runs", "component": "attention", "expected_move": "+1%", "check": CHECK, "hypothesis": "h",
                 "edits": [{"path": "brain/cron.toml", "old": THIN[0], "new": THIN[1]}]}
 
     def test_a_failing_check_comes_back_as_a_finding_and_a_fixed_round_passes(self):
