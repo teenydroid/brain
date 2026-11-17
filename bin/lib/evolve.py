@@ -3521,6 +3521,77 @@ def make_evaluator(cfg: Config, src: Source, base: str, gdir: Path) -> Evaluator
     return Unevaluated()
 
 
+# --- A/A: main against itself (docs/evolve.md, "Measuring the evaluator") ----------------------------
+
+#: One line per `bin/evolve aa` run, under state/evolve/: what to tally.
+AA_LOG = "aa.jsonl"
+
+
+def _lines(paths: Iterable[Path]) -> int:
+    return sum(len(read_jsonl(p)) for p in paths)
+
+
+def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
+    """The evaluator on an identical candidate: main's worktree measured
+    against main, through the same TargetedEvaluator a generation uses (lab
+    spines, `run`, `compare --mode nonregression`, the confirmation), on
+    TASKS or every visible task (what a SOUL.md change reaches). Main is
+    drafted afresh each time (its own baseline folder), so runs are
+    independent trials, and no persona probe runs. Nothing is archived, no
+    learning is tried, no pull request opens, and it is no generation: it
+    lives in state/evolve/aa/<stamp>/ (no generation.json), and its lab
+    folders are removed after. Any verdict but `pass` is the evaluator's
+    error; its line is appended to state/evolve/aa.jsonl."""
+    every = evals_lib.task_ids(CODE / "evals")
+    picked = sorted(set(tasks)) if tasks else every
+    unknown = sorted(set(picked) - set(every))
+    if unknown:
+        raise EvolveError(f"no eval task {', '.join(unknown)}")
+    src = source()
+    base = git(of_source(src), "rev-parse", "--verify", f"{src.base_ref}^{{commit}}").strip()
+    started = now()
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started))
+    folder = evolve_dir() / "aa" / stamp
+    tree = folder / "cand-1"
+    cand: Json = {"id": f"aa-{stamp}", "gen": f"aa/{stamp}", "cand": 1, "base": base,
+                  "worktree": str(tree.relative_to(evolve_dir()))}
+    plan = {"tasks": picked, "all": picked == every, "why": {"*": "A/A: main measured against itself"}}
+    got: Json = {}
+    add_worktree(src, tree, base)
+    try:
+        evaluator = TargetedEvaluator(cfg, src, base, folder, plans={cand["id"]: plan},
+                                      baseline_root=folder / "baseline", probes=False)
+        with held_lock("eval"):
+            evaluator.evaluate([cand], lambda _c, result: got.update(result))
+    finally:
+        remove_worktree(src, tree)
+        for lab in folder.glob("lab-*"):
+            shutil.rmtree(lab, ignore_errors=True)
+    compare = folder / "eval" / "cand-1" / "compare"
+    report = read_json(compare / "report.json") or {}
+    first = read_json(compare / "first-report.json") or report
+    verdict = got.get("verdict") or "unevaluated"
+    turns = _lines([*folder.glob("baseline/**/drafts.jsonl"), *folder.glob("eval/**/drafts.jsonl"),
+                    *folder.glob("eval/**/*judged.jsonl")])
+    line: Json = {
+        "ok": verdict in EVAL_VERDICTS, "kind": "aa", "at": iso(started), "base": base,
+        "minutes": round((now() - started) / 60, 1), "verdict": verdict, "false_regressed": verdict == "regressed",
+        "first_verdict": first.get("verdict"), "reason": got.get("reason"),
+        "suspects": report.get("suspects") or [],
+        "confirmation": {t: c.get("state") for t, c in (report.get("confirmation") or {}).items()},
+        "tasks": len(picked), "samples": evaluator_samples(cfg, picked),
+        **{k: report.get(k) for k in ("wins", "losses", "ties", "decided", "signal", "p_worse", "p_better")},
+        "base_noise": {t: f"{n['failed']}/{n['of']}" for t, n in (report.get("base_noise") or {}).items()},
+        "turns": turns, "folder": str(folder.relative_to(evolve_dir())),
+    }
+    append_jsonl(evolve_dir() / AA_LOG, line)
+    return line
+
+
+def evaluator_samples(cfg: Config, tasks: list[str]) -> int:
+    return eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(tasks))
+
+
 def snapshot(tree: Path) -> tuple[str, str]:
     """The worktree's commit and its uncommitted change, staged."""
     head = git(in_tree(tree), "rev-parse", "HEAD").strip()
