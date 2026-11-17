@@ -111,7 +111,25 @@ def fit(inputs: dict, share: int, total: int | None = None) -> tuple[dict, list[
         inputs[name], was_cut = fit_one(inputs[name], share)
         if was_cut:
             cut.add(name)
-    if total is not None:
+    if total is not None and size(inputs) > total:
+        # One level for all: the biggest cap that, applied to every input,
+        # fits the total. An input under it is left whole, one over it is cut
+        # to it (or below it, when its items are big).
+        sizes = {name: size(value) for name, value in inputs.items()}
+        room = total - (size(inputs) - sum(sizes.values()))
+        low, high = 0, max(sizes.values(), default=0)
+        while low < high:
+            level = (low + high + 1) // 2
+            if sum(min(s, level) for s in sizes.values()) <= room:
+                low = level
+            else:
+                high = level - 1
+        for name in inputs:
+            if sizes[name] > low:
+                inputs[name], _ = fit_one(inputs[name], low)
+                cut.add(name)
+        # Whatever could not be cut to the level (no list, no string left)
+        # is made up from the biggest of the rest.
         sizes = {name: size(value) for name, value in inputs.items()}
         stuck: set[str] = set()
         while size(inputs) > total and len(stuck) < len(inputs):
