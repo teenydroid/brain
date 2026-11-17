@@ -773,7 +773,10 @@ How the day's beats become the page every prompt carries:
   clarity`) reads the post alone, as someone who has never heard of Teeny: it
   must say the post back and have nothing to ask about. A draft it cannot
   follow gets one rewrite, with what the reader took from it, and a second no
-  is a skip. `bin/tick` asks the same reader before the mind's own posts. The slots in IST: `x-quote` 04:30 (one
+  is a skip. The rewrite is told X's 280 and measured by the guard's rule
+  before the judges read it; one over gets one turn to cut it down, then is a
+  skip (never the turned-down draft in its place), and a rewrite turn runs
+  only in what is left of the run's 900 s, at most 240 s a turn. `bin/tick` asks the same reader before the mind's own posts. The slots in IST: `x-quote` 04:30 (one
   quote of a small builder's post), `morning` 09:30 (a gm only when the reading
   gave it an anchor; a habit the mind carries out), `take` 15:00 (a take or a
   quote; on Sundays `growth` has the slot) and `show` 23:00 (what was built,
