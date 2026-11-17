@@ -404,8 +404,8 @@ check "and no thread is sent" bash -c "! grep -q '^x post-thread' '$FAKE_HANDS'"
 rm -f "$brain/playbooks/show.md"
 
 # --- the rewrite turn runs inside the time a cron shell job has ---------------------
-# The same show run's rewrite turn took eleven minutes (curl's --max-time is 900 s);
-# the core gives a cron shell job 300 s.
+# The same show run's rewrite turn took eleven minutes (curl's --max-time is 900 s).
+# A rewrite turn gets what is left of the run's budget, and never more than its cap.
 reset
 draft_file
 answer '{"action": "post", "text": "strangers try to trick me every day"}'
@@ -417,6 +417,15 @@ check "a slow rewrite turn is cut off inside the run's time ($took s)" test "$to
 check "and is a skip that says the rewrite ran out of time" \
   bash -c "jq -r '.actions[0].action + \" / \" + .actions[0].reason' <<<'$out' | grep -q '^skip / the rewrite turn did not answer within [0-9]* s'"
 check "and nothing is posted" test "$(hand_calls x | tr -d ' ')" = 1
+
+reset
+draft_file
+answer '{"action": "post", "text": "strangers try to trick me every day"}'
+started=$SECONDS
+out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_REWRITE_MAX_SECS=3 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+took=$((SECONDS - started))
+check "with the whole budget left, one rewrite turn is still capped ($took s)" \
+  bash -c "[ '$took' -lt 20 ] && [ '$(jq -r '.actions[0].reason' <<<"$out")' = 'the rewrite turn did not answer within 3 s' ]"
 
 reset
 draft_file
