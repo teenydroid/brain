@@ -866,6 +866,94 @@ def fence_failures(record: dict, breaks: list[str]) -> list[str]:
     return failed + [f"break {i}" for i in breaks if i in FENCE_INVARIANTS]
 
 
+# --- confirming a hard-check regression (docs/evolve.md, "Confirming a regression") -------------
+#
+# Gen 11: two unrelated candidates were both `regressed` on shiplog-numbers,
+# whose hashtag check read "merged #3" as a hashtag; main's two drafts
+# happened to say "pr 3", and main's next two failed it too. Gen 13: one was
+# `regressed` on reply-mcap-memory winning 50 of 82 pairs, and its
+# near-identical revision passed. The two-sample rule (_tally) catches a
+# check that breaks every time, and a check main itself fails trips it by
+# chance: over the box's 43 tasks an identical candidate was `regressed` about
+# one time in four. So a task it names is a suspect: drafted afresh,
+# CONFIRM_SAMPLES times on each side (fresh main drafts too, not the cached
+# baseline, so both sides share their conditions), and `regressed` only when
+# the fresh pairs say so on their own.
+
+#: Fresh samples a side when a suspect is confirmed (bin/evolve:
+#: EVOLVE_CONFIRM_SAMPLES).
+CONFIRM_SAMPLES = 10
+#: The chance, over a whole eval, that a candidate no different from main is
+#: confirmed `regressed`: each of S suspects is tested at CONFIRM_P / S.
+CONFIRM_P = 0.05
+
+
+def confirm_test(pairs: list[tuple[bool, bool]]) -> dict:
+    """A suspect's fresh pairs, (main failed, candidate failed) for each
+    sample, as a sign test: a pair where only one side failed is, were the
+    two alike, a fair coin for which side, so `p` is the chance of the
+    candidate failing alone this often or more (binomial_tails). Pairs where
+    both or neither failed say nothing about the difference."""
+    cand_only = sum(1 for b, c in pairs if c and not b)
+    base_only = sum(1 for b, c in pairs if b and not c)
+    p = binomial_tails(cand_only, cand_only + base_only)[1]
+    return {"pairs": len(pairs), "base_failed": sum(1 for b, _ in pairs if b),
+            "cand_failed": sum(1 for _, c in pairs if c), "base_only": base_only, "cand_only": cand_only, "p": p}
+
+
+def confirm_regressions(suspects: list[str], pairs: dict[str, list[tuple[bool, bool]]]) -> dict[str, dict]:
+    """Each suspect's confirm_test, at CONFIRM_P / len(SUSPECTS), with its
+    `state`: `confirmed` (p under that), `refuted`, or `unmeasured` when so
+    few fresh pairs ran that even every one failing on the candidate alone
+    could not have confirmed it."""
+    level = CONFIRM_P / max(1, len(suspects))
+    out = {}
+    for task in suspects:
+        got = confirm_test(pairs.get(task, []))
+        n = got["pairs"]
+        state = ("unmeasured" if binomial_tails(n, n)[1] >= level else
+                 "confirmed" if got["p"] < level else "refuted")
+        out[task] = {**got, "p": round(got["p"], 4), "level": level, "state": state}
+    return out
+
+
+def _confirm_pairs(confirm: tuple[Path, Path, Path], suspects: list[str]) -> dict[str, list[tuple[bool, bool]]]:
+    """The fresh pairs of CONFIRM (main's drafts, the candidate's, the
+    judge's verdicts on them), as score() counts a hard failure: a check
+    failed, or the judge said the draft breaks an invariant. Unrun pairs are
+    left out; a file missing is no pairs."""
+    if not all(path.is_file() for path in confirm):
+        return {}
+    got = score(*confirm, 0.5, 0, mode="nonregression", tasks=set(suspects))
+    out: dict[str, list[tuple[bool, bool]]] = {}
+    for pair in got["pairs"]:
+        out.setdefault(pair["task"], []).append((pair["hard_fail"]["base"], pair["hard_fail"]["cand"]))
+    return out
+
+
+def _confirmation_text(task: str, c: dict) -> str:
+    return (f"{task} on {c['pairs']} fresh pair(s): the candidate alone failed {c['cand_only']}, main alone "
+            f"{c['base_only']} (chance {c['p']:.1%} were they alike, needs under {c['level']:.1%})")
+
+
+def base_noise(records: list[dict]) -> dict[str, dict]:
+    """The tasks main fails its own hard checks on, from main's drafts:
+    {task: {failed, of, checks: {check: count}}}, visible drafts that ran
+    only. A check the baseline fails at all is noisy (or wrong): the
+    shiplog-numbers hashtag check failed main's drafts 2 times in 4."""
+    out: dict[str, dict] = {}
+    for r in records:
+        if r.get("heldout") or _unrun(r):
+            continue
+        n = out.setdefault(r["task"], {"failed": 0, "of": 0, "checks": {}})
+        n["of"] += 1
+        failed = [c["check"] for c in r.get("checks", []) if not c.get("ok")]
+        n["failed"] += bool(failed) or not r.get("ok", True)
+        for name in failed:
+            n["checks"][name] = n["checks"].get(name, 0) + 1
+    return {t: n for t, n in sorted(out.items()) if n["failed"]}
+
+
 #: The share of a run's visible samples that may be unrun before the
 #: comparison measured too little to decide (docs/evolve.md, "Inconclusive").
 MAX_UNRUN = 0.1
