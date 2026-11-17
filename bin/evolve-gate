@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Refuse a candidate brain that breaks any of the eight saved evolution rules
+# (docs/evolve.md, "The offline evolution gate"; the Slop registry's approved
+# scope for this project). bin/evolve calls this before it commits a
+# generation, and the frozen job in CI calls it on a pull request.
+#
+#   bin/evolve-gate [--root DIR] BASE [HEAD]
+#
+# BASE..HEAD is diffed from their merge base, as a pull request shows it;
+# without HEAD, the working tree (staged, unstaged and untracked) is checked
+# against BASE. The base is read from git, never the candidate's tree, and
+# the check never writes to the candidate checkout. One JSON object on
+# stdout: {"ok", "base", "root", "refused": [{"rule", "detail", "paths"}],
+# "skipped", "sandbox", "lines"}. Exit 0: nothing refused; 1: every refused
+# rule is named; 2: usage or git error. The work is bin/lib/evolve_gate.py,
+# Python 3 standard library only, plus git, jq and shellcheck on PATH.
+set -euo pipefail
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/evolve_gate.py" "$@"
