@@ -432,8 +432,8 @@ class TargetedEvaluation(LabCase):
         self.assertEqual((len(base), len(cand)), (1 + 6, 1 + 6))
         confirm = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "confirm"
         self.assertEqual(len(evolve.read_jsonl(confirm / "base" / "drafts.jsonl")), 6)
-        self.assertEqual(len(evolve.read_jsonl(evolve.evolve_dir() / "baseline" / self.base_sha() / "s1-m-1"
-                                               / "drafts.jsonl")), 1)  # the cache is left as it was
+        (cached,) = (evolve.evolve_dir() / "baseline").glob("*/s1-m-1/drafts.jsonl")
+        self.assertEqual(len(evolve.read_jsonl(cached)), 1)  # the cache is left as it was
         self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
 
     def test_a_hard_check_regression_that_holds_up_on_fresh_drafts_is_regressed(self):
