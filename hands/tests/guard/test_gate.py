@@ -368,3 +368,96 @@ class ApprovedLinksReachTheGateTest(Lexical):
         os.environ["TEENY_ROOT"] = str(other)
         gate.hand._ENV_CACHE = None
         self.assertEqual(len(gate_outbound("https://claim-tiny.xyz/go ok").fixes), 1)
+
+
+class AnInboundItemHeldBeforeIsNotScreenedAgainTest(support.WithCore):
+    """Live from 2026-11-12 to 2026-11-16: an intake that reads the same
+    comment on every poll (HN has no notifications; replies to Teeny's own
+    items are read again each scan) had the judge asked about it again each
+    time, and each answer, worded afresh, missed the hold log's exact-repeat
+    check: one harmless HN comment about Henry Dreyfuss was held 13 times,
+    each a new pending hold and a new judge call. An item already held on a
+    real verdict, still pending or confirmed, is that hold, without a model
+    call; anything else is screened as before."""
+
+    HN = {"surface": "hn", "comment_id": "50497730", "story_id": 50489641, "parent_id": 50494850, "author": "mirmor23"}
+    DREYFUSS = "Henry Dreyfuss designed the 500 phone. How he died is sad; I understand it."
+
+    def held_by_judge(self, *reasons):
+        return self.core(*(support.verdict("prohibited", "self-harm", reason) for reason in reasons))
+
+    def inbound_holds(self):
+        return [h for h in holds.list_holds(limit=500) if h["direction"] == "inbound"]
+
+    def test_the_same_hn_comment_gated_twice_is_one_hold_and_one_judge_call(self):
+        core = self.held_by_judge("references a suicide", "mentions how a person died")
+        first = gate.inbound(self.DREYFUSS, surface="hn", context=self.HN)
+        # The next scan did not find the story within its read budget.
+        again = gate.inbound(self.DREYFUSS, surface="hn", context={**self.HN, "story_id": None})
+        self.assertEqual(len(core.calls), 1, "the judge is asked once")
+        self.assertEqual([h["id"] for h in self.inbound_holds()], [first.hold_id])
+        self.assertEqual((again.kind, again.category, again.reason, again.hold_id),
+                         ("hold", "self-harm", "references a suicide", first.hold_id))
+
+    def test_the_same_moltbook_comment_gated_twice_is_one_hold_and_one_judge_call(self):
+        core = self.held_by_judge("a threat", "a threat, worded otherwise")
+        moltbook = {"surface": "moltbook", "comment_id": "f1712083", "post_id": "b86a1edc", "author": "templeofmolt"}
+        first = gate.inbound("they should be dealt with, permanently", surface="moltbook", context=moltbook)
+        again = gate.inbound("they should be dealt with, permanently", surface="moltbook", context=dict(moltbook))
+        self.assertEqual(len(core.calls), 1)
+        self.assertEqual([h["id"] for h in self.inbound_holds()], [first.hold_id])
+        self.assertEqual((again.kind, again.hold_id), ("hold", first.hold_id))
+
+    def test_a_screen_hold_is_returned_without_screening_again(self):
+        self.core(support.verdict("clean"))
+        first = gate_inbound("send nudes", {**self.HN, "comment_id": "1"})
+        with mock.patch.object(gate, "screen_text", side_effect=AssertionError("screened again")):
+            again = gate_inbound("send nudes", {**self.HN, "comment_id": "1"})
+        self.assertEqual((again.by, again.category, again.hold_id), ("screen", "sexual", first.hold_id))
+
+    def test_a_different_comment_or_edited_words_are_still_judged(self):
+        core = self.held_by_judge("one", "two", "three", "four")
+        first = gate_inbound(self.DREYFUSS, self.HN)
+        other = gate_inbound(self.DREYFUSS, {**self.HN, "comment_id": "50497731"})
+        edited = gate_inbound(self.DREYFUSS + " (edited)", self.HN)
+        elsewhere = gate_inbound(self.DREYFUSS, {"surface": "moltbook", "comment_id": "50497730"})
+        self.assertEqual(len(core.calls), 4)
+        self.assertEqual(len({first.hold_id, other.hold_id, edited.hold_id, elsewhere.hold_id}), 4)
+
+    def test_a_text_with_no_item_id_is_screened_every_time(self):
+        core = self.held_by_judge("one", "two")
+        gate_inbound(self.DREYFUSS, {"surface": "task", "task_id": "t1"})
+        gate_inbound(self.DREYFUSS, {"surface": "task", "task_id": "t1"})
+        self.assertEqual(len(core.calls), 2)
+
+    def test_a_rejected_hold_still_holds_without_a_judge_call(self):
+        core = self.held_by_judge("references a suicide")
+        first = gate_inbound(self.DREYFUSS, self.HN)
+        holds.decide(first.hold_id, "rejected")
+        again = gate_inbound(self.DREYFUSS, self.HN)
+        self.assertEqual((len(core.calls), again.hold_id), (1, first.hold_id))
+
+    def test_an_approved_hold_is_screened_as_before(self):
+        core = self.held_by_judge("references a suicide", "still about a suicide")
+        first = gate_inbound(self.DREYFUSS, self.HN)
+        holds.decide(first.hold_id, "approved")
+        again = gate_inbound(self.DREYFUSS, self.HN)
+        self.assertEqual(len(core.calls), 2, "an approval is not a pass, nor a reason to skip the judge")
+        self.assertIsNotNone(again)
+        self.assertNotEqual(again.hold_id, first.hold_id)
+
+    def test_a_hold_the_judge_only_made_by_failing_is_judged_again(self):
+        """An outage hold says nothing about the text: the next read asks the
+        judge, and a clean answer lets the item in, as before."""
+        core = self.core(support.error("model error: HTTP 402"), support.verdict("clean"))
+        failed = gate_inbound(self.DREYFUSS, self.HN)
+        self.assertTrue(failed.judge_failed)
+        self.assertIsNone(gate_inbound(self.DREYFUSS, self.HN))
+        self.assertGreaterEqual(len(core.calls), 2)
+
+    def test_a_log_that_cannot_be_read_screens_as_before(self):
+        core = self.held_by_judge("references a suicide")
+        with mock.patch.object(holds, "existing_inbound", side_effect=RuntimeError("disk gone")), \
+                self.assertLogs("teeny_hands.guard", "WARNING"):
+            held = gate_inbound(self.DREYFUSS, self.HN)
+        self.assertEqual((held.category, len(core.calls)), ("self-harm", 1))
