@@ -377,11 +377,12 @@ draft '{"text": "gm %TASK% from the CAND"}'
 capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare --both-orders "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
 check "and keeps each pair's orderings apart and its own verdict (both samples agree)" \
   test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
-# Once a pair: sample 1 shows the baseline first, sample 2 the candidate.
+# Once a pair, each task's samples shown each way once: the first task's
+# sample 1 shows the baseline first, the next task's the candidate, and so on.
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par1" >/dev/null 2>&1 || true
-check "judged once, the order alternates by sample" \
+check "judged once, the order alternates by sample within each task" \
   test "$(jq -r '"\(.task) \(.sample) \(.first.better // "-")\(.second.better // "-")"' "$scratch/par1/judged.jsonl" | sort | paste -sd, -)" = \
-  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 1-,humans-post 2 -2,morning-post 1 1-,morning-post 2 -2,reply-fud 1 2-,reply-fud 2 -1"
+  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 -2,humans-post 2 1-,morning-post 1 1-,morning-post 2 -2,reply-fud 1 -1,reply-fud 2 2-"
 check "and the one verdict decides the pair" test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par1/report.json")" = "4 4"
 FAKE_JUDGE=first "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par-first" >/dev/null 2>&1 || true
 check "a judge that always picks draft 1 favours each side equally often" \
