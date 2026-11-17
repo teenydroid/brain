@@ -34,7 +34,7 @@
 #    A draft the cold reader (hands/guard clarity) cannot follow gets one
 #    rewrite, held to X's 280 (bin/lib/post_length.py, the guard's own count)
 #    before the judges read it, and run only in what is left of
-#    TEENY_ACT_BUDGET_SECS (the 300 s the core gives a cron shell call).
+#    TEENY_ACT_BUDGET_SECS (900 s), each rewrite turn at most 240 s.
 #    A `post` may be a thread: "posts": ["...", "..."] (2 to 5) in place of
 #    "text". The anchor judge reads the posts joined, as one draft, and the
 #    draft goes to `hands/x post-thread`, which holds every post to the guard
@@ -350,19 +350,25 @@ too_long() { # POSTS_JSON -> why the rewrite is over the limit; nothing when eve
       else "post \(. + 1) of the rewrite is \($len[.]) characters, over the \($l) limit" end' <<<"$measured"
 }
 
-# The time a rewrite may take. The core gives up on a cron shell job's call
-# after 300 s (bin/lib/detach.py), and bin/act is one; a run past it is marked
-# failed and retried while it still runs, and on 2026-11-17 show's rewrite
-# turn alone took eleven minutes (bin/oh's curl waits 900 s). A rewrite or
-# shorten turn gets what is left of TEENY_ACT_BUDGET_SECS since bin/act
-# started, less TEENY_ACT_REWRITE_RESERVE_SECS for the judges to read the
-# rewrite and hands/x to send it, and is cut off at that; with under
-# TEENY_ACT_REWRITE_MIN_SECS left it is not asked at all, and the draft is a
-# skip.
-ACT_BUDGET_SECS="${TEENY_ACT_BUDGET_SECS:-300}"
+# The time a rewrite may take. On 2026-11-17 show's rewrite turn alone took
+# eleven minutes, bounded only by bin/oh's 900 s curl. The core does not stop
+# a playbook run at 300 s here: `bin/crons runs` shows that show run finishing
+# ok after 926 s, and moltbook-general taking 380-405 s every hour. So the
+# whole run gets TEENY_ACT_BUDGET_SECS (900, bin/oh's own wait), and one
+# rewrite or shorten turn gets what is left of it since bin/act started, less
+# TEENY_ACT_REWRITE_RESERVE_SECS for the judges to read the rewrite and hands/x
+# to send it, and never more than TEENY_ACT_REWRITE_MAX_SECS (240), so one hung
+# call cannot eat the run. With under TEENY_ACT_REWRITE_MIN_SECS left it is not
+# asked at all, and the draft is a skip.
+ACT_BUDGET_SECS="${TEENY_ACT_BUDGET_SECS:-900}"
+REWRITE_MAX_SECS="${TEENY_ACT_REWRITE_MAX_SECS:-240}"
 REWRITE_RESERVE_SECS="${TEENY_ACT_REWRITE_RESERVE_SECS:-30}"
 REWRITE_MIN_SECS="${TEENY_ACT_REWRITE_MIN_SECS:-15}"
-rewrite_secs() { echo $((ACT_BUDGET_SECS - SECONDS - REWRITE_RESERVE_SECS)); }
+rewrite_secs() {
+  local left=$((ACT_BUDGET_SECS - SECONDS - REWRITE_RESERVE_SECS))
+  [ "$left" -le "$REWRITE_MAX_SECS" ] || left="$REWRITE_MAX_SECS"
+  echo "$left"
+}
 
 turn() { # MESSAGE -> one more turn on the playbook thread, bounded by the time left: its first item as JSON, {"failed": why}, or nothing
   local secs said found status=0
