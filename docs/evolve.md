@@ -982,8 +982,8 @@ counts with no names, so "from outside the usual circle" can only be said of
 replies; and no check kind counts engagement, so a reach finding would ship
 with a check that cannot say whether it moved. What the week does show: 92
 replies on X against 14 posts, a quarter of the replies (24) to one account
-and 55 to the six most-answered; posts drew about 200 impressions each, the
-replies 27. To make reach a kind: record the playbook or beat on every
+and 55 to the six most-answered; posts drew about 220 impressions each, the
+replies 27 (at their latest checkpoints). To make reach a kind: record the playbook or beat on every
 `x_posts`, `moltbook_posts` and `moltbook_comments` row; record per post how
 many of the people who answered (or liked, where X names them) had never
 engaged before; and add a share check kind (the share of a source's posts
