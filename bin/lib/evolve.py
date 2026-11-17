@@ -2240,7 +2240,9 @@ def _holds() -> Json | None:
     return {"listed": len(rows), "by_status_and_category": counts}
 
 
-def _cron_failures(since: float) -> dict[str, int] | None:
+def _cron_failure_counts(since: float) -> dict[str, int] | None:
+    """How many cron runs of each job failed since SINCE (storage.db,
+    read-only), by job name: what observe() hands evolve_evidence.outcomes."""
     path = Path(os.environ.get("TEENY_STORAGE") or root() / "brain" / "storage.db")
     if not path.is_file():
         return None
@@ -2270,7 +2272,7 @@ def _cron_failures(since: float) -> dict[str, int] | None:
     return {str(name): int(n) for name, n in rows}
 
 
-def _cron_failures(since: float) -> list[Json] | None:
+def _cron_failure_runs(since: float) -> list[Json] | None:
     """Each failed cron run since SINCE (storage.db, read-only): when it
     finished, its job's command (or name, for an agent job) and the tail of
     its output, which carries the error."""
@@ -2453,7 +2455,7 @@ def observe(entries: Mapping[str, Json], days: int = 7) -> Json:
     held = heldout_tasks()
     evidence = {
         "at": iso(now()),
-        "outcomes": evolve_evidence.outcomes(state_dir() / "hands.db", since, now(), _cron_failures(since),
+        "outcomes": evolve_evidence.outcomes(state_dir() / "hands.db", since, now(), _cron_failure_counts(since),
                                              _act_failures(since), brain_dir() / "cron.toml",
                                              CODE / "evals" / "cron.pinned.toml"),
         "world": world_brief(world_report(days)),
@@ -4872,7 +4874,7 @@ def watch(cfg: Config, publisher: Publisher | None = None, ask: probes_lib.Ask |
         reasons.append("the spine booted last-good after the merge")
     end = min(now(), t0 + 86400)
     if hours <= 24 + 1:
-        failures, left = countable_failures(_cron_failures(t0 - 8 * 86400), _boot_times(), change_reach(cand), cfg)
+        failures, left = countable_failures(_cron_failure_runs(t0 - 8 * 86400), _boot_times(), change_reach(cand), cfg)
         for name, times in (("guard holds", _hold_times()), ("cron failures", failures)):
             got = spike(times, t0, end, cfg)
             if got and name == "cron failures":
