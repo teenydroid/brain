@@ -17,6 +17,10 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT [--both-orders] [--tasks IDS] -- ASK...
                                                           -> OUT, a judged pair per line
     python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS|auto [--mode M] [--tasks IDS]
+    python3 bin/lib/evals.py rescore REPORT CBASE CCAND CJUDGED
+                                                          -> REPORT's compare scored again, its
+                                                             suspects confirmed by the fresh runs
+    python3 bin/lib/evals.py base-noise DRAFTS...         -> {task: {failed, of, checks}}
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
 canned, so both brains answer the same thing:
@@ -1230,6 +1234,20 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     return out
 
 
+def rescore(report_path: Path, confirm: tuple[Path, Path, Path]) -> dict:
+    """The compare REPORT_PATH wrote, scored again from the same runs with
+    the same settings, its `confirm` suspects confirmed by CONFIRM (main's
+    fresh drafts, the candidate's, the judge's verdicts on them)."""
+    try:
+        first = json.loads(report_path.read_text(encoding="utf-8"))
+        runs = first["runs"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise EvalError(f"{report_path}: not a compare report ({exc})") from None
+    tasks = set(first["tasks"]) if isinstance(first.get("tasks"), list) else None
+    return score(Path(runs["base"]), Path(runs["cand"]), Path(runs["judged"]), float(first["threshold"]),
+                 first.get("min_pairs"), mode=first.get("mode", "tournament"), tasks=tasks, confirm=confirm)
+
+
 # --- the command line --------------------------------------------------------------------------
 
 
@@ -1309,6 +1327,10 @@ def main(argv: list[str]) -> int:
         elif cmd == "score" and len(args) == 5:
             out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]),
                         None if args[4] == "auto" else int(args[4]), mode=opts.get("--mode", "tournament"), tasks=tasks)
+        elif cmd == "rescore" and len(args) == 4:
+            out = rescore(Path(args[0]), (Path(args[1]), Path(args[2]), Path(args[3])))
+        elif cmd == "base-noise" and args:
+            out = base_noise([r for path in args for r in _read_jsonl(Path(path))])
         else:
             print(usage, file=sys.stderr)
             return 2
