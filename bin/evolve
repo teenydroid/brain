@@ -2,7 +2,7 @@
 # Teeny acting on what it learned (docs/evolve.md, "The loop"). The work is
 # bin/lib/evolve.py.
 #
-#   bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+#   bin/evolve run [--candidates N] [--proposals DIR] [--scheduled] [--detach]
 #       One generation in state/evolve/<gen>/: up to N open learnings from
 #       brain/MEMORY.md (what Teeny decided, promised and is in the middle
 #       of), one candidate each in its own worktree off main, from Teeny's
