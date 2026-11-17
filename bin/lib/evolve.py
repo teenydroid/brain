@@ -3531,6 +3531,14 @@ def _lines(paths: Iterable[Path]) -> int:
     return sum(len(read_jsonl(p)) for p in paths)
 
 
+def _report(path: Path) -> Json | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
     """The evaluator on an identical candidate: main's worktree measured
     against main, through the same TargetedEvaluator a generation uses (lab
@@ -3568,8 +3576,8 @@ def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
         for lab in folder.glob("lab-*"):
             shutil.rmtree(lab, ignore_errors=True)
     compare = folder / "eval" / "cand-1" / "compare"
-    report = read_json(compare / "report.json") or {}
-    first = read_json(compare / "first-report.json") or report
+    report = _report(compare / "report.json") or {}
+    first = _report(compare / "first-report.json") or report
     verdict = got.get("verdict") or "unevaluated"
     turns = _lines([*folder.glob("baseline/**/drafts.jsonl"), *folder.glob("eval/**/drafts.jsonl"),
                     *folder.glob("eval/**/*judged.jsonl")])
@@ -3579,17 +3587,13 @@ def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
         "first_verdict": first.get("verdict"), "reason": got.get("reason"),
         "suspects": report.get("suspects") or [],
         "confirmation": {t: c.get("state") for t, c in (report.get("confirmation") or {}).items()},
-        "tasks": len(picked), "samples": evaluator_samples(cfg, picked),
+        "tasks": len(picked), "samples": eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(picked)),
         **{k: report.get(k) for k in ("wins", "losses", "ties", "decided", "signal", "p_worse", "p_better")},
         "base_noise": {t: f"{n['failed']}/{n['of']}" for t, n in (report.get("base_noise") or {}).items()},
         "turns": turns, "folder": str(folder.relative_to(evolve_dir())),
     }
     append_jsonl(evolve_dir() / AA_LOG, line)
     return line
-
-
-def evaluator_samples(cfg: Config, tasks: list[str]) -> int:
-    return eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(tasks))
 
 
 def snapshot(tree: Path) -> tuple[str, str]:
@@ -5336,6 +5340,8 @@ def main(argv: list[str]) -> int:
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
     verbs.add_parser("status", help="open learnings, open pull requests, candidates, any halt")
     verbs.add_parser("resume", help="clear a latched halt")
+    aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
+    aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
     args = parser.parse_args(argv)
     try:
         cfg = load_config()
@@ -5356,6 +5362,11 @@ def main(argv: list[str]) -> int:
             out = credit(cfg)
         elif args.verb == "status":
             out = status()
+        elif args.verb == "aa":
+            # The labs' ports are a generation's: never both at once.
+            with run_lock() as held:
+                out = (aa(cfg, [t for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
+                       else {"ok": True, "kind": "busy", "detail": "a generation is running"})
         else:
             out = resume()
     except (EvolveError, probes_lib.ProbeError) as exc:
