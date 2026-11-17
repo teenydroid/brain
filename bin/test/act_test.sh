@@ -926,7 +926,8 @@ check "a cut input stays JSON, with whole items from the front of its list" \
   jqe '(.builds.jobs | type) == "array" and (.builds.jobs | length) > 0 and (.builds.jobs | length) < 90
     and .builds.jobs[0].id == "b-0" and (.builds.jobs | all(.summary | endswith("x")))' <<<"$inputs_json"
 check "the small inputs are left whole" jqe '(.pending.jobs | length) == 3' <<<"$inputs_json"
-check "the cut falls on the big inputs, not the small ones" jqe '(.people.jobs | length) >= (.builds.jobs | length)' <<<"$inputs_json"
+check "the cut falls on the big inputs: people (9 KB) is left whole while builds (27 KB) is cut" \
+  jqe '(.people.jobs | length) == 30 and (.builds | tojson | length) >= (.people | tojson | length)' <<<"$inputs_json"
 check "the model is told which inputs were cut" grep -q 'cut to fit: archive, builds' <<<"$message"
 check "and the run's record says so" jqe '.cut | index("builds")' "$scratch/state/act/huge/runs.jsonl"
 # One input over the 20,000-char share is cut by items too: before, it was
