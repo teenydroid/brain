@@ -17,7 +17,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from test_evolve import FakePublisher, EvolveCase, Verdicts, git  # noqa: E402
+from test_evolve import CHECK, FakePublisher, EvolveCase, Verdicts, git  # noqa: E402
 
 import evolve  # noqa: E402
 
