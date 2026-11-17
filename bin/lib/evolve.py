@@ -110,6 +110,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
+import evolve_findings  # noqa: E402
 import evolve_outcomes  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
@@ -200,6 +201,10 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # Days a learning skipped as `already` or `not-worth` is not asked about
     # again while its text has not materially changed; doubled for each skip.
     "EVOLVE_SKIP_COOLOFF_DAYS": ("7", int, 1, 365),
+    # Of those, at most this many go to findings (bin/lib/evolve_findings.py:
+    # what the run logs and ledgers count as not working), strongest first;
+    # findings also take the candidates no open learning takes. 0: none.
+    "EVOLVE_FINDING_SLOTS": ("2", int, 0, 8),
     # Two: the pinned job runs after the night's dream and after midday's.
     # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
