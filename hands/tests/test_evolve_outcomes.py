@@ -183,6 +183,28 @@ class Score(unittest.TestCase):
         got = self.score(self.entry({"kind": "act_failed", "playbook": "moltbook-curate", "direction": "fall"}))
         self.assertEqual((got["verdict"], got["before"]), ("no-data", 0))
 
+    def test_a_failure_bin_act_marked_as_the_providers_or_whose_stderr_is_infra_is_not_the_change(self):
+        """bin/act puts the core's error in `stderr` and marks a provider
+        failure `failure: provider`; its `error` only says the draft turn
+        failed (2026-11-14: twelve moltbook-general runs on HTTP 402)."""
+        path = self.ledger.state / "act" / "moltbook-curate" / "runs.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as fh:
+            for h in range(3):
+                fh.write(json.dumps({"at": iso(self.t0 - (h + 1) * HOUR), "ok": False,
+                                     "error": "the draft turn failed", "failure": "provider",
+                                     "stderr": "model error: provider stream ended before a completion signal"}) + "\n")
+                fh.write(json.dumps({"at": iso(self.t0 - (h + 1) * HOUR), "ok": False,
+                                     "error": "the draft turn failed",
+                                     "stderr": "local-openai returned HTTP 402 (insufficient_allowance)"}) + "\n")
+                fh.write(json.dumps({"at": iso(self.t0 - (h + 1) * HOUR), "ok": False,
+                                     "error": "the draft turn failed", "failure": "playbook",
+                                     "stderr": "Prompt flagged for security review"}) + "\n")
+        check = {"kind": "act_failed", "playbook": "moltbook-curate", "direction": "fall"}
+        self.assertEqual(eo.count(check, self.ledger.sources(), self.t0 - DAY, self.t0), 3)
+        flagged = {**check, "contains": ["security review"]}
+        self.assertEqual(eo.count(flagged, self.ledger.sources(), self.t0 - DAY, self.t0), 3)
+
     def test_too_few_events_is_no_data_and_says_how_many(self):
         self.ledger.act("moltbook-curate", self.t0 - HOUR, ok=False)
         got = self.score(self.entry({"kind": "act_failed", "playbook": "moltbook-curate", "direction": "fall"}))

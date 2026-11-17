@@ -110,6 +110,7 @@ sys.path.insert(0, str(CODE / "hands" / "lib"))
 import cron_policy  # noqa: E402
 import evals as evals_lib  # noqa: E402
 import evolve_evidence  # noqa: E402
+import evolve_findings  # noqa: E402
 import evolve_outcomes  # noqa: E402
 import frozen  # noqa: E402
 import lab as lab_lib  # noqa: E402
@@ -200,6 +201,10 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # Days a learning skipped as `already` or `not-worth` is not asked about
     # again while its text has not materially changed; doubled for each skip.
     "EVOLVE_SKIP_COOLOFF_DAYS": ("7", int, 1, 365),
+    # Of those, at most this many go to findings (bin/lib/evolve_findings.py:
+    # what the run logs and ledgers count as not working), strongest first;
+    # findings also take the candidates no open learning takes. 0: none.
+    "EVOLVE_FINDING_SLOTS": ("2", int, 0, 8),
     # Two: the pinned job runs after the night's dream and after midday's.
     # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
@@ -872,6 +877,8 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
     materially differ from: a rewording keeps the count, a material change
     starts it again."""
     days = default_cooloff() if cooloff_days is None else cooloff_days
+    if evolve_findings.is_finding(item):
+        return finding_standing(entries, item, days)
     past = history(entries, item.id)
     infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
     settling = [e for e in past if _settles(e)]
@@ -885,6 +892,86 @@ def standing(entries: Mapping[str, Json], item: Learning, cooloff_days: int | No
         return Standing("in-flight", 0, infra, flying[-1])
     failed = sum(1 for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED))
     return Standing("gave-up" if failed >= MAX_ATTEMPTS else "open", failed, infra)
+
+
+def _level(entry: Mapping[str, Any]) -> int:
+    """The number a finding stood at when ENTRY was a candidate on it."""
+    value = (entry.get("learning") or {}).get("events")
+    return value if isinstance(value, int) else 0
+
+
+def _finding_held(entry: Mapping[str, Any], past: list[Json], item: Any, days: int) -> tuple[bool, float | None]:
+    """Whether the settling ENTRY still holds a finding, and until when.
+    A change that merged holds it until its check is scored (each
+    candidate's check, evolve_outcomes), and then: `worked`, while the
+    number stays at or under where it was; `no-effect` or `hurt`, not at
+    all; `no-data`, until the last horizon is scored. A pull request still
+    open holds it. A cooling skip holds it for its cool-off, as a
+    learning's. Anything else (a frozen or not-actionable skip, a rejected,
+    duplicate, regressed or flagged change, a closed pull request, a dry
+    run's) holds it until the number grows past where it was."""
+    recurs = item.events > _level(entry)
+    if entry.get("verdict") == "opened" and entry.get("merged_at"):
+        spans = _configured_horizons()
+        got = evolve_outcomes.outcome_of(entry, spans)
+        if got in ("no-effect", "hurt"):
+            return False, None
+        if got == "no-data":
+            return evolve_outcomes.key(max(spans)) not in entry, None
+        return got == evolve_outcomes.PENDING or not recurs, None
+    if entry.get("verdict") == "opened" and not entry.get("closed"):
+        return True, None
+    until = cooloff_until(past, entry, days)
+    if until is not None:
+        return now() < until, until
+    return not recurs, None
+
+
+def finding_standing(entries: Mapping[str, Json], item: Any, cooloff_days: int) -> Standing:
+    """Where a finding (bin/lib/evolve_findings.py) stands. A finding is its
+    id, and its text carries its numbers, which move every hour: it is
+    settled by its latest settling candidate as long as `_finding_held`
+    says, never by its wording. Its failed tries are those since that
+    candidate; MAX_ATTEMPTS of them give it up until the number grows past
+    the highest it stood at in them."""
+    past = history(entries, item.id)
+    infra = sum(1 for e in past if e.get("deferred_for") == "infra" or e.get("verdict") == CRASHED)
+    settling = [e for e in past if _settles(e)]
+    tries = past
+    if settling:
+        held, until = _finding_held(settling[-1], past, item, cooloff_days)
+        if held:
+            return Standing("settled", 0, infra, settling[-1], until)
+        tries = past[past.index(settling[-1]) + 1:]
+    flying = [e for e in tries if e.get("verdict") in IN_FLIGHT]
+    if flying:
+        return Standing("in-flight", 0, infra, flying[-1])
+    failed = [e for e in tries if e.get("verdict") not in (*SETTLED, DRY_SETTLED, DEFERRED, CRASHED)]
+    if len(failed) >= MAX_ATTEMPTS and item.events <= max(_level(e) for e in failed):
+        return Standing("gave-up", len(failed), infra)
+    return Standing("open", len(failed), infra)
+
+
+def read_findings(cfg: "Config | None" = None) -> list[Any]:
+    """The findings over the last EVOLVE_OUTCOME_LAST_DAYS days, strongest
+    first (evolve_findings.draw, on the ledgers and run logs a merged
+    change's check is counted on); none when EVOLVE_FINDING_SLOTS is 0.
+    Findings that cannot be drawn never hold up the learnings: none, and
+    the log says why."""
+    cfg = cfg or load_config()
+    if cfg["EVOLVE_FINDING_SLOTS"] <= 0:
+        return []
+    try:
+        return evolve_findings.draw(outcome_sources(cfg), CODE, now(), cfg["EVOLVE_OUTCOME_LAST_DAYS"],
+                                    cfg["EVOLVE_OUTCOME_MIN_EVENTS"])
+    except Exception as exc:  # noqa: BLE001 - the learnings go ahead without findings
+        say(f"findings: none drawn ({type(exc).__name__}: {str(exc)[:200]})")
+        return []
+
+
+def open_findings(entries: Mapping[str, Json], findings: list[Any], cooloff_days: int | None = None) -> list[Any]:
+    """The open findings, strongest first."""
+    return [f for f in findings if standing(entries, f, cooloff_days).state == "open"]
 
 
 def learning_state(entries: Mapping[str, Json], item: Learning, cooloff_days: int | None = None) -> tuple[str, int]:
@@ -1165,7 +1252,10 @@ def apply_edits(tree: Path, edits: Any) -> list[str]:
 def hypothesis_text(proposal: Mapping[str, Any], learning: Mapping[str, Any] | None) -> str:
     title = str(proposal.get("title") or "").strip() or "an untitled change"
     lines = [f"# {title}", ""]
-    if learning:
+    if learning and evolve_findings.is_finding(learning):
+        lines.append(f"- finding: [{learning['id']}] ({learning.get('kind')}): {learning.get('events')} over "
+                     f"{learning.get('days')} days")
+    elif learning:
         lines.append(f"- learning: [{learning['id']}] ({learning['section']})")
     lines += [f"- W component: {proposal.get('component')}",
               f"- expected move: {str(proposal.get('expected_move') or '').strip()}",
@@ -1488,6 +1578,8 @@ def frozen_map() -> str:
 
 
 def learning_text(learning: Mapping[str, Any]) -> str:
+    if evolve_findings.is_finding(learning):
+        return evolve_findings.subject_text(learning)
     return (f"## what you learned\n\n[{learning['id']}] under \"{learning['section']}\" on your page "
             f"(brain/MEMORY.md), as you last wrote it:\n\n> " + "\n> ".join(str(learning["text"]).splitlines()))
 
@@ -1500,11 +1592,14 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
     readable = [c for c in COMPONENTS if c not in unread]
     how = ("by editing files in this worktree with your file tools; your tools are rooted in it, so paths are "
            "relative to the repository" if edits_in_place else "as edits to files in your own repository")
+    finding = evolve_findings.is_finding(request["learning"])
+    lead = (evolve_findings.LEAD.format(how=f", {how}") if finding else
+            "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
+            f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
+            f"act on it from today, {how}.")
     return [
         learning_text(request["learning"]),
-        "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
-        f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
-        f"act on it from today, {how}. One learning, one change, one pull "
+        lead + " One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
@@ -1516,7 +1611,9 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "- `already`: something you run already carries it out; `where` names the file.\n"
         "- `frozen`: carrying it out needs a frozen path; `where` names it, and the operator gets an issue.\n"
         "- `not-actionable`: it is a fact or a feeling, not something a playbook, prompt or job could do.\n"
-        "A skip is kept with the learning, so you are not asked again until you rewrite it.",
+        + ("A skip is kept with the finding, so you are not asked again until its number grows (or, for "
+           "`already`, for some days)." if finding else
+           "A skip is kept with the learning, so you are not asked again until you rewrite it."),
         "## what a good change is\n\n"
         "It makes you act on the learning in a way a stranger would notice: the rule you wrote down followed "
         "every time, the promise kept, the thread you are in the middle of moved. Prefer a delta edit: one "
@@ -1524,7 +1621,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "came of what you made, the last 7 days) is context for it, not a reason of its own.\n\n"
         "Name the one W component your change would show up in (one of: " + ", ".join(readable) + "), as a "
         "label. Pick the change for what it does to people, never for the number.",
-        evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons()),
+        (evolve_findings.check_text(request["learning"]) if finding else
+         evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons())),
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
@@ -1787,6 +1885,9 @@ def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any], files
                 row["settled"] = True
             if e.get("merged_at"):
                 row["merged"] = True
+                # What its check scored: a finding raised again after a
+                # change that did nothing says so (evolve_outcomes).
+                row["outcome"] = evolve_outcomes.outcome_of(e, _configured_horizons())
         for key in ("title", "reason", "eval_reason", "pr_url"):
             if e.get(key):
                 row[key] = str(e[key])[:300]
@@ -2151,8 +2252,11 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
            "The paths you may change are listed below, and the files are shown whole.")
     return [
         learning_text(request["learning"]),
-        "This is something you learned. Before anything is built, decide whether acting on it is worth a change "
-        "to your repository, and if it is, what the smallest change is. " + how,
+        ("This is what your ledgers show. Before anything is built, decide whether a change to what you write "
+         "would move it (never how often or where you post), and if it would, what the smallest change is. "
+         if evolve_findings.is_finding(request["learning"]) else
+         "This is something you learned. Before anything is built, decide whether acting on it is worth a change "
+         "to your repository, and if it is, what the smallest change is. ") + how,
         "## your verdict\n\n"
         "- `build`: a change is worth making. `plan` says in a few lines what to change and where: the smallest "
         "change that makes you act on the learning, with no refactor it does not need. `read` names the files the "
@@ -4150,11 +4254,15 @@ def frozen_issue(cfg: Config, cand: Mapping[str, Any], where: str, note: str, pu
     operator, naming the learning and the path, once per learning text."""
     learning = cand["learning"]
     title = f"Teeny's [{learning['id']}] needs a frozen path: {where or 'unnamed'}"[:120]
-    body = (f"Teeny learned this ({learning['section']} on its page, brain/MEMORY.md):\n\n> "
+    finding = evolve_findings.is_finding(learning)
+    body = ((f"Teeny's ledgers show this (a finding bin/evolve drew from its run logs and ledgers, "
+             f"{learning.get('events')} over {learning.get('days')} days):\n\n> " if finding else
+             f"Teeny learned this ({learning['section']} on its page, brain/MEMORY.md):\n\n> ")
             + "\n> ".join(str(learning["text"]).splitlines())
             + f"\n\nIts evolve candidate {cand['id']} found that acting on it needs a frozen path, which only the "
             f"operator changes.\n\n- frozen path: `{where or 'not named'}`\n- why: {note or 'not given'}\n\n"
-            "bin/evolve will not ask about this learning again until its text changes.")
+            + ("bin/evolve will not ask about this finding again until its number grows." if finding else
+               "bin/evolve will not ask about this learning again until its text changes."))
     return file_issue(cfg, f"frozen:{learning['id']}:{learning['hash']}", "frozen-learning", title, body, publisher,
                       judge=True)
 
@@ -4620,7 +4728,10 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
         try:
             # Against the tree with its edits: a playbook or job the change
             # adds can be checked. What the code cannot count goes back.
-            check = evolve_outcomes.validate(proposal.get("check"), tree)
+            # A finding's check is the count it was drawn from, whatever
+            # the proposer named: `worked` means that number moved.
+            check = evolve_outcomes.validate(learning["check"] if evolve_findings.is_finding(learning)
+                                             else proposal.get("check"), tree)
         except evolve_outcomes.BadCheck as exc:
             say(f"candidate {i}: the check: {str(exc)[:120]}; sent back")
             findings = [{"file": "", "problem": f"the check: {exc}"[:300],
@@ -4843,8 +4954,14 @@ def pr_text(cand: Json) -> tuple[str, str]:
     hyp = (evolve_dir() / cand["hypothesis"]).read_text(encoding="utf-8")[:4000]
     stats = cand.get("diff_stats", {})
     said = "\n> ".join(str(learning.get("text") or "").splitlines())
+    if evolve_findings.is_finding(learning):
+        what = (f"**What my ledgers show** ([{learning.get('id')}], a finding bin/evolve drew from the run logs and "
+                f"ledgers: {learning.get('events')} over {learning.get('days')} days):\n\n> {said}\n\n"
+                f"Its check is that very count: {evolve_outcomes.describe(learning.get('check'))}.")
+    else:
+        what = f"**What I learned** ([{learning.get('id')}], {learning.get('section')}, brain/MEMORY.md):\n\n> {said}"
     body = "\n\n".join([
-        f"**What I learned** ([{learning.get('id')}], {learning.get('section')}, brain/MEMORY.md):\n\n> {said}",
+        what,
         hyp.strip(),
         f"**Lineage**: {cand['id']}, parent {cand['parent']}; {stats.get('files')} file(s), "
         f"+{stats.get('added')} -{stats.get('removed')}; diff {str(cand.get('diff_hash'))[:12]}.",
@@ -5214,7 +5331,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
     if not dry_run():
         refresh_prs(entries, publisher)
     learnings = read_learnings()
-    queue = waiting(entries, learnings)
+    # The second source: what the run logs and ledgers count as not working.
+    findings = read_findings(cfg)
+    queue = waiting(entries, [*learnings, *findings])
     progress["queue"] = queue
     open_count = [len(open_prs(entries))]
     src = source()
@@ -5231,11 +5350,16 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         n, cut = runway.cap_candidates(n)
         if cut:
             say(f"runway: {cut}")
-        waiting_for_box = sandbox_deferred(entries, learnings) if not sandbox_available() else set()
+        waiting_for_box = sandbox_deferred(entries, [*learnings, *findings]) if not sandbox_available() else set()
         if waiting_for_box:
             say(f"no hand-test sandbox yet: {len(waiting_for_box)} learning(s) wait for one")
-        picks = [item.ref() for item in open_learnings(entries, learnings, cfg["EVOLVE_SKIP_COOLOFF_DAYS"])
-                 if item.id not in waiting_for_box][:n]
+        cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
+        # At most EVOLVE_FINDING_SLOTS findings, strongest first; they also
+        # take what no open learning takes (evolve_findings.mix).
+        picks = [item.ref() for item in evolve_findings.mix(
+            [item for item in open_learnings(entries, learnings, cooloff) if item.id not in waiting_for_box],
+            [item for item in open_findings(entries, findings, cooloff) if item.id not in waiting_for_box],
+            n, cfg["EVOLVE_FINDING_SLOTS"])]
         down = reviewer_down(entries, reviewer or make_reviewer(cfg, proposals)) if picks else None
         if down:
             # The last generation's candidates were deferred and the reviewer
@@ -5244,7 +5368,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             say(f"the reviewer still does not answer ({down[:160]}): no generation")
             picks = []
         if not picks:
-            out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings: nothing to act on"}
+            out: Json = {"ok": True, "learnings": 0, "skipped": "no open learnings or findings: nothing to act on"}
             if down:
                 out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
             if queue:
@@ -5775,9 +5899,11 @@ def status() -> Json:
     halt = json.loads(halt_path().read_text(encoding="utf-8")) if halt_path().exists() else None
     learnings = read_learnings()
     try:
-        cooloff = load_config()["EVOLVE_SKIP_COOLOFF_DAYS"]
+        cfg: Config | None = load_config()
+        cooloff = cfg["EVOLVE_SKIP_COOLOFF_DAYS"]
     except EvolveError:
-        cooloff = default_cooloff()
+        cfg, cooloff = None, default_cooloff()
+    findings = read_findings(cfg) if cfg is not None else []
     states: dict[str, list[str]] = {}
     stood = {item.id: standing(entries, item, cooloff) for item in learnings}
     for item in learnings:
@@ -5799,6 +5925,10 @@ def status() -> Json:
                       "not_open": [standing_brief(item, stood[item.id]) for item in learnings
                                    if stood[item.id].state != "open"],
                       "by_state": states},
+        "findings": {"slots": cfg["EVOLVE_FINDING_SLOTS"] if cfg is not None else None,
+                     "current": [{**standing_brief(f, got), "kind": f.kind, "events": f.events, "days": f.days,
+                                  "check": evolve_outcomes.describe(f.check), "text": f.text[:300]}
+                                 for f in findings for got in [standing(entries, f, cooloff)]]},
         "open_prs": [{"id": e["id"], "learning": (e.get("learning") or {}).get("id"), "pr_url": e.get("pr_url"),
                       "branch": e.get("branch"), "status": (e.get("status") or {}).get("state")}
                      for e in open_prs(entries)],
@@ -5876,7 +6006,7 @@ def main(argv: list[str]) -> int:
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
     prb.add_argument("--force", action="store_true", help="with --baseline: replace an existing gen-0")
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
-    verbs.add_parser("status", help="open learnings, open pull requests, candidates, any halt")
+    verbs.add_parser("status", help="open learnings, findings, open pull requests, candidates, any halt")
     verbs.add_parser("resume", help="clear a latched halt")
     aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
     aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
