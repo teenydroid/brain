@@ -191,7 +191,11 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # Up to this many open learnings each generation, one candidate each.
     "EVOLVE_CANDIDATES": ("4", int, 1, 8),
     # Two: the pinned job runs after the night's dream and after midday's.
+    # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
+    # Runs by hand (`run` without --scheduled), a cap of their own, so the
+    # operator's runs never spend the schedule's (0: none by hand).
+    "EVOLVE_MANUAL_GENERATIONS_PER_DAY": ("6", int, 0, 24),
     # Open evolve pull requests at once; past it a passing candidate waits.
     "EVOLVE_MAX_OPEN_PRS": ("4", int, 1, 20),
     "EVOLVE_MAX_J_RISE": ("1.0", float, 0.0, None),
@@ -629,7 +633,9 @@ LEARNING_SECTIONS = ("what i have decided", "promises and open threads", "what i
 MAX_LEARNING_CHARS = 1500
 #: Failed tries (no proposal, inconclusive, unevaluated, a refused pull
 #: request) on one learning's text before the loop stops asking about it;
-#: an edit to the text opens it again.
+#: an edit to the text opens it again. What the loop could not judge is no
+#: try: a deferral (`deferred`, the reviewer, the sandbox or the box failed,
+#: INFRA) or a generation that crashed (`crashed`, end_crashed).
 MAX_ATTEMPTS = 3
 #: The verdicts that settle a learning as it reads now: it was carried out
 #: (a pull request opened), skipped with a reason, or tried and measured.
@@ -639,6 +645,9 @@ IN_FLIGHT = ("pending", "pass", "unmeasurable", "waiting")
 #: What a dry run would have opened; it settles a learning only while
 #: DRY_RUN stays on, so turning DRY_RUN off asks again for real.
 DRY_SETTLED = "dry-run"
+#: A candidate whose generation raised (end_crashed): the loop's fault, no
+#: failed try, and its learning is asked about again at the next run.
+CRASHED = "crashed"
 #: How the reflection snapshots are found: the page before each reflection
 #: (state/reflect/MEMORY-*.md) and after each dream (state/dream/snapshots/).
 SNAPSHOT_GLOBS = (("reflect", "MEMORY-*.md"), ("dream/snapshots", "*.md"))
@@ -729,7 +738,7 @@ def learning_state(entries: Mapping[str, Json], item: Learning) -> tuple[str, in
         return "settled", 0
     if any(e.get("verdict") in IN_FLIGHT for e in tries):
         return "in-flight", 0
-    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred"))
+    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred", CRASHED))
     return ("gave-up" if failed >= MAX_ATTEMPTS else "open"), failed
 
 
