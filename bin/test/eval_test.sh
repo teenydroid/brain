@@ -634,6 +634,25 @@ FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks morning-post,reply-fud --thresho
 check "--threshold is accepted and ignored by a non-regression check" test "$(report '[.verdict, .threshold] | map(tostring) | join(" ")' "$scratch/nr-even6")" = "pass 0.6"
 FAKE_JUDGE=prefer:base nr "$scratch/nr-worse0" --tasks morning-post,reply-fud --threshold 0
 check "and a threshold of 0 does not excuse 0 of 4" test "$(report .verdict "$scratch/nr-worse0")" = regressed
+check "pairs that say worse ask to be confirmed" test "$(report '[.confirm_pairs, .path] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "true pairs"
+
+# --- confirm: worse pairs judged again on a fresh sample of both sides ---------------------------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 --only morning-post,reply-fud "$runs/pbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 --only morning-post,reply-fud "$runs/pcand" >/dev/null 2>&1
+pconfirm() { # JUDGE OUT: copy nr-worse to OUT and confirm its pairs with FAKE_JUDGE=JUDGE; exit code in $code
+  cp -R "$scratch/nr-worse" "$2"
+  code=0
+  FAKE_JUDGE="$1" "$eval_bin" confirm "$2" "$runs/pbase" "$runs/pcand" >/dev/null 2>&1 || code=$?
+}
+: >"$FAKE_CALLS"
+pconfirm prefer:CAND "$scratch/p-refuted"
+check "a fresh sample that is not worse passes" test "$code $(report '[.verdict, .pairs_confirmation.state, .confirm_pairs] | map(tostring) | join(" ")' "$scratch/p-refuted")" = "0 pass refuted false"
+check "its four fresh pairs are judged once each" test "$(judge_turns) $(wc -l <"$scratch/p-refuted/confirm-pairs-judged.jsonl" | tr -d ' ')" = "4 4"
+check "shown each way once within each task" test "$(jq -r 'if .first then "F" else "S" end' "$scratch/p-refuted/confirm-pairs-judged.jsonl" | paste -sd, -)" = "F,S,S,F"
+pconfirm prefer:base "$scratch/p-held"
+check "a fresh sample worse too is regressed, on the pairs path" test "$code $(report '[.verdict, .pairs_confirmation.state, .path] | map(tostring) | join(" ")' "$scratch/p-held")" = "2 regressed confirmed pairs"
 FAKE_JUDGE=first nr "$scratch/nr-all-even"
 check "an even split over every task passes" test "$(report '[.verdict, .signal] | map(tostring) | join(" ")' "$scratch/nr-all-even")" = "pass no detectable difference"
 FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks morning-post
