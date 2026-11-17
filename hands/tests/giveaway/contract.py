@@ -210,8 +210,11 @@ def check_draw(round_: dict) -> dict | None:
     expected = draw.order(round_["seed"]["sha256"], eligible)
     random = sorted(c["handle"] for c in round_["claims"] if c["kind"] == "random")
     first = round_["draw_order"][:round_["winners"]]
+    settled = round_["status"] in ("settled", "clawed_back")
+    claimed = {c["handle"] for c in round_["claims"]}
     return {
         "seed": draw.seed_hash(round_["id"], round_["seed"]["blockhash"]) == round_["seed"]["sha256"],
         "order": expected == round_["draw_order"],
-        "winners": all(h in first for h in random) and len(random) <= round_["winners"],
+        "winners": all(h in first for h in random) and len(random) <= round_["winners"]
+        and (not settled or all(h in claimed for h in first)),
     }

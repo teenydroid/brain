@@ -224,3 +224,15 @@ describe("amounts", () => {
     expect(formatTiny(18_446_744_073_709_551_615n, 6)).toBe("18,446,744,073,709.551615")
   })
 })
+
+describe("checkDraw: drawn winners must hold a leaf once settled", () => {
+  it("fails when a settled round has no leaf for a drawn winner", () => {
+    const round = parse(settled())
+    expect(checkDraw({ ...round, claims: [] })?.winners).toBe(false)
+  })
+
+  it("still passes for a drawn round whose tree is not built yet", () => {
+    const round = parse(settled())
+    expect(checkDraw({ ...round, status: "drawn", claims: [] })?.winners).toBe(true)
+  })
+})

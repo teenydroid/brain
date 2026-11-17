@@ -72,7 +72,9 @@ The `random` winners are the first `winners` handles of `draw_order`. A
 candidate that fails a late check, such as the follow lookup, becomes
 `eligible: false` with a reason and drops out of `draw_order`. Because the
 order is a sort by a per-handle key, removing one handle never reorders the
-others. The page re-runs all three checks from the file and shows the results.
+others. Once a round is `settled` or `clawed_back`, every one of the first `winners`
+handles of `draw_order` must also hold a leaf in `claims` (of either kind).
+The page re-runs all three checks from the file and shows the results.
 
 ### Claims
 

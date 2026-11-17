@@ -382,11 +382,17 @@ export function checkDraw(round: Round): DrawCheck | undefined {
   const expected = drawOrder(round.seed.sha256, eligible)
   const random = round.claims.filter((c) => c.kind === 'random').map((c) => c.handle).sort()
   const first = round.draw_order.slice(0, round.winners)
+  const settled = round.status === 'settled' || round.status === 'clawed_back'
+  const claimed = new Set(round.claims.map((c) => c.handle))
   return {
     seed: seedHash(round.id, round.seed.blockhash) === round.seed.sha256,
     order: expected.length === round.draw_order.length && expected.every((h, i) => h === round.draw_order[i]),
     // A best-reply winner can also be drawn; that person's one leaf then says best_reply.
-    winners: random.every((h) => first.includes(h)) && random.length <= round.winners,
+    winners:
+      random.every((h) => first.includes(h)) &&
+      random.length <= round.winners &&
+      // Once the tree is built, every drawn winner must hold a leaf (of either kind).
+      (!settled || first.every((h) => claimed.has(h))),
   }
 }
 
