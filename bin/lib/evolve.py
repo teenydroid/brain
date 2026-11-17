@@ -640,10 +640,34 @@ LEARNING_SECTIONS = ("what i have decided", "promises and open threads", "what i
 MAX_LEARNING_CHARS = 1500
 #: Failed tries (no proposal, inconclusive, unevaluated, a refused pull
 #: request) on one learning's text before the loop stops asking about it;
-#: an edit to the text opens it again. What the loop could not judge is no
-#: try: a deferral (`deferred`, the reviewer, the sandbox or the box failed,
-#: INFRA) or a generation that crashed (`crashed`, end_crashed).
+#: a material change to the text opens it again. What the loop could not
+#: judge is no try: a deferral (`deferred`, the reviewer, the sandbox or the
+#: box failed, INFRA) or a generation that crashed (`crashed`, end_crashed).
 MAX_ATTEMPTS = 3
+#: 2026-11-17: the dream rewrites an item's wording twice a day, so a text
+#: hash reopened learnings with nothing new in them (gens 9-15: m68 picked
+#: four times, m36 and m53 again after a merge and a skip). A learning is its
+#: id; a rewrite is material, and reopens it, when at least this share of
+#: the new text's content words is not in the text it was settled on.
+#: Replayed on the archive: m68's rewrites add 0.32-0.39, m36's 0.18, m53's
+#: 0, m45's 0.06; m19's rewrite into new rules adds 0.58.
+MATERIAL_SHARE = 0.5
+#: Words too common to tell two wordings apart (with every word under three letters).
+STOPWORDS = frozenset(
+    "and the for but not nor yet its it's this that these those than then when what which who whom how why where "
+    "with from into onto over under about after before only also just very ever never any all each every some "
+    "one ones is are was were be been being has have had having do does did done will would can could should "
+    "may might must shall i'm i've i'd i'll my me mine you your yours our ours they them their theirs his her "
+    "hers him she he so if as at by of on or to up in no out off too own same such more most other".split())
+#: The skips that cool off: what research or the proposer judged of the
+#: learning, which the repository or the world can change. A `frozen` or
+#: `not-actionable` skip, like a pull request, holds until the text changes.
+COOLING_SKIPS = ("already", "not-worth")
+#: The cool-off doubles with each skip of one learning, up to this many times.
+MAX_COOLOFF_DOUBLINGS = 4
+#: The sections whose items are status, not rules: what Teeny is in the
+#: middle of. They are picked after every open rule and promise.
+STATUS_SECTIONS = ("what i am in the middle of",)
 #: The verdicts that settle a learning as it reads now: it was carried out
 #: (a pull request opened), skipped with a reason, or tried and measured.
 SETTLED = ("opened", "skipped", "duplicate", "rejected", "regressed", "flagged")
