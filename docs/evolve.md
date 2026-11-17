@@ -390,7 +390,9 @@ won, B is `regressed` only when P(X <= wins | decided, 0.5) is under 0.10
 line. `--threshold` is accepted in this mode and ignored. The old rule, a win
 rate of at least 0.5, marked a change that did nothing `regressed` 25 to 45
 percent of the time (31% at 4 pairs, 43% at 28, 45% at 60), and `regressed`
-is final; the new rule does so 6%, 9% and 8% of the time. A few cases:
+is final; the new rule does so 6%, 9% and 8% of the time, and a fresh
+sample now has to confirm it ("Confirming the pairs", below). A few first-pass
+cases:
 
 | Decided pairs | Won | P(this few or fewer) | Verdict |
 |---|---|---|---|
