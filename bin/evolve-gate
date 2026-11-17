@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Refuse a candidate the evolve loop may not ship (docs/evolve.md, "What Teeny
+# may change"; DIRECTIVE.md, "The fences that never move"). One command for the
+# whole gate: the frozen paths, a symlink, a rename into a frozen path, a mode
+# change, a binary file, a path that leaves the repository, a diff over 400
+# lines, more than 60 across SOUL.md and CONTEXT.md, a brain/cron.toml
+# bin/seed-cron refuses, a SOUL.md that dropped the anchor, a new hand with no
+# test, and a new hand that does not print exactly one JSON object.
+#
+#   bin/evolve-gate [--root DIR] [--list FILE] [--max-lines N]
+#                   [--max-soul-lines N] BASE [HEAD]
+#
+# BASE..HEAD is diffed from their merge base, as a pull request shows it.
+# Prints one JSON document: {"ok", "refused": [{rule, path, detail}], ...}.
+# Exit 0: nothing refused; 1: refused, every rule named; 2: the check could not
+# run, which also refuses. The work is bin/lib/evolve_gate.py, which bin/evolve
+# calls directly (evolve_gate.evaluate).
+set -euo pipefail
+exec python3 "$(dirname "${BASH_SOURCE[0]}")/lib/evolve_gate.py" "$@"

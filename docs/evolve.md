@@ -76,6 +76,46 @@ Every public action still passes through `hands/guard`, `hands/x`'s posting
 rules and `DRY_RUN`, and all of those are frozen. A worse brain can draft
 worse posts, but it can't loosen what gets out.
 
+### The whole gate in one command (built): `bin/evolve-gate`
+
+`bin/frozen-check` answers one rule. `bin/evolve-gate` answers all of the ones
+that decide whether a candidate may be shipped at all, from one base and one
+head, and says which rule refused it:
+
+```
+bin/evolve-gate [--root DIR] [--list FILE] [--max-lines N] [--max-soul-lines N] BASE [HEAD]
+```
+
+It prints one JSON document, `{"ok", "base", "head", "changed", "lines",
+"soul_lines", "refused": [{rule, path, detail}]}`, and exits `0` when nothing
+is refused, `1` when at least one rule refuses the candidate and `2` when the
+check cannot run (a bad ref, no frozen list), which also refuses. Every rule is
+reported, so a candidate that breaks three is refused with three entries and
+its builder reads them in one round.
+
+| `refused[].rule` | Refuses when |
+|---|---|
+| `frozen-path` | a changed path matches `evals/frozen.txt`, read as of BASE — edited, added, deleted or renamed into or out of it |
+| `symlink` | a changed path is a symlink at HEAD: a link reaches a path the diff does not show |
+| `mode-change` | a file's mode differs between BASE and HEAD (a `chmod +x` on a playbook) |
+| `binary-file` | git reports a changed file as binary |
+| `path-escape` | a changed path has a `..` segment or is absolute |
+| `diff-size` | more than `--max-lines` (400) added and removed lines |
+| `soul-size` | more than `--max-soul-lines` (60) changed lines across `brain/SOUL.md` and `brain/CONTEXT.md` |
+| `cron-policy` | `bin/seed-cron --check` refuses the candidate's `brain/cron.toml` |
+| `soul-anchor` | `brain/SOUL.md` no longer says "$TINY is the one token that is yours, and you never sell it" |
+| `hand-without-test` | a new hand has no `hands/tests/test_<name>.py` and no `hands/tests/<name>/` |
+| `hand-contract` | a new hand, run once with `DRY_RUN=1` and no inherited environment, does not print exactly one JSON object on stdout (or exits other than 0 or 2) |
+
+The frozen list is the base's, never the candidate's, exactly as
+`bin/frozen-check` reads it. `bin/evolve` keeps its own checks — the diff's
+share of the repository rather than a flat 400 lines, `doctor --root`, the
+invariants, the hand tests, the aims — and this command is the offline,
+scriptable surface for the refusal rules, with the caps the review states.
+`bin/test/evolve_gate_test.sh` holds one fixture per rule and the boundary
+cases: a diff of exactly 400 lines and a SOUL.md diff of exactly 60 pass, a
+401 and a 61 are refused.
+
 ## What starts a self change (built)
 
 Once a day the `self-improve` playbook (`brain/cron.toml`, 15:00 India time)
