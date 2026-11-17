@@ -37,6 +37,7 @@ class BabysitScratch(Scratch):
         comments: list[dict[str, Any]] | None = None,
         checks: list[dict[str, Any]] | None = None,
         statuses: list[dict[str, Any]] | None = None,
+        status_list: list[dict[str, Any]] | None = None,
         mergeable: bool | None = True,
         mergeable_state: str = "clean",
         draft: bool = False,
@@ -46,7 +47,14 @@ class BabysitScratch(Scratch):
         permissions: dict[str, str] | None = None,
     ) -> None:
         """Routes one pull request and everything the audit reads about it.
-        By default: by a maintainer, green, approved by the operator at HEAD."""
+        By default: by a maintainer, green, approved by the operator at HEAD.
+
+        `statuses` are the head's commit statuses, newest first, each with
+        its `creator`. They are served as GitHub does: the combined status
+        (`/commits/{ref}/status`) carries the newest per context and no
+        creator, the list (`/commits/{ref}/statuses`) every one with its
+        creator. `status_list` overrides the list, for a history the
+        combined view hides (an older status under a newer one)."""
         owner = repo.split("/")[0]
         head_repo = fork or repo
         self.gh.route("GET", f"/repos/{repo}/pulls/{number}", {
@@ -77,7 +85,14 @@ class BabysitScratch(Scratch):
         self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/check-runs", {"check_runs": checks if checks is not None else [
             {"name": "check", "status": "completed", "conclusion": "success"},
         ]})
-        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/status", {"state": "success", "statuses": statuses or []})
+        newest: dict[str, dict[str, Any]] = {}
+        for s in statuses or []:
+            newest.setdefault(s["context"], {k: v for k, v in s.items() if k != "creator"})
+        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/status",
+                      {"state": "success", "statuses": list(newest.values())})
+        listed = status_list if status_list is not None else statuses or []
+        self.gh.route("GET", f"/repos/{repo}/commits/{HEAD}/statuses",
+                      [dict(s, id=len(listed) - i) for i, s in enumerate(listed)])
         content = base64.b64encode(FROZEN.encode()).decode()
         self.gh.route("GET", f"/repos/{repo}/contents/evals/frozen.txt", {"type": "file", "content": content})
         self.gh.route("GET", f"/repos/{repo}", {"full_name": repo, "default_branch": "main", "owner": {"login": owner}})

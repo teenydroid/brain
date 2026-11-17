@@ -316,7 +316,13 @@ class _Audit:
             self.add("eval_missing", "wait", where, "no teeny/eval status on this head yet")
             return
         self.eval_state = str(found[0].get("state"))
-        if self.tier(found[0].get("creator")) not in (policy.TEENY, policy.OPERATOR):
+        # The combined status names no creator: who set the newest teeny/eval
+        # on this head comes from the statuses list. It must be that newest
+        # one, in the same state the combined view shows, so an older trusted
+        # status cannot vouch for a newer one someone else set.
+        newest = self.api.status_creator(self.owner, self.name, self.head_sha, policy.EVAL_CONTEXT)
+        if (newest is None or newest.get("state") != found[0].get("state")
+                or self.tier(newest.get("creator")) not in (policy.TEENY, policy.OPERATOR)):
             self.add("eval_untrusted", "wait", where, "set by someone other than Teeny or an operator")
 
     # --- the verdict -----------------------------------------------------------------------
