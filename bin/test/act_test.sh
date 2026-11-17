@@ -345,6 +345,85 @@ check "a thread is read joined, and its rewrite is a thread" \
 check "the rewrite turn asks for posts" bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -q '\"posts\": \['"
 rm -f "$brain/playbooks/show.md"
 
+# --- a rewrite is held to X's 280 before it is sent ---------------------------------
+# 2026-11-17, show: the rewrite came back at 304 characters, hands/x refused it,
+# and the slot's post was lost. The rewrite turn is told the limit, a rewrite
+# over it gets one turn to shorten it, and one still over is a skip: never
+# sent, and never the draft the cold reader turned down in its place.
+long="$(printf 'strangers try to trick me %.0s' $(seq 12))"
+long="${long% }" # 311 characters
+other="$(printf 'people keep trying to fool me %.0s' $(seq 10))"
+other="${other% }" # 299 characters
+draft_file() { printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"; }
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t, meaning: "m"}' >"$scratch/second.txt"
+answer '{"action": "post", "text": "strangers try to trick me every day", "meaning": "m"}'
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "the rewrite turn is told X's limit" \
+  bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280 characters'"
+check "a rewrite over 280 gets one turn to shorten it" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 3
+check "the shorten turn says how long the rewrite is and the limit" \
+  bash -c "sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF '311 characters' && sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280'"
+check "and the shortened rewrite is posted" \
+  grep -q '^x post DRY_RUN= stdin={"text":"strangers try to trick me every day","anchor":"hn:1"}' "$FAKE_HANDS"
+check "the over-long rewrite is never sent" bash -c "! grep '^x post' '$FAKE_HANDS' | grep -qF '$long'"
+check "the shortened rewrite faces both judges" \
+  test "$(clarity_asks | sed -n 2p | jq -r .text)" = "strangers try to trick me every day"
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
+answer "$(jq -cn --arg t "$other" '{action: "post", text: $t}')"
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "a rewrite still over 280 after shortening is a skip that says so" \
+  test "$(jq -c '.actions[0] | [.action, .reason, .draft, .rewrite]' <<<"$out")" = \
+    "$(jq -cn --arg o "$other" '["skip", "the rewrite is 299 characters, over the 280 limit", "my week logged 33 held writes", $o]')"
+check "and nothing is posted, neither the rewrite nor the draft" test "$(hand_calls x | tr -d ' ')" = 1 # the input search only
+check "and the too-long rewrite is not put to the judges" test "$(clarity_asks | wc -l | tr -d ' ')" = 1
+check "and it spends no daily budget" test "$(jq -r .left_today <<<"$out")" = 1
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
+answer '{"action": "skip", "reason": "cannot be said in 280"}'
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "a shorten turn that gives nothing is a skip with the rewrite's length" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / the rewrite is 311 characters, over the 280 limit"
+
+reset
+book show post 1
+printf '%s' '{"action": "post", "anchor": "pr 212", "posts": ["33 held writes", "0 let through"]}' >"$scratch/first.txt"
+jq -cn --arg t "$long" '{action: "post", posts: ["strangers try to trick me", $t]}' >"$scratch/second.txt"
+answer "$(jq -cn --arg t "$other" '{action: "post", posts: ["strangers try to trick me", $t]}')"
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run show)"
+check "each post of a rewritten thread is held to 280, and the skip names the one over" \
+  test "$(jq -r '.actions[0].reason' <<<"$out")" = "post 2 of the rewrite is 299 characters, over the 280 limit"
+check "and no thread is sent" bash -c "! grep -q '^x post-thread' '$FAKE_HANDS'"
+rm -f "$brain/playbooks/show.md"
+
+# --- the rewrite turn runs inside the time a cron shell job has ---------------------
+# The same show run's rewrite turn took eleven minutes (curl's --max-time is 900 s);
+# the core gives a cron shell job 300 s.
+reset
+draft_file
+answer '{"action": "post", "text": "strangers try to trick me every day"}'
+started=$SECONDS
+out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_BUDGET_SECS=12 TEENY_ACT_REWRITE_RESERVE_SECS=0 TEENY_ACT_REWRITE_MIN_SECS=1 \
+  FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+took=$((SECONDS - started))
+check "a slow rewrite turn is cut off inside the run's time ($took s)" test "$took" -lt 30
+check "and is a skip that says the rewrite ran out of time" \
+  bash -c "jq -r '.actions[0].action + \" / \" + .actions[0].reason' <<<'$out' | grep -q '^skip / the rewrite turn did not answer within [0-9]* s'"
+check "and nothing is posted" test "$(hand_calls x | tr -d ' ')" = 1
+
+reset
+draft_file
+out="$(TEENY_ACT_BUDGET_SECS=0 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+check "with no time left, no rewrite is asked and the draft is skipped" \
+  bash -c "jq -r '.actions[0].reason' <<<'$out' | grep -q '^no time left for a rewrite' && [ \"\$(wc -l <'$FAKE_CALLS' | tr -d ' ')\" = 1 ]"
+
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
 printf '%s' '": "post", "text": "gm"}' >"$scratch/first.txt"
