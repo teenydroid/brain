@@ -533,6 +533,31 @@ fail_some "$runs/cand2/drafts.jsonl" morning-post 2
 FAKE_JUDGE=prefer:CAND two "$scratch/both"
 check "failing both is a regression" test "$(report '.regressions | join(",")' "$scratch/both")" = morning-post
 check "that keeps it out" test "$(report .promote "$scratch/both")" = false
+check "and asks to be confirmed" test "$(report '.confirm | join(",")' "$scratch/both")" = morning-post
+
+# --- confirm: the suspect drafted afresh on both sides decides --------------------------------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 6 --only morning-post "$runs/cbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 6 --only morning-post "$runs/ccand" >/dev/null 2>&1
+confirmed() { # FIRST OUT: copy compare FIRST to OUT and confirm it; exit code in $code
+  cp -R "$1" "$2"
+  code=0
+  FAKE_JUDGE=prefer:CAND "$eval_bin" confirm "$2" "$runs/cbase" "$runs/ccand" >/dev/null 2>&1 || code=$?
+}
+: >"$FAKE_CALLS"
+confirmed "$scratch/both" "$scratch/refuted"
+check "fresh drafts that pass set the regression aside" test "$(report '[.verdict, .promote, .confirmation["morning-post"].state] | map(tostring) | join(" ")' "$scratch/refuted")" = "won true refuted"
+check "and confirm exits 0" test "$code" = 0
+check "the fresh pairs are judged, and only those" test "$(judge_turns) $(wc -l <"$scratch/refuted/confirm-judged.jsonl" | tr -d ' ')" = "6 6"
+check "the first report is kept" test "$(report .verdict "$scratch/refuted/first-report.json")" = lost
+fail_some "$runs/ccand/drafts.jsonl" morning-post 1 2 3 4 5 6
+confirmed "$scratch/both" "$scratch/held"
+check "fresh drafts failing where main's pass confirm it" test "$(report '[.verdict, .confirmation["morning-post"].state] | map(tostring) | join(" ")' "$scratch/held")" = "lost confirmed"
+check "with confirm exiting 2" test "$code" = 2
+check "and the reason says so" grep -q 'confirmed: morning-post on 6 fresh pair' <<<"$(report .reason "$scratch/held")"
+confirmed "$scratch/stray" "$scratch/nothing"
+check "a compare with nothing to confirm is left as it was" test "$code $(report .promote "$scratch/nothing") $([ -e "$scratch/nothing/first-report.json" ] && echo kept || echo none)" = "0 true none"
 draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
 margin="$(python3 -c "import sys; sys.path.insert(0, '$repo/bin/lib'); import evals; print(evals.regression_margin($tasks * 2))")"
