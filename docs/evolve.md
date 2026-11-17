@@ -1187,9 +1187,8 @@ not apply" as before. A proposal that parses but lacks a field (no
 hypothesis, title or expected move, or no known component), or whose `check`
 the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
 playbook, cron job or refusal rule that does not exist in the candidate's
-tree, a `contains` that is not a short literal; a proposer that can is first
-asked for the check alone, "Outcomes" below), ends the round the
-same way, outcome `out-of-shape`, with a finding that names the missing
+tree, a `contains` that is not a short literal), ends the round the
+same way, unless a shape repair mends it first ("Outcomes" below), outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
 is `no-proposal`, one failed try like a park. An answer that is not JSON at
@@ -1774,15 +1773,22 @@ a playbook, job or rule that does not exist, an unreadable `contains`. The
 brief's answer shape no longer shows a `direction` for every kind; it says
 `judged` takes none, with a judged example.
 
-**A bad check alone costs no round.** When the rest of a proposal is fine
-and only its check cannot be used, a proposer that can (`ask`, and
-`evolver` through the proposer agent's tool-less turn on the live core) is
-asked once for the check alone (`fix_check`: the change's title, expected
-move and check, the problem, and the kinds; a few KiB). A usable answer is
-written into that round's proposal (so a restart replays it) and the round
-goes on to the gate. A failed turn or a still unusable check falls back to
-the finding and the next round, as before. A learning that carries its own
-check is never re-asked.
+**Shape repairs** (`repair_shape`, since 2026-11-17). Gen 16 lost two build
+rounds to answer-shape slips, not to the change: candidate 2 to a judged
+check's `direction` (now normalised), candidate 3 (m19) to a proposal that
+named no W component. When a proposal's change is there but its answer lacks
+or spoils a field (`component`, `title`, `expected_move`, `hypothesis`, or a
+`check` the code cannot count), a proposer that can (`ask`, and `evolver`
+through the proposer agent's tool-less turn on the live core) is asked once
+for those fields alone: a small turn shown its own account and what was
+wrong. Only the asked fields are taken from the answer, never edits; the
+result must pass the same validation, is written into that round's proposal
+(marked `repaired`, so a restart replays it) and goes on to the gate in the
+same round. A failed turn or a still-unusable answer falls back to the
+finding and the next round, as before (`repair_failed`). At most
+`MAX_SHAPE_REPAIRS` (2) a candidate, tried or not, so it cannot loop. Nothing
+is defaulted in code: a component guessed is a label the proposer never
+chose. A learning that carries its own check is never asked to repair it.
 
 **Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
 scores every merged candidate with a check at every horizon
