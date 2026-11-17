@@ -290,6 +290,12 @@ commit
 passes "a new hand with a test that keeps the contract passes"
 
 branch
+hand_sparrow
+put hands/lib/teeny_hands/sparrow/__init__.py "VERSION = 1"
+commit
+passes "a new hand with a library package of its own passes"
+
+branch
 hand_sparrow guardian
 hand_sparrow xylophone
 commit
@@ -336,6 +342,16 @@ branch
 put hands/lib/teeny_hands/hand.py "no contract"
 commit
 refuses "an edit to an existing file in hands/lib/teeny_hands/ is refused" frozen-path
+
+branch
+put hands/lib/teeny_hands/hand/__init__.py "def run(*args): return 0"
+commit
+refuses "a new package beside an existing module (hand/ beside hand.py) is refused" escape
+
+branch
+put hands/lib/teeny_hands/websites/extra.py "x = 1"
+commit
+refuses "a new file in a directory named like an existing module is refused" escape
 
 branch
 ln -s ../../bin/act "$fx/brain/playbooks/x.md"

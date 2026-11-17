@@ -34,7 +34,11 @@ The eight rules (registry `approvedScope`):
                  containing `...`. Also closed here, as the existing hard
                  gate does (bin/lib/evolve.py, hard_gate): a file under
                  hands/lib/ beside teeny_hands/ would stand in for the
-                 standard library under frozen code.
+                 standard library under frozen code, and a new package
+                 directory beside an existing module of the same name
+                 (hands/lib/teeny_hands/hand/ beside hand.py) would stand
+                 in for that module: Python imports a package before a
+                 module, so frozen code would run the new one.
 3. cron          bin/seed-cron --check fails on the candidate's brain/cron.toml.
 4. doctor        bin/doctor --root CANDIDATE fails, run offline (no --live).
 5. invariants    an invariant anchor stops matching (bin/eval invariants).
@@ -402,6 +406,22 @@ def _is_allowed(path: str, base_tree: set[str], patterns: list[str]) -> str | No
     return "outside the allowed set"
 
 
+def _shadowed_module(path: str, base_tree: set[str]) -> str | None:
+    """The module at BASE that PATH would stand in for, or None. Under
+    hands/lib/, a directory `D/` beside a module `D.py` is imported in its
+    place (a package wins over a module of the same name), so a new file in
+    hands/lib/teeny_hands/hand/ replaces the frozen hand.py for everything
+    that imports it, however the file is named."""
+    if not path.startswith("hands/lib/"):
+        return None
+    parts = path.split("/")
+    for depth in range(3, len(parts)):
+        module = "/".join(parts[:depth]) + ".py"
+        if module in base_tree:
+            return module
+    return None
+
+
 def rule_frozen(changes: list[Change], base_tree: set[str], patterns: list[str]) -> Refusal | None:
     """Rule 1: a change touches a frozen path."""
     bad: list[tuple[str, str]] = []
@@ -445,6 +465,9 @@ def rule_escape(changes: list[Change], base_tree: set[str], base_blobs_map: dict
                 _matches_frozen(change.path, patterns)
                 or _is_allowed(change.path, base_tree, patterns)):
             reasons.append(f"copy of {base_blobs_map[change.blob]} into a frozen path")
+        shadowed = None if change.status == "D" else _shadowed_module(change.path, base_tree)
+        if shadowed:
+            reasons.append(f"package beside {shadowed} (imported in its place)")
         if change.path.startswith("hands/lib/") and not change.path.startswith("hands/lib/teeny_hands/"):
             reasons.append("file under hands/lib/ beside teeny_hands/ (shadows the standard library)")
         if change.status != "D" and change.added is None:
