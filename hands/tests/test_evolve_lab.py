@@ -430,7 +430,7 @@ class TargetedEvaluation(LabCase):
         base = [d for d in self.drafts() if d[0] == self.port]
         cand = [d for d in self.drafts() if d[0] == self.port + 1]
         self.assertEqual((len(base), len(cand)), (1 + 6, 1 + 6))
-        confirm = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "confirm"
+        confirm = evolve.evolve_dir() / "1" / "eval" / "cand-1" / "compare" / "confirm"
         self.assertEqual(len(evolve.read_jsonl(confirm / "base" / "drafts.jsonl")), 6)
         (cached,) = (evolve.evolve_dir() / "baseline").glob("*/s1-m-1/drafts.jsonl")
         self.assertEqual(len(evolve.read_jsonl(cached)), 1)  # the cache is left as it was
