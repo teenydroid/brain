@@ -1179,6 +1179,10 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
+    refuted = [t for t, c in (confirmation or {}).items() if c["state"] == "refuted"]
+    if refuted:
+        reason += ("; the hard-check regression first seen on " + ", ".join(refuted) + " did not hold up: "
+                   + "; ".join(_confirmation_text(t, confirmation[t]) for t in refuted))
     passes_wins = not worse if mode == "nonregression" else win_rate >= threshold
     good = not regressions and not unsure and not short and passes_wins
     if mode == "nonregression":
