@@ -1040,7 +1040,8 @@ def unmeasurable(mode: str, tasks: list[str] | None, threshold: float) -> dict:
 
 
 def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int | None,
-          mode: str = "tournament", tasks: set[str] | None = None) -> dict:
+          mode: str = "tournament", tasks: set[str] | None = None,
+          confirm: tuple[Path, Path, Path] | None = None) -> dict:
     """The report of a compare. MODE is a tournament (verdicts won, lost,
     inconclusive) or a non-regression check (pass, regressed,
     inconclusive); TASKS, when given, is the only tasks scored, and with no
@@ -1048,7 +1049,14 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     12 in a tournament and auto_min_pairs() in a non-regression check.
     THRESHOLD is the win rate a tournament needs; a non-regression check
     ignores it and asks for evidence instead (SIGNAL_P): it is worse only
-    when so few wins would be rare for two alike sides (binomial_tails)."""
+    when so few wins would be rare for two alike sides (binomial_tails).
+
+    A task the hard-check rule names (`suspects`) with no fence failed is
+    listed under `confirm` and still `regressed`, until CONFIRM (main's
+    fresh drafts of those tasks, the candidate's, and the judge's verdicts on
+    them: `bin/eval confirm`) is given: then only the suspects
+    confirm_regressions() confirms regress, the rest are set aside, and the
+    verdict is whatever else says (`confirmation` has each one's test)."""
     if mode not in MODES:
         raise EvalError(f"mode is one of {', '.join(MODES)}")
     visible_selected = None if tasks is None else set(tasks) - set(heldout_ids(heldout_dir()))
