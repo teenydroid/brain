@@ -1575,6 +1575,8 @@ def frozen_map() -> str:
 
 
 def learning_text(learning: Mapping[str, Any]) -> str:
+    if evolve_findings.is_finding(learning):
+        return evolve_findings.subject_text(learning)
     return (f"## what you learned\n\n[{learning['id']}] under \"{learning['section']}\" on your page "
             f"(brain/MEMORY.md), as you last wrote it:\n\n> " + "\n> ".join(str(learning["text"]).splitlines()))
 
@@ -1587,11 +1589,14 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
     readable = [c for c in COMPONENTS if c not in unread]
     how = ("by editing files in this worktree with your file tools; your tools are rooted in it, so paths are "
            "relative to the repository" if edits_in_place else "as edits to files in your own repository")
+    finding = evolve_findings.is_finding(request["learning"])
+    lead = (evolve_findings.LEAD.format(how=f", {how}") if finding else
+            "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
+            f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
+            f"act on it from today, {how}.")
     return [
         learning_text(request["learning"]),
-        "This is something you learned. Make the smallest change to your playbooks, prompts, skills, cron "
-        f"schedule, a hand of yours (new, or a small edit to one that is not frozen) and its docs that makes you "
-        f"act on it from today, {how}. One learning, one change, one pull "
+        lead + " One learning, one change, one pull "
         "request. bin/evolve throws it out for good if it touches a frozen path, changes more than "
         f"{request.get('max_lines') or 'a few hundred'} lines, or more than {MAX_SOUL_CONTEXT_LINES} in SOUL.md "
         "and CONTEXT.md together. Every other check (tests for every new hand, the cron rules, the doctor, the "
@@ -1603,7 +1608,9 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "- `already`: something you run already carries it out; `where` names the file.\n"
         "- `frozen`: carrying it out needs a frozen path; `where` names it, and the operator gets an issue.\n"
         "- `not-actionable`: it is a fact or a feeling, not something a playbook, prompt or job could do.\n"
-        "A skip is kept with the learning, so you are not asked again until you rewrite it.",
+        + ("A skip is kept with the finding, so you are not asked again until its number grows (or, for "
+           "`already`, for some days)." if finding else
+           "A skip is kept with the learning, so you are not asked again until you rewrite it."),
         "## what a good change is\n\n"
         "It makes you act on the learning in a way a stranger would notice: the rule you wrote down followed "
         "every time, the promise kept, the thread you are in the middle of moved. Prefer a delta edit: one "
@@ -1611,7 +1618,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "came of what you made, the last 7 days) is context for it, not a reason of its own.\n\n"
         "Name the one W component your change would show up in (one of: " + ", ".join(readable) + "), as a "
         "label. Pick the change for what it does to people, never for the number.",
-        evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons()),
+        (evolve_findings.check_text(request["learning"]) if finding else
+         evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons())),
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
@@ -1874,6 +1882,9 @@ def tried_before(entries: Mapping[str, Json], learning: Mapping[str, Any], files
                 row["settled"] = True
             if e.get("merged_at"):
                 row["merged"] = True
+                # What its check scored: a finding raised again after a
+                # change that did nothing says so (evolve_outcomes).
+                row["outcome"] = evolve_outcomes.outcome_of(e, _configured_horizons())
         for key in ("title", "reason", "eval_reason", "pr_url"):
             if e.get(key):
                 row[key] = str(e[key])[:300]
