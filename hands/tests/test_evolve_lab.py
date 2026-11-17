@@ -366,9 +366,11 @@ class TargetedEvaluation(LabCase):
         self.assertEqual(sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in self.spines()),
                          [self.port, self.port + 1, self.port + 2])
         drafts = self.drafts()
-        # The baseline drafts the union of the tasks, once, with the whole budget.
+        # The baseline drafts the union of the tasks, once, with the whole budget;
+        # candidate 2's pairs said worse, so main also drafts a fresh sample of
+        # its task to confirm it, with candidate 2's share.
         self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
-                         [("morning-post", "4"), ("shiplog-numbers", "4")])
+                         [("morning-post", "4"), ("shiplog-numbers", "2"), ("shiplog-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
         self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
                          [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
