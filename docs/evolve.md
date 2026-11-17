@@ -1127,8 +1127,10 @@ shown the files it may edit, asked once more when its answer doesn't
 parse), `EvolverProposer` (`EVOLVE_PROPOSER=evolver`: the `evolver` agent
 editing the worktree on a lab spine with `SPINE_LAB_EDIT=1`) and
 `FileProposer` (`--proposals DIR`, `DIR/cand-<i>.json`, for the operator and
-the tests). The answer is `{title, component, expected_move, hypothesis,
-edits}` or `{skip, why, where}`.
+the tests). The answer is `{title, component, expected_move, check,
+hypothesis, edits}` or `{skip, why, where}`. `check` says how the code will
+see the expected move after the merge ("Outcomes" below); the brief lists its
+kinds.
 
 **What the build is shown.** The paths it may change are every tracked file
 under `brain/`, `hands/` and `docs/` that is not frozen (`EDITABLE_ROOTS`; so
@@ -1146,7 +1148,7 @@ need is welcome.
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
 `.git` or `HYPOTHESIS.md`. `HYPOTHESIS.md` (title, learning, W component,
-expected move, hypothesis) is written beside the change and goes into the
+expected move, check, hypothesis) is written beside the change and goes into the
 pull request's body, never its diff.
 
 **Near-duplicates** of an archived change, or of another candidate of the
@@ -1182,7 +1184,10 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 Edits that do not apply (an old text not found once) end the round with that
 as a finding, and the next round's message carries "## your last edits did
 not apply" as before. A proposal that parses but lacks a field (no
-hypothesis, title or expected move, or no known component) ends the round the
+hypothesis, title or expected move, or no known component), or whose `check`
+the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
+playbook, cron job or refusal rule that does not exist in the candidate's
+tree, a `contains` that is not a short literal), ends the round the
 same way, outcome `out-of-shape`, with a finding that names the missing
 field; until 2026-11-16 it ended the candidate on the first answer
 (generation 12, candidate 4). A candidate whose every round was out of shape
@@ -1600,7 +1605,10 @@ candidate records `id` (`g<gen>c<i>`), `gen`, `cand`, `parent`, `base`,
 it in `state/evolve/<gen>/`), `gate`, `skip`, `eval` (the targeted eval's
 summary) with `report`, `verdict`, then `branch`, `head_sha`, `pr_url`,
 `pr_number` and `status`, and later `merged_at`, `merge_sha`, `chronicle`,
-`delta_j` and `credit`.
+`delta_j` and `credit`. A candidate proposed since 2026-11-17 also records its
+`check`, and once merged one `outcome_<n>d` per horizon ("Outcomes"). Each
+outcome is its own line holding only that key, so a later full re-record of
+the entry (credit) cannot drop it.
 
 ### 9. Lineage credit (HGM)
 
@@ -1656,6 +1664,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_WATCH_SPIKE`, `EVOLVE_WATCH_MIN_EVENTS`, `EVOLVE_WATCH_P` | `2.0`, `3`, `0.01` | a spike: at least this many events, and a rate over this many times the week's that an exact test puts under this p |
 | `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
+| `EVOLVE_OUTCOME_DAYS`, `EVOLVE_OUTCOME_LAST_DAYS` | `2`, `7` | the horizons a merged change's `check` is scored at ("Outcomes") |
+| `EVOLVE_OUTCOME_MIN_EVENTS`, `EVOLVE_OUTCOME_P` | `4`, `0.1` | fewer events than this in both windows is `no-data`; a move is an exact-test tail under this p |
 
 Three more halts don't latch and open one issue a day: a doctor report
 (`state/doctor.json`) that isn't green, a last-good boot
@@ -1722,6 +1732,68 @@ is closed after 72 hours, and the watch moves on to the next.
 The reasons stay out of Teeny's view: they are written only to
 `secrets/evolve-watch/` (mode 700). The revert's title and body, the halt,
 the issue, the log and the printed result say only that the watch reverted.
+
+### Outcomes: did the change do what it said?
+
+The watch above looks only for harm. Until 2026-11-17 nothing ever read a
+merged change's `expected_move` again: of the five merged by then (g9c4,
+g12c2, g13c1, g13c2, g13c3) two were `unmeasurable` by the eval ("live
+outcomes and evolve-watch are its test") and the two measured scored no
+detectable difference, so nobody could say whether any changed what Teeny
+does. Now every proposal carries a `check` the code can count
+(`bin/lib/evolve_outcomes.py`), one of a closed list:
+
+| kind | fields | what it counts |
+|---|---|---|
+| `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); an `INFRA_ERROR` is left out |
+| `refusals` | `rule`, `playbook?`, `verb?` | actions a hand refused by that rule, in bin/act runs and beats (`state/tick/runs.jsonl`, a result's `do` is the verb); `held` for a guard hold |
+| `cron_failed` | `job` | failed runs of a job of `brain/cron.toml` or the pinned schedule (storage.db), boots and `INFRA_ERROR` left out as in the watch |
+| `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default) |
+| `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
+| `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
+| `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
+
+Every kind but `judged` takes a `direction`: `fall`, `rise` or `zero`. The
+check is validated against the candidate's own tree (so a playbook the
+change adds counts), stored on the entry, written into `HYPOTHESIS.md` and
+shown to the reviewer. The five merged before it have no check and show as
+`no-check`.
+
+**Scoring.** The hourly `evolve-watch`, before it looks at the newest merge,
+scores every merged candidate with a check at every horizon
+(`EVOLVE_OUTCOME_DAYS`, 2, and `EVOLVE_OUTCOME_LAST_DAYS`, 7) it has reached
+and has no outcome for, oldest merge first (`score_outcomes`). The count of
+the H days after the merge is set against the H days before it: with N
+events in both, the after count is Binomial(N, ½) when nothing changed, and
+a tail under `EVOLVE_OUTCOME_P` (0.1) is a move. `worked` is a move the way
+the check said (for `zero`: nothing after, enough before), `hurt` a move the
+other way, `no-effect` neither, and `no-data` fewer than
+`EVOLVE_OUTCOME_MIN_EVENTS` (4) events, with how many were seen. A `judged`
+check shows the tool-less `judge` agent (`EVOLVE_JUDGE_MODEL`) the expected
+move and up to six of Teeny's own sends on that surface from each side, as
+data, and takes `worked`, `no-effect` or `hurt`; nothing sent on one side is
+`no-data` without a turn. A ledger that cannot be read, or a judge that does
+not answer, is tried again each hour for two days, then recorded `no-data`.
+Each outcome keeps the before and after counts, the windows, the p, and
+`overlaps`: the other merges inside the windows, which may have moved the
+count too.
+
+**What reads it.** `bin/evolve status` shows each merged candidate's check
+and `outcome` (its latest horizon's verdict, `pending` before the first,
+`no-check` without one) and a tally under `outcomes`. `observe` hands the
+next proposer the newest eight merged changes (what each tried and expected,
+and what was counted) as `merged_changes`, at most 4 KiB, under "## what came
+of your merged changes", so a kind of change that keeps scoring `no-effect`
+stops being proposed and one that worked can be built on. The dream
+(`bin/lib/dream.py`) lists each outcome scored since it last dreamed, so the
+reflection can write what it learned from it; no code writes
+`brain/MEMORY.md`.
+
+**No revert.** An outcome never reverts or halts anything: `no-effect` is
+the commonest honest answer, and `hurt` is recorded for the operator and the
+next proposer. evolve-watch's own rules above still decide reverts. A change
+the watch reverted is scored like any other (its after window may cover the
+revert).
 
 ### The persona and memory probes
 

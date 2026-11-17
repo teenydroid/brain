@@ -25,6 +25,8 @@ sys.path.insert(0, str(REPO / "bin" / "lib"))
 import evolve  # noqa: E402
 
 T0 = 1_794_398_400.0  # 2026-11-11T12:00:00Z
+#: A proposal's check (bin/lib/evolve_outcomes.py): every proposal names one.
+CHECK = {"kind": "judged", "surface": "moltbook"}
 DAY = 86400.0
 SECRET_ID = "heldout-whisper"
 SECRET_PROMPT = "Reply to the lighthouse keeper who asks about the tide clock"
@@ -213,7 +215,8 @@ class EvolveCase(unittest.TestCase):
     def propose(self, i, edits, component="attention", title=None):
         (self.props / f"cand-{i}.json").write_text(json.dumps({
             "title": title or f"candidate {i}", "component": component, "expected_move": "+1% in a week",
-            "hypothesis": f"Hypothesis {i}: what is weak, the change, the effect.", "edits": edits}))
+            "check": CHECK, "hypothesis": f"Hypothesis {i}: what is weak, the change, the effect.",
+            "edits": edits}))
 
     def skip(self, i, why, where=""):
         (self.props / f"cand-{i}.json").write_text(json.dumps({"skip": f"no change for {i}", "why": why,
@@ -338,9 +341,10 @@ class Learnings(EvolveCase):
                 path = "brain/playbooks/moltbook-follow.md"
                 if old:
                     return {"title": "t", "component": "attention", "expected_move": "+1%",
-                            "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
+                            "check": CHECK, "hypothesis": "h", "edits": [{"path": path, "old": old, "new": line}]}
                 text = (REPO / path).read_text(encoding="utf-8")
-                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK,
+                        "hypothesis": "h",
                         "edits": [{"path": path, "old": text, "new": text + line + "\n"}]}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Retry()):
@@ -359,7 +363,8 @@ class Learnings(EvolveCase):
 
             def propose(self, request):
                 calls.append(request)
-                return {"title": "t", "component": "attention", "expected_move": "+1%", "hypothesis": "h",
+                return {"title": "t", "component": "attention", "expected_move": "+1%", "check": CHECK,
+                        "hypothesis": "h",
                         "edits": [{"path": "brain/SOUL.md", "old": "not in the file", "new": "x"}]}
 
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=Wrong()):
@@ -1347,7 +1352,7 @@ class AskProposerTurn(EvolveCase):
         calls = self.root / "oh.log"
         fake = self.root / "fake-oh"
         answer = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "+1%",
-                             "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
+                             "check": CHECK, "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
                         "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' "
                         + "'" + answer.replace("'", "'\\''") + "'\n")
@@ -1382,7 +1387,7 @@ class AskProposerTurn(EvolveCase):
         count = self.root / "count"
         fake = self.root / "fake-oh"
         good = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "people answer",
-                           "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
+                           "check": CHECK, "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
         cut = good[:60]  # gen 3 on the box: "Unterminated string starting at ..."
         fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
                         "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
