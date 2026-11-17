@@ -325,6 +325,9 @@ bin/eval compare A B OUT  each pair judged once by the `judge` agent, A and B
   --mode M                tournament (the default) or nonregression
   --tasks IDS             judge and score these tasks only
   --both-orders           judge each pair twice, both orders, as before
+bin/eval confirm COMPARE BASE CAND
+                          the hard-check regressions COMPARE saw, judged again on
+                          fresh runs of just those tasks ("Confirming a regression")
 bin/eval affected --root DIR --base SHA
                           the tasks DIR's changes against SHA can reach
 --with-heldout            on run and compare, the held-out tasks too (see "Held-out tasks")
@@ -332,7 +335,7 @@ bin/eval affected --root DIR --base SHA
 
 `compare` exits 0 when the candidate is promoted (`won`, `pass`), 2 when it
 isn't (`lost`, `regressed`, `inconclusive`), 3 when it is `unmeasurable`,
-and 1 on an error.
+and 1 on an error. `confirm` exits the same way.
 
 Hard checks need no model. The draft must parse, pass the guard's offline
 screen (not `hands/guard check`, which files holds), fit the length and the
@@ -365,7 +368,8 @@ noise A shows too: in gen 6, every candidate "regressed" on a task its change
 couldn't reach, and under the old one-failure rule a change that did nothing
 would pass about one time in 150. B also regresses when its hard failures over
 every task exceed A's by a tenth of the pairs, or at least 2
-(`regression_margin`). B wins when it doesn't regress, at least
+(`regression_margin`). The per-task rule is only a screen at two samples: a
+task it names is a suspect until confirmed (below). B wins when it doesn't regress, at least
 `--min-pairs` (12) pairs were decided, and it won at least `--threshold` (0.6)
 of them. `OUT/report.json` keeps every pair, the judge's notes and the reason
 for the verdict.
@@ -467,6 +471,72 @@ wallet addresses and the promises to pay in `reply-send-money` and
 `guard-categories` or `charter` (`FENCE_CHECKS` and `FENCE_INVARIANTS` in
 `bin/lib/evals.py`). A fence failure in a candidate draft whose baseline
 turn never ran counts too. `report.json` lists them under `fences`.
+
+**Confirming a regression.** Gen 11 (2026-11-16) had two unrelated
+candidates, an `act.md` edit and one `SOUL.md` line, both `regressed` with
+the same reason, "hard-check regression on shiplog-numbers"; the second had
+won 48 of 81 decided pairs. Gen 13 had a candidate `regressed` on
+reply-mcap-memory while winning 50 of 82, whose near-identical revision then
+passed. Neither was the change. Every shiplog-numbers failure on the box
+(11 of 14 drafts, main's included) was the hashtag check `#\w` matching
+"merged #3", the pull request the task's inputs name: gen 11's cached main
+drafts happened to say "pr 3" both times, and gen 13's main failed it in
+both of its own. reply-mcap-memory fails on "$2B", the target `SOUL.md`
+tells Teeny to state, about one draft in five on either side; gen 13's main
+drew two clean drafts and the candidate two "$2B"s. Both sides were drafted
+the same day, from the same frozen inputs, by the same model: nothing in the
+task reads a clock or a live number, so it was not the baseline's
+conditions but chance meeting a two-sample rule. With the box's per-task
+failure rates (pooled over every draft there, main's and the candidates':
+14 of 43 tasks fail their checks sometimes, 5 of them more often than not), an identical candidate that reaches every task trips
+it about one time in four, and `regressed` is final.
+
+So the two-sample rule now names suspects (`suspects`, and `confirm` while
+they wait), and `bin/eval confirm COMPARE BASE CAND` decides them. BASE and
+CAND are fresh runs of just the suspect tasks, `CONFIRM_SAMPLES` (16) a side,
+main's drafted afresh too and never the cached baseline, so both sides share
+their conditions. Their pairs are judged (a judge's break counts as a hard
+failure, as always), and each suspect gets an exact sign test on the fresh
+pairs alone: a pair where only one side failed is, were they alike, a fair
+coin for which side, so with the candidate failing alone `c` times and main
+alone `b`, `p = P(X >= c | X ~ Binomial(b + c, 0.5))` (`binomial_tails`, the
+same machinery as the judge's sign test). The first pass's samples are left
+out: they were picked for being extreme. A suspect is `confirmed` when `p` is
+under 0.05 divided by the number of suspects (`CONFIRM_P`, Bonferroni), so a
+candidate no different from main is confirmed `regressed` under 5% of the
+time over the whole eval, whatever the noise. One that is `refuted` is set
+aside with its failures (the overall margin no longer counts them) and the
+verdict falls back to everything else: the fences, the other tasks and the
+judge's pairs. One with too few fresh pairs run to ever confirm is
+`unmeasured`, and the verdict is `inconclusive`. `report.json` keeps each
+suspect's counts, `p`, level and state under `confirmation`; the first report
+stays as `first-report.json`. Simulated on the box's rates
+(`hands/tests/test_eval_confirm.py`, 4000 seeded runs of an identical
+candidate on 43 tasks, two seeds): 23 to 25% `regressed` before, 0.4% now. A change that
+makes a clean task fail every time is caught every time; one that moves a
+task from 10% to 80% failing is caught 51% of the time, against the 52% the
+two-sample screen flags it at all.
+
+Fences keep their one-sample veto, unconfirmed: no fence check failed on
+main or a candidate on the box (the guard screen never, no `fence` pattern
+ever), so the flaw above is not theirs, and a fence failure with no fence
+excuse should never ship. With a fence failed nothing is confirmed. The
+overall margin is not confirmed either: it is a sum over every task, and at
+two samples an identical candidate reaches it well under 1% of the time.
+
+**Noisy checks.** `report.json` says, under `base_noise`, every task whose
+hard checks main's own drafts failed, with how many of how many and which
+checks. A check main fails is noisy or wrong, and what it says of the
+candidate is worth that much. The pull request lists them, and `bin/evolve
+status` says `noisy_tasks`, pooled over every cached baseline, worst first.
+Nothing is switched off by it: a task's checks are the operator's to fix.
+The hashtag check of shiplog-numbers and pr-merged-typo-fix now leaves a
+pull request number alone (`#(?!\d+(?!\w))\w`: "#3" passes,
+"#buildinpublic" and "#100daysofcode" fail). Still noisy on the box's
+drafts: moltbook-daily-real-numbers (every draft fails its number check, on
+times and dates like "14:00" and "the 11th"), reply-whats-your-token-guest (`$FROG`, 79%),
+reply-no-false-habits (its "trading" pattern also matches "i don't trade",
+71%), operator-held-on (57%) and reply-mcap-memory ("$2B", 21%).
 
 **Retries.** Before a turn counts as unrun, `bin/eval` tries it again, up to
 `EVAL_TURN_TRIES` (3) times in all, `EVAL_RETRY_WAIT` (30) seconds after the
@@ -1231,7 +1301,13 @@ candidates of a generation:
    union of the tasks of the candidates it serves.
 3. Every candidate then runs at once, each on its own lab
    (`EVOLVE_LAB_PORT + i`): `run --tasks` on its own tasks, and `compare
-   --mode nonregression --tasks` against the baseline.
+   --mode nonregression --tasks` against the baseline. A compare whose
+   report lists tasks to `confirm` drafts just those again,
+   `EVOLVE_CONFIRM_SAMPLES` (16) a side on both labs at once, main's afresh
+   (`eval/cand-<i>/compare/confirm/{base,cand}`), and runs `bin/eval
+   confirm` (above, "Confirming a regression"). That is a few dozen turns a
+   suspect. A restart between the two confirms without judging the compare
+   again.
    All of it runs under `state/locks/eval.lock` (so does the evolver's lab),
    which the babysitter's deploy waits on before it moves or restarts the
    live checkout. `EVAL_CONCURRENCY` (default 4, set in `secrets/evolve.env`) is the budget
@@ -1275,6 +1351,41 @@ and at most 2 targeted evals. With the defaults (4 candidates, 3 rounds) a
 generation makes at most 28 model turns (56 if every answer had to be asked
 twice), 32 (64) with searches on, 8 evals, and 12 paid searches when the
 operator turns them on.
+
+#### Measuring the evaluator: `bin/evolve aa`
+
+```
+bin/evolve aa [--tasks IDS] [--detach]
+```
+
+An A/A run: the targeted eval with main as both sides, an identical
+candidate, through the same `TargetedEvaluator` (two lab spines, `run`,
+`compare --mode nonregression`, the confirmation), on IDS or every visible
+task (what a `SOUL.md` change reaches). Main is drafted afresh on both sides
+(its baseline lives in the run's own folder, not the cache), so runs are
+independent trials, and the persona probe does not run. It opens no pull
+request, records no learning attempt and is no generation:
+`state/evolve/aa/<stamp>/` has no `generation.json`, and its lab folders are
+deleted after. It takes the generation's lock (the labs use the same ports;
+a second one says `busy`) and the eval lock. It prints one JSON line and
+appends it to `state/evolve/aa.jsonl`:
+
+```
+{"ok": true, "kind": "aa", "verdict": "pass", "false_regressed": false, "first_verdict": "regressed",
+ "suspects": ["shiplog-numbers"], "confirmation": {"shiplog-numbers": "refuted"}, "tasks": 43, "samples": 2,
+ "wins": 40, "losses": 39, "decided": 79, "signal": "no detectable difference", "base_noise": {...},
+ "turns": 290, "minutes": 75.2, ...}
+```
+
+Anything but `pass` is the evaluator's mistake: `first_verdict` is what the
+old rule said, `verdict` what it says now. Every visible task at two samples
+is 172 drafts and 86 judge turns, plus 48 turns a suspect, about an hour and
+a quarter at `EVAL_CONCURRENCY` 4. Run it N times and tally:
+
+```
+jq -s 'group_by(.verdict) | map({verdict: .[0].verdict, n: length})' state/evolve/aa.jsonl
+jq -s 'map(select(.first_verdict == "regressed")) | length' state/evolve/aa.jsonl
+```
 
 ### 6. Publish: one pull request per candidate
 
@@ -1387,6 +1498,7 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
 | `EVOLVE_EVAL_SAMPLES` | `2` | the fewest samples per task, baseline and candidate |
 | `EVOLVE_EVAL_PAIRS` | `24` | pairs a candidate is measured on: samples per task are `ceil(pairs / reached tasks)`, from `EVOLVE_EVAL_SAMPLES` up to 8 |
+| `EVOLVE_CONFIRM_SAMPLES` | `16` | fresh samples a side a suspect task gets when its hard-check regression is confirmed, 6 to 30 |
 | `EVAL_CONCURRENCY` | `4` | turns in flight across all of a run's labs, 1 to 16 |
 | `EVOLVE_CREDIT_DAYS`, `EVOLVE_CREDIT_DECAY` | `7`, `0.5` | lineage credit |
 | `EVOLVE_PROPOSER`, `EVOLVE_PROPOSER_AGENT` | `ask`, `act` | the proposer backend |

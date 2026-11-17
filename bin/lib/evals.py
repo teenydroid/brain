@@ -17,6 +17,10 @@ here talks to a core, writes a guard hold or posts.
     python3 bin/lib/evals.py judge EVALS BRAIN BASE CAND OUT [--both-orders] [--tasks IDS] -- ASK...
                                                           -> OUT, a judged pair per line
     python3 bin/lib/evals.py score BASE CAND JUDGED THRESHOLD MIN_PAIRS|auto [--mode M] [--tasks IDS]
+    python3 bin/lib/evals.py rescore REPORT CBASE CCAND CJUDGED
+                                                          -> REPORT's compare scored again, its
+                                                             suspects confirmed by the fresh runs
+    python3 bin/lib/evals.py base-noise DRAFTS...         -> {task: {failed, of, checks}}
 
 A task (evals/tasks/<id>.toml) is one of Teeny's real jobs with its inputs
 canned, so both brains answer the same thing:
@@ -817,6 +821,11 @@ def regression_margin(pairs: int) -> int:
     return max(2, -(-pairs // 10))
 
 
+#: What `regressions` names when no one task regressed but the hard failures
+#: over every task rose past regression_margin().
+OVERALL = "(hard failures overall)"
+
+
 def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
     wins = sum(p["winner"] == "cand" for p in pairs)
     losses = sum(p["winner"] == "base" for p in pairs)
@@ -825,11 +834,14 @@ def _tally(pairs: list[dict], failures: dict[str, dict[str, int]]) -> dict:
     # sample the baseline passed it: one stray failure in two samples is the
     # noise the baseline shows too (gen 6: four candidates, each "regressed"
     # on tasks its change could not reach, so a no-op passed about 1 time in
-    # 150). Many stray failures together still keep it out.
+    # 150). Many stray failures together still keep it out. At two samples
+    # this is only a screen: a check main fails half the time trips it one
+    # time in sixteen, so what it finds is confirmed before it condemns
+    # (confirm_regressions).
     regressions = sorted(t for t, n in failures.items() if n["cand"] - n["base"] >= n["pairs"])
     rise = sum(n["cand"] for n in failures.values()) - sum(n["base"] for n in failures.values())
     if rise >= regression_margin(len(pairs)) and not regressions:
-        regressions = ["(hard failures overall)"]
+        regressions = [OVERALL]
     return {"wins": wins, "losses": losses, "ties": len(pairs) - decided, "decided": decided,
             "win_rate": wins / decided if decided else 0.0, "regressions": regressions,
             "hard_failure_rise": rise}
@@ -856,6 +868,94 @@ def fence_failures(record: dict, breaks: list[str]) -> list[str]:
     said it broke (as `break <id>`)."""
     failed = [c["check"] for c in record.get("checks", []) if not c.get("ok") and is_fence(c["check"])]
     return failed + [f"break {i}" for i in breaks if i in FENCE_INVARIANTS]
+
+
+# --- confirming a hard-check regression (docs/evolve.md, "Confirming a regression") -------------
+#
+# Gen 11: two unrelated candidates were both `regressed` on shiplog-numbers,
+# whose hashtag check read "merged #3" as a hashtag; main's two drafts
+# happened to say "pr 3", and main's next two failed it too. Gen 13: one was
+# `regressed` on reply-mcap-memory winning 50 of 82 pairs, and its
+# near-identical revision passed. The two-sample rule (_tally) catches a
+# check that breaks every time, and a check main itself fails trips it by
+# chance: over the box's 43 tasks an identical candidate was `regressed` about
+# one time in four. So a task it names is a suspect: drafted afresh,
+# CONFIRM_SAMPLES times on each side (fresh main drafts too, not the cached
+# baseline, so both sides share their conditions), and `regressed` only when
+# the fresh pairs say so on their own.
+
+#: Fresh samples a side when a suspect is confirmed (bin/evolve:
+#: EVOLVE_CONFIRM_SAMPLES).
+CONFIRM_SAMPLES = 16
+#: The chance, over a whole eval, that a candidate no different from main is
+#: confirmed `regressed`: each of S suspects is tested at CONFIRM_P / S.
+CONFIRM_P = 0.05
+
+
+def confirm_test(pairs: list[tuple[bool, bool]]) -> dict:
+    """A suspect's fresh pairs, (main failed, candidate failed) for each
+    sample, as a sign test: a pair where only one side failed is, were the
+    two alike, a fair coin for which side, so `p` is the chance of the
+    candidate failing alone this often or more (binomial_tails). Pairs where
+    both or neither failed say nothing about the difference."""
+    cand_only = sum(1 for b, c in pairs if c and not b)
+    base_only = sum(1 for b, c in pairs if b and not c)
+    p = binomial_tails(cand_only, cand_only + base_only)[1]
+    return {"pairs": len(pairs), "base_failed": sum(1 for b, _ in pairs if b),
+            "cand_failed": sum(1 for _, c in pairs if c), "base_only": base_only, "cand_only": cand_only, "p": p}
+
+
+def confirm_regressions(suspects: list[str], pairs: dict[str, list[tuple[bool, bool]]]) -> dict[str, dict]:
+    """Each suspect's confirm_test, at CONFIRM_P / len(SUSPECTS), with its
+    `state`: `confirmed` (p under that), `refuted`, or `unmeasured` when so
+    few fresh pairs ran that even every one failing on the candidate alone
+    could not have confirmed it."""
+    level = CONFIRM_P / max(1, len(suspects))
+    out = {}
+    for task in suspects:
+        got = confirm_test(pairs.get(task, []))
+        n = got["pairs"]
+        state = ("unmeasured" if binomial_tails(n, n)[1] >= level else
+                 "confirmed" if got["p"] < level else "refuted")
+        out[task] = {**got, "p": round(got["p"], 4), "level": level, "state": state}
+    return out
+
+
+def _confirm_pairs(confirm: tuple[Path, Path, Path], suspects: list[str]) -> dict[str, list[tuple[bool, bool]]]:
+    """The fresh pairs of CONFIRM (main's drafts, the candidate's, the
+    judge's verdicts on them), as score() counts a hard failure: a check
+    failed, or the judge said the draft breaks an invariant. Unrun pairs are
+    left out; a file missing is no pairs."""
+    if not all(path.is_file() for path in confirm):
+        return {}
+    got = score(*confirm, 0.5, 0, mode="nonregression", tasks=set(suspects))
+    out: dict[str, list[tuple[bool, bool]]] = {}
+    for pair in got["pairs"]:
+        out.setdefault(pair["task"], []).append((pair["hard_fail"]["base"], pair["hard_fail"]["cand"]))
+    return out
+
+
+def _confirmation_text(task: str, c: dict) -> str:
+    return (f"{task} on {c['pairs']} fresh pair(s): the candidate alone failed {c['cand_only']}, main alone "
+            f"{c['base_only']} (chance {c['p']:.1%} were they alike, needs under {c['level']:.1%})")
+
+
+def base_noise(records: list[dict]) -> dict[str, dict]:
+    """The tasks main fails its own hard checks on, from main's drafts:
+    {task: {failed, of, checks: {check: count}}}, visible drafts that ran
+    only. A check the baseline fails at all is noisy (or wrong): the
+    shiplog-numbers hashtag check failed main's drafts 2 times in 4."""
+    out: dict[str, dict] = {}
+    for r in records:
+        if r.get("heldout") or _unrun(r):
+            continue
+        n = out.setdefault(r["task"], {"failed": 0, "of": 0, "checks": {}})
+        n["of"] += 1
+        failed = [c["check"] for c in r.get("checks", []) if not c.get("ok")]
+        n["failed"] += bool(failed) or not r.get("ok", True)
+        for name in failed:
+            n["checks"][name] = n["checks"].get(name, 0) + 1
+    return {t: n for t, n in sorted(out.items()) if n["failed"]}
 
 
 #: The share of a run's visible samples that may be unrun before the
@@ -944,7 +1044,8 @@ def unmeasurable(mode: str, tasks: list[str] | None, threshold: float) -> dict:
 
 
 def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float, min_pairs: int | None,
-          mode: str = "tournament", tasks: set[str] | None = None) -> dict:
+          mode: str = "tournament", tasks: set[str] | None = None,
+          confirm: tuple[Path, Path, Path] | None = None) -> dict:
     """The report of a compare. MODE is a tournament (verdicts won, lost,
     inconclusive) or a non-regression check (pass, regressed,
     inconclusive); TASKS, when given, is the only tasks scored, and with no
@@ -952,7 +1053,14 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
     12 in a tournament and auto_min_pairs() in a non-regression check.
     THRESHOLD is the win rate a tournament needs; a non-regression check
     ignores it and asks for evidence instead (SIGNAL_P): it is worse only
-    when so few wins would be rare for two alike sides (binomial_tails)."""
+    when so few wins would be rare for two alike sides (binomial_tails).
+
+    A task the hard-check rule names (`suspects`) with no fence failed is
+    listed under `confirm` and still `regressed`, until CONFIRM (main's
+    fresh drafts of those tasks, the candidate's, and the judge's verdicts on
+    them: `bin/eval confirm`) is given: then only the suspects
+    confirm_regressions() confirms regress, the rest are set aside, and the
+    verdict is whatever else says (`confirmation` has each one's test)."""
     if mode not in MODES:
         raise EvalError(f"mode is one of {', '.join(MODES)}")
     visible_selected = None if tasks is None else set(tasks) - set(heldout_ids(heldout_dir()))
@@ -1011,17 +1119,35 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
 
     # The verdict is the visible tasks'; the held-out ones are reported
     # beside it (docs/evolve.md, "Held-out tasks").
-    visible = _tally([p for p in pairs if not p["heldout"]], failures)
+    visible_pairs = [p for p in pairs if not p["heldout"]]
+    visible = _tally(visible_pairs, failures)
+    fenced = sorted({f["task"] for f in fences[False]})
+    # A fence failure rejects whatever else holds up, so it needs nothing
+    # confirmed; the overall margin is a sum, not a task to re-draft.
+    suspects = [t for t in visible["regressions"] if t != OVERALL]
+    pending = suspects if suspects and not fenced and confirm is None else []
+    confirmation = None
+    unconfirmed: list[str] = []
+    if suspects and not fenced and confirm is not None:
+        confirmation = confirm_regressions(suspects, _confirm_pairs(confirm, suspects))
+        # What did not hold up is set aside whole, the overall margin
+        # included: its two failures were picked for being extreme.
+        cleared = {t for t, c in confirmation.items() if c["state"] != "confirmed"}
+        visible = _tally(visible_pairs, {t: n for t, n in failures.items() if t not in cleared})
+        unconfirmed = sorted(t for t, c in confirmation.items() if c["state"] == "unmeasured")
     wins, losses, decided = visible["wins"], visible["losses"], visible["decided"]
     win_rate = visible["win_rate"]
     p_worse, p_better = binomial_tails(wins, decided)
     worse = mode == "nonregression" and p_worse < SIGNAL_P
-    fenced = sorted({f["task"] for f in fences[False]})
     regressions = sorted(set(visible["regressions"]) | set(fenced))
     # A regression seen in what did run rejects however much did not; too
     # little run otherwise decides nothing either way.
     unmeasured = _unmeasured(base, cand, visible_selected)
     unsure = None if regressions else _inconclusive(unmeasured)
+    if unconfirmed and not regressions:
+        why = (f"the hard-check regression first seen on {', '.join(unconfirmed)} could not be confirmed: "
+               "too few of its fresh drafts ran")
+        unsure = f"{unsure}; {why}" if unsure else f"inconclusive: {why}"
     if min_pairs is None:
         min_pairs = auto_min_pairs(unmeasured["samples"]) if mode == "nonregression" else 12
     short = decided < min_pairs
@@ -1031,8 +1157,15 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         others = [t for t in regressions if t not in fenced]
         if others:
             reason += f"; and on {', '.join(others)}"
+    elif regressions and confirmation:
+        held = [t for t in regressions if t in confirmation]
+        reason = f"hard-check regression on {', '.join(regressions)}"
+        if held:
+            reason += ", confirmed: " + "; ".join(_confirmation_text(t, confirmation[t]) for t in held)
     elif regressions:
         reason = f"hard-check regression on {', '.join(regressions)}"
+        if pending:
+            reason += " (not yet confirmed: `bin/eval confirm` drafts it afresh on both sides)"
     elif unsure:
         reason = unsure
     elif short:
@@ -1050,6 +1183,10 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         reason = f"win rate {win_rate:.2f} under {threshold:.2f}"
     else:
         reason = f"win rate {win_rate:.2f} over {decided} decided pair(s)"
+    refuted = [t for t, c in (confirmation or {}).items() if c["state"] == "refuted"]
+    if refuted:
+        reason += ("; the hard-check regression first seen on " + ", ".join(refuted) + " did not hold up: "
+                   + "; ".join(_confirmation_text(t, confirmation[t]) for t in refuted))
     passes_wins = not worse if mode == "nonregression" else win_rate >= threshold
     good = not regressions and not unsure and not short and passes_wins
     if mode == "nonregression":
@@ -1075,11 +1212,16 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
         "threshold": threshold,
         "min_pairs": min_pairs,
         "regressions": regressions,
+        "suspects": suspects,
+        "confirm": pending,
+        "confirmation": confirmation,
         "fences": fences[False],
         "hard_failure_rise": visible["hard_failure_rise"],
         "hard_failures": failures,
+        "base_noise": base_noise(list(base.values())),
         "unrun": unrun,
         "unmeasured_tasks": unmeasured["tasks"],
+        "runs": {"base": str(base_path), "cand": str(cand_path), "judged": str(judged_path)},
         "pairs": pairs,
     }
     held = [p for p in pairs if p["heldout"]]
@@ -1090,6 +1232,20 @@ def score(base_path: Path, cand_path: Path, judged_path: Path, threshold: float,
                           "won": not tally["regressions"] and not fences[True] and tally["decided"] > 0
                           and tally["win_rate"] >= threshold}
     return out
+
+
+def rescore(report_path: Path, confirm: tuple[Path, Path, Path]) -> dict:
+    """The compare REPORT_PATH wrote, scored again from the same runs with
+    the same settings, its `confirm` suspects confirmed by CONFIRM (main's
+    fresh drafts, the candidate's, the judge's verdicts on them)."""
+    try:
+        first = json.loads(report_path.read_text(encoding="utf-8"))
+        runs = first["runs"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise EvalError(f"{report_path}: not a compare report ({exc})") from None
+    tasks = set(first["tasks"]) if isinstance(first.get("tasks"), list) else None
+    return score(Path(runs["base"]), Path(runs["cand"]), Path(runs["judged"]), float(first["threshold"]),
+                 first.get("min_pairs"), mode=first.get("mode", "tournament"), tasks=tasks, confirm=confirm)
 
 
 # --- the command line --------------------------------------------------------------------------
@@ -1171,6 +1327,10 @@ def main(argv: list[str]) -> int:
         elif cmd == "score" and len(args) == 5:
             out = score(Path(args[0]), Path(args[1]), Path(args[2]), float(args[3]),
                         None if args[4] == "auto" else int(args[4]), mode=opts.get("--mode", "tournament"), tasks=tasks)
+        elif cmd == "rescore" and len(args) == 4:
+            out = rescore(Path(args[0]), (Path(args[1]), Path(args[2]), Path(args[3])))
+        elif cmd == "base-noise" and args:
+            out = base_noise([r for path in args for r in _read_jsonl(Path(path))])
         else:
             print(usage, file=sys.stderr)
             return 2

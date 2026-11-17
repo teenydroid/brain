@@ -200,6 +200,8 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     "EVOLVE_EVAL_SAMPLES": ("2", int, 1, 10),
     # Pairs a candidate is measured on: the samples per task are chosen to reach it (eval_samples).
     "EVOLVE_EVAL_PAIRS": ("24", int, 1, 200),
+    # Fresh samples a side a task gets when its hard-check regression is confirmed (bin/eval confirm).
+    "EVOLVE_CONFIRM_SAMPLES": (str(evals_lib.CONFIRM_SAMPLES), int, 6, 30),
     # The turns all of a run's labs keep in flight together; 1 during a provider outage.
     "EVAL_CONCURRENCY": (str(evals_lib.DEFAULT_CONCURRENCY), int, 1, evals_lib.MAX_CONCURRENCY),
     "EVOLVE_CONTEXT_CHARS": ("60000", int, 1000, 400000),
@@ -3203,12 +3205,13 @@ class Baseline:
     """Main's drafts at one base commit, one bin/eval run folder kept across
     candidates and generations (state/evolve/baseline/<base>/s<samples>-<key>/):
     bin/eval reuses the rows its run.json still matches, and drafts only the
-    tasks no earlier run did (`missing`, which this records)."""
+    tasks no earlier run did (`missing`, which this records). ROOT moves it
+    out of that cache (`bin/evolve aa` drafts main afresh every time)."""
 
-    def __init__(self, base: str, samples: int, key: str) -> None:
+    def __init__(self, base: str, samples: int, key: str, root: Path | None = None) -> None:
         self.base, self.samples, self.key = base, samples, key
         slug = re.sub(r"[^A-Za-z0-9._-]+", "_", key)[:60] or "default"
-        self.folder = evolve_dir() / "baseline" / base / f"s{samples}-{slug}"
+        self.folder = (root or evolve_dir() / "baseline") / base / f"s{samples}-{slug}"
 
     def tasks(self) -> set[str]:
         try:
@@ -3262,10 +3265,18 @@ class TargetedEvaluator:
     boots no lab at all. EVAL_CONCURRENCY is the budget for every turn in
     flight: the baseline gets all of it, then each of the K candidates a
     Kth. The persona probe runs only when the change reaches every task
-    (SOUL, CONTEXT), since it is many turns."""
+    (SOUL, CONTEXT), since it is many turns.
 
-    def __init__(self, cfg: Config, src: Source, base: str, gdir: Path) -> None:
+    A hard-check regression the compare sees is confirmed before it counts
+    (`_confirm`). PLANS stands in for `affected` (by candidate id),
+    BASELINE_ROOT for the baseline cache, and PROBES=False skips the persona
+    probe: `bin/evolve aa` measures main against itself with all three."""
+
+    def __init__(self, cfg: Config, src: Source, base: str, gdir: Path, plans: Mapping[str, Json] | None = None,
+                 baseline_root: Path | None = None, probes: bool = True) -> None:
         self.cfg, self.src, self.base, self.gdir = cfg, src, base, gdir
+        self.plans, self.baseline_root = dict(plans or {}), baseline_root
+        self.probes = probes and bool(cfg["EVOLVE_PROBES"])
         self.base_lab: lab_lib.Lab | None = None
         self.base_tree: Path | None = None
 
@@ -3287,7 +3298,7 @@ class TargetedEvaluator:
         plans: dict[str, Json] = {}
         for cand in cands:
             try:
-                plans[cand["id"]] = affected(cand)
+                plans[cand["id"]] = self.plans.get(cand["id"]) or affected(cand)
             except EvolveError as exc:
                 done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
         measured = [c for c in cands if c["id"] in plans and plans[c["id"]]["tasks"]]
@@ -3301,7 +3312,8 @@ class TargetedEvaluator:
         # folder per sample count (its folder name has it), each drafting the
         # union of the tasks of the candidates that count serves.
         key = model_key()
-        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]["tasks"]), key) for c in measured}
+        baselines = {c["id"]: Baseline(self.base, self._samples(plans[c["id"]]["tasks"]), key, self.baseline_root)
+                     for c in measured}
         try:
             try:
                 # A restart that finds every report it needs boots nothing.
@@ -3348,11 +3360,14 @@ class TargetedEvaluator:
             report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        return report if isinstance(report, dict) and report.get("tasks", tasks) == tasks else None
+        # A regression still waiting to be confirmed is not a verdict yet.
+        if not isinstance(report, dict) or report.get("tasks", tasks) != tasks or report.get("confirm"):
+            return None
+        return report
 
     def _reusable(self, cand: Json, plan: Json) -> bool:
         """Measured before a restart, and needing no probe: nothing to boot."""
-        return self._saved_report(cand, plan["tasks"]) is not None and not (plan["all"] and self.cfg["EVOLVE_PROBES"])
+        return self._saved_report(cand, plan["tasks"]) is not None and not (plan["all"] and self.probes)
 
     def _env(self, core: Mapping[str, str], concurrency: int) -> dict[str, str]:
         return code_env(**core, EVAL_CONCURRENCY=str(concurrency))
@@ -3364,14 +3379,14 @@ class TargetedEvaluator:
         report_path = compare / "report.json"
         report = self._saved_report(cand, tasks)
         probe = None
-        if report is None or (plan["all"] and self.cfg["EVOLVE_PROBES"]):
+        if report is None or (plan["all"] and self.probes):
             before = snapshot(tree)
             lab = self._boot(f"cand-{cand['cand']}", tree, self.gdir / f"lab-{cand['cand']}",
                              self.cfg["EVOLVE_LAB_PORT"] + int(cand["cand"]))
             try:
                 if report is None:
                     report = self._measure(cand, tasks, run, compare, baseline, lab.env(), base_env, share)
-                if plan["all"] and self.cfg["EVOLVE_PROBES"]:
+                if plan["all"] and self.probes:
                     probe = self._probe(cand, lab.env(), base_env)
             finally:
                 lab_lib.stop(lab)
@@ -3388,6 +3403,10 @@ class TargetedEvaluator:
     def _measure(self, cand: Json, tasks: list[str], run: Path, compare: Path, baseline: Baseline,
                  cand_env: Mapping[str, str], base_env: Mapping[str, str], share: int) -> Json:
         samples, key = self._samples(tasks), model_key()
+        # A compare cut off before its confirmation is confirmed, not judged again.
+        pending = self._pending(compare) if _ran(run, tasks, samples, key) else None
+        if pending is not None:
+            return self._confirm(cand, pending["confirm"], compare, cand_env, base_env, share)
         if not _ran(run, tasks, samples, key):
             # --brain: the task's playbook prompt is read from the brain the
             # lab serves, the candidate's worktree; without it bin/eval read
@@ -3408,6 +3427,52 @@ class TargetedEvaluator:
         # 0 pass, 2 regressed or inconclusive, 3 unmeasurable, 1 an error.
         if done.returncode not in (0, 2, 3) or not (compare / "report.json").is_file():
             raise EvolveError(f"the compare failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
+        report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        if report.get("confirm"):
+            report = self._confirm(cand, report["confirm"], compare, cand_env, base_env, share)
+        return report
+
+    @staticmethod
+    def _pending(compare: Path) -> Json | None:
+        """COMPARE's report when it still lists tasks to confirm."""
+        try:
+            report = json.loads((compare / "report.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return report if isinstance(report, dict) and report.get("confirm") else None
+
+    def _confirm(self, cand: Json, tasks: list[str], compare: Path, cand_env: Mapping[str, str],
+                 base_env: Mapping[str, str], share: int) -> Json:
+        """The hard-check regressions the compare saw, confirmed (docs/evolve.md,
+        "Confirming a regression"): TASKS drafted afresh EVOLVE_CONFIRM_SAMPLES
+        times on both labs at once, main's too (never the cached baseline,
+        so both sides draft under the same conditions), then `bin/eval
+        confirm` judges the fresh pairs and scores the compare again. A few
+        tasks, so a few dozen turns."""
+        samples, key = self.cfg["EVOLVE_CONFIRM_SAMPLES"], model_key()
+        folder = compare / "confirm"
+        assert self.base_tree is not None
+        sides = {"base": (base_env, self.base_tree / "brain"),
+                 "cand": (cand_env, evolve_dir() / cand["worktree"] / "brain")}
+
+        def draft(side: str) -> subprocess.CompletedProcess:
+            env, brain = sides[side]
+            return _eval(["run", "--only", ",".join(tasks), "--samples", str(samples), "--brain", str(brain),
+                          "--key", key, str(folder / side)], self._env(env, share))
+
+        say(f"candidate {cand['cand']}: confirming the hard-check regression on {', '.join(tasks)}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            runs = dict(zip(sides, pool.map(draft, sides)))
+        for side, done in runs.items():
+            if done.returncode != 0:
+                raise EvolveError(f"the {side} confirmation run failed: "
+                                  f"{(done.stderr.strip() or done.stdout.strip())[-300:]}")
+        judge = ["--judge-model", self.cfg.judge_model] if self.cfg.judge_model else []
+        done = _eval(["confirm", "--judge-root", str(judge_root(self.src, cand["base"], self.gdir)), *judge,
+                      str(compare), str(folder / "base"), str(folder / "cand")], self._env(base_env, share))
+        report = self._pending(compare)
+        if done.returncode not in (0, 2) or report is not None:
+            raise EvolveError(f"the confirmation failed: {(done.stderr.strip() or done.stdout.strip())[-300:]}")
         return json.loads((compare / "report.json").read_text(encoding="utf-8"))
 
     def _probe(self, cand: Json, cand_env: Mapping[str, str], base_env: Mapping[str, str]) -> Json:
@@ -3443,7 +3508,7 @@ def eval_summary(report: Mapping[str, Any], tasks: list[str], plan: Mapping[str,
     """A compare report's numbers, without its pairs (or anything held out)."""
     out: Json = {"verdict": report.get("verdict"), "tasks": tasks, "all": bool(plan.get("all"))}
     for key in ("reason", "wins", "losses", "ties", "decided", "signal", "p_worse", "p_better", "regressions",
-                "fences", "unmeasured_tasks", "judge_model"):
+                "suspects", "confirmation", "fences", "unmeasured_tasks", "base_noise", "judge_model"):
         if report.get(key) is not None:
             out[key] = report[key]
     return out
@@ -3454,6 +3519,81 @@ def make_evaluator(cfg: Config, src: Source, base: str, gdir: Path) -> Evaluator
     if cfg["EVOLVE_EVALUATOR"] == "lab":
         return TargetedEvaluator(cfg, src, base, gdir)
     return Unevaluated()
+
+
+# --- A/A: main against itself (docs/evolve.md, "Measuring the evaluator") ----------------------------
+
+#: One line per `bin/evolve aa` run, under state/evolve/: what to tally.
+AA_LOG = "aa.jsonl"
+
+
+def _lines(paths: Iterable[Path]) -> int:
+    return sum(len(read_jsonl(p)) for p in paths)
+
+
+def _report(path: Path) -> Json | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def aa(cfg: Config, tasks: list[str] | None = None) -> Json:
+    """The evaluator on an identical candidate: main's worktree measured
+    against main, through the same TargetedEvaluator a generation uses (lab
+    spines, `run`, `compare --mode nonregression`, the confirmation), on
+    TASKS or every visible task (what a SOUL.md change reaches). Main is
+    drafted afresh each time (its own baseline folder), so runs are
+    independent trials, and no persona probe runs. Nothing is archived, no
+    learning is tried, no pull request opens, and it is no generation: it
+    lives in state/evolve/aa/<stamp>/ (no generation.json), and its lab
+    folders are removed after. Any verdict but `pass` is the evaluator's
+    error; its line is appended to state/evolve/aa.jsonl."""
+    every = evals_lib.task_ids(CODE / "evals")
+    picked = sorted(set(tasks)) if tasks else every
+    unknown = sorted(set(picked) - set(every))
+    if unknown:
+        raise EvolveError(f"no eval task {', '.join(unknown)}")
+    src = source()
+    base = git(of_source(src), "rev-parse", "--verify", f"{src.base_ref}^{{commit}}").strip()
+    started = now()
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started))
+    folder = evolve_dir() / "aa" / stamp
+    tree = folder / "cand-1"
+    cand: Json = {"id": f"aa-{stamp}", "gen": f"aa/{stamp}", "cand": 1, "base": base,
+                  "worktree": str(tree.relative_to(evolve_dir()))}
+    plan = {"tasks": picked, "all": picked == every, "why": {"*": "A/A: main measured against itself"}}
+    got: Json = {}
+    add_worktree(src, tree, base)
+    try:
+        evaluator = TargetedEvaluator(cfg, src, base, folder, plans={cand["id"]: plan},
+                                      baseline_root=folder / "baseline", probes=False)
+        with held_lock("eval"):
+            evaluator.evaluate([cand], lambda _c, result: got.update(result))
+    finally:
+        remove_worktree(src, tree)
+        for lab in folder.glob("lab-*"):
+            shutil.rmtree(lab, ignore_errors=True)
+    compare = folder / "eval" / "cand-1" / "compare"
+    report = _report(compare / "report.json") or {}
+    first = _report(compare / "first-report.json") or report
+    verdict = got.get("verdict") or "unevaluated"
+    turns = _lines([*folder.glob("baseline/**/drafts.jsonl"), *folder.glob("eval/**/drafts.jsonl"),
+                    *folder.glob("eval/**/*judged.jsonl")])
+    line: Json = {
+        "ok": verdict in EVAL_VERDICTS, "kind": "aa", "at": iso(started), "base": base,
+        "minutes": round((now() - started) / 60, 1), "verdict": verdict, "false_regressed": verdict == "regressed",
+        "first_verdict": first.get("verdict"), "reason": got.get("reason"),
+        "suspects": report.get("suspects") or [],
+        "confirmation": {t: c.get("state") for t, c in (report.get("confirmation") or {}).items()},
+        "tasks": len(picked), "samples": eval_samples(cfg["EVOLVE_EVAL_PAIRS"], cfg["EVOLVE_EVAL_SAMPLES"], len(picked)),
+        **{k: report.get(k) for k in ("wins", "losses", "ties", "decided", "signal", "p_worse", "p_better")},
+        "base_noise": {t: f"{n['failed']}/{n['of']}" for t, n in (report.get("base_noise") or {}).items()},
+        "turns": turns, "folder": str(folder.relative_to(evolve_dir())),
+    }
+    append_jsonl(evolve_dir() / AA_LOG, line)
+    return line
 
 
 def snapshot(tree: Path) -> tuple[str, str]:
@@ -4261,8 +4401,30 @@ def eval_text(cand: Mapping[str, Any]) -> str:
             + (f" (signal: {ev['signal']})" if ev.get("signal") else "")
             + f"; regressions: {len(regressions) or 'none'}; fences: {len(fences) or 'none'}."
             + (f" {ev.get('reason')}." if ev.get("reason") else "")
+            + noise_text(ev.get("base_noise"))
             + (f"\n\nPersona drift from gen-0: {cand['probe'].get('drift')}." if isinstance(cand.get("probe"), Mapping)
                else ""))
+
+
+def noise_text(noise: Any) -> str:
+    """The tasks main failed its own hard checks on, as the eval report says
+    it: a check main fails is noisy (or wrong), and what it says of the
+    candidate is worth that much."""
+    if not isinstance(noise, Mapping) or not noise:
+        return ""
+    return ("\n\nNoisy hard checks (main failed its own): "
+            + ", ".join(f"`{t}` {n.get('failed')}/{n.get('of')}" for t, n in sorted(noise.items())) + ".")
+
+
+def baseline_noise() -> Json:
+    """Main's own hard-check failures per task over every cached baseline
+    (state/evolve/baseline/*/*/drafts.jsonl), for `status`: the tasks whose
+    checks are noisy, worst first. Nothing is switched off by it."""
+    rows = [r for path in sorted(evolve_dir().glob("baseline/*/*/drafts.jsonl")) for r in read_jsonl(path)]
+    noise = evals_lib.base_noise(rows)
+    return {t: {"failed": n["failed"], "of": n["of"], "rate": round(n["failed"] / n["of"], 2),
+                "checks": sorted(n["checks"], key=lambda c: -n["checks"][c])[:3]}
+            for t, n in sorted(noise.items(), key=lambda kv: (-kv[1]["failed"] / kv[1]["of"], kv[0]))}
 
 
 def status_text(cand: Mapping[str, Any]) -> str:
@@ -5104,6 +5266,7 @@ def status() -> Json:
         "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
         "generations": latest, "today": generations_today(),
         "unfinished": [g for g in unfinished()],
+        "noisy_tasks": baseline_noise(),
         "learnings": {"open": [{"id": item.id, "section": item.section, "first_seen": iso(item.first_seen)
                                 if item.first_seen else None, "text": item.text[:160]}
                                for item in open_learnings(entries, learnings)],
@@ -5177,6 +5340,8 @@ def main(argv: list[str]) -> int:
     verbs.add_parser("credit", help="find merges, chronicle them, record ΔJ and credit the lineage")
     verbs.add_parser("status", help="open learnings, open pull requests, candidates, any halt")
     verbs.add_parser("resume", help="clear a latched halt")
+    aa_p = verbs.add_parser("aa", help="A/A: the evaluator on main against itself; one JSON line, no PR, no generation")
+    aa_p.add_argument("--tasks", default=None, help="a comma list of eval tasks (default: every visible task)")
     args = parser.parse_args(argv)
     try:
         cfg = load_config()
@@ -5197,6 +5362,11 @@ def main(argv: list[str]) -> int:
             out = credit(cfg)
         elif args.verb == "status":
             out = status()
+        elif args.verb == "aa":
+            # The labs' ports are a generation's: never both at once.
+            with run_lock() as held:
+                out = (aa(cfg, [t.strip() for t in args.tasks.split(",") if t.strip()] if args.tasks else None) if held
+                       else {"ok": True, "kind": "busy", "detail": "a generation is running"})
         else:
             out = resume()
     except (EvolveError, probes_lib.ProbeError) as exc:
