@@ -2,7 +2,7 @@
 # Teeny acting on what it learned (docs/evolve.md, "The loop"). The work is
 # bin/lib/evolve.py.
 #
-#   bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+#   bin/evolve run [--candidates N] [--proposals DIR] [--scheduled] [--detach]
 #       One generation in state/evolve/<gen>/: up to N open learnings from
 #       brain/MEMORY.md (what Teeny decided, promised and is in the middle
 #       of), one candidate each in its own worktree off main, from Teeny's
@@ -11,6 +11,10 @@
 #       passes opens its own ready pull request, teeny/gen-<n>-c<i>, with a
 #       teeny/eval commit status. With no open learning it does nothing. A
 #       restart resumes the unfinished generation where it was.
+#       --scheduled: the pinned job's run, counted against
+#       EVOLVE_GENERATIONS_PER_DAY; without it, a run by hand, counted
+#       against EVOLVE_MANUAL_GENERATIONS_PER_DAY. A run that crashes
+#       exits non-zero and files one issue a day (`status`: last_crash).
 #   bin/evolve watch             evolve-watch: the newest merge, reverted
 #                                when holds, cron failures, the probes or J say so
 #   bin/evolve probe [--baseline [--force]]

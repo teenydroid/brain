@@ -60,10 +60,11 @@ generation's chronicle page into the live brain, and records ΔJ (HGM) for the
 ones merged EVOLVE_CREDIT_DAYS ago. `watch` watches the newest merged one.
 
 The halts (secrets/evolve.env, `Config`): EVOLVE=0 is the kill switch and
-the default. Too many generations today, a red doctor, a last-good boot, or J
-rising faster than EVOLVE_MAX_J_RISE each stop the loop and open one issue
-(deduplicated); a J rise, persona drift and an evolve-watch revert latch
-until `resume`. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
+the default. Too many scheduled generations today (or by hand, a cap of its
+own), a red doctor, a last-good boot, or J rising faster than
+EVOLVE_MAX_J_RISE each stop the loop and open one issue (deduplicated); a J
+rise, persona drift and an evolve-watch revert latch until `resume`. A
+generation that crashes opens one too, a day, and never latches. Under DRY_RUN (hand.dry_run: on unless secrets/teeny.env says
 DRY_RUN=0) nothing is pushed, opened or filed: each candidate writes what it
 would have opened.
 
@@ -92,6 +93,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -191,7 +193,11 @@ SETTINGS: dict[str, tuple[str, type, float | None, float | None]] = {
     # Up to this many open learnings each generation, one candidate each.
     "EVOLVE_CANDIDATES": ("4", int, 1, 8),
     # Two: the pinned job runs after the night's dream and after midday's.
+    # Counts the pinned job's runs only (`run --scheduled`), never a crashed one.
     "EVOLVE_GENERATIONS_PER_DAY": ("2", int, 1, 24),
+    # Runs by hand (`run` without --scheduled), a cap of their own, so the
+    # operator's runs never spend the schedule's (0: none by hand).
+    "EVOLVE_MANUAL_GENERATIONS_PER_DAY": ("6", int, 0, 24),
     # Open evolve pull requests at once; past it a passing candidate waits.
     "EVOLVE_MAX_OPEN_PRS": ("4", int, 1, 20),
     "EVOLVE_MAX_J_RISE": ("1.0", float, 0.0, None),
@@ -631,7 +637,9 @@ LEARNING_SECTIONS = ("what i have decided", "promises and open threads", "what i
 MAX_LEARNING_CHARS = 1500
 #: Failed tries (no proposal, inconclusive, unevaluated, a refused pull
 #: request) on one learning's text before the loop stops asking about it;
-#: an edit to the text opens it again.
+#: an edit to the text opens it again. What the loop could not judge is no
+#: try: a deferral (`deferred`, the reviewer, the sandbox or the box failed,
+#: INFRA) or a generation that crashed (`crashed`, end_crashed).
 MAX_ATTEMPTS = 3
 #: The verdicts that settle a learning as it reads now: it was carried out
 #: (a pull request opened), skipped with a reason, or tried and measured.
@@ -641,6 +649,9 @@ IN_FLIGHT = ("pending", "pass", "unmeasurable", "waiting")
 #: What a dry run would have opened; it settles a learning only while
 #: DRY_RUN stays on, so turning DRY_RUN off asks again for real.
 DRY_SETTLED = "dry-run"
+#: A candidate whose generation raised (end_crashed): the loop's fault, no
+#: failed try, and its learning is asked about again at the next run.
+CRASHED = "crashed"
 #: How the reflection snapshots are found: the page before each reflection
 #: (state/reflect/MEMORY-*.md) and after each dream (state/dream/snapshots/).
 SNAPSHOT_GLOBS = (("reflect", "MEMORY-*.md"), ("dream/snapshots", "*.md"))
@@ -731,7 +742,7 @@ def learning_state(entries: Mapping[str, Json], item: Learning) -> tuple[str, in
         return "settled", 0
     if any(e.get("verdict") in IN_FLIGHT for e in tries):
         return "in-flight", 0
-    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred"))
+    failed = sum(1 for e in tries if e.get("verdict") not in (DRY_SETTLED, "deferred", CRASHED))
     return ("gave-up" if failed >= MAX_ATTEMPTS else "open"), failed
 
 
@@ -865,9 +876,10 @@ def git_env() -> dict[str, str]:
     }
 
 
-def git(where: list[str], *args: str, check: bool = True, input: str | None = None) -> str:
+def git(where: list[str], *args: str, check: bool = True, input: str | None = None,
+        env: Mapping[str, str] | None = None) -> str:
     done = subprocess.run(["git", *where, "-c", "core.hooksPath=/dev/null", *args], capture_output=True,
-                          text=True, env=git_env(), input=input)
+                          text=True, env={**git_env(), **(env or {})}, input=input)
     if check and done.returncode != 0:
         raise EvolveError(f"git {' '.join(args[:3])}: {done.stderr.strip()[-400:]}")
     return done.stdout
@@ -1038,6 +1050,20 @@ class Proposer(Protocol):
     def propose(self, request: Json) -> Any: ...
 
 
+#: How long a proposer turn the core or the provider failed waits before
+#: it is asked once more, in the run. Once: gen 15's HTTP 400 ("Reasoning is
+#: mandatory for this endpoint") may pass, and a failed turn costs little. A
+#: turn that timed out is not asked again (it already took 900 s).
+TURN_RETRY_SECS = 30
+
+
+class ProposerTurnFailed(EvolveError):
+    """The proposer's turn never answered (the provider refused or erred,
+    the core was unreachable, the turn timed out): unlike an answer that
+    is out of shape, nothing was proposed, so it is the box's failure and
+    no try (gen 15, candidate 2: `local-openai returned HTTP 400`)."""
+
+
 class AskProposer:
     """One tool-less turn on the live core (bin/ask, default agent `act`),
     on a thread of its own. It sees only what the message carries (the
@@ -1058,7 +1084,7 @@ class AskProposer:
         parse (gen 3's "Unterminated string": an answer cut short, which a
         second turn usually is not). A turn that fails outright is not
         retried."""
-        return self._json_turn(request, render_request(fit_request(request)))
+        return self._json_turn(request, render_request(fit_request(request)), retry=True)
 
     def research(self, request: Json) -> Any:
         """The research turn (research_one): the same tool-less turn, shown
@@ -1074,27 +1100,38 @@ class AskProposer:
             return AskProposer(self.query_agent, self.query_agent).queries(request)
         return self._json_turn(request, render_query_request(request))
 
-    def _json_turn(self, request: Json, message: str) -> Any:
+    def _json_turn(self, request: Json, message: str, retry: bool = False) -> Any:
         try:
-            return first_json(self._turn(request, message))
+            return first_json(self._turn(request, message, retry=True) if retry else self._turn(request, message))
         except EvolveError as exc:
             if not str(exc).startswith(("not JSON", "no JSON")):
                 raise
             say(f"candidate {request['cand']}: the answer did not parse ({str(exc)[:120]}); asking once more")
-            retry = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
+            again = (f"{message}\n\n## your last answer\n\nIt could not be read as JSON ({str(exc)[:200]}). "
                      "Answer again, the same way, JSON only, and keep the hypothesis short.")
-            return first_json(self._turn(request, retry))
+            return first_json(self._turn(request, again, retry=True) if retry else self._turn(request, again))
 
-    def _turn(self, request: Json, message: str) -> str:
+    def _turn(self, request: Json, message: str, retry: bool = False) -> str:
+        """One turn. RETRY (the build turn only): one that failed is asked
+        once more, TURN_RETRY_SECS later. The research and query turns are
+        not: a failed one costs nothing (the build goes on without it)."""
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
-        try:
-            done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(), timeout=900)
-        except subprocess.TimeoutExpired:
-            raise EvolveError("the proposer's turn took over 900 s") from None
-        if done.returncode != 0:
-            raise EvolveError(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
-        return done.stdout
+        for attempt in range(2 if retry else 1):
+            try:
+                done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(),
+                                      timeout=900)
+            except subprocess.TimeoutExpired:
+                raise ProposerTurnFailed("the proposer's turn took over 900 s") from None
+            except OSError as exc:
+                raise ProposerTurnFailed(f"the proposer's turn could not start: {exc}"[:300]) from None
+            if done.returncode == 0:
+                return done.stdout
+            if retry and attempt == 0:
+                say(f"candidate {request['cand']}: the proposer's turn failed "
+                    f"({done.stderr.strip()[-160:]}); asking once more")
+                time.sleep(TURN_RETRY_SECS)
+        raise ProposerTurnFailed(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
 
 
 class FileProposer:
@@ -2496,7 +2533,7 @@ def _run_check(argv: list[str], env: Mapping[str, str], timeout: float = 600) ->
     except subprocess.TimeoutExpired:
         return False, f"timed out after {int(timeout)} s"
     except OSError as exc:
-        return False, str(exc)
+        return False, f"could not run: {exc}"
     lines = (done.stderr.strip() or done.stdout.strip()).splitlines()
     failing = [line.strip() for line in lines if line.startswith("FAIL")]
     if done.returncode != 0 and failing:
@@ -2521,6 +2558,73 @@ def tree_env(tree: Path) -> dict[str, str]:
     env.update(TEENY_ROOT=str(tree), OPENHUMAN_WORKSPACE=str(tree / "brain"), TEENY_STATE=str(tree / "state"),
                TEENY_SECRETS=str(tree / "secrets"), TEENY_HANDS=str(tree / "hands"))
     return env
+
+
+# --- what the box broke, not the change ----------------------------------------------------------------------
+#
+# A verdict is on the change only when the change was judged. Gen 10's
+# candidates 2 and 3 (2026-11-15) failed `doctor --root` on a mktemp under a
+# scratch dir the cron call had already deleted and were rejected for good;
+# the operator landed both by hand (#333, #334). Gen 11's candidate 4 was
+# held because the guard's judge could not be reached, a failed try. What
+# the loop could not judge is recorded as `infra` (stage and what broke) and
+# never charged to the learning: a gate check or an eval is `deferred`
+# (deferred_for "infra", asked about again next run), a publish `waiting`
+# (published by the next run as it is).
+
+#: A failed check's detail that says the box failed it, not the change: a
+#: temp dir that is gone, a full or read-only disk, no memory, a script that
+#: could not be started at all. Kept narrow: anything else is the change's.
+ENV_ERROR = re.compile(r"mktemp: failed to create|No space left on device|Disk quota exceeded|Read-only file system|"
+                       r"Cannot allocate memory|Too many open files|^could not run: ", re.I | re.M)
+
+
+def infra_reason(check: Mapping[str, Any], touched: Iterable[str]) -> str | None:
+    """What of the box broke CHECK, when it failed for the box: its detail
+    matches ENV_ERROR and names no path the change TOUCHED (a failure on a
+    file the diff wrote is the diff's, whatever it says)."""
+    if check.get("ok"):
+        return None
+    detail = str(check.get("detail") or "")
+    match = ENV_ERROR.search(detail)
+    if match is None or any(path and path in detail for path in touched):
+        return None
+    return match.group(0).strip()
+
+
+def publish_infra(exc: BaseException) -> str | None:
+    """Why a publish that raised EXC failed for the box, or None when the
+    refusal is the change's own. The box's: the guard held the pull request
+    only because its judge did not answer (a hold of category `unknown`,
+    guard/judge.py's fail-closed verdict), or GitHub, git or a hand erred
+    (HandError, OSError). The change's: a rule's refusal or a hold on a
+    verdict (hand.Refused), this script's own check (EvolveError: a frozen
+    path in the commit), anything else."""
+    from teeny_hands import hand as hand_lib
+
+    if isinstance(exc, hand_lib.Refused):
+        detail = exc.detail or {}
+        if exc.reason == "held" and detail.get("category") == "unknown":
+            return f"the guard held it because its judge could not answer (hold {detail.get('hold_id')})"
+        return None
+    if isinstance(exc, (hand_lib.HandError, OSError, subprocess.SubprocessError)) and not isinstance(exc, EvolveError):
+        return (str(exc) or type(exc).__name__)[:300]
+    return None
+
+
+def usable_tmpdir() -> None:
+    """TMPDIR (and TEMP, TMP) a directory that exists, or state/tmp/evolve.
+    A cron shell call's is a scratch dir of its own that the core deletes
+    when the call returns (brain/artifacts/sandbox-scratch/shell-*), which a
+    detached run outlives: before bin/lib/detach.py gave detached jobs one
+    of their own (#303), every mktemp in gen 10's `doctor --root` failed.
+    Whatever else hands a run a TMPDIR that is gone gets this one."""
+    if all(not os.environ.get(k) or Path(os.environ[k]).is_dir() for k in ("TMPDIR", "TEMP", "TMP")):
+        return
+    tmp = state_dir() / "tmp" / "evolve"
+    tmp.mkdir(parents=True, exist_ok=True)
+    os.environ.update(TMPDIR=str(tmp), TEMP=str(tmp), TMP=str(tmp))
+    tempfile.tempdir = None
 
 
 # --- the gate's purpose checks: what a change is for -------------------------------------------------------
@@ -3063,6 +3167,11 @@ def checks(tree: Path, base: str, component: str | None = None, evidence: Mappin
                         "no_sandbox": True})
             continue
         note(f"hand tests: {name}", ok, detail)
+    touched = {p for _, p in changes}
+    for c in out:
+        why = infra_reason(c, touched)
+        if why:
+            c["infra"] = why
     return out
 
 
@@ -3236,14 +3345,17 @@ class Baseline:
 class Unevaluated:
     """EVOLVE_EVALUATOR=none: no lab boots. A change no task reaches is
     still unmeasurable (that needs no core); one that reaches a task is
-    unevaluated, and opens nothing."""
+    unevaluated, and opens nothing. An evaluator whose own machinery failed
+    (`bin/eval affected`, a lab that did not boot, the baseline, a run or a
+    compare that errored) says `infra`: the change was not measured, and
+    the generation defers it (`done` in _run_generation)."""
 
     def evaluate(self, cands: list[Json], done: Any) -> None:
         for cand in cands:
             try:
                 plan = affected(cand)
             except EvolveError as exc:
-                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
+                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300], "infra": True})
                 continue
             if not plan["tasks"]:
                 done(cand, unmeasurable(plan))
@@ -3300,7 +3412,7 @@ class TargetedEvaluator:
             try:
                 plans[cand["id"]] = self.plans.get(cand["id"]) or affected(cand)
             except EvolveError as exc:
-                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300]})
+                done(cand, {"verdict": "unevaluated", "reason": str(exc)[:300], "infra": True})
         measured = [c for c in cands if c["id"] in plans and plans[c["id"]]["tasks"]]
         for cand in cands:
             if cand["id"] in plans and not plans[cand["id"]]["tasks"]:
@@ -3329,7 +3441,7 @@ class TargetedEvaluator:
                                        self.base_tree / "brain")
             except EvolveError as exc:
                 for cand in measured:
-                    done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300]})
+                    done(cand, {"verdict": "unevaluated", "reason": f"the baseline: {exc}"[:300], "infra": True})
                 return
             share = max(1, self.cfg["EVAL_CONCURRENCY"] // max(1, len(fresh)))
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(measured)) as pool:
@@ -3339,7 +3451,8 @@ class TargetedEvaluator:
                     try:
                         got = future.result()
                     except (EvolveError, probes_lib.ProbeError) as exc:
-                        got = {"verdict": "unevaluated", "reason": f"the evaluation failed: {exc}"[:300]}
+                        got = {"verdict": "unevaluated", "reason": f"the evaluation failed: {exc}"[:300],
+                               "infra": True}
                     done(cand, got)
         finally:
             self.close()
@@ -3639,7 +3752,7 @@ def halts_log() -> Path:
 
 @dataclass
 class Halt:
-    kind: str  # generations | j-rise | doctor | fallback | persona-drift | watch-revert
+    kind: str  # generations | manual-generations | j-rise | doctor | fallback | persona-drift | watch-revert | crash
     detail: str
     latch: bool
     extra: Json = field(default_factory=dict)
@@ -3651,21 +3764,35 @@ class Halt:
         return self.kind if self.latch else f"{self.kind}:{day(now())}"
 
 
-def generations_today() -> int:
+#: Who started a generation (generation.json `trigger`): the pinned job
+#: (`bin/evolve run --scheduled`) or a person (`bin/evolve run`). One written
+#: before the trigger was recorded counts as scheduled, as it always did.
+SCHEDULED, MANUAL = "scheduled", "manual"
+
+
+def generations_today(scheduled: bool = True) -> int:
+    """Today's generations started by the schedule (SCHEDULED), or by hand,
+    that ran: one a restart cut off or one that crashed is not counted. On
+    2026-11-16 three runs by hand spent the day's cap and the 21:10
+    scheduled run halted, so each kind is counted against its own cap."""
     today = day(now())
     count = 0
     for meta in evolve_dir().glob("*/generation.json"):
         try:
-            started = json.loads(meta.read_text(encoding="utf-8")).get("started_at", "")
+            got = json.loads(meta.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        count += str(started).startswith(today) and not _cut_off(meta.parent)
+        if not isinstance(got, dict) or (got.get("trigger", SCHEDULED) == SCHEDULED) != scheduled:
+            continue
+        count += str(got.get("started_at", "")).startswith(today) and not _cut_off(meta.parent)
     return count
 
 
 def _cut_off(gdir: Path) -> bool:
+    """Whether a restart ended the generation in GDIR, or it crashed."""
     try:
-        return bool(json.loads((gdir / "result.json").read_text(encoding="utf-8")).get("interrupted"))
+        result = json.loads((gdir / "result.json").read_text(encoding="utf-8"))
+        return bool(result.get("interrupted") or result.get("crashed"))
     except (OSError, ValueError, AttributeError):
         return False
 
@@ -3725,10 +3852,12 @@ def doctor_recheck() -> None:
         pass
 
 
-def halts_before(cfg: Config, new_generation: bool = True) -> list[Halt]:
+def halts_before(cfg: Config, new_generation: bool = True, scheduled: bool = True) -> list[Halt]:
     """What stops a run before it does anything. The day's cap counts only
     against starting a generation: finishing one a restart cut off is not
-    one more. A red doctor report is checked again before it counts."""
+    one more. A scheduled run is held to EVOLVE_GENERATIONS_PER_DAY, one by
+    hand to EVOLVE_MANUAL_GENERATIONS_PER_DAY, each counting its own kind.
+    A red doctor report is checked again before it counts."""
     out = []
     red = doctor_red()
     if red:
@@ -3739,9 +3868,13 @@ def halts_before(cfg: Config, new_generation: bool = True) -> list[Halt]:
     if fallback_path().exists():
         out.append(Halt("fallback", "the spine booted state/last-good (state/spine-fallback.json); a person clears "
                         "it once main boots again", latch=False))
-    if new_generation and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
-        out.append(Halt("generations", f"{generations_today()} generation(s) today; the most is "
+    if new_generation and scheduled and generations_today() >= cfg["EVOLVE_GENERATIONS_PER_DAY"]:
+        out.append(Halt("generations", f"{generations_today()} scheduled generation(s) today; the most is "
                         f"{cfg['EVOLVE_GENERATIONS_PER_DAY']} (EVOLVE_GENERATIONS_PER_DAY)", latch=False))
+    manual = cfg["EVOLVE_MANUAL_GENERATIONS_PER_DAY"]
+    if new_generation and not scheduled and generations_today(scheduled=False) >= manual:
+        out.append(Halt("manual-generations", f"{generations_today(scheduled=False)} generation(s) by hand today; "
+                        f"the most is {manual} (EVOLVE_MANUAL_GENERATIONS_PER_DAY)", latch=False))
     rise = j_rise(world_history(), cfg["EVOLVE_J_WINDOW_DAYS"])
     if rise is not None and rise > cfg["EVOLVE_MAX_J_RISE"]:
         out.append(Halt("j-rise", f"J rose {rise:.3f} in {cfg['EVOLVE_J_WINDOW_DAYS']} day(s); the most before a "
@@ -3792,10 +3925,11 @@ def stop(cfg: Config, halt: Halt, publisher: "Publisher | None") -> Json:
     if halt.latch:
         write_json(halt_path(), {"kind": halt.kind, "detail": halt.detail, "at": iso(now()), **halt.extra})
     title = f"bin/evolve stopped: {halt.kind}"
+    then = ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
+            else "Its next scheduled run tries again; one issue a day, however often it crashes."
+            if halt.kind == "crash" else "It runs again tomorrow.")
     body = (f"The evolve loop stopped itself.\n\n- halt: {halt.kind}\n- why: {halt.detail}\n- at: {iso(now())}\n\n"
-            + ("It stays stopped until an operator runs `bin/evolve resume`." if halt.latch
-               else "It runs again tomorrow.")
-            + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
+            + then + "\n\nState: `state/evolve/` on the box (`bin/evolve status`).")
     entry = {**file_issue(cfg, halt.key, halt.kind, title, body, publisher), "detail": halt.detail}
     say(f"halted ({halt.kind}): {halt.detail}" + ("; its issue is already filed" if entry.get("issue") == "already filed"
                                                    else ""))
@@ -4244,6 +4378,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                 + "), expected_move and hypothesis, each a non-empty string, with your edits"}]
             keep(rec, "out-of-shape", findings)
             continue
+        except ProposerTurnFailed as exc:
+            # The turn never answered: nothing was proposed, so not the
+            # learning's failure. Left open, no try, whatever the round.
+            say(f"candidate {i}: {str(exc)[:160]}; deferred")
+            entry.update(verdict=DEFERRED, deferred_for="infra", reason=str(exc)[:300],
+                         infra={"stage": "propose", "detail": str(exc)[:300]}, gate={"ok": False, "checks": []},
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
+            return entry
         except (EvolveError, OSError) as exc:
             if rnd == 1:
                 entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})
@@ -4308,6 +4450,16 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             # run unsandboxed, never shipped; left open, and no try.
             say(f"candidate {i}: no sandbox for its hand tests; deferred")
             entry.update(verdict=DEFERRED, deferred_for="sandbox", reason=no_box[0]["detail"],
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
+            return entry
+        failed = [c for c in entry["gate"]["checks"] if not c["ok"]]
+        if failed and all(c.get("infra") for c in failed):
+            # Every check that failed, failed for the box (infra_reason):
+            # nothing was judged. No round is spent on it, and no try.
+            say(f"candidate {i}: `{failed[0]['check']}` failed for the box ({failed[0]['infra']}); deferred")
+            entry.update(verdict=DEFERRED, deferred_for="infra",
+                         reason=f"`{failed[0]['check']}` failed for the box: {failed[0]['infra']}"[:300],
+                         infra={"stage": "gate", "check": failed[0]["check"], "detail": failed[0]["detail"]},
                          rounds=[round_line(r) for r in rounds if r.get("outcome")])
             return entry
         if not entry["gate"]["ok"]:
@@ -4503,16 +4655,21 @@ def new_branch(tree: Path, branch: str) -> str:
 EVOLVE_BRANCH = re.compile(r"teeny/gen-\d+(-c\d+)?")
 
 
-def commit_branch(tree: Path, branch: str, title: str) -> str:
+def commit_branch(tree: Path, branch: str, title: str, at: str | None = None) -> str:
     """Commits the candidate on BRANCH; returns it. A branch of that name
     left in Teeny's clone by a try whose push failed is replaced, never
     suffixed: the name is the babysitter's contract (the push itself is
-    never forced, so a branch already on GitHub refuses it)."""
+    never forced, so a branch already on GitHub refuses it). Dated AT (the
+    candidate's start), so a publish tried again after its push went
+    through (gen 11: pushed, then the pull request held) makes the same
+    commit, which the pushed branch already has."""
     if not EVOLVE_BRANCH.fullmatch(branch):
         raise EvolveError(f"{branch} is not a teeny/gen-<n>-c<i> branch")
     git(in_tree(tree), "switch", "-q", "-C", branch)
     stage(tree)
-    git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title)
+    when = evolve_evidence.epoch(at) if at else None
+    dated = {"GIT_AUTHOR_DATE": f"@{int(when)} +0000", "GIT_COMMITTER_DATE": f"@{int(when)} +0000"} if when else None
+    git(in_tree(tree), "commit", "-q", "--no-verify", "-m", title, env=dated)
     return branch
 
 
@@ -4537,7 +4694,7 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
     tree = None
     try:
         tree = ensure_tree(src, cand)
-        branch = commit_branch(tree, branch, title)
+        branch = commit_branch(tree, branch, title, cand.get("at"))
         hits = [h.path for h in frozen.check(tree, cand["base"], branch)]
         if hits:
             raise EvolveError(f"the committed branch touches frozen paths: {', '.join(hits)}")
@@ -4545,6 +4702,15 @@ def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, o
         assert publisher is not None
         opened = publisher.open_pr(src, tree, branch, cand["base"], title, body)
     except Exception as exc:  # noqa: BLE001 - a refusal (the guard, a rule, the frozen check) stays on the candidate
+        broke = publish_infra(exc)
+        if broke:
+            # Not the change's: the next run publishes it as it is (its
+            # commit is the same, so a branch this try pushed takes it).
+            cand.pop("pr_error", None)
+            cand.update(verdict="waiting", waiting=f"publishing failed for the box, tried again next run: {broke}"[:300],
+                        infra={"stage": "publish", "detail": broke})
+            say(f"candidate {cand['cand']}: publishing failed for the box ({broke[:160]}); it waits for the next run")
+            return {"waiting": cand["waiting"]}
         cand.update(verdict="pr-error", pr_error=str(getattr(exc, "reason", None) or exc)[:300])
         return {"pr_error": cand["pr_error"]}
     finally:
@@ -4693,7 +4859,7 @@ def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None
     no candidate in it) still fails; else None. Only then: a generation
     whose reviewer answered pays for no probe."""
     latest = next_gen() - 1
-    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and e.get("deferred_for") != "sandbox"
+    if not any(e.get("verdict") == DEFERRED and e.get("gen") == latest and not e.get("deferred_for")
                for e in entries.values()):
         return None
     probe = getattr(reviewer, "probe", None)
@@ -4708,25 +4874,87 @@ def reviewer_down(entries: Mapping[str, Json], reviewer: Reviewer) -> str | None
 
 def run_generation(cfg: Config, n: int | None = None, proposals: str | None = None,
                    publisher: Publisher | None = None, evaluator: Evaluator | None = None,
-                   reviewer: Reviewer | None = None) -> Json:
-    """One generation (_run_generation). One that raises is ended, not left
-    for the next run to resume: resumable() would take it again and the same
-    exception would end every run after it, with no other learning ever
-    reaching a proposer. What it was doing is recorded as a failed try."""
-    progress: Json = {"picks": [], "cands": [], "queue": []}
+                   reviewer: Reviewer | None = None, scheduled: bool = False) -> Json:
+    """One generation (_run_generation). SCHEDULED: the pinned job started it
+    (`run --scheduled`), and it counts against EVOLVE_GENERATIONS_PER_DAY;
+    otherwise a person did, against EVOLVE_MANUAL_GENERATIONS_PER_DAY. One
+    that raises is ended, not left for the next run to resume: resumable()
+    would take it again and the same exception would end every run after
+    it, with no other learning ever reaching a proposer. What it was doing
+    is recorded as `crashed`, no failed try, and the operator is told
+    (report_crash). The exception goes on up: the run exits non-zero."""
+    progress: Json = {"picks": [], "cands": [], "queue": [], "publisher": publisher}
     try:
-        return _run_generation(cfg, n, proposals, publisher, evaluator, progress, reviewer)
+        return _run_generation(cfg, n, proposals, publisher, evaluator, progress, reviewer, scheduled)
     except Exception as exc:
-        end_crashed(progress, exc)
+        try:
+            end_crashed(progress, exc)
+        finally:
+            report_crash(cfg, progress, exc)
         raise
+
+
+def last_crash_path() -> Path:
+    return evolve_dir() / "last-crash.json"
+
+
+def crash_site(exc: BaseException) -> str:
+    """Where EXC was raised, in this repository's code: each of its frames
+    as file:function, innermost last, then the innermost one's line (gen 14:
+    evolve.py:observe > evolve_evidence.py:outcomes > evolve_evidence.py:failing)."""
+    frames = [f for f in traceback.extract_tb(exc.__traceback__)
+              if Path(f.filename).resolve().is_relative_to(CODE)]
+    if not frames:
+        return ""
+    chain = " > ".join(f"{Path(f.filename).name}:{f.name}" for f in frames[-6:])
+    last = frames[-1]
+    return f"{chain} (line {last.lineno}: {(last.line or '').strip()[:160]})"
+
+
+def report_crash(cfg: Config, progress: Mapping[str, Any], exc: BaseException) -> Json:
+    """Tells of a generation that raised, the way a halt is told: a line in
+    the log (state/evolve/evolve.log under --detach, where the cron call's
+    `ok` hid gen 14's traceback), state/evolve/last-crash.json for `bin/evolve
+    status`, and a `crash` halt through stop(), which never latches (the next
+    scheduled run tries again) and files one issue a day (its key). Its own
+    failure never hides the crash."""
+    gen = progress.get("gen")
+    error = f"{type(exc).__name__}: {exc}"
+    for where, to in ((str(evolve_dir()), "state/evolve"), (str(root()), "."), (str(CODE), ".")):
+        error = error.replace(where, to)
+    error = error[:300]
+    site = crash_site(exc)
+    who = f"gen {gen}" if gen is not None else "the run"
+    say(f"{who} crashed: {error}" + (f" at {site}" if site else ""))
+    crash: Json = {"gen": gen, "at": iso(now()), "error": error, "where": site or None}
+    try:
+        publisher = progress.get("publisher")
+        if publisher is None and not dry_run():
+            publisher = HandsPublisher()
+        halt = Halt("crash", f"{who} raised {error}" + (f" at {site}" if site else "")
+                    + ". Its learnings stay open, charged no try.", latch=False,
+                    extra={"gen": gen, "error": error})
+        entry = stop(cfg, halt, publisher)
+        crash["issue"] = entry.get("issue")
+        if crash["issue"] == "already filed":
+            filed = [r.get("issue") for r in read_jsonl(halts_log()) if r.get("key") == halt.key and r.get("issue")
+                     and r.get("issue") != "already filed"]
+            crash["issue"] = filed[-1] if filed else None
+        if entry.get("dry_run"):
+            crash["dry_run"] = True
+    except Exception as err:  # noqa: BLE001 - the crash itself is what must be told
+        crash["issue_error"] = str(err)[:300]
+    write_json(last_crash_path(), crash)
+    return crash
 
 
 def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
     """Ends a generation that raised: every candidate still in flight (or
-    pending, or without a verdict) becomes `crashed`, which counts as a
-    failed try for its learning (learning_state), and each picked learning
-    that never got a candidate records one too. Then result.json, so the
-    next run starts a new generation instead of resuming this one."""
+    pending, or without a verdict) becomes `crashed`, which charges its
+    learning no failed try (learning_state: the loop's fault, not the
+    learning's), and each picked learning that never got a candidate records
+    one too. Then result.json, so the next run starts a new generation
+    instead of resuming this one, and it spends none of the day's cap."""
     gen = progress.get("gen")
     if gen is None:
         return
@@ -4734,19 +4962,20 @@ def end_crashed(progress: Mapping[str, Any], exc: BaseException) -> None:
     for cand in [*progress.get("queue", []), *progress.get("cands", [])]:
         if cand.get("verdict") in SETTLED or (cand.get("verdict") not in (*IN_FLIGHT, "pending", None)):
             continue
-        cand.update(verdict="crashed", crashed=reason)
+        cand.update(verdict=CRASHED, crashed=reason)
         record(cand)
     have = set(archive())
     for i, ref in enumerate(progress.get("picks", []), 1):
         if cand_id(gen, i) not in have:
-            record({"id": cand_id(gen, i), "gen": gen, "cand": i, "learning": ref, "verdict": "crashed",
+            record({"id": cand_id(gen, i), "gen": gen, "cand": i, "learning": ref, "verdict": CRASHED,
                     "crashed": reason})
     if not (gen_dir(gen) / "result.json").exists():
         write_json(gen_dir(gen) / "result.json", {"gen": gen, "crashed": reason, "at": iso(now())})
 
 
 def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher: Publisher | None,
-                    evaluator: Evaluator | None, progress: Json, reviewer: Reviewer | None = None) -> Json:
+                    evaluator: Evaluator | None, progress: Json, reviewer: Reviewer | None = None,
+                    scheduled: bool = False) -> Json:
     if not cfg.enabled:
         return {"ok": True, "skipped": "EVOLVE=0: the loop is off (secrets/evolve.env)"}
     if halt_path().exists():
@@ -4756,8 +4985,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         return {"ok": True, "kind": "busy", "skipped": "a dream is still writing MEMORY.md"}
     if publisher is None and not dry_run():
         publisher = HandsPublisher()
+    progress["publisher"] = publisher
     resume_gen = resumable()
-    halts = halts_before(cfg, new_generation=resume_gen is None)
+    halts = halts_before(cfg, new_generation=resume_gen is None, scheduled=scheduled)
     if halts:
         return {"ok": True, "skipped": "halted: " + ", ".join(h.kind for h in halts),
                 "halts": [stop(cfg, h, publisher) for h in halts]}
@@ -4808,7 +5038,8 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
         gen_dir(gen).mkdir(parents=True)
         write_json(gen_dir(gen) / "generation.json", {
             "gen": gen, "started_at": iso(now()), "base": base, "source": src.kind, "candidates": len(picks),
-            "dry_run": dry_run(), "learnings": picks, **({"runway": cut} if cut else {})})
+            "trigger": SCHEDULED if scheduled else MANUAL, "dry_run": dry_run(), "learnings": picks,
+            **({"runway": cut} if cut else {})})
     gdir = gen_dir(gen)
     progress.update(gen=gen, picks=picks)
     held = heldout_tasks()
@@ -4865,7 +5096,12 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
                     **({"report": got["report"]} if got.get("report") else {}),
                     **({"probe": got["probe"]} if got.get("probe") else {}))
         halt = drift_halt(cfg, cand)
-        if halt is not None:
+        if got.get("infra"):
+            # The eval could not run (a lab that did not boot, the baseline,
+            # the judge): not measured, so not the change's verdict. No try.
+            cand.update(verdict=DEFERRED, deferred_for="infra", reason=str(got.get("reason") or "")[:300],
+                        infra={"stage": "eval", "detail": str(got.get("reason") or "")[:300]})
+        elif halt is not None:
             cand["verdict"] = "flagged"
             halted.append(stop(cfg, halt, publisher))
         elif cand["verdict"] == "regressed" and send_back(cfg, cand, held_ids):
@@ -5249,6 +5485,15 @@ def credit(cfg: Config, publisher: Publisher | None = None) -> Json:
             "history": "available" if history is not None else "no hands/world history"}
 
 
+def last_crash() -> Json | None:
+    """state/evolve/last-crash.json (report_crash), or None."""
+    try:
+        got = json.loads(last_crash_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return got if isinstance(got, dict) else None
+
+
 def status() -> Json:
     """What a person asks before a restart or a merge: the open learnings,
     the open evolve pull requests, and where each candidate of the newest
@@ -5264,7 +5509,8 @@ def status() -> Json:
     waits = [e for e in entries.values() if e.get("verdict") == "waiting" and e.get("gen") != latest]
     return {
         "ok": True, "halt": halt, "running": running(), "dry_run": dry_run(),
-        "generations": latest, "today": generations_today(),
+        "generations": latest, "today": generations_today(), "today_by_hand": generations_today(scheduled=False),
+        "last_crash": last_crash(),
         "unfinished": [g for g in unfinished()],
         "noisy_tasks": baseline_noise(),
         "learnings": {"open": [{"id": item.id, "section": item.section, "first_seen": iso(item.first_seen)
@@ -5333,6 +5579,9 @@ def main(argv: list[str]) -> int:
     run_p = verbs.add_parser("run", help="one generation: a candidate per open learning")
     run_p.add_argument("--candidates", type=int, default=None)
     run_p.add_argument("--proposals", default=None, help="DIR of cand-<i>.json proposals (the file proposer)")
+    run_p.add_argument("--scheduled", action="store_true",
+                       help="the pinned job's run: counts against EVOLVE_GENERATIONS_PER_DAY (by hand, leave it off: "
+                            "EVOLVE_MANUAL_GENERATIONS_PER_DAY)")
     verbs.add_parser("watch", help="evolve-watch: the newest merge, reverted when it hurts")
     prb = verbs.add_parser("probe", help="the persona and memory probes on the live core")
     prb.add_argument("--baseline", action="store_true", help="record the answers as gen-0")
@@ -5348,11 +5597,12 @@ def main(argv: list[str]) -> int:
         if args.verb == "run":
             if args.candidates is not None and not 1 <= args.candidates <= 8:
                 raise EvolveError("--candidates is 1..8")
+            usable_tmpdir()
             with run_lock() as held:
                 if not held:
                     out = {"ok": True, "kind": "busy", "detail": "a generation is already running"}
                 else:
-                    out = run_generation(cfg, args.candidates, args.proposals)
+                    out = run_generation(cfg, args.candidates, args.proposals, scheduled=args.scheduled)
         elif args.verb == "watch":
             with run_lock("evolve-watch") as held:
                 out = watch(cfg) if held else {"ok": True, "kind": "busy", "detail": "evolve-watch is already running"}
@@ -5372,6 +5622,12 @@ def main(argv: list[str]) -> int:
     except (EvolveError, probes_lib.ProbeError) as exc:
         say(str(exc))
         print(json.dumps({"ok": False, "error": str(exc)}))
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a crashed generation (report_crash told of it): its traceback, and not 0
+        if args.verb != "run":
+            raise
+        traceback.print_exc()
+        print(json.dumps({"ok": False, "crashed": f"{type(exc).__name__}: {exc}"[:300]}))
         return 1
     print(json.dumps(out, ensure_ascii=False))
     return 0

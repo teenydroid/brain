@@ -688,7 +688,8 @@ that passes opens its own pull request.
  bin/evolve run          state/evolve/<gen>/
    │
  0 Halts      EVOLVE=0 (the default) ─► nothing runs
-   │          a latched halt, too many generations today, J rising too fast,
+   │          a latched halt, too many scheduled (or by-hand) generations
+   │          today, J rising too fast,
    │          a red doctor report, a last-good boot ─► stop, one issue
    │          a dream still writing MEMORY.md ─► wait for it
  1 Learnings  brain/MEMORY.md's open items, newest first, up to N
@@ -726,9 +727,18 @@ that passes opens its own pull request.
 ```
 
 The pinned `evolve` job (`evals/cron.pinned.toml`) runs `bin/evolve run
---detach` at 02:40 and 14:40 India time, forty minutes after the night dream
-(02:00) and the midday one (14:00), so what the dream wrote down is acted on
-the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for that. A run
+--scheduled --detach` at 02:40 and 14:40 India time, forty minutes after the
+night dream (02:00) and the midday one (14:00), so what the dream wrote down
+is acted on the same day. `EVOLVE_GENERATIONS_PER_DAY` defaults to 2 for
+that, and counts only those runs: `--scheduled` marks them (`trigger:
+scheduled` in `generation.json`). A run by hand (no flag) is `trigger:
+manual` and counts against `EVOLVE_MANUAL_GENERATIONS_PER_DAY` (6) instead,
+so the operator's runs never spend the schedule's: on 2026-11-16 three runs
+by hand spent the day's three and the 21:10 scheduled run halted. Without
+the flag a run counts as by hand, so the operator need not remember one; the
+pinned command carries it. A generation from before the trigger was recorded
+counts as scheduled, and neither cap counts one a restart cut off or one
+that crashed. A run
 waits up to 30 minutes for a dream that still holds the reflection's lock.
 It is a no-op until `secrets/evolve.env` sets `EVOLVE=1`, so seeding it is
 safe. A generation outlasts the 300 s TinyBox gives a cron shell call
@@ -740,7 +750,7 @@ past every hour, with a lock and a log (`state/evolve/watch.log`) of its
 own.
 
 ```
-bin/evolve run [--candidates N] [--proposals DIR] [--detach]
+bin/evolve run [--candidates N] [--proposals DIR] [--scheduled] [--detach]
 bin/evolve watch [--detach]              evolve-watch
 bin/evolve probe [--baseline [--force]]  the probes on the live core
 bin/evolve credit | status | resume
@@ -750,7 +760,24 @@ bin/evolve credit | status | resume
 open, in flight, settled, gave up), the open evolve pull requests with their
 `teeny/eval` state, and each candidate of the newest generation and every
 waiting one, with its verdict. It says `"running": true` while a generation
-holds the lock: ask it before a restart.
+holds the lock: ask it before a restart. `today` and `today_by_hand` are the
+day's scheduled and by-hand generations, and `last_crash` the last generation
+that raised (below), or null.
+
+A generation that **raises** (2026-11-17: gen 14 died in its first second in
+`observe()`, under a detached cron call that said `ok`, and nobody heard) is
+ended (`end_crashed`): `result.json` says `crashed`, so the next run starts a
+new one instead of resuming it, and every candidate in flight and every
+picked learning without one is archived `crashed`, which charges the learning
+**no** failed try: a crash is the loop's fault, not the learning's. Then it
+is told, the way a halt is (`report_crash`): a line `gen <n> crashed: <error>
+at <where>` and the traceback in `state/evolve/evolve.log`,
+`state/evolve/last-crash.json` for `status`, and a `crash` halt through the
+same path as the others (`state/evolve/halts.jsonl`, one issue on
+`EVOLVE_ISSUE_REPO` a day, keyed `crash:<day>`) that never latches, so the
+next scheduled run tries again. The run exits non-zero. A crashed generation
+spends none of the day's cap. `bin/health` reads no evolve state, so it says
+nothing of this; the issue is the alarm.
 
 ### 1. Learnings
 
@@ -771,13 +798,53 @@ with that hash and a verdict that settles it:
 | `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `deferred` (the reviewer's turn failed: nothing was judged) | open, and not a failed try |
-| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated`, `pr-error`, `crashed` (the generation raised while it was in flight), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
+| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
+| `crashed` (the generation raised while it was in flight) | open, and not a failed try |
+| `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated` (`EVOLVE_EVALUATOR=none` and a task reaches it), `pr-error` (a rule's refusal, or a hold on the guard's verdict), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
 
 An edit to the text changes its hash, so a learning the dream rewrites is
 open again. After `MAX_ATTEMPTS` (3) failed tries on one text, the loop
 stops asking about it (`gave-up` in status) until the text changes.
+
+**What the box broke is not a verdict on the idea.** Gen 10's candidates 2
+and 3 (m57, m34) failed `doctor --root` on `mktemp: failed to create file via
+template './brain/artifacts/sandbox-scratch/shell-…/tmp.XXXXXXXXXX'` and were
+`rejected` for good; the operator landed both by hand (#333, #334). That
+scratch dir was the cron call's own TMPDIR, which the core deletes when the
+call returns and a detached run outlives (fixed in `bin/lib/detach.py` by
+#303, the day after; `bin/evolve run` also swaps a TMPDIR that is gone for
+`state/tmp/evolve`). Gen 11's candidate 4 was `pr-error: held` because the
+guard's judge could not be reached, a failed try. Now each such failure is
+recorded on the candidate as `infra: {stage, detail}` and charges no try:
+
+- **gate**: a check whose detail says the box failed it (`ENV_ERROR`: mktemp
+  failing, a full or read-only disk, no memory, a script that could not be
+  started) and names no path the change touched. When every failed check is
+  one, the candidate is `deferred` (`deferred_for: infra`) with no round
+  spent; a failure on a file the diff wrote, or any other failure, stays a
+  finding for the builder.
+- **propose**: the proposer's turn never answered (the provider refused or
+  erred, as gen 15's candidate 2 did with `local-openai returned HTTP 400`,
+  the core unreachable, a timeout). A failed build turn is asked once more
+  in the run, 30 s later (not one that timed out); failing again, the candidate is
+  `deferred` (`deferred_for: infra`). An answer that came back but holds no
+  usable proposal (not JSON after its retry, a missing field every round)
+  is still `no-proposal`, a failed try. A failed research turn already costs
+  nothing: the build goes on without research.
+- **eval**: `bin/eval affected` erroring, a lab that does not boot, the
+  baseline, or a run or compare that fails: `deferred` (`deferred_for: infra`).
+- **publish**: the guard holding the pull request only because its judge
+  did not answer (a hold of category `unknown`), or GitHub, git or a hand
+  erring: `waiting`, so the next run publishes it as it is, with no new build
+  or eval. Its commit is dated by the candidate's start, so it is the same
+  commit, and a branch the first try already pushed takes it. A rule's
+  refusal, a hold on the judge's verdict, or a frozen path in the commit is
+  still `pr-error`.
+
+An infra deferral leaves the learning open for the next run, which builds it
+afresh; it costs no reviewer probe (`reviewer_down` probes only after a
+deferral of the reviewer's).
 
 Each generation takes up to `EVOLVE_CANDIDATES` (default 4, cut by the
 runway tier when the wallet is low) open learnings, in this order:
@@ -1318,7 +1385,8 @@ candidates of a generation:
    `EVOLVE_MAX_DRIFT` flags the candidate and latches a halt.
 
 A lab that doesn't boot, or a run or compare that fails, leaves the
-candidate `unevaluated`, a failed try. With `EVOLVE_EVALUATOR=none` no lab
+candidate `deferred` (`infra`, stage `eval`): it was not measured, so its
+learning is open with no failed try. With `EVOLVE_EVALUATOR=none` no lab
 boots: an unreachable change is still `unmeasurable`, and one a task
 reaches is `unevaluated` and opens nothing.
 
@@ -1420,8 +1488,10 @@ slot at once. At the cap a passing candidate is `waiting`, and the next run
 opens it before anything new, with no proposer turn. A waiting candidate
 whose learning was rewritten since is `stale`; its learning is open again.
 
-A refusal (the guard, a rule, the frozen check) is kept on the candidate as
-`pr_error`, a failed try. Under `DRY_RUN` nothing is committed, pushed or
+A refusal (the guard's verdict, a rule, the frozen check) is kept on the
+candidate as `pr_error`, a failed try. A publish the box failed (the judge
+unreachable, GitHub or git erring) leaves it `waiting` for the next run
+instead (section 1). Under `DRY_RUN` nothing is committed, pushed or
 opened: `state/evolve/<gen>/cand-<i>.pr.json` holds the branch, title, body
 and status it would have set, and the candidate is `dry-run`.
 
@@ -1451,7 +1521,7 @@ no `result.json` and finishes it where it was, in the same generation:
 - a measured one opens its pull request.
 
 Finishing a cut-off generation doesn't count toward
-`EVOLVE_GENERATIONS_PER_DAY`. A generation from before learnings drove the
+`EVOLVE_GENERATIONS_PER_DAY` (or the by-hand cap). A generation from before learnings drove the
 loop (its `generation.json` has no `learnings`) is marked `interrupted`.
 
 ### 8. The archive
@@ -1492,7 +1562,8 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 |---|---|---|
 | `EVOLVE` | `0` | the kill switch: `0` and nothing runs, quietly |
 | `EVOLVE_CANDIDATES` | `4` | open learnings a generation takes, 1 to 8 |
-| `EVOLVE_GENERATIONS_PER_DAY` | `2` | one more today halts that run, with one issue a day |
+| `EVOLVE_GENERATIONS_PER_DAY` | `2` | scheduled generations (`run --scheduled`, the pinned job) a day; one more halts that run (`generations`), with one issue a day. Crashed and cut-off ones don't count |
+| `EVOLVE_MANUAL_GENERATIONS_PER_DAY` | `6` | generations by hand (`run` without `--scheduled`) a day, 0 to 24, counted apart; one more halts that run (`manual-generations`), with one issue a day |
 | `EVOLVE_MAX_OPEN_PRS` | `4` | open evolve pull requests at once; past it a passing candidate waits |
 | `EVOLVE_MAX_J_RISE` over `EVOLVE_J_WINDOW_DAYS` | `1.0` over `7` | J rising faster pauses for review; latches |
 | `EVOLVE_DUP_THRESHOLD` | `0.9` | the near-duplicate similarity |
@@ -1519,9 +1590,10 @@ the run. Settings that no longer exist (`EVOLVE_MAX_WINRATE_JUMP`,
 | `EVOLVE_WATCH_BOOT_MINS` | `10` | a failed cron run this many minutes either side of a spine boot is left out of the watch's count |
 | `EVOLVE_WATCH_HOURS` | `72` | how long evolve-watch watches a merge, and when it reads J |
 
-Two more halts don't latch and open one issue a day: a doctor report
-(`state/doctor.json`) that isn't green, and a last-good boot
-(`state/spine-fallback.json`). A halt that latches writes
+Three more halts don't latch and open one issue a day: a doctor report
+(`state/doctor.json`) that isn't green, a last-good boot
+(`state/spine-fallback.json`), and a generation that crashed (`crash`, see
+"The loop", after `bin/evolve status`). A halt that latches writes
 `state/evolve/halt.json`, and every later run refuses until `bin/evolve
 resume`; one that latches in the middle of a run (persona drift) leaves what
 passed `waiting`. Each halt opens one issue, through `hands/gh open-issue`,
