@@ -728,7 +728,7 @@ with that hash and a verdict that settles it:
 | `skipped` (`already`, `not-actionable`, `frozen`; from research, `already` or `not-worth`) | settled |
 | `regressed`, `rejected` (the hard gate), `duplicate`, `flagged` (persona drift) | settled |
 | `pending`, `pass`, `unmeasurable`, `waiting` | in flight: not proposed again |
-| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
+| `deferred` (nothing was judged: the reviewer's turn failed, no hand-test sandbox, or the box failed the proposer's turn, a check or the eval, `deferred_for: infra`, below) | open, and not a failed try |
 | `crashed` (the generation raised while it was in flight) | open, and not a failed try |
 | `no-proposal`, `parked` (still failing after the last round, its findings kept), `inconclusive`, `unevaluated` (`EVOLVE_EVALUATOR=none` and a task reaches it), `pr-error` (a rule's refusal, or a hold on the guard's verdict), `revising` (a crash caught it sent back after a regression) | a failed try: open again |
 | `dry-run` (what a dry run would have opened) | settled while `DRY_RUN` stays on |
@@ -754,6 +754,14 @@ recorded on the candidate as `infra: {stage, detail}` and charges no try:
   one, the candidate is `deferred` (`deferred_for: infra`) with no round
   spent; a failure on a file the diff wrote, or any other failure, stays a
   finding for the builder.
+- **propose**: the proposer's turn never answered (the provider refused or
+  erred, as gen 15's candidate 2 did with `local-openai returned HTTP 400`,
+  the core unreachable, a timeout). A failed turn is asked once more in the
+  run, 30 s later (not one that timed out); failing again, the candidate is
+  `deferred` (`deferred_for: infra`). An answer that came back but holds no
+  usable proposal (not JSON after its retry, a missing field every round)
+  is still `no-proposal`, a failed try. A failed research turn already costs
+  nothing: the build goes on without research.
 - **eval**: `bin/eval affected` erroring, a lab that does not boot, the
   baseline, or a run or compare that fails: `deferred` (`deferred_for: infra`).
 - **publish**: the guard holding the pull request only because its judge

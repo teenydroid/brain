@@ -1048,6 +1048,20 @@ class Proposer(Protocol):
     def propose(self, request: Json) -> Any: ...
 
 
+#: How long a proposer turn the core or the provider failed waits before
+#: it is asked once more, in the run. Once: gen 15's HTTP 400 ("Reasoning is
+#: mandatory for this endpoint") may pass, and a failed turn costs little. A
+#: turn that timed out is not asked again (it already took 900 s).
+TURN_RETRY_SECS = 30
+
+
+class ProposerTurnFailed(EvolveError):
+    """The proposer's turn never answered (the provider refused or erred,
+    the core was unreachable, the turn timed out): unlike an answer that
+    is out of shape, nothing was proposed, so it is the box's failure and
+    no try (gen 15, candidate 2: `local-openai returned HTTP 400`)."""
+
+
 class AskProposer:
     """One tool-less turn on the live core (bin/ask, default agent `act`),
     on a thread of its own. It sees only what the message carries (the
@@ -1098,13 +1112,21 @@ class AskProposer:
     def _turn(self, request: Json, message: str) -> str:
         argv = [str(CODE / "bin" / "ask"), "--agent", self.agent, "--thread",
                 f"evolve:{request['gen']}:{request['cand']}:{uuid.uuid4().hex[:8]}"]
-        try:
-            done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(), timeout=900)
-        except subprocess.TimeoutExpired:
-            raise EvolveError("the proposer's turn took over 900 s") from None
-        if done.returncode != 0:
-            raise EvolveError(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
-        return done.stdout
+        for attempt in range(2):
+            try:
+                done = subprocess.run(argv, input=message, capture_output=True, text=True, env=code_env(),
+                                      timeout=900)
+            except subprocess.TimeoutExpired:
+                raise ProposerTurnFailed("the proposer's turn took over 900 s") from None
+            except OSError as exc:
+                raise ProposerTurnFailed(f"the proposer's turn could not start: {exc}"[:300]) from None
+            if done.returncode == 0:
+                return done.stdout
+            if attempt == 0:
+                say(f"candidate {request['cand']}: the proposer's turn failed "
+                    f"({done.stderr.strip()[-160:]}); asking once more")
+                time.sleep(TURN_RETRY_SECS)
+        raise ProposerTurnFailed(f"the proposer's turn failed: {done.stderr.strip()[-300:]}")
 
 
 class FileProposer:
@@ -4213,6 +4235,14 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                                 + "), expected_move and hypothesis, each a non-empty string, with your edits"}]
             keep(rec, "out-of-shape", findings)
             continue
+        except ProposerTurnFailed as exc:
+            # The turn never answered: nothing was proposed, so not the
+            # learning's failure. Left open, no try, whatever the round.
+            say(f"candidate {i}: {str(exc)[:160]}; deferred")
+            entry.update(verdict=DEFERRED, deferred_for="infra", reason=str(exc)[:300],
+                         infra={"stage": "propose", "detail": str(exc)[:300]}, gate={"ok": False, "checks": []},
+                         rounds=[round_line(r) for r in rounds if r.get("outcome")])
+            return entry
         except (EvolveError, OSError) as exc:
             if rnd == 1:
                 entry.update(verdict="no-proposal", reason=str(exc)[:500], gate={"ok": False, "checks": []})

@@ -1400,6 +1400,65 @@ class AskProposerTurn(EvolveCase):
         self.assertEqual(len(messages), 2)
         self.assertIn("could not be read as JSON", messages[1])
 
+    PROVIDER_400 = ("model error: local-openai returned HTTP 400 (request_rejected): Reasoning is mandatory for "
+                    "this endpoint and cannot be disabled.")
+
+    def provider_fails(self, times):
+        """A core whose build turns fail as gen 15's candidate 2 did (the
+        provider refused the request) TIMES times, then answer."""
+        calls, count, fake = self.root / "oh.log", self.root / "count", self.root / "fake-oh"
+        good = json.dumps({"title": "warmer gm", "component": "attention", "expected_move": "people answer",
+                           "hypothesis": "h", "edits": [self.playbook_edit("Warmer.")]})
+        fake.write_text("#!/usr/bin/env bash\n" + REVIEW_OK + "printf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "case \"$2\" in *'# evolve research'*) python3 -c 'import json; print(json.dumps("
+                        "{\"response\": json.dumps({\"verdict\": \"build\", \"why\": \"w\", \"plan\": \"p\"})}))'; "
+                        "exit 0;; esac\n"
+                        "n=$(cat " + str(count) + " 2>/dev/null || echo 0); echo $((n + 1)) >" + str(count) + "\n"
+                        "if [ \"$n\" -lt " + str(times) + " ]; then echo 'inference_agent_chat: driver failed: "
+                        + self.PROVIDER_400 + "' >&2; exit 1; fi\n"
+                        "python3 -c 'import json,sys; print(json.dumps({\"response\": sys.argv[1]}))' '"
+                        + good.replace("'", "'\\''") + "'\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m19] some visits can just be visits.\n")
+        return calls
+
+    def build_turns(self, calls):
+        return [m for m in (json.loads(line)["message"] for line in calls.read_text().splitlines())
+                if not m.startswith("# evolve research")]
+
+    def test_a_proposer_turn_the_provider_failed_defers_the_learning(self):
+        calls = self.provider_fails(times=99)
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "deferred")
+        entry = self.entries()["g1c1"]
+        self.assertEqual((entry["deferred_for"], entry["infra"]["stage"]), ("infra", "propose"))
+        self.assertIn("HTTP 400", entry["infra"]["detail"])
+        self.assertEqual(len(self.build_turns(calls)), 2)  # asked once more in the run, then deferred
+        learning = evolve.read_learnings()[0]
+        self.assertEqual(evolve.learning_state(self.entries(), learning), ("open", 0))
+
+    def test_a_proposer_turn_the_provider_failed_once_is_asked_again_in_the_run(self):
+        calls = self.provider_fails(times=1)
+        with unittest.mock.patch.object(evolve, "TURN_RETRY_SECS", 0):
+            out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "dry-run")
+        self.assertEqual(len(self.build_turns(calls)), 2)
+
+    def test_an_answer_with_no_usable_proposal_is_still_a_failed_try(self):
+        calls, fake = self.root / "oh.log", self.root / "fake-oh"
+        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$2\" >>" + str(calls) + "\n"
+                        "python3 -c 'import json; print(json.dumps({\"response\": \"no json here\"}))'\n")
+        fake.chmod(0o755)
+        os.environ["TEENY_OH"] = str(fake)
+        self.config(EVOLVE=1, EVOLVE_GENERATIONS_PER_DAY=24, EVOLVE_PROPOSER="ask")
+        self.page("# MEMORY.md\n\n## what i have decided\n\n- [m19] some visits can just be visits.\n")
+        out = evolve.run_generation(evolve.load_config(), 1, None, publisher=FakePublisher())
+        self.assertEqual(out["candidates"][0]["verdict"], "no-proposal")
+        self.assertEqual(evolve.learning_state(self.entries(), evolve.read_learnings()[0]), ("open", 1))
+
     def test_the_message_leads_with_outcomes_and_rules_out_the_junk(self):
         calls = self.root / "oh.log"
         fake = self.root / "fake-oh"
