@@ -15,8 +15,10 @@ every time. On 2026-11-15, -16 and -17 self-improve's eight inputs made an
 86,357-char message and its draft turn failed in two seconds each day; other
 playbooks run at about 64.5k chars, at the edge.
 
-How it cuts: the biggest input first, so a small one is never cut while a
-bigger one could be. Within an input, the longest list loses its last item
+How it cuts: all the inputs together get one level, the biggest size that,
+applied to each, fits TOTAL. One under the level is left whole and one over
+it is cut to it, so a small input is never cut while a big one could be,
+and no big one is cut more than another. Within an input, the longest list loses its last item
 (hands answer newest first, and `--limit`/`--max` keep the front too), so
 what the model reads is still JSON, in whole items. Only when no list is left
 to shorten is the longest string cut, with "..." on the end. Before, bin/act
