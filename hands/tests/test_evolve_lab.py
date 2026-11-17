@@ -420,12 +420,12 @@ class TargetedEvaluation(LabCase):
         first = self.root / "long-first"
         first.write_text("1")
         os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
-        self.edit(1, "shiplog")
+        self.edit(1, "morning")
         self.run_gen(1, publisher=Refusing())
         ev = self.entries()["g1c1"]["eval"]
         self.assertEqual(ev["verdict"], "pass", ev.get("reason"))
-        self.assertEqual(ev["suspects"], ["shiplog-numbers"])
-        self.assertEqual(ev["confirmation"]["shiplog-numbers"]["state"], "refuted")
+        self.assertEqual(ev["suspects"], ["morning-post"])
+        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "refuted")
         self.assertIn("did not hold up", ev["reason"])
         base = [d for d in self.drafts() if d[0] == self.port]
         cand = [d for d in self.drafts() if d[0] == self.port + 1]
@@ -439,18 +439,18 @@ class TargetedEvaluation(LabCase):
     def test_a_hard_check_regression_that_holds_up_on_fresh_drafts_is_regressed(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
         os.environ["FAKE_CAND_LONG"] = "1"
-        self.edit(1, "shiplog")
+        self.edit(1, "morning")
         out = self.run_gen(1, publisher=Refusing())
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
         ev = self.entries()["g1c1"]["eval"]
-        self.assertEqual(ev["regressions"], ["shiplog-numbers"])
-        self.assertEqual(ev["confirmation"]["shiplog-numbers"]["state"], "confirmed")
-        self.assertIn("confirmed: shiplog-numbers on 6 fresh pair", ev["reason"])
+        self.assertEqual(ev["regressions"], ["morning-post"])
+        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "confirmed")
+        self.assertIn("confirmed: morning-post on 6 fresh pair", ev["reason"])
 
     def test_a_restart_between_the_compare_and_its_confirmation_confirms_without_judging_again(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
         os.environ["FAKE_CAND_LONG"] = "1"
-        self.edit(1, "shiplog")
+        self.edit(1, "morning")
         real = evolve.TargetedEvaluator._confirm
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm",
                                         side_effect=evolve.EvolveError("cut off")):
@@ -463,7 +463,7 @@ class TargetedEvaluation(LabCase):
         evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm", real):
             self.run_gen(1, publisher=Refusing())
-        self.assertEqual(self.entries()["g1c1"]["eval"]["confirmation"]["shiplog-numbers"]["state"], "confirmed")
+        self.assertEqual(self.entries()["g1c1"]["eval"]["confirmation"]["morning-post"]["state"], "confirmed")
         # Only the six fresh pairs were judged after the restart.
         self.assertEqual(len([c for c in self.core_turns() if c.get("agent_id") == "judge"]) - judged, 6)
 
@@ -890,12 +890,12 @@ class AA(LabCase):
 
     def test_main_against_itself_passes_and_leaves_no_generation_behind(self):
         self.lab_config(EVOLVE_PROBES=1)
-        line = evolve.aa(evolve.load_config(), ["shiplog-numbers", "morning-post"])
+        line = evolve.aa(evolve.load_config(), ["morning-post", "reply-fud"])
         self.assertEqual((line["kind"], line["verdict"], line["false_regressed"]), ("aa", "pass", False))
         self.assertEqual((line["tasks"], line["samples"], line["suspects"]), (2, 1, []))
         self.assertGreater(line["turns"], 0)
         self.assertEqual(evolve.read_jsonl(evolve.evolve_dir() / "aa.jsonl"), [line])
-        self.assertEqual(evolve.archive(), {})
+        self.assertEqual(list(evolve.archive()), ["main"])  # the seed only
         self.assertEqual(evolve.next_gen(), 1)
         self.assertEqual(evolve.generations_today(), 0)
         self.assertFalse((evolve.evolve_dir() / "baseline").exists())  # main drafted afresh, in its own folder
@@ -910,9 +910,9 @@ class AA(LabCase):
         first = self.root / "long-first"
         first.write_text("1")
         os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
-        line = evolve.aa(evolve.load_config(), ["shiplog-numbers"])
+        line = evolve.aa(evolve.load_config(), ["morning-post"])
         self.assertEqual((line["first_verdict"], line["verdict"]), ("regressed", "pass"))
-        self.assertEqual(line["confirmation"], {"shiplog-numbers": "refuted"})
+        self.assertEqual(line["confirmation"], {"morning-post": "refuted"})
 
     def test_the_command_prints_one_json_line_and_refuses_an_unknown_task(self):
         self.lab_config()
