@@ -287,8 +287,7 @@ class Settled(EvolveCase):
     def test_an_already_skip_cools_off_like_a_learnings(self):
         self.attempt("skipped", skip={"why": "already", "where": "brain/playbooks/self-improve.md"})
         self.assertEqual(self.state(), "settled")  # 3 days into a 7-day cool-off
-        os.environ["EVOLVE_NOW"] = str(T0 + 5 * DAY)
-        self.fails(5, start=-100)  # the number still stands at its level in the new window
+        os.environ["EVOLVE_NOW"] = str(T0 + 5 * DAY)  # the same five failures, still in the window
         self.assertEqual(self.state(), "open")
 
     def test_a_rejected_attempt_holds_it_until_the_number_grows(self):
@@ -326,7 +325,7 @@ class AsACandidate(EvolveCase):
 
     def test_a_finding_fills_a_reserved_slot_and_carries_its_own_check(self):
         seen = []
-        edit = self.playbook_edit("Say what you saw, not what to do.")
+        edits = [self.playbook_edit("Check before retrying."), self.playbook_edit("Say what you saw, not what to do.")]
 
         class Look:
             name = "look"
@@ -334,7 +333,8 @@ class AsACandidate(EvolveCase):
             def propose(self, request):
                 seen.append((request["learning"], evolve.render_request(request)))
                 return {"title": "plainer words", "component": "attention", "expected_move": "fewer flagged drafts",
-                        "hypothesis": "h", "check": {"kind": "judged", "surface": "x"}, "edits": [edit]}
+                        "hypothesis": "h", "check": {"kind": "judged", "surface": "x"},
+                        "edits": [edits[len(seen) - 1]]}
 
         self.live()
         publisher = FakePublisher()
