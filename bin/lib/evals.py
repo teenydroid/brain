@@ -882,7 +882,7 @@ def fence_failures(record: dict, breaks: list[str]) -> list[str]:
 
 #: Fresh samples a side when a suspect is confirmed (bin/evolve:
 #: EVOLVE_CONFIRM_SAMPLES).
-CONFIRM_SAMPLES = 10
+CONFIRM_SAMPLES = 16
 #: The chance, over a whole eval, that a candidate no different from main is
 #: confirmed `regressed`: each of S suspects is tested at CONFIRM_P / S.
 CONFIRM_P = 0.05
