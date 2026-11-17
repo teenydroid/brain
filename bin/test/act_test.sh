@@ -27,7 +27,7 @@ printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
 # $FAKE_REDRAFT_SLEEP: a rewrite turn takes that many seconds (the 11-minute
 # rewrite of 2026-11-17).
-if [ -n "${FAKE_REDRAFT_SLEEP:-}" ] && jq -r .message <<<"$2" | grep -q 'one rewrite'; then
+if [ -n "${FAKE_REDRAFT_SLEEP:-}" ] && jq -r .message <<<"$2" | grep -q '^# playbook: .*, one rewrite'; then
   sleep "$FAKE_REDRAFT_SLEEP"
 fi
 # $FAKE_FIRST, when the file is there, answers the first call only, and

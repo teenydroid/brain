@@ -31,6 +31,10 @@
 #    inputs. A draft with no anchor, one the judge does not find anchored, or
 #    a judge that cannot answer is a skip ("not anchored: ..."): nothing is
 #    sent, no picture made, no budget spent, and the draft is never rewritten.
+#    A draft the cold reader (hands/guard clarity) cannot follow gets one
+#    rewrite, held to X's 280 (bin/lib/post_length.py, the guard's own count)
+#    before the judges read it, and run only in what is left of
+#    TEENY_ACT_BUDGET_SECS (the 300 s the core gives a cron shell call).
 #    A `post` may be a thread: "posts": ["...", "..."] (2 to 5) in place of
 #    "text". The anchor judge reads the posts joined, as one draft, and the
 #    draft goes to `hands/x post-thread`, which holds every post to the guard
