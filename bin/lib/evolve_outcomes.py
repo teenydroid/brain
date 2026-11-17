@@ -328,20 +328,6 @@ ANSWER_FIELD = ('"check": {"kind": "<one of the kinds under how your change is c
                 '"<each field that kind lists>": "..."}')
 
 
-def recheck_text(request: Mapping[str, Any]) -> str:
-    """A check-only re-ask: the proposal was fine but its check was not.
-    Small and tool-less; the answer is the check alone."""
-    proposal = request.get("proposal") or {}
-    return "\n\n".join([
-        f"# evolve: generation {request.get('gen')}, candidate {request.get('cand')}: your check",
-        "Your change is fine as it is; only its `check` could not be used, so nothing else is asked again. "
-        f"What was wrong: {str(request.get('problem') or '')[:400]}",
-        "Your change's own account, as data:\n\n```json\n" + json.dumps(
-            {k: proposal.get(k) for k in ("title", "expected_move", "check")}, ensure_ascii=False)[:2000] + "\n```",
-        brief_text(request.get("horizons") or (2, 7)),
-        'Answer with JSON only, no prose and no code fence: {"check": {...}}',
-    ])
-
 
 # --- the evidence ---------------------------------------------------------------------------------------
 
