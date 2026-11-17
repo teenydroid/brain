@@ -1843,7 +1843,7 @@ does. Now every proposal carries a `check` the code can count
 
 | kind | fields | what it counts |
 |---|---|---|
-| `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); an `INFRA_ERROR` is left out |
+| `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); a run bin/act marked `failure: provider`, an unmarked one whose stderr `provider_error.classify` names, and an `INFRA_ERROR` in its error or stderr are left out; `contains` matches the error, the stderr and the failed actions |
 | `refusals` | `rule`, `playbook?`, `verb?` | actions a hand refused by that rule, in bin/act runs and beats (`state/tick/runs.jsonl`, a result's `do` is the verb); `held` for a guard hold |
 | `cron_failed` | `job` | failed runs of a job of `brain/cron.toml` or the pinned schedule (storage.db), boots and `INFRA_ERROR` left out as in the watch |
 | `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default) |
