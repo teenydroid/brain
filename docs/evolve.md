@@ -489,7 +489,7 @@ task reads a clock or a live number, so it was not the baseline's
 conditions but chance meeting a two-sample rule. With the box's per-task
 failure rates (pooled over every draft there, main's and the candidates':
 14 of 43 tasks fail their checks sometimes, 5 of them more often than not), an identical candidate that reaches every task trips
-it about 23% of the time, and `regressed` is final.
+it about one time in four, and `regressed` is final.
 
 So the two-sample rule now names suspects (`suspects`, and `confirm` while
 they wait), and `bin/eval confirm COMPARE BASE CAND` decides them. BASE and
@@ -512,7 +512,7 @@ judge's pairs. One with too few fresh pairs run to ever confirm is
 suspect's counts, `p`, level and state under `confirmation`; the first report
 stays as `first-report.json`. Simulated on the box's rates
 (`hands/tests/test_eval_confirm.py`, 4000 seeded runs of an identical
-candidate on 43 tasks): 22.8% `regressed` before, 0.2% now. A change that
+candidate on 43 tasks, two seeds): 23 to 25% `regressed` before, 0.4% now. A change that
 makes a clean task fail every time is caught every time; one that moves a
 task from 10% to 80% failing is caught 51% of the time, against the 52% the
 two-sample screen flags it at all.
