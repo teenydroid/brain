@@ -1174,7 +1174,8 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
 def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     """The picture for an image piece, made only now that its words passed:
     the scene past the guard, then hands/image (its own daily and money
-    caps), then hands/x upload. The media ids to post with ([] in a dry run:
+    caps, the scene kept as its alt text), the viewer check (hands/guard
+    view), then hands/x upload --alt. The media ids to post with ([] in a dry run:
     the picture is planned, never bought), or None when it could not be made."""
     note: Json = {"scene": draft.get("image") or ""}
     attempt["picture"] = note
@@ -1193,7 +1194,10 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     if room.dry:
         note["planned"] = True
         return []
-    code, made = room.hand_code(["image", "generate"], {"prompt": note["scene"]}, dry=False, timeout=360)
+    # The alt text is what the picture shows: the scene, as the guard passed
+    # it (hands/image keeps it on the row for hands/x upload --alt).
+    alt = note["scene"][:1000]
+    code, made = room.hand_code(["image", "generate"], {"prompt": note["scene"], "alt": alt}, dry=False, timeout=360)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason") if isinstance(made, dict) else str(made)[:300])
@@ -1206,7 +1210,16 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     if not asset.get("path"):
         note["failed"] = "made, but no file came back"
         return None
-    ok, up = room.hand(["x", "upload", "--file", str(asset["path"])], dry=False, timeout=180)
+    # The viewer check (hands/guard view): someone who has never heard of
+    # Teeny looks at the picture: Teeny on model, and the point taken from
+    # it. Fails closed; off (VIEWER_JUDGE=0) it passes and says so.
+    intent = (draft.get("meaning") or note["scene"])[:400]
+    ok, seen = room.hand(["guard", "view"], {"image": str(asset["path"]), "intent": intent}, timeout=240)
+    note["viewer"] = _brief(seen, "ok", "sees", "on_model", "readable", "reason", "judged")
+    if not (ok and isinstance(seen, dict) and seen.get("ok") is True):
+        note["failed"] = "the viewer check did not pass it"
+        return None
+    ok, up = room.hand(["x", "upload", "--file", str(asset["path"]), "--alt", alt], dry=False, timeout=180)
     if not (ok and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
         note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
         return None

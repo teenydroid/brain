@@ -121,6 +121,9 @@ case "$1" in
       down) echo '{"ok": false, "error": "the cold reader could not be reached"}'; exit 1 ;;
       *) echo '{"ok": true, "clear": false, "says": "something about a thing", "unknown": ["the desk"], "vague": [], "reason": "a stranger would have to ask about: \"the desk\"", "judged": true}' ;;
     esac ;;
+  view)
+    if [ -n "${FAKE_VIEW_NO:-}" ]; then echo '{"ok": false, "sees": "a yellow blob", "on_model": false, "reason": "off model", "judged": true}'
+    else echo '{"ok": true, "sees": "a small yellow robot", "on_model": true, "reason": "took the point", "judged": true}'; fi ;;
   check)
     if [ -n "${FAKE_SCENE_HELD:-}" ]; then echo '{"ok": false, "refused": "held", "category": "unknown"}'; exit 2; fi
     jq -c '{ok: true, text: .text}' <<<"$in" ;;
@@ -395,6 +398,10 @@ rec="$(last_record)"
 check "an image piece: the scene past the guard, then hands/image, upload, and the media id on the post" \
   bash -c "grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^image generate DRY_RUN= ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/31.png' '$FAKE_HANDS' &&
     jq -e '.media_ids == [\"m-31\"] and .format == \"image\"' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _
+check "the picture carries its alt text into hands/image and upload, and passes the viewer check first" \
+  bash -c "grep '^image generate ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.alt == .prompt' >/dev/null &&
+    grep -q '^x upload --file state/media/31.png --alt ' '$FAKE_HANDS' && grep -n -E '^(guard view|x upload)' '$FAKE_HANDS' | head -1 | grep -q 'guard view' &&
+    jq -e '.publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null" _ "$rec"
 # 2026-11-18 preview: every scene the writer wrote (up to 600 characters) was
 # held as "over the 280 limit" when screened as an X post.
 check "the scene is screened as text a machine is sent (surface task, 1,000), not as an X post" \
@@ -413,6 +420,13 @@ rec="$(last_record)"
 check "a refused picture: the words go out alone when they stand alone, and the record says so" \
   bash -c "jq -e '.outcome == \"published\" and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     jq -e 'has(\"media_ids\") | not' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _ "$rec"
+
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_VIEW_NO=1 live)"
+rec="$(last_record)"
+check "a picture the viewer fails is not posted: the words go out alone, nothing uploaded" \
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.viewer.ok == false and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
+    ! grep -q '^x upload' '$FAKE_HANDS'" _ "$rec"
 
 # --- the gates fail closed, one rewrite, then the next draft
 reset
