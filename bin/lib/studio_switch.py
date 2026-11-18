@@ -2,8 +2,9 @@
 (docs/architecture.md, "The studio").
 
     python3 bin/lib/studio_switch.py on                  -> prints 1 or 0
-    python3 bin/lib/studio_switch.py replaced PLAYBOOK   -> exit 0 when the studio owns its slot now
-    python3 bin/lib/studio_switch.py veto PLAYBOOK       -> prints the editor-veto kind, exit 1 when none
+    python3 bin/lib/studio_switch.py replaced PLAYBOOK   -> exit 0 when the studio owns its slot now, 3 when not
+    python3 bin/lib/studio_switch.py veto PLAYBOOK       -> prints the editor-veto kind, exit 3 when none
+    python3 bin/lib/studio_switch.py doctor              -> "ok|warn|fail <what>" for bin/doctor
 
 `STUDIO` decides, read the way bin/studio reads every switch: the process
 environment, then secrets/teeny.env, then off. Cron jobs run with an
@@ -129,9 +130,34 @@ def veto_kind(playbook: str, environ: Mapping[str, str] | None = None) -> str | 
     return VETOED.get(playbook) if on(environ) else None
 
 
+def doctor(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
+    """bin/doctor's check: (ok | warn | fail, what it found). Fail when STUDIO
+    cannot be read; warn, with the studio on, when the judges
+    (SAFETY_JUDGE_MODEL, read from the file as the hands read it) would run
+    on the writer's model: a live slot then posts nothing."""
+    environ = os.environ if environ is None else environ
+    try:
+        value, where = read(environ)
+    except SwitchError as exc:
+        return "fail", str(exc)
+    if not value:
+        return "ok", f"off ({where}): the legacy playbooks and the mind's post_x post"
+    path = secrets_file(environ)
+    writer = (environ.get("STUDIO_WRITER_MODEL") or _filed(path, "STUDIO_WRITER_MODEL") or "").strip()
+    judge = (_filed(path, "SAFETY_JUDGE_MODEL") or "").strip()
+    if judge == writer:
+        return "warn", (f"on ({where}), but SAFETY_JUDGE_MODEL is the writer's model ({writer or 'both the core default'}):"
+                        " every live slot stays empty until the judges run on another model")
+    return "ok", f"on ({where}): writer {writer or 'core default'}, judges {judge or 'core default'}"
+
+
 def main(argv: list[str]) -> int:
     """0 yes, NO (3) no, ERROR (4) when STUDIO cannot be read, 2 a usage
     error. `on` also prints 1 or 0."""
+    if argv == ["doctor"]:
+        level, what = doctor()
+        print(f"{level} {what}")
+        return 0
     try:
         if argv[:1] == ["on"] and len(argv) == 1:
             value = on()
@@ -148,7 +174,7 @@ def main(argv: list[str]) -> int:
     except SwitchError as exc:
         print(f"[studio_switch] {exc}", file=sys.stderr)
         return ERROR
-    print("usage: studio_switch.py on | replaced PLAYBOOK | veto PLAYBOOK", file=sys.stderr)
+    print("usage: studio_switch.py on | replaced PLAYBOOK | veto PLAYBOOK | doctor", file=sys.stderr)
     return 2
 
 
