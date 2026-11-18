@@ -148,6 +148,18 @@ record() {
   printf '%s\n' "$1"
 }
 
+# The studio owns every original post while STUDIO=1 (bin/lib/studio_switch.py):
+# a playbook whose slot it took is kept for the rollback (STUDIO=0) and never
+# run meanwhile, whoever asks for it. Before any input or model turn.
+if python3 "$TEENY_ROOT/bin/lib/studio_switch.py" replaced "$name"; then
+  record "$(jq -cn --arg p "$name" '{ok: true, playbook: $p, skipped: "the studio owns this slot (STUDIO=1): this playbook runs only with STUDIO=0"}')"
+  exit 0
+fi
+# The told-to post and the outward quote keep their jobs, and their words go
+# past the studio's editor first (`bin/studio --veto`), as one candidate.
+veto_kind="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" veto "$name")" || veto_kind=""
+studio_on="$(python3 "$TEENY_ROOT/bin/lib/studio_switch.py" on)"
+
 if [ "$(taken)" -ge "$max_per_day" ]; then
   log "$name: today's $max_per_day action(s) already taken"
   record "$(jq -cn --arg p "$name" '{ok: true, playbook: $p, skipped: "daily budget spent"}')"
