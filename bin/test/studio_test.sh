@@ -178,6 +178,10 @@ export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSP
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RECORDS="$scratch/records.log" \
   FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log"
 unset DRY_RUN STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL STUDIO_FORMATS STUDIO_RUN_ID
+# The room's own checks run with STUDIO_DRY=1: every gate runs, hands/x runs
+# with DRY_RUN=1, nothing is posted. "publishing" below runs live (STUDIO_DRY=0)
+# against the stand-in hands/x.
+export STUDIO_DRY=1
 
 reset() { rm -rf "$scratch/state" "$FAKE_SEEN".*; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; }
 run() { "$studio" "$@" 2>"$scratch/stderr"; }
@@ -223,13 +227,15 @@ out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" run --slot afternoon)"
 rec="$(last_record)"
 check "a run picks one draft" test "$(jq -r .outcome <<<"$out")" = picked
 check "and prints the pick as JSON" jqe '.pick.label | test("^D[0-9]+$")' <<<"$out"
-check "and says it posted nothing" jqe '.dry == true and .published == {dry: true}' <<<"$out"
-check "every hand input runs with DRY_RUN=1" bash -c "! grep -v 'DRY_RUN=1$' '$FAKE_HANDS' | grep -v '^story record-run'"
+check "and says it posted nothing: it would post" jqe '.dry == true and .published.outcome == "would_post" and .published.dry == true' <<<"$out"
+check "every hand runs with DRY_RUN=1" bash -c "! grep -vE 'DRY_RUN=1( stdin=.*)?$' '$FAKE_HANDS' | grep -v '^story record-run'"
 check "it reads what happened from hands/story desk" grep -q '^story desk DRY_RUN=1$' "$FAKE_HANDS"
 check "and the free outside world the old playbooks read" bash -c "grep -q '^hn top --max 8' '$FAKE_HANDS' && grep -q '^hn show --max 8' '$FAKE_HANDS' && grep -q '^listen digest --days 1 --max 4' '$FAKE_HANDS'"
 check "but not the paid X search, which is off by default, and says so" \
   bash -c "! grep -q '^x search ' '$FAKE_HANDS' && jq -e '.inputs.skipped | any(test(\"STUDIO_OUTSIDE_X=1\"))' <<<\"\$1\" >/dev/null" _ "$rec"
-check "nothing calls hands/x post or post-thread" bash -c "! grep -qE '^x (post|post-thread|reply|upload) ' '$FAKE_HANDS'"
+check "dry, hands/x post runs only with DRY_RUN=1, and no picture is bought or uploaded" \
+  bash -c "grep -qE '^x (post|post-thread) DRY_RUN=1 ' '$FAKE_HANDS' && ! grep -E '^x (post|post-thread|reply) ' '$FAKE_HANDS' | grep -qv 'DRY_RUN=1 ' && ! grep -qE '^(image |x upload)' '$FAKE_HANDS'"
+check "and no beat is recorded for a post that never went out" test ! -s "$FAKE_BEATS"
 check "pitches and drafts are the writer's turns" test "$(calls_to writer | grep -c '^# studio: ')" = 4
 check "the writer drafts on the run's own thread" test "$(jq -r 'select(.agent_id == "writer") | .thread_id' "$FAKE_CALLS" | sort -u)" = "studio:$plain_id"
 check "the editor's turns have no thread" test "$(jq -r 'select(.agent_id == "editor") | .thread_id // "none"' "$FAKE_CALLS" | sort -u)" = none
@@ -278,10 +284,6 @@ reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_OUTSIDE_X=1 run >/dev/null
 check "STUDIO_OUTSIDE_X=1 runs the X search" grep -q '^x search .* DRY_RUN=1$' "$FAKE_HANDS"
 check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$(last_record)"
-reset
-out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_DRY=0 run)"
-check "STUDIO_DRY=0 end to end still posts nothing" \
-  bash -c "jq -e '.outcome == \"picked\" and .published == {dry: true} and (.warnings | any(test(\"STUDIO_DRY=0\")))' <<<\"\$1\" >/dev/null && ! grep -qE '^x (post|post-thread|reply|upload) ' '$FAKE_HANDS'" _ "$out"
 
 # --- explore: one run in four --------------------------------------------------------
 reset
