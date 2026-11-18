@@ -1637,6 +1637,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
+        + INERT_NOTE + "\n"
         "- Doing less of yourself to save money: fewer runs, a job turned off, a schedule thinned out. A job "
         "that fails gets fixed, not run less (turning off a job of yours that only ever fails is fine, if you "
         "say so).\n"
@@ -2280,6 +2281,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
+        INERT_NOTE.removeprefix("- "),
     ]
 
 
@@ -3122,6 +3124,11 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
 #: candidate 1, PR #361); assets/tiny/README.md describes reference art that
 #: nothing names.
 INERT_PATHS = ("brain/MEMORY.seed.md", "brain/assets/tiny/README.md")
+#: What the proposer and the research turn are told about them.
+INERT_NOTE = ("- A change only to " + " or ".join(INERT_PATHS) + ": nothing that runs reads them. MEMORY.seed.md "
+              "only starts a brand-new page; your live brain/MEMORY.md is what rides your prompts, and code never "
+              "edits it. A learning already on your live page needs a change where a prompt, playbook, skill or "
+              "job reads it, or a skip as `already`.")
 
 
 #: How long one hand's tests may run in the gate.

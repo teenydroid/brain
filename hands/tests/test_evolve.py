@@ -1019,7 +1019,7 @@ class PurposeChecks(EvolveCase):
         self.assertEqual(sorted(evolve.INERT_PATHS), ["brain/MEMORY.seed.md", "brain/assets/tiny/README.md"])
         readers = [p for p in git("ls-files", cwd=REPO).splitlines()
                    if p.startswith(("bin/lib/", "hands/lib/", "brain/playbooks/", "brain/skills/", "brain/agents/"))
-                   and p.endswith((".py", ".md", ".toml", ".sh"))]
+                   and p.endswith((".py", ".md", ".toml", ".sh")) and p != "bin/lib/evolve.py"]  # the gate itself
         for path in evolve.INERT_PATHS:
             name = path.removeprefix("brain/")
             named = [r for r in readers if name in (REPO / r).read_text(encoding="utf-8", errors="replace")]
@@ -1032,6 +1032,14 @@ class PurposeChecks(EvolveCase):
                 self.assertIn("return live if live.is_file() else brain / MEMORY_SEED", prompts)
                 continue
             self.assertEqual(named, [], path)
+
+    def test_the_proposer_and_the_research_turn_are_told_the_seed_is_inert(self):
+        learning = {"id": "m20", "section": "what i have decided", "text": "captcha: unsure is fine", "hash": "h"}
+        research = "\n".join(evolve.research_brief({"learning": learning, "frozen": ["bin/**"]}, False))
+        build = "\n".join(evolve.brief({"learning": learning, "frozen": ["bin/**"]}, False))
+        for text in (research, build):
+            self.assertIn("MEMORY.seed.md only starts a brand-new page", text)
+            self.assertIn("or a skip as `already`", text)
 
     def test_a_failed_check_lands_in_the_archive_with_its_reason(self):
         """Not final since 2026-11-15: the same proposal three rounds running
