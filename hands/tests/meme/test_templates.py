@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import json
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+import unittest
 from urllib.parse import quote, urlsplit
 
 from .support import ART, REPO, Scratch
@@ -19,6 +20,7 @@ from teeny_hands import hand
 from teeny_hands.media import fit
 from teeny_hands.meme import templates
 
+UPSTREAM = REPO / "vendor" / "memegen" / "app" / "utils"
 SPEC = importlib.util.spec_from_file_location("memegen_art", REPO / "deploy" / "memegen" / "art.py")
 art = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(art)
@@ -346,16 +348,18 @@ class ArtTest(Scratch):
         for line in ("utils.http.download = download", "utils.meta.get_watermark = no_watermark",
                      "utils.meta.track = no_track", "utils.meta.search = no_search"):
             self.assertIn(line, front)
-        # And the upstream names it replaces exist in the pinned commit.
-        upstream = REPO / "vendor" / "memegen" / "app" / "utils"
-        if (upstream / "http.py").is_file():
-            self.assertIn("async def download(url: str, path", (upstream / "http.py").read_text())
-            meta = (upstream / "meta.py").read_text()
-            for name in ("async def get_watermark(request", "async def track(request", "async def search(request"):
-                self.assertIn(name, meta)
+
+    @unittest.skipUnless(UPSTREAM.is_dir() or os.environ.get("CI"), "vendor/memegen is not checked out")
+    def test_what_the_front_replaces_is_in_the_pinned_commit(self):
+        # A pin bump that renames one of these would leave upstream's own
+        # download (any public URL) or its watermark in force: fail here.
+        self.assertIn("async def download(url: str, path", (UPSTREAM / "http.py").read_text())
+        meta = (UPSTREAM / "meta.py").read_text()
+        for name in ("async def get_watermark(request", "async def track(request", "async def search(request"):
+            self.assertIn(name, meta)
+        self.assertIn("await utils.http.download(url, path)", (UPSTREAM.parent / "models" / "template.py").read_text())
+        self.assertIn("utils.meta.get_watermark(request)", (UPSTREAM.parent / "views" / "images.py").read_text())
 
 
 if __name__ == "__main__":
-    import unittest
-
     unittest.main()
