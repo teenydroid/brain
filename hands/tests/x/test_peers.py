@@ -284,6 +284,22 @@ class SuggestTest(SuggestBase):
         [row] = self.table("x_posts")
         self.assertEqual((row["kind"], row["quote_of"], row["quote_author"], row["format"]), ("quote", "202", "62", "peer-quote"))
 
+    def test_a_posted_quote_says_it_came_from_the_peer_quote_job(self):
+        peers.suggest({"candidates": [self.candidate("202", 5)]})
+        [row] = self.table("x_posts")
+        self.assertEqual(row["producer"], "peer-quote")
+
+    def test_the_studio_editors_no_keeps_the_suggestions_and_posts_none(self):
+        # bin/act passes the editor's no (STUDIO=1) as `vetoed`: before the
+        # anchor judge, every suggestion kept, the top one skipped as `editor`.
+        out = peers.suggest({"candidates": [self.candidate("202", 5), self.candidate("201", 4)],
+                             "vetoed": "a stranger would scroll past it"})
+        self.assertEqual((out["posted"], out["skipped"]["rule"]), (None, "editor"))
+        self.assertIn("a stranger would scroll past it", out["skipped"]["reason"])
+        self.assertEqual(self.posted(), [])
+        self.judged.assert_not_called()
+        self.assertEqual(self.statuses(), [("202", 5, "skipped", "editor"), ("201", 4, "kept", None)])
+
     def test_the_post_is_recorded_as_a_touch_of_that_peer(self):
         peers.suggest({"candidates": [self.candidate("202", 5)]})
         [touch] = self.table("x_peer_touches")
