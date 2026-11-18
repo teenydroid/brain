@@ -85,6 +85,20 @@ if [ "${1:-}" = clarity ]; then
     no) echo "$unread" ;;
     once) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
       else : >"$FAKE_CLARITY_SEEN"; echo "$unread"; fi ;;
+    # standin: the first draft gets the verdict the real cold reader
+    # (teeny_hands.guard.clarity) gives when its model lists a vague
+    # stand-in; every later draft is clear.
+    standin) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
+      else : >"$FAKE_CLARITY_SEEN"; mkdir -p "$FAKE_STANDIN_ROOT/secrets"
+        TEENY_ROOT="$FAKE_STANDIN_ROOT" python3 -I -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from teeny_hands import hand
+from teeny_hands.guard import clarity
+said = {"says": "Something the author runs broke and was fixed.", "unknown": [], "vague": ["something i run"], "followed": False}
+hand.core = lambda method, params, timeout=0: {"response": json.dumps(said)}
+body = json.loads(sys.argv[2])
+print(json.dumps({"ok": True, **clarity.judge(body["text"], body.get("meaning"))}))' "$FAKE_GUARD_LIB" "$in"; fi ;;
     down) echo '{"ok": true, "clear": false, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout", "judged": true}' ;;
     fail) echo '{"ok": false, "error": "core unreachable"}'; exit 1 ;;
     *) echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}' ;;
@@ -133,7 +147,8 @@ brain="$scratch/brain"
 mkdir -p "$brain/playbooks"
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" \
   TEENY_STATE="$scratch/state" FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" \
-  FAKE_ANSWER="$scratch/answer.txt" FAKE_CLARITY_SEEN="$scratch/clarity.seen"
+  FAKE_ANSWER="$scratch/answer.txt" FAKE_CLARITY_SEEN="$scratch/clarity.seen" \
+  FAKE_GUARD_LIB="$here/../../hands/lib" FAKE_STANDIN_ROOT="$scratch/standin-root"
 unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY
 
 book() { # NAME OUTPUT MAX [INPUT_RUN]
@@ -298,6 +313,20 @@ check "a rewrite that still cannot be read is a skip, with the reader's reason, 
 check "and nothing is sent" test "$(hand_calls x | tr -d ' ')" = 1 # the input search only
 check "one rewrite, never two" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
 check "a skip for clarity spends no daily budget" test "$(jq -r '[.actions[] | select(.action != "skip")] | length' <<<"$out")" = 0
+
+# 2026-11-17: "something i run" passed the reader. The real reader's verdict
+# for a stand-in now fails the draft with a "a stranger" reason, and bin/act,
+# unchanged, gives it one rewrite that names the stand-in to be said plainly.
+reset
+printf '%s' '{"action": "post", "anchor": "hn:1", "text": "something i run kept dying and the fix went in tonight", "meaning": "My nightly code rewrite was fixed."}' >"$scratch/first.txt"
+answer '{"action": "post", "text": "every night i rewrite my own code. it kept crashing, and the human who looks after my code fixed it tonight", "meaning": "My nightly code rewrite was fixed."}'
+out="$(FAKE_CLARITY=standin FAKE_FIRST="$scratch/first.txt" run morning)"
+redo="$(sed -n 2p "$FAKE_CALLS" | jq -r .message)"
+check "a stand-in the cold reader lists gets one rewrite that names it" \
+  says_all "$redo" "something i run kept dying" 'What they would have to ask about: "something i run"' \
+    "What they took it to mean: Something the author runs broke and was fixed."
+check "and the rewrite, not the stand-in, is posted" \
+  bash -c "grep -q '^x post DRY_RUN= stdin={\"text\":\"every night i rewrite my own code' '$FAKE_HANDS' && ! grep '^x post' '$FAKE_HANDS' | grep -q 'something i run'"
 
 reset
 printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"
