@@ -1060,12 +1060,287 @@ def ask_core(root: Path, agent: str, message: str, thread: str | None, model: st
     return done.returncode, done.stdout, done.stderr
 
 
-def publish(pick: Json) -> Json:
-    """THE CUTOVER FILLS THIS (docs/architecture.md, "The studio"): the
-    producer for the pick's format, the gates (truth, stranger, guard), the
-    post through hands/x, and `hands/story beat`. In this version the studio
-    posts nothing, ever."""
-    return {"dry": True}
+# --- publishing the pick --------------------------------------------------------------
+
+#: hands/x refusals that shut the slot for every draft, not just this one.
+SLOT_RULES = ("gap", "daily_cap")
+
+
+@dataclass
+class Slot:
+    """What publishing needs from the run: the drafts by label, best first,
+    and what each one may draw on."""
+    order: list[str]
+    blind: dict[str, Json]
+    board: Json
+    stories_now: list[Json]
+    pitches: dict[str, Json]
+    items: dict[str, Json]
+    stories: dict[str, Json]
+    thread: str
+
+
+def _words(draft: Json) -> str:
+    return "\n\n".join(texts_of(draft))
+
+
+def _brief(verdict: Any, *keys: str) -> Json:
+    """A gate's answer as the record keeps it."""
+    if not isinstance(verdict, dict):
+        return {"error": str(verdict)[:300]}
+    return {k: verdict[k] for k in keys if k in verdict}
+
+
+def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json]:
+    """The truth judge, then the cold reader, on the draft's words: (the gate
+    it failed or None, that gate's verdict, every result). Each fails
+    closed: a hand that did not answer, or anything but its clear yes, is a
+    no. A judge the operator switched off (judged false) passes, and says so."""
+    results: Json = {}
+    ok, truth = room.hand(["guard", "truth"], {"text": _words(draft), "facts": draft["truth"]["facts"]},
+                          timeout=180)
+    results["truth"] = _brief(truth, "truthful", "unsupported", "reason", "judged")
+    if not (ok and isinstance(truth, dict) and truth.get("truthful") is True):
+        if not (isinstance(truth, dict) and truth.get("reason")):
+            results["truth"]["reason"] = f"hands/guard truth did not answer: {str(truth)[:300]}"
+        return "truth", results["truth"], results
+    body: Json = {"text": _words(draft)}
+    if draft.get("meaning"):
+        body["meaning"] = draft["meaning"]
+    ok, clear = room.hand(["guard", "clarity"], body, timeout=240)
+    results["stranger"] = _brief(clear, "clear", "says", "unknown", "vague", "reason", "judged")
+    if not (ok and isinstance(clear, dict) and clear.get("clear") is True):
+        if not (isinstance(clear, dict) and clear.get("reason")):
+            results["stranger"]["reason"] = f"hands/guard clarity did not answer: {str(clear)[:300]}"
+        return "stranger", results["stranger"], results
+    return None, {}, results
+
+
+def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, afters: list[str]) -> tuple[Json | None, Json]:
+    """One rewrite turn by the writer for a draft GATE turned down: the
+    draft as rewritten (held to 280 and to the pre-tournament screen), or
+    None; and what happened, for the record."""
+    pitch = slot.pitches.get(draft["pitch"]) or {}
+    item, story = slot.items.get(pitch.get("item")), slot.stories.get(draft.get("storyline"))
+    answer = room.turn("writer", f"rewrite {draft['id']}", rewrite_message(draft, gate, verdict, item, story),
+                       slot.thread, soft=True)
+    log: Json = {"gate": gate}
+    if not isinstance(answer, dict):
+        log["failed"] = "no usable answer, twice"
+        return None, log
+    if isinstance(answer.get("skip"), str) and not answer.get("text") and not answer.get("posts"):
+        log["skipped"] = _str(answer["skip"], 300)
+        return None, log
+    again = {k: v for k, v in draft.items() if k not in ("text", "posts")}
+    if "posts" in draft:
+        posts = answer.get("posts")
+        if not (isinstance(posts, list) and 2 <= len(posts) <= THREAD_MAX and all(isinstance(p, str) and p.strip()
+                                                                                    for p in posts)):
+            log["failed"] = f"a thread is 2 to {THREAD_MAX} posts"
+            return None, log
+        again["posts"] = [p.strip() for p in posts]
+    else:
+        if not (isinstance(answer.get("text"), str) and answer["text"].strip()):
+            log["failed"] = "it has no text"
+            return None, log
+        again["text"] = answer["text"].strip()
+    if _str(answer.get("meaning")):
+        again["meaning"] = _str(answer.get("meaning"))
+    log.update({"posts": again["posts"]} if "posts" in again else {"text": again["text"]})
+    why = over_limit(again) or screen(again, draft["truth"]["facts"], afters)
+    if why:
+        log["failed"] = why
+        return None, log
+    again["truth"] = {"text": _words(again), "facts": draft["truth"]["facts"]}
+    return again, log
+
+
+def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
+    """The picture for an image piece, made only now that its words passed:
+    the scene past the guard, then hands/image (its own daily and money
+    caps), then hands/x upload. The media ids to post with ([] in a dry run:
+    the picture is planned, never bought), or None when it could not be made."""
+    note: Json = {"scene": draft.get("image") or ""}
+    attempt["picture"] = note
+    if not note["scene"]:
+        note["failed"] = "the draft has no scene"
+        return None
+    ok, checked = room.hand(["guard", "check"], {"text": note["scene"], "surface": "x"})
+    if not (ok and isinstance(checked, dict) and isinstance(checked.get("text"), str) and checked["text"].strip()):
+        note.update(failed="the guard held its scene", guard=_brief(checked, "refused", "rule", "category", "error"))
+        return None
+    note["scene"] = checked["text"]
+    if room.dry:
+        note["planned"] = True
+        return []
+    code, made = room.hand_code(["image", "generate"], {"prompt": note["scene"]}, dry=False, timeout=360)
+    if code != 0 or not isinstance(made, dict):
+        note.update(failed="refused" if code == 2 else "not made",
+                    result=_brief(made, "refused", "rule", "error", "reason") if isinstance(made, dict) else str(made)[:300])
+        return None
+    if made.get("dry_run"):
+        note["dry_run"] = True
+        return []
+    asset = made.get("asset") or {}
+    note.update(asset=asset.get("id"), cost_usd=asset.get("cost_usd"))
+    if not asset.get("path"):
+        note["failed"] = "made, but no file came back"
+        return None
+    ok, up = room.hand(["x", "upload", "--file", str(asset["path"])], dry=False, timeout=180)
+    if not (ok and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
+        note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
+        return None
+    note["media_id"] = up["media_id"]
+    return [up["media_id"]]
+
+
+def stands_alone(draft: Json) -> str:
+    """Why the words of an image piece cannot go out without their picture;
+    "" when they can: the cold reader already followed them with no picture
+    in front of it, and they do not point at one."""
+    found = POINTS_AT_PICTURE.search(_words(draft))
+    return f"its words point at the picture ({found.group(0)!r})" if found else ""
+
+
+def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
+    """The hands/x verb and body for a draft, with the studio's tags."""
+    body: Json = {"anchor": str(pitch.get("item") or draft["pitch"])[:200], "format": draft["format"],
+                  "producer": "studio", "pitch_id": f"{room.run_id}:{draft['pitch']}"[:120]}
+    if draft.get("storyline"):
+        body["storyline"] = draft["storyline"]
+    if draft.get("shape"):
+        body["shape"] = draft["shape"][:40]
+    if media_ids:
+        body["media_ids"] = media_ids
+    if "posts" in draft:
+        return "post-thread", {"posts": draft["posts"], **body}
+    return "post", {"text": draft["text"], **body}
+
+
+def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[str]) -> str:
+    """One draft through the producer, the gates and hands/x. What came of it:
+    "posted", "would_post", "next" (try the next draft) or "stop" (the slot
+    is shut or held: no other draft either)."""
+    fmt = draft.get("format")
+    if fmt not in KNOWN_FORMATS:
+        attempt["result"] = f"no producer for the format {fmt!r}: no post"
+        return "next"
+    failed, verdict, attempt["gates"] = gates(room, draft)
+    if failed:
+        again, attempt["rewrite"] = rewrite(room, draft, failed, verdict, slot, afters)
+        if again is None:
+            attempt["result"] = f"failed the {failed} check, and the rewrite did not come through"
+            return "next"
+        failed2, _, attempt["regates"] = gates(room, again)
+        if failed2:
+            attempt["result"] = f"failed the {failed} check, and its rewrite failed the {failed2} check"
+            return "next"
+        draft = again
+        attempt["rewritten"] = True
+    media_ids: list[str] = []
+    if fmt == "image":
+        made = picture(room, draft, attempt)
+        if made is None:
+            why = stands_alone(draft)
+            if why:
+                attempt["picture"]["fallback"] = f"no post: {why}"
+                attempt["result"] = "the picture could not be made and the words do not stand alone"
+                return "next"
+            attempt["picture"]["fallback"] = ("the words alone: the cold reader followed them with no picture "
+                                              "in front of it")
+        else:
+            media_ids = made
+    pitch = slot.pitches.get(draft["pitch"]) or {}
+    verb, body = post_body(room, draft, pitch, media_ids)
+    code, got = room.hand_code(["x", verb], body, dry=room.dry, timeout=300)
+    attempt["x"] = {"verb": verb, "code": code,
+                    **(_brief(got, "id", "ids", "would_post", "dry_run", "refused", "rule", "category", "hold_id",
+                              "error", "judge_failed") if isinstance(got, dict) else {"error": str(got)[:300]})}
+    attempt["sent"] = {k: body[k] for k in ("text", "posts") if k in body}
+    if code == 0 and isinstance(got, dict) and got.get("dry_run"):
+        attempt["result"] = "would post (dry)"
+        return "would_post"
+    if code == 0 and isinstance(got, dict) and isinstance(got.get("id"), str):
+        attempt["result"] = "posted"
+        attempt["post_id"] = got["id"]
+        attempt["beat"] = beat(room, draft, pitch, got)
+        return "posted"
+    rule = got.get("rule") if isinstance(got, dict) else None
+    refused = got.get("refused") if isinstance(got, dict) else None
+    if code == 2 and (rule in SLOT_RULES or refused == "held"):
+        attempt["result"] = f"hands/x turned it away ({rule or refused}): the slot stays empty"
+        return "stop"
+    if code == 2:
+        attempt["result"] = f"hands/x turned it away ({rule or 'refused'}): {str(refused)[:200]}"
+        return "next"
+    # An error from hands/x may have posted (a timeout, an X 5xx): never try
+    # another draft after one.
+    attempt["result"] = "hands/x failed: nothing else is tried, in case it went out"
+    return "stop"
+
+
+def beat(room: Room, draft: Json, pitch: Json, posted: Json) -> Json:
+    """`hands/story beat` for a real post on the pick's storyline."""
+    if not draft.get("storyline"):
+        return {"skipped": "the piece moves no storyline"}
+    item = (pitch and pitch.get("item")) or ""
+    body: Json = {"storyline": draft["storyline"], "post_id": str(posted["id"]), "text": _words(draft),
+                  "format": draft["format"], "shape": draft.get("shape") or None}
+    if draft.get("open_question"):
+        body["open_question"] = draft["open_question"]
+    source = None
+    for name in ("source", "id"):
+        found = room_items(room).get(item, {}).get(name) if item else None
+        if isinstance(found, str) and ":" in found and not found.split(":", 1)[0] in OUTSIDE_NAMES:
+            source = found
+            break
+    if source:
+        body["refs"] = [source]
+    ok, got = room.hand(["story", "beat"], {k: v for k, v in body.items() if v is not None}, dry=False)
+    return got if isinstance(got, dict) else {"error": str(got)[:300]}
+
+
+#: The outside sources' item prefixes: not ledger rows a beat can cite.
+OUTSIDE_NAMES = {name for name, _ in OUTSIDE}
+
+
+def room_items(room: Room) -> dict[str, Json]:
+    return getattr(room, "items", {}) or {}
+
+
+def publish(room: Room, record: Json, slot: Slot) -> Json:
+    """The pick, then at most MAX_FALLBACKS more of the ranking, through
+    `try_draft` until one goes out (or would, dry). A fallback faces the
+    editor's slot question first: one it vetoes counts as tried. What came of
+    it, also kept in the record as `publish`: {outcome: posted | would_post
+    | empty, ...}."""
+    afters = example_afters(room.brain)
+    attempts: list[Json] = []
+    out: Json = {"dry": room.dry, "attempts": attempts}
+    record["publish"] = out
+    for n, label in enumerate(slot.order[:MAX_FALLBACKS + 1]):
+        draft = dict(slot.blind[label])
+        attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
+        attempts.append(attempt)
+        if n:
+            answer = room.turn("editor", "final", final_message(label, draft, slot.board, slot.stories_now), None,
+                               soft=True)
+            verdict = _str((answer or {}).get("verdict"), 20).lower() if isinstance(answer, dict) else ""
+            attempt["editor"] = {"verdict": verdict or "no answer",
+                                 "reason": _str((answer or {}).get("reason"), 400) if isinstance(answer, dict) else ""}
+            if verdict != "pick":
+                attempt["result"] = "the editor vetoed it as a fallback"
+                continue
+        result = try_draft(room, draft, attempt, slot, afters)
+        if result in ("posted", "would_post"):
+            out.update(outcome=result, label=label, draft=draft["id"], **{k: attempt[k] for k in ("post_id",)
+                                                                       if k in attempt})
+            out["text"] = attempt.get("sent")
+            return out
+        if result == "stop":
+            break
+    out.update(outcome="empty", reason=attempts[-1].get("result") if attempts else "nothing to publish")
+    return out
 
 
 def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str], list[str], Json]:
