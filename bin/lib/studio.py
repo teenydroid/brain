@@ -1,14 +1,17 @@
 """The writers' room: one bin/studio run is one slot (docs/architecture.md,
 "The studio").
 
-    python3 bin/lib/studio.py [--dry-run] [--slot NAME] [--desk FILE] [--force-slot] [--no-outside]
+    python3 bin/lib/studio.py [--dry-run] [--slot NAME] [--legacy PLAYBOOK] [--desk FILE] [--force-slot] [--no-outside]
+    python3 bin/lib/studio.py --veto < {"kind", "text" | "posts", "picture"?, "quoted"?}
 
 In order:
 
 1. The switches (`Config`): STUDIO (0, the default, ends the run at once
-   with no model turn), STUDIO_DRY, the two models, the formats and the
-   sizes of the room, the time budget. Each is read from the process
-   environment, then secrets/teeny.env, then its default.
+   with no model turn; with `--legacy PLAYBOOK` it runs that old playbook
+   through bin/act instead, which is the rollback: bin/lib/studio_switch.py),
+   STUDIO_DRY, the two models, the formats and the sizes of the room, the
+   time budget. Each is read from the process environment, then
+   secrets/teeny.env, then its default.
 2. One run at a time (an flock on state/locks/studio.lock, which the kernel
    drops with the process, so a run killed with its container leaves none).
 3. The slot (`hands/x slot`): a shut slot ends the run before any model
