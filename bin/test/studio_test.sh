@@ -539,6 +539,15 @@ out="$(TEENY_OH="$scratch/fake-oh-model" FAKE_REAL_OH="$scratch/fake-oh" FAKE_BA
 check "a writer falling back onto the editor's model says so" jqe '.warnings | any(test("same model"))' <<<"$(last_record)"
 
 # --- one run a slot: a retry never posts twice (review of PR #379) -------------------
+legacy_root="$scratch/legacy-root"
+mkdir -p "$legacy_root/bin"
+for f in "$here"/../*; do [ "$(basename "$f")" = act ] || ln -sfn "$f" "$legacy_root/bin/$(basename "$f")"; done
+cat >"$legacy_root/bin/act" <<'FAKE'
+#!/usr/bin/env bash
+printf 'act %s\n' "$*" >>"$FAKE_HANDS"
+jq -cn --arg p "$1" '{ok: true, playbook: $p}'
+FAKE
+chmod +x "$legacy_root/bin/act"
 reset
 set +e
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_X=ok_die live --slot 1500)"; code=$?
@@ -601,11 +610,12 @@ out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO_RUN_ID="$plain_id" run --dry-run)"
 check "unset judges and an unset writer are one model: a dry run warns, and would post" \
   jqe '.outcome == "picked" and (.warnings | any(test("a live run would leave this slot empty")))' <<<"$(last_record)"
 reset
+: >"$scratch/secrets/teeny.env"
 out="$(TEENY_OH="$scratch/fake-oh-model" FAKE_REAL_OH="$scratch/fake-oh" FAKE_BAD_MODEL=claude-fable-5.2 FAKE_PITCH_ANSWER="$one_post" \
   STUDIO_WRITER_MODEL=claude-fable-5.2 STUDIO_EDITOR_MODEL=e live)"
-printf 'SAFETY_JUDGE_MODEL=\n' >/dev/null
 check "a writer that fell back to the core default, with no judge model set, leaves a live slot empty" \
-  bash -c "true"
+  bash -c "jq -e '.outcome == \"empty\" and .models_used.writer == \"core default\" and (.reason | test(\"core default\"))' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ]" _ "$(last_record)"
 
 # --- every required gate must have judged ------------------------------------------
 for mode in down garbage off; do
