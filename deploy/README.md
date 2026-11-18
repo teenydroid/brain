@@ -135,7 +135,10 @@ approval. Replies are unchanged. To deploy it:
    git -C /home/ubuntu/teeny submodule update --init --recursive
    ```
 2. Add these lines to `secrets/teeny.env` (the rest of the `STUDIO_*`
-   switches can stay at their defaults, `deploy/teeny.env.example`):
+   switches can stay at their defaults; `deploy/teeny.env.example` shows
+   these commented out, so a copy of it stays off). `STUDIO` takes only
+   `1/true/yes/on` or `0/false/no/off`: anything else posts nothing on either
+   path and fails `bin/doctor`:
 
    ```sh
    STUDIO=1
@@ -146,7 +149,9 @@ approval. Replies are unchanged. To deploy it:
 
    `SAFETY_JUDGE_MODEL` is what the truth judge, the cold reader, the anchor
    judge and the guard's content judge ask, so no judge is the writer. It is
-   also asked for every reply and every Moltbook write the guard screens:
+   also asked for every reply and every Moltbook write the guard screens
+   (and with it unset, or equal to the writer's model, a live slot posts
+   nothing: `bin/doctor` warns):
    expect the judge's share of the model bill to grow. Leave `STUDIO_DRY`
    unset (0): set to 1, every slot runs its gates and posts nothing.
 3. Check no generation is running, since a restart kills it:
@@ -180,7 +185,8 @@ approval. Replies are unchanged. To deploy it:
    docker compose -f /home/ubuntu/teeny/deploy/compose.yaml exec -T spine bin/studio --dry-run --slot check
    ```
 
-   After the first slot: `hands/story runs --limit 4` (every run, its pick,
+   After the first slot: `tail state/studio/<slot>.log` (the detached run's
+   output), `hands/story runs --limit 4` (every run, its pick,
    its gates and what came of it) and `sqlite3 state/hands.db "select id,
    producer, storyline, shape from x_posts order by created_at desc limit 5"`.
 
