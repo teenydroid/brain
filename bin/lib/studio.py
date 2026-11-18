@@ -433,7 +433,10 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             continue
         seen.add(pid)
         story = raw.get("storyline")
-        story = story if isinstance(story, str) and story in stories else None
+        story = story.strip() if isinstance(story, str) and story.strip() in stories else None
+        if story is None:
+            guess = (item_stories or {}).get(item)
+            story = guess if isinstance(guess, str) and guess in stories else None
         kept.append({"id": pid, "item": item, "storyline": story, "shape": _str(raw.get("shape"), 40).lower(),
                      "format": fmt, "angle": _str(raw.get("angle")), "why_now": _str(raw.get("why_now"))})
     ids = [p["id"] for p in kept]
