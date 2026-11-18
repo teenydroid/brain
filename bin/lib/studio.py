@@ -1734,7 +1734,7 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
         else:
             unavailable.append("trend")
             room.outside_notes["trend"] = {"reason": got.get("reason") if isinstance(got, dict) else None,
-                                           "error": (got.get("error") if isinstance(got, dict) else str(got))[:300]}
+                                           "error": str(got.get("error") if isinstance(got, dict) else got)[:300]}
         # Then the free sources the old playbooks read.
         for name, argv in OUTSIDE:
             ok, got = room.hand(argv, timeout=90)
