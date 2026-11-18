@@ -18,11 +18,13 @@ In order:
    turn. `--dry-run` and `--force-slot` read it and go on.
 4. The outside world, then what happened: first what AI X is talking
    about (`TREND`: hands/trend top, Digg's AI and tech stories with the X
-   posts behind the leading ones, once a slot), then the free sources the
-   old playbooks read (`OUTSIDE`: Hacker News, the listen digest), then an
-   X search only with STUDIO_OUTSIDE_X=1 and at most its cap a day
-   (`x_claim`), since it is billed per post; a story two carry is kept once
-   (`dedupe`). Then `hands/story desk` (or a saved one, `--desk FILE`, to
+   posts behind the leading ones, once a slot), then Hacker News's front
+   page (`OUTSIDE`), each item with its trend measure and whether it is
+   `trending` (plain bars, TRENDING_SOURCES): only trending stories reach
+   the writer, and only they can be hooks. Then an X search only with
+   STUDIO_OUTSIDE_X=1 and at most its cap a day (`x_claim`), since it is
+   billed per post: background, never a hook. A story two carry is kept
+   once (`dedupe`). Then `hands/story desk` (or a saved one, `--desk FILE`, to
    replay a past day). Each is optional and cut to fit (bin/lib/act_fit.py);
    with no outside item the run goes on from Teeny's own events and says so.
    Every hand runs with DRY_RUN=1, which keeps a hand from acting but does
