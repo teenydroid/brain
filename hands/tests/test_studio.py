@@ -588,11 +588,14 @@ class StorylineOnThePickTest(unittest.TestCase):
 
 
 class PublishPartsTest(unittest.TestCase):
-    def test_words_that_point_at_the_picture_do_not_stand_alone(self):
-        self.assertTrue(studio.stands_alone({"text": "look at me, a robot at the laundromat"}))
-        self.assertTrue(studio.stands_alone({"text": "this picture is me at the window"}))
-        self.assertEqual(studio.stands_alone({"text": "i carried the dimes to the window. they did not look like more"}),
-                         "")
+    def test_an_image_draft_stands_alone_only_when_the_writer_says_so(self):
+        # "here is my face" used to pass a five-phrase regex and go out
+        # words-only after a failed picture (review of PR #379).
+        pitch = {"id": "p1", "storyline": None, "shape": "scene", "format": "image"}
+        got, _ = studio.validate_drafts({"drafts": [{"text": "here is my face", "image": "teeny at the window"},
+                                                    {"text": "words", "image": "a scene", "alone": True},
+                                                    {"text": "words", "image": "a scene", "alone": "yes"}]}, pitch, 3)
+        self.assertEqual([d["alone"] for d in got], [False, True, False])
 
     def test_the_unjudged_words_are_the_hands_own(self):
         sys.path.insert(0, str(REPO / "hands" / "lib"))
@@ -667,3 +670,39 @@ class VetoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = studio.veto({"kind": "brief"}, {"TEENY_SECRETS": tmp, "STUDIO": "1"})
         self.assertEqual(out["verdict"], "none")
+
+
+class ConfigJudgeTest(unittest.TestCase):
+    """The judges' model is recorded and compared with the writer's (review
+    of PR #379): read from secrets/teeny.env only, as the hands read it."""
+
+    def load(self, environ, filed=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "teeny.env"
+            path.write_text(filed)
+            return studio.Config.load(environ, path)
+
+    def test_judges_on_the_writers_model_warn(self):
+        cfg = self.load({"STUDIO_WRITER_MODEL": "w", "STUDIO_EDITOR_MODEL": "e"}, "SAFETY_JUDGE_MODEL=w\n")
+        self.assertEqual(cfg.judge_model, "w")
+        self.assertTrue(any("SAFETY_JUDGE_MODEL" in w for w in cfg.warnings))
+        cfg = self.load({"STUDIO_WRITER_MODEL": "w", "STUDIO_EDITOR_MODEL": "e"}, "SAFETY_JUDGE_MODEL=j\n")
+        self.assertFalse(any("SAFETY_JUDGE_MODEL" in w for w in cfg.warnings))
+
+    def test_the_environment_cannot_set_the_judges_model(self):
+        cfg = self.load({"SAFETY_JUDGE_MODEL": "j", "STUDIO_WRITER_MODEL": "w"})
+        self.assertEqual(cfg.judge_model, "")
+
+    def test_a_switch_that_cannot_be_read_is_recorded_and_posts_nothing(self):
+        cfg = self.load({}, "STUDIO=perhaps\n")
+        self.assertFalse(cfg.on)
+        self.assertIn("neither on", cfg.switch_error)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "teeny.env").write_bytes(b"STUDIO=1\n\xff\n")
+            out = studio.veto({"kind": "brief", "text": "hi"}, {"TEENY_SECRETS": tmp})
+        self.assertEqual(out["verdict"], "none")
+
+    def test_the_slot_id_is_the_date_in_india_and_the_slot(self):
+        # 2026-11-18T20:00Z is 01:30 on the 19th in India.
+        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795550400"}), "2026-11-19:0430")
+        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795550400", "STUDIO_TZ": "UTC"}), "2026-11-18:0430")

@@ -2236,8 +2236,10 @@ class TickTest(unittest.TestCase):
         self.assertEqual([c["body"] for c in self.sent("reply")], [{"text": "gm to you"}])
 
     def test_a_switch_that_cannot_be_read_neither_posts_nor_files(self):
-        # STUDIO=maybe used to read as off and post (review of PR #379).
-        for bad in (b"STUDIO=maybe\n", b"STUDIO=1\nX=\xff\n"):
+        # STUDIO=maybe used to read as off and post (review of PR #379). (A
+        # teeny.env that is not text stops the whole beat before any intent:
+        # every hand reads it.)
+        for bad in (b"STUDIO=maybe\n", b"STUDIO=On-ish\n"):
             (self.root / "secrets" / "teeny.env").write_bytes(bad)
             hand._ENV_CACHE = None
             stimuli.add("x", "mention", f"m{len(bad)}", "gm")
