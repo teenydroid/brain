@@ -649,14 +649,17 @@ check "a scene the truth judge does not pass is no picture (and, not marked alon
     ! grep -q '^image generate' '$FAKE_HANDS'" _ "$(last_record)"
 
 # --- detached, as cron runs it -----------------------------------------------------
+# (detach.py keeps its log and its lock under the root's state/, as on the box.)
 reset
-out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_DRY=1 STUDIO_RUN_ID=detached-1 run --slot 0930 --detach)"
+rm -rf "$legacy_root/state"
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_DRY=1 STUDIO_RUN_ID=detached-1 TEENY_ROOT="$legacy_root" \
+  TEENY_STATE="$legacy_root/state" run --slot 0930 --detach)"
 check "--detach starts the run in the background and returns at once" jqe '.kind == "started" and (.log | test("studio/0930.log"))' <<<"$out"
-for _ in $(seq 1 60); do grep -q '"id":"detached-1"' "$scratch/state/studio/runs.jsonl" 2>/dev/null && break; sleep 0.5; done
-check "and the detached run runs, and is recorded" jqe '.outcome == "picked"' <<<"$(jq -c 'select(.id == "detached-1")' "$scratch/state/studio/runs.jsonl")"
-mkdir -p "$scratch/state/locks"
-exec 9>>"$scratch/state/locks/studio.lock"; flock -n 9
-out="$(STUDIO=1 STUDIO_RUN_ID=detached-2 run --slot 0930 --detach)"
+for _ in $(seq 1 60); do grep -q '"id":"detached-1"' "$legacy_root/state/studio/runs.jsonl" 2>/dev/null && break; sleep 0.5; done
+check "and the detached run runs, and is recorded" jqe '.outcome == "picked"' <<<"$(jq -c 'select(.id == "detached-1")' "$legacy_root/state/studio/runs.jsonl")"
+mkdir -p "$legacy_root/state/locks"
+exec 9>>"$legacy_root/state/locks/studio.lock"; flock -n 9
+out="$(STUDIO=1 STUDIO_RUN_ID=detached-2 TEENY_ROOT="$legacy_root" TEENY_STATE="$legacy_root/state" run --slot 0930 --detach)"
 flock -u 9; exec 9>&-
 check "with a run still holding the studio lock, nothing starts" jqe '.kind == "busy"' <<<"$out"
 reset
