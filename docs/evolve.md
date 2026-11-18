@@ -1372,6 +1372,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
 | does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line |
+| changes something that runs | the diff touches only files nothing that runs on the box reads (`INERT_PATHS`: `brain/MEMORY.seed.md`, which only starts a brand-new `brain/MEMORY.md`, and `brain/assets/tiny/README.md`, which describes reference art nothing names). From gen 16, candidate 1 (PR #361): one line added to the seed, "the seed of the page", which no prompt reads while the live page exists; the eval, whose labs do start from the seed, said no detectable difference. An inert file beside a live one passes. The brief and the research turn say so, and that a learning already on the live page needs a change where a prompt reads it, or a skip as `already` |
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
@@ -1684,8 +1685,12 @@ Every candidate whose gate passed and whose eval is `pass` or
    (`screened_pr_text`: the guard's lexical screen, inbound, the reading of
    the babysitter's `_prose` audit, which sends a matching pull request to
    the operator). Gen 16's two self-merge candidates (#362, #363) waited on
-   "kills" and "bullet" in their own hypothesis and research note. While a
-   word matches, the fields it is in (title, expected move, hypothesis,
+   "kills" and "bullet" in their own hypothesis and research note; those are
+   `judged` matches (`lexicon.JUDGED_TERMS`, which the guard sends to its
+   judge rather than holding), which the babysitter reads as a note since
+   #365, so they are published as they are and nothing is reworded or
+   recorded. Only a term the guard holds on sight (`pr_held`) still sends a
+   pull request to the operator. While one matches, the fields it is in (title, expected move, hypothesis,
    research's why and plan; never the learning, the gate or the eval) are
    asked for again through the proposer's shape-repair turn, told the
    category and the term, at most `MAX_REWORDS` (2) turns; only those fields
@@ -1694,8 +1699,8 @@ Every candidate whose gate passed and whose eval is `pass` or
    after that, or in words that are not the proposer's, it opens as it is,
    with `pr_screen` (category and term, never the text) on its entry, and the
    babysitter asks the operator as before. The brief and the research brief
-   say up front that pull request text is screened and to prefer plain
-   words. The guard and the babysitter are not changed.
+   say up front that pull request text is screened by the guard and to
+   prefer plain, literal words. The guard and the babysitter are not changed.
 
 1. Its worktree is rebuilt from its patch when it is not exactly that
    (after a restart, or for a candidate waiting from an earlier run), and

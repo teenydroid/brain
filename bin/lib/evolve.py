@@ -1637,6 +1637,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
+        + INERT_NOTE + "\n"
         "- Doing less of yourself to save money: fewer runs, a job turned off, a schedule thinned out. A job "
         "that fails gets fixed, not run less (turning off a job of yours that only ever fails is fine, if you "
         "say so).\n"
@@ -2281,6 +2282,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
+        INERT_NOTE.removeprefix("- "),
         "Your `why` and `plan` go into the pull request's body. " + PR_TEXT_NOTE,
     ]
 
@@ -3046,7 +3048,7 @@ def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
 
 def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_hands: list[str],
                    component: str | None, evidence: Mapping[str, Any] | None) -> list[Json]:
-    """What the change is for, in four narrow checks, each {check, ok, detail}."""
+    """What the change is for, in five narrow checks, each {check, ok, detail}."""
     checks: list[Json] = []
     unread = unread_components(evidence)
     if component and component in unread:
@@ -3103,7 +3105,32 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     checks.append({"check": "does more than mark an arc", "ok": not status_only,
                    "detail": "only changes an arc's status in ARCS.md, which is the world count itself: an arc moves "
                              "when its first step is done" if status_only else "not only an arc's status"})
+
+    # 4. Only files nothing that runs reads.
+    inert = bool(paths) and all(p in INERT_PATHS for p in paths)
+    checks.append({"check": "changes something that runs", "ok": not inert,
+                   "detail": (f"only changes {', '.join(paths)}, which no prompt, playbook, cron job or hand reads on "
+                              "the box (brain/MEMORY.seed.md only starts a brand-new page; the live brain/MEMORY.md is "
+                              "what rides your prompts). A learning already on your live page needs a change where a "
+                              "prompt reads it, or a skip as `already`") if inert
+                   else "changes something that runs"})
     return checks
+
+
+#: Tracked files nothing that runs on the box reads: no prompt, playbook,
+#: cron job or hand. A change to these alone changes nothing Teeny does
+#: (purpose_checks, "changes something that runs"). Each is proven in
+#: hands/tests/test_evolve.py: MEMORY.seed.md starts a brand-new
+#: brain/MEMORY.md and is read only while there is none (bin/lib/prompts.py
+#: memory_page, seed_memory), and the box always has its live page (gen 16,
+#: candidate 1, PR #361); assets/tiny/README.md describes reference art that
+#: nothing names.
+INERT_PATHS = ("brain/MEMORY.seed.md", "brain/assets/tiny/README.md")
+#: What the proposer and the research turn are told about them.
+INERT_NOTE = ("- A change only to " + " or ".join(INERT_PATHS) + ": nothing that runs reads them. MEMORY.seed.md "
+              "only starts a brand-new page; your live brain/MEMORY.md is what rides your prompts, and code never "
+              "edits it. A learning already on your live page needs a change where a prompt, playbook, skill or "
+              "job reads it, or a skip as `already`.")
 
 
 #: How long one hand's tests may run in the gate.
@@ -5146,8 +5173,8 @@ MAX_REWORDS = 2
 #: How much of one field a reword turn is shown.
 MAX_REWORD_CHARS = 2500
 PR_TEXT_NOTE = ("Your pull request's title and body (title, expected move, hypothesis, and research's why and "
-                "plan) are screened for words the guard holds, as everything you publish is: prefer plain words "
-                '("item" for "bullet", "ends" for "kills").')
+                "plan) are screened by the guard, as everything you publish is: prefer plain, literal words to "
+                "violent or weapon metaphors.")
 
 
 def pr_screen(text: str) -> Any:
@@ -5156,6 +5183,15 @@ def pr_screen(text: str) -> Any:
     from teeny_hands.guard.screen import INBOUND, screen_text
 
     return screen_text(text, INBOUND) if isinstance(text, str) else None
+
+
+def pr_held(text: str) -> Any:
+    """A match the guard holds on sight, or None. A `judged` match (a bare
+    kill or bullet word, lexicon.JUDGED_TERMS) is one the guard sends to its
+    judge rather than holding, and the babysitter reads it as a note, not a
+    finding for the operator (#365): it is no reason to reword."""
+    hit = pr_screen(text)
+    return None if hit is None or hit.judged else hit
 
 
 def _pr_fields(cand: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict[str, str]:
@@ -5171,7 +5207,9 @@ def _pr_fields(cand: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict[str
 
 def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
     """pr_text(CAND), screened as the babysitter will screen it. While a
-    word matches, the fields it is in are asked for again (the proposer's
+    word the guard holds on sight matches (`pr_held`: never a `judged`
+    one, which the guard and the babysitter pass), the fields it is in are
+    asked for again (the proposer's
     `repair` turn, at most MAX_REWORDS), only those fields taken back, and
     HYPOTHESIS.md and the saved proposal rewritten from them: same patch,
     same eval, no new round. Still matching after the cap (or no proposer
@@ -5182,7 +5220,7 @@ def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
     gdir = gen_dir(cand["gen"])
     saved_path = gdir / f"cand-{cand['cand']}.proposal.json"
     for _ in range(MAX_REWORDS):
-        hit = pr_screen(title) or pr_screen(body)
+        hit = pr_held(title) or pr_held(body)
         if hit is None:
             cand.pop("pr_screen", None)
             return title, body
@@ -5192,7 +5230,7 @@ def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
         except (OSError, ValueError):
             saved = {}
         proposal = dict(saved.get("proposal") or {})
-        held = {k: v for k, v in _pr_fields(cand, proposal).items() if pr_screen(v) is not None}
+        held = {k: v for k, v in _pr_fields(cand, proposal).items() if pr_held(v) is not None}
         if ask is None or not held:
             break
         try:
@@ -5226,7 +5264,7 @@ def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
             (evolve_dir() / cand["hypothesis"]).write_text(hypothesis_text(proposal, cand.get("learning")),
                                                           encoding="utf-8")
         title, body = pr_text(cand)
-    hit = pr_screen(title) or pr_screen(body)
+    hit = pr_held(title) or pr_held(body)
     if hit is not None:
         cand["pr_screen"] = {"category": hit.category, "term": hit.term}
         say(f"candidate {cand['cand']}: its pull request text still matches the guard's screen ({hit.category}); "
