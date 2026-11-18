@@ -310,6 +310,20 @@ the doctor, and the key surviving a restart.
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above,
 plus shellcheck and the landing page's lint and build.
 
+PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
+opens or leaves draft and again on every push to it (not base-branch merges), and answers `/review`, `/describe`, `/improve` and
+`/ask` comments from the owner, members and collaborators. It runs
+`gpt-6.1-sol` (falling back to `gpt-6-luna`) on Surplus Intelligence with the
+`SURPLUS_API_KEY` repository secret, the same key as `secrets/teeny.env`. Fork
+PRs get no secrets, so it skips them.
+
+A budget job in front of it (`.github/scripts/pr-agent-budget.sh`, tested by
+`bin/test/pr_agent_budget_test.sh`) stops automatic reviews once a PR has had
+10, or once one author's PRs have had 25 in the last 24 hours, and says so once
+on the PR. A `/review` comment still runs and still counts. Repository
+variables `PR_AGENT_MAX_REVIEWS_PER_PR` and
+`PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY` change the caps (`0` is unlimited).
+
 ## Bumping OpenHuman
 
 1. Move `vendor/openhuman` to the new `upstream/main` commit and run
