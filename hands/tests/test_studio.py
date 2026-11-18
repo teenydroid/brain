@@ -807,7 +807,7 @@ class HookTest(unittest.TestCase):
         # A number the story holds is sourced; one it does not hold is not.
         facts = studio.facts_for(None, None, {"id": "trend:s2", "title": "a startup raised $7.5M"})
         self.assertEqual(studio.unsourced("they raised $7.5M and i raised an eyebrow", facts), [])
-        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9m"])
+        self.assertEqual(studio.unsourced("they raised $9M", facts), ["$9"])
 
     def test_the_anchor_is_the_item_else_the_hook(self):
         room = studio.Room(studio.Config(), REPO, REPO / "hands", REPO / "state", REPO / "brain", "run-1")

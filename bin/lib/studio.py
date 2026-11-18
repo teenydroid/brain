@@ -360,9 +360,9 @@ def trend_items(got: Any) -> list[Json]:
     person's account). All of it strangers' words."""
     out: list[Json] = []
     for story in (got.get("stories") if isinstance(got, dict) else None) or []:
-        if not (isinstance(story, dict) and isinstance(story.get("id"), str) and _str(story.get("title"))):
+        if not (isinstance(story, dict) and _str(story.get("id"), 40) and _str(story.get("title"))):
             continue
-        item: Json = {"id": f"trend:{story['id'][:40]}", "title": _str(story["title"], 300)}
+        item: Json = {"id": f"trend:{_str(story['id'], 40)}", "title": _str(story["title"], 300)}
         for key in ("summary", "topic"):
             if _str(story.get(key)):
                 item[key] = _str(story[key], 600)
