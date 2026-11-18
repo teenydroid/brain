@@ -130,6 +130,11 @@ hands/lib/teeny_hands/keychain/
 hands/lib/teeny_hands/listen/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
+# Clips and songs: renders on the reel service and buys music under the
+# media caps, so the entry point and its library are the operator's, like
+# the wallet's.
+hands/reel
+hands/lib/teeny_hands/reel/
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/
