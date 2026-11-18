@@ -261,7 +261,8 @@ class Config:
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
         c.inputs_bytes = _int(get("STUDIO_INPUTS_BYTES"), INPUTS_BYTES, 8_000, 50_000)
-        c.outside_x = (get("STUDIO_OUTSIDE_X") or "0").strip().lower() in ("1", "true", "yes", "on")
+        c.outside_x = (get(X_SWITCH) or "0").strip().lower() in ("1", "true", "yes", "on")
+        c.outside_x_max = _int(get(X_MAX), X_MAX_PER_DAY, 0, 12)
         return c
 
 
