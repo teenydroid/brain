@@ -473,11 +473,12 @@ class ReelTest(unittest.TestCase):
         for data in (
             box(b"moov", box(b"mvhd", b"\x01" + b"\x00" * 20)),
             box(b"moov", box(b"trak", box(b"mdia", box(b"hdlr", b"\x00" * 9)))),
-            box(b"moov", b"\x00\x00\x00\x01mvhd\x00\x00"),
             box(b"moov", box(b"mvhd", b"")),
         ):
             with self.subTest(data=data), self.assertRaises(ValueError):
                 reels.mp4_info(box(b"ftyp", b"isom") + data)
+        # A box whose 64-bit size runs past the data is skipped, never read.
+        self.assertEqual(reels.mp4_info(box(b"moov", b"\x00\x00\x00\x01mvhd\x00\x00")), {"seconds": None, "tracks": []})
         self.assertEqual(reels.mp4_info(b"\x00\x00\x00\x10ftypisom\x00\x00\x00\x00\xff\xff\xff\xffmoov"), {"seconds": None, "tracks": []})
 
     def test_a_disk_that_will_not_take_the_file_leaves_nothing(self):
