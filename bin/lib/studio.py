@@ -1128,6 +1128,8 @@ class Room:
     pictures: dict[str, tuple[list[str] | None, Json]] = field(default_factory=dict)
     #: The slot this run holds (`claim`), "" for a run that may not post.
     slot_id: str = ""
+    #: What each outside source gave or why it gave nothing (`gather`).
+    outside_notes: Json = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model}
@@ -1706,21 +1708,76 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
     cut: list[str] = []
     skipped: list[str] = []
     if not args.no_outside:
+        found: dict[str, list[Json]] = {}
+        shares: dict[str, int] = {}
+        # First, what AI X is talking about (hands/trend), once a slot.
+        argv = list(TREND)
+        if args.slot:
+            argv[2:2] = ["--slot", slot_id_of(args.slot, dict(os.environ) | getattr(room, "environ", {}))]
+        code, got = room.hand_code(argv, timeout=200)
+        if code == 0 and isinstance(got, dict):
+            found["trend"], shares["trend"] = trend_items(got), TREND_SHARE
+            room.outside_notes["trend"] = {"source": got.get("source"), "key": got.get("key"),
+                                           "cached": got.get("cached"), "stories": len(found["trend"]),
+                                           "unavailable": got.get("unavailable") or []}
+        else:
+            unavailable.append("trend")
+            room.outside_notes["trend"] = {"reason": got.get("reason") if isinstance(got, dict) else None,
+                                           "error": (got.get("error") if isinstance(got, dict) else str(got))[:300]}
+        # Then the free sources the old playbooks read.
         for name, argv in OUTSIDE:
-            switch = PAID_OUTSIDE.get(name)
-            if switch and not room.cfg.outside_x:
-                skipped.append(f"{name}: a paid X search, off unless {switch}=1")
-                continue
             ok, got = room.hand(argv, timeout=90)
             if not ok:
                 unavailable.append(name)
                 continue
-            items = outside_items(name, got)
-            fitted, was_cut = act_fit.fit({name: items}, OUTSIDE_SHARE)
+            found[name], shares[name] = outside_items(name, got), OUTSIDE_SHARE
+        # The paid X search, only when switched on, and at most its cap a day.
+        name, query = X_QUERIES[seed_of(room.run_id) % len(X_QUERIES)]
+        if not room.cfg.outside_x:
+            skipped.append(f"{name}: a paid X search, off unless {X_SWITCH}=1")
+        elif not x_claim(room, name):
+            skipped.append(f"{name}: the paid X search's {room.cfg.outside_x_max} a day ({X_MAX}) are spent today")
+        else:
+            ok, got = room.hand(["x", "search", query, "--max", "10"], timeout=90)
+            if ok:
+                found[name], shares[name] = outside_items(name, got), OUTSIDE_SHARE
+            else:
+                unavailable.append(name)
+        for name, items in dedupe(found).items():
+            fitted, was_cut = act_fit.fit({name: items}, shares[name])
             outside[name] = fitted[name]
             cut += was_cut
     room.skipped = skipped
     return desk, outside, unavailable, cut, slot
+
+
+def x_claim(room: Room, source: str) -> bool:
+    """One of the paid X search's daily calls, claimed before the call:
+    False when today's (UTC) are spent. Each claim is a line in
+    state/studio/outside-x.jsonl; runs are one at a time (the studio lock),
+    so counting then appending cannot race."""
+    path = room.state / "studio" / "outside-x.jsonl"
+    env = dict(os.environ) | getattr(room, "environ", {})
+    now = float(env["TEENY_NOW"]) if env.get("TEENY_NOW") else time.time()
+    day = datetime.fromtimestamp(now, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    used = 0
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                at = json.loads(line).get("at_unix")
+            except (ValueError, AttributeError):
+                continue
+            if isinstance(at, (int, float)) and day <= at < day + 86400:
+                used += 1
+    except OSError:
+        pass
+    if used >= room.cfg.outside_x_max:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                             "at_unix": now, "run": room.run_id, "source": source}) + "\n")
+    return True
 
 
 def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tuple[int, str, str]] | None = None) -> tuple[int, Json]:
