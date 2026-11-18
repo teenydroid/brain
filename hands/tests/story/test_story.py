@@ -297,9 +297,9 @@ class DeskTest(StoryScratch):
 
     def test_a_paid_bounty_is_one_item_not_also_a_payment(self):
         conn = self.conn(wallet_store.SCHEMA)
-        conn.execute("CREATE TABLE bounties (id INTEGER PRIMARY KEY, title TEXT, status TEXT, paid_at REAL)")
-        conn.execute("INSERT INTO bounties VALUES (4, 'best tiny game', 'paid', ?)", (T0 - 2 * HOUR,))
-        conn.execute("INSERT INTO bounties VALUES (5, 'still open', 'open', NULL)")
+        for bounty_id, title, status, paid_at in ((4, "best tiny game", "paid", T0 - 2 * HOUR), (5, "still open", "open", None)):
+            conn.execute("INSERT INTO bounties (id, created_at, title, rules, prize_raw, deadline, channels, status, paid_at)"
+                         " VALUES (?, ?, ?, 'r', 1000000, ?, 'x', ?, ?)", (bounty_id, T0 - DAY, title, T0, status, paid_at))
         payment(conn, "bounty", "4", at=T0 - 2 * HOUR)
         payment(conn, "bounty", "5", status="failed", at=T0 - HOUR)
         conn.close()
