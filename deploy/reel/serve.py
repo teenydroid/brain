@@ -45,8 +45,14 @@ from app.services import task as tm
 from app.utils import file_security, utils
 
 #: Where compose mounts Teeny's media, read-only: state/media/ as media/,
-#: brain/assets/ as assets/. Upstream reads local materials only from here.
-MATERIALS = utils.storage_dir("local_videos", create=True)
+#: brain/assets/ as assets/. A job names its files relative to this.
+TEENY = os.environ.get("TEENY_MEDIA", "/teeny")
+#: Upstream reads local materials only from storage/local_videos/ and writes
+#: beside them (an image becomes a clip next to it), and a bed only from
+#: storage/bgm/. So each job's files are copied into a folder of its own
+#: there, on the reel-storage volume, and removed with the task.
+LOCAL_VIDEOS = utils.storage_dir("local_videos", create=True)
+BEDS = utils.storage_dir("bgm", create=True)
 
 #: Whatever the body says, these hold.
 PINNED = {
@@ -109,10 +115,30 @@ def _refuse(status: int, message: str) -> JSONResponse:
     return JSONResponse({"status": status, "message": message}, status_code=status)
 
 
-def _material(path: object) -> str:
-    if not isinstance(path, str) or not path:
-        raise ValueError("a material is a path under media/ or assets/")
-    return file_security.resolve_path_within_directory(MATERIALS, path)
+def _source(path: object) -> str:
+    """The real file behind a job's path: under media/ or assets/ of the
+    read-only mount, symlinks and `..` resolved first."""
+    if not isinstance(path, str) or not path.startswith(("media/", "assets/")):
+        raise ValueError("a file is a path under media/ or assets/")
+    return file_security.resolve_path_within_directory(TEENY, path)
+
+
+def _staged(task_id: str) -> str:
+    return os.path.join(LOCAL_VIDEOS, f"teeny-{task_id}")
+
+
+def _bed_name(task_id: str, suffix: str) -> str:
+    return f"teeny-{task_id}-bed{suffix}"
+
+
+def _clean(task_id: str) -> None:
+    shutil.rmtree(_staged(task_id), ignore_errors=True)
+    for name in os.listdir(BEDS):
+        if name.startswith(f"teeny-{task_id}-bed"):
+            try:
+                os.remove(os.path.join(BEDS, name))
+            except OSError:
+                pass
 
 
 router = APIRouter()
@@ -145,37 +171,44 @@ async def create_reel(request: Request):
     materials = body.get("video_materials") or []
     if not isinstance(materials, list) or not materials:
         return _refuse(400, "video_materials lists Teeny's own stills and clips")
+    audio = body.pop("audio", None)
     try:
+        sources = []
         for item in materials:
-            if not isinstance(item, dict) or item.get("provider", "local") != "local" or set(item) - {"provider", "url", "duration"}:
+            if not isinstance(item, dict) or item.get("provider", "local") != "local" or set(item) - {"provider", "url"}:
                 raise ValueError("a material is {provider: 'local', url}")
-            _material(item.get("url"))
-        if body.get("bgm_file"):
-            # Upstream resolves a bed inside storage/bgm/, where the same
-            # media is mounted read-only as media/.
-            file_security.resolve_path_within_directory(utils.storage_dir("bgm", create=True), body["bgm_file"])
+            sources.append(_source(item.get("url")))
+        bed = _source(body["bgm_file"]) if body.get("bgm_file") else None
+        track = _source(audio) if audio else None
+        for path in (bed, track):
+            if path and os.path.splitext(path)[1].lower() not in AUDIO_SUFFIXES:
+                raise ValueError("a bed or a track is an mp3, wav, m4a, aac, flac, ogg or opus file")
     except ValueError as exc:
         return _refuse(400, str(exc))
 
-    audio = body.pop("audio", None)
+    task_id = utils.get_uuid()
+    staged = _staged(task_id)
+    os.makedirs(staged)
     fields = {**body, **PINNED}
-    fields["video_materials"] = [{"provider": "local", "url": m["url"]} for m in materials]
+    fields["video_materials"] = []
+    for index, source in enumerate(sources):
+        copy = os.path.join(staged, f"{index:02d}{os.path.splitext(source)[1].lower()}")
+        shutil.copyfile(source, copy)
+        fields["video_materials"].append({"provider": "local", "url": copy})
+    if bed:
+        name = _bed_name(task_id, os.path.splitext(bed)[1].lower())
+        shutil.copyfile(bed, os.path.join(BEDS, name))
+        fields["bgm_file"] = name
     try:
         params = TaskVideoRequest(**fields)
     except ValidationError as exc:
+        _clean(task_id)
         return _refuse(400, f"not a valid job: {exc.errors()[:3]}")
-
-    task_id = utils.get_uuid()
-    if audio:
-        try:
-            source = _material(audio)
-        except ValueError as exc:
-            return _refuse(400, f"audio: {exc}")
-        suffix = os.path.splitext(source)[1].lower()
-        if suffix not in AUDIO_SUFFIXES:
-            return _refuse(400, "audio is an mp3, wav, m4a, aac, flac, ogg or opus file")
-        name = f"teeny-audio{suffix}"
-        shutil.copyfile(source, os.path.join(utils.task_dir(task_id), name))
+    if track:
+        # Upstream's HTTP API takes custom audio only from the task's own
+        # folder; the track is put there, and that check stays in force.
+        name = f"teeny-audio{os.path.splitext(track)[1].lower()}"
+        shutil.copyfile(track, os.path.join(utils.task_dir(task_id), name))
         params.custom_audio_file = name
 
     sm.state.update_task(task_id)
@@ -183,9 +216,11 @@ async def create_reel(request: Request):
         video_api.task_manager.add_task(tm.start, task_id=task_id, params=params, stop_at="video")
     except TaskQueueFullError as exc:
         sm.state.delete_task(task_id)
+        _clean(task_id)
         return _refuse(429, str(exc))
     except Exception:
         sm.state.delete_task(task_id)
+        _clean(task_id)
         raise
     return {"status": 200, "data": {"task_id": task_id}}
 
@@ -209,7 +244,10 @@ def _open(method: str, path: str) -> bool:
 async def only_what_teeny_uses(request: Request, call_next):
     if not _open(request.method, request.url.path):
         return _refuse(403, "not served here")
-    return await call_next(request)
+    response = await call_next(request)
+    if request.method == "DELETE" and response.status_code == 200:
+        _clean(request.url.path.rsplit("/", 1)[1])
+    return response
 
 
 if __name__ == "__main__":
