@@ -489,6 +489,7 @@ def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], li
             if not scene:
                 why = why or "an image piece needs a scene"
             draft["image"] = scene
+            draft["alone"] = raw.get("alone") is True
         if _str(raw.get("open_question")):
             draft["open_question"] = _str(raw.get("open_question"))
         if why:
@@ -769,10 +770,13 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         body = f"a thread: 2 to {THREAD_MAX} posts, each at most 280 characters as X counts them"
     elif fmt == "image":
         shape = ('{"text": "...", "image": "<the scene: where you are, what you are doing, what is in the frame>", '
+                 '"alone": <true only when the words make complete sense to a stranger with no picture>, '
                  '"meaning": "...", "open_question": "<optional>"}')
         body = ("one post of at most 280 characters as X counts them, with a picture of you. The scene is drawn "
                 "from your character sheet: describe a place and a moment, never text in the picture and never a "
-                "real person, and not the same workbench, mug and glowing screen again")
+                "real person, no number and no named thing a stranger would read as a fact, and not the same "
+                "workbench, mug and glowing screen again. When the picture cannot be made, the post goes out "
+                "as words alone only if you said they stand alone (`alone`: true); otherwise it is no post")
     else:
         shape = '{"text": "...", "meaning": "...", "open_question": "<optional>"}'
         body = "one post of at most 280 characters as X counts them"
