@@ -34,7 +34,7 @@ Each first is a `## id` with three lines: `- first:` what I would say happened,
 
 - first: the first generation written up as a chronicle page
 - proof: L5.chronicle
-- verify: brain/narrative/chronicle in the public repo
+- verify: `bin/proofs` (L5.chronicle counts the pages on the box) and the generation's merged PR
 
 ## first-mainnet-receipt
 
