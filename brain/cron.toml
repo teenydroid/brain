@@ -8,6 +8,7 @@
 #   [jobs.<name>]          becomes the core job `teeny.<name>`
 #   schedule = "m h dom mon dow"   never more often than every 5 minutes
 #   command  = "bin/act <playbook>"   brain/playbooks/<playbook>.md
+#            | "bin/studio --slot <name> --legacy <playbook>"   a studio slot
 #            | "bin/heartbeat"
 #   tz       = "..."       optional; else a top-level `tz = "..."`, else
 #                          CALENDAR_TZ, else UTC
@@ -62,22 +63,34 @@ command = "bin/heartbeat"
 #
 # Teeny posts on X at most four times a day, five hours apart (hands/x:
 # X_POSTS_MAX_PER_DAY and POST_MIN_GAP_HOURS), and every slot is a ceiling, not
-# a quota: a post names the one item from its inputs it is about (`anchor`),
-# carries something from Teeny's own record, and passes bin/act's anchor judge,
-# or the slot stays empty. The slots, in IST: 04:30 one quote of a small
-# builder's post (`x-quote`, US afternoon), 09:30 a gm only when the morning's
-# reading gave it something (`morning`), 15:00 a take or a quote (`take`; on
-# Sundays the weekly growth diary, `growth`, has the slot), and 23:00 what it
-# built or did today (`show`); each is at least five hours from the next. The
-# team's `brief` takes the next free slot instead of a fifth: it runs five
-# minutes after `take` and `show`, which skip when a brief is queued. The
-# nightly `shiplog` runs ten minutes after `show` and takes the night's slot
-# only when show and the brief left it empty: it reads `hands/x slot` first,
-# and a shut slot skips before any model turn. The outward quote of a peer
-# (`peer-quote`, 11:00 and 19:00) draws on the same four posts: it posts only
-# at relevance 5 and at most once a day, and the gap and the cap apply to it as
-# to any post. Replies to mentions are not
-# posts and keep running, under a looser bar. Moltbook is its own
+# a quota. Since the studio cutover the studio owns every original post
+# (docs/architecture.md, "The studio"): one `bin/studio` run a slot, at 04:30
+# (the US afternoon), 09:30, 15:00 and 23:00 IST, each at least five hours
+# from the next. A run pitches from what really happened, drafts the best
+# pitches, has an editor pick one or none, and puts the pick through the truth
+# judge, the cold reader and the guard before hands/x; an empty slot is a
+# normal outcome. Sunday's 15:00 is a normal studio slot for now (the weekly
+# plan that will take it arrives in a later change).
+#
+# The rollback is STUDIO=0 in secrets/teeny.env, and nothing here changes for
+# it: each studio job names the old playbook of its slot (`--legacy`), and
+# with STUDIO=0 bin/studio runs that playbook through bin/act instead, as
+# cron did before (x-quote, morning, take Monday to Saturday, growth on
+# Sunday, show). `shiplog` keeps its own job at 23:10 and runs only with
+# STUDIO=0: bin/act skips every replaced playbook while STUDIO=1
+# (bin/lib/studio_switch.py). No studio slot catches up or makes up: a late
+# post would take the next slot's room, and cron_policy.py refuses it.
+#
+# Two posts keep their own jobs and draw on the same four a day: the team's
+# told-to post (`brief`) and the outward quote of a peer (`peer-quote`, 11:00
+# and 19:00: it posts only at relevance 5 and at most once a day). With
+# STUDIO=1 both go past the studio's editor as a single candidate, pick or
+# none (bin/act, `bin/studio --veto`). The brief runs five minutes before the
+# 15:00 and 23:00 slots: a brief that goes out shuts that slot (the five-hour
+# gap), and the studio run reads `hands/x slot` first and skips before any
+# model turn; with none queued, or one the editor passed on, the slot is the
+# studio's as usual. Replies to mentions are not posts and keep running, under
+# a looser bar. Moltbook is its own
 # audience and is where Teeny grows: eight to ten posts a day, a post every
 # hour from 07:40 until its nine are out, unless there is nothing new to say (`moltbook-general`,
 # at most 9 a day) and the evening audit in a slow submolt (`moltbook-evening`),
@@ -92,59 +105,55 @@ command = "bin/heartbeat"
 # the hand first instead (`hands/moltbook post-slot`): a shut gap skips the run
 # before the model turn, and one that opens within two minutes is waited out.
 
-# The 04:30 post (US afternoon): at most one quote a day of a small builder's
-# post, adding one fact from Teeny's own record (brain/playbooks/x-quote.md).
-# Five and a half hours after show, five before morning. It reads `hands/x
-# slot` before its search, so a shut slot costs no search.
-[jobs.x-quote]
+# The 04:30 slot (the US afternoon). With STUDIO=0: at most one quote a day
+# of a small builder's post (brain/playbooks/x-quote.md).
+[jobs.studio-0430]
 schedule = "30 4 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act x-quote"
+command = "bin/studio --slot 0430 --legacy x-quote"
 
-# The 09:30 post: a gm only when the morning's reading gave Teeny an anchor.
-# Not 07:00 any more: the 04:30 quote needs five hours before it.
-[jobs.morning]
+# The 09:30 slot. With STUDIO=0: a gm only when the morning's reading gave
+# Teeny an anchor (brain/playbooks/morning.md, a nudge to the mind).
+[jobs.studio-0930]
 schedule = "30 9 * * *"
 tz = "Asia/Kolkata"
-command = "bin/act morning"
+command = "bin/studio --slot 0930 --legacy morning"
 
-# The 23:00 post: what Teeny built or did today, with pictures, and what broke.
-# When it is the better story, the day's best exchange on Moltbook instead
-# (hands/moltbook highlight, format `moltbook`): Moltbook sends nobody to X, so
-# Teeny carries it there, in this slot, never as an extra post. Skips a day
-# with nothing but chores and no exchange.
-[jobs.show]
-schedule = "0 23 * * *"
-tz = "Asia/Kolkata"
-command = "bin/act show"
-
-# The 15:00 post: a take on the day's story, or a quote of a builder's post,
-# Monday to Saturday. On Sunday the slot is the weekly growth diary's.
-[jobs.take]
+# The 15:00 slot, Monday to Saturday. With STUDIO=0: a take on the day's
+# story, or a quote of a builder's post (brain/playbooks/take.md).
+[jobs.studio-1500]
 schedule = "0 15 * * 1-6"
 tz = "Asia/Kolkata"
-command = "bin/act take"
+command = "bin/studio --slot 1500 --legacy take"
+
+# The 15:00 slot on Sunday: a normal studio slot. With STUDIO=0: the weekly
+# growth diary (brain/playbooks/growth.md), as before.
+[jobs.studio-sunday]
+schedule = "0 15 * * 0"
+tz = "Asia/Kolkata"
+command = "bin/studio --slot 1500 --legacy growth"
+
+# The 23:00 slot. With STUDIO=0: what Teeny built or did today, with
+# pictures, or the day's best exchange on Moltbook (brain/playbooks/show.md).
+[jobs.studio-2300]
+schedule = "0 23 * * *"
+tz = "Asia/Kolkata"
+command = "bin/studio --slot 2300 --legacy show"
 
 # The outward quote: up to three scored suggestions a run from the peers' new
 # posts (brain/x-peers.txt), and hands/x peer-suggest posts one only when its
-# relevance is 5 of 5 and at most once a day, so the 19:00 run does nothing if
-# the 11:00 one posted. Most runs end in a skip. No catch-up: a late quote is
-# the wrong quote.
+# relevance is 5 of 5, the studio's editor did not pass on it (STUDIO=1), and
+# at most once a day, so the 19:00 run does nothing if the 11:00 one posted.
+# Most runs end in a skip. No catch-up: a late quote is the wrong quote.
 [jobs.peer-quote]
 schedule = "0 11,19 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act peer-quote"
 
-# The weekly growth diary (brain/playbooks/growth.md): world score W in real
-# numbers, what grew and what failed, in take's Sunday 15:00 slot.
-[jobs.growth]
-schedule = "0 15 * * 0"
-tz = "Asia/Kolkata"
-command = "bin/act growth"
-
-# The nightly ship log (brain/playbooks/shiplog.md): day n and what shipped,
-# ten minutes after show and five after the brief. It reads `hands/x slot`
-# first, so it posts only on a night show and the brief left the slot empty.
+# The nightly ship log (brain/playbooks/shiplog.md), legacy: it runs only with
+# STUDIO=0 (bin/act skips it otherwise), ten minutes after show, and posts
+# only on a night show and the brief left the slot empty (it reads `hands/x
+# slot` first).
 [jobs.shiplog]
 schedule = "10 23 * * *"
 tz = "Asia/Kolkata"
@@ -276,15 +285,17 @@ tz = "Asia/Kolkata"
 command = "bin/act moltbook-general"
 
 # The told-to post: whatever the team queued with `hands/brief add "..."`
-# (brain/playbooks/brief.md). It takes the next free X slot instead of adding a
-# post: it runs five minutes after `take` (15:00) and `show` (23:00),
-# which skip while a brief is queued, and posts once a day at most. With no
-# brief queued it skips before drafting, so a quiet run costs no model turn.
-# hands/x's cap (4 posts a day) and 5-hour gap still apply: a brief queued after
-# today's slots waits for tomorrow's. Mentions are answered by the pinned
-# mentions-inbound job (evals/cron.pinned.toml).
+# (brain/playbooks/brief.md). It takes a slot instead of adding a post: it
+# runs five minutes before the 15:00 and 23:00 studio slots, and a brief that
+# goes out shuts that slot for the studio (the five-hour gap). It posts once a
+# day at most, and with STUDIO=1 only when the studio's editor picks it (a
+# brief it passes on stays queued for the next run). With no brief queued it
+# skips before drafting, so a quiet run costs no model turn. hands/x's cap (4
+# posts a day) and 5-hour gap still apply: a brief queued after today's slots
+# waits for tomorrow's. Mentions are answered by the pinned mentions-inbound
+# job (evals/cron.pinned.toml).
 [jobs.brief]
-schedule = "5 15,23 * * *"
+schedule = "55 14,22 * * *"
 tz = "Asia/Kolkata"
 command = "bin/act brief"
 
