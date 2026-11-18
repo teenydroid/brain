@@ -1806,9 +1806,11 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
         argv = list(TREND)
         if args.slot:
             argv[2:2] = ["--slot", slot_id_of(args.slot, dict(os.environ) | getattr(room, "environ", {}))]
+        env = dict(os.environ) | getattr(room, "environ", {})
+        now = float(env["TEENY_NOW"]) if env.get("TEENY_NOW") else time.time()
         code, got = room.hand_code(argv, timeout=200)
         if code == 0 and isinstance(got, dict):
-            found["trend"], shares["trend"] = trend_items(got), TREND_SHARE
+            found["trend"], shares["trend"] = trend_items(got, now, room.cfg), TREND_SHARE
             room.outside_notes["trend"] = {"source": got.get("source"), "key": got.get("key"),
                                            "cached": got.get("cached"), "stories": len(found["trend"]),
                                            "unavailable": got.get("unavailable") or []}
@@ -1816,13 +1818,13 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
             unavailable.append("trend")
             room.outside_notes["trend"] = {"reason": got.get("reason") if isinstance(got, dict) else None,
                                            "error": str(got.get("error") if isinstance(got, dict) else got)[:300]}
-        # Then the free sources the old playbooks read.
+        # Then Hacker News's front page.
         for name, argv in OUTSIDE:
             ok, got = room.hand(argv, timeout=90)
             if not ok:
                 unavailable.append(name)
                 continue
-            found[name], shares[name] = outside_items(name, got), OUTSIDE_SHARE
+            found[name], shares[name] = hn_front_items(got, now, room.cfg), OUTSIDE_SHARE
         # The paid X search, only when switched on, and at most its cap a day.
         name, query = X_QUERIES[seed_of(room.run_id) % len(X_QUERIES)]
         if not room.cfg.outside_x:
@@ -1832,10 +1834,18 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
         else:
             ok, got = room.hand(["x", "search", query, "--max", "10"], timeout=90)
             if ok:
-                found[name], shares[name] = outside_items(name, got), OUTSIDE_SHARE
+                # A keyword search: background, never a hook.
+                found[name] = [dict(i, trending=False) for i in outside_items(name, got)]
+                shares[name] = OUTSIDE_SHARE
             else:
                 unavailable.append(name)
         for name, items in dedupe(found).items():
+            if name in TRENDING_SOURCES:
+                # Only what is trending reaches the writer; the rest is counted.
+                kept = [i for i in items if i.get("trending")]
+                room.outside_notes.setdefault(name, {})["not_trending"] = len(items) - len(kept)
+                room.outside_notes[name]["trending"] = len(kept)
+                items = kept
             fitted, was_cut = act_fit.fit({name: items}, shares[name])
             outside[name] = fitted[name]
             cut += was_cut
