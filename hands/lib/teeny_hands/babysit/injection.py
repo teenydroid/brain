@@ -82,6 +82,22 @@ _HTML_COMMENT = re.compile(r"<!--(.*?)-->", re.DOTALL)
 _COMMENT_HINT = re.compile(
     r"\b(?:ai|llm|assistant|model|reviewer|bot|agent|instruction|prompt|ignore|approve|merge|claude|gpt|teeny)\b", _I
 )
+#: The hidden identity markers PR-Agent (.github/workflows/pr-agent.yml,
+#: the-pr-agent/pr-agent) puts in the comments it posts, and the one our own
+#: budget step (.github/scripts/pr-agent-budget.sh) posts: tooling a later
+#: run finds its comment by, not text for a model. Each name is spelled out
+#: (a word pattern would let "pr-agent:approve-it" through); the dedup
+#: markers carry a hex fingerprint and nothing else. Only the whole comment
+#: counts: a marker with anything else inside the `<!-- -->` is not one.
+#: Exempt only where the caller says so (audit: a comment by the workflow's
+#: own login), never on its own.
+PR_AGENT_MARKERS = re.compile(
+    r"\s*(?:pr-agent:(?:review:(?:full|incremental)|improve:(?:summary|no-suggestions|unanchored)"
+    r"|describe:persistent|(?:github|gitlab|gitea|bitbucket)-incomplete-(?:files|diff))"
+    r"|pr_agent:(?:summary|type|walkthrough|diagram)"
+    r"|pr-agent-(?:generated|response|progress|budget)"
+    r"|pr-agent-(?:dedup|dedup-code|key-issue-location):\s[0-9a-f]{6,64})\s*"
+)
 #: A long base64 run in prose is either a blob nobody needs to read or a
 #: payload hiding from the phrase rules. Decoded and read again.
 _BASE64 = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{80,}={0,2}(?![A-Za-z0-9+/=])")
@@ -139,11 +155,15 @@ def _decoded(blob: str) -> str | None:
     return text if text and printable / len(text) > 0.95 else None
 
 
-def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | None = None) -> list[Hit]:
+def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | None = None,
+         markers: re.Pattern[str] | None = None) -> list[Hit]:
     """Every rule `text` breaks, one hit per rule. `prose` is True for words
     people write to people (a title, a body, a commit message, a comment),
     where hidden comments and base64 runs are suspect; False for a diff,
-    where they are code. `rules` limits the phrase rules read."""
+    where they are code. `rules` limits the phrase rules read. `markers`
+    names hidden comments that are known tooling (`PR_AGENT_MARKERS`): one
+    whose whole inside it matches is skipped by `hidden_comment` alone;
+    every other rule still reads the whole text."""
     if not isinstance(text, str) or not text:
         return []
     hits: list[Hit] = []
@@ -159,6 +179,8 @@ def scan(text: str, where: str, *, prose: bool = True, rules: Iterable[str] | No
     if prose:
         for comment in _HTML_COMMENT.finditer(folded):
             inner = comment.group(1)
+            if markers is not None and markers.fullmatch(inner):
+                continue
             if _COMMENT_HINT.search(inner):
                 hits.append(Hit("hidden_comment", where, _digest(inner)))
                 break

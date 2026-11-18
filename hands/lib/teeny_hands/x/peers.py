@@ -6,7 +6,9 @@ communities around other crypto-AI projects, kept rare and specific.
   peer-suggest    A  up to 3 scored quote suggestions; all kept, the top one
                      posted only when it clears every bar, the anchor judge's
                      included (one word, as a playbook's `hand:x <verb>`
-                     output names it)
+                     output names it). With STUDIO=1 bin/act first asks the
+                     studio's editor about the top one and passes its no as
+                     `"vetoed": "<reason>"`: kept, not posted (rule `editor`)
   peers suggestions  R  what was suggested, posted and skipped, and why
   peers report    R  per peer: touches, who then spoke to Teeny, how the
                      quote did
@@ -29,6 +31,7 @@ row, as `publish` writes no ledger row.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import sqlite3
@@ -293,7 +296,7 @@ def _candidate(raw: Any) -> Json:
 def _body(body: Any) -> tuple[list[Json], list[str]]:
     if not isinstance(body, Mapping):
         raise hand.HandError('stdin must be a JSON object with "candidates"')
-    unknown = sorted(set(body) - {"candidates", "media_ids"})
+    unknown = sorted(set(body) - {"candidates", "media_ids", "vetoed"})
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
     raw = body.get("candidates")
@@ -364,6 +367,17 @@ def _author(conn: sqlite3.Connection, post_id: str) -> str | None:
     return row[0] if row else None
 
 
+def _vetoed(body: Any) -> str | None:
+    """The studio editor's reason for passing on the top suggestion, when
+    bin/act asked it (`"vetoed"`, STUDIO=1): the suggestions are kept and none
+    is posted. Anything in the field stops the quote; nothing in it ever
+    lets one through."""
+    value = body.get("vetoed") if isinstance(body, Mapping) else None
+    if value is None or value is False:
+        return None
+    return (value if isinstance(value, str) else json.dumps(value))[:300].strip() or "no reason given"
+
+
 def suggest(body: Any, x: XApi | None = None) -> Json:
     """Keeps every suggestion and posts the top one (the highest relevance,
     the first on a tie) through `publish.post` only when it clears the bar
@@ -372,12 +386,14 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
     from . import publish
 
     candidates, media_ids = _body(body)
+    vetoed = _vetoed(body)
     top_rank = max(range(len(candidates)), key=lambda i: (candidates[i]["relevance"], -i))
     top = candidates[top_rank]
     live = not hand.dry_run()
     conn = _db()
     with hand.lock("x-peer-suggest"):
-        bar = _bar(conn, top) or _anchored(top, x)
+        bar = (("editor", f"the studio's editor passed on it: {vetoed}; kept, not posted") if vetoed else None) \
+            or _bar(conn, top) or _anchored(top, x)
         status = "skipped" if bar else ("posting" if live else "kept")
         batch = secrets.token_hex(6)
         now = hand.now()
@@ -397,7 +413,8 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
             out["dry_run"] = True
         if bar:
             return {**out, "posted": None, "skipped": {"rule": bar[0], "reason": bar[1], "quote_of": top["quote_of"]}}
-        draft: Json = {"text": top["text"], "quote_of": top["quote_of"], "format": f"peer-{top['format']}"}
+        draft: Json = {"text": top["text"], "quote_of": top["quote_of"], "format": f"peer-{top['format']}",
+                       "producer": "peer-quote"}
         if media_ids:
             draft["media_ids"] = media_ids
         try:

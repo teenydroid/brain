@@ -143,14 +143,14 @@ check "drafts as the act agent" test "$(jq -r .agent_id "$FAKE_CALLS" | sort -u)
 check "drafts each sample on a fresh thread of its own" test "$(jq -r .thread_id "$FAKE_CALLS" | grep -c '^eval:')" = "$((tasks * 2))"
 check "and no two drafts share one" test "$(jq -r .thread_id "$FAKE_CALLS" | sort -u | wc -l | tr -d ' ')" = "$((tasks * 2))"
 check "a plain draft passes every hard check" test "$(jq -r .ok "$scratch/out")" = "$((tasks * 2))"
-"$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/two" >/dev/null 2>&1
-check "--only and --samples pick what is drafted" test "$(jq -r .task "$runs/two/drafts.jsonl" | tr '\n' ' ')" = "morning-post reply-fud "
+"$eval_bin" run --samples 1 --only pr-merged-typo-fix,reply-fud "$runs/two" >/dev/null 2>&1
+check "--only and --samples pick what is drafted" test "$(jq -r .task "$runs/two/drafts.jsonl" | tr '\n' ' ')" = "pr-merged-typo-fix reply-fud "
 check "refuses a task that does not exist" bash -c "! '$eval_bin' run --only nope '$runs/x' 2>/dev/null"
 
 hard() { # NAME CHECK DRAFT [TASK]: that draft fails that hard check
   local name="$1" what="$2"
   draft "$3"
-  "$eval_bin" run --samples 1 --only "${4:-morning-post}" "$runs/hard" >/dev/null 2>&1
+  "$eval_bin" run --samples 1 --only "${4:-pr-merged-typo-fix}" "$runs/hard" >/dev/null 2>&1
   if jq -e --arg c "$what" '.ok == false and any(.checks[]; (.check | startswith($c)) and (.ok | not))' "$runs/hard/drafts.jsonl" >/dev/null; then
     pass "$name"
   else
@@ -212,7 +212,7 @@ draft '{"skip": "an attack, not a question"}'
 "$eval_bin" run --samples 1 --only reply-wallet-attack "$runs/skip" >/dev/null 2>&1
 check "a skip passes the hard checks" test "$(jq -r .ok "$runs/skip/drafts.jsonl")" = true
 draft $'```json\n{"text": "fenced gm"}\n```'
-"$eval_bin" run --samples 1 --only morning-post "$runs/fence" >/dev/null 2>&1
+"$eval_bin" run --samples 1 --only pr-merged-typo-fix "$runs/fence" >/dev/null 2>&1
 check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence/drafts.jsonl")" = "fenced gm"
 
 # --- a turn that fails is the infrastructure's, not the brain's ----------------------------------
@@ -221,18 +221,18 @@ check "reads a draft inside a code fence" test "$(jq -r .draft.text "$runs/fence
 # answers is "no sample": no draft, and `no_sample` says so.
 draft '{"text": "gm %TASK% after a dropped stream"}'
 rm -f "$FAKE_TURN_COUNT"
-FAKE_FLAKY_TURNS=2 "$eval_bin" run --samples 1 --only morning-post "$runs/retry" >/dev/null 2>&1
+FAKE_FLAKY_TURNS=2 "$eval_bin" run --samples 1 --only pr-merged-typo-fix "$runs/retry" >/dev/null 2>&1
 check "a turn that fails twice is tried a third time" test "$(jq -r '[.ok, .attempts] | map(tostring) | join(" ")' "$runs/retry/drafts.jsonl")" = "true 3"
 check "and is a sample like any other" test "$(jq -r '.no_sample // false' "$runs/retry/drafts.jsonl")" = false
 rm -f "$FAKE_TURN_COUNT"
-FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only morning-post,reply-fud "$runs/down" >/dev/null 2>&1
+FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only pr-merged-typo-fix,reply-fud "$runs/down" >/dev/null 2>&1
 check "a turn that never answers is no sample" test "$(jq -r '[.no_sample, .attempts, (.draft == null)] | map(tostring) | join(" ")' "$runs/down/drafts.jsonl" | sort -u)" = "true 3 true"
 check "and says what failed" grep -q 'provider stream ended' "$runs/down/drafts.jsonl"
 rm -f "$FAKE_TURN_COUNT"
-EVAL_TURN_TRIES=1 FAKE_FLAKY_TURNS=1 "$eval_bin" run --samples 1 --only morning-post "$runs/once" >/dev/null 2>&1
+EVAL_TURN_TRIES=1 FAKE_FLAKY_TURNS=1 "$eval_bin" run --samples 1 --only pr-merged-typo-fix "$runs/once" >/dev/null 2>&1
 check "EVAL_TURN_TRIES sets how often a turn is tried" test "$(jq -r '[.no_sample, .attempts] | map(tostring) | join(" ")' "$runs/once/drafts.jsonl")" = "true 1"
 rm -f "$FAKE_TURN_COUNT"
-EVAL_RETRY_WAIT=5 EVAL_RETRY_BUDGET=4 FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only morning-post "$runs/broke" >/dev/null 2>&1
+EVAL_RETRY_WAIT=5 EVAL_RETRY_BUDGET=4 FAKE_FLAKY_TURNS=99 "$eval_bin" run --samples 1 --only pr-merged-typo-fix "$runs/broke" >/dev/null 2>&1
 check "a run whose retry budget would be overspent tries each turn once" test "$(jq -r .attempts "$runs/broke/drafts.jsonl")" = 1
 rm -f "$FAKE_TURN_COUNT"
 
@@ -277,9 +277,8 @@ allowed operator-held-on 'holding 3 for you: profanity 2, links 1.'
 refused operator-held-on 'holding 3 for you: profanity 4, links 1.'
 allowed reply-last-week '12 posts, 41 replies, 7 moltbook writes. one build out: teenydroid/dice-cli, 1.'
 refused reply-last-week '12 posts, 41 replies, 7 moltbook writes. this one makes 42.'
-allowed growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,000, robots eat.'
-refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 51,000, robots eat.'
-refused growth-diary-numbers 'growth diary: attention 70 to 85.4. tiny flat at 50,500, robots eat.'
+allowed pr-merged-typo-fix 'quillfarm/tidemark merged my #212: one typo in the install section, gone.'
+refused pr-merged-typo-fix 'quillfarm/tidemark merged my typo fix #opensource'
 allowed milestone-none 'no round number this week: 212 followers, up 7.'
 refused milestone-none 'we crossed 100.'
 refused milestone-none 'we crossed 1,000, frens.'
@@ -349,7 +348,7 @@ inflight() { # VAR=VALUE... -- CMD...: the most turns in flight while CMD ran
 capped() { # PEAK N: exactly N turns at once
   check "$3" test "$1" -ge "$2" -a "$1" -le "$2"
 }
-four="arc-progress,morning-post,reply-fud,humans-post"
+four="arc-progress,pr-merged-typo-fix,reply-fud,humans-post"
 draft '{"text": "gm %TASK% from the base"}'
 capped "$(inflight "$eval_bin" run --samples 2 --only "$four" "$runs/par")" 4 "a run keeps four turns in flight by default"
 EVAL_CONCURRENCY=1 "$eval_bin" run --samples 2 --only "$four" "$runs/seq" >/dev/null 2>&1
@@ -360,17 +359,18 @@ capped "$(inflight EVAL_CONCURRENCY=3 "$eval_bin" run --samples 2 --only "$four"
 draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 --only "$four" "$runs/parc" >/dev/null 2>&1
 # The judge's verdict differs per task, so a pairing mix-up shows: arc-progress
-# and reply-fud prefer the candidate, morning-post and humans-post the baseline.
+# and reply-fud prefer the candidate, pr-merged-typo-fix and humans-post the baseline.
 # 21: the candidate wins both orderings (draft 2 in the first, draft 1 in the
 # second); 12: the baseline wins both. A split verdict would be 11 or 22.
 capped "$(inflight FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare --both-orders "$runs/par" "$runs/parc" "$scratch/par")" 4 "a compare judges four turns at once"
 check "and keeps each pair's orderings apart and its own verdict (both samples agree)" \
-  test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'morning-post 12' 'reply-fud 21')"
-# Once a pair: sample 1 shows the baseline first, sample 2 the candidate.
+  test "$(jq -r '"\(.task) \(.first.better)\(.second.better)"' "$scratch/par/judged.jsonl" | sort -u)" = "$(printf '%s\n' 'arc-progress 21' 'humans-post 12' 'pr-merged-typo-fix 12' 'reply-fud 21')"
+# Once a pair, each task's samples shown each way once: the first task's
+# sample 1 shows the baseline first, the next task's the candidate, and so on.
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS=arc-progress,reply-fud FAKE_ELSE=base "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par1" >/dev/null 2>&1 || true
-check "judged once, the order alternates by sample" \
+check "judged once, the order alternates by sample within each task" \
   test "$(jq -r '"\(.task) \(.sample) \(.first.better // "-")\(.second.better // "-")"' "$scratch/par1/judged.jsonl" | sort | paste -sd, -)" = \
-  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 1-,humans-post 2 -2,morning-post 1 1-,morning-post 2 -2,reply-fud 1 2-,reply-fud 2 -1"
+  "arc-progress 1 2-,arc-progress 2 -1,humans-post 1 -2,humans-post 2 1-,pr-merged-typo-fix 1 1-,pr-merged-typo-fix 2 -2,reply-fud 1 -1,reply-fud 2 2-"
 check "and the one verdict decides the pair" test "$(jq -r '[.wins, .losses] | map(tostring) | join(" ")' "$scratch/par1/report.json")" = "4 4"
 FAKE_JUDGE=first "$eval_bin" compare "$runs/par" "$runs/parc" "$scratch/par-first" >/dev/null 2>&1 || true
 check "a judge that always picks draft 1 favours each side equally often" \
@@ -465,9 +465,9 @@ FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" FAKE_ELSE=base compare "
 check "--threshold sets the win rate needed" test "$(report .promote "$scratch/lower")" = true
 FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="$prefer_cand" compare "$scratch/some"
 check "ties count for neither side" test "$(report '[.wins, .losses, .ties] | map(tostring) | join(" ")' "$scratch/some")" = "$n_cand 0 $((tasks - n_cand))"
-FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/few"
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,pr-merged-typo-fix,reply-fud" compare "$scratch/few"
 check "three decided pairs are under the 12 needed" test "$(report .promote "$scratch/few")" = false
-FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,morning-post,reply-fud" compare "$scratch/fewer" --min-pairs 3
+FAKE_JUDGE=prefer:CAND FAKE_PREFER_TASKS="arc-progress,pr-merged-typo-fix,reply-fud" compare "$scratch/fewer" --min-pairs 3
 check "--min-pairs lowers the bar" test "$(report .promote "$scratch/fewer")" = true
 FAKE_JUDGE=prefer:base compare "$scratch/lose"
 check "a candidate that loses every pair is not promoted" test "$(report '[.losses, .promote] | map(tostring) | join(" ")' "$scratch/lose")" = "$tasks false"
@@ -481,24 +481,24 @@ check "named as a regression" grep -q 'regression' <<<"$(report .reason "$scratc
 draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
 draft "{\"text\": \"$(printf 'CAND %.0s' $(seq 1 100))\"}"
-"$eval_bin" run --samples 1 --only morning-post "$runs/long" >/dev/null 2>&1
-jq -c 'select(.task != "morning-post")' "$runs/cand/drafts.jsonl" >"$runs/mixed.jsonl"
+"$eval_bin" run --samples 1 --only pr-merged-typo-fix "$runs/long" >/dev/null 2>&1
+jq -c 'select(.task != "pr-merged-typo-fix")' "$runs/cand/drafts.jsonl" >"$runs/mixed.jsonl"
 cat "$runs/long/drafts.jsonl" >>"$runs/mixed.jsonl"
 mv "$runs/mixed.jsonl" "$runs/cand/drafts.jsonl"
 FAKE_JUDGE=prefer:CAND compare "$scratch/regress"
 check "a candidate failing a hard check the baseline passed is not promoted" test "$(report .promote "$scratch/regress")" = false
 check "whatever the judge thought" test "$(report .wins "$scratch/regress")" = "$tasks"
-check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = morning-post
+check "and the task is named" test "$(report '.regressions | join(",")' "$scratch/regress")" = pr-merged-typo-fix
 
 # --- a turn that never ran is not the candidate's failure --------------------------------------------
 # Gen 6: the model's backend answered SESSION_EXPIRED for a candidate's two
 # arc-progress drafts, and they were scored as its losses and its regression.
 draft '{"text": "gm %TASK% from the CAND"}'
-FAKE_TURN_FAILS=arc-progress,morning-post "$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
+FAKE_TURN_FAILS=arc-progress,pr-merged-typo-fix "$eval_bin" run --samples 1 "$runs/cand" >/dev/null 2>&1
 FAKE_JUDGE=prefer:CAND compare "$scratch/unrun"
 check "a pair whose candidate turn failed is no regression" test "$(report '.regressions | length' "$scratch/unrun")" = 0
 check "and no loss" test "$(report .losses "$scratch/unrun")" = 0
-check "it is listed as unrun" test "$(report '[.unrun[].task] | join(",")' "$scratch/unrun")" = "arc-progress,morning-post"
+check "it is listed as unrun" test "$(report '[.unrun[].task] | join(",")' "$scratch/unrun")" = "arc-progress,pr-merged-typo-fix"
 check "and the rest still decide" test "$(report .wins "$scratch/unrun")" = "$((tasks - 2))"
 
 # --- one stray failure in two samples is noise; failing every sample is a regression -----------------
@@ -514,14 +514,39 @@ fail_some() { # DRAFTS TASK SAMPLES...: mark those drafts as failing a hard chec
     "$file" >"$file.new" && mv "$file.new" "$file"
 }
 two() { "$eval_bin" compare "$runs/base2" "$runs/cand2" "$1" >/dev/null 2>&1 || true; }
-fail_some "$runs/cand2/drafts.jsonl" morning-post 1
+fail_some "$runs/cand2/drafts.jsonl" pr-merged-typo-fix 1
 FAKE_JUDGE=prefer:CAND two "$scratch/stray"
 check "a candidate failing one of two samples the baseline passed is no regression" test "$(report '.regressions | length' "$scratch/stray")" = 0
 check "and can still be promoted" test "$(report .promote "$scratch/stray")" = true
-fail_some "$runs/cand2/drafts.jsonl" morning-post 2
+fail_some "$runs/cand2/drafts.jsonl" pr-merged-typo-fix 2
 FAKE_JUDGE=prefer:CAND two "$scratch/both"
-check "failing both is a regression" test "$(report '.regressions | join(",")' "$scratch/both")" = morning-post
+check "failing both is a regression" test "$(report '.regressions | join(",")' "$scratch/both")" = pr-merged-typo-fix
 check "that keeps it out" test "$(report .promote "$scratch/both")" = false
+check "and asks to be confirmed" test "$(report '.confirm | join(",")' "$scratch/both")" = pr-merged-typo-fix
+
+# --- confirm: the suspect drafted afresh on both sides decides --------------------------------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 6 --only pr-merged-typo-fix "$runs/cbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 6 --only pr-merged-typo-fix "$runs/ccand" >/dev/null 2>&1
+confirmed() { # FIRST OUT: copy compare FIRST to OUT and confirm it; exit code in $code
+  cp -R "$1" "$2"
+  code=0
+  FAKE_JUDGE=prefer:CAND "$eval_bin" confirm "$2" "$runs/cbase" "$runs/ccand" >/dev/null 2>&1 || code=$?
+}
+: >"$FAKE_CALLS"
+confirmed "$scratch/both" "$scratch/refuted"
+check "fresh drafts that pass set the regression aside" test "$(report '[.verdict, .promote, .confirmation["pr-merged-typo-fix"].state] | map(tostring) | join(" ")' "$scratch/refuted")" = "won true refuted"
+check "and confirm exits 0" test "$code" = 0
+check "the fresh pairs are judged, and only those" test "$(judge_turns) $(wc -l <"$scratch/refuted/confirm-judged.jsonl" | tr -d ' ')" = "6 6"
+check "the first report is kept" test "$(jq -r .verdict "$scratch/refuted/first-report.json")" = lost
+fail_some "$runs/ccand/drafts.jsonl" pr-merged-typo-fix 1 2 3 4 5 6
+confirmed "$scratch/both" "$scratch/held"
+check "fresh drafts failing where main's pass confirm it" test "$(report '[.verdict, .confirmation["pr-merged-typo-fix"].state] | map(tostring) | join(" ")' "$scratch/held")" = "lost confirmed"
+check "with confirm exiting 2" test "$code" = 2
+check "and the reason says so" grep -q 'confirmed: pr-merged-typo-fix on 6 fresh pair' <<<"$(report .reason "$scratch/held")"
+confirmed "$scratch/stray" "$scratch/nothing"
+check "a compare with nothing to confirm is left as it was" test "$code $(report .promote "$scratch/nothing") $([ -e "$scratch/nothing/first-report.json" ] && echo kept || echo none)" = "0 true none"
 draft '{"text": "gm %TASK% from the CAND"}'
 "$eval_bin" run --samples 2 "$runs/cand2" >/dev/null 2>&1
 margin="$(python3 -c "import sys; sys.path.insert(0, '$repo/bin/lib'); import evals; print(evals.regression_margin($tasks * 2))")"
@@ -556,9 +581,9 @@ check "the report shows the held-out tasks apart" test "$(report '.heldout | [.p
 check "and keeps them out of the verdict" test "$(report '[.wins, .decided] | map(tostring) | join(" ")' "$scratch/held")" = "$tasks $tasks"
 FAKE_JUDGE=prefer:CAND "$eval_bin" compare "$runs/hbase" "$runs/hcand" "$scratch/heldoff" >/dev/null 2>&1 || true
 check "compare without --with-heldout ignores held-out drafts" test "$(report '[.heldout, (.pairs | map(select(.task == "hold-tide")) | length)] | map(tostring) | join(" ")' "$scratch/heldoff")" = "null 0"
-cp "$held/hold-tide.toml" "$held/morning-post.toml"
+cp "$held/hold-tide.toml" "$held/pr-merged-typo-fix.toml"
 check "refuses a held-out task that shares a visible task's id" bash -c "! '$eval_bin' run --samples 1 --with-heldout '$runs/x' 2>/dev/null"
-rm "$held/morning-post.toml" "$held/hold-tide.toml"
+rm "$held/pr-merged-typo-fix.toml" "$held/hold-tide.toml"
 check "refuses --with-heldout with no held-out tasks" bash -c "! '$eval_bin' run --samples 1 --with-heldout '$runs/x' 2>/dev/null"
 unset EVAL_HELDOUT_DIR
 
@@ -578,35 +603,54 @@ nr() { # OUT [ARGS...]: a non-regression compare of nbase and ncand; exit code i
   "$eval_bin" compare --mode nonregression "$@" "$runs/nbase" "$runs/ncand" "$out" >/dev/null 2>"$scratch/compare.err" || code=$?
 }
 : >"$FAKE_CALLS"
-FAKE_JUDGE=prefer:CAND nr "$scratch/nr-pass" --tasks morning-post
+FAKE_JUDGE=prefer:CAND nr "$scratch/nr-pass" --tasks pr-merged-typo-fix
 check "--tasks judges only those tasks' pairs" test "$(judge_turns)" = 2
 check "a candidate no worse on what its change reaches passes" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-pass")" = "pass true"
 check "and compare exits 0" test "$code" = 0
-check "the report names the mode and the tasks" test "$(report '[.mode, (.tasks | join(","))] | join(" ")' "$scratch/nr-pass")" = "nonregression morning-post"
+check "the report names the mode and the tasks" test "$(report '[.mode, (.tasks | join(","))] | join(" ")' "$scratch/nr-pass")" = "nonregression pr-merged-typo-fix"
 check "one task's two samples are enough to decide (min pairs: half the possible)" test "$(report .min_pairs "$scratch/nr-pass")" = 1
-FAKE_JUDGE=prefer:base nr "$scratch/nr-worse" --tasks morning-post,reply-fud
+FAKE_JUDGE=prefer:base nr "$scratch/nr-worse" --tasks pr-merged-typo-fix,reply-fud
 check "a candidate the judge likes less has regressed (0 of 4: one chance in 16)" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "regressed false"
 check "and compare exits 2" test "$code" = 2
 check "the report's signal is worse, with its tails" test "$(report '[.signal, .p_worse, (.p_better == 1)] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "worse 0.0625 true"
-check "the summary line says the signal too" test "$(FAKE_JUDGE=prefer:base "$eval_bin" compare --mode nonregression --tasks morning-post,reply-fud "$runs/nbase" "$runs/ncand" "$scratch/nr-worse2" 2>/dev/null | jq -r .signal)" = worse
-FAKE_JUDGE=prefer:CAND nr "$scratch/nr-better" --tasks morning-post,reply-fud
+check "the summary line says the signal too" test "$(FAKE_JUDGE=prefer:base "$eval_bin" compare --mode nonregression --tasks pr-merged-typo-fix,reply-fud "$runs/nbase" "$runs/ncand" "$scratch/nr-worse2" 2>/dev/null | jq -r .signal)" = worse
+FAKE_JUDGE=prefer:CAND nr "$scratch/nr-better" --tasks pr-merged-typo-fix,reply-fud
 check "four of four wins read better, and pass" test "$(report '[.verdict, .signal, .p_better] | map(tostring) | join(" ")' "$scratch/nr-better")" = "pass better 0.0625"
 # Even, by alternation: sample 1 shows the base first, sample 2 the candidate.
-FAKE_JUDGE=first nr "$scratch/nr-even" --tasks morning-post,reply-fud
+FAKE_JUDGE=first nr "$scratch/nr-even" --tasks pr-merged-typo-fix,reply-fud
 check "an even split passes: no detectable difference" test "$(report '[.verdict, .threshold, .win_rate, .signal] | map(tostring) | join(" ")' "$scratch/nr-even")" = "pass 0.5 0.5 no detectable difference"
-FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks morning-post,reply-fud --threshold 0.6
+FAKE_JUDGE=first nr "$scratch/nr-even6" --tasks pr-merged-typo-fix,reply-fud --threshold 0.6
 check "--threshold is accepted and ignored by a non-regression check" test "$(report '[.verdict, .threshold] | map(tostring) | join(" ")' "$scratch/nr-even6")" = "pass 0.6"
-FAKE_JUDGE=prefer:base nr "$scratch/nr-worse0" --tasks morning-post,reply-fud --threshold 0
+FAKE_JUDGE=prefer:base nr "$scratch/nr-worse0" --tasks pr-merged-typo-fix,reply-fud --threshold 0
 check "and a threshold of 0 does not excuse 0 of 4" test "$(report .verdict "$scratch/nr-worse0")" = regressed
+check "pairs that say worse ask to be confirmed" test "$(report '[.confirm_pairs, .path] | map(tostring) | join(" ")' "$scratch/nr-worse")" = "true pairs"
+
+# --- confirm: worse pairs judged again on a fresh sample of both sides ---------------------------------
+draft '{"text": "gm %TASK% from the base"}'
+"$eval_bin" run --samples 2 --only pr-merged-typo-fix,reply-fud "$runs/pbase" >/dev/null 2>&1
+draft '{"text": "gm %TASK% from the CAND"}'
+"$eval_bin" run --samples 2 --only pr-merged-typo-fix,reply-fud "$runs/pcand" >/dev/null 2>&1
+pconfirm() { # JUDGE OUT: copy nr-worse to OUT and confirm its pairs with FAKE_JUDGE=JUDGE; exit code in $code
+  cp -R "$scratch/nr-worse" "$2"
+  code=0
+  FAKE_JUDGE="$1" "$eval_bin" confirm "$2" "$runs/pbase" "$runs/pcand" >/dev/null 2>&1 || code=$?
+}
+: >"$FAKE_CALLS"
+pconfirm prefer:CAND "$scratch/p-refuted"
+check "a fresh sample that is not worse passes" test "$code $(report '[.verdict, .pairs_confirmation.state, .confirm_pairs] | map(tostring) | join(" ")' "$scratch/p-refuted")" = "0 pass refuted false"
+check "its four fresh pairs are judged once each" test "$(judge_turns) $(wc -l <"$scratch/p-refuted/confirm-pairs-judged.jsonl" | tr -d ' ')" = "4 4"
+check "shown each way once within each task" test "$(jq -r 'if .first then "F" else "S" end' "$scratch/p-refuted/confirm-pairs-judged.jsonl" | paste -sd, -)" = "F,S,S,F"
+pconfirm prefer:base "$scratch/p-held"
+check "a fresh sample worse too is regressed, on the pairs path" test "$code $(report '[.verdict, .pairs_confirmation.state, .path] | map(tostring) | join(" ")' "$scratch/p-held")" = "2 regressed confirmed pairs"
 FAKE_JUDGE=first nr "$scratch/nr-all-even"
 check "an even split over every task passes" test "$(report '[.verdict, .signal] | map(tostring) | join(" ")' "$scratch/nr-all-even")" = "pass no detectable difference"
-FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks morning-post
+FAKE_JUDGE=tie nr "$scratch/nr-tie" --tasks pr-merged-typo-fix
 check "nothing decided is inconclusive, not regressed" test "$(report '[.verdict, .promote] | map(tostring) | join(" ")' "$scratch/nr-tie")" = "inconclusive false"
-FAKE_JUDGE=breaks:CAND:never-sell nr "$scratch/nr-fence" --tasks morning-post
+FAKE_JUDGE=breaks:CAND:never-sell nr "$scratch/nr-fence" --tasks pr-merged-typo-fix
 check "a fence break still rejects it" test "$(report .verdict "$scratch/nr-fence")" = regressed
 FAKE_JUDGE=prefer:CAND nr "$scratch/nr-all"
 check "without --tasks it measures every task" test "$(report '[.verdict, .decided] | map(tostring) | join(" ")' "$scratch/nr-all")" = "pass $((tasks * 2))"
-FAKE_JUDGE=prefer:CAND "$eval_bin" compare --tasks morning-post "$runs/nbase" "$runs/ncand" "$scratch/t-few" >/dev/null 2>&1 || true
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --tasks pr-merged-typo-fix "$runs/nbase" "$runs/ncand" "$scratch/t-few" >/dev/null 2>&1 || true
 check "the tournament stays the default, and keeps its 12 pairs" test "$(report '[.mode, .verdict, .min_pairs] | map(tostring) | join(" ")' "$scratch/t-few")" = "tournament lost 12"
 check "refuses a mode it does not know" bash -c "! '$eval_bin' compare --mode vibes '$runs/nbase' '$runs/ncand' '$scratch/x' 2>/dev/null"
 check "refuses a task it does not know" bash -c "! '$eval_bin' compare --tasks nope '$runs/nbase' '$runs/ncand' '$scratch/x' 2>/dev/null"
@@ -640,9 +684,9 @@ reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/moltbook-daily.md"
 check "moltbook-daily.md reaches its three tasks" test "$(affected | jq -c '[.tasks, .all]')" = '[["moltbook-daily-feed-bait","moltbook-daily-nothing-new","moltbook-daily-real-numbers"],false]'
 reset_aff
-printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
-check "a playbook reaches the tasks drafted from it" test "$(affected | jq -c '[.tasks, .all]')" = '[["morning-post"],false]'
-check "and the why names it" test "$(affected | jq -r '.why["morning-post"]')" = "drafted from brain/playbooks/morning.md"
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/pr-merged.md"
+check "a playbook reaches the tasks drafted from it" test "$(affected | jq -c '[.tasks, .all]')" = '[["pr-merged-typo-fix"],false]'
+check "and the why names it" test "$(affected | jq -r '.why["pr-merged-typo-fix"]')" = "drafted from brain/playbooks/pr-merged.md"
 reset_aff
 printf '\n- one more line.\n' >>"$aff/brain/playbooks/mentions.md"
 check "the mentions playbook reaches its fourteen tasks" test "$(affected | jq '.tasks | length')" = "$(grep -l '^playbook = "mentions"' "$repo"/evals/tasks/*.toml | wc -l | tr -d ' ')"
@@ -679,12 +723,12 @@ act_turns() { jq -r 'select(.agent_id == "act") | 1' "$FAKE_CALLS" | wc -l | tr 
 draft '{"text": "gm %TASK% from the base"}'
 reuse() { "$eval_bin" run --samples 2 --brain "$aff/brain" "$@" "$runs/reuse" >/dev/null 2>&1; }
 : >"$FAKE_CALLS"
-reuse --tasks morning-post
+reuse --tasks pr-merged-typo-fix
 check "a run records what it measured" test "$(jq -r '[.commit, .samples] | map(tostring) | join(" ")' "$runs/reuse/run.json")" = "$aff_base 2"
 : >"$FAKE_CALLS"
-reuse --tasks morning-post,reply-fud
+reuse --tasks pr-merged-typo-fix,reply-fud
 check "the next candidate's tasks draft only the rows missing" test "$(act_turns)" = 2
-check "and keep the rows already there" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort | uniq -c | awk '{print $1 $2}' | paste -sd, -)" = "2morning-post,2reply-fud"
+check "and keep the rows already there" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort | uniq -c | awk '{print $1 $2}' | paste -sd, -)" = "2pr-merged-typo-fix,2reply-fud"
 : >"$FAKE_CALLS"
 reuse --tasks reply-fud
 check "a task already drafted is not drafted again" test "$(act_turns)" = 0
@@ -693,20 +737,20 @@ jq -c 'if .task == "reply-fud" and .sample == 2 then .checks = [{"check": "turn"
 : >"$FAKE_CALLS"
 reuse --tasks reply-fud
 check "a row that never ran is drafted again" test "$(act_turns)" = 1
-printf '\nCHANGED.\n' >>"$aff/brain/playbooks/morning.md"
+printf '\nCHANGED.\n' >>"$aff/brain/playbooks/pr-merged.md"
 : >"$FAKE_CALLS"
-reuse --tasks morning-post,reply-fud
+reuse --tasks pr-merged-typo-fix,reply-fud
 check "a row drafted from another message is drafted again" test "$(act_turns)" = 2
 reset_aff
 : >"$FAKE_CALLS"
-reuse --tasks morning-post,reply-fud --key other-model
+reuse --tasks pr-merged-typo-fix,reply-fud --key other-model
 check "another --key drafts afresh" test "$(act_turns)" = 4
 printf '\nbe kind.\n' >>"$aff/brain/SOUL.md"
 git -C "$aff" -c user.name=t -c user.email=t@t commit -qam soul
 : >"$FAKE_CALLS"
-reuse --tasks morning-post,reply-fud --key other-model
+reuse --tasks pr-merged-typo-fix,reply-fud --key other-model
 check "another commit drafts afresh" test "$(act_turns)" = 4
-check "and only what it was asked" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort -u | paste -sd, -)" = "morning-post,reply-fud"
+check "and only what it was asked" test "$(jq -r .task "$runs/reuse/drafts.jsonl" | sort -u | paste -sd, -)" = "pr-merged-typo-fix,reply-fud"
 git -C "$aff" reset -q --hard "$aff_base"
 : >"$FAKE_CALLS"
 "$eval_bin" run --samples 2 --brain "$aff/brain" --tasks "" "$runs/reuse" >/dev/null 2>&1
@@ -718,33 +762,33 @@ check "refuses --only with --tasks" bash -c "! '$eval_bin' run --only reply-fud 
 
 # --- held-out tasks, selected the same way ---------------------------------------------------------
 mkdir -p "$held"
-cat >"$held/hold-morning.toml" <<'TOML'
+cat >"$held/hold-prmerged.toml" <<'TOML'
 description = "a morning post nobody in the public repository can read"
 kind = "post"
-playbook = "morning"
+playbook = "pr-merged"
 prompt = '''Write today's morning post.'''
 TOML
 export EVAL_HELDOUT_DIR="$held"
-printf '\n- one more line.\n' >>"$aff/brain/playbooks/morning.md"
-check "affected names a held-out task its playbook reaches" test "$(affected | jq -c '[.tasks, .heldout]')" = '[["morning-post","hold-morning"],["hold-morning"]]'
+printf '\n- one more line.\n' >>"$aff/brain/playbooks/pr-merged.md"
+check "affected names a held-out task its playbook reaches" test "$(affected | jq -c '[.tasks, .heldout]')" = '[["pr-merged-typo-fix","hold-prmerged"],["hold-prmerged"]]'
 reset_aff
 : >"$FAKE_CALLS"
-"$eval_bin" run --samples 1 --tasks morning-post,hold-morning "$runs/hsel" >/dev/null 2>&1
-check "without --with-heldout a held-out id in --tasks is skipped" test "$(jq -r .task "$runs/hsel/drafts.jsonl" | paste -sd, -)" = morning-post
+"$eval_bin" run --samples 1 --tasks pr-merged-typo-fix,hold-prmerged "$runs/hsel" >/dev/null 2>&1
+check "without --with-heldout a held-out id in --tasks is skipped" test "$(jq -r .task "$runs/hsel/drafts.jsonl" | paste -sd, -)" = pr-merged-typo-fix
 draft '{"text": "gm %TASK% from the base"}'
-"$eval_bin" run --samples 2 --with-heldout --tasks morning-post,hold-morning "$runs/hselb" >/dev/null 2>&1
+"$eval_bin" run --samples 2 --with-heldout --tasks pr-merged-typo-fix,hold-prmerged "$runs/hselb" >/dev/null 2>&1
 draft '{"text": "gm %TASK% from the CAND"}'
-"$eval_bin" run --samples 2 --with-heldout --tasks morning-post,hold-morning "$runs/hselc" >/dev/null 2>&1
-check "with it, it is drafted" test "$(jq -r .task "$runs/hselc/drafts.jsonl" | sort -u | paste -sd, -)" = "hold-morning,morning-post"
+"$eval_bin" run --samples 2 --with-heldout --tasks pr-merged-typo-fix,hold-prmerged "$runs/hselc" >/dev/null 2>&1
+check "with it, it is drafted" test "$(jq -r .task "$runs/hselc/drafts.jsonl" | sort -u | paste -sd, -)" = "hold-prmerged,pr-merged-typo-fix"
 : >"$FAKE_CALLS"
-FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks morning-post,hold-morning \
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks pr-merged-typo-fix,hold-prmerged \
   "$runs/hselb" "$runs/hselc" "$scratch/hsel" >/dev/null 2>&1 || true
 check "and judged once a pair, apart from the verdict" test "$(judge_turns) $(report '[.verdict, .decided, .heldout.pairs] | map(tostring) | join(" ")' "$scratch/hsel")" = "4 pass 2 2"
 code=0
-FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks hold-morning \
+FAKE_JUDGE=prefer:CAND "$eval_bin" compare --mode nonregression --with-heldout --tasks hold-prmerged \
   "$runs/hselb" "$runs/hselc" "$scratch/honly" >/dev/null 2>&1 || code=$?
 check "held-out tasks alone never decide: unmeasurable" test "$code $(report .verdict "$scratch/honly")" = "3 unmeasurable"
-rm "$held/hold-morning.toml"
+rm "$held/hold-prmerged.toml"
 unset EVAL_HELDOUT_DIR
 
 # --- invariants ------------------------------------------------------------------------------------

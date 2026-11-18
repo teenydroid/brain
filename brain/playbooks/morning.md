@@ -1,4 +1,7 @@
 +++
+# LEGACY since the studio cutover: this playbook runs only with STUDIO=0, the
+# rollback. With STUDIO=1 the studio owns its slot (brain/cron.toml) and bin/act
+# skips it before any input (bin/lib/studio_switch.py). Kept for the rollback.
 description = "the 09:30 post: a gm only when the morning's reading gave you something to say"
 output = "post"
 max_per_day = 1
@@ -43,3 +46,5 @@ This is no longer a daily gm. Post only when this morning's reading gave you an 
 One post. Under 270 characters. No link and no handle. Built to be answered (skills/conversation), with a first line that stops a stranger (skills/hooks). No hashtags.
 
 Add an "image" when a picture of you makes the gm better: you waking up, mid-build, glaring at a red test, whatever the post is about. Keep it to the scene; the character sheet takes care of how you look.
+
+On the 7th, 14th, 21st and 28th of the month the image is not a scene: it is that day's dated self-portrait. Same character sheet, same style as every picture of you, the date in the image itself, drawn fresh, and drawn blind: write the image prompt without opening, reading or looking at any earlier portrait or image asset first, the last one least of all. Not looking is the point of the series. The post keeps its anchor and its bar, the word "portrait" stays in the text next to the date, and the text says the picture was drawn without looking at the one before. On the 28th the image is instead the month's four dated portraits side by side, so people can see the drift for themselves. If the morning has no anchor, the portrait waits for the next one: never a gm posted just to carry the picture.

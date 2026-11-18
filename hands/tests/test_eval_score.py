@@ -481,6 +481,33 @@ class Affected(unittest.TestCase):
         self.assertEqual(got["tasks"], ["roast-asked", "hold-roast"])
 
 
+class StudioTasks(unittest.TestCase):
+    """`studio = true` tasks are drafted from the studio writer's
+    instructions, and a change to them reaches exactly those tasks."""
+
+    def test_the_writers_instructions_reach_the_studio_tasks(self):
+        tasks = evals.all_tasks(REPO / "evals", None)
+        studio = sorted(t["id"] for t in tasks if t.get("studio"))
+        self.assertGreaterEqual(len(studio), 4)
+        got = evals.affected_tasks(["brain/agents/writer.md"], tasks)
+        self.assertEqual((sorted(got["tasks"]), got["all"]), (studio, False))
+
+    def test_a_studio_task_is_drafted_from_writer_md(self):
+        task = evals.load_task(REPO / "evals", "studio-autosave")
+        message = evals.render(task, REPO / "brain")
+        self.assertIn("## the job: the studio's writer (brain/agents/writer.md)", message)
+        self.assertIn("You are Teeny's writer.", message)
+
+    def test_a_task_is_not_both(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tasks").mkdir()
+            (root / "tasks" / "both.toml").write_text('description = "x"\nkind = "post"\nprompt = "x"\n'
+                                                      'playbook = "take"\nstudio = true\n')
+            with self.assertRaises(evals.EvalError):
+                evals.load_task(root, "both")
+
+
 class Select(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -490,8 +517,8 @@ class Select(unittest.TestCase):
 
     def test_a_held_out_id_is_kept_only_with_heldout(self):
         evals_dir = REPO / "evals"
-        self.assertEqual(evals.select(evals_dir, self.held, False, ["morning-post", "hold-x"]), ["morning-post"])
-        self.assertEqual(evals.select(evals_dir, self.held, True, ["morning-post", "hold-x"]), ["morning-post", "hold-x"])
+        self.assertEqual(evals.select(evals_dir, self.held, False, ["pr-merged-typo-fix", "hold-x"]), ["pr-merged-typo-fix"])
+        self.assertEqual(evals.select(evals_dir, self.held, True, ["pr-merged-typo-fix", "hold-x"]), ["pr-merged-typo-fix", "hold-x"])
         self.assertEqual(evals.select(evals_dir, self.held, False, []), [])
         with self.assertRaises(evals.EvalError):
             evals.select(evals_dir, self.held, True, ["nope"])

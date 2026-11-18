@@ -66,10 +66,24 @@ brain/agents/builder.toml
 brain/agents/operator.toml
 # The agent bin/evolve's lab spine proposes with: file tools in a worktree.
 brain/agents/evolver.toml
+# The studio's writer and editor (bin/studio): tool-less, and the editor
+# memoryless and blind to who wrote what. Their prompts (writer.md,
+# editor.md, narrative/STUDIO-EDITOR.md) stay Teeny's, like act.md.
+brain/agents/writer.toml
+brain/agents/editor.toml
 
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# The studio's desk is what every original post is told from since the
+# cutover: what counts as having happened (and the entry point that serves
+# it) is the operator's, so a candidate cannot widen the facts a post may
+# claim. The rest of the story bible (storylines, beats) stays Teeny's.
+hands/story
+hands/lib/teeny_hands/story/desk.py
+# The studio's run records and its one-run-a-slot claim: a slot claimed
+# before any turn is what keeps a retried run from posting twice.
+hands/lib/teeny_hands/story/runs.py
 hands/reddit
 # Teeny's site passwords: only code makes and reads them, never Teeny's edits.
 hands/keychain
@@ -130,6 +144,17 @@ hands/lib/teeny_hands/keychain/
 hands/lib/teeny_hands/listen/
 hands/lib/teeny_hands/mail/
 hands/lib/teeny_hands/media/
+# Clips and songs: renders on the reel service and buys music under the
+# media caps, so the entry point and its library are the operator's, like
+# the wallet's.
+hands/reel
+hands/lib/teeny_hands/reel/
+# Memes and comics: words drawn on pictures that go out under Teeny's name,
+# screened by the guard's lexicon, and Giphy search held to g and pg. The
+# fonts are licensed files (brain/assets/fonts/README.md).
+hands/meme
+hands/lib/teeny_hands/meme/
+brain/assets/fonts/
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/

@@ -83,6 +83,18 @@ THREAD_MAX_POSTS = 5
 COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
 #: The id of the account a quote quoted.
 QUOTE_COLUMNS = {"quote_author": "TEXT"}
+#: Who made an own post, and from what (`studio_tags`): added by the studio
+#: cutover, NULL on every row from before it and from the old paths.
+STUDIO_COLUMNS = {"producer": "TEXT", "storyline": "TEXT", "shape": "TEXT", "pitch_id": "TEXT"}
+#: The producers a post may name. `studio` is bin/studio; `brief` the
+#: told-to post (hands/brief post); `peer-quote` the outward quote
+#: (`peer-suggest`); `legacy` (or no producer at all, NULL) every older path:
+#: the replaced playbooks under STUDIO=0, the mind's own post_x, firsts,
+#: votes, giveaways.
+PRODUCERS = ("studio", "brief", "peer-quote", "legacy")
+STUDIO_FIELDS = tuple(STUDIO_COLUMNS)
+_STORYLINE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+_PITCH_ID = re.compile(r"^[A-Za-z0-9:_.-]{1,120}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
@@ -133,10 +145,38 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def add_tag_columns(conn: sqlite3.Connection) -> None:
     """`format` and `experiment` on x_posts (teeny_hands/tags.py), the
-    post's `anchor`, the quoted author and a continuation's `thread_of`, added to a ledger
-    created before they existed, and the kind `thread` its check allows."""
-    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS})
+    post's `anchor`, the quoted author, a continuation's `thread_of` and the
+    studio's columns (STUDIO_COLUMNS), added to a ledger created before they
+    existed (ALTER TABLE ADD COLUMN: old rows keep NULL), and the kind
+    `thread` its check allows."""
+    hand.add_columns(conn, "x_posts", {**tags.COLUMNS, **COLUMNS, **QUOTE_COLUMNS, **STUDIO_COLUMNS})
     allow_thread_kind(conn)
+
+
+def studio_tags(body: Any) -> tuple[Any, dict[str, Any]]:
+    """The body without the producer's tags, and the tags (each None when
+    absent): `producer` (one of PRODUCERS), `storyline` (a storyline key),
+    `shape` (a short word), `pitch_id` (the studio run and pitch it came
+    from). Like the lab tags, none is published; each is kept beside the
+    post. A body that is not an object is returned as it is."""
+    if not isinstance(body, Mapping):
+        return body, {name: None for name in STUDIO_FIELDS}
+    rest = {k: v for k, v in body.items() if k not in STUDIO_FIELDS}
+    out: dict[str, Any] = {}
+    for name in STUDIO_FIELDS:
+        value = body.get(name)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise hand.HandError(f'"{name}" is a non-empty string')
+        out[name] = value.strip() if isinstance(value, str) else None
+    if out["producer"] is not None and out["producer"] not in PRODUCERS:
+        raise hand.HandError(f'"producer" is one of {", ".join(PRODUCERS)}')
+    if out["storyline"] is not None and not _STORYLINE.match(out["storyline"]):
+        raise hand.HandError('"storyline" is a storyline key: lowercase letters, digits and -, at most 32')
+    if out["shape"] is not None and len(out["shape"]) > 40:
+        raise hand.HandError('"shape" is at most 40 characters')
+    if out["pitch_id"] is not None and not _PITCH_ID.match(out["pitch_id"]):
+        raise hand.HandError('"pitch_id" is at most 120 letters, digits and :_.-')
+    return rest, out
 
 
 def allow_thread_kind(conn: sqlite3.Connection) -> None:
@@ -469,19 +509,26 @@ def record_post(
     anchor: str | None = None,
     thread_of: str | None = None,
     quote_author: str | None = None,
+    producer: str | None = None,
+    storyline: str | None = None,
+    shape: str | None = None,
+    pitch_id: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
     an own post is about (`check_anchor`), None on a reply. `thread_of` is the
     head's id on a thread continuation (kind `thread`), None elsewhere; `quote_author` is the id of the account a quote
-    quoted (`check_peer_rotation`)."""
+    quoted (`check_peer_rotation`). `producer`, `storyline`, `shape` and
+    `pitch_id` say who made it and from what (`studio_tags`)."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
-        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author,"
+        " producer, storyline, shape, pitch_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author,
+         producer, storyline, shape, pitch_id),
     )
 
 

@@ -1,3 +1,7 @@
 [submodule "vendor/openhuman"]
 	path = vendor/openhuman
 	url = https://github.com/tinyhumansai/openhuman.git
+[submodule "vendor/moneyprinter"]
+	path = vendor/moneyprinter
+	url = https://github.com/harry0703/MoneyPrinterTurbo.git
+	shallow = true

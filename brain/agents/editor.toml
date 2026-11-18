@@ -1,0 +1,33 @@
+# The agent bin/studio picks with: the writers' room's editor. It compares
+# finished drafts in pairs and may pick none. It is not Teeny (no identity, no
+# memory) and has no tools at all; it never sees who wrote a draft or why.
+#
+# Frozen like judge.toml (evals/frozen.txt): the evolve gate refuses any
+# change to this file. Its model is STUDIO_EDITOR_MODEL, given per turn
+# (bin/ask --model), so it can differ from the writer's.
+id = "editor"
+display_name = "Studio editor"
+when_to_use = "Compares studio drafts in pairs and picks one or none, as strict JSON for bin/studio. Not a chat delegate."
+# Low: the same pair should get the same verdict.
+temperature = 0.3
+# max_iterations is 2, not 1, though a tool-less turn is one model call and
+# cannot loop: the vendored harness pauses a session turn at the cap even
+# after a final answer, so at 1 every turn is recorded as failed (vendor
+# tinyagents-runtime turn_driver/driver.rs CapPauser; tinyagents-harness
+# agent_loop/turn_control.rs settle_natural_finish). bin/lib/agent_check.py
+# holds every drafting agent to exactly 2 (NO_TOOLS_MAX_ITERATIONS).
+max_iterations = 2
+sandbox_mode = "read_only"
+omit_identity = true
+omit_memory_context = true
+omit_safety_preamble = false
+refresh_prompt_on_resume = true
+
+# The instructions live in brain/agents/editor.md; bin/spine builds the prompt
+# file (those, then READER.md, narrative/STUDIO-EDITOR.md and the lore's
+# premise) into brain/agent/prompts/editor.md at every boot (bin/lib/prompts.py).
+[system_prompt]
+file = { path = "editor.md" }
+
+[tools]
+named = []

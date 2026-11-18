@@ -15,6 +15,8 @@ a no-op, so a surface can re-scan freely.
   taken    in a tick's batch (`tick` names it); put back by `release` when
            the tick fails, or by the next `take` once it has been out an hour
   done     the tick that read it settled
+  filed    for another reader, never the mind's: a pitch the mind filed for
+           the studio (surface `studio`, read by hands/story desk as `ideas`)
 
 Follow-ups are Teeny's own reminders ("check whether ana's cli shipped"),
 kept in `follow_ups` until they come due, then raised as a `self`
@@ -38,8 +40,14 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host")
-STATUSES = ("pending", "taken", "done")
+SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host", "studio")
+#: `filed`: a stimulus for another reader than the mind (FILED_SURFACES),
+#: never taken into a batch.
+STATUSES = ("pending", "taken", "done", "filed")
+#: Surfaces the mind writes and something else reads: `studio`, the pitches
+#: the mind files for the studio's desk (hands/story desk, `ideas`). They are
+#: filed, not pending, so the mind never gets its own pitch back.
+FILED_SURFACES = ("studio",)
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000
 #: A nudge's text: a habit's prompt and what its playbook's inputs read
@@ -126,10 +134,11 @@ def add(surface: str, kind: str, ref: str, text: str, who: str | None = None,
     with hand.transaction(conn):
         cur = conn.execute(
             "INSERT OR IGNORE INTO stimuli (id, surface, kind, ref, who, text, payload, at, status, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
+            " VALUES (?,?,?,?,?,?,?,?,?, ?)",
             (f"{surface}:{kind}:{ref}", surface, kind.strip(), ref.strip(), who,
              _clip(text, NUDGE_TEXT_CHARS if surface == "nudge" else MAX_TEXT_CHARS),
-             json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now, now),
+             json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now,
+             "filed" if surface in FILED_SURFACES else "pending", now),
         )
     return cur.rowcount == 1
 

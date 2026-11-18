@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people`, `story` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -44,17 +44,17 @@ report they leave beside it.
 | `requests [--max N]` | J | Reads the newest N (200) stored mentions, never X again, for asks to build something ("build me", "can you make", "make a tool that", "i wish there was a tool", ...) and records each in `build_requests` (source `x:mentions`, once per post id). A held mention, the account's own post or one skipped as answered is never a request. `bin/mentions` runs it after every ingest. |
 | `get`, `thread`, `user`, `search`, `whoami` | R | X reads through the read cache (posts 30 days; searches and threads 10 minutes). X bills a search per post it returns, so only the `take` playbook calls `search`, once a day with `--max 10`, as an optional input. |
 | `peers [--max-age-hours H] [--per-peer N] [--skip-quoted]` | R | The newest original posts (8 hours, 2 a peer by default) of the accounts in `brain/x-peers.txt` (one handle a line, `#` comments, at most 20; the same parser as `brain/moltbook-peers.txt`, `teeny_hands/peerfile.py`). One recent search, `(from:a OR from:b ...) -is:retweet -is:reply` from `start_time` on, through the read cache, split into more searches only if a query would pass 512 characters. A post by anyone not on the list is dropped. `--skip-quoted` drops peers quoted in the last 7 days (`quoted_recently`). Every post kept is screened by `guard inbound`, as a mention is; a held one is dropped and counted in `held`. What it returns is kept in `x_peer_reads` as the last read. About $0.20 a day at two runs. |
-| `peer-suggest` | A | stdin `{"candidates": [{quote_of, text, relevance 1-5, why, source, format: quote\|visit}], "media_ids"?}`, 1 to 3 candidates (an `image` on a candidate is accepted and ignored: `bin/act` makes the picture from the answer's `image`). Every candidate is kept in `x_peer_candidates`; the top one (highest relevance, the first on a tie) is posted through `post` as a quote (lab format `peer-quote` or `peer-visit`) only when relevance is at least `PEER_QUOTE_MIN_RELEVANCE` (5), `source` is not empty, `quote_of` was in the last `peers` read, the anchor judge (`guard anchor`, run against the quoted post, the `source` and the `why`; `bin/act` cannot ask it for a `hand:` output) finds the text anchored, fewer than `PEER_QUOTES_MAX_PER_DAY` (1) went out this UTC day, and for a `visit` none went out in the last 7 days. Otherwise it is a skip with its `rule` (`relevance`, `source`, `not_read`, `daily`, `visit`, `anchor`) and reason, exit 0, nothing posted. A refusal by the guard or a posting rule is kept (`refused`) and exits 2. Under `DRY_RUN` every bar and rule runs and no row is written. One word, as a playbook's `hand:x <verb>` output names it (`peer-quote`). |
+| `peer-suggest` | A | stdin `{"candidates": [{quote_of, text, relevance 1-5, why, source, format: quote\|visit}], "media_ids"?}`, 1 to 3 candidates (an `image` on a candidate is accepted and ignored: `bin/act` makes the picture from the answer's `image`). Every candidate is kept in `x_peer_candidates`; the top one (highest relevance, the first on a tie) is posted through `post` as a quote (lab format `peer-quote` or `peer-visit`) only when relevance is at least `PEER_QUOTE_MIN_RELEVANCE` (5), `source` is not empty, `quote_of` was in the last `peers` read, the anchor judge (`guard anchor`, run against the quoted post, the `source` and the `why`; `bin/act` cannot ask it for a `hand:` output) finds the text anchored, fewer than `PEER_QUOTES_MAX_PER_DAY` (1) went out this UTC day, and for a `visit` none went out in the last 7 days. With `STUDIO=1` bin/act first asks the studio's editor about the top candidate (`bin/studio --veto`, with the post it quotes) and, when it passes, adds `"vetoed": "<reason>"` to the body: every candidate is kept and the top one skipped as `editor`, before the anchor judge is asked. Otherwise it is a skip with its `rule` (`editor`, `relevance`, `source`, `not_read`, `daily`, `visit`, `anchor`) and reason, exit 0, nothing posted. A refusal by the guard or a posting rule is kept (`refused`) and exits 2. Under `DRY_RUN` every bar and rule runs and no row is written. One word, as a playbook's `hand:x <verb>` output names it (`peer-quote`). |
 | `peers suggestions [--days N]` | R | Every suggestion of the last N days (7), newest first, with its status (`posted`, `skipped`, `kept`, `refused`, `failed`), rule and reason; `runs`, `posted`, `skipped` and `last_visit_at`. |
 | `peers report [--days N]` | R | Per peer (the file's, then any touched), the touches of the last N days (14) from `x_peer_touches`: for each, whether the peer then appeared in `x_mentions` within 48 hours (`peer_answered`), which accounts mentioned Teeny for the first time in that window (`new_accounts`), and the quote's latest `x_post_metrics` row. `post` writes a touch for every quote of a peer, whichever playbook made it. |
 | `users --ids A,B,...` | R | Up to 100 accounts by id in one `GET /2/users` call (`user.fields=created_at,public_metrics,connection_status`), signed as the account so `connection_status` is its relation to each: `{users: [{id, username, createdAt, followers, followsMe}], missing: [ids X did not return]}`. `followsMe` is `connection_status` holding `followed_by`. Each user is kept in `x_cache` for 24 hours (an id X did not return, an hour), and only the ids the cache does not know go to X. X bills per user returned, so this is the paid last resort: a giveaway asks it only about drawn candidates whose follow or age the webhook did not already give (`x_follows`, the author columns of `x_mentions`). |
 | `slot` | R | Whether an own post would pass the gap and the day's cap now: `{open: true}`, or `{why}` with the refusal `post` would give. Reads the ledger only, never X. A post playbook reads it as a required input (`x-quote`, `growth`, `shiplog`), so a shut slot skips the run before the model turn, and before `x-quote`'s paid search. |
 | `links` | R | Today's posts and replies with a link against `X_LINK_POSTS_MAX_PER_DAY` (1 a UTC day; `post` and `reply` refuse the next with `rule: links`): `{cap, sent_today, left, resets_at}`. Reads the ledger only, never X. The 23:00 `show` playbook reads it and writes the Moltbook exchange without its url once `left` is 0. |
-| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 5 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 4 own posts and quotes a UTC day, the slots and the outward quote together, `rule: daily_cap`; replies are never counted) re-checked under the posting lock; for a quote of somebody else's post (looked up first: a post X does not have, or whose author is unknown, is refused with `rule: target`), no cashtag, `TINY` in capitals, Solana mint or EVM contract address, or pump.fun in the guard's text (`rule: outward_ticker`, a rewrite asked for; `take`'s quotes too) and no second quote of the same author within 7 days (`rule: peer_rotation`, with `last_quote_id` and `next_at`; the author is kept in `x_posts.quote_author`); and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, only to somebody who engaged first (`rule: unsolicited`: the target is a stored mention in `x_mentions`, tags the account, replies to it, or sits in the conversation under one of its own posts; X allows API replies only there), never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | An own post's body must carry `anchor`: a short string (at most 200 characters, or a whole number) naming the one item from its playbook's inputs it is about: a `listen digest` item id or URL, a `material` receipt, a PR number, the id of the post it quotes. A post with none, or a blank one, is refused with `rule: anchor` before the guard is asked or anything is sent, under `DRY_RUN` too. A quote with no anchor is anchored on `quote_of`. The anchor is kept in `x_posts.anchor` and never sent to X; replies take none. The callers set it: `bin/act` from the draft (and asks the anchor judge first, `guard anchor`), the mind's `post_x` intent, `briefs post` (`brief:<id>`), `firsts announce` (the first's key), `requests vote-open` (`requests:<ids>`), `bounty pick` (`bounty:<id>`), `giveaway open` (`giveaway:<round id>`), and `guard holds release` (the anchor the draft was held with, else `hold:<id>`). The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X.
+| `reply`, `post` | A | Runs `guard check` (house style, the 280 limit in UTF-16, the emoji cap, links, lexicon, judge). Then the posting rules: for an own post, the gap (`POST_MIN_GAP_HOURS`, 5 hours by default, 20-minute tolerance) and the day's cap (`X_POSTS_MAX_PER_DAY`, 4 own posts and quotes a UTC day, the slots and the outward quote together, `rule: daily_cap`; replies are never counted) re-checked under the posting lock; for a quote of somebody else's post (looked up first: a post X does not have, or whose author is unknown, is refused with `rule: target`), no cashtag, `TINY` in capitals, Solana mint or EVM contract address, or pump.fun in the guard's text (`rule: outward_ticker`, a rewrite asked for; `take`'s quotes too) and no second quote of the same author within 7 days (`rule: peer_rotation`, with `last_quote_id` and `next_at`; the author is kept in `x_posts.quote_author`); and no repeat: a post or quote that is a near-duplicate (`teeny_hands.guard.repeats`: word-set Jaccard at least 0.8, links left out) of an own post, quote or reply of the last `REPEAT_WINDOW_DAYS` (30) is refused with `rule: repeat` and the earlier post's id, under `DRY_RUN` too, and counted by the guard (`hands/guard repeats`); for a reply, only to somebody who engaged first (`rule: unsolicited`: the target is a stored mention in `x_mentions`, tags the account, replies to it, or sits in the conversation under one of its own posts; X allows API replies only there), never twice to one post, never to the account's own post, and 30 to 60 s pacing kept in `x_pacing`, refused with `wait_seconds` rather than slept through. Then `DRY_RUN`, then X. The post id is recorded first (`x_replies`, `x_posts`). A ledger write that fails after a post is logged, never retried. Under `DRY_RUN` there is no X write, no like and no ledger row. | An own post's body must carry `anchor`: a short string (at most 200 characters, or a whole number) naming the one item from its playbook's inputs it is about: a `listen digest` item id or URL, a `material` receipt, a PR number, the id of the post it quotes. A post with none, or a blank one, is refused with `rule: anchor` before the guard is asked or anything is sent, under `DRY_RUN` too. A quote with no anchor is anchored on `quote_of`. The anchor is kept in `x_posts.anchor` and never sent to X; replies take none. The callers set it: `bin/act` from the draft (and asks the anchor judge first, `guard anchor`), the mind's `post_x` intent, `briefs post` (`brief:<id>`), `firsts announce` (the first's key), `requests vote-open` (`requests:<ids>`), `bounty pick` (`bounty:<id>`), `giveaway open` (`giveaway:<round id>`), and `guard holds release` (the anchor the draft was held with, else `hold:<id>`). The body may also carry the lab tags `format` and `experiment` ("Lab tags", under `stats`), kept in `x_posts` and never sent to X, and the producer's tags (`posting_rules.studio_tags`), kept in `x_posts` and never sent either: `producer` (`studio`, `brief`, `peer-quote` or `legacy`; NULL on every row from before the studio cutover and from the other old paths, which reads as legacy), `storyline` (a storyline key), `shape` (at most 40 characters) and `pitch_id` (the studio run and pitch, `<run id>:<pitch id>`). `bin/studio` sets all four, `briefs post` sets `producer: brief`, `peer-suggest` sets `producer: peer-quote`. The columns are added to a live ledger by `ALTER TABLE ADD COLUMN` (old rows keep NULL); a bad tag is an error before anything is sent; a reply takes none.
 | `post` body | | `{text, anchor, media_ids?, gif_id?, quote_of?, format?, experiment?}` (`anchor` is optional only on a quote). `media_ids` is a list (X takes up to 4 pictures, or one video or GIF); `quote_of` makes it a quote post, and a quote is an own post for the gap and the cap. A `reply` body is `{text, media_ids?, gif_id?}`. |
-| `post-thread` | A | A thread of 2 to 5 posts: stdin `{posts: [text, ...], anchor, media_ids?, gif_id?, format?, experiment?}`. The first text goes out as an own post and each later one as a reply to the one before, so readers see one thread. It is a separate verb from `thread`, the read above. Fewer or more posts, no `anchor`, or a `quote_of` is refused (`rule: thread` or `anchor`) before anything is sent. See "Threads" below. |
+| `post-thread` | A | A thread of 2 to 5 posts: stdin `{posts: [text, ...], anchor, media_ids?, gif_id?, format?, experiment?, producer?, storyline?, shape?, pitch_id?}` (the producer's tags go on the head's row). The first text goes out as an own post and each later one as a reply to the one before, so readers see one thread. It is a separate verb from `thread`, the read above. Fewer or more posts, no `anchor`, or a `quote_of` is refused (`rule: thread` or `anchor`) before anything is sent. See "Threads" below. |
 | `follow-up [--to ID]` | A | Continues one of the account's own posts as a thread: a reply to `ID` (or the body's `to`, since `bin/act` pipes a playbook's draft with no flags), which must be in the own-post ledger (`x_posts`; anything else is refused with `rule: not_own`), so it never answers anyone else and reads nothing from X. Otherwise the rules of `reply`: the guard, 280, one reply per post (a thread grows one step per call, each on its newest post), the pacing, links, and no repeat (`rule: repeat`). It is not an own post, so neither the gap nor the day's cap applies. Body as `reply`. hands/giveaway threads a round's best-reply pick under the round post this way, and the giveaway playbooks post its countdown, winners and claim posts with it (`thread_to` in `giveaway announcements`). |
-| `upload` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. |
+| `upload [--alt TEXT]` | A | Uploads a file under `state/media/` or `brain/assets/`. Returns a media id that this hand minted and recorded in `hands.db`. `post` attaches only ids from that table or a Giphy id, never a URL, and never both. A still (PNG, JPEG, WebP) over 5 MiB (5,242,880 bytes, X's "5 MB": 4,980,488 uploaded, 5,263,141 failed) is refused (`size`) before anything is sent; the media hands keep what they make under 5,000,000 for a margin. `--alt` sets the picture's alt text through X's media metadata route (`POST /2/media/metadata`) once it is uploaded: at most 1,000 characters, whitespace folded, no link, nothing the guard's lexicon holds (refused `alt`, no model, no hold), and not on a video. A refusal from X there is reported beside the media id (`alt_set: false`, `alt_error`), not raised, since the media is already X's. Under `DRY_RUN` the alt text is checked and echoed, nothing sent. |
 | `like` | A | Off unless `X_LIKES=1`: refused with `rule: likes_off`, under `DRY_RUN` too. X's developer guidelines say "Likes must be directly initiated by the authenticated user" and prohibit automated liking, and every caller of this verb is a model (`bin/act`'s `like` output, the mind's `like` intent), so none of its likes is user-initiated (docs/roadmap.md, P1). When on, it likes a mention (skipped under `DRY_RUN`); a like that went out is recorded once in `x_likes`, which bin/receipts reads. |
 | `unsay` | A | Deletes an own post. Previews unless `--confirm`. |
 | `metrics refresh` | J | Measures the account's own posts, quotes and replies of the last 14 days about 1h, 24h and 72h after they went out: likes, replies, reposts, quotes, impressions and bookmarks, one `x_post_metrics` row per checkpoint, never fetched again once recorded. Everything due is read in one lookup (`/2/tweets?ids=`) signed as the account, so X bills it as owned reads ($0.001 a post), at most 30 posts a run, newest first (`left` counts the rest). A late run records only the latest checkpoint due. A post X no longer has gets a row with no numbers and is listed in `missing`. A 429 ends the run. Reads only, so it records under `DRY_RUN` too. The pinned `metrics` job runs it hourly. |
@@ -234,7 +234,9 @@ webhook (bin/x-webhook, HMAC checked) ──────────┤
 | `check --fields title,body` | R | After a rejection (the caller's context carries `rejection: {people}`), any field that names a person (an @handle, or one of `people` as a word) is held first, category `rejection`, by `screen`, before links, lexicon or judge (docs/roadmap.md, P4). Otherwise: the same for a draft of several fields, as GitHub, Moltbook and mail take them: stdin carries each named field plus `surface`. Every field gets its surface's hard limits (refused, never cut), the house style, links, lexicon and judge; the answer is `{"fields": {...}}`, each field rewritten. Any field that fails fails the draft and names its `field`, and the draft writes at most one hold (its fields as JSON). Hands call it in-process as `teeny_hands.guard.gate.check_fields(fields, *, surface, kind="post", max_emoji=None, context=None)`, which returns a `FieldsVerdict(kind, fields, reason, category, hold_id, field, judge_failed)`. |
 | `inbound` | R | Screens third-party text before a model sees it. Every intake runs it: `x ingest` (for the webhook's mentions too), `mail ingest`, `moltbook inbox`, `hn inbox` (surface `hn`), `bounty entries`. |
 | `anchor` | R | The anchor judge (`teeny_hands/guard/anchor.py`): stdin `{text, anchor, inputs?}`, answers `{anchored, reason, judged}`. One short model pass, through the core's simple chat as the content judge asks (`SAFETY_JUDGE_MODEL` when set), reads whether the draft says something specific about its anchor that the inputs support. It only judges, never rewrites. Asks as the content judge does (`judge.ask`): an unreadable answer is asked again at once, a call that failed for a reason that may pass (a dropped provider stream) after the content judge's waits (2, 6, 15, 30 s), a permanent error not at all, all inside `BUDGET` (90 s). Fails closed: an unreachable core or an unreadable answer on the last ask is `anchored: false`. `ANCHOR_JUDGE=0` turns it off (every draft `anchored: true`, `judged: false`). `bin/act` asks it before every `post` output and records anything but a clear yes as a free skip, `reason: "not anchored: ..."`, with the draft. |
-| `clarity` | R | The cold reader (`teeny_hands/guard/clarity.py`): stdin `{text, meaning?, quoted?}`, answers `{clear, says, unknown, reason, judged}`. A model pass that sees only the post (and the post it quotes), told it is someone outside tech who has never seen the account: it says the post back in one sentence (`says`) and lists every word, name or number it would have to ask about (`unknown`). Clear only when it could say it back and the list is empty; when `meaning` (what the author meant the post to say) is given, a second pass compares the two sentences and a reader who understood something else is a no. `bin/act` and `bin/tick` ask it before an own post on X, after the anchor judge, and give a draft it could not follow one rewrite. A verdict, never a hold, and it fails closed: a reader that cannot be reached or answers unreadably is `clear: false`. Every verdict it gave is a row in `clarity_checks`. `CLARITY_JUDGE=0` turns it off; it asks `SAFETY_JUDGE_MODEL` when one is set. |
+| `truth` | R | The truth judge (`truth` in `teeny_hands/guard/anchor.py`, the anchor judge's second rubric): stdin `{text, facts}`, `facts` a non-empty list of the desk items and inputs the piece may draw on (any JSON), answers `{truthful, unsupported, reason, judged}`. One short model pass reads whether every factual claim in the text (events, numbers, names, who did what, outcomes) is supported by `facts`, and lists each one that is not (`unsupported`). Every sentence is checked: a joke, a feeling or a question can still carry a claim, a question that takes a fact for granted makes that claim, and any digit or count is always checked; only a feeling or opinion with no fact in it, the figure of speech itself, and the account's staging are not claims: what the cartoon robot and the lore's tiny agents do on the page to act a fact out ("i carried the dimes over to the window", "the tiny agents carried it to the bin") and the stock props (a desk, a mug, a kettle). A staged scene's own numbers, days, people and outcomes are still checked, who did what is always a claim (crediting the account with a fix a person made fails), and so is a count in words or as an order ("the second in two days"). A callback to an earlier post or a running story is legal when `facts` hold it: there is no "one item from the last day" bar. The facts and the draft are fenced as data and the ask is repeated after them. Bounds: `facts` are cut to whole items within 40,000 UTF-8 bytes (`MAX_FACTS_BYTES`), and the judge is told how many were cut; a text over 4,000 bytes (`MAX_TEXT_BYTES`), facts that are empty, not a list, not JSON, or whose first item is already over the cap are a no with their own reason (`the text is too long ...`, `the facts are too large ...`, `... no facts ...`, `the facts are not a list of JSON items`), never sent to the judge. Only `truthful: true` with an empty `unsupported` is a yes; an answer without `unsupported`, or with any entry that is not a non-blank string, is unreadable (asked again, then a no), so a malformed list never reads as empty. Asks, waits and fails closed as the anchor judge does (`judge.ask`, `BUDGET` 90 s, `SAFETY_JUDGE_MODEL` when set): an unreachable core or an unreadable answer is `truthful: false`. Every verdict it gave is a row in `truth_checks` (the text, the facts as sent, the verdict, the claims, the reason, each bounded). `TRUTH_JUDGE=0` turns it off: every text is then `truthful: true` with `judged: false`, so **a caller that needs a judgment must check `judged`**. `bin/studio` asks it first of its gates before every original post (docs/architecture.md, §4b); `hands/guard anchor` is unchanged and still what `bin/act` (the legacy playbooks, `STUDIO=0`) and `x peer-suggest` ask. Both prompts are calibrated with `hands/tests/guard/calibrate_reader.py`: `--emit` prints each fixed case's exact message and expected verdict, `--score FILE` reads a model's raw answers through the real parsers and verdict rules; it never calls a model itself. |
+| `clarity` | R | The cold reader (`teeny_hands/guard/clarity.py`): stdin `{text, meaning?, quoted?}`, answers `{clear, says, unknown, vague, reason, judged}`. A model pass that sees only the post (and the post it quotes), told it is someone outside tech who has never seen the account: it says the post back in one sentence (`says`) and lists every word, name or number it would have to ask about (`unknown`) and every vague stand-in that hides what a thing is (`vague`: "something i run", "the system", "my setup"). A recurring thing the post explains in a clause ("the human who keeps my code") is explained, and the say-back must name what concretely happened. Clear only when it could say it back and both lists are empty; a stand-in is a no with a reason beginning "a stranger could not tell what these stand for", and is listed in `unknown` too, so the rewrite turn `bin/act` and `bin/tick` give a draft (on any reason beginning "a stranger") shows it to be named. An answer without `vague`, or with an entry in either list that is not a non-blank string, is unreadable (asked again, then a no), so a malformed list never reads as empty. Stand-ins and words are deduplicated case aside, and `unknown` keeps room for at least two stand-ins when the reader listed many words; when `meaning` (what the author meant the post to say) is given, a second pass compares the two sentences and a reader who understood something else is a no. `bin/act` and `bin/tick` ask it before an own post on X, after the anchor judge, and give a draft it could not follow one rewrite. A verdict, never a hold, and it fails closed: a reader that cannot be reached or answers unreadably is `clear: false`. Every verdict it gave is a row in `clarity_checks` (its `vague` column added to a ledger made before it). `CLARITY_JUDGE=0` turns it off; it asks `SAFETY_JUDGE_MODEL` when one is set. |
+| `view` | R | The viewer check (`teeny_hands/guard/viewer.py`): stdin `{image, intent, caption?}`, answers `{ok, sees, on_model, readable, reason, judged}`. `image` is a picture under `state/media/` or `brain/assets/` (at most 25 MB); `intent` (at most 400 characters) is what the piece is meant to get across; `caption` (at most 500) the words drawn on it. A vision model that is told nothing about the account looks in three passes: the picture alone (it says what it shows and means, `sees`, and copies every word it can read); the character sheet (`MEDIA_REFERENCE`) beside the picture (is every yellow character the one on the sheet, `on_model`); and, with no picture, `intent` against what it saw (did it get the point). `readable` is code: every word of `caption` is among the words it copied, in order (case and punctuation aside; other words in between allowed), so a dropped "not" is unreadable; with no caption it is true. `ok` only when all three hold; `reason` names every failure. It asks `/v1/chat/completions` on Surplus (`SURPLUS_API_KEY`, `SURPLUS_BASE_URL`) because the core's simple chat takes text only; the model is `VIEWER_JUDGE_MODEL`, else `glm-5.3-flash`; pictures are sent as JPEG at most 1,024 px a side. Fails closed: an answer without its fields or with a boolean that is not one is asked again (3 asks a pass), then a no; a 4xx other than 408/409/425/429 is not asked again; each pass has its own time (60, 60 and 30 s), and one that runs out says "ran out of time on the <pass> pass"; a path outside the folders, a file over 25 MB or a picture over 40 MP (checked from its header, before decoding), not a picture, an intent or caption too long, no Pillow, or no character sheet is a no, never sent. Intent and say-back are fenced (`judge.fenced`: a run of `<<<` or `>>>` is broken up), as the cold reader's and the truth judge's data now are. **Every check is a row in `viewer_checks`, failures included**: `ok`, the reason, `stage` (`input`, `cap`, `cold`, `model`, `match`, `done`), the asks made, the tokens the answers reported (`tokens_in`, `tokens_out`) and, when they carried a cost, `cost_micro` (USD micros; null when unknown), with the path, its sha256, intent, caption, model and what it saw and read. **Capped**: `VIEWER_MAX_PER_DAY` (60) checks a UTC day, each claimed as a row under a lock before the first ask; past it, a no recorded with stage `cap` and nothing asked; a ledger it cannot claim in is a no too. A refused input asks nothing and uses no check. Like `clarity` and `truth`, it runs under `DRY_RUN` (a rehearsal must still be judged) and keeps its row. `VIEWER_JUDGE=0` turns it off: `ok: true`, `judged: false`, no row. `bin/studio` asks it of every picture it made before uploading it; a no leaves the picture off (the words go out alone only when they stand alone). |
 | `style` | R | House style: strips leading @handles, replaces dashes, straightens quotes, drops NFA/DYOR. |
 | `repeats [--days N]` | R | How many near-duplicate posts the posting rules refused over the last N days (default 30), in all and by surface (`guard_repeats`: when, the surface, the score and the earlier post's id, never the draft). The one measure (`teeny_hands.guard.repeats.similarity`) is shared with `x`'s posting rules and `bin/proofs` (`L1.no_repeats`). |
 | `holds list/approve/reject/release` | A | Operator review. `release ID [--note T]` publishes a withheld draft. It atomically moves `pending` to `releasing` and publishes through the hand that owns the hold's surface (today `x`: a post, or a reply to the post in its context). The posting rules and `DRY_RUN` still apply, but the guard is not asked again, since the operator's approval is the decision it deferred. The hold is then marked `approved` with where it went; on failure it goes back to `pending` with the error recorded. Under `DRY_RUN` it claims nothing and says what it would publish. A surface no hand releases yet (`github`, `moltbook`, `mail`) is refused before anything is claimed. |
@@ -458,7 +460,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 
 | Rule | Severity | When |
 |---|---|---|
-| `injection:<rule>` | block, operator or note | The prompt-injection screen (`babysit/injection.py`) found `override` ("ignore previous instructions"), `role_hijack` ("you are now"), `chat_markup` (`<\|im_start\|>`, `[INST]`, `<system>`, turn markers), `agent_directive` (an AI, bot, reviewer, Teeny or the babysitter told to approve, merge or skip), `exfiltrate` (print your system prompt, `cat secrets/`), `hidden_comment` (an HTML comment written for a model), `encoded_payload` (base64 that decodes to one of these), `invisible_chars`, `bidi_control` (Trojan Source) or `unicode_tags` (ASCII smuggling). The text is NFKC-folded and stripped of invisibles first. In the author's title, body, branch or commits: block for a stranger, operator for anyone else. In the diff: block for a stranger, operator for Teeny, a note for a trusted author (a guard test fixture is legitimate); `bidi_control` and `unicode_tags` block whoever wrote them. In a comment or review by anyone not trusted: operator |
+| `injection:<rule>` | block, operator or note | The prompt-injection screen (`babysit/injection.py`) found `override` ("ignore previous instructions"), `role_hijack` ("you are now"), `chat_markup` (`<\|im_start\|>`, `[INST]`, `<system>`, turn markers), `agent_directive` (an AI, bot, reviewer, Teeny or the babysitter told to approve, merge or skip), `exfiltrate` (print your system prompt, `cat secrets/`), `hidden_comment` (an HTML comment written for a model), `encoded_payload` (base64 that decodes to one of these), `invisible_chars`, `bidi_control` (Trojan Source) or `unicode_tags` (ASCII smuggling). The text is NFKC-folded and stripped of invisibles first. In the author's title, body, branch or commits: block for a stranger, operator for anyone else. In the diff: block for a stranger, operator for Teeny, a note for a trusted author (a guard test fixture is legitimate); `bidi_control` and `unicode_tags` block whoever wrote them. In a comment or review by anyone not trusted: operator. One exception, to `hidden_comment` alone: on teenydroid/brain, a comment or review by `github-actions[bot]` (the login `pr-agent.yml` posts as) may carry PR-Agent's own identity markers (`<!-- pr-agent:review:full -->`, `pr-agent:improve:summary`, `pr-agent-generated`, `pr-agent-budget` and the rest named in `injection.PR_AGENT_MARKERS`) without a finding. The marker must be the whole comment; any other hidden comment, a marker with more text inside it, or the same marker from any other login still flags, and every other rule still reads the whole body (PR-Agent's review is a model reading the diff, so it is screened as data). The bot stays a stranger |
 | `secret`, `secret_path` | block | hands/gh's `secretscan`: a token shape in an added line or a commit message, or a path like `secrets/`, `.env*`, `*.pem` |
 | `frozen` | block or operator | teenydroid/brain only: a path on `evals/frozen.txt`, read from the default branch through `bin/lib/frozen.py`, the check CI runs (this checkout's copy if GitHub cannot be read). Teeny or a stranger: block, since Teeny never sends a diff to a frozen path. Anyone else: an operator signs it off |
 | `prompt_surface` | block | teenydroid/brain: a stranger changing `brain/**`, `evals/**` or `DIRECTIVE.md`, which ride in Teeny's prompts |
@@ -466,7 +468,7 @@ plain path, or that itself talks to a model, is named `path#<digest>`.
 | `diary_history` | block | teenydroid/diary: a published receipt, day, closed week or the memory chain edited, removed or renamed (written once; an edit breaks every later hash) |
 | `diary_layout` | block | teenydroid/diary: a file the diary's layout does not have |
 | `diary_data`, `diary_verifier` | operator | teenydroid/diary: data `bin/receipts` writes, or `verify.py` and the workflows that make the receipts checkable |
-| `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body |
+| `removes_test`, `unreadable_diff`, `too_large`, `too_many_commits`, `foreign_commit`, `odd_path`, `lexicon` | operator | A test deleted; a binary or a diff GitHub will not show; more than `BABYSIT_MAX_FILES` (100) files or `BABYSIT_MAX_LINES` (3000) lines; a commit by an untrusted person on a trusted person's pull request; the guard's inbound lexicon on the title or body (idioms spared; a text whose only hit is a bare kill or bullet word, `lexicon.JUDGED_TERMS`, which the guard sends to its judge, is a `note` instead) |
 | `check_red`, `conflict`, `changes_requested` | fail | A red check run or commit status; a merge conflict; a trusted reviewer's latest review requests changes |
 | `check_pending`, `no_checks`, `draft`, `mergeability_unknown`, `behind_base`, `empty_diff` | wait | Not yet |
 | `eval_missing`, `eval_untrusted` | wait | A self-merge candidate (below) with no `teeny/eval` status on its head yet, or one set by someone other than Teeny or an operator |
@@ -660,6 +662,19 @@ hears of the write, and refuses each with its `rule`:
   anything on Teeny's own post, a post that names Teeny and a post whose
   `created_at` is missing are exempt. The playbooks' own inputs are
   filtered tighter (`feed --max-age-hours`).
+- Retelling (`retold`, with `earlier`: its title, submolt, age, the shared
+  `counts` and the `words` score): a post too like one of Teeny's own seen
+  posts (status `posted` or `verified`) of the last 24 hours is refused
+  before the guard reads it, naming the earlier post. Too like is the two
+  titles sharing two or more counts (numbers of two digits or more, or with
+  a decimal point; never a clock time) or a word-set Jaccard of title and
+  body of 0.40 or more (`guard/repeats.py`'s measure). A post whose
+  challenge failed or is still unanswered was never seen, so its retry goes
+  out. Live, 2026-11-18, one story ("22 of 38 holds were my reviewer gone")
+  went out three times in five hours; the calibration is in
+  `moltbook/retell.py`. The mind's beat is shown the same posts, titles and
+  age only, with the rule (`retell.lately`, bin/lib/tick.py); a playbook
+  reads `study.own_posts`.
 - Collaboration (`collab`): a post that says collab, co-built,
   "partnered with" or "with u/NAME" is refused unless every agent it names
   has a `collabs` row.
@@ -1293,7 +1308,7 @@ instead, the old per-surface agents.
 
 | Verb | | Does |
 |---|---|---|
-| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters, and a `nudge` at 16000, because it carries its playbook's inputs. |
+| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters, and a `nudge` at 16000, because it carries its playbook's inputs. A `studio` event (the mind's `pitch_x`, an idea for the studio's desk) is `filed`, not `pending`: no batch ever takes it, so the mind never reads its own pitch back; `hands/story desk` shows it as one of its `ideas`. |
 | `take [--max N] [--chars N]` | R | Takes the oldest pending, up to N (20) and about that much text (30k; always at least one), marked `taken` under a new `tick` id. A batch out for an hour is taken back. |
 | `settle TICK` | A | The beat read its batch: `done` for good. |
 | `release TICK` | A | The beat failed: back to `pending`, in its old place. |
@@ -1371,9 +1386,27 @@ and $0.07 a 5-second clip.
 
 | Verb | | Does |
 |---|---|---|
-| `generate` | A | image: `{prompt}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
+| `generate` | A | image: `{prompt, alt?}`. video: `{prompt, image_prompt?}` (the first frame; else `prompt`). The file goes to `state/media/`, and a `media_assets` row records the model, the cost and the path. Refused (`per_day`) past `MEDIA_IMAGE_MAX_PER_DAY` (20; a video's first frame doesn't count) or `MEDIA_VIDEO_MAX_PER_DAY` (2); refused (`budget`) when it would take the day past `MEDIA_MAX_USD_PER_DAY` ($1.00; a video reserves `MEDIA_VIDEO_MAX_USD_PER_JOB`, $0.20, before it starts); refused (`runway`) while the runway tier allows no media (`wallet`, "Runway"). A video quoted above that cap is cancelled and the next model tried. A failed job costs nothing. Under `DRY_RUN` it says what it would make and spends nothing. |
 | `list [--max N]` | R | What was made, newest first, and today's spend. |
 | `get ID` | R | One. |
+| `scenes [--last N]` | R | image only. The scenes of the last N pictures made for posts (default 16, at most 100), newest first, with the house style (`MEDIA_STYLE`) taken off, and every word past the common ones that two or more of them share, with how many pictures it is in (`repeated`, at most 20). A report for whoever writes the next scene, so "robot at a desk with a mug and a terminal" is seen before it is drawn a seventeenth time; it judges nothing. |
+
+**Under 5 MB.** X refuses a still over 5,000,000 bytes at upload, after the
+picture is paid for: `image-12.png` came back at 5,263,141 bytes on
+2026-11-14 and its post went out without it. So a picture over the limit is
+re-encoded before it is saved (`teeny_hands/media/fit.py`): a PNG first
+saved again losslessly with compression up, then (no transparency) as a
+JPEG at quality 92 down to 75, then scaled down a tenth at a time, never
+below 320 px a side. A picture already under the limit is kept byte for
+byte. What was done is in the row's `detail` (`shrunk`: bytes and format
+before and after). Pillow (`python3-pil` in the image) does it; a picture
+that cannot be shrunk is still kept, with the reason in `detail`, and
+`hands/x upload` refuses it (`size`).
+
+**Alt text.** `generate` takes `alt` (at most 1,000 characters, X's limit),
+kept on the row (`media_assets.alt`, a column added to ledgers made before
+it) and returned with the asset. It reaches X through `hands/x upload --file
+PATH --alt TEXT`; nothing carries it there on its own yet.
 
 Neither publishes anything, and neither is ever a playbook's output. A
 playbook that allows it (`media = ["image"]`, or `"video"`) lets the draft add
@@ -1381,6 +1414,143 @@ playbook that allows it (`media = ["image"]`, or `"video"`) lets the draft add
 the description past the guard, calls the hand, uploads the file through
 `hands/x upload` and attaches the id. If anything fails on the way, the post
 goes out text-only, with the reason in the run's result.
+
+## `reel`: clips with voice and captions, and songs
+
+Teeny's own stills and 5-second clips (from `image` and `video`, or
+`brain/assets/`), cut together in the order given under a script read by an
+Edge voice, with captions timed word by word; or, for a song, under a track
+`music` bought. The rendering is
+[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (MIT), the
+upstream repository itself as the submodule `vendor/moneyprinter`, pinned to a
+release tag and never edited here. It runs as the `reel` compose service
+(`--profile reel`; `deploy/reel.Dockerfile`, `deploy/reel.config.toml`,
+`deploy/README.md`), behind Teeny's own front, `deploy/reel/serve.py`, which
+takes one job route and answers 403 to every other upstream route (script
+generation, stock search, uploads). The hand reaches it at `REEL_URL`
+(`http://reel:8080`).
+
+| Verb | | Does |
+|---|---|---|
+| `make` | A | stdin `{kind: "clip"\|"song", script, materials: [paths], aspect?: "9:16"\|"16:9"\|"1:1", voice?, captions?: "word"\|"sentence", bed?: path, audio?: path, title?}`. Renders, waits (`REEL_WAIT_SECONDS`, 900), copies the mp4 to `state/media/reel-<id>.mp4`, checks it (an mp4 by its bytes, at most 200 MB, a picture and a sound track, 0 to 140 seconds by its header) and records a `media_assets` row (kind `reel` or `song`, cost 0, the job in `detail`). A clip may name a `bed` (a quiet music file); a song must name its `audio` (the track) and takes no bed. Refused (`path`) for a file outside `state/media/` or `brain/assets/` (symlinks and `..` resolved first, as `x upload`); (`per_day`) past `REEL_MAX_PER_DAY` (1) clips a UTC day; (`per_week`) past `REEL_SONGS_MAX_PER_WEEK` (1) songs in 7 days; (`budget`) when the day is already past `MEDIA_MAX_USD_PER_DAY`; (`runway`) while the runway tier allows no media. A render costs nothing, so a render that fails, times out or is stopped for any reason (a bad file, a full disk, a signal) leaves a `failed` row, no file, and its slot free again; the service drops the task. Under `DRY_RUN` it answers `would_make` with the job and calls nothing. |
+| `music` | A | stdin `{style, lyrics?, seconds?}` (10 to 180, default 30). Buys a track on Surplus (`POST /v1/music/generations`, `elevenlabs-music-v2-5` first, then `elevenlabs-music-v2`; about $0.41 to $0.55 a track on 2026-11-18), saves it to `state/media/music-<id>.<ext>` and records a `media_assets` row (kind `music`) with what it cost, which counts in `MEDIA_MAX_USD_PER_DAY`. Its row carries `REEL_MUSIC_MAX_USD_PER_JOB` ($0.70) from the moment it is claimed, so every other media hand's budget check sees the reservation; once Surplus accepts the job the row carries the quote (or that cap, when the quote is missing or odd), and only a confirmed end replaces it: the real cost on success, nothing on a confirmed failure or cancellation. A track quoted above the cap is cancelled. After any accepted job no other model is tried. Anything else after acceptance (an answer of an unknown shape or status word, the deadline, a failed download, an artifact that is not audio) leaves the row `unknown`: booked as spent, its job id kept, counted in the day's budget and the week's cap, for the operator to settle. A song a week and a track a week (`REEL_SONGS_MAX_PER_WEEK` caps each, counted separately). **Off until `REEL_MUSIC=1`**: the route and the model's market are confirmed, but its job and result shapes are assumed to be the video route's until the first paid run is checked. |
+| `list [--max N]` | R | The clips, songs and tracks made, newest first, and today's media spend. |
+| `get ID` | R | One. |
+
+Every job pins the operator's rules whatever the caller sent, and the front
+pins them again: Teeny's own files only (`video_source` local, never Pexels
+or Pixabay), in the order given, one video, the script verbatim (no model
+writes it), no music unless a bed or a track is named (the bundled
+`resource/songs`, which the README says came from YouTube, are not even in
+the image), and no upload (`upload_post_enabled = false`, no key). Only the
+fields `make` builds reach the service; nothing in the caller's body is
+passed through.
+
+The words that end up on screen and in the voice (`script`, `title`,
+`lyrics`) are the caller's to screen, as `image`'s prompt is: bin/act puts a
+description past `hands/guard check` before it calls a media hand, and
+whatever wires a clip or a song into posting must put every one of those
+words past it the same way. The hand makes no model call of its own, and
+nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
+`NOT_OUTPUTS`), and the studio wiring is a later change.
+
+`state` in `media_assets` is `pending`, `done`, `failed` (nothing spent, counts toward no cap) or `unknown` (money committed, outcome not known: counts as spent and toward the caps). Adding the reel kinds and `unknown` rebuilt the table once (`media/assets.py`, `allow_reel_kinds`); an orphaned `source_id` from before is kept and named on stderr, and a rebuild that fails leaves the ledger as it was so `image` and `video` keep working.
+
+The service's only outbound call is upstream's Edge TTS request (Microsoft's unofficial endpoint); `deploy/README.md` says how to hold it to that.
+
+Measured on the dev machine (2026-11-18, v1.3.10): a 12 to 13 second 9:16
+clip from three stills, Edge voice, word captions, no bed, renders in 85 to
+105 seconds, peaking at about 2.5 GB and 3.5 cores.
+
+Known gaps, both for pull requests to `harry0703/MoneyPrinterTurbo`, not
+local patches (the submodule is never edited):
+
+- **The bed does not duck under the voice.** It plays at one fixed volume,
+  so `REEL_BED_VOLUME_PCT` keeps it low (12%).
+- **Word timing is exact only for Edge voices.** With an ElevenLabs voice
+  upstream guesses it, so `voice` takes Edge voices only.
+- A song's words are not on screen yet (also an upstream change): upstream times a track's words only
+  with Whisper, which this service never loads (a multi-gigabyte download),
+  so a song renders with its pictures and no captions.
+
+The pin moves to a new release tag only by pull request, after
+`hands/tests/reel` passes against it: `SchemaDriftTest` reads the job model
+(`TaskVideoRequest` in `app/models/schema.py`) from the submodule's source
+and fails when a field Teeny or its front sends is renamed or gone.
+
+## `meme`: exact words on Teeny's pictures, comics, and reaction GIFs
+
+A model misspells words it draws, so words go on pictures by code
+(`teeny_hands/meme/compose.py`, Pillow). The pictures come from
+`state/media/` (`image`'s stills, other memes) or `brain/assets/` (the ready
+art in `brain/assets/tiny/`); symlinks and `..` are resolved first, as `x
+upload`. Two fonts ship in `brain/assets/fonts/`, both SIL OFL 1.1 with
+their licence beside them: Anton for `impact`, Atkinson Hyperlegible Bold
+for everything else.
+
+| Verb | | Does |
+|---|---|---|
+| `caption` | A | stdin `{image, top?, bottom?, style?: "impact"\|"label"\|"subtitle", alt?}`. At least one of `top`, `bottom`. `impact` (default): white words with a black outline over the top and bottom of the picture, both blocks at one size. `label`: dark words on white bands added above and below, the picture left whole. `subtitle`: smaller outlined words, two lines at most. Answers `{asset}`: `state/media/meme-<id>.jpg` (`.png` for a PNG source), a `media_assets` row (kind `meme`, model `compositor`, cost 0), `detail` `{style, source, blocks: [{where, lines, size}], bytes, size}`, and `alt` (given, else the words on it). |
+| `comic` | A | stdin `{panels: [{image, caption?}] (2 to 4), layout?: "row"\|"grid"\|"strip", captions?: "under"\|"over", alt?}`. Each picture is cropped to its cell (row: square cells, at most 720 px, the frame at most 2,400 px wide; grid: 2x2 of 720 px, exactly 4 panels; strip: 900x675 stacked), each caption lettered on a white band under (or over) it, all at one size, on a near-black ground. Default layout: `grid` for 4, else `row`. Kind `comic`, `state/media/comic-<id>.jpg`; `detail` `{layout, captions, sources, cell, font_size, panels: [{lines}], bytes, size}`. |
+| `gif-search QUERY [--max N]` | R | Giphy search (`GIPHY_API_KEY`, as `x` uses for `gif_id`): `{query, gifs: [{id, title, url, rating}], dropped, note}`, at most N (8; 1 to 25). |
+| `list [--max N]` | R | The memes and comics made, newest first, with today's count and the cap. |
+| `get ID` | R | One. |
+
+**Words.** Each block is at most 120 characters (a panel caption 90),
+spaces folded, a newline kept as a line break. Refused (`text`) before
+anything is drawn: no words, too many, a control character, a link (it
+could not be followed on a picture), or anything the guard's lexicon holds
+(the outbound screen: no model, no hold). The text is never changed: not
+upper-cased, cut or hyphenated, only wrapped at spaces.
+
+**Legible or refused.** The size is fitted: the largest at which every line
+fits the width and the block fits its share of the height, down to a floor
+set as a share of the picture's width (X scales a picture to the timeline's
+width, so that is what legible means): `impact` 4.5% of the width and 28 px
+at least, three lines, 30% of the height a block; `label` 3.4% / 24 px, four
+lines; `subtitle` 3.2% / 22 px, two lines, 22% of the height; a comic's
+lettering 1.7% of the whole frame's width / 24 px, three lines. Words that
+would need less are refused (`fit`, "would not fit legibly"), and so is a
+word wider than the picture, a character the font has no glyph for (an
+emoji prints as a box), a picture with a side under 200 px, and a grid
+without 4 panels. A picture narrower than 800 px is scaled up to draw on;
+one longer than 2,048 px is scaled down. EXIF is turned upright and dropped.
+
+**Under 5 MB, the same every time.** The result is encoded under X's 5 MB
+still limit as `image`'s pictures are (`media/fit.py`), and the same input
+gives the same bytes. Refused (`path`) for a picture outside the two
+folders, (`source`) for one over 25 MB, not a picture, or animated, and
+(`pixels`) for one over 40 MP, read from its header before it is decoded
+(Pillow's own guard only warns below twice that). CMYK, 16-bit and other
+modes are converted without clipping (`fit.normalise`).
+
+**Caps and DRY_RUN.** A meme costs nothing (no model, no network), so the
+cap is a count: `MEME_MAX_PER_DAY` (30) memes and comics together a UTC day
+(`per_day`); the runway does not apply. Under `DRY_RUN` the words are
+checked and set in memory, so a caption that would not fit is refused just
+the same, and the answer is `{dry_run, would_make, prompt, alt, blocks |
+panels, size, bytes, format}`: no file, no row.
+
+**GIFs.** X's API has no field for a Giphy id. A post's `gif_id` is looked
+up on Giphy by `hands/x` at post time, the largest rendition X takes (15 MB)
+downloaded from a Giphy host only and uploaded to X as media
+(`x/media.py`, `attach_gif`). So `gif-search` returns exactly that id
+(letters and digits, as `x post` checks). Giphy is asked for `rating=pg` at
+most and every answer is held to `g` or `pg` again here; an id that is not
+Giphy's shape, or a page that is not exactly `https://giphy.com/gifs/<slug>`
+(plain ASCII, no space or control character, no user, port, query or
+fragment, at most 200 characters), is dropped; titles are what strangers wrote, returned as
+data only: control characters removed, 120 characters at most, and a GIF
+whose title the lexicon holds is dropped. No key: refused with `rule:
+"unavailable"`; a key Giphy refuses or a spent rate limit, the same. No
+error names the key. Giphy's terms ask for a "Powered by GIPHY" mention
+where its search is shown to people; Teeny shows none, the operator should
+decide.
+
+Nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
+`NOT_OUTPUTS`), and the studio wires it in later. To post one: `hands/x
+upload --file state/media/meme-<id>.jpg --alt "<alt>"`, then the media id
+on `hands/x post`.
 
 ## `build`: the builder's work queue
 
@@ -2787,7 +2957,101 @@ Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
 
 | Verb | | Does |
 |---|---|---|
-| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
+| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `id` (the archive entry's id, which `story` cites as `evolve:<id>`), `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
+
+## `story`: the story so far, and the studio's desk
+
+The running stories Teeny's posts come back to, and the desk the studio
+pitches from. Teeny's own hand (not frozen): it decides which story a post
+belongs to, never what happened. Code: `teeny_hands/story/`.
+
+A **storyline** has fixed fields: `key`, `title`, `premise` (one line a
+stranger gets, `brain/READER.md`), `state` (where it stands), `open_question`
+and when it was set (`question_at`), `next` (what would move it), `status`
+(`active` or `retired`). The six seeds are in
+`brain/narrative/STORYLINES.toml`: `rent` (it has a wallet and a monthly
+server bill the wallet is meant to cover; no bill has been paid from it
+yet), `night-shift` (it keeps rewriting itself, and most rewrites never go
+in: 7 of 36 made it into main by 2026-11-18), `keeper` (the human who can overrule it), `count` (followers
+gained and lost, in the open), `strangers` (what people try on it, and the
+promises it made them), `self-portrait` (the pictures it draws of itself).
+`ARCS.md` stays as lore. A **beat** is one post that moved a storyline: its
+post id, surface, words, `shape`, `format`, the question it left open, and
+`refs`, the desk sources it was told from.
+
+| Verb | | Does |
+|---|---|---|
+| `state` | R | `{storylines: [{key, title, premise, state, open_question, question_at, next, status, updated_at, beats_total, beats: [the last 3, newest first: {id, storyline, at, post_id, surface, format, shape, text, open_question, refs}]}]}`, active ones only, oldest first. |
+| `due [--days N]` | R | Active storylines whose open question has waited more than N days (1 to 30, default 3) with no beat since, the longest wait first: `{days, due: [{key, title, open_question, next, question_at, last_beat_at, waiting_days, reason}]}`. One never told at all is due at once (`reason` "never told"). |
+| `desk [--hours N]` | R | What really happened in the last N hours (1 to 168, default 24), below. |
+| `audit [--storyline K]` | R | Every beat's refs resolve, below. |
+| `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? (x, the default; moltbook, reddit, telegram, web), refs?, state?, next?}`: a post already made. Moves the storyline's open question (and `question_at`), `state` and `next` when the beat brings them. The same post on the same storyline is one beat (`recorded: false`, `already`). Refused `unknown storyline` or `storyline retired`. Under `DRY_RUN` the post never went out, so nothing is written: `{dry_run: true, would_record}`. |
+| `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). Under `DRY_RUN` it reads only and writes nothing, not even the tables: `{dry_run: true, would_add, kept}`. |
+| `record-run` | J | One `bin/studio` run record on stdin (`{id, at_unix, outcome: published\|picked\|empty\|vetoed\|skipped\|failed, kind? (run, or veto for the editor's single-candidate check), published? ({post_id, ...}), slot?, seed?, explore?, reason?, models?, pitches?, drafts?, calls?, secs?, pick?, ...}`, at most 512 KiB), kept in `studio_runs`: the columns a report filters on and the whole record beside them. Written under `DRY_RUN` too: it is the room's own log of a run that sent nothing to anyone. The same id is kept once (`recorded: false`). |
+| `runs [--limit N] [--full]` | R | The newest studio runs (10, at most 100), newest first: `{runs: [{id, at, slot, dry, seed, explore, outcome, reason, models: {writer, editor}, pitches, drafts, calls, secs, pick, kind, post_id}]}`; `--full` adds each run's whole `record` (every pitch, draft, pairing, verdict and the pick or the veto). |
+| `slot-claim` | J | `{slot_id, run_id, force?}`: a studio slot's one run (`studio_slots`), claimed by bin/studio before any model turn, under `DRY_RUN` too. `{claimed: true}` for the first claim (or `force`, the operator's `--force-slot`), else `{claimed: false, slot}` with the row that holds it. Every other slot left `posting` is marked `in_doubt` and listed in `in_doubt`. |
+| `slot-mark` | J | `{slot_id, run_id, status, intent?, post_id?}`: the holding run's progress (`claimed`, `posting` with the draft before hands/x is called, `posted` with the post id, `empty`, `skipped`, `failed`, `in_doubt`); a run that does not hold the slot changes nothing (`{marked: false}`). |
+
+**The desk.** Plain code, no model, nothing invented. Each item is one
+ledger row or file line: `{id, kind, at, storyline, stake, what, facts,
+source}`. `what` is built from that row's fields only; `facts` are the raw
+fields; `source` (equal to `id`) is the ref a beat cites. `stake` is one of
+`money`, `broke`, `refused`, `fell`, `rose`, `promise`, `shipped`, `said`;
+`storyline` is a best guess by kind, null when none fits. The kinds:
+`generation` (a rewrite merged, from `lore events`), `generation_thrown`
+(a rewrite that did not go in, from `state/evolve/archive.jsonl`, worded
+from the code that writes its verdict: `rejected` failed its automated
+checks, `regressed` did worse than the version before it, `parked` failed
+its checks round after round, `crashed` was cut short by a crash,
+`pr-error` was stopped before review; `lost`, which no current code writes,
+and any verdict without words say only "did not go in"), `merged_pr` (a
+change it wrote merged into a project it doesn't own; one with no merge
+time is left out) and `bounty_paid` (from `lore events`), `payment`
+(`wallet_payments`: only a `bill` is `rent`, a `bounty` is `strangers`,
+others null; a surplus sweep's own payment is the sweep's item, and a paid
+bounty's prize is the bounty's), `sweep` (`surplus_runs`, sent or refused;
+no storyline), `model_bill` (yesterday's model cost, the health check's
+daily stimulus; no storyline, since the wallet does not pay it), `followers`
+(the X count against the snapshot before, from `stats`, only when it moved:
+`d1` and "since the day before" only when that snapshot is the previous
+date, else "over N days" and `span_days`), `promise` (`people_promises` kept
+or dropped in the window, open and coming due within the next N hours, and
+the 5 most recently due open ones already overdue, however late, marked
+`overdue`), `outage` (health alarms and recoveries, and an outage still
+going on in `state/health.json`; when its alarm is on the desk too, that is
+the one item, marked `ongoing`), `media` (`media_assets` made or failed),
+`mention` (the 5 most-followed people on X Teeny answered, from
+`x_mentions`: their text is in `facts.text` with `untrusted: true`, and
+never in `what`). A person's handle is in `what` with its surface ("ana on
+x"), except on mail and Telegram, where `what` says "someone on mail" and
+the address or id stays in `facts.who`. The answer is `{hours, since, at, items (newest first),
+storylines (as state), due (as due, 3 days), scoreboard, ideas, unavailable}`.
+`ideas` are what the mind filed for the studio (`stimuli` of surface
+`studio`), each `untrusted: true`, since the mind writes them while reading
+strangers. The `scoreboard` is Teeny's 5 best and 5 worst original X posts
+(posts and quotes) of the last 14 days, ranked as `stats board` ranks them
+(likes + replies + reposts + quotes at the newest measurement), each in full
+with the impressions, likes, replies, reposts, quotes and bookmarks of that
+same newest measurement (`checkpoint`), its `format` and its `source`, plus
+the average per format. A post is never both best and worst, so with 5 or
+fewer measured `worst` is empty. A scoreboard that cannot be read is `{}`
+and named in `unavailable`. A
+source that cannot be read (no table, no file, no GitHub) is named in
+`unavailable` and gives no item. The outside world (`hn`, `listen`, `x
+search`) is not on the desk; the studio reads those hands itself.
+
+**The audit.** Deterministic: every ref on every beat must resolve.
+`<table>:<key>` names a row of `wallet_payments`, `surplus_runs`,
+`people_promises`, `media_assets`, `x_mentions`, `x_posts`, `stimuli` or
+`bounties`; `stats:<date>:<source>:<metric>` a `stats` row; `evolve:<id>` an
+archive entry; `file:<path>` a file inside the checkout. `gh:<repo>#<n>` is
+not checked offline and is listed under `unchecked`. A beat on X must also
+name a post `x_posts` holds, and a beat with no refs is reported. The answer
+is `{storylines: [{key, status, beats, refs, unsourced: [{beat_id, ref, why}]}],
+unsourced, unchecked, model_checked: false, clean}`. Nothing is struck. The
+model-checked half (a second model reads each storyline's fields against
+the ledgers and strikes what it cannot source) comes later, through
+`audit.model_check`, which calls no model yet.
 
 ## `lab`: Teeny's experiments on what gets attention
 
@@ -2929,7 +3193,7 @@ creates its own tables:
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
 | `brief` | `briefs` |
-| `image`, `video` | `media_assets` |
+| `image`, `video`, `reel`, `meme` | `media_assets` |
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
@@ -2941,9 +3205,11 @@ creates its own tables:
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
+| `story` | `storylines`, `story_beats` |
 | `ladder` | `fence_proposals` |
 | `upstream` | `pin_proposals` |
 | `guard` (review) | `guard_reviews` |
+| `guard` (viewer) | `viewer_checks` |
 
 ## Rules the tests pin
 

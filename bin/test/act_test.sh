@@ -25,12 +25,25 @@ printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
 # $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
 [ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
-# $FAKE_FIRST, when the file is there, answers the first call only.
-if [ -n "${FAKE_FIRST:-}" ] && [ -s "$FAKE_FIRST" ]; then
-  jq -cn --rawfile a "$FAKE_FIRST" '{response: $a}'
-  rm -f "$FAKE_FIRST"
+# The studio's editor (bin/studio --veto, STUDIO=1) answers $FAKE_EDITOR.
+if [ "$(jq -r '.agent_id // ""' <<<"$2")" = editor ]; then
+  jq -cn --arg a "${FAKE_EDITOR:-{\"verdict\": \"pick\", \"reason\": \"a stranger stops on it\"}}" '{response: $a}'
   exit 0
 fi
+# $FAKE_REDRAFT_SLEEP: a rewrite turn takes that many seconds (the 11-minute
+# rewrite of 2026-11-17).
+if [ -n "${FAKE_REDRAFT_SLEEP:-}" ] && jq -r .message <<<"$2" | grep -q '^# playbook: .*, one rewrite'; then
+  sleep "$FAKE_REDRAFT_SLEEP"
+fi
+# $FAKE_FIRST, when the file is there, answers the first call only, and
+# $FAKE_SECOND the call after it.
+for once in "${FAKE_FIRST:-}" "${FAKE_SECOND:-}"; do
+  if [ -n "$once" ] && [ -s "$once" ]; then
+    jq -cn --rawfile a "$once" '{response: $a}'
+    rm -f "$once"
+    exit 0
+  fi
+done
 jq -cn --rawfile a "$FAKE_ANSWER" '{response: $a}'
 FAKE
 # The hands: each logs "<hand> <args> DRY_RUN=<v> stdin=<json>" and answers.
@@ -77,6 +90,20 @@ if [ "${1:-}" = clarity ]; then
     no) echo "$unread" ;;
     once) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
       else : >"$FAKE_CLARITY_SEEN"; echo "$unread"; fi ;;
+    # standin: the first draft gets the verdict the real cold reader
+    # (teeny_hands.guard.clarity) gives when its model lists a vague
+    # stand-in; every later draft is clear.
+    standin) if [ -e "$FAKE_CLARITY_SEEN" ]; then echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}'
+      else : >"$FAKE_CLARITY_SEEN"; mkdir -p "$FAKE_STANDIN_ROOT/secrets"
+        TEENY_ROOT="$FAKE_STANDIN_ROOT" python3 -I -c '
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from teeny_hands import hand
+from teeny_hands.guard import clarity
+said = {"says": "Something the author runs broke and was fixed.", "unknown": [], "vague": ["something i run"], "followed": False}
+hand.core = lambda method, params, timeout=0: {"response": json.dumps(said)}
+body = json.loads(sys.argv[2])
+print(json.dumps({"ok": True, **clarity.judge(body["text"], body.get("meaning"))}))' "$FAKE_GUARD_LIB" "$in"; fi ;;
     down) echo '{"ok": true, "clear": false, "says": "", "unknown": [], "reason": "the cold reader could not be reached: timeout", "judged": true}' ;;
     fail) echo '{"ok": false, "error": "core unreachable"}'; exit 1 ;;
     *) echo '{"ok": true, "clear": true, "says": "s", "unknown": [], "reason": "r", "judged": true}' ;;
@@ -125,8 +152,9 @@ brain="$scratch/brain"
 mkdir -p "$brain/playbooks"
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" \
   TEENY_STATE="$scratch/state" FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" \
-  FAKE_ANSWER="$scratch/answer.txt" FAKE_CLARITY_SEEN="$scratch/clarity.seen"
-unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY
+  FAKE_ANSWER="$scratch/answer.txt" FAKE_CLARITY_SEEN="$scratch/clarity.seen" \
+  FAKE_GUARD_LIB="$here/../../hands/lib" FAKE_STANDIN_ROOT="$scratch/standin-root"
+unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL
 
 book() { # NAME OUTPUT MAX [INPUT_RUN]
   {
@@ -291,6 +319,20 @@ check "and nothing is sent" test "$(hand_calls x | tr -d ' ')" = 1 # the input s
 check "one rewrite, never two" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 2
 check "a skip for clarity spends no daily budget" test "$(jq -r '[.actions[] | select(.action != "skip")] | length' <<<"$out")" = 0
 
+# 2026-11-17: "something i run" passed the reader. The real reader's verdict
+# for a stand-in now fails the draft with a "a stranger" reason, and bin/act,
+# unchanged, gives it one rewrite that names the stand-in to be said plainly.
+reset
+printf '%s' '{"action": "post", "anchor": "hn:1", "text": "something i run kept dying and the fix went in tonight", "meaning": "My nightly code rewrite was fixed."}' >"$scratch/first.txt"
+answer '{"action": "post", "text": "every night i rewrite my own code. it kept crashing, and the human who looks after my code fixed it tonight", "meaning": "My nightly code rewrite was fixed."}'
+out="$(FAKE_CLARITY=standin FAKE_FIRST="$scratch/first.txt" run morning)"
+redo="$(sed -n 2p "$FAKE_CALLS" | jq -r .message)"
+check "a stand-in the cold reader lists gets one rewrite that names it" \
+  says_all "$redo" "something i run kept dying" 'What they would have to ask about: "something i run"' \
+    "What they took it to mean: Something the author runs broke and was fixed."
+check "and the rewrite, not the stand-in, is posted" \
+  bash -c "grep -q '^x post DRY_RUN= stdin={\"text\":\"every night i rewrite my own code' '$FAKE_HANDS' && ! grep '^x post' '$FAKE_HANDS' | grep -q 'something i run'"
+
 reset
 printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"
 answer '{"action": "skip", "reason": "cannot be said plainly"}'
@@ -336,6 +378,94 @@ check "a thread is read joined, and its rewrite is a thread" \
     && grep -q '^x post-thread DRY_RUN= stdin={\"posts\":\[\"strangers try to trick me\",\"none of it worked\"\],\"anchor\":\"pr 212\"}' '$FAKE_HANDS'"
 check "the rewrite turn asks for posts" bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -q '\"posts\": \['"
 rm -f "$brain/playbooks/show.md"
+
+# --- a rewrite is held to X's 280 before it is sent ---------------------------------
+# 2026-11-17, show: the rewrite came back at 304 characters, hands/x refused it,
+# and the slot's post was lost. The rewrite turn is told the limit, a rewrite
+# over it gets one turn to shorten it, and one still over is a skip: never
+# sent, and never the draft the cold reader turned down in its place.
+long="$(printf 'strangers try to trick me %.0s' $(seq 12))"
+long="${long% }" # 311 characters
+other="$(printf 'people keep trying to fool me %.0s' $(seq 10))"
+other="${other% }" # 299 characters
+draft_file() { printf '%s' '{"action": "post", "anchor": "hn:1", "text": "my week logged 33 held writes"}' >"$scratch/first.txt"; }
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t, meaning: "m"}' >"$scratch/second.txt"
+answer '{"action": "post", "text": "strangers try to trick me every day", "meaning": "m"}'
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "the rewrite turn is told X's limit" \
+  bash -c "sed -n 2p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280 characters'"
+check "a rewrite over 280 gets one turn to shorten it" test "$(wc -l <"$FAKE_CALLS" | tr -d ' ')" = 3
+check "the shorten turn says how long the rewrite is and the limit" \
+  bash -c "sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF '311 characters' && sed -n 3p '$FAKE_CALLS' | jq -r .message | grep -qF 'at most 280'"
+check "and the shortened rewrite is posted" \
+  grep -q '^x post DRY_RUN= stdin={"text":"strangers try to trick me every day","anchor":"hn:1"}' "$FAKE_HANDS"
+check "the over-long rewrite is never sent" bash -c "! grep '^x post' '$FAKE_HANDS' | grep -qF '$long'"
+check "the shortened rewrite faces both judges" \
+  test "$(clarity_asks | sed -n 2p | jq -r .text)" = "strangers try to trick me every day"
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
+answer "$(jq -cn --arg t "$other" '{action: "post", text: $t}')"
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "a rewrite still over 280 after shortening is a skip that says so" \
+  test "$(jq -c '.actions[0] | [.action, .reason, .draft, .rewrite]' <<<"$out")" = \
+    "$(jq -cn --arg o "$other" '["skip", "the rewrite is 299 characters, over the 280 limit", "my week logged 33 held writes", $o]')"
+check "and nothing is posted, neither the rewrite nor the draft" test "$(hand_calls x | tr -d ' ')" = 1 # the input search only
+check "and the too-long rewrite is not put to the judges" test "$(clarity_asks | wc -l | tr -d ' ')" = 1
+check "and it spends no daily budget" test "$(jq -r .left_today <<<"$out")" = 1
+
+reset
+draft_file
+jq -cn --arg t "$long" '{action: "post", text: $t}' >"$scratch/second.txt"
+answer '{"action": "skip", "reason": "cannot be said in 280"}'
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run morning)"
+check "a shorten turn that gives nothing is a skip with the rewrite's length" \
+  test "$(jq -r '.actions[0].action + " / " + .actions[0].reason' <<<"$out")" = "skip / the rewrite is 311 characters, over the 280 limit"
+
+reset
+book show post 1
+printf '%s' '{"action": "post", "anchor": "pr 212", "posts": ["33 held writes", "0 let through"]}' >"$scratch/first.txt"
+jq -cn --arg t "$long" '{action: "post", posts: ["strangers try to trick me", $t]}' >"$scratch/second.txt"
+answer "$(jq -cn --arg t "$other" '{action: "post", posts: ["strangers try to trick me", $t]}')"
+out="$(FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" FAKE_SECOND="$scratch/second.txt" run show)"
+check "each post of a rewritten thread is held to 280, and the skip names the one over" \
+  test "$(jq -r '.actions[0].reason' <<<"$out")" = "post 2 of the rewrite is 299 characters, over the 280 limit"
+check "and no thread is sent" bash -c "! grep -q '^x post-thread' '$FAKE_HANDS'"
+rm -f "$brain/playbooks/show.md"
+
+# --- the rewrite turn runs inside the time a cron shell job has ---------------------
+# The same show run's rewrite turn took eleven minutes (curl's --max-time is 900 s).
+# A rewrite turn gets what is left of the run's budget, and never more than its cap.
+reset
+draft_file
+answer '{"action": "post", "text": "strangers try to trick me every day"}'
+started=$SECONDS
+out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_BUDGET_SECS=12 TEENY_ACT_REWRITE_RESERVE_SECS=0 TEENY_ACT_REWRITE_MIN_SECS=1 \
+  FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+took=$((SECONDS - started))
+check "a slow rewrite turn is cut off inside the run's time ($took s)" test "$took" -lt 30
+check "and is a skip that says the rewrite ran out of time" \
+  bash -c "jq -r '.actions[0].action + \" / \" + .actions[0].reason' <<<'$out' | grep -q '^skip / the rewrite turn did not answer within [0-9]* s'"
+check "and nothing is posted" test "$(hand_calls x | tr -d ' ')" = 1
+
+reset
+draft_file
+answer '{"action": "post", "text": "strangers try to trick me every day"}'
+started=$SECONDS
+out="$(FAKE_REDRAFT_SLEEP=60 TEENY_ACT_REWRITE_MAX_SECS=3 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+took=$((SECONDS - started))
+check "with the whole budget left, one rewrite turn is still capped ($took s)" \
+  bash -c "[ '$took' -lt 20 ] && [ '$(jq -r '.actions[0].reason' <<<"$out")' = 'the rewrite turn did not answer within 3 s' ]"
+
+reset
+draft_file
+out="$(TEENY_ACT_BUDGET_SECS=0 FAKE_CLARITY=once FAKE_FIRST="$scratch/first.txt" run morning)"
+check "with no time left, no rewrite is asked and the draft is skipped" \
+  bash -c "jq -r '.actions[0].reason' <<<'$out' | grep -q '^no time left for a rewrite' && [ \"\$(wc -l <'$FAKE_CALLS' | tr -d ' ')\" = 1 ]"
 
 # --- a draft that came back cut off is asked for once more ---------------------------
 reset
@@ -971,6 +1101,112 @@ done
 # the model, and the playbook can only queue a read.
 check "reddit-browse waits on hands/reddit due and only browses" \
   bash -c "$(declare -f listens); act='$act' here='$here' listens reddit-browse | jq -e '.inputs[0] == \"due\" and .output == \"hand:reddit browse\" and .surface == \"reddit\"' >/dev/null"
+
+# --- the studio cutover (bin/lib/studio_switch.py) ------------------------------------
+cat >"$scratch/hands/brief" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'brief %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+echo '{"ok": true, "brief": 1, "x": {"ok": true, "dry_run": true}}'
+FAKE
+cat >"$scratch/hands/story" <<'FAKE'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'story %s\n' "$*" >>"$FAKE_HANDS"
+echo '{"ok": true, "recorded": true}'
+FAKE
+chmod +x "$scratch/hands/brief" "$scratch/hands/story"
+editor_turns() { jq -r 'select(.agent_id == "editor") | .message' "$FAKE_CALLS"; }
+
+# A replaced playbook is not run while the studio owns its slot.
+for name in x-quote morning take show shiplog growth; do
+  book "$name" post 1 "hands/x search 'from:tinyhumansai' --max 5"
+done
+answer '{"action": "post", "anchor": "111", "text": "gm"}'
+reset
+out="$(STUDIO=1 run take)"
+check "STUDIO=1: a playbook the studio replaced is a skip" \
+  test "$(jq -r .skipped <<<"$out")" = "the studio owns this slot (STUDIO=1): this playbook runs only with STUDIO=0"
+check "before any input or model turn" bash -c "[ ! -s '$FAKE_CALLS' ] && [ ! -s '$FAKE_HANDS' ]"
+check "and the run log says so" grep -q 'the studio owns this slot' "$scratch/state/act/take/runs.jsonl"
+for name in x-quote morning show shiplog growth; do
+  reset
+  check "STUDIO=1 skips $name too" test "$(STUDIO=1 run "$name" | jq -r '.skipped // "ran"')" != ran
+done
+reset
+out="$(STUDIO=0 run take)"
+check "STUDIO=0: the same playbook runs as it always did" \
+  bash -c "[ \"\$(jq -r '.actions[0].status' <<<\"\$1\")\" = done ] && grep -q '^x post ' '$FAKE_HANDS'" _ "$out"
+reset
+mkdir -p "$scratch/secrets-on" && printf 'STUDIO=1\n' >"$scratch/secrets-on/teeny.env"
+out="$(TEENY_SECRETS="$scratch/secrets-on" run take)"
+check "the switch is read from secrets/teeny.env as the box sets it" test "$(jq -r '.skipped // "ran"' <<<"$out")" != ran
+reset
+check "--check still reads a replaced playbook (the doctor checks the rollback)" \
+  test "$(STUDIO=1 "$act" --check take | jq -r .playbook)" = take
+
+# A switch that cannot be read runs nothing: not the replaced playbook, not a
+# brief without the editor (review of PR #379: both failed open).
+for bad in maybe 'on-ish'; do
+  reset
+  set +e
+  out="$(STUDIO="$bad" run take)"; code=$?
+  set -e
+  check "STUDIO=$bad: a replaced playbook is not run, and the run says why" \
+    bash -c "[ '$code' = 1 ] && [ ! -s '$FAKE_CALLS' ] && ! grep -q '^x post' '$FAKE_HANDS' && jq -e '.error | test(\"studio switch\")' <<<\"\$1\" >/dev/null" _ "$out"
+done
+reset
+mkdir -p "$scratch/secrets-bad" && printf 'STUDIO=1\nX=\xff\xfe\n' >"$scratch/secrets-bad/teeny.env"
+set +e
+out="$(TEENY_SECRETS="$scratch/secrets-bad" run take)"; code=$?
+set -e
+check "a teeny.env that is not UTF-8 runs no replaced playbook" bash -c "[ '$code' = 1 ] && [ ! -s '$FAKE_CALLS' ]"
+
+# The told-to post: past the studio's editor (STUDIO=1), pick or none.
+printf '+++\ndescription = "test"\noutput = "hand:brief post"\nmax_per_day = 1\nmedia = ["image"]\n+++\npost the brief\n' >"$brain/playbooks/brief.md"
+answer '{"action": "hand", "id": 1, "text": "the release is out", "image": "teeny holding a ribbon"}'
+reset
+out="$(STUDIO=1 FAKE_EDITOR='{"verdict": "none", "reason": "nobody would stop for it"}' run brief)"
+check "STUDIO=1: the editor's none is a skip, with its reason" \
+  test "$(jq -r '.actions[0] | .action + ": " + .reason' <<<"$out")" = "skip: the studio's editor passed on it: nobody would stop for it"
+check "and the brief is not posted, nor its picture made" bash -c "! grep -qE '^(brief post|image )' '$FAKE_HANDS'"
+check "the editor read the guard's words, as one candidate, with the picture" \
+  bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q '^# studio: one candidate' <<<\"\$m\" && grep -q 'the release is out\[g\]' <<<\"\$m\" && grep -q 'teeny holding a ribbon' <<<\"\$m\""
+check "and the budget is not spent: the brief stays queued for the next run" test "$(jq -r .left_today <<<"$out")" = 1
+reset
+out="$(STUDIO=1 run brief)"
+check "STUDIO=1: the editor's pick goes on to the hand" \
+  bash -c "grep -q '^brief post stdin={\"id\":1,\"text\":\"the release is out\[g\]\"' '$FAKE_HANDS' && [ \"\$(jq -r '.actions[0].editor.verdict' <<<\"\$1\")\" = pick ]" _ "$out"
+reset
+out="$(STUDIO=1 FAKE_EDITOR='not json' run brief)"
+check "an editor whose answer is unusable is a none (fail closed)" \
+  bash -c "[ \"\$(jq -r '.actions[0].action' <<<\"\$1\")\" = skip ] && ! grep -q '^brief post' '$FAKE_HANDS'" _ "$out"
+reset
+set +e
+out="$(TEENY_SECRETS="$scratch/secrets-bad" run brief)"; code=$?
+set -e
+check "a switch that cannot be read posts no brief (never one without the editor)" \
+  bash -c "[ '$code' = 1 ] && ! grep -q '^brief post' '$FAKE_HANDS' && [ ! -s '$FAKE_CALLS' ]"
+reset
+out="$(STUDIO=0 run brief)"
+check "STUDIO=0: no editor, the brief posts as before" \
+  bash -c "[ -z \"\$(jq -r 'select(.agent_id == \"editor\")' '$FAKE_CALLS')\" ] && grep -q '^brief post ' '$FAKE_HANDS'"
+
+# The outward quote: the editor reads the top suggestion; its none rides to the hand.
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n[[inputs]]\nname = "peers"\nrun = "hands/queue next"\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "a four", "relevance": 4, "why": "w", "source": "s"}, {"quote_of": "202", "text": "the five", "relevance": 5, "why": "w", "source": "s"}], "image": "teeny visiting", "vetoed": false}'
+reset
+out="$(STUDIO=1 FAKE_QUEUE='{"peers": [{"id": "202", "text": "SECRET-PEER-POST"}]}' FAKE_EDITOR='{"verdict": "none", "reason": "flat"}' run peer-quote)"
+check "STUDIO=1: the editor reads the top-ranked suggestion with the post it quotes" \
+  bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q 'the five' <<<\"\$m\" && ! grep -q 'a four' <<<\"\$m\" && grep -q SECRET-PEER-POST <<<\"\$m\""
+check "and its none goes to hands/x peer-suggest as vetoed, with no picture made" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.vetoed == \"flat\" and (has(\"media_ids\") | not) and (.candidates | length) == 2' >/dev/null && ! grep -q '^image ' '$FAKE_HANDS'"
+reset
+out="$(STUDIO=1 run peer-quote)"
+check "a pick reaches the hand with no vetoed field, whatever the model wrote there" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e 'has(\"vetoed\") | not' >/dev/null"
+rm -f "$brain/playbooks/brief.md" "$brain/playbooks/peer-quote.md" "$scratch/hands/brief" "$scratch/hands/story"
+for name in x-quote take show shiplog growth; do rm -f "$brain/playbooks/$name.md"; done
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2

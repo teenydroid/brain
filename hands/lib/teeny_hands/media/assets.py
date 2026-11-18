@@ -1,11 +1,18 @@
 """Images and videos Teeny makes for its posts, bought on Surplus.
 
-  hands/image generate {prompt}                 one still of Teeny, saved to state/media/
+  hands/image generate {prompt, alt?}           one still of Teeny, saved to state/media/
   hands/video generate {prompt, image_prompt?}  a still, then animated
+  hands/image scenes [--last N]                 what the last pictures showed, and the words they repeat
 
 Both write a `media_assets` row (what was asked, which model made it, what it
 cost, the file) and return the path, which `hands/x upload --file` takes. They
 publish nothing: a post attaches a file only through hands/x.
+
+A still is kept under X's 5 MB limit for an image (media/fit.py): one over
+it is re-encoded and, if need be, scaled before it is written, so a paid
+picture is never one X refuses at upload. `alt`, when given, is kept on the
+row (`alt`) for `hands/x upload --alt`: what the picture shows, for people
+who cannot see it.
 
 Every image is an edit of Teeny's character sheet (brain/assets/
 teeny-reference.png, MEDIA_REFERENCE): the prompt says what Teeny is doing and
@@ -27,18 +34,23 @@ default) answers what would be generated and spends nothing.
 from __future__ import annotations
 
 import base64
+import json
+import re
+import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from .. import hand
+from . import fit
 from .surplus import Surplus, SurplusError
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video')),
-  status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')),
+  status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'unknown')),
   prompt      TEXT NOT NULL,
   model       TEXT,
   job_id      TEXT,
@@ -65,6 +77,8 @@ CHARACTER = (
     "One Teeny, no text, no labels, no character sheet."
 )
 MAX_PROMPT = 1500
+#: X's longest alt text, in characters.
+MAX_ALT = 1000
 IMAGE_MAX_BYTES = 20 * 1024 * 1024
 VIDEO_MAX_BYTES = 200 * 1024 * 1024
 VIDEO_SECONDS = 5
@@ -77,7 +91,68 @@ Json = dict[str, Any]
 
 
 def _db():
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    allow_reel_kinds(conn)
+    hand.add_columns(conn, "media_assets", {"detail": "TEXT", "alt": "TEXT"})
+    return conn
+
+
+KINDS_CHECK = "kind IN ('image', 'video', 'reel', 'song', 'music', 'meme', 'comic')"
+STATUS_CHECK = "status IN ('pending', 'done', 'failed', 'unknown')"
+
+
+def allow_reel_kinds(conn) -> None:
+    """A ledger made before hands/reel checks `kind` against image and video
+    and `status` against pending, done and failed, and SQLite cannot alter a
+    check: the table is rebuilt once, rows and columns as they are, with
+    `reel` (a clip with voice and captions), `song` (a song as a video),
+    `music` (a bought track), `meme` and `comic` (hands/meme's pictures with
+    words drawn on) allowed, and the status `unknown` (money was
+    committed and the outcome is not known: it counts as spent), as
+    x/posting_rules.py does for threads.
+
+    The rebuild is one transaction: interrupted, nothing changes and the next
+    call tries again. A concurrent migrator waits on the write lock and then
+    finds it done. Rows whose source_id names no row (an orphan from before)
+    are copied as they are and named on stderr; they were already there and
+    nothing reads that link to decide anything. If the rebuild fails for any
+    other reason it is rolled back and named on stderr, and the ledger stays
+    as it was, so hands/image and hands/video keep working; only a new kind
+    or status is refused, by the check itself."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
+    if row is None or (KINDS_CHECK in row[0] and STATUS_CHECK in row[0]):
+        return
+    rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?media_assets\"?", "CREATE TABLE media_assets_new", row[0], count=1)
+    rebuilt = re.sub(r"kind IN \([^)]*\)", KINDS_CHECK, rebuilt, count=1)
+    rebuilt = re.sub(r"status IN \([^)]*\)", STATUS_CHECK, rebuilt, count=1)
+    # SQLite's own recipe for a table rebuild: foreign keys off (a video's
+    # source_id names a still in the same table, and dropping the old table
+    # would count every such row as a violation), checked after, then on.
+    # The pragma cannot change inside a transaction.
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        orphans_before = len(conn.execute("PRAGMA foreign_key_check(media_assets)").fetchall())
+        with hand.transaction(conn):
+            again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
+            if KINDS_CHECK in again[0] and STATUS_CHECK in again[0]:
+                return
+            conn.execute("DROP TABLE IF EXISTS media_assets_new")
+            conn.execute(rebuilt)
+            conn.execute("INSERT INTO media_assets_new SELECT * FROM media_assets")
+            conn.execute("DROP TABLE media_assets")
+            conn.execute("ALTER TABLE media_assets_new RENAME TO media_assets")
+            conn.execute("CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at)")
+            orphans = len(conn.execute("PRAGMA foreign_key_check(media_assets)").fetchall())
+            if orphans > orphans_before:
+                raise sqlite3.IntegrityError(f"the rebuild left {orphans - orphans_before} new orphan source_id(s)")
+        if orphans_before:
+            print(f"media_assets: {orphans_before} row(s) name a source_id that is gone; kept as they were", file=sys.stderr)
+    except sqlite3.Error as exc:
+        if "locked" in str(exc):
+            raise
+        print(f"media_assets: not rebuilt for hands/reel ({exc}); the ledger is unchanged", file=sys.stderr)
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _models(name: str, default: str) -> list[str]:
@@ -103,6 +178,20 @@ def _prompt(body: Any, key: str = "prompt") -> str:
         raise hand.Refused(f"a {key} is at most {MAX_PROMPT} characters")
     style = (hand.setting("MEDIA_STYLE") or "").strip()
     return f"{text}. {style}" if style else text
+
+
+def alt_text(body: Any) -> str | None:
+    """The body's `alt`: None when absent, else a non-blank string of at
+    most MAX_ALT characters, whitespace folded."""
+    if not isinstance(body, dict) or body.get("alt") is None:
+        return None
+    alt = body["alt"]
+    if not isinstance(alt, str) or not alt.strip():
+        raise hand.Refused("alt must be a non-empty string", rule="alt")
+    alt = " ".join(alt.split())
+    if len(alt) > MAX_ALT:
+        raise hand.Refused(f"alt text is at most {MAX_ALT} characters (X's limit)", rule="alt")
+    return alt
 
 
 def _spent_today(conn) -> int:
@@ -173,11 +262,13 @@ def _image_estimate(api: Surplus, model: str) -> int:
     return int(round(price))
 
 
-def _insert(conn, kind: str, prompt: str, source_id: int | None = None, purpose: str = "post") -> int:
+def _insert(conn, kind: str, prompt: str, source_id: int | None = None, purpose: str = "post",
+            alt: str | None = None) -> int:
     with hand.transaction(conn):
         return conn.execute(
-            "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, created_at) VALUES (?, 'pending', ?, ?, ?, ?)",
-            (kind, prompt, source_id, purpose, hand.now()),
+            "INSERT INTO media_assets (kind, status, prompt, source_id, purpose, alt, created_at)"
+            " VALUES (?, 'pending', ?, ?, ?, ?, ?)",
+            (kind, prompt, source_id, purpose, alt, hand.now()),
         ).lastrowid
 
 
@@ -190,6 +281,7 @@ def _finish(conn, asset_id: int, **fields: Any) -> None:
 
 def _public(row) -> Json:
     out = {k: row[k] for k in ("id", "kind", "status", "purpose", "prompt", "model", "path", "error")}
+    out["alt"] = row["alt"] if "alt" in row.keys() else None
     out["cost_usd"] = round(row["cost_micro"] / 1e6, 6)
     out["cost_estimated"] = bool(row["estimated"])
     if row["source_id"]:
@@ -197,10 +289,11 @@ def _public(row) -> Json:
     return out
 
 
-def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
-    """One still: a pending row, each model in turn, the file. Caps checked
-    before the first call; for a video's start frame the video's caps hold."""
-    asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post")
+def _make_image(conn, api: Surplus, prompt: str, source_of: str | None, alt: str | None = None) -> Json:
+    """One still: a pending row, each model in turn, the file, under X's
+    5 MB limit. Caps checked before the first call; for a video's start frame
+    the video's caps hold."""
+    asset_id = _insert(conn, "image", prompt, None, "video_frame" if source_of else "post", alt)
     reference_path = hand.root() / (hand.setting("MEDIA_REFERENCE") or REFERENCE)
     if not reference_path.is_file():
         _finish(conn, asset_id, status="failed", error=f"no reference image at {reference_path.name}")
@@ -234,6 +327,17 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
         if ext not in ("png", "jpg", "webp"):
             tried.append(f"{model}: the answer is not an image")
             continue
+        # The picture is paid for: a failure to shrink it is recorded on the
+        # row with what it cost, never dropped.
+        detail = None
+        try:
+            data, ext, shrunk = fit.under_limit(data, ext)
+        except (hand.HandError, hand.Refused) as exc:
+            shrunk = None
+            detail = f"kept over X's image limit: {getattr(exc, 'reason', None) or exc}"
+            print(f"hands/image: picture {asset_id} is {len(data):,} bytes, over X's limit ({detail})", file=sys.stderr)
+        if shrunk:
+            detail = json.dumps({"shrunk": shrunk})
         path = _media_dir() / f"image-{asset_id}.{ext}"
         path.write_bytes(data)
         _finish(
@@ -244,6 +348,7 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
             path=str(path.relative_to(hand.root())),
             cost_micro=estimate,
             estimated=1,
+            detail=detail,
         )
         return _public(conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone())
     _finish(conn, asset_id, status="failed", error="; ".join(tried)[:1000] or "no image model configured")
@@ -252,14 +357,16 @@ def _make_image(conn, api: Surplus, prompt: str, source_of: str | None) -> Json:
 
 def generate_image(body: Any, api: Surplus | None = None) -> Json:
     prompt = _prompt(body)
+    alt = alt_text(body)
     if hand.dry_run():
-        return {"dry_run": True, "would_generate": "image", "prompt": prompt, "models": _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)}
+        return {"dry_run": True, "would_generate": "image", "prompt": prompt, "alt": alt,
+                "models": _models("MEDIA_IMAGE_MODELS", IMAGE_MODELS)}
     api = api or Surplus()
     with hand.lock("media"):
         conn = _db()
         try:
             _check_caps(conn, "image", 0)
-            return {"asset": _make_image(conn, api, prompt, None)}
+            return {"asset": _make_image(conn, api, prompt, None, alt)}
         finally:
             conn.close()
 
@@ -394,3 +501,47 @@ def get(asset_id: int) -> Json:
         conn.close()
 
 
+
+
+#: Words too common to say anything about a scene.
+_STOP = frozenset("""
+a an the and or but of in on at to for with from by into onto over under up down out off as is are was were be
+its it this that these those his her their our your my me i we you they he she them us one two some any all every
+each very just still while then than so not no yes only same small big little smol tiny teeny robot's
+""".split())
+_WORD = re.compile(r"[a-z][a-z'-]{2,}")
+
+
+def _scene(prompt: str, style: str) -> str:
+    """The scene as the writer asked for it: the house style appended by
+    `_prompt` taken off again."""
+    if style and prompt.endswith(f". {style}"):
+        return prompt[: -len(style) - 2]
+    return prompt
+
+
+def scenes(last: int) -> Json:
+    """`scenes --last N`: the scenes of the last N pictures made for posts,
+    newest first, and every word (past the common ones) that two or more of
+    them share, with how many pictures it is in. A report for the writer,
+    who decides what to draw next; this judges nothing."""
+    style = (hand.setting("MEDIA_STYLE") or "").strip()
+    conn = _db()
+    try:
+        rows = conn.execute(
+            "SELECT id, prompt, created_at FROM media_assets WHERE kind = 'image' AND purpose = 'post'"
+            " AND status = 'done' ORDER BY id DESC LIMIT ?",
+            (last,),
+        ).fetchall()
+    finally:
+        conn.close()
+    shown = [{"id": r["id"], "at": r["created_at"], "scene": _scene(r["prompt"], style)} for r in rows]
+    counts: dict[str, int] = {}
+    for item in shown:
+        words = {w.strip("'-") for w in _WORD.findall(item["scene"].lower())}
+        for word in words:
+            if len(word) > 2 and word not in _STOP:
+                counts[word] = counts.get(word, 0) + 1
+    repeated = sorted(((w, n) for w, n in counts.items() if n >= 2), key=lambda wn: (-wn[1], wn[0]))
+    return {"pictures": len(shown), "scenes": shown,
+            "repeated": [{"word": w, "pictures": n} for w, n in repeated[:20]]}

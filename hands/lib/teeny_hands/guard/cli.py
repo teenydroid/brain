@@ -20,12 +20,24 @@
             whether an own post says something specific about its anchor that
             the inputs support (anchor.py; bin/act asks before a post). A
             verdict, never a hold: anything but a clear yes is anchored false
+  truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged"}:
+            whether every factual claim in the text is supported by `facts`, the
+            non-empty list of desk items and inputs it may draw on (anchor.py,
+            `truth`). A verdict, never a hold: anything but a clear yes is
+            truthful false. Off (TRUTH_JUDGE=0) it is truthful true with judged
+            false, so a caller that needs a judgment checks `judged`
   clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
-            "reason", "judged"}: whether someone who has never heard of Teeny
+            "vague", "reason", "judged"}: whether someone who has never heard of Teeny
             could say the post back with nothing to ask about (clarity.py;
             bin/act and bin/tick ask before an own post). `meaning` is what
             the author meant it to say, `quoted` the post it quotes. A
             verdict, never a hold: anything but a clear yes is clear false
+  view      stdin {"image", "intent", "caption"?} -> {"ok", "sees", "on_model",
+            "readable", "reason", "judged"}: whether a vision model that has never
+            heard of Teeny sees Teeny on model, can read `caption` and takes
+            `intent` from the picture (viewer.py). A verdict, never a hold:
+            anything but a clear yes is ok false. Off (VIEWER_JUDGE=0) it is ok
+            true with judged false. Nothing posts through it yet
 
 `approve` records the decision and carries out what needs no other hand
 (allowlisting a cut link). `release` approves a withheld draft by publishing
@@ -43,7 +55,7 @@ import argparse
 from typing import Any, Mapping
 
 from .. import hand
-from . import anchor, clarity, gate, holds
+from . import anchor, clarity, gate, holds, viewer
 from .links import parse_allowlist
 from .style import apply_house_style, count_emoji, post_length
 
@@ -103,12 +115,34 @@ def anchor_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     return anchor.judge(body["text"], name.strip(), body.get("inputs"))
 
 
+def truth_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    body = _body(body, "facts")
+    if not body["text"].strip():
+        raise hand.HandError("text must not be empty")
+    if not isinstance(body.get("facts"), list) or not body["facts"]:
+        raise hand.HandError("facts must be a non-empty list of the items the text may draw on")
+    return anchor.truth(body["text"], body["facts"])
+
+
 def clarity_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     body = _body(body, "meaning", "quoted")
     if not body["text"].strip():
         raise hand.HandError("text must not be empty")
     return clarity.judge(body["text"], _optional(body, "meaning", str, "a string"),
                          _optional(body, "quoted", str, "a string"))
+
+
+def view_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
+    if not isinstance(body, dict):
+        raise hand.HandError("stdin must be a JSON object with an image and an intent")
+    unknown = set(body) - {"image", "intent", "caption"}
+    if unknown:
+        raise hand.HandError(f"unknown field(s): {', '.join(sorted(unknown))}")
+    if not isinstance(body.get("image"), str) or not body["image"].strip():
+        raise hand.HandError("image must be the path of a picture under state/media/ or brain/assets/")
+    if not isinstance(body.get("intent"), str) or not body["intent"].strip():
+        raise hand.HandError("intent must say what the picture is meant to get across")
+    return viewer.view(body["image"], body["intent"], _optional(body, "caption", str, "a string"))
 
 
 def _field_names(value: str) -> list[str]:
@@ -279,7 +313,8 @@ def parser() -> argparse.ArgumentParser:
     check_p = verbs.add_parser("check")
     check_p.add_argument("--fields", metavar="A,B", help="screen these fields of the body, not its text")
     check_p.set_defaults(handler=check, takes_body=True)
-    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("clarity", clarity_check)):
+    for name, handler in (("inbound", inbound), ("style", style), ("anchor", anchor_check), ("truth", truth_check),
+                          ("clarity", clarity_check), ("view", view_check)):
         verbs.add_parser(name).set_defaults(handler=handler, takes_body=True)
 
     holds_p = verbs.add_parser("holds").add_subparsers(dest="action")

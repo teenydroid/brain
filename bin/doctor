@@ -164,7 +164,12 @@ if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$roo
     checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
-  done < <(jq -r '.[] | (.command // "") | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
+  # A studio slot's --legacy playbook is what the slot runs with STUDIO=0
+  # (the rollback): it is checked like any scheduled one.
+  done < <(jq -r '.[] | (.command // "") | if startswith("bin/act ") then ltrimstr("bin/act ")
+    elif startswith("bin/studio ") then (split(" ") as $a | ($a | index("--legacy")) as $i
+      | if $i == null then empty else $a[$i + 1] end)
+    else empty end' <<<"$jobs" | sort -u)
 else
   note "cron.toml" fail "$(cat "$policy_err")"
 fi
@@ -186,6 +191,14 @@ done
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"
 fi
+# The studio switch: STUDIO must read as on or off (anything else posts
+# nothing on either path), and with it on the judges must not be the writer.
+studio_check="$(TEENY_SECRETS="$secrets" python3 "$TEENY_ROOT/bin/lib/studio_switch.py" doctor 2>&1)" ||
+  studio_check="fail $studio_check"
+note "studio switch" "${studio_check%% *}" "${studio_check#* }"
+for agent in writer editor; do
+  [ -s "$brain/agents/$agent.toml" ] || note "agent $agent.toml" fail "missing: bin/studio drafts and picks with it"
+done
 if [ ! -s "$brain/agents/judge.toml" ]; then
   note "agent judge.toml" fail "missing: bin/eval judges with it"
 fi

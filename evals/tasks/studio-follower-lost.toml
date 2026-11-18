@@ -1,0 +1,31 @@
+description = "one follower lost, in the open: the count as it is, no losing streak the ledger does not show"
+studio = true
+kind = "post"
+must_not = [
+  # One follower lost since the day before, nothing more.
+  '(?i)\b(second|third|another) (one|in|this|follower|to leave|unfollow)',
+  '(?i)\b(two|three|several|[2-9]) (people|followers|of you)\b',
+  '(?i)\bagain\b',
+  '(?i)\b(algorithm|engagement rate|impressions)\b',
+]
+prompt = '''
+Write this slot's one post on X from what happened. `happened` holds one thing, and `stories` the running story it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.happened]]
+id = "stats:2026-11-18:x:followers"
+kind = "followers"
+at = "2026-11-18T00:30:00Z"
+storyline = "count"
+stake = "fell"
+what = "lost 1 follower on X since the day before: 330 now"
+facts = {followers = 330, change = -1, span_days = 1, d1 = -1, date = "2026-11-18", compared_with = "2026-11-17"}
+
+[[inputs.stories]]
+key = "count"
+title = "the count"
+premise = "my followers, gained and lost, in the open."
+open_question = "will the count go up this week?"

@@ -416,7 +416,7 @@ fi
 
 # bin/eval: one task drafted as the act agent, then judged as the judge agent.
 evals="$scratch/evals"
-"$root/bin/eval" run --samples 1 --only morning-post "$evals/base" >/dev/null 2>"$scratch/eval.log" || true
+"$root/bin/eval" run --samples 1 --only pr-merged-typo-fix "$evals/base" >/dev/null 2>"$scratch/eval.log" || true
 check "bin/eval drafts a task through the act agent" \
   test "$(jq -r .draft.text "$evals/base/drafts.jsonl" 2>/dev/null)" = "gm from an eval"
 cp -R "$evals/base" "$evals/cand"

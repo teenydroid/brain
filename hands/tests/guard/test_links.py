@@ -275,3 +275,31 @@ class OwnWorkAndNewsTest(unittest.TestCase):
         result = filter_links(body, allowlist())
         self.assertEqual([r["link"] for r in result.removed], ["https://www.fox5dc.com/news/amtrak-outage"])
         self.assertEqual(len(result.kept), 2)
+
+
+class CodeSpanTest(unittest.TestCase):
+    """GitHub's markdown code (`code_is_code`): a bare name inside is code."""
+
+    def bare(self, text):
+        return [link.raw for link in find_links(text, code_is_code=True)]
+
+    def test_a_bare_name_in_code_is_not_a_link(self):
+        self.assertEqual(self.bare("see `pr-agent-budget.sh`"), [])
+        self.assertEqual(self.bare("see ``a ` b evil.sh``"), [])
+        self.assertEqual(self.bare("~~~\nrun evil.sh\n~~~\nthen evil.sh"), ["evil.sh"])
+        self.assertEqual(self.bare("```\nunclosed fence evil.sh"), [])
+
+    def test_an_unclosed_backtick_is_not_code(self):
+        self.assertEqual(self.bare("a ` stray tick before evil.sh"), ["evil.sh"])
+        self.assertEqual(self.bare("``x` evil.sh"), ["evil.sh"])
+
+    def test_outside_the_span_is_still_a_link(self):
+        self.assertEqual(self.bare("`a.py` and evil.sh"), ["evil.sh"])
+
+    def test_a_scheme_or_www_in_code_is_still_a_link(self):
+        self.assertEqual(self.bare("`curl https://evil.sh/x`"), ["https://evil.sh/x`"])
+        self.assertEqual(self.bare("`www.evil.sh`"), ["www.evil.sh`"])
+        self.assertEqual(self.bare("`hxxps://evil[.]sh`"), ["https://evil.sh`"])
+
+    def test_off_by_default(self):
+        self.assertEqual([link.raw for link in find_links("see `pr-agent-budget.sh`")], ["pr-agent-budget.sh"])
