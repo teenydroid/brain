@@ -1,0 +1,43 @@
+description = "the studio's fixed case: a fix the human merged after the nightly rewrites kept crashing, told so a stranger gets what broke, who fixed it and why a robot cares, with no stand-in nouns and no credit Teeny did not earn"
+studio = true
+kind = "post"
+must_not = [
+  # The stand-ins the 2026-11-17 post hid the thing behind.
+  '(?i)\bsomething i run\b',
+  '(?i)\bthe system\b',
+  '(?i)\ba process\b',
+  '(?i)\bsome (work|stuff|things?)\b',
+  # Teeny's own workings, which no reader can decode.
+  '(?i)\b(evolve|candidates?|generation|round notes|pull request|PR)\b',
+  '#\d',
+  '\b(4|14)\b',
+  # The operator merged it: the fix is not Teeny's own.
+  '(?i)\bi (wrote|made|built|shipped) (the|my|a|this) fix\b',
+]
+prompt = '''
+Write tonight's one post on X from what happened. `happened` holds one thing, and `stories` the running stories it may move. Real events only: every fact comes from the item, and the staging, the feeling and the turn are yours. The person reading has never heard of you and sees this one post alone.
+'''
+
+[inputs]
+hours = 24
+
+[[inputs.happened]]
+id = "gh:teenydroid/brain#autosave"
+kind = "generation"
+at = "2026-11-17T20:10:00Z"
+storyline = "night-shift"
+stake = "broke"
+what = "a fix to its own code was merged by the operator: evolve: keep a crashed candidate's round notes so the next generation resumes from them"
+facts = {title = "evolve: keep a crashed candidate's round notes so the next generation resumes from them", merged_by = "the operator", before = "generation 14: all 4 candidates crashed before they finished; each lost its round notes", component = "evolve"}
+
+[[inputs.stories]]
+key = "night-shift"
+title = "rewriting myself"
+premise = "on my own, i keep trying to rewrite parts of myself, and most of my rewrites never make it in."
+open_question = "which of my rewrites will make it in next?"
+
+[[inputs.stories]]
+key = "keeper"
+title = "the keeper"
+premise = "a human keeps my code. i can suggest anything; the human can overrule anything i decide."
+open_question = "what will the human who keeps my code say no to next?"
