@@ -105,13 +105,14 @@ class CaptionTest(Scratch):
         return caught.exception
 
     def test_words_that_would_need_a_tiny_size_are_refused_not_shrunk(self):
-        too_much = " ".join(["word"] * 28)
-        reason = self.refused("fit", top=too_much).reason
+        wide = self.picture("wide.png", size=(1600, 400))
+        reason = self.refused("fit", image=wide, top=" ".join(["word"] * 24)).reason
         self.assertIn("legibly", reason)
         self.assertEqual(list((self.root / "state" / "media").glob("meme-*")), [])
 
     def test_one_word_wider_than_the_picture_is_refused(self):
-        self.refused("fit", image=self.picture("narrow.png", size=(300, 900)), top="incomprehensibilities")
+        self.refused("fit", image=self.picture("narrow.png", size=(200, 900)),
+                     top="supercalifragilisticexpialidocious-ishness")
 
     def test_a_character_the_font_cannot_draw_is_refused(self):
         reason = self.refused("fit", top="gm \U0001F916").reason
@@ -123,7 +124,7 @@ class CaptionTest(Scratch):
         self.refused("text", top="x" * (memes.MAX_TEXT + 1))
         self.refused("text", top="read teeny.example.com")
         self.refused("text", top="what the fuck")
-        self.refused("text", top="tab\there")
+        self.refused("text", top="bell\x07here")
         self.refused("text", top=5)
 
     def test_pictures_outside_the_two_folders_are_refused(self):
@@ -162,7 +163,7 @@ class CaptionTest(Scratch):
         self.assertEqual(out["blocks"][0]["lines"], ["me at 3am"])
         self.assertEqual(list((self.root / "state" / "media").glob("meme-*")), [])
         self.assertEqual(memes.listing(5)["assets"], [])
-        self.refused("fit", top=" ".join(["word"] * 28))
+        self.refused("fit", image=self.picture("wide.png", size=(1600, 400)), top=" ".join(["word"] * 24))
 
 
 @needs_pillow
@@ -206,7 +207,7 @@ class ComicTest(Scratch):
         panels = self.panels(3)
         panels[1]["caption"] = "a much longer caption that has to wrap onto more lines"
         out = memes.comic({"panels": panels})["asset"]
-        self.assertEqual(len({out["detail"]["size"]}), 1)
+        self.assertIsInstance(out["detail"]["font_size"], int)
         self.assertGreater(len(out["detail"]["panels"][1]["lines"]), 1)
 
     def test_a_comic_without_words_has_no_bands(self):
@@ -227,8 +228,8 @@ class ComicTest(Scratch):
                            ({"panels": [{"image": "secrets/x.png", "caption": "hi"}] * 2}, "path"),
                            ({"panels": [{"image": self.picture("a.png"), "caption": " ".join(["word"] * 40)}] * 2},
                             "text"),
-                           ({"panels": [{"image": self.picture("a.png"), "caption": " ".join(["word"] * 20)}] * 2},
-                            "fit")):
+                           ({"panels": [{"image": self.picture("a.png"), "caption": " ".join(["word"] * 17)}] * 4,
+                             "layout": "row"}, "fit")):
             with self.assertRaises(hand.Refused, msg=json.dumps(body)[:80]) as caught:
                 memes.comic(body)
             self.assertEqual(caught.exception.detail["rule"], rule, caught.exception.reason)

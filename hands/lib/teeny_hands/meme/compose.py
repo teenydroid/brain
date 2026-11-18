@@ -308,7 +308,7 @@ GUTTER = 16
 def comic(images: list[Any], captions: list[str | None], layout: str, position: str) -> tuple[Any, dict[str, Any]]:
     """2 to 4 pictures in one frame, each cropped to its cell, each with its
     caption lettered on a white band under (or over) it, all at one size,
-    on a near-black ground. How it was set: {layout, cell, size, panels}."""
+    on a near-black ground. How it was set: {layout, cell, font_size, panels}."""
     Image, ImageDraw, _, ImageOps = _pil()
     count = len(images)
     if layout == "grid" and count != 4:
@@ -350,5 +350,5 @@ def comic(images: list[Any], captions: list[str | None], layout: str, position: 
             if block is not None:
                 _draw(draw, block, x + cell_w / 2, band_y + (band - block.height) / 2, INK, None)
     size = next((b.size for b in blocks if b is not None), None)
-    return frame, {"layout": layout, "cell": [cell_w, cell_h], "size": size,
+    return frame, {"layout": layout, "cell": [cell_w, cell_h], "font_size": size,
                    "panels": [{"lines": list(b.lines) if b else []} for b in blocks]}
