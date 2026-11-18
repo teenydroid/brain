@@ -243,6 +243,27 @@ class EditRepair(EvolveCase):
         self.assertIn(path, seen[1]["keep"])
 
 
+class IgnoredPaths(EvolveCase):
+    def test_an_edit_may_not_write_a_chronicle_page(self):
+        """The chronicle is written on the box from the record, and git
+        ignores it: staging would drop a candidate's page without a word,
+        so the edit is refused by name instead."""
+        tree = self.worktree("t")
+        with self.assertRaisesRegex(evolve.EvolveError, "brain/narrative/chronicle/gen-9.md is runtime output"):
+            evolve.apply_edits(tree, [self.playbook_edit("Name the person who shipped it."),
+                                      {"path": "brain/narrative/chronicle/gen-9.md", "old": "", "new": "# gen-9\n"}])
+        self.assertFalse((tree / "brain" / "narrative" / "chronicle").exists())
+
+    def test_the_other_narrative_files_stay_editable(self):
+        tree = self.worktree("t")
+        text = (tree / "brain" / "narrative" / "ARCS.md").read_text(encoding="utf-8")
+        last = text.rstrip().splitlines()[-1]
+        evolve.apply_edits(tree, [{"path": "brain/narrative/ARCS.md", "old": last, "new": f"{last}\n\nmore."},
+                                  {"path": "brain/narrative/NEW.md", "old": "", "new": "new.\n"}])
+        self.assertIn("more.", (tree / "brain" / "narrative" / "ARCS.md").read_text(encoding="utf-8"))
+        self.assertTrue((tree / "brain" / "narrative" / "NEW.md").is_file())
+
+
 class AskRepairText(unittest.TestCase):
     def test_the_edit_repair_turn_shows_the_passage_and_asks_for_the_edits_alone(self):
         messages = []

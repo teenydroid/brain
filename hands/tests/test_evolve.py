@@ -1155,7 +1155,7 @@ class Credit(EvolveCase):
         shutil.copy(REPO / ".gitignore", self.root / ".gitignore")
         git("init", "-q", str(self.root))
         git("add", "-A", cwd=self.root)
-        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base", cwd=self.root)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base", cwd=self.root)
         evolve.record({"id": "g5c1", "gen": 5, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
                        "pr_number": 9})
         pub = FakePublisher()
