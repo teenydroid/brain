@@ -3044,7 +3044,7 @@ def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
 
 def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_hands: list[str],
                    component: str | None, evidence: Mapping[str, Any] | None) -> list[Json]:
-    """What the change is for, in four narrow checks, each {check, ok, detail}."""
+    """What the change is for, in five narrow checks, each {check, ok, detail}."""
     checks: list[Json] = []
     unread = unread_components(evidence)
     if component and component in unread:
