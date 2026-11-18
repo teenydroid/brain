@@ -70,9 +70,25 @@ KIND_STORY = {
     "mention": "strangers",
 }
 
-#: Evolve verdicts that mean a rewrite was thrown out, and the stake each has.
+#: Evolve verdicts that mean a rewrite was thrown out: the stake each has,
+#: and what happened to it in plain words.
 THROWN = {"rejected": "refused", "lost": "refused", "regressed": "refused", "parked": "refused",
           "crashed": "broke", "pr-error": "broke"}
+VERDICT_WORDS = {
+    "rejected": "was rejected by the reviewer",
+    "lost": "lost to another rewrite the same night",
+    "regressed": "made things worse in testing and was thrown out",
+    "parked": "kept failing its checks and was set aside",
+    "crashed": "crashed before it was finished",
+    "pr-error": "could not be sent for review",
+}
+#: A health alarm's ref prefix (bin/lib/health.py) -> what stopped, and
+#: what came back.
+ALARMS = {
+    "outage": ("its model stopped answering", "its model answers again"),
+    "cron": ("some of its scheduled jobs stopped running", "its scheduled jobs run on time again"),
+    "act": ("the model failed every draft it tried to write", "its drafts are answered again"),
+}
 #: A payment's status -> its stake; `pending` is not an event yet.
 PAYMENT_STAKE = {"paid": "money", "failed": "broke", "in_doubt": "broke", "refused": "refused"}
 SWEEP_STAKE = {"paid": "money", "sent": "money", "failed": "broke", "in_doubt": "broke", "refused": "refused"}
@@ -166,7 +182,7 @@ def thrown(since: float) -> list[Json]:
         why = entry.get("reason") or entry.get("eval_reason")
         rounds = entry.get("rounds")
         title = entry.get("title")
-        what = f"a rewrite was {entry['verdict']}" + (f": {title}" if title else "")
+        what = f"a rewrite of itself {VERDICT_WORDS[entry['verdict']]}" + (f": {title}" if title else "")
         out.append(_item("generation_thrown", at, stake, what,
                          {"gen": entry.get("gen"), "verdict": entry["verdict"], "title": title,
                           "component": entry.get("component"), "reason": _cut(why, 300) if why else None,
@@ -272,16 +288,19 @@ def outages(ledger: Ledger, since: float) -> list[Json]:
     out = []
     for r in _stimuli(ledger, "health", ("alarm", "recovered"), since):
         payload = _payload(r)
-        first = payload.get("first_failed_at")
+        stopped, back_again = ALARMS.get(str(r["ref"]).partition(":")[0], ("something stopped working", "it works again"))
+        first = next((payload[k] for k in ("first_failed_at", "since", "opened_at")
+                      if isinstance(payload.get(k), (int, float))), None)
         if r["kind"] == "alarm":
-            what = "its model stopped answering" + (f" (since {store.iso(first)})" if isinstance(first, (int, float)) else "")
+            what = stopped + (f" (since {store.iso(first)})" if first is not None else "")
         else:
             back = payload.get("recovered_at")
-            minutes = round((back - first) / 60) if isinstance(back, (int, float)) and isinstance(first, (int, float)) else None
-            what = "its model answers again" + (f" after about {minutes} minutes down" if minutes is not None else "")
+            minutes = round((back - first) / 60) if isinstance(back, (int, float)) and first is not None else None
+            what = back_again + (f" after about {minutes} minutes" if minutes is not None else "")
         out.append(_item("outage", r["at"], "broke", what,
-                         {"event": r["kind"], "first_failed_at": store.iso(first) if isinstance(first, (int, float)) else None,
-                          "failures": payload.get("failures"), "issue": payload.get("issue")}, f"stimuli:{r['id']}"))
+                         {"event": r["kind"], "what_stopped": str(r["ref"]).partition(":")[0],
+                          "since": store.iso(first), "failures": payload.get("failures"),
+                          "issue": payload.get("issue")}, f"stimuli:{r['id']}"))
     return out
 
 
