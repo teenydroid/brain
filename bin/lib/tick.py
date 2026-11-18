@@ -1868,6 +1868,9 @@ def _report(tick: str, n: int, entry: Mapping[str, Any]) -> None:
             what = f"queued as browser task #{queued['id']} ({queued['status']}), not done yet: {QUEUED[do]}"
         else:
             what = f"queued, not done yet: {QUEUED[do]}"
+    elif entry["status"] == "done" and entry.get("pitched"):
+        what = ("filed for the studio as a pitch: nothing was posted, and the studio's writer sees it at the next "
+                "slot" + ("; " + entry["note"] if entry.get("note") else ""))
     elif entry["status"] == "done":
         what = "done (dry run: nothing was sent)" if result.get("dry_run") else "done"
     elif entry["status"] == "refused":
