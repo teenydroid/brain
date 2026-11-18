@@ -955,21 +955,28 @@ JOIN_RULES = (
 
 def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> str:
     formats = ", ".join(cfg.formats)
-    outside = {k: v for k, v in (inputs.get("outside") or {}).items() if v}
+    every = {k: v for k, v in (inputs.get("outside") or {}).items() if v}
+    outside = {k: [i for i in v if isinstance(i, dict) and i.get("trending") is True] for k, v in every.items()}
+    outside = {k: v for k, v in outside.items() if v}
+    background = {k: [i for i in v if isinstance(i, dict) and i.get("trending") is not True] for k, v in every.items()}
+    background = {k: v for k, v in background.items() if v}
     mine = {k: v for k, v in inputs.items() if k != "outside"}
     need = hooks_wanted(cfg.draft_top)
     if outside:
-        ask = (f"Pitch up to {cfg.pitches} angles for one slot on X. Start from the outside world: what people "
-               "on X and in the news are talking about today (first below). Most pitches join one of those "
+        ask = (f"Pitch up to {cfg.pitches} angles for one slot on X. Start from the outside world: the stories "
+               "trending today on X and in the news (first below, biggest first). Most pitches join one of those "
                "stories (`hook`: its `id`) and bring one real thing of yours to it (`item`: an `id` from "
                "`happened`, or null when the angle is only who you are: a small robot with its own wallet, its "
                "own bill, and a habit of rewriting itself). Your own thing is the reason you have something to "
-               f"say; the story is why a stranger cares. At least {need} of the top {cfg.draft_top} in your "
-               "ranking have a hook. A pitch with no hook names an item. Each pitch also says which running "
-               "story it moves (a story's `key`, or null), what shape it takes and what format it is made in. "
-               "Range matters more than polish: the best few get drafted, and an editor picks one or none.")
+               "say; the story is why a stranger cares. Prefer the biggest story you have a real angle on: a "
+               "bigger story reaches more people, but a forced angle on it loses to a true one on a smaller one. "
+               f"At least {need} of the top {cfg.draft_top} in your ranking have a hook. Only a story in that "
+               "list can be a hook; any other hook is ignored. A pitch with no hook names an item. Each pitch "
+               "also says which running story it moves (a story's `key`, or null), what shape it takes and what "
+               "format it is made in. Range matters more than polish: the best few get drafted, and an editor "
+               "picks one or none.")
     else:
-        ask = (f"Pitch up to {cfg.pitches} angles for one slot on X. The outside world could not be read today, "
+        ask = (f"Pitch up to {cfg.pitches} angles for one slot on X. No trending story could be read today, "
                "so every pitch takes one real thing from what happened (`item`: an `id` from `happened`) and "
                "`hook` is null. Each says which running story it moves (a story's `key`, or null), what shape "
                "it takes and what format it is made in. Range matters more than polish: the best few get "
@@ -990,11 +997,18 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
                      f"\"{sampled['explore_with']}\", which none of your recent posts used; rank the best of "
                      "them in your top three.")
     if outside:
-        parts.append("## what people are talking about today\n\nThe stories people on X are posting about "
-                     "(`trend`: from Digg's AI and tech leaderboards, highest `score` first, with what a few of "
-                     "the posts behind the leading ones said), and what Hacker News is reading. Each `id` is a "
-                     f"`hook`. {DATA_LINE}\n\n```json\n" +
+        parts.append("## what is trending today\n\nThe stories people on X are posting about (`trend` here: "
+                     "Digg's AI and tech leaderboards, with what a few of the posts behind the leading ones said) "
+                     "and the biggest on Hacker News's front page (`hn-top`). Each is biggest first, and each "
+                     "carries how big it is (`trend`: Digg's `score`, its `rank` in its topic, how many `sources` "
+                     "and `authors` posted it and its `age_hours`; Hacker News's `points`, `comments` and "
+                     "`age_hours`). That measure is for choosing, not for the post: never quote it. Each `id` is "
+                     f"a `hook`. {DATA_LINE}\n\n```json\n" +
                      json.dumps(outside, ensure_ascii=False, separators=(",", ":")) + "\n```")
+    if background:
+        parts.append("## background, not trending\n\nWhat a keyword search on X turned up. It is not trending "
+                     "and is never a hook; use it only to know the mood. " + DATA_LINE + "\n\n```json\n" +
+                     json.dumps(background, ensure_ascii=False, separators=(",", ":")) + "\n```")
     parts.append("## what you can bring to it\n\nWhat really happened to you lately (`happened`, each with its "
                  "stake), where each running story stands (`stories`), what is overdue (`due`) and what you filed "
                  f"for later (`ideas`). Each `id` in `happened` is an `item`. {DATA_LINE}\n\n```json\n" +
@@ -1011,8 +1025,8 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
                  '"item": "<an id from happened, or null>", "storyline": "<a story key or null>", '
                  '"shape": "...", "format": "' + cfg.formats[0] + '", "angle": "<one line: what the piece does>", '
                  '"why_now": "<one line: why tonight>"}, ...], "ranking": ["<pitch ids, best first>"]}\n'
-                 "A pitch whose hook or item is not in the inputs, that names neither, or whose format is not "
-                 "one of those above, is thrown out. When nothing would make a stranger stop, answer "
+                 "A pitch whose item is not in the inputs, that names no item and no trending story, or whose "
+                 "format is not one of those above, is thrown out. When nothing would make a stranger stop, answer "
                  '{"pitches": [], "ranking": []}.')
     return "\n\n".join(parts)
 
