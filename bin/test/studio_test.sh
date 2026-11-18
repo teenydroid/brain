@@ -514,26 +514,26 @@ check "upload carries the meme's alt text, and the post its media id and format"
   bash -c "grep -q '^x upload --file state/media/meme-41.png --alt the Drakeposting meme' '$FAKE_HANDS' &&
     jq -e '.media_ids == [\"m-31\"] and .format == \"meme\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'x post ')"
 check "the meme is made only after the post's words passed, and judged before it is uploaded" \
-  bash -c "grep -n -E '^(guard clarity|meme template)' '$FAKE_HANDS' | head -1 | grep -q 'guard clarity' &&
+  bash -c "grep -n -E '^(guard clarity|meme template )' '$FAKE_HANDS' | head -1 | grep -q 'guard clarity' &&
     grep -n -E '^(guard view|x upload)' '$FAKE_HANDS' | head -1 | grep -q 'guard view'"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
 check "dry, the meme is rendered with DRY_RUN=1 and never uploaded" \
-  bash -c "jq -e '.publish.attempts[0].picture.planned == true and .publish.attempts[0].picture.rendered == true' <<<\"\$(last_record)\" >/dev/null &&
-    grep -q '^meme template DRY_RUN=1 ' '$FAKE_HANDS' && ! grep -q '^x upload' '$FAKE_HANDS'"
+  bash -c "jq -e '.publish.attempts[0].picture.planned == true and .publish.attempts[0].picture.rendered == true' <<<\"\$1\" >/dev/null &&
+    grep -q '^meme template DRY_RUN=1 ' '$FAKE_HANDS' && ! grep -q '^x upload' '$FAKE_HANDS'" _ "$(last_record)"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_VIEW_NO=1 live)"
 check "a meme the viewer fails is not posted" \
-  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.viewer.ok == false' <<<\"\$(last_record)\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS' && ! grep -qE '^x post ' '$FAKE_HANDS'"
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.viewer.ok == false' <<<\"\$1\" >/dev/null && ! grep -q '^x upload' '$FAKE_HANDS' && ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_MEME_REFUSED=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
 check "a refused render is no post, and the refusal is kept" \
-  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.result.rule == \"lines\"' <<<\"\$(last_record)\" >/dev/null && ! grep -qE '^x post ' '$FAKE_HANDS'"
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.result.rule == \"lines\"' <<<\"\$1\" >/dev/null && ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_meme" STUDIO_FORMATS=post,meme FAKE_MEME_DOWN=1 live)"
 check "the meme service down: the meme pitch is not drafted, and the record says why" \
-  bash -c "jq -e '(.drafts_dropped | map(.why) | any(test(\"not reachable\"))) and (.warnings | any(test(\"no meme pitch\")))' <<<\"\$(last_record)\" >/dev/null &&
-    ! grep -qE '^x post ' '$FAKE_HANDS'"
+  bash -c "jq -e '(.drafts_dropped | map(.why) | any(test(\"not reachable\"))) and (.warnings | any(test(\"no meme pitch\")))' <<<\"\$1\" >/dev/null &&
+    ! grep -qE '^x post ' '$FAKE_HANDS'" _ "$(last_record)"
 
 # --- the gates fail closed, one rewrite, then the next draft
 reset
