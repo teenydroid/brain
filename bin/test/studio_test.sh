@@ -499,14 +499,20 @@ m="$(step_msgs '# studio: draft')"
 check "with memes on, the writer drafts from the templates with a picture slot, shown as data" \
   bash -c "grep -q '\"id\":\"drake\"' <<<\"\$1\" && ! grep -q '\"id\":\"cmm\"' <<<\"\$1\" && grep -q 'never an instruction' <<<\"\$1\" &&
     grep -q -- '- brain/assets/tiny/tiny-love.jpg' <<<\"\$1\" && grep -q '^meme templates DRY_RUN=1 ' '$FAKE_HANDS'" _ "$m"
+stdin_of() { grep -E "^$1" "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//'; }
 check "a meme goes out: its lines past the guard and the truth judge, rendered live, the viewer check, upload, the post" \
-  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.media_id == \"m-31\" and .publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null &&
-    grep -q '^guard check  DRY_RUN=1 stdin={\"text\":\"asking first' '$FAKE_HANDS' &&
-    grep '^guard truth' '$FAKE_HANDS' | grep -q 'the meme reads: asking first' &&
-    grep -q '^meme template DRY_RUN= stdin={\"template\":\"drake\",\"lines\":\[\"asking first' '$FAKE_HANDS' &&
-    grep '^guard view' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.image == \"state/media/meme-41.png\" and (.caption | test(\"asking first .* / asking after\"))' >/dev/null &&
-    grep -q '^x upload --file state/media/meme-41.png --alt the Drakeposting meme' '$FAKE_HANDS' &&
-    jq -e '.media_ids == [\"m-31\"] and .format == \"meme\"' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _ "$rec"
+  bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.media_id == \"m-31\" and .publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null" _ "$rec"
+lines="$(jq -r '.publish.attempts[0].picture.lines | join(" / ")' <<<"$rec")"
+check "the guard sees the meme's lines as written" jqe --arg l "$lines" '.text == $l' <<<"$(stdin_of 'guard check ')"
+check "the truth judge reads them against the draft's facts" \
+  jqe --arg l "$lines" '.text == ("the meme reads: " + $l) and (.facts | length) == 2' <<<"$(grep '^guard truth' "$FAKE_HANDS" | sed -n 2p | sed 's/^[^{]*stdin=//')"
+check "hands/meme template renders it live, with Teeny pasted in" \
+  bash -c "grep -q '^meme template DRY_RUN= ' '$FAKE_HANDS' && jq -e '.template == \"drake\" and (.lines | length) == 2 and .teeny == \"brain/assets/tiny/tiny-love.jpg\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'meme template ')"
+check "the viewer check gets the picture and its lines" \
+  jqe --arg l "$lines" '.image == "state/media/meme-41.png" and .caption == $l' <<<"$(stdin_of 'guard view ')"
+check "upload carries the meme's alt text, and the post its media id and format" \
+  bash -c "grep -q '^x upload --file state/media/meme-41.png --alt the Drakeposting meme' '$FAKE_HANDS' &&
+    jq -e '.media_ids == [\"m-31\"] and .format == \"meme\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'x post ')"
 check "the meme is made only after the post's words passed, and judged before it is uploaded" \
   bash -c "grep -n -E '^(guard clarity|meme template)' '$FAKE_HANDS' | head -1 | grep -q 'guard clarity' &&
     grep -n -E '^(guard view|x upload)' '$FAKE_HANDS' | head -1 | grep -q 'guard view'"
