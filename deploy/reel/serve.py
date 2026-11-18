@@ -36,6 +36,7 @@ Compose does not restrict egress today; deploy/README.md says how to.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -134,8 +135,6 @@ async def create_reel(request: Request):
     if len(raw) > policy.MAX_BODY_BYTES:
         return _refuse(413, f"a job is at most {policy.MAX_BODY_BYTES} bytes")
     try:
-        import json
-
         checked = policy.check_job(json.loads(raw), FONTS)
     except ValueError as exc:  # JobError, or a body that is not JSON
         return _refuse(400, str(exc) if isinstance(exc, policy.JobError) else "the body is not JSON")

@@ -16,17 +16,19 @@
 # (BuildKit reads it in place of the submodule's own .dockerignore) leaves out
 # resource/songs (the README says those tracks came from YouTube), the web
 # UI, the tests and the docs, so none of them is in the image. What runs is
-# deploy/reel/serve.py (the `teeny` build context): upstream's FastAPI app
-# behind Teeny's one route and a path allowlist. Streamlit is installed with
+# deploy/reel/serve.py and policy.py (the `teeny` build context): upstream's
+# FastAPI app behind Teeny's one route and a path allowlist. Streamlit is installed with
 # the rest of upstream's requirements, as they are, and never started, so the
 # web UI's update check never runs.
 #
 # Upstream's own Dockerfile tries Chinese mirrors first; this one uses the
 # default Debian and PyPI indexes.
 
-FROM python:3.11-slim-trixie
+# Both pinned by digest (the tags as of 2026-11-18), so a rebuild gets the
+# same base and the same installer.
+FROM python:3.11-slim-trixie@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.12 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.12@sha256:73d2665b478d8fa2de1cf105c6841f8e9cb6b09e568fc7700440c09f8fcd7ac4 /uv /usr/local/bin/uv
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -47,7 +49,7 @@ RUN UV_HTTP_TIMEOUT=60 UV_HTTP_RETRIES=3 uv pip install --system --no-cache \
       --overrides requirements-security.txt -r requirements.txt 'setuptools>=82.0.1' 'wheel>=0.46.2'
 
 COPY . .
-COPY --from=teeny serve.py /opt/teeny/serve.py
+COPY --from=teeny serve.py policy.py /opt/teeny/
 
 # A user of its own. storage/ is the reel-storage volume (a fresh volume
 # takes this ownership), where each job's copies of its files and its
