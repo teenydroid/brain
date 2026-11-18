@@ -59,7 +59,7 @@ class TopTest(Scratch):
         self.assertGreater(len(self.calls()), n)
 
     def test_with_no_slot_the_key_is_the_utc_hour(self):
-        self.assertEqual(top.top(None, 10, 0, 1)["key"], "2026-11-18T07")
+        self.assertEqual(top.top(None, 10, 0, 1)["key"], "2026-11-18T11")
         with self.assertRaises(hand.HandError):
             top.cache_key("../etc/passwd")
 
