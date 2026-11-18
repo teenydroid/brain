@@ -43,6 +43,7 @@ made and calls nothing.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import struct
@@ -280,7 +281,9 @@ def _budget(conn, extra_micro: int) -> None:
 
 def _claim(kind: str, prompt: str, detail: Json, reserve_micro: int = 0) -> int:
     """The caps, then a pending row, under the media lock: the row counts
-    toward the caps from here, so two callers cannot both take the last one."""
+    toward the caps from here, and carries `reserve_micro` as its cost until
+    the real one replaces it, so a second caller, hands/video's budget check
+    included, sees the reservation and cannot take the same money."""
     with hand.lock("media"):
         conn = assets._db()
         try:
@@ -292,13 +295,14 @@ def _claim(kind: str, prompt: str, detail: Json, reserve_micro: int = 0) -> int:
             else:
                 limit = hand.number("REEL_SONGS_MAX_PER_WEEK", 1, 0, 7)
                 if _count(conn, kind, hand.now() - WEEK) >= limit:
-                    raise hand.Refused(f"this week's {limit} {kind}(s) are made", rule="per_week", limit=limit)
+                    what = "song" if kind == "song" else "track"
+                    raise hand.Refused(f"this week's {limit} {what}(s) are made", rule="per_week", limit=limit)
             _budget(conn, reserve_micro)
             with hand.transaction(conn):
                 return conn.execute(
-                    "INSERT INTO media_assets (kind, status, prompt, purpose, cost_micro, detail, created_at)"
-                    " VALUES (?, 'pending', ?, 'post', 0, ?, ?)",
-                    (kind, prompt, json.dumps(detail, sort_keys=True), hand.now()),
+                    "INSERT INTO media_assets (kind, status, prompt, purpose, cost_micro, estimated, detail, created_at)"
+                    " VALUES (?, 'pending', ?, 'post', ?, 1, ?, ?)",
+                    (kind, prompt, reserve_micro, json.dumps(detail, sort_keys=True), hand.now()),
                 ).lastrowid
         finally:
             conn.close()
@@ -341,7 +345,9 @@ def _boxes(data: bytes, start: int, end: int):
     while at + 8 <= end:
         size, name = struct.unpack(">I4s", data[at : at + 8])
         header = 8
-        if size == 1 and at + 16 <= end:
+        if size == 1:
+            if at + 16 > end:
+                return
             size = struct.unpack(">Q", data[at + 8 : at + 16])[0]
             header = 16
         elif size == 0:
@@ -354,14 +360,20 @@ def _boxes(data: bytes, start: int, end: int):
 
 def mp4_info(data: bytes) -> Json:
     """Seconds and track kinds ('vide', 'soun') from an mp4's moov box, read
-    from the header, as no ffprobe is in the spine's image."""
+    from the header, as no ffprobe is in the spine's image. Every read stays
+    inside its box; a box too short for what it must hold is `ValueError`."""
     info: Json = {"seconds": None, "tracks": []}
     for name, body, end in _boxes(data, 0, len(data)):
         if name != b"moov":
             continue
         for child, cbody, cend in _boxes(data, body, end):
             if child == b"mvhd":
+                if cbody >= cend:
+                    raise ValueError("an empty mvhd")
                 version = data[cbody]
+                need = 32 if version == 1 else 20
+                if cbody + need > cend:
+                    raise ValueError("a short mvhd")
                 if version == 1:
                     scale, duration = struct.unpack(">IQ", data[cbody + 20 : cbody + 32])
                 else:
@@ -371,8 +383,10 @@ def mp4_info(data: bytes) -> Json:
                 for mdia, mbody, mend in _boxes(data, cbody, cend):
                     if mdia != b"mdia":
                         continue
-                    for hdlr, hbody, _ in _boxes(data, mbody, mend):
+                    for hdlr, hbody, hend in _boxes(data, mbody, mend):
                         if hdlr == b"hdlr":
+                            if hbody + 12 > hend:
+                                raise ValueError("a short hdlr")
                             info["tracks"].append(data[hbody + 8 : hbody + 12].decode("latin-1"))
     return info
 
@@ -400,7 +414,10 @@ def verify(data: bytes, limit: int = MAX_BYTES) -> Json:
         raise ReelError("the render is not an mp4")
     if len(data) > limit:
         raise ReelError(f"the render is over {limit // (1024 * 1024)} MB")
-    info = mp4_info(data)
+    try:
+        info = mp4_info(data)
+    except (ValueError, struct.error, IndexError) as exc:
+        raise ReelError(f"the render is not a valid mp4 ({exc})") from None
     if "vide" not in info["tracks"] or "soun" not in info["tracks"]:
         raise ReelError(f"the render lacks a picture or a sound track ({', '.join(info['tracks']) or 'none'})")
     seconds = info["seconds"]
@@ -423,6 +440,16 @@ def _await(api: Reel, task_id: str, wait: int, sleep) -> Json:
         sleep(POLL_SECONDS)
 
 
+def _unlink(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+
 def make(body: Any, api: Reel | None = None, sleep=time.sleep) -> Json:
     job = build_job(body)
     kind = "reel" if body["kind"] == "clip" else "song"
@@ -437,6 +464,8 @@ def make(body: Any, api: Reel | None = None, sleep=time.sleep) -> Json:
     asset_id = _claim(kind, job["video_script"], shown)
     started = time.monotonic()
     task_id = None
+    path = assets._media_dir() / f"reel-{asset_id}.mp4"
+    part = path.with_name(path.name + ".part")
     try:
         task_id = api.submit(job)
         _set(asset_id, job_id=task_id, model="moneyprinter")
@@ -445,39 +474,79 @@ def make(body: Any, api: Reel | None = None, sleep=time.sleep) -> Json:
             raise ReelError(f"the render failed at {task.get('failed_stage') or 'an unknown stage'}: {str(task.get('error'))[:300]}")
         data = api.download(task_id, MAX_BYTES)
         info = verify(data)
-        path = assets._media_dir() / f"reel-{asset_id}.mp4"
-        path.write_bytes(data)
+        part.write_bytes(data)
+        os.replace(part, path)
         seconds = _ffprobe_seconds(path) or info["seconds"]
-    except (ReelError, hand.HandError) as exc:
-        _finish(asset_id, status="failed", cost_micro=0, error=str(exc)[:1000])
+        detail = {**shown, "seconds": seconds, "bytes": len(data), "render_seconds": round(time.monotonic() - started, 1)}
+        asset = _finish(
+            asset_id,
+            status="done",
+            path=str(path.relative_to(hand.root())),
+            cost_micro=0,
+            estimated=0,
+            detail=json.dumps(detail, sort_keys=True),
+        )
+    except BaseException as exc:
+        # Whatever stopped it (the service, a bad render, a full disk, the
+        # ledger, a signal): no file stays, the row is failed so it counts
+        # toward nothing, and the service drops the task.
+        _unlink(part, path)
+        try:
+            _finish(asset_id, status="failed", cost_micro=0, path=None, error=f"{type(exc).__name__}: {exc}"[:1000])
+        except BaseException:  # noqa: BLE001 - the original failure is what the caller needs
+            pass
         if task_id:
             _forget(api, task_id)
-        raise hand.HandError(f"the {body['kind']} was not made: {exc}", asset_id=asset_id) from None
+        if isinstance(exc, (ReelError, hand.HandError)):
+            raise hand.HandError(f"the {body['kind']} was not made: {exc}", asset_id=asset_id) from None
+        raise
     _forget(api, task_id)
-    detail = {**shown, "seconds": seconds, "bytes": len(data), "render_seconds": round(time.monotonic() - started, 1)}
-    asset = _finish(
-        asset_id,
-        status="done",
-        path=str(path.relative_to(hand.root())),
-        cost_micro=0,
-        estimated=0,
-        detail=json.dumps(detail, sort_keys=True),
-    )
     return {"asset": asset}
 
 
 def _forget(api: Reel, task_id: str) -> None:
     """The task and its copies leave the service once the mp4 is ours (or
-    the job failed); a task still running refuses, which is fine."""
+    the job failed); a task still running refuses, and the front's sweep
+    takes it later."""
     try:
         api.delete(task_id)
-    except ReelError:
+    except Exception:  # noqa: BLE001 - cleanup must never mask the outcome
         pass
+
+
+#: Surplus's job status words. Anything else, at the deadline, is an
+#: unknown outcome.
+MUSIC_OK = {"succeeded", "completed", "success", "done"}
+MUSIC_FAILED = {"failed", "canceled", "cancelled", "expired", "error", "rejected"}
+#: A refusal before any job exists: the next model may be asked.
+MUSIC_NEXT_MODEL = {404, 409, 429, 503}
+
+
+def _micros(value: Any) -> int | None:
+    """A USDC amount in micros as Surplus writes it ("414000" or 414000);
+    None for anything else (a fraction, a negative, text, a bool)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
     """A track bought on Surplus: `style` (what it sounds like), `lyrics`
-    (the words, sung), `seconds` (10 to 180, default 30)."""
+    (the words, sung), `seconds` (10 to 180, default 30).
+
+    Fails closed. The row carries REEL_MUSIC_MAX_USD_PER_JOB from the claim;
+    once Surplus accepts a job it carries the quote (or that cap when the
+    quote is missing or odd), and only a confirmed end replaces it: the real
+    cost on success, nothing on a confirmed failure or a confirmed
+    cancellation. Anything else after an accepted job (an answer of a shape
+    not known here, a status word not known here, the deadline, a failed
+    download, an artifact that is not audio) is status `unknown`: spent, with
+    the job id kept, counted in the day's budget and the week's cap. After
+    any accepted job no other model is tried."""
     if not isinstance(body, dict):
         raise hand.Refused("music takes a JSON object", rule="body")
     style = _text(body, "style", MAX_STYLE, True)
@@ -496,6 +565,37 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
     per_job = assets._usd("REEL_MUSIC_MAX_USD_PER_JOB", "0.70")
     wait = hand.number("REEL_MUSIC_WAIT_SECONDS", 600, 60, 1700)
     asset_id = _claim("music", prompt, {"seconds": seconds}, per_job)
+    state = {"accepted": False, "booked": per_job, "job_id": None, "file": None}
+    try:
+        return _buy(api, asset_id, models, prompt, seconds, per_job, wait, sleep, state)
+    except BaseException as exc:
+        if state["file"] is not None:
+            _unlink(state["file"])
+        try:
+            if state["accepted"]:
+                _finish(asset_id, status="unknown", cost_micro=state["booked"], estimated=1, path=None, error=f"{type(exc).__name__}: {exc}"[:1000])
+            else:
+                _finish(asset_id, status="failed", cost_micro=0, path=None, error=f"{type(exc).__name__}: {exc}"[:1000])
+        except BaseException:  # noqa: BLE001
+            pass
+        if isinstance(exc, hand.HandError):
+            raise
+        if isinstance(exc, Exception):
+            raise hand.HandError(f"music: {type(exc).__name__}: {exc}", asset_id=asset_id) from None
+        raise
+
+
+def _unknown(asset_id: int, state: Json, why: str) -> None:
+    _finish(asset_id, status="unknown", cost_micro=state["booked"], estimated=1, error=why[:1000])
+    raise hand.HandError(
+        f"the track's outcome is unknown ({why}); ${state['booked'] / 1e6:.2f} is booked as spent",
+        asset_id=asset_id,
+        job_id=state["job_id"],
+        outcome="unknown",
+    )
+
+
+def _buy(api, asset_id: int, models: list[str], prompt: str, seconds: int, per_job: int, wait: int, sleep, state: Json) -> Json:
     tried: list[str] = []
     for model in models:
         try:
@@ -508,78 +608,97 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
             )
         except SurplusError as exc:
             tried.append(f"{model}: {exc}")
-            if exc.status in assets.FALLBACK_STATUSES or exc.status is None:
+            if exc.status is None or exc.status >= 500 and exc.status != 503:
+                # No answer, or a server error: the job may exist. Booked.
+                state["accepted"] = True
+                _set(asset_id, model=model)
+                _unknown(asset_id, state, f"{model}: {exc}")
+            if exc.status in MUSIC_NEXT_MODEL:
                 continue
             break
-        job_id = str(job.get("id") or "")
-        estimate = int(job.get("estimated_cost_usdc") or 0)
-        if not job_id:
-            tried.append(f"{model}: no job id")
-            continue
-        if estimate > per_job:
-            _cancel(api, job_id)
-            tried.append(f"{model}: quoted ${estimate / 1e6:.3f}, over the ${per_job / 1e6:.2f} cap")
-            continue
-        _set(asset_id, model=model, job_id=job_id, cost_micro=estimate)
-        try:
-            result = _await_music(api, job_id, wait, sleep)
-        except SurplusError as exc:
-            _cancel(api, job_id)
-            tried.append(f"{model}: {exc}")
-            _set(asset_id, cost_micro=0)
-            break
-        if result.get("status") != "succeeded":
-            error = result.get("error") or {}
-            tried.append(f"{model}: {result.get('status')} ({error.get('type', 'unknown')})")
-            _set(asset_id, cost_micro=0)
-            if error.get("retryable", error.get("type") != "invalid_request"):
-                continue
-            break
-        url = ((result.get("results") or [{}])[0]).get("url")
-        if not url:
-            tried.append(f"{model}: no artifact")
-            continue
+        # Accepted: from here on no other model is tried.
+        state["accepted"] = True
+        job_id = job.get("id") if isinstance(job, dict) else None
+        estimate = _micros(job.get("estimated_cost_usdc")) if isinstance(job, dict) else None
+        state["booked"] = estimate if estimate else per_job
+        _set(asset_id, model=model, cost_micro=state["booked"], estimated=1)
+        if not isinstance(job_id, str) or not job_id or len(job_id) > 200:
+            _unknown(asset_id, state, f"{model}: the answer named no job")
+        state["job_id"] = job_id
+        _set(asset_id, job_id=job_id)
+        if estimate and estimate > per_job:
+            if _cancel(api, job_id):
+                _finish(asset_id, status="failed", cost_micro=0, error=f"{model}: quoted ${estimate / 1e6:.3f}, over the ${per_job / 1e6:.2f} cap; cancelled")
+                raise hand.HandError(f"the track was quoted ${estimate / 1e6:.3f}, over the ${per_job / 1e6:.2f} cap, and cancelled", asset_id=asset_id)
+            _unknown(asset_id, state, f"{model}: quoted over the cap and the cancel was not confirmed")
+        result, why = _await_music(api, job_id, wait, sleep)
+        if result is None:
+            _unknown(asset_id, state, f"{model}: {why}")
+        status = str(result.get("status") or "").lower()
+        if status in MUSIC_FAILED:
+            error = result.get("error") if isinstance(result.get("error"), dict) else {}
+            usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+            actual = _micros(usage.get("buyer_cost_usdc"))
+            _finish(asset_id, status="failed", cost_micro=actual or 0, estimated=0, error=f"{model}: {status} ({error.get('type', 'unknown')})")
+            raise hand.HandError(f"the track was not made: {status}", asset_id=asset_id)
+        results = result.get("results")
+        first = results[0] if isinstance(results, list) and results and isinstance(results[0], dict) else {}
+        url = first.get("url")
+        if not isinstance(url, str) or not url:
+            _unknown(asset_id, state, f"{model}: {status} with no artifact")
         try:
             data = api.download(url, AUDIO_MAX_BYTES)
         except SurplusError as exc:
-            # Made but not fetched: the failed row keeps the job id and says why.
-            tried.append(f"{model}: {exc}")
-            break
-        ext = audio_type(data[:16])
+            _unknown(asset_id, state, f"{model}: the download failed: {exc}")
+        ext = audio_type(data[:16]) if isinstance(data, (bytes, bytearray)) else None
         if ext is None:
-            tried.append(f"{model}: the artifact is not audio")
-            continue
+            _unknown(asset_id, state, f"{model}: the artifact is not audio")
         path = assets._media_dir() / f"music-{asset_id}.{ext}"
+        state["file"] = path
         path.write_bytes(data)
-        actual = (result.get("usage") or {}).get("buyer_cost_usdc")
+        usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+        actual = _micros(usage.get("buyer_cost_usdc"))
         asset = _finish(
             asset_id,
             status="done",
             path=str(path.relative_to(hand.root())),
-            cost_micro=int(actual) if actual is not None else estimate,
+            cost_micro=actual if actual is not None else state["booked"],
             estimated=0 if actual is not None else 1,
         )
+        state["file"] = None
         return {"asset": asset}
     _finish(asset_id, status="failed", cost_micro=0, error="; ".join(tried)[:1000] or "no music model configured")
     raise hand.HandError("no music model could take it: " + ("; ".join(tried)[:500] or "none configured"), asset_id=asset_id)
 
 
-def _cancel(api: Surplus, job_id: str) -> None:
+def _cancel(api: Surplus, job_id: str) -> bool:
     try:
         api.call("DELETE", f"/v1/music/generations/{job_id}", timeout=30)
-    except SurplusError:
-        pass
+        return True
+    except Exception:  # noqa: BLE001 - a cancel that fails is reported, not raised
+        return False
 
 
-def _await_music(api: Surplus, job_id: str, wait: int, sleep) -> Json:
+def _await_music(api: Surplus, job_id: str, wait: int, sleep) -> tuple[Json | None, str]:
+    """The job's last answer once it reaches a known end; (None, why) for
+    the deadline or an answer this code does not understand by then."""
     deadline = time.monotonic() + wait
+    last = "no answer"
     while True:
-        status = api.call("GET", f"/v1/music/generations/{job_id}", timeout=30)
-        if status.get("status") in ("succeeded", "failed", "canceled", "expired"):
-            return status
+        try:
+            status = api.call("GET", f"/v1/music/generations/{job_id}", timeout=30)
+        except SurplusError as exc:
+            status, last = None, f"polling failed: {exc}"
+        if isinstance(status, dict):
+            word = str(status.get("status") or "").lower()
+            if word in MUSIC_OK or word in MUSIC_FAILED:
+                return status, ""
+            last = f"status {word or 'missing'!r}"
+        elif status is not None:
+            last = "an answer that is not an object"
         if time.monotonic() >= deadline:
             _cancel(api, job_id)
-            return {"status": "expired", "error": {"type": "expired", "retryable": True}}
+            return None, f"not done after {wait} s ({last})"
         sleep(assets.POLL_SECONDS)
 
 
