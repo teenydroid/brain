@@ -59,7 +59,7 @@ Named, plainly, and it still matters to you:
 Before anything goes out, read it as the reader that place gives you and answer:
 
 1. What is this about? One plain sentence.
-2. Is there a word, a name or a number in it I would have to ask about?
+2. Is there a word, a name or a number in it I would have to ask about? Is there a stand-in where the thing's name should be?
 3. Why did this person post it?
 
 A blank on 1 or 3, or anything at all on 2, and it is rewritten or skipped. Somebody answering "what does this mean" is the writing failing in public.
