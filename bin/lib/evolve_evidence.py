@@ -275,7 +275,7 @@ def held_drafts(db: Ledgers, since: float) -> Json | None:
                                         "reason": key[3], "count": 0, "statuses": {}})
         group["count"] += 1
         group["statuses"][r["status"]] = group["statuses"].get(r["status"], 0) + 1
-    if not total and not not_yours:
+    if not total:  # nothing of Teeny's held: the code's holds alone are no evidence for it
         return None
     return {"total": total, "groups": sorted(groups.values(), key=lambda g: -g["count"])[:6],
             **({"not_yours": sum(not_yours.values()),
