@@ -815,7 +815,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    editor: blind pairwise tournament ──> pick, or none (empty slot)
                 │
-   producer for the format (post | thread | image)
+   producer for the format (post | thread | image | meme)
                 │
    truth judge (hands/guard truth) ──> cold reader (hands/guard clarity)
        a no: one rewrite by the writer with the reason, gated once more
@@ -823,6 +823,7 @@ cron slot ──> bin/studio --slot S --legacy P --detach
                 │
    image only: scene past the guard and the truth judge ──> hands/image ──> viewer check ──> hands/x upload --alt
        (fails: the words alone if the writer marked them alone, else the next draft)
+   meme only: lines past the guard and the truth judge ──> hands/meme template ──> viewer check ──> hands/x upload --alt
                 │
    hands/x post | post-thread: the safety guard, 280, 4 a day, 5 h gap,
        repeat, link budget; tagged producer=studio, storyline, shape, pitch_id
@@ -865,7 +866,16 @@ writer fell back to the core's default, posts nothing; the judge model is in
 every run's `models`. A picture's scene is truth-gated against the draft's
 facts before it is bought, made once a slot (a fallback with the same scene
 reuses it, or its refusal), and an image piece whose picture fails goes out
-as words only when the writer marked them `alone`. The judges and hands/x
+as words only when the writer marked them `alone`. A meme piece (`meme` in
+`STUDIO_FORMATS`; off by default) is the same with a known template in place
+of a scene: the drafting turn lists the templates with a picture slot
+(`hands/meme templates`, their names and keywords shown as data) and Teeny's
+ready art, the writer returns `{template, lines, teeny}`, the lines are
+screened with the words, past the guard as written and truth-gated, and
+`hands/meme template` renders it (dry runs render it too, saving nothing).
+The viewer check is the image's, with the lines as the caption it must read
+back, so a studio meme always pastes a picture of Teeny in. The meme service
+down drops the meme pitches with the reason in the record. The judges and hands/x
 count against `STUDIO_BUDGET_SECS` like the model turns.
 
 **The rollback is `STUDIO=0`** in `secrets/teeny.env`, and nothing else
@@ -884,7 +894,8 @@ One run is one slot:
    `STUDIO`, `STUDIO_DRY`, `STUDIO_WRITER_MODEL` and `STUDIO_EDITOR_MODEL`
    (each sent per turn as `bin/ask --model`, i.e. `model_override`; unset
    is the core's model; the same one for both is a warning in the record),
-   `STUDIO_FORMATS` (`post,thread,image`), `STUDIO_PITCHES` (12),
+   `STUDIO_FORMATS` (`post,thread,image`; `meme` too when the memegen
+   service is up), `STUDIO_PITCHES` (12),
    `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
@@ -1374,6 +1385,17 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     and run behind `deploy/reel/serve.py`, on the compose network only,
     behind the `reel` compose profile. It reads `state/media/` and
     `brain/assets/` read-only and posts nothing.
+  - `memegen`: known meme templates for `hands/meme template`: memegen
+    (`vendor/memegen`, the upstream repository at a pinned commit, since it
+    tags no releases; never edited) built by its own `Containerfile` and run
+    as `deploy/memegen/front.py`, which serves upstream's app but copies an
+    overlay only from Teeny's read-only art (`http://teeny-art/...`,
+    `deploy/memegen/art.py`), refuses every other URL, and draws no
+    watermark; tracking and error reporting stay unset. On the compose
+    network only (`MEMEGEN_URL`, `http://memegen:5000`), behind the
+    `memegen` compose profile; posts nothing. `bin/doctor` names it when
+    `STUDIO_FORMATS` has `meme` (`--live` asks it for its templates; a
+    warning, never a failure).
 - The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
   `teeny.enamakel.com`: `/api/webhooks/x` goes to the webhook, everything
   else to the landing page.
