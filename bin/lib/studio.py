@@ -223,11 +223,8 @@ class Config:
             return value if value not in (None, "") else filed.get(name) or None
 
         c = cls()
-        c.on = (get("STUDIO") or "0").strip().lower() in ("1", "true", "yes", "on")
-        c.dry = (get("STUDIO_DRY") or "1").strip().lower() not in ("0", "false", "no", "off")
-        if not c.dry:
-            c.warnings.append("STUDIO_DRY=0 does nothing yet: this version of the studio never posts")
-            c.dry = True
+        c.on = studio_switch.on(environ, secrets_file)
+        c.dry = (get("STUDIO_DRY") or "0").strip().lower() in ("1", "true", "yes", "on")
         c.writer_model = (get("STUDIO_WRITER_MODEL") or "").strip()
         c.editor_model = (get("STUDIO_EDITOR_MODEL") or "").strip()
         if c.writer_model == c.editor_model:
