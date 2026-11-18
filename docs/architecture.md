@@ -812,6 +812,11 @@ One run is one slot:
    `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (1200),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
+   `bin/spine` registers each studio model's context window from the
+   endpoint's listing at boot, as it does `SPINE_MODEL`'s: the core budgets
+   an unknown model at a few thousand tokens, trims the whole message away,
+   and the provider answers `messages: at least one message is required`
+   (seen on every `claude-fable-5.2` turn of the 2026-11-18 preview).
 2. **The slot**: `hands/x slot`. Shut, the run ends before any model turn
    (`--dry-run` and `--force-slot` read it and go on).
 3. **What happened**: `hands/story desk` and the outside world the old
