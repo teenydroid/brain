@@ -973,3 +973,51 @@ class BriefExamplesTest(unittest.TestCase):
         for path in ("agents/editor.md", "narrative/STUDIO-EDITOR.md"):
             text = (REPO / "brain" / path).read_text().lower()
             self.assertIn("never heard of teeny, and does not care about it", text, path)
+
+
+class OutsideRunTest(unittest.TestCase):
+    """A whole run with the outside world read: RunTest's stand-ins, plus a
+    hands/trend that answers what it is told to."""
+
+    setUp = RunTest.setUp
+    tearDown = RunTest.tearDown
+    record = RunTest.record
+    script = RunTest.script
+    go = RunTest.go
+
+    def trend(self, answer: str, code: int = 0) -> None:
+        path = self.root / "hands" / "trend"
+        path.write_text(f"#!/usr/bin/env bash\necho '{answer}'\nexit {code}\n")
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        self.args.no_outside = False
+
+    def test_a_trend_failure_with_no_error_words_is_recorded_not_a_crash(self):
+        self.trend('{"ok": false}', 1)
+        code, out = self.go(self.script()[0])
+        rec = self.record()
+        self.assertEqual((code, out["outcome"]), (0, "picked"))
+        self.assertIn("trend", rec["inputs"]["unavailable"])
+        self.assertEqual(rec["outside"]["sources"]["trend"], {"reason": None, "error": "None"})
+        self.assertFalse(rec["outside"]["available"])
+        self.assertTrue(any("outside world could not be read" in w for w in rec["warnings"]))
+
+    def test_a_hooked_pitch_is_drafted_with_its_story_in_the_facts(self):
+        self.trend(json.dumps(TREND_GOT))
+        ask, _ = self.script()
+
+        def hooked(root, agent, message, thread, model, secs):
+            if message.startswith("# studio: pitch"):
+                self.assertIn("a lab hired a scientist", message)
+                return 0, json.dumps({"pitches": [{"id": "p1", "hook": "trend:s1", "item": "evt:2", "format": "post",
+                                                   "storyline": "rent", "shape": "bet", "angle": "a"}],
+                                      "ranking": ["p1"]}), ""
+            if message.startswith("# studio: draft"):
+                self.assertIn("## the news it joins", message)
+            return ask(root, agent, message, thread, model, secs)
+        code, out = self.go(hooked)
+        rec = self.record()
+        self.assertEqual(out["outcome"], "picked")
+        self.assertEqual(rec["pitches"][0]["hook_item"]["title"], "a lab hired a scientist")
+        self.assertTrue(rec["pitches"][0]["drafted"])
+        self.assertEqual([f.get("id") for f in rec["drafts"][0]["truth"]["facts"]], ["trend:s1", "evt:2", None])
+        self.assertEqual(rec["drafted"], {"want_hooked": 2, "hooked": 1, "short": rec["drafted"]["short"]})
