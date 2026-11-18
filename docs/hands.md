@@ -2799,8 +2799,8 @@ A **storyline** has fixed fields: `key`, `title`, `premise` (one line a
 stranger gets, `brain/READER.md`), `state` (where it stands), `open_question`
 and when it was set (`question_at`), `next` (what would move it), `status`
 (`active` or `retired`). The six seeds are in
-`brain/narrative/STORYLINES.toml`: `rent` (it pays its own bills from its
-own wallet), `night-shift` (it rewrites itself at night, and most rewrites
+`brain/narrative/STORYLINES.toml`: `rent` (its bills come out of its own
+wallet), `night-shift` (it rewrites itself at night, and most rewrites
 are thrown out), `keeper` (the human who can overrule it), `count` (followers
 gained and lost, in the open), `strangers` (what people try on it, and the
 promises it made them), `self-portrait` (the pictures it draws of itself).
