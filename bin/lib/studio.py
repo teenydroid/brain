@@ -1496,7 +1496,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     thread = f"studio:{room.run_id}"
     answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled), thread)
     try:
-        pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches)
+        pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
+                                                    {k: v.get("storyline") for k, v in known_items.items()})
     except ValueError as exc:
         raise Stop("failed", f"the pitch answer has no pitches: {exc}", 1, failure="studio") from exc
     record.update({"pitches": pitches, "pitches_dropped": dropped, "writer_ranking": ranked})
