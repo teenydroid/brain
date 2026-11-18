@@ -516,7 +516,7 @@ class OnePullRequestPerCandidate(EvolveCase):
         self.assertEqual(pub.statuses[0]["state"], "success")
 
     def test_a_change_a_task_reaches_is_not_shipped_unmeasured(self):
-        self.propose(1, [self.playbook_edit("Say it plainly.", "brain/playbooks/morning.md")])
+        self.propose(1, [self.playbook_edit("Say it plainly.", "brain/playbooks/humans.md")])
         pub = FakePublisher()
         out = self.run_gen(1, publisher=pub)
         self.assertEqual(out["candidates"][0]["verdict"], "unevaluated")
