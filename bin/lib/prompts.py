@@ -475,7 +475,7 @@ def build(brain: Path) -> list[Path]:
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for agent in SPEAKING:
+    for agent in SPEAKING + STUDIO:
         if not (brain / "agents" / f"{agent}.toml").is_file():
             continue
         text = render(brain, agent)
