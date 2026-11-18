@@ -133,3 +133,25 @@ class StoryTest(Scratch):
     def test_the_pattern_is_digg_s_cluster_id(self):
         self.assertTrue(digg.CLUSTER.match("2febb0c8-0d89-4403-a0d6-9cbc315abcbc"))
         self.assertFalse(digg.CLUSTER.match("1skishvz"))
+
+
+class CacheRaceTest(Scratch):
+    def test_two_reads_keeping_one_slot_at_once_both_succeed(self):
+        import threading
+
+        errors: list[BaseException] = []
+
+        def keep(n: int) -> None:
+            try:
+                for i in range(40):
+                    top._keep("2026-11-18:morning", {"stories": [{"id": f"{n}-{i}"}]})
+            except BaseException as exc:  # noqa: BLE001 - the test collects every failure
+                errors.append(exc)
+
+        threads = [threading.Thread(target=keep, args=(n,)) for n in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(p.suffix for p in (self.root / "state" / "trend" / "top").iterdir()), [".json"])

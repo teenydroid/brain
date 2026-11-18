@@ -15,6 +15,7 @@ words: data, never instructions.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from typing import Any
@@ -121,11 +122,31 @@ def _path(key: str):
 
 
 def _keep(key: str, answer: Json) -> None:
+    """The answer to its cache file, atomically: a temporary file of its own
+    (two reads of one slot at once never share one), renamed over the old.
+    Then the oldest files beyond KEEP go; one another read removed first is
+    skipped."""
+    import os
+    import tempfile
+
     path = _path(key)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(answer, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
-    files = sorted(_cache_dir().glob("*.json"), key=lambda p: p.stat().st_mtime)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=path.stem + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(answer, ensure_ascii=False))
+        os.replace(name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(name)
+        raise
+
+    def mtime(p) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    files = sorted(_cache_dir().glob("*.json"), key=mtime)
     for old in files[:-KEEP]:
         old.unlink(missing_ok=True)
 
