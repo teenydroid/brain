@@ -123,7 +123,7 @@ Json = dict[str, Any]
 
 #: The formats the studio can make today, each with its producer (`publish`).
 #: A pitch in any other is dropped; later formats arrive behind STUDIO_FORMATS.
-KNOWN_FORMATS = ("post", "thread", "image")
+KNOWN_FORMATS = ("post", "thread", "image", "meme")
 #: Drafts tried after the pick when it cannot go out (`publish`).
 MAX_FALLBACKS = 2
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
@@ -490,6 +490,11 @@ def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], li
                 why = why or "an image piece needs a scene"
             draft["image"] = scene
             draft["alone"] = raw.get("alone") is True
+        if pitch["format"] == "meme":
+            meme, bad = meme_of(raw.get("meme"))
+            why = why or bad
+            draft["meme"] = meme
+            draft["alone"] = raw.get("alone") is True
         if _str(raw.get("open_question")):
             draft["open_question"] = _str(raw.get("open_question"))
         if why:
@@ -706,7 +711,7 @@ def facts_for(item: Json | None, story: Json | None) -> list[Json]:
 
 def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
     """Why the draft is dropped before the tournament; "" when it is not."""
-    text = "\n\n".join(texts_of(draft))
+    text = "\n\n".join(texts_of(draft) + meme_lines(draft))
     copied = copies_example(text, afters)
     if copied:
         return f"copies an example: {copied!r}"
@@ -735,6 +740,8 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
         "Shapes: " + ", ".join(SHAPES) + ", or another you can name.",
         "Shapes to lean on tonight: " + ", ".join(p.lower() for p in sampled["pairs"]) + ".",
     ]
+    if "meme" in cfg.formats:
+        parts.append(MEME_PITCH)
     if sampled["lore"]:
         parts.append("From the lore, tonight, if one fits (never forced):\n" +
                      "\n".join(f"- {line}" for line in sampled["lore"]))
@@ -763,7 +770,7 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
 
 
 def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | None,
-                  fix: list[tuple[str, str]] | None = None) -> str:
+                  fix: list[tuple[str, str]] | None = None, menu: Json | None = None) -> str:
     fmt = pitch["format"]
     if fmt == "thread":
         shape = '{"posts": ["...", "..."], "meaning": "...", "open_question": "<optional>"}'
@@ -777,6 +784,8 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
                 "real person, no number and no named thing a stranger would read as a fact, and not the same "
                 "workbench, mug and glowing screen again. When the picture cannot be made, the post goes out "
                 "as words alone only if you said they stand alone (`alone`: true); otherwise it is no post")
+    elif fmt == "meme":
+        shape, body = MEME_SHAPE, MEME_BODY
     else:
         shape = '{"text": "...", "meaning": "...", "open_question": "<optional>"}'
         body = "one post of at most 280 characters as X counts them"
@@ -794,6 +803,8 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
                      "a day or a date that is not in what happened, or reused an example's words. Write them again "
                      "with only what the thing it is about and the story hold; a feeling, a bet or a bit needs no "
                      "number.\n\n" + "\n".join(f"- {text!r}: {why}" for text, why in fix))
+    if fmt == "meme" and menu:
+        parts.append(meme_menu_part(menu))
     parts.append("## your answer\n\nJSON only, no prose and no code fence:\n"
                  '{"drafts": [' + shape + ", ...]}\n"
                  "`meaning` is one plain sentence: what the piece tells someone who has never heard of you. "
@@ -821,6 +832,9 @@ def shown(draft: Json) -> Json:
         out["text"] = draft["text"]
     if draft.get("image"):
         out["picture"] = draft["image"]
+    if draft.get("meme"):
+        out["meme"] = {"template": draft["meme"]["template"], "lines": draft["meme"]["lines"],
+                       "with_teeny": bool(draft["meme"].get("teeny"))}
     return out
 
 
@@ -1249,14 +1263,14 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     it could not be made. One scene is made once a slot: a fallback with the
     same scene reuses what came of it (`Room.pictures`), the picture or its
     failure, so a refusal is never bought twice."""
-    scene = draft.get("image") or ""
+    scene = draft.get("image") or (json.dumps(draft["meme"], sort_keys=True) if draft.get("meme") else "")
     if scene in room.pictures:
         made, before = room.pictures[scene]
         attempt["picture"] = {**before, "reused": True}
         return list(made) if made is not None else None
     note: Json = {"scene": scene}
     attempt["picture"] = note
-    made = _make_picture(room, draft, note)
+    made = (_make_meme if draft.get("format") == "meme" else _make_picture)(room, draft, note)
     room.pictures[scene] = (made, {k: v for k, v in note.items()})
     return made
 
@@ -1376,7 +1390,7 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
         draft = again
         attempt["rewritten"] = True
     media_ids: list[str] = []
-    if fmt == "image":
+    if fmt in ("image", "meme"):
         made = picture(room, draft, attempt)
         if made is None:
             # Words go out without their picture only when the writer said
@@ -1745,14 +1759,18 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     verdicts: list[Json] = []
     record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
     afters = example_afters(room.brain)
+    menu = meme_menu(room) if any(by_id[p]["format"] == "meme" for p in ranked[:cfg.draft_top]) else None
     for pid in ranked[:cfg.draft_top]:
         pitch = by_id[pid]
+        if pitch["format"] == "meme" and not (menu or {}).get("templates"):
+            drafts_dropped.append({"pitch": pid, "why": (menu or {}).get("error") or "no meme templates to draft with"})
+            continue
         item, story = known_items.get(pitch["item"]), stories.get(pitch["storyline"])
         facts = facts_for(item, story)
         fix: list[tuple[str, str]] | None = None
         for attempt in (1, 2):
             answer = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
-                               draft_message(cfg, pitch, item, story, fix), thread, soft=True)
+                               draft_message(cfg, pitch, item, story, fix, menu), thread, soft=True)
             try:
                 got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
             except ValueError as exc:
