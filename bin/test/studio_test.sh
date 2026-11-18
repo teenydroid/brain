@@ -9,7 +9,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 studio="$here/../studio"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/teeny-studio.XXXXXX")"
-trap 'rm -rf "$scratch"' EXIT
+trap '[ -n "${KEEP_SCRATCH:-}" ] || rm -rf "$scratch"' EXIT
 
 failures=0
 pass() { printf 'ok   %s\n' "$1"; }
