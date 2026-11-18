@@ -225,8 +225,8 @@ def prepare(image: Any) -> Any:
     if min(image.size) < MIN_INPUT_SIDE:
         raise Unfit(f"the picture is {image.size[0]}x{image.size[1]}; a side under {MIN_INPUT_SIDE} px is too "
                     f"small to caption")
-    image = ImageOps.exif_transpose(image)
-    if image.mode in ("RGBA", "LA", "P"):
+    image = fit.normalise(ImageOps.exif_transpose(image))
+    if image.mode == "RGBA":
         rgba = image.convert("RGBA")
         flat = Image.new("RGB", rgba.size, WHITE)
         flat.paste(rgba, mask=rgba.getchannel("A"))

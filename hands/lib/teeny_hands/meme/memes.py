@@ -83,7 +83,8 @@ def _open(path: Any) -> tuple[Any, str]:
         image = Image.open(resolved)
         if getattr(image, "is_animated", False):
             raise hand.Refused("a meme is drawn on a still, not an animation", rule="source")
-        image.load()
+        image.close()
+        image = fit.open_checked(resolved)
     except hand.Refused:
         raise
     except (OSError, ValueError, Image.DecompressionBombError) as exc:

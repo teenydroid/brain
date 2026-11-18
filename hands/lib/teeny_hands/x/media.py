@@ -8,7 +8,7 @@ Only two things ever become an attachment: a file under `state/media/` or
 must not be able to make the account post an arbitrary picture, and a path
 must not reach anything else on the box (the secrets sit one folder over).
 
-A still over X's 5 MB image limit is refused before anything is sent, with
+A still over X's 5 MiB image limit is refused before anything is sent, with
 the reason, rather than failing at X after INIT (hands/image and hands/meme
 keep their pictures under it). Alt text (`--alt`) goes to X's media metadata
 route once the upload is processed; it is screened by the guard's lexicon
@@ -58,9 +58,11 @@ CATEGORIES = {
 #: The folders an upload may come from, relative to the checkout.
 UPLOAD_ROOTS = ("state/media", "brain/assets")
 
-#: X's limit for a still image (tweet_image), in bytes as X counts them.
+#: X's limit for a still image (tweet_image): 5 MB, which X means as 5 MiB.
 #: 4,980,488 bytes uploaded on 2026-11-15; 5,263,141 failed on 2026-11-14.
-IMAGE_MAX_BYTES = 5_000_000
+#: The media hands keep what they make under 5,000,000 for a margin
+#: (media/fit.py); this refuses only what X itself would.
+IMAGE_MAX_BYTES = 5 * 1024 * 1024
 #: X's longest alt text, in characters.
 ALT_MAX_CHARS = 1000
 
@@ -145,8 +147,8 @@ def upload(path: str, x: XApi | None = None, alt: str | None = None) -> dict[str
     mime = sniff(data)
     if mime is None:
         raise hand.Refused("upload takes a PNG, JPEG, WebP, GIF or MP4 file", rule="type")
-    if CATEGORIES[mime] == "tweet_image" and len(data) >= IMAGE_MAX_BYTES:
-        raise hand.Refused(f"X takes a still of under {IMAGE_MAX_BYTES:,} bytes and this one is {len(data):,}",
+    if CATEGORIES[mime] == "tweet_image" and len(data) > IMAGE_MAX_BYTES:
+        raise hand.Refused(f"X takes a still of at most {IMAGE_MAX_BYTES:,} bytes and this one is {len(data):,}",
                            rule="size", bytes=len(data), limit=IMAGE_MAX_BYTES)
     alt = check_alt(alt)
     if alt is not None and mime == "video/mp4":

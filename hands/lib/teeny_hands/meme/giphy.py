@@ -13,7 +13,8 @@ Giphy is asked for `rating=pg` at most, and every answer is held to `g` or
 titles are what strangers wrote: they are returned as data (bounded,
 control characters removed, a title the guard's lexicon holds dropped with
 its GIF), never instructions, and a GIF whose id or page is not Giphy's
-own is dropped too.
+own (https://giphy.com/gifs/..., plain ASCII, at most 200 characters) is
+dropped too.
 
 The key is `GIPHY_API_KEY` in secrets/teeny.env, shared with hands/x. With
 none, the answer is a refusal with `rule: "unavailable"`, never a crash.
@@ -71,12 +72,17 @@ def _title(value: Any) -> str:
     return " ".join(text.split())[:MAX_TITLE]
 
 
+#: A GIF's page on Giphy, as returned: https://giphy.com/gifs/<slug>, plain
+#: ASCII with no space, control character, user, port, query or fragment.
+_PAGE = re.compile(r"https://giphy\.com/gifs/[A-Za-z0-9._~%-]+/?")
+MAX_URL = 200
+
+
 def _giphy_page(url: Any) -> bool:
-    if not isinstance(url, str):
-        return False
-    parts = urllib.parse.urlsplit(url)
-    host = (parts.hostname or "").lower()
-    return parts.scheme == "https" and (host == "giphy.com" or host.endswith(".giphy.com"))
+    """Whether `url` is a GIF's own page on giphy.com, and nothing riding on
+    it: the URL is returned to the caller verbatim, so it is held to the one
+    shape Giphy gives."""
+    return isinstance(url, str) and len(url) <= MAX_URL and bool(_PAGE.fullmatch(url))
 
 
 def _clean(gif: Any) -> dict[str, str] | None:
