@@ -503,11 +503,14 @@ stdin_of() { grep -E "^$1" "$FAKE_HANDS" | head -1 | sed 's/^[^{]*stdin=//'; }
 check "a meme goes out: its lines past the guard and the truth judge, rendered live, the viewer check, upload, the post" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.media_id == \"m-31\" and .publish.attempts[0].picture.viewer.ok == true' <<<\"\$1\" >/dev/null" _ "$rec"
 lines="$(jq -r '.publish.attempts[0].picture.lines | join(" / ")' <<<"$rec")"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
 check "the guard sees the meme's lines as written" jqe --arg l "$lines" '.text == $l' <<<"$(stdin_of 'guard check ')"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
 check "the truth judge reads them against the draft's facts" \
   jqe --arg l "$lines" '.text == ("the meme reads: " + $l) and (.facts | length) == 2' <<<"$(grep '^guard truth' "$FAKE_HANDS" | sed -n 2p | sed 's/^[^{]*stdin=//')"
 check "hands/meme template renders it live, with Teeny pasted in" \
   bash -c "grep -q '^meme template DRY_RUN= ' '$FAKE_HANDS' && jq -e '.template == \"drake\" and (.lines | length) == 2 and .teeny == \"brain/assets/tiny/tiny-love.jpg\"' <<<\"\$1\" >/dev/null" _ "$(stdin_of 'meme template ')"
+# shellcheck disable=SC2016 # $l is jq's, not the shell's
 check "the viewer check gets the picture and its lines" \
   jqe --arg l "$lines" '.image == "state/media/meme-41.png" and .caption == $l' <<<"$(stdin_of 'guard view ')"
 check "upload carries the meme's alt text, and the post its media id and format" \
