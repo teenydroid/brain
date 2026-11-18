@@ -29,6 +29,7 @@ row, as `publish` writes no ledger row.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import sqlite3
