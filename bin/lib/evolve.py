@@ -5223,7 +5223,7 @@ def show_files(tree: Path, request: Json, paths: Iterable[str], in_place: bool) 
     """PATHS shown whole in the next round's request and kept when it is
     cut to fit (fit_request): an edit to them did not apply, so the next
     answer copies from the file, not from memory."""
-    files = request.setdefault("files", {})
+    files = dict(request.get("files") or {})
     keep_list = list(request.get("keep") or [])
     for rel in paths:
         if not in_place and rel not in files:
@@ -5233,7 +5233,7 @@ def show_files(tree: Path, request: Json, paths: Iterable[str], in_place: bool) 
                 continue
         if rel not in keep_list:
             keep_list.append(rel)
-    request["keep"] = keep_list
+    request.update(files=files, keep=keep_list)
 
 
 def repair_edits(proposer: Proposer, request: Json, proposal: Mapping[str, Any], problem: EditsDidNotApply,

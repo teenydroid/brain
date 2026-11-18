@@ -98,14 +98,15 @@ class ApplyEdits(unittest.TestCase):
         self.assertEqual(self.read("brain/SOUL.md"), "- Say hi.\n- Other.\n")
 
     def test_a_tolerant_match_found_twice_is_refused_and_says_where(self):
-        self.write("brain/CONTEXT.md", "one two\nthree.\n\nlater: one two three.\n")
+        text = "one two\nthree.\n\nlater: one  two three.\n"
+        self.write("brain/CONTEXT.md", text)
         with self.assertRaises(evolve.EditsDidNotApply) as caught:
             evolve.apply_edits(self.tree, [{"path": "brain/CONTEXT.md", "old": "one two three.", "new": "x"}])
         message = str(caught.exception)
         self.assertIn("0 times", message)
         self.assertIn("2 times", message)
         self.assertIn("lines 1, 4", message)
-        self.assertEqual(self.read("brain/CONTEXT.md"), "one two\nthree.\n\nlater: one two three.\n")
+        self.assertEqual(self.read("brain/CONTEXT.md"), text)
 
     def test_an_exact_text_found_twice_says_where(self):
         self.write("brain/CONTEXT.md", "a line\nb\na line\n")
@@ -235,9 +236,7 @@ class EditRepair(EvolveCase):
         proposer, seen = self.proposer(repairs, lambda good, bad: None)
         path = self.playbook_edit("x")["path"]
         with unittest.mock.patch.object(evolve, "make_proposer", return_value=proposer), \
-                unittest.mock.patch.object(evolve, "context_pack",
-                                           side_effect=lambda tree, touched, budget: (
-                                               [path], {p: (tree / p).read_text() for p in touched if p == path})):
+                unittest.mock.patch.object(evolve, "context_pack", return_value=([path], {})):
             self.run_gen(1)
         self.assertNotIn(path, seen[0]["files"])
         self.assertIn(path, seen[1]["files"])
