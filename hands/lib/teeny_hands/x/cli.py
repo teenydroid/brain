@@ -18,6 +18,8 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   R  peers report [--days N]       per peer: touches, who answered, how the quote did (14 days)
   A  post                   stdin {"text", "anchor", "media_ids"?, "gif_id"?, "quote_of"?}; anchor defaults to quote_of
   A  post-thread            stdin {"posts": [2 to 5 texts], "anchor", "media_ids"?, "gif_id"?, "format"?, "experiment"?}; one own post, each later text a reply to the one before (not `thread`, the read above)
+                            Both also take the producer's tags, kept in x_posts and never published: "producer"
+                            (studio, brief, peer-quote or legacy), "storyline", "shape", "pitch_id"
   A  reply --to ID          stdin {"text", "media_ids"?, "gif_id"?}
   A  follow-up [--to ID]    stdin {"text", "to"?, ...}: continue an own recorded post as a thread
   A  like ID                skipped under DRY_RUN

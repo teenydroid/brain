@@ -397,7 +397,8 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
             out["dry_run"] = True
         if bar:
             return {**out, "posted": None, "skipped": {"rule": bar[0], "reason": bar[1], "quote_of": top["quote_of"]}}
-        draft: Json = {"text": top["text"], "quote_of": top["quote_of"], "format": f"peer-{top['format']}"}
+        draft: Json = {"text": top["text"], "quote_of": top["quote_of"], "format": f"peer-{top['format']}",
+                       "producer": "peer-quote"}
         if media_ids:
             draft["media_ids"] = media_ids
         try:
