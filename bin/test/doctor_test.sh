@@ -164,6 +164,16 @@ check "passes EVOLVE=1 with self-edit at L4" doctor
 check "and says the switch is within its level" grep -q '^ok   autonomy ladder: 1 switch(es) on' "$scratch/doctor.log"
 # Self-merge is its own rung (L5, the operator's decision of 2026-11-15), so
 # granting it leaves EVOLVE_AUTO_PROMOTE refused under merge at L4.
+# The studio switch: a word that is neither on nor off fails the doctor (it
+# posts nothing on either path), and judges on the writer's model warn.
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=maybe\n' >"$root/secrets/teeny.env"
+fails "fails a STUDIO that is neither on nor off" "studio switch"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSAFETY_JUDGE_MODEL=w\n' >"$root/secrets/teeny.env"
+doctor || true
+check "warns when the studio's judges are the writer's model" grep -q '^warn studio switch: on .*writer' "$scratch/doctor.log"
+fresh; mkdir -p "$root/secrets"; printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=w\nSAFETY_JUDGE_MODEL=j\n' >"$root/secrets/teeny.env"
+doctor || true
+check "and is quiet when they are not" grep -q '^ok   studio switch: on' "$scratch/doctor.log"
 fresh; mkdir -p "$root/secrets"; printf 'BABYSIT_MERGE=1\nBABYSIT_SELF_MERGE=1\n' >"$root/secrets/teeny.env"
 check "passes BABYSIT_SELF_MERGE=1 with self-merge at L5" doctor
 printf 'EVOLVE_AUTO_PROMOTE=1\n' >"$root/secrets/evolve.env"

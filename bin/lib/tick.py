@@ -227,8 +227,18 @@ def _reply_x(i):
 
 def studio_on() -> bool:
     """STUDIO, as bin/studio reads it (bin/lib/studio_switch.py): with it on
-    the studio owns every original post, and the mind pitches instead."""
+    the studio owns every original post, and the mind pitches instead.
+    studio_switch.SwitchError when it cannot be read: callers post nothing."""
     return studio_switch.on(os.environ, hand.secrets_dir() / "teeny.env")
+
+
+def _studio_or_refuse() -> bool:
+    """studio_on(), with a switch that cannot be read refused as an intent
+    (nothing posted, nothing filed), never read as off."""
+    try:
+        return studio_on()
+    except studio_switch.SwitchError as exc:
+        raise ValueError(f"the studio switch cannot be read ({exc}); nothing was posted or filed") from None
 
 
 #: The most of a pitch's text the studio's desk keeps.
@@ -241,7 +251,7 @@ def _pitch_x(i):
     `ideas` (untrusted: the mind writes it while it reads strangers' words).
     Filed, never posted: the studio decides at its next slot whether
     anything comes of it. A post_x while the studio is on lands here too."""
-    if not studio_on():
+    if not _studio_or_refuse():
         raise ValueError("pitch_x is for the studio, which is off (STUDIO=0): post with post_x")
     text = _text(i)
     if len(text) > PITCH_CHARS:
@@ -267,7 +277,7 @@ def _post_x(i):
     neither. Pictures are made in carry_out and added as `media_ids`. With
     the studio on (STUDIO=1) it is a pitch (`_pitch_x`), never a post: a
     mind still in the habit of posting is filed, not refused."""
-    if studio_on():
+    if _studio_or_refuse():
         return _pitch_x(i)
     body = {"text": _text(i), **_gif(i)}
     if i.get("quote_of") not in (None, ""):
@@ -932,7 +942,11 @@ def _studio_shape(text: str) -> str:
 def shape() -> str:
     """The answer's shape, with each capped intent listed while it is on, and
     post_x as a pitch while the studio is on."""
-    base = _studio_shape(SHAPE) if studio_on() else SHAPE
+    try:
+        studio = studio_on()
+    except studio_switch.SwitchError:
+        studio = True  # unreadable: offer the pitch, which is refused too, never the post
+    base = _studio_shape(SHAPE) if studio else SHAPE
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]

@@ -81,6 +81,9 @@ hands/x
 # claim. The rest of the story bible (storylines, beats) stays Teeny's.
 hands/story
 hands/lib/teeny_hands/story/desk.py
+# The studio's run records and its one-run-a-slot claim: a slot claimed
+# before any turn is what keeps a retried run from posting twice.
+hands/lib/teeny_hands/story/runs.py
 hands/reddit
 # Teeny's site passwords: only code makes and reads them, never Teeny's edits.
 hands/keychain

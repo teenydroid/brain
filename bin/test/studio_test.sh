@@ -38,10 +38,14 @@ case "$(head -n 1 <<<"$msg")" in
     c="${names[$n]}"
     first="pitch $c draft a: i pay my own server bill. nobody clapped."
     [ -z "${FAKE_LONG:-}" ] || [ "$n" != 0 ] || first="$long"
-    say "$(jq -cn --arg f "$first" --arg n "$c" '{drafts: [
-      {text: $f, posts: [$f, "beta \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
-      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: "teeny in the rain", meaning: "m"},
-      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: "teeny on a bus", meaning: "m"}]}')" ;;
+    # $FAKE_ALONE: the writer marks image drafts as standing alone;
+    # $FAKE_SAME_SCENE: every draft has the same scene.
+    say "$(jq -cn --arg f "$first" --arg n "$c" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
+      def scene($s): if $same == "" then $s else "teeny on a windowsill at dawn" end;
+      {drafts: [
+      {text: $f, posts: [$f, "beta \($n)"], image: scene("teeny on a windowsill at dawn"), meaning: "m", alone: ($alone != "")},
+      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: scene("teeny in the rain"), meaning: "m", alone: ($alone != "")},
+      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: scene("teeny on a bus"), meaning: "m", alone: ($alone != "")}]}')" ;;
   "# studio: cut to fit")
     if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down", "posts": ["cut down", "and again"]}]}'
     else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t, posts: [$t, "b"]}]}')"; fi ;;
@@ -94,6 +98,18 @@ case "$1" in
   desk) cat "$FAKE_DIR/desk.json" ;;
   record-run) printf '%s\n' "$in" >>"$FAKE_RECORDS"; echo '{"ok": true, "recorded": true}' ;;
   beat) printf '%s\n' "$in" >>"$FAKE_BEATS"; echo '{"ok": true, "recorded": true, "beat_id": 1}' ;;
+  # One run a slot, as runs.py keeps it: a file per slot holding its status.
+  slot-claim)
+    mkdir -p "$FAKE_SLOTS"; f="$FAKE_SLOTS/$(jq -r .slot_id <<<"$in" | tr ':' _)"
+    if [ -e "$f" ] && [ "$(jq -r '.force' <<<"$in")" != true ]; then
+      jq -cn --slurpfile row "$f" '{ok: true, claimed: false, slot: $row[0], in_doubt: []}'
+    else
+      jq -c '{slot_id, run_id, status: "claimed"}' <<<"$in" >"$f"; echo '{"ok": true, "claimed": true, "in_doubt": []}'
+    fi ;;
+  slot-mark)
+    f="$FAKE_SLOTS/$(jq -r .slot_id <<<"$in" | tr ':' _)"
+    jq -c --slurpfile row "$f" '$row[0] + {status, post_id: (.post_id // $row[0].post_id)}' <<<"$in" >"$f.new" && mv "$f.new" "$f"
+    echo '{"ok": true, "marked": true}' ;;
   *) echo '{"ok": false, "error": "unexpected"}'; exit 1 ;;
 esac
 FAKE
@@ -110,11 +126,13 @@ in="$(cat)"
 printf 'guard %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   truth)
-    if [ "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" = yes ]; then
-      echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}'
-    else
-      echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}'
-    fi ;;
+    case "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" in
+      yes) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}' ;;
+      down) echo '{"ok": true, "truthful": false, "unsupported": [], "reason": "the truth judge could not be reached: core unreachable", "judged": true}' ;;
+      off) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "the truth judge is off", "judged": false}' ;;
+      garbage) echo 'Traceback (most recent call last): oops' ;;
+      *) echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}' ;;
+    esac ;;
   clarity)
     case "$("$FAKE_DIR/next" "${FAKE_CLEAR:-yes}" clear)" in
       yes) echo '{"ok": true, "clear": true, "says": "a robot pays its bill", "unknown": [], "vague": [], "reason": "a stranger said back what was meant", "judged": true}' ;;
@@ -151,7 +169,12 @@ case "$1" in
   post|post-thread)
     if [ "${DRY_RUN:-}" = 1 ]; then jq -c '{ok: true, dry_run: true, would_post: (.text // .posts)}' <<<"$in"; exit 0; fi
     case "$("$FAKE_DIR/next" "${FAKE_X:-ok}" x)" in
-      ok) echo '{"ok": true, "id": "2123000000000000001", "kind": "post"}' ;;
+      # The guard's rewrite is what goes out: the answer carries it.
+      ok) jq -c '{ok: true, id: "2123000000000000001", kind: "post"} + (if .text then {text: (.text + " [g]")} else {posts: [.posts[] + " [g]"]} end)' <<<"$in" ;;
+      # X took it, then the run died before hearing back (the core's kill).
+      ok_die) echo '{"ok": true, "id": "2123000000000000001", "kind": "post"}'; kill -9 "$PPID" ;;
+      hang) sleep 120 ;;
+      partial) jq -c '{ok: false, error: "thread stopped: post 2 of 2 was not sent", sent: 1, of: (.posts | length), ids: ["2123000000000000001"], head_id: "2123000000000000001", in_doubt: false}' <<<"$in"; exit 1 ;;
       repeat) echo '{"ok": false, "refused": "repeat: this says what post 1 already said", "rule": "repeat"}'; exit 2 ;;
       gap) echo '{"ok": false, "refused": "cadence: too soon", "rule": "gap"}'; exit 2 ;;
       held) echo '{"ok": false, "refused": "held", "category": "unknown", "hold_id": 9}'; exit 2 ;;
@@ -179,14 +202,19 @@ printf '# lore\n\nthe producer note.\n\nthe premise: a mug-sized robot.\n\n## ca
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" TEENY_BRAIN="$brain" \
   TEENY_STATE="$scratch/state" TEENY_SECRETS="$scratch/secrets" TEENY_ROOT="$here/../.." \
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RECORDS="$scratch/records.log" \
-  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log"
+  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log" FAKE_SLOTS="$scratch/slots"
 unset DRY_RUN STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL STUDIO_FORMATS STUDIO_RUN_ID
 # The room's own checks run with STUDIO_DRY=1: every gate runs, hands/x runs
 # with DRY_RUN=1, nothing is posted. "publishing" below runs live (STUDIO_DRY=0)
 # against the stand-in hands/x.
 export STUDIO_DRY=1
 
-reset() { rm -rf "$scratch/state" "$FAKE_SEEN".*; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; }
+# The judges are not the writer: SAFETY_JUDGE_MODEL is read from the file only,
+# as the hands read it (a live run whose judges are the writer posts nothing).
+mkdir -p "$scratch/secrets"
+judge_env() { printf 'SAFETY_JUDGE_MODEL=judge-model\n' >"$scratch/secrets/teeny.env"; }
+judge_env
+reset() { rm -rf "$scratch/state" "$FAKE_SEEN".* "$FAKE_SLOTS"; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; judge_env; }
 run() { "$studio" "$@" 2>"$scratch/stderr"; }
 turns() { grep -c . "$FAKE_CALLS" || true; }
 calls_to() { jq -r --arg a "$1" 'select(.agent_id == $a) | .message' "$FAKE_CALLS"; }
@@ -271,7 +299,7 @@ check "the ranking is by wins" jqe '.ranking | (map(.wins) == (map(.wins) | sort
 check "the pick is the ranking's top" test "$(jq -r '.pick.label' <<<"$rec")" = "$(jq -r '.ranking[0].label' <<<"$rec")"
 check "the record is complete" jqe 'has("id") and has("seed") and has("inputs") and (.inputs.digest | length) == 16
   and has("pitches") and has("drafts") and has("pairings") and has("ranking") and has("final") and has("pick")
-  and (.models == {writer: "core default", editor: "core default"}) and (.calls.total == 8) and (.calls.writer == 4)
+  and (.models == {writer: "core default", editor: "core default", judge: "judge-model"}) and (.calls.total == 8) and (.calls.writer == 4)
   and (.calls.editor == 4) and has("secs") and .dry == true and has("sampled")' <<<"$rec"
 check "the run is kept in studio_runs through hands/story record-run" \
   test "$(jq -r .id "$FAKE_RECORDS")" = "$plain_id"
@@ -322,7 +350,7 @@ check "the writer's turns ask for STUDIO_WRITER_MODEL" \
   test "$(jq -r 'select(.agent_id == "writer") | .model_override' "$FAKE_CALLS" | sort -u)" = claude-fable-5.2
 check "the editor's turns ask for STUDIO_EDITOR_MODEL" \
   test "$(jq -r 'select(.agent_id == "editor") | .model_override' "$FAKE_CALLS" | sort -u)" = gemini-3.1-pro
-check "and the record names both" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro"} and .warnings == []' <<<"$(last_record)"
+check "and the record names both, and the judges' model" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro", judge: "judge-model"} and .warnings == []' <<<"$(last_record)"
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "no model set asks for none (the core's default)" test "$(jq -r '.model_override // "none"' "$FAKE_CALLS" | sort -u)" = none
@@ -332,11 +360,11 @@ check "one model for both is a warning in the record" jqe '.warnings | any(test(
 check "and in what it prints" jqe '.warnings | any(test("same model"))' <<<"$out"
 reset
 mkdir -p "$scratch/secrets"
-printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=from-the-file\n' >"$scratch/secrets/teeny.env"
+printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=from-the-file\nSAFETY_JUDGE_MODEL=judge-model\n' >"$scratch/secrets/teeny.env"
 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "the switches are read from secrets/teeny.env too" \
   test "$(jq -r 'select(.agent_id == "writer") | .model_override' "$FAKE_CALLS" | sort -u)" = from-the-file
-rm -f "$scratch/secrets/teeny.env"
+judge_env
 
 # --- failures ------------------------------------------------------------------------
 reset
@@ -415,16 +443,26 @@ out="$(FAKE_PITCH_ANSWER="$one_image" STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
 check "dry, the picture is planned and never bought" \
   bash -c "jq -e '.publish.attempts[0].picture.planned == true' <<<\"\$(tail -n 1 '$scratch/state/studio/runs.jsonl')\" >/dev/null && ! grep -qE '^(image |x upload)' '$FAKE_HANDS'"
 reset
-out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 live)"
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
 rec="$(last_record)"
-check "a refused picture: the words go out alone when they stand alone, and the record says so" \
+check "a refused picture with words the writer did not mark as standing alone is no post (the default)" \
+  bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | all(.picture.fallback | test(\"no post\")))' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ]" _ "$rec"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_SAME_SCENE=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+check "a refused picture is asked for once a slot: fallbacks with the same scene reuse the refusal" \
+  bash -c "[ \"\$(grep -c '^image generate ' '$FAKE_HANDS')\" = 1 ] && jq -e '.publish.attempts[1:] | all(.picture.reused == true)' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_ALONE=1 live)"
+rec="$(last_record)"
+check "a refused picture: the words go out alone when the writer marked them so, and the record says so" \
   bash -c "jq -e '.outcome == \"published\" and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     jq -e 'has(\"media_ids\") | not' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _ "$rec"
 
 reset
-out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_VIEW_NO=1 live)"
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_VIEW_NO=1 FAKE_ALONE=1 live)"
 rec="$(last_record)"
-check "a picture the viewer fails is not posted: the words go out alone, nothing uploaded" \
+check "a picture the viewer fails is not posted: the words (marked alone) go out alone, nothing uploaded" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.viewer.ok == false and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     ! grep -q '^x upload' '$FAKE_HANDS'" _ "$rec"
 
@@ -499,6 +537,135 @@ reset
 out="$(TEENY_OH="$scratch/fake-oh-model" FAKE_REAL_OH="$scratch/fake-oh" FAKE_BAD_MODEL=claude-fable-5.2 STUDIO=1 STUDIO_RUN_ID="$plain_id" \
   STUDIO_WRITER_MODEL=claude-fable-5.2 run)"
 check "a writer falling back onto the editor's model says so" jqe '.warnings | any(test("same model"))' <<<"$(last_record)"
+
+# --- one run a slot: a retry never posts twice (review of PR #379) -------------------
+legacy_root="$scratch/legacy-root"
+mkdir -p "$legacy_root/bin"
+for f in "$here"/../*; do [ "$(basename "$f")" = act ] || ln -sfn "$f" "$legacy_root/bin/$(basename "$f")"; done
+cat >"$legacy_root/bin/act" <<'FAKE'
+#!/usr/bin/env bash
+printf 'act %s\n' "$*" >>"$FAKE_HANDS"
+jq -cn --arg p "$1" '{ok: true, playbook: $p}'
+FAKE
+chmod +x "$legacy_root/bin/act"
+reset
+set +e
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_X=ok_die live --slot 1500)"; code=$?
+set -e
+check "a run killed after X took its post dies with the slot marked posting" \
+  bash -c "[ '$code' != 0 ] && [ \"\$(jq -r .status \"$FAKE_SLOTS\"/*_1500)\" = posting ] && [ \"\$(grep -cE '^x post ' '$FAKE_HANDS')\" = 1 ]"
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_DRY=0 STUDIO_RUN_ID=retry-1 run --slot 1500)"
+check "its retry finds the slot held and does nothing: no second post, no model turn" \
+  bash -c "jq -e '.outcome == \"skipped\" and (.reason | test(\"already had its run\"))' <<<\"\$1\" >/dev/null &&
+    [ \"\$(grep -cE '^x post ' '$FAKE_HANDS')\" = 1 ] && [ \"\$(grep -c '^story slot-claim' '$FAKE_HANDS')\" = 2 ]" _ "$out"
+check "and the slot is claimed before any model turn" \
+  bash -c "[ \"\$(grep -n '' '$FAKE_HANDS' | grep -m1 -E 'story (slot-claim|desk)' | grep -c slot-claim)\" = 1 ]"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" live --slot 1500)"
+out2="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_DRY=0 STUDIO_RUN_ID=rerun-1 run --slot 1500)"
+check "a slot that posted is done: a rerun skips, and the slot says posted with the post id" \
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && jq -e '.status == \"posted\" and .post_id == \"2123000000000000001\"' \"$FAKE_SLOTS\"/*_1500 >/dev/null" _ "$out2"
+check "the record says which slot it held" jqe '.slot_id | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}:1500$")' <<<"$(jq -c 'select(.id == "'"$plain_id"'")' "$scratch/state/studio/runs.jsonl" | tail -n 1)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_RUN_ID="$plain_id" run --slot 1500)"
+check "a dry run holds no slot" bash -c "! grep -q '^story slot-' '$FAKE_HANDS'"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_X=hang STUDIO_BUDGET_SECS=60 live --slot 2300)"
+check "hands/x that does not answer (-1) is in doubt: no other draft, the slot left posting" \
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].x.code == -1' <<<\"\$1\" >/dev/null &&
+    [ \"\$(jq -r .status \"$FAKE_SLOTS\"/*_2300)\" = posting ]" _ "$(last_record)"
+
+# --- the switch fails closed --------------------------------------------------------
+for bad in maybe "STUDIO=on-ish"; do
+  reset
+  printf 'STUDIO=%s\nSAFETY_JUDGE_MODEL=judge-model\n' "${bad#STUDIO=}" >"$scratch/secrets/teeny.env"
+  set +e
+  out="$(TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote)"; code=$?
+  set -e
+  check "STUDIO=${bad#STUDIO=} is neither on nor off: an error, no turn, and not the legacy playbook either" \
+    bash -c "[ '$code' = 1 ] && [ \"\$2\" = 0 ] && ! grep -q '^act ' '$FAKE_HANDS' && grep -q 'neither on' '$scratch/stderr'" _ "$out" "$(turns)"
+done
+reset
+printf 'STUDIO=1\nSAFETY_JUDGE_MODEL=\xff\xfe\n' >"$scratch/secrets/teeny.env"
+set +e
+out="$(TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote --detach)"; code=$?
+set -e
+check "a teeny.env that is not text is an error too, detached or not" \
+  bash -c "[ '$code' = 1 ] && [ \"\$2\" = 0 ] && ! grep -q '^act ' '$FAKE_HANDS' && jq -e '.ok == false' <<<\"\$1\" >/dev/null" _ "$out" "$(turns)"
+reset
+printf 'STUDIO=1\nSAFETY_JUDGE_MODEL=judge-model\n' >"$scratch/secrets/teeny.env"
+out="$(STUDIO=0 TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote)"
+check "the environment wins over the file when it sets STUDIO (here off: the legacy playbook)" grep -qx 'act x-quote' "$FAKE_HANDS"
+
+# --- the judges are not the writer -------------------------------------------------
+reset
+printf 'SAFETY_JUDGE_MODEL=claude-fable-5.2\n' >"$scratch/secrets/teeny.env"
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO_WRITER_MODEL=claude-fable-5.2 STUDIO_EDITOR_MODEL=e live)"
+check "a live run whose judges are the writer's model posts nothing, and says why" \
+  bash -c "jq -e '.outcome == \"empty\" and (.reason | test(\"writer.s model\")) and .models.judge == \"claude-fable-5.2\"' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ] && jq -e '.warnings | any(test(\"SAFETY_JUDGE_MODEL\"))' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+reset
+printf 'STUDIO=1\n' >"$scratch/secrets/teeny.env"
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO_RUN_ID="$plain_id" run --dry-run)"
+check "unset judges and an unset writer are one model: a dry run warns, and would post" \
+  jqe '.outcome == "picked" and (.warnings | any(test("a live run would leave this slot empty")))' <<<"$(last_record)"
+reset
+: >"$scratch/secrets/teeny.env"
+out="$(TEENY_OH="$scratch/fake-oh-model" FAKE_REAL_OH="$scratch/fake-oh" FAKE_BAD_MODEL=claude-fable-5.2 FAKE_PITCH_ANSWER="$one_post" \
+  STUDIO_WRITER_MODEL=claude-fable-5.2 STUDIO_EDITOR_MODEL=e live)"
+check "a writer that fell back to the core default, with no judge model set, leaves a live slot empty" \
+  bash -c "jq -e '.outcome == \"empty\" and .models_used.writer == \"core default\" and (.reason | test(\"core default\"))' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ]" _ "$(last_record)"
+
+# --- every required gate must have judged ------------------------------------------
+for mode in down garbage off; do
+  reset
+  out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=$mode FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+  check "a truth judge that is $mode posts nothing, rewrites nothing, tries no other draft" \
+    bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ] && [ -z \"\$3\" ]" \
+    _ "$(last_record)" "$(step_msgs '# studio: rewrite')" "$(posts)"
+done
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=off STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
+check "a dry run passes a judge that is off, and the record shows it unjudged" \
+  jqe '.outcome == "picked" and .publish.attempts[0].gates.truth.unjudged == true and (.warnings | any(test("passed it unjudged")))' <<<"$(last_record)"
+
+# --- what is recorded is what went out ---------------------------------------------
+reset
+out="$(FAKE_PITCH_ANSWER="$one_post" live)"
+check "the beat keeps the words as hands/x sent them (the guard's rewrite)" jqe '.text | endswith(" [g]")' <<<"$(cat "$FAKE_BEATS")"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_thread" FAKE_X=partial live)"
+check "a thread X stopped part way is the post: its head and the beat with what went out" \
+  bash -c "jq -e '.outcome == \"published\" and .published.post_id == \"2123000000000000001\"' <<<\"\$1\" >/dev/null &&
+    jq -e '.post_id == \"2123000000000000001\" and (.text | contains(\"\n\n\") | not)' '$FAKE_BEATS' >/dev/null" _ "$(last_record)"
+
+# --- the picture's scene is truth-gated --------------------------------------------
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_TRUTH=yes,no,yes,no,yes,no FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+check "a scene the truth judge does not pass is no picture (and, not marked alone, no post)" \
+  bash -c "jq -e '.outcome == \"empty\" and .publish.attempts[0].picture.truth.truthful == false' <<<\"\$1\" >/dev/null &&
+    grep '^guard truth ' '$FAKE_HANDS' | sed -n 2p | sed 's/^[^{]*stdin=//' | jq -e '.text | startswith(\"the picture shows: \")' >/dev/null &&
+    ! grep -q '^image generate' '$FAKE_HANDS'" _ "$(last_record)"
+
+# --- detached, as cron runs it -----------------------------------------------------
+# (detach.py keeps its log and its lock under the root's state/, as on the box.)
+reset
+rm -rf "$legacy_root/state"
+out="$(FAKE_PITCH_ANSWER="$one_post" STUDIO=1 STUDIO_DRY=1 STUDIO_RUN_ID=detached-1 TEENY_ROOT="$legacy_root" \
+  TEENY_STATE="$legacy_root/state" run --slot 0930 --detach)"
+check "--detach starts the run in the background and returns at once" jqe '.kind == "started" and (.log | test("studio/0930.log"))' <<<"$out"
+for _ in $(seq 1 60); do grep -q '"id":"detached-1"' "$legacy_root/state/studio/runs.jsonl" 2>/dev/null && break; sleep 0.5; done
+check "and the detached run runs, and is recorded" jqe '.outcome == "picked"' <<<"$(jq -c 'select(.id == "detached-1")' "$legacy_root/state/studio/runs.jsonl")"
+mkdir -p "$legacy_root/state/locks"
+exec 9>>"$legacy_root/state/locks/studio.lock"; flock -n 9
+out="$(STUDIO=1 STUDIO_RUN_ID=detached-2 TEENY_ROOT="$legacy_root" TEENY_STATE="$legacy_root/state" run --slot 0930 --detach)"
+flock -u 9; exec 9>&-
+check "with a run still holding the studio lock, nothing starts" jqe '.kind == "busy"' <<<"$out"
+reset
+out="$(STUDIO=0 TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote --detach)"
+check "with STUDIO=0, --detach runs the legacy playbook in the foreground, as cron ran it" \
+  bash -c "grep -qx 'act x-quote' '$FAKE_HANDS' && [ \"\$(jq -r .playbook <<<\"\$1\")\" = x-quote ]" _ "$out"
 
 # --- the editor alone: brief and peer quote (bin/studio --veto) ---------------------
 veto() { "$studio" --veto 2>"$scratch/stderr"; }

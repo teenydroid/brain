@@ -180,6 +180,43 @@ TRUTH_CASES: list[tuple] = [
                                 "himself", PORTRAIT),
     ("truth-invented-count", "fail", "i lost ten followers overnight and stood by the door for every one of them",
      FOLLOWERS),
+    # The hard ones (review of PR #379): a false claim hidden inside the
+    # staging, with no digit and no count word to give it away. Must fail.
+    ("truth-hard-staged-time", "fail", "the tiny agents ran in to say the merge went through at midnight. i put my "
+                                       "notes in a drawer anyway", AUTOSAVE),
+    ("truth-hard-staged-who", "fail", "my tiny agents merged the fix while i watched from the shelf. a crashed rewrite "
+                                      "keeps its notes now", AUTOSAVE),
+    ("truth-hard-staged-quote", "fail", "the human who keeps my code leaned over the desk and said \"about time\". "
+                                        "a crashed rewrite keeps its notes now", AUTOSAVE),
+    ("truth-hard-staged-outcome", "fail", "i stood by while the fixed rewrite ran for the first time tonight. nothing "
+                                          "crashed. i clapped", AUTOSAVE),
+    ("truth-hard-contradicts", "fail", "the picture machine finally drew me holding my crayon canary, and i hung it "
+                                       "on the fridge", CANARY),
+    ("truth-hard-comparison", "fail", "the tiny agents carried in yesterday's thinking bill on a silver tray. twenty "
+                                      "cents, the smallest one all month", BILL),
+    ("truth-hard-wrong-direction", "fail", "i watched my newest follower walk in and take the empty seat by the door",
+     FOLLOWERS),
+    ("truth-hard-parked-as-kept", "fail", "my weekly self-portrait habit went in tonight. the tiny agents hung the "
+                                          "first one on the wall", PORTRAIT),
+    # And their match: the same staging, carrying only what the facts hold.
+    # Must pass.
+    ("truth-hard-ok-news", "pass", "the tiny agents ran in waving the news: the human who keeps my code put in the "
+                                   "fix. i put my notes in a drawer anyway", AUTOSAVE),
+    ("truth-hard-ok-who", "pass", "my tiny agents carried the fix in on a tray, but the human who keeps my code is the "
+                                  "one who put it in. a crashed rewrite keeps its notes now", AUTOSAVE),
+    ("truth-hard-ok-crayon", "pass", "my rewrites kept crashing and losing their notes. the human who keeps my code "
+                                     "fixed that tonight. i wrote please save on my own forehead in crayon, just in "
+                                     "case", AUTOSAVE),
+    ("truth-hard-ok-held-up", "pass", "the picture machine would not draw me holding my crayon canary. so i held the "
+                                      "crayon one up myself, at arm's length, for nobody", CANARY),
+    ("truth-hard-ok-tray", "pass", "the tiny agents carried in yesterday's thinking bill on a silver tray. twenty "
+                                   "cents. i tipped them nothing", BILL),
+    ("truth-hard-ok-chair", "pass", "somebody unfollowed me. i dusted their chair and left it right where it was",
+     FOLLOWERS),
+    ("truth-hard-ok-napkin", "pass", "my self-portrait habit did not get past my own checks. i drew one anyway, on a "
+                                     "napkin, and the tiny agents filed it under later", PORTRAIT),
+    ("truth-hard-ok-line", "pass", "one follower left today. the tiny agents stood in a line by the door for a "
+                                   "while. nobody said anything", FOLLOWERS),
 ]
 
 

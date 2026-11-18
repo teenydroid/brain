@@ -126,11 +126,6 @@ Json = dict[str, Any]
 KNOWN_FORMATS = ("post", "thread", "image")
 #: Drafts tried after the pick when it cannot go out (`publish`).
 MAX_FALLBACKS = 2
-#: Words that point at the picture: such a text does not stand alone when the
-#: picture could not be made.
-POINTS_AT_PICTURE = re.compile(
-    r"\b(?:th(?:is|e) (?:picture|photo|pic|drawing|image|selfie)|pictured|look at (?:me|this)|here i am)\b",
-    re.IGNORECASE)
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
 #: point of an explore run.
 SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit")
@@ -172,7 +167,9 @@ def _env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # A file that is not text reads as empty here; studio_switch.read
+        # raises on it, so the run posts nothing (Config.switch_error).
         return values
     for raw in text.splitlines():
         line = raw.strip()
@@ -212,6 +209,11 @@ class Config:
     turn_min_secs: int = 20
     inputs_bytes: int = INPUTS_BYTES
     outside_x: bool = False
+    #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
+    #: reads it: secrets/teeny.env only. "" is the core's default.
+    judge_model: str = ""
+    #: Why STUDIO could not be read ("" when it could): nothing posts.
+    switch_error: str = ""
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
@@ -223,10 +225,18 @@ class Config:
             return value if value not in (None, "") else filed.get(name) or None
 
         c = cls()
-        c.on = studio_switch.on(environ, secrets_file)
+        try:
+            c.on = studio_switch.on(environ, secrets_file)
+        except studio_switch.SwitchError as exc:
+            c.on, c.switch_error = False, str(exc)
+        c.judge_model = (filed.get("SAFETY_JUDGE_MODEL") or "").strip()
         c.dry = (get("STUDIO_DRY") or "0").strip().lower() in ("1", "true", "yes", "on")
         c.writer_model = (get("STUDIO_WRITER_MODEL") or "").strip()
         c.editor_model = (get("STUDIO_EDITOR_MODEL") or "").strip()
+        if c.judge_model == c.writer_model:
+            same = c.writer_model or "the core's default, both unset"
+            c.warnings.append(f"the judges (SAFETY_JUDGE_MODEL) run on the writer's model ({same}): set "
+                              "SAFETY_JUDGE_MODEL in secrets/teeny.env to another; a live run leaves the slot empty")
         if c.writer_model == c.editor_model:
             same = c.writer_model or "the core's default, both unset"
             c.warnings.append(f"the writer and the editor run on the same model ({same}): "
@@ -479,6 +489,7 @@ def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], li
             if not scene:
                 why = why or "an image piece needs a scene"
             draft["image"] = scene
+            draft["alone"] = raw.get("alone") is True
         if _str(raw.get("open_question")):
             draft["open_question"] = _str(raw.get("open_question"))
         if why:
@@ -759,10 +770,13 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         body = f"a thread: 2 to {THREAD_MAX} posts, each at most 280 characters as X counts them"
     elif fmt == "image":
         shape = ('{"text": "...", "image": "<the scene: where you are, what you are doing, what is in the frame>", '
+                 '"alone": <true only when the words make complete sense to a stranger with no picture>, '
                  '"meaning": "...", "open_question": "<optional>"}')
         body = ("one post of at most 280 characters as X counts them, with a picture of you. The scene is drawn "
                 "from your character sheet: describe a place and a moment, never text in the picture and never a "
-                "real person, and not the same workbench, mug and glowing screen again")
+                "real person, no number and no named thing a stranger would read as a fact, and not the same "
+                "workbench, mug and glowing screen again. When the picture cannot be made, the post goes out "
+                "as words alone only if you said they stand alone (`alone`: true); otherwise it is no post")
     else:
         shape = '{"text": "...", "meaning": "...", "open_question": "<optional>"}'
         body = "one post of at most 280 characters as X counts them"
@@ -941,6 +955,10 @@ class Room:
     #: (the core's default) once it failed a turn (`turn`).
     models: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    #: What came of each scene this run (`picture`): (media ids or None, note).
+    pictures: dict[str, tuple[list[str] | None, Json]] = field(default_factory=dict)
+    #: The slot this run holds (`claim`), "" for a run that may not post.
+    slot_id: str = ""
 
     def __post_init__(self) -> None:
         self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model}
@@ -966,6 +984,30 @@ class Room:
         except ValueError:
             got = done.stdout.strip()[:500] or done.stderr.strip()[-500:]
         return done.returncode, got
+
+    def budgeted(self, argv: list[str], body: Any, timeout: int, dry: bool = True) -> tuple[int, Any]:
+        """A hand call inside the run's time (STUDIO_BUDGET_SECS counts the
+        judges and hands/x as well as the model turns): at most what is left
+        of it, and not started at all with under CALL_MIN_SECS left, which
+        is exit -2, nothing sent."""
+        secs = min(timeout, self.left() - 5)
+        if secs < CALL_MIN_SECS:
+            return -2, f"out of the run's time ({self.cfg.budget_secs} s) before hands/{argv[0]} {argv[1]}"
+        return self.hand_code(argv, body, dry, int(secs))
+
+    def mark_slot(self, status: str, **detail: Any) -> bool:
+        """The run's progress on its slot (hands/story slot-mark); True when
+        there is no slot to mark (a dry run) or it was marked."""
+        if not self.slot_id:
+            return True
+        ok, got = self.hand(["story", "slot-mark"], {"slot_id": self.slot_id, "run_id": self.run_id,
+                                                     "status": status, **detail}, dry=False)
+        marked = ok and isinstance(got, dict) and got.get("marked") is True
+        if marked:
+            self.slot_status = status
+        return marked
+
+    slot_status: str = ""
 
     def hand(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[bool, Any]:
         code, got = self.hand_code(argv, body, dry, timeout)
@@ -1099,29 +1141,53 @@ UNJUDGED = ("the truth judge could not be reached", "the truth judge answered in
             "the cold reader could not be reached", "the cold reader answered in an unreadable shape")
 
 
+#: The least time a judge or hands/x call is started with (`Room.budgeted`).
+CALL_MIN_SECS = 30
+
+
+def _judge(room: Room, gate: str, argv: list[str], body: Json, timeout: int, yes: str,
+           keys: tuple[str, ...]) -> tuple[bool, bool, Json]:
+    """One required gate: (passed, judged, its verdict as recorded). A gate
+    passes only on its clear yes, judged: one switched off (judged false) is
+    not a pass in a run that may post, and in a dry run passes with
+    `unjudged` in its record. A hand that did not answer, a verdict that is
+    not JSON, or a judge that could not judge, is judged false too."""
+    code, got = room.budgeted(argv, body, timeout)
+    verdict = _brief(got, *keys)
+    if code != 0 or not isinstance(got, dict):
+        verdict["reason"] = f"hands/{argv[0]} {argv[1]} did not answer: {str(got)[:300]}"
+        return False, False, verdict
+    if got.get("judged") is False:
+        verdict["unjudged"] = True
+        if room.dry:
+            room.warnings.append(f"the {gate} check is off ({verdict.get('reason')}): this dry run passed it unjudged")
+            return True, False, verdict
+        verdict["reason"] = (f"the {gate} check is off ({got.get('reason')}): the studio posts nothing a required "
+                             "gate did not judge")
+        return False, False, verdict
+    judged = not str(got.get("reason") or "").startswith(UNJUDGED)
+    if got.get(yes) is not True and not got.get("reason"):
+        verdict["reason"] = f"the {gate} check said no"
+    return got.get(yes) is True, judged, verdict
+
+
 def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json, bool]:
     """The truth judge, then the cold reader, on the draft's words: (the gate
     it failed or None, that gate's verdict, every result, whether the failing
-    gate judged the draft at all). Each fails closed: a hand that did not
-    answer, or anything but its clear yes, is a no. A judge the operator
-    switched off (judged false) passes, and says so."""
+    gate judged the draft at all). Each fails closed (`_judge`)."""
     results: Json = {}
-    ok, truth = room.hand(["guard", "truth"], {"text": _words(draft), "facts": draft["truth"]["facts"]},
-                          timeout=180)
-    results["truth"] = _brief(truth, "truthful", "unsupported", "reason", "judged")
-    if not (ok and isinstance(truth, dict) and truth.get("truthful") is True):
-        if not (isinstance(truth, dict) and truth.get("reason")):
-            results["truth"]["reason"] = f"hands/guard truth did not answer: {str(truth)[:300]}"
-        return "truth", results["truth"], results, _judged(ok, truth)
+    ok, judged, results["truth"] = _judge(room, "truth", ["guard", "truth"],
+                                          {"text": _words(draft), "facts": draft["truth"]["facts"]}, 180,
+                                          "truthful", ("truthful", "unsupported", "reason", "judged"))
+    if not ok:
+        return "truth", results["truth"], results, judged
     body: Json = {"text": _words(draft)}
     if draft.get("meaning"):
         body["meaning"] = draft["meaning"]
-    ok, clear = room.hand(["guard", "clarity"], body, timeout=240)
-    results["stranger"] = _brief(clear, "clear", "says", "unknown", "vague", "reason", "judged")
-    if not (ok and isinstance(clear, dict) and clear.get("clear") is True):
-        if not (isinstance(clear, dict) and clear.get("reason")):
-            results["stranger"]["reason"] = f"hands/guard clarity did not answer: {str(clear)[:300]}"
-        return "stranger", results["stranger"], results, _judged(ok, clear)
+    ok, judged, results["stranger"] = _judge(room, "stranger", ["guard", "clarity"], body, 240, "clear",
+                                             ("clear", "says", "unknown", "vague", "reason", "judged"))
+    if not ok:
+        return "stranger", results["stranger"], results, judged
     return None, {}, results, True
 
 
@@ -1162,6 +1228,9 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
         again["text"] = answer["text"].strip()
     if _str(answer.get("meaning")):
         again["meaning"] = _str(answer.get("meaning"))
+    # A rewrite of an image piece's words is not one the writer has said
+    # stands alone without its picture, unless it says so again.
+    again["alone"] = answer.get("alone") is True if "alone" in answer else draft.get("alone") is True
     log.update({"posts": again["posts"]} if "posts" in again else {"text": again["text"]})
     why = over_limit(again) or screen(again, draft["truth"]["facts"], afters)
     if why:
@@ -1173,12 +1242,26 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
 
 def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     """The picture for an image piece, made only now that its words passed:
-    the scene past the guard, then hands/image (its own daily and money
-    caps, the scene kept as its alt text), the viewer check (hands/guard
-    view), then hands/x upload --alt. The media ids to post with ([] in a dry run:
-    the picture is planned, never bought), or None when it could not be made."""
-    note: Json = {"scene": draft.get("image") or ""}
+    the scene past the guard and the truth judge, then hands/image (its own
+    daily and money caps, the scene kept as its alt text), the viewer check
+    (hands/guard view), then hands/x upload --alt. The media ids to post
+    with ([] in a dry run: the picture is planned, never bought), or None when
+    it could not be made. One scene is made once a slot: a fallback with the
+    same scene reuses what came of it (`Room.pictures`), the picture or its
+    failure, so a refusal is never bought twice."""
+    scene = draft.get("image") or ""
+    if scene in room.pictures:
+        made, before = room.pictures[scene]
+        attempt["picture"] = {**before, "reused": True}
+        return list(made) if made is not None else None
+    note: Json = {"scene": scene}
     attempt["picture"] = note
+    made = _make_picture(room, draft, note)
+    room.pictures[scene] = (made, {k: v for k, v in note.items()})
+    return made
+
+
+def _make_picture(room: Room, draft: Json, note: Json) -> list[str] | None:
     if not note["scene"]:
         note["failed"] = "the draft has no scene"
         return None
@@ -1186,18 +1269,28 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     # words like any, on the guard's surface for text a machine is sent
     # (`task`, 1,000 characters), since X's 280 would hold every scene the
     # writer writes (a draft's scene is up to 600; preview, 2026-11-18).
-    ok, checked = room.hand(["guard", "check"], {"text": note["scene"], "surface": "task"})
-    if not (ok and isinstance(checked, dict) and isinstance(checked.get("text"), str) and checked["text"].strip()):
+    code, checked = room.budgeted(["guard", "check"], {"text": note["scene"], "surface": "task"}, 120)
+    if not (code == 0 and isinstance(checked, dict) and isinstance(checked.get("text"), str) and checked["text"].strip()):
         note.update(failed="the guard held its scene", guard=_brief(checked, "refused", "rule", "category", "error"))
         return None
     note["scene"] = checked["text"]
+    # What the picture shows is a claim like the words: a count on a sign, a
+    # named person, an outcome drawn in. The scene is truth-gated against the
+    # draft's own facts (staging, the robot and its props, passes).
+    ok, judged, note["truth"] = _judge(room, "picture's truth", ["guard", "truth"],
+                                       {"text": "the picture shows: " + note["scene"],
+                                        "facts": draft["truth"]["facts"]}, 180,
+                                       "truthful", ("truthful", "unsupported", "reason", "judged"))
+    if not ok:
+        note["failed"] = "the truth judge did not pass its scene"
+        return None
     if room.dry:
         note["planned"] = True
         return []
     # The alt text is what the picture shows: the scene, as the guard passed
     # it (hands/image keeps it on the row for hands/x upload --alt).
     alt = note["scene"][:1000]
-    code, made = room.hand_code(["image", "generate"], {"prompt": note["scene"], "alt": alt}, dry=False, timeout=360)
+    code, made = room.budgeted(["image", "generate"], {"prompt": note["scene"], "alt": alt}, 360, dry=False)
     if code != 0 or not isinstance(made, dict):
         note.update(failed="refused" if code == 2 else "not made",
                     result=_brief(made, "refused", "rule", "error", "reason") if isinstance(made, dict) else str(made)[:300])
@@ -1212,27 +1305,19 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
         return None
     # The viewer check (hands/guard view): someone who has never heard of
     # Teeny looks at the picture: Teeny on model, and the point taken from
-    # it. Fails closed; off (VIEWER_JUDGE=0) it passes and says so.
+    # it. Fails closed; switched off, the picture is not posted (`_judge`).
     intent = (draft.get("meaning") or note["scene"])[:400]
-    ok, seen = room.hand(["guard", "view"], {"image": str(asset["path"]), "intent": intent}, timeout=240)
-    note["viewer"] = _brief(seen, "ok", "sees", "on_model", "readable", "reason", "judged")
-    if not (ok and isinstance(seen, dict) and seen.get("ok") is True):
+    ok, judged, note["viewer"] = _judge(room, "viewer", ["guard", "view"], {"image": str(asset["path"]), "intent": intent},
+                                        240, "ok", ("ok", "sees", "on_model", "readable", "reason", "judged"))
+    if not ok:
         note["failed"] = "the viewer check did not pass it"
         return None
-    ok, up = room.hand(["x", "upload", "--file", str(asset["path"]), "--alt", alt], dry=False, timeout=180)
-    if not (ok and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
+    code, up = room.budgeted(["x", "upload", "--file", str(asset["path"]), "--alt", alt], None, 180, dry=False)
+    if not (code == 0 and isinstance(up, dict) and isinstance(up.get("media_id"), str)):
         note.update(failed="upload failed", result=_brief(up, "refused", "rule", "error"))
         return None
     note["media_id"] = up["media_id"]
     return [up["media_id"]]
-
-
-def stands_alone(draft: Json) -> str:
-    """Why the words of an image piece cannot go out without their picture;
-    "" when they can: the cold reader already followed them with no picture
-    in front of it, and they do not point at one."""
-    found = POINTS_AT_PICTURE.search(_words(draft))
-    return f"its words point at the picture ({found.group(0)!r})" if found else ""
 
 
 def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
@@ -1250,10 +1335,23 @@ def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tup
     return "post", {"text": draft["text"], **body}
 
 
+def posted_words(verb: str, got: Json, sent: Json) -> str:
+    """What went out, as hands/x answered it (the guard's rewrite): a post's
+    `text`, a thread's `posts` (or, for a thread X stopped part way, the
+    first `sent` of what was sent)."""
+    if verb == "post":
+        return got["text"] if isinstance(got.get("text"), str) else sent.get("text", "")
+    posts = got.get("posts") if isinstance(got.get("posts"), list) else sent.get("posts") or []
+    if isinstance(got.get("sent"), int):
+        posts = posts[:got["sent"]]
+    return "\n\n".join(p for p in posts if isinstance(p, str))
+
+
 def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[str]) -> str:
     """One draft through the producer, the gates and hands/x. What came of it:
     "posted", "would_post", "next" (try the next draft) or "stop" (the slot
-    is shut or held: no other draft either)."""
+    is shut or held, a judge could not judge, the time ran out, or hands/x
+    may have posted: no other draft either)."""
     fmt = draft.get("format")
     if fmt not in KNOWN_FORMATS:
         attempt["result"] = f"no producer for the format {fmt!r}: no post"
@@ -1281,50 +1379,72 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     if fmt == "image":
         made = picture(room, draft, attempt)
         if made is None:
-            why = stands_alone(draft)
-            if why:
-                attempt["picture"]["fallback"] = f"no post: {why}"
+            # Words go out without their picture only when the writer said
+            # they stand alone (`alone`); by default an image piece is its
+            # picture, and a failed one is no post.
+            if draft.get("alone") is not True:
+                attempt["picture"]["fallback"] = "no post: the writer did not mark the words as standing alone"
                 attempt["result"] = "the picture could not be made and the words do not stand alone"
                 return "next"
-            attempt["picture"]["fallback"] = ("the words alone: the cold reader followed them with no picture "
-                                              "in front of it")
+            attempt["picture"]["fallback"] = "the words alone: the writer marked them as standing alone"
         else:
             media_ids = made
     pitch = slot.pitches.get(draft["pitch"]) or {}
     verb, body = post_body(room, draft, pitch, media_ids)
-    code, got = room.hand_code(["x", verb], body, dry=room.dry, timeout=300)
-    attempt["x"] = {"verb": verb, "code": code,
-                    **(_brief(got, "id", "ids", "would_post", "dry_run", "refused", "rule", "category", "hold_id",
-                              "error", "judge_failed") if isinstance(got, dict) else {"error": str(got)[:300]})}
     attempt["sent"] = {k: body[k] for k in ("text", "posts") if k in body}
+    if not room.dry and not room.mark_slot("posting", intent={"draft": draft["id"], "verb": verb, **attempt["sent"]}):
+        attempt["result"] = "the slot could not be marked before posting: nothing was sent"
+        return "stop"
+    code, got = room.budgeted(["x", verb], body, 300, dry=room.dry)
+    attempt["x"] = {"verb": verb, "code": code,
+                    **(_brief(got, "id", "ids", "head_id", "sent", "would_post", "dry_run", "refused", "rule", "category",
+                              "hold_id", "error", "judge_failed") if isinstance(got, dict) else {"error": str(got)[:300]})}
     if code == 0 and isinstance(got, dict) and got.get("dry_run"):
         attempt["result"] = "would post (dry)"
         return "would_post"
     if code == 0 and isinstance(got, dict) and isinstance(got.get("id"), str):
         attempt["result"] = "posted"
         attempt["post_id"] = got["id"]
-        attempt["beat"] = beat(room, draft, slot.items.get(pitch.get("item")), got)
+        room.mark_slot("posted", post_id=got["id"])
+        attempt["beat"] = beat(room, draft, slot.items.get(pitch.get("item")), got["id"],
+                               posted_words(verb, got, attempt["sent"]))
+        return "posted"
+    head = got.get("head_id") if isinstance(got, dict) else None
+    if verb == "post-thread" and isinstance(head, str) and head:
+        # X stopped the thread part way: what went out stays, and is the post.
+        attempt["result"] = f"posted in part: {got.get('sent')} of {got.get('of')} went out before X stopped"
+        attempt["post_id"] = head
+        room.mark_slot("posted", post_id=head)
+        attempt["beat"] = beat(room, draft, slot.items.get(pitch.get("item")), head,
+                               posted_words(verb, got, attempt["sent"]))
         return "posted"
     rule = got.get("rule") if isinstance(got, dict) else None
     refused = got.get("refused") if isinstance(got, dict) else None
-    if code == 2 and (rule in SLOT_RULES or refused == "held"):
-        attempt["result"] = f"hands/x turned it away ({rule or refused}): the slot stays empty"
+    if code == -2:
+        room.mark_slot("empty")
+        attempt["result"] = f"{got}: nothing was sent"
         return "stop"
     if code == 2:
+        room.mark_slot("claimed")
+        if rule in SLOT_RULES or refused == "held":
+            attempt["result"] = f"hands/x turned it away ({rule or refused}): the slot stays empty"
+            return "stop"
         attempt["result"] = f"hands/x turned it away ({rule or 'refused'}): {str(refused)[:200]}"
         return "next"
-    # An error from hands/x may have posted (a timeout, an X 5xx): never try
-    # another draft after one.
-    attempt["result"] = "hands/x failed: nothing else is tried, in case it went out"
+    # An error or a timeout from hands/x may have posted (an X 5xx, no
+    # answer): the slot stays `posting`, which the next run marks in doubt,
+    # and no other draft is tried.
+    attempt["result"] = "hands/x failed or did not answer: nothing else is tried, in case it went out"
     return "stop"
 
 
-def beat(room: Room, draft: Json, item: Json | None, posted: Json) -> Json:
-    """`hands/story beat` for a real post on the pick's storyline, citing the
-    desk row it was told from (an outside item is no ledger row)."""
+def beat(room: Room, draft: Json, item: Json | None, post_id: str, words: str) -> Json:
+    """`hands/story beat` for a real post on the pick's storyline, with the
+    words that went out, citing the desk row it was told from (an outside
+    item is no ledger row)."""
     if not draft.get("storyline"):
         return {"skipped": "the piece moves no storyline"}
-    body: Json = {"storyline": draft["storyline"], "post_id": str(posted["id"]), "text": _words(draft),
+    body: Json = {"storyline": draft["storyline"], "post_id": str(post_id), "text": words or _words(draft),
                   "format": draft["format"]}
     for key in ("shape", "open_question"):
         if draft.get(key):
@@ -1336,16 +1456,35 @@ def beat(room: Room, draft: Json, item: Json | None, posted: Json) -> Json:
     return got if isinstance(got, dict) else {"error": str(got)[:300]}
 
 
+def judge_is_writer(room: Room) -> str:
+    """Why the judges would read the writer's own voice ("" when they would
+    not): SAFETY_JUDGE_MODEL ("" the core's default) against the model the
+    writer's turns ran on, after any fallback."""
+    writer = room.models.get("writer", "")
+    if room.cfg.judge_model == writer:
+        return (f"the truth and stranger judges (SAFETY_JUDGE_MODEL) run on the writer's model "
+                f"({writer or 'the core default'})")
+    return ""
+
+
 def publish(room: Room, record: Json, slot: Slot) -> Json:
     """The pick, then at most MAX_FALLBACKS more of the ranking, through
     `try_draft` until one goes out (or would, dry). A fallback faces the
     editor's slot question first: one it vetoes counts as tried. What came of
     it, also kept in the record as `publish`: {outcome: posted | would_post
-    | empty, ...}."""
+    | empty, ...}. A live run whose judges would be the writer's own model
+    posts nothing (a dry run warns)."""
     afters = example_afters(room.brain)
     attempts: list[Json] = []
     out: Json = {"dry": room.dry, "attempts": attempts}
     record["publish"] = out
+    same = judge_is_writer(room)
+    if same and not room.dry:
+        out.update(outcome="empty", reason=f"{same}: set SAFETY_JUDGE_MODEL to another model; nothing was posted")
+        room.mark_slot("empty")
+        return out
+    if same:
+        room.warnings.append(f"{same}: a live run would leave this slot empty")
     for n, label in enumerate(slot.order[:MAX_FALLBACKS + 1]):
         draft = dict(slot.blind[label])
         attempt: Json = {"label": label, "draft": draft["id"], "pitch": draft["pitch"], "format": draft["format"]}
@@ -1421,6 +1560,10 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     hands = Path(environ.get("TEENY_HANDS") or root / "hands")
     secrets_dir = Path(environ.get("TEENY_SECRETS") or root / "secrets")
     cfg = Config.load(environ, secrets_dir / "teeny.env")
+    if cfg.switch_error:
+        # Neither path posts: not the studio, not the legacy playbook.
+        print(f"[studio] {cfg.switch_error}", file=sys.stderr)
+        return 1, {"ok": False, "error": cfg.switch_error, "failure": "studio"}
     if not cfg.on and not args.dry_run:
         if getattr(args, "legacy", None):
             # The rollback: the slot's old playbook, as cron ran it before.
@@ -1432,10 +1575,12 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     rng = random.Random(seed)
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
+    room.environ = environ
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
                     "seed": seed,
-                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
+                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
+                               "judge": cfg.judge_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
                                "pairs_per_turn": cfg.pairs_per_turn, "budget_secs": cfg.budget_secs},
@@ -1454,6 +1599,8 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
                 exit_code = 1
     except BlockingIOError:
         return 0, {"ok": True, "skipped": "the studio is already running"}
+    if room.slot_id and room.slot_status not in ("posting", "posted"):
+        room.mark_slot(SLOT_END.get(record.get("outcome"), "failed"))
     record["calls"] = {"total": len(room.calls), "writer": sum(c["agent"] == "writer" for c in room.calls),
                        "editor": sum(c["agent"] == "editor" for c in room.calls), "turns": room.calls}
     record["secs"] = round(time.monotonic() - room.started, 1)
@@ -1503,8 +1650,51 @@ def keep(room: Room, record: Json) -> str:
     return why
 
 
+#: Teeny's clock for a slot's date: brain/cron.toml's slots are India time.
+SLOT_TZ = "Asia/Kolkata"
+
+
+def slot_id_of(slot: str, environ: dict[str, str]) -> str:
+    """`<date>:<slot>`, the date in STUDIO_TZ (default SLOT_TZ)."""
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(environ.get("STUDIO_TZ") or SLOT_TZ)
+    now = float(environ["TEENY_NOW"]) if environ.get("TEENY_NOW") else time.time()
+    return f"{datetime.fromtimestamp(now, tz):%Y-%m-%d}:{slot}"
+
+
+def claim(room: Room, args: argparse.Namespace, record: Json) -> None:
+    """A run that may post holds its slot first, before any model turn
+    (hands/story slot-claim): a second run of the same slot (a retry, a
+    rerun, two cron calls) finds it held and does nothing, so a run killed
+    after X took its post never posts it again. A slot an earlier run left
+    `posting` is marked in doubt, here, in the record's warnings."""
+    if room.dry or not args.slot:
+        return
+    slot_id = slot_id_of(args.slot, dict(os.environ) | getattr(room, "environ", {}))
+    ok, got = room.hand(["story", "slot-claim"], {"slot_id": slot_id, "run_id": room.run_id,
+                                                  "force": bool(args.force_slot)}, dry=False)
+    if not (ok and isinstance(got, dict)):
+        raise Stop("failed", f"the slot {slot_id} could not be claimed: {str(got)[:300]}", 1, failure="studio")
+    for doubt in got.get("in_doubt") or []:
+        room.warnings.append(f"slot {doubt.get('slot_id')} (run {doubt.get('run_id')}) stopped while handing hands/x "
+                             f"a post: it may be on X without being in x_posts; check by hand ({doubt.get('intent')})")
+    record["slot_id"] = slot_id
+    if got.get("claimed") is not True:
+        held = got.get("slot") or {}
+        raise Stop("skipped", f"slot {slot_id} already had its run ({held.get('run_id')}, {held.get('status')})")
+    room.slot_id = slot_id
+    room.slot_status = "claimed"
+
+
+#: A run's outcome -> its slot's last status (a slot left `posting` stays so).
+SLOT_END = {"published": "posted", "empty": "empty", "vetoed": "empty", "skipped": "skipped", "failed": "failed",
+            "picked": "empty"}
+
+
 def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int, record: Json) -> int:
     cfg = room.cfg
+    claim(room, args, record)
     desk, outside, unavailable, cut, slot = gather(room, args)
     record["slot_read"] = slot
     sampled = sample(rng, seed, desk, room.brain, cfg.formats)
@@ -1685,6 +1875,8 @@ def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, 
     brain = Path(environ.get("TEENY_BRAIN") or environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
     hands = Path(environ.get("TEENY_HANDS") or root / "hands")
     cfg = Config.load(environ, Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env")
+    if cfg.switch_error:
+        return {"verdict": "none", "reason": f"the studio switch cannot be read: {cfg.switch_error}", "turn": False}
     if not cfg.on:
         return {"verdict": "pick", "reason": "the studio is off (STUDIO=0): nothing is vetoed", "turn": False}
     if not isinstance(body, dict):
@@ -1705,7 +1897,8 @@ def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, 
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=cfg.dry)
     record: Json = {"id": run_id, "kind": "veto", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": kind, "preview": False, "dry": cfg.dry,
-                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
+                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
+                               "judge": cfg.judge_model or "core default"},
                     "candidate": candidate, "warnings": list(cfg.warnings)}
     out: Json
     try:
@@ -1748,8 +1941,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--no-slot", action="store_true", help="do not read the slot at all (a replay)")
     parser.add_argument("--veto", action="store_true",
                         help="the editor alone on one candidate (JSON on stdin): pick or none")
+    parser.add_argument("--detach", action="store_true",
+                        help="as cron runs a slot: with STUDIO=1, start the run in the background and return")
     args = parser.parse_args(argv)
     environ = dict(os.environ)
+    if args.detach and not args.dry_run:
+        detached = detach(args, argv, environ)
+        if detached is not None:
+            return detached
     if args.veto:
         try:
             body = json.loads(sys.stdin.read() or "null")
@@ -1764,6 +1963,30 @@ def main(argv: list[str]) -> int:
         os.execv(str(root / "bin" / "act"), [str(root / "bin" / "act"), args.legacy])
     print(json.dumps(summary, ensure_ascii=False))
     return code
+
+
+def detach(args: argparse.Namespace, argv: list[str], environ: dict[str, str]) -> int | None:
+    """`--detach`, as cron runs a slot. The core gives a cron shell call 300 s
+    and then kills its process group and retries it; a studio run takes
+    longer than that (the preview's took 250 to 330 s before any picture or
+    post). So with STUDIO=1 the run is started in its own session through
+    bin/lib/detach.py, under the studio lock (one run at a time; the run
+    takes the same lock itself), and this call returns at once. None when
+    there is nothing to detach: with STUDIO=0 the slot's legacy playbook
+    runs in the foreground, as cron ran it before."""
+    root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
+    cfg = Config.load(environ, Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env")
+    if cfg.switch_error:
+        print(json.dumps({"ok": False, "error": cfg.switch_error, "failure": "studio"}, ensure_ascii=False))
+        return 1
+    if not cfg.on:
+        return None
+    rest = [a for a in argv if a != "--detach"]
+    log = f"studio/{args.slot or 'adhoc'}.log"
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, str(HERE / "detach.py"), "--log", log, "--lock", "studio", "--",
+                              str(root / "bin" / "studio"), *rest])
+    return 0  # not reached
 
 
 if __name__ == "__main__":
