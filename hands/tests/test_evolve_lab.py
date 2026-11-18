@@ -370,7 +370,7 @@ class TargetedEvaluation(LabCase):
         # candidate 2's pairs said worse, so main also drafts a fresh sample of
         # its task to confirm it, with candidate 2's share.
         self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
-                         [("pr-merged-typo-fix", "4"), ("cost-of-living-real-numbers", "2"), ("cost-of-living-real-numbers", "4")])
+                         [("cost-of-living-real-numbers", "2"), ("cost-of-living-real-numbers", "4"), ("pr-merged-typo-fix", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
         self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
                          [(self.port + 1, "pr-merged-typo-fix", "2"), (self.port + 2, "cost-of-living-real-numbers", "2")])
