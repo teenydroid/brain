@@ -42,6 +42,14 @@
 #    A thread that fails part way keeps what went out: the error says how
 #    many, and the day's budget is spent only by a thread that went out whole.
 #
+# With STUDIO=1 the studio owns every original post on X
+# (bin/lib/studio_switch.py): a playbook whose slot it took (x-quote,
+# morning, take, show, shiplog, growth) is a skip before any input, and
+# the told-to brief and the outward quote put their words past the
+# studio's editor (`bin/studio --veto`) before the hand: its no is a skip
+# for the brief, and rides to hands/x peer-suggest as `vetoed` for the
+# quote. With STUDIO=0 all of this is as it was.
+#
 # Prints one JSON summary; every run is appended to state/act/<name>/runs.jsonl.
 # A failed run's line says whose failure it was: `failure: "provider"` with
 # the `provider` class (bin/lib/provider_error.py) when the model provider
