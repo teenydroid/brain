@@ -494,8 +494,9 @@ check "and self-improve catches up a slot a restart cut off" bash -c "
     jq -e '.[] | select(.name == \"teeny.self-improve\") | .catch_up_secs > 0' >/dev/null"
 check "and no X post job, nor the bill payer, catches up" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\", \"teeny.brief\",
-      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 6 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | IN(\"teeny.studio-0430\", \"teeny.studio-0930\", \"teeny.studio-1500\",
+      \"teeny.studio-sunday\", \"teeny.studio-2300\", \"teeny.brief\", \"teeny.peer-quote\", \"teeny.shiplog\",
+      \"teeny.episode\", \"teeny.pay-bills\")) | .catch_up_secs] | length == 10 and all(. == 0)' >/dev/null"
 check "and no job that must follow another, or be followed, catches up out of order" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
     jq -e '[.[] | select(.name | IN(\"teeny.evolve\", \"teeny.evolve-credit\", \"teeny.dream\",
@@ -505,7 +506,7 @@ check "and the Moltbook evening audit makes up a slot the model provider lost" b
     jq -e '[.[] | select(.name == \"teeny.moltbook-evening\") | .make_up_secs] | length == 1 and all(. > 0)' >/dev/null"
 check "and no X post makes one up: a late post would take the next one's eight-hour room" bash -c "
   python3 '$here/../lib/cron_policy.py' '$here/../../brain/cron.toml' '$here/../../evals/cron.pinned.toml' |
-    jq -e '[.[] | select(.name | IN(\"teeny.morning\", \"teeny.take\", \"teeny.show\")) | .make_up_secs] | length == 3 and all(. == 0)' >/dev/null"
+    jq -e '[.[] | select(.name | test(\"^teeny\\\\.studio-\")) | .make_up_secs] | length == 5 and all(. == 0)' >/dev/null"
 # shipped shared 19:30 with moltbook-evening and never ran once on the box
 # (2026-11-11 to 11-13) while moltbook-evening ran every day.
 check "and no two of its enabled jobs fire on the same schedule" bash -c "
