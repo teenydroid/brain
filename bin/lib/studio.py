@@ -1279,33 +1279,21 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     return "stop"
 
 
-def beat(room: Room, draft: Json, pitch: Json, posted: Json) -> Json:
-    """`hands/story beat` for a real post on the pick's storyline."""
+def beat(room: Room, draft: Json, item: Json | None, posted: Json) -> Json:
+    """`hands/story beat` for a real post on the pick's storyline, citing the
+    desk row it was told from (an outside item is no ledger row)."""
     if not draft.get("storyline"):
         return {"skipped": "the piece moves no storyline"}
-    item = (pitch and pitch.get("item")) or ""
     body: Json = {"storyline": draft["storyline"], "post_id": str(posted["id"]), "text": _words(draft),
-                  "format": draft["format"], "shape": draft.get("shape") or None}
-    if draft.get("open_question"):
-        body["open_question"] = draft["open_question"]
-    source = None
-    for name in ("source", "id"):
-        found = room_items(room).get(item, {}).get(name) if item else None
-        if isinstance(found, str) and ":" in found and not found.split(":", 1)[0] in OUTSIDE_NAMES:
-            source = found
-            break
-    if source:
-        body["refs"] = [source]
-    ok, got = room.hand(["story", "beat"], {k: v for k, v in body.items() if v is not None}, dry=False)
+                  "format": draft["format"]}
+    for key in ("shape", "open_question"):
+        if draft.get(key):
+            body[key] = draft[key]
+    source = (item or {}).get("source")
+    if isinstance(source, str) and source.strip() and not (item or {}).get("untrusted"):
+        body["refs"] = [source.strip()]
+    ok, got = room.hand(["story", "beat"], body, dry=False)
     return got if isinstance(got, dict) else {"error": str(got)[:300]}
-
-
-#: The outside sources' item prefixes: not ledger rows a beat can cite.
-OUTSIDE_NAMES = {name for name, _ in OUTSIDE}
-
-
-def room_items(room: Room) -> dict[str, Json]:
-    return getattr(room, "items", {}) or {}
 
 
 def publish(room: Room, record: Json, slot: Slot) -> Json:
