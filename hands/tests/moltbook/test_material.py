@@ -86,8 +86,8 @@ class MaterialTest(Scratch):
             holds.record(direction="outbound", kind="link",
                          context={"surface": "github", "post_kind": "comment", "number": 368},
                          category="links", reason="links", by="links",
-                         text={"body": actions.report({"verdict": "needs_operator", "head_sha": "004a55c5",
-                                                       "tier": "teeny"})})
+                         text=json.dumps({"body": actions.report({"verdict": "needs_operator",
+                                                                  "head_sha": "004a55c5", "tier": "teeny"})}))
         self.at(T0)
         out = material.material()["guard_holds"]
         self.assertEqual(out["count"], 1)

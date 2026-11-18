@@ -105,6 +105,6 @@ def code_wrote(context: Any, text: Any) -> str | None:
 
 
 def teenys_own(direction: Any, context: Any, text: Any) -> bool:
-    """Whether a hold is on Teeny's own words: outbound, and no recogniser
-    says code wrote it. Inbound holds are strangers' words, never Teeny's."""
-    return direction == "outbound" and code_wrote(context, text) is None
+    """Whether a hold is on Teeny's own words: not inbound (strangers' words,
+    never Teeny's), and no recogniser says code wrote it."""
+    return direction != "inbound" and code_wrote(context, text) is None
