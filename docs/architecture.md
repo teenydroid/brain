@@ -809,7 +809,7 @@ One run is one slot:
    is the core's model; the same one for both is a warning in the record),
    `STUDIO_FORMATS` (`post,thread,image`), `STUDIO_PITCHES` (12),
    `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
-   `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (1200),
+   `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (2400: the glm preview of 2026-11-18 took 1266 s for 9 turns),
    `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
    time (an flock on `state/locks/studio.lock`).
    `bin/spine` registers each studio model's context window from the

@@ -145,7 +145,7 @@ class Config:
     drafts_each: int = 3
     meetings: int = 3
     pairs_per_turn: int = 5
-    budget_secs: int = 1200
+    budget_secs: int = 2400
     turn_max_secs: int = 300
     turn_min_secs: int = 20
     inputs_bytes: int = INPUTS_BYTES
@@ -180,7 +180,7 @@ class Config:
         c.drafts_each = _int(get("STUDIO_DRAFTS_EACH"), 3, 1, 5)
         c.meetings = _int(get("STUDIO_MEETINGS"), 3, 1, 8)
         c.pairs_per_turn = _int(get("STUDIO_PAIRS_PER_TURN"), 5, 1, 20)
-        c.budget_secs = _int(get("STUDIO_BUDGET_SECS"), 1200, 60, 3600)
+        c.budget_secs = _int(get("STUDIO_BUDGET_SECS"), 2400, 60, 3600)
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
         c.inputs_bytes = _int(get("STUDIO_INPUTS_BYTES"), INPUTS_BYTES, 8_000, 50_000)
