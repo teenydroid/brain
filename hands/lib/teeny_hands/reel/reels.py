@@ -521,7 +521,13 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
             tried.append(f"{model}: quoted ${estimate / 1e6:.3f}, over the ${per_job / 1e6:.2f} cap")
             continue
         _set(asset_id, model=model, job_id=job_id, cost_micro=estimate)
-        result = _await_music(api, job_id, wait, sleep)
+        try:
+            result = _await_music(api, job_id, wait, sleep)
+        except SurplusError as exc:
+            _cancel(api, job_id)
+            tried.append(f"{model}: {exc}")
+            _set(asset_id, cost_micro=0)
+            break
         if result.get("status") != "succeeded":
             error = result.get("error") or {}
             tried.append(f"{model}: {result.get('status')} ({error.get('type', 'unknown')})")
@@ -533,7 +539,12 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
         if not url:
             tried.append(f"{model}: no artifact")
             continue
-        data = api.download(url, AUDIO_MAX_BYTES)
+        try:
+            data = api.download(url, AUDIO_MAX_BYTES)
+        except SurplusError as exc:
+            # Paid for and not fetched: the cost stands, and the row says why.
+            tried.append(f"{model}: {exc}")
+            break
         ext = audio_type(data[:16])
         if ext is None:
             tried.append(f"{model}: the artifact is not audio")
