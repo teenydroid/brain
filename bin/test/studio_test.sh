@@ -523,8 +523,8 @@ check "--legacy names only a playbook the studio replaced" bash -c "[ '$code' !=
 reset
 cp "$scratch/fake/desk.json" "$scratch/saved.json"
 out="$(STUDIO_RUN_ID="$plain_id" run --dry-run --desk "$scratch/saved.json" --no-outside --no-slot)"
-check "--desk replays a saved desk, reading no hand at all" \
-  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^story record-run' '$FAKE_HANDS'" _ "$out"
+check "--desk replays a saved desk, reading no hand but the gates and a dry hands/x post" \
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^(story record-run|guard (truth|clarity|check) DRY_RUN=1 |x (post|post-thread) DRY_RUN=1 )' '$FAKE_HANDS'" _ "$out"
 check "and records which desk it replayed" test "$(last_record | jq -r .inputs.desk_file)" = "$scratch/saved.json"
 
 # --- the fixed case: the autosave story (bin/test/fixtures) ---------------------------
