@@ -1,6 +1,6 @@
 # Deploying Teeny
 
-`deploy/compose.yaml` runs four services over the checkout, which is mounted
+`deploy/compose.yaml` runs these services over the checkout, which is mounted
 at `/srv/teeny`:
 
 | Service | What | Port |
@@ -9,6 +9,7 @@ at `/srv/teeny`:
 | `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `glm-5.3-flash` for writing memories, `gpt-6-luna` for recall, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine runs in its network namespace and finds it at `CORTEX_API_URL=http://127.0.0.1:3141` (`secrets/spine.env`); CortexDB binds loopback only. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
+| `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
@@ -60,6 +61,54 @@ Compose reads interpolation values (`TEENY_UID`, `TEENY_GID`, `XHOOK_PORT`,
 `WEB_PORT`, `LADDER`, `CALENDAR_TZ`) from the shell or from a `deploy/.env`
 file if one exists. Nothing else in this stack reads `deploy/.env`; the keys
 live in `secrets/`.
+
+## The reel service
+
+`hands/reel` renders clips and songs on the `reel` service
+(docs/hands.md, "reel"). It is opt-in, behind the `reel` profile, and posts
+nothing. It needs about 4 cores and 4 GB while rendering (capped at that in
+compose; one render at a time). To start it on the box:
+
+```sh
+git submodule update --init vendor/moneyprinter        # the pinned release tag
+docker compose -f deploy/compose.yaml --profile reel build reel
+docker compose -f deploy/compose.yaml --profile reel up -d reel
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://reel:8080/ping   # "pong"
+```
+
+`up -d reel` starts that one service; it does not recreate the spine. Then
+check what a clip would be, with nothing rendered:
+
+```sh
+echo '{"kind":"clip","script":"...","materials":["brain/assets/tiny/tiny-love.jpg"]}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/reel make
+```
+
+`REEL_URL` defaults to `http://reel:8080`. The caps (`REEL_MAX_PER_DAY`,
+`REEL_SONGS_MAX_PER_WEEK`) and the music switch (`REEL_MUSIC`, off) are in
+`secrets/teeny.env` (`deploy/teeny.env.example`). Renders wait in the
+`reel-storage` volume until the hand copies them into `state/media/` and
+deletes the task; a restart of the service forgets its tasks, and a folder
+left by a task in flight then stays in the volume
+(`docker compose -f deploy/compose.yaml --profile reel down reel` and
+`docker volume rm teeny-spine_reel-storage` clear it).
+
+Egress: the only outbound call the service makes is upstream's Edge TTS
+request (`speech.platform.bing.com`, Microsoft's unofficial endpoint, over
+https). No model, stock library, upload service or update check is
+configured or run. Compose does not restrict it today: the service sits on
+the stack's default network, which reaches the internet. To hold it to that
+one host, either put `reel` on its own network with an egress proxy that
+allows only `speech.platform.bing.com:443` (set `HTTPS_PROXY` on the
+service; edge-tts honours it), or add a host firewall rule on the
+`DOCKER-USER` chain that drops the reel container's traffic to anything but
+that host. Either way the spine still reaches it on the compose network.
+
+To move the pin: check out the new release tag in `vendor/moneyprinter`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_reel.py'`
+(its schema check reads the new job model), rebuild, render one clip, and
+land it as a pull request. Never edit the submodule; a fix upstream needs is
+a pull request to `harry0703/MoneyPrinterTurbo`.
 
 ## The X webhook
 

@@ -1382,6 +1382,69 @@ the description past the guard, calls the hand, uploads the file through
 `hands/x upload` and attaches the id. If anything fails on the way, the post
 goes out text-only, with the reason in the run's result.
 
+## `reel`: clips with voice and captions, and songs
+
+Teeny's own stills and 5-second clips (from `image` and `video`, or
+`brain/assets/`), cut together in the order given under a script read by an
+Edge voice, with captions timed word by word; or, for a song, under a track
+`music` bought. The rendering is
+[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (MIT), the
+upstream repository itself as the submodule `vendor/moneyprinter`, pinned to a
+release tag and never edited here. It runs as the `reel` compose service
+(`--profile reel`; `deploy/reel.Dockerfile`, `deploy/reel.config.toml`,
+`deploy/README.md`), behind Teeny's own front, `deploy/reel/serve.py`, which
+takes one job route and answers 403 to every other upstream route (script
+generation, stock search, uploads). The hand reaches it at `REEL_URL`
+(`http://reel:8080`).
+
+| Verb | | Does |
+|---|---|---|
+| `make` | A | stdin `{kind: "clip"\|"song", script, materials: [paths], aspect?: "9:16"\|"16:9"\|"1:1", voice?, captions?: "word"\|"sentence", bed?: path, audio?: path, title?}`. Renders, waits (`REEL_WAIT_SECONDS`, 900), copies the mp4 to `state/media/reel-<id>.mp4`, checks it (an mp4 by its bytes, at most 200 MB, a picture and a sound track, 0 to 140 seconds by its header) and records a `media_assets` row (kind `reel` or `song`, cost 0, the job in `detail`). A clip may name a `bed` (a quiet music file); a song must name its `audio` (the track) and takes no bed. Refused (`path`) for a file outside `state/media/` or `brain/assets/` (symlinks and `..` resolved first, as `x upload`); (`per_day`) past `REEL_MAX_PER_DAY` (1) clips a UTC day; (`per_week`) past `REEL_SONGS_MAX_PER_WEEK` (1) songs in 7 days; (`budget`) when the day is already past `MEDIA_MAX_USD_PER_DAY`; (`runway`) while the runway tier allows no media. A render costs nothing, so a render that fails, times out or is stopped for any reason (a bad file, a full disk, a signal) leaves a `failed` row, no file, and its slot free again; the service drops the task. Under `DRY_RUN` it answers `would_make` with the job and calls nothing. |
+| `music` | A | stdin `{style, lyrics?, seconds?}` (10 to 180, default 30). Buys a track on Surplus (`POST /v1/music/generations`, `elevenlabs-music-v2-5` first, then `elevenlabs-music-v2`; about $0.41 to $0.55 a track on 2026-11-18), saves it to `state/media/music-<id>.<ext>` and records a `media_assets` row (kind `music`) with what it cost, which counts in `MEDIA_MAX_USD_PER_DAY`. Its row carries `REEL_MUSIC_MAX_USD_PER_JOB` ($0.70) from the moment it is claimed, so every other media hand's budget check sees the reservation; once Surplus accepts the job the row carries the quote (or that cap, when the quote is missing or odd), and only a confirmed end replaces it: the real cost on success, nothing on a confirmed failure or cancellation. A track quoted above the cap is cancelled. After any accepted job no other model is tried. Anything else after acceptance (an answer of an unknown shape or status word, the deadline, a failed download, an artifact that is not audio) leaves the row `unknown`: booked as spent, its job id kept, counted in the day's budget and the week's cap, for the operator to settle. A song a week and a track a week (`REEL_SONGS_MAX_PER_WEEK` caps each, counted separately). **Off until `REEL_MUSIC=1`**: the route and the model's market are confirmed, but its job and result shapes are assumed to be the video route's until the first paid run is checked. |
+| `list [--max N]` | R | The clips, songs and tracks made, newest first, and today's media spend. |
+| `get ID` | R | One. |
+
+Every job pins the operator's rules whatever the caller sent, and the front
+pins them again: Teeny's own files only (`video_source` local, never Pexels
+or Pixabay), in the order given, one video, the script verbatim (no model
+writes it), no music unless a bed or a track is named (the bundled
+`resource/songs`, which the README says came from YouTube, are not even in
+the image), and no upload (`upload_post_enabled = false`, no key). Only the
+fields `make` builds reach the service; nothing in the caller's body is
+passed through.
+
+The words that end up on screen and in the voice (`script`, `title`,
+`lyrics`) are the caller's to screen, as `image`'s prompt is: bin/act puts a
+description past `hands/guard check` before it calls a media hand, and
+whatever wires a clip or a song into posting must put every one of those
+words past it the same way. The hand makes no model call of its own, and
+nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
+`NOT_OUTPUTS`), and the studio wiring is a later change.
+
+`state` in `media_assets` is `pending`, `done`, `failed` (nothing spent, counts toward no cap) or `unknown` (money committed, outcome not known: counts as spent and toward the caps). Adding the reel kinds and `unknown` rebuilt the table once (`media/assets.py`, `allow_reel_kinds`); an orphaned `source_id` from before is kept and named on stderr, and a rebuild that fails leaves the ledger as it was so `image` and `video` keep working.
+
+The service's only outbound call is upstream's Edge TTS request (Microsoft's unofficial endpoint); `deploy/README.md` says how to hold it to that.
+
+Measured on the dev machine (2026-11-18, v1.3.10): a 12 to 13 second 9:16
+clip from three stills, Edge voice, word captions, no bed, renders in 85 to
+105 seconds, peaking at about 2.5 GB and 3.5 cores.
+
+Known gaps, both for pull requests to `harry0703/MoneyPrinterTurbo`, not
+local patches (the submodule is never edited):
+
+- **The bed does not duck under the voice.** It plays at one fixed volume,
+  so `REEL_BED_VOLUME_PCT` keeps it low (12%).
+- **Word timing is exact only for Edge voices.** With an ElevenLabs voice
+  upstream guesses it, so `voice` takes Edge voices only.
+- A song's words are not on screen yet (also an upstream change): upstream times a track's words only
+  with Whisper, which this service never loads (a multi-gigabyte download),
+  so a song renders with its pictures and no captions.
+
+The pin moves to a new release tag only by pull request, after
+`hands/tests/reel` passes against it: `SchemaDriftTest` reads the job model
+(`TaskVideoRequest` in `app/models/schema.py`) from the submodule's source
+and fails when a field Teeny or its front sends is renamed or gone.
+
 ## `build`: the builder's work queue
 
 The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
@@ -2787,7 +2850,7 @@ Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
 
 | Verb | | Does |
 |---|---|---|
-| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
+| `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `id` (the archive entry's id, which `story` cites as `evolve:<id>`), `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
 
 ## `story`: the story so far, and the studio's desk
 
@@ -2799,9 +2862,10 @@ A **storyline** has fixed fields: `key`, `title`, `premise` (one line a
 stranger gets, `brain/READER.md`), `state` (where it stands), `open_question`
 and when it was set (`question_at`), `next` (what would move it), `status`
 (`active` or `retired`). The six seeds are in
-`brain/narrative/STORYLINES.toml`: `rent` (its bills come out of its own
-wallet), `night-shift` (it rewrites itself at night, and most rewrites
-are thrown out), `keeper` (the human who can overrule it), `count` (followers
+`brain/narrative/STORYLINES.toml`: `rent` (it has a wallet and a monthly
+server bill the wallet is meant to cover; no bill has been paid from it
+yet), `night-shift` (it keeps rewriting itself, and most rewrites never go
+in: 7 of 36 made it into main by 2026-11-18), `keeper` (the human who can overrule it), `count` (followers
 gained and lost, in the open), `strangers` (what people try on it, and the
 promises it made them), `self-portrait` (the pictures it draws of itself).
 `ARCS.md` stays as lore. A **beat** is one post that moved a storyline: its
@@ -2815,7 +2879,7 @@ post id, surface, words, `shape`, `format`, the question it left open, and
 | `desk [--hours N]` | R | What really happened in the last N hours (1 to 168, default 24), below. |
 | `audit [--storyline K]` | R | Every beat's refs resolve, below. |
 | `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? (x, the default; moltbook, reddit, telegram, web), refs?, state?, next?}`: a post already made. Moves the storyline's open question (and `question_at`), `state` and `next` when the beat brings them. The same post on the same storyline is one beat (`recorded: false`, `already`). Refused `unknown storyline` or `storyline retired`. Under `DRY_RUN` the post never went out, so nothing is written: `{dry_run: true, would_record}`. |
-| `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). |
+| `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). Under `DRY_RUN` it reads only and writes nothing, not even the tables: `{dry_run: true, would_add, kept}`. |
 | `record-run` | J | One `bin/studio` run record on stdin (`{id, at_unix, outcome: picked\|vetoed\|skipped\|failed, slot?, seed?, explore?, reason?, models?, pitches?, drafts?, calls?, secs?, pick?, ...}`, at most 512 KiB), kept in `studio_runs`: the columns a report filters on and the whole record beside them. Written under `DRY_RUN` too: it is the room's own log of a run that sent nothing to anyone. The same id is kept once (`recorded: false`). |
 | `runs [--limit N] [--full]` | R | The newest studio runs (10, at most 100), newest first: `{runs: [{id, at, slot, dry, seed, explore, outcome, reason, models: {writer, editor}, pitches, drafts, calls, secs, pick}]}`; `--full` adds each run's whole `record` (every pitch, draft, pairing, verdict and the pick or the veto). |
 
@@ -2826,25 +2890,43 @@ fields; `source` (equal to `id`) is the ref a beat cites. `stake` is one of
 `money`, `broke`, `refused`, `fell`, `rose`, `promise`, `shipped`, `said`;
 `storyline` is a best guess by kind, null when none fits. The kinds:
 `generation` (a rewrite merged, from `lore events`), `generation_thrown`
-(rejected, lost, regressed, parked, crashed or never sent for review, from
-`state/evolve/archive.jsonl`), `merged_pr` and `bounty_paid` (from `lore
-events`), `payment` (`wallet_payments`; a surplus sweep's own payment is the
-sweep's item), `sweep` (`surplus_runs`, sent or refused), `model_bill`
-(yesterday's model cost, the health check's daily stimulus), `followers`
-(the X count against the day before, from `stats`, only when it moved),
-`promise` (`people_promises` kept or dropped in the window, or open and due
-in it or within the next N hours), `outage` (health alarms and recoveries,
-and an outage still going on in `state/health.json`), `media` (`media_assets`
-made or failed), `mention` (the 5 most-followed people on X Teeny answered,
-from `x_mentions`: their text is in `facts.text` with `untrusted: true`, and
-never in `what`). The answer is `{hours, since, at, items (newest first),
+(a rewrite that did not go in, from `state/evolve/archive.jsonl`, worded
+from the code that writes its verdict: `rejected` failed its automated
+checks, `regressed` did worse than the version before it, `parked` failed
+its checks round after round, `crashed` was cut short by a crash,
+`pr-error` was stopped before review; `lost`, which no current code writes,
+and any verdict without words say only "did not go in"), `merged_pr` (a
+change it wrote merged into a project it doesn't own; one with no merge
+time is left out) and `bounty_paid` (from `lore events`), `payment`
+(`wallet_payments`: only a `bill` is `rent`, a `bounty` is `strangers`,
+others null; a surplus sweep's own payment is the sweep's item, and a paid
+bounty's prize is the bounty's), `sweep` (`surplus_runs`, sent or refused;
+no storyline), `model_bill` (yesterday's model cost, the health check's
+daily stimulus; no storyline, since the wallet does not pay it), `followers`
+(the X count against the snapshot before, from `stats`, only when it moved:
+`d1` and "since the day before" only when that snapshot is the previous
+date, else "over N days" and `span_days`), `promise` (`people_promises` kept
+or dropped in the window, open and coming due within the next N hours, and
+the 5 most recently due open ones already overdue, however late, marked
+`overdue`), `outage` (health alarms and recoveries, and an outage still
+going on in `state/health.json`; when its alarm is on the desk too, that is
+the one item, marked `ongoing`), `media` (`media_assets` made or failed),
+`mention` (the 5 most-followed people on X Teeny answered, from
+`x_mentions`: their text is in `facts.text` with `untrusted: true`, and
+never in `what`). A person's handle is in `what` with its surface ("ana on
+x"), except on mail and Telegram, where `what` says "someone on mail" and
+the address or id stays in `facts.who`. The answer is `{hours, since, at, items (newest first),
 storylines (as state), due (as due, 3 days), scoreboard, ideas, unavailable}`.
 `ideas` are what the mind filed for the studio (`stimuli` of surface
-`studio`). The `scoreboard` is Teeny's 5 best and 5 worst original X posts
+`studio`), each `untrusted: true`, since the mind writes them while reading
+strangers. The `scoreboard` is Teeny's 5 best and 5 worst original X posts
 (posts and quotes) of the last 14 days, ranked as `stats board` ranks them
 (likes + replies + reposts + quotes at the newest measurement), each in full
-with the most impressions, likes, replies, reposts, quotes and bookmarks it
-reached, its `format` and its `source`, plus the average per format. A
+with the impressions, likes, replies, reposts, quotes and bookmarks of that
+same newest measurement (`checkpoint`), its `format` and its `source`, plus
+the average per format. A post is never both best and worst, so with 5 or
+fewer measured `worst` is empty. A scoreboard that cannot be read is `{}`
+and named in `unavailable`. A
 source that cannot be read (no table, no file, no GitHub) is named in
 `unavailable` and gives no item. The outside world (`hn`, `listen`, `x
 search`) is not on the desk; the studio reads those hands itself.
@@ -3002,7 +3084,7 @@ creates its own tables:
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
 | `brief` | `briefs` |
-| `image`, `video` | `media_assets` |
+| `image`, `video`, `reel` | `media_assets` |
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |

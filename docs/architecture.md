@@ -1227,6 +1227,12 @@ queue instead, the core drafts each batch with `teeny-mentions`, and
     reach, and the spine's `hands/x ingest` screens what it queued.
   - `web`: the landing page (`web/`, its own Next.js image) on
     `127.0.0.1:3120`, behind the `web` compose profile.
+  - `reel`: clips with voice and captions, and songs, for `hands/reel`:
+    MoneyPrinterTurbo (`vendor/moneyprinter`, the upstream repository at a
+    release tag, never edited) built API-only by `deploy/reel.Dockerfile`
+    and run behind `deploy/reel/serve.py`, on the compose network only,
+    behind the `reel` compose profile. It reads `state/media/` and
+    `brain/assets/` read-only and posts nothing.
 - The host's nginx (`deploy/nginx/teeny.enamakel.com.conf`) serves
   `teeny.enamakel.com`: `/api/webhooks/x` goes to the webhook, everything
   else to the landing page.
