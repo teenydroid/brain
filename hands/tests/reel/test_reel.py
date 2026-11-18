@@ -4,8 +4,10 @@ The jobs always pin the operator's rules, paths stay inside Teeny's media,
 the caps hold, and a render is checked before it is kept."""
 
 import ast
+import importlib.util
 import json
 import os
+import re
 import sqlite3
 import struct
 import sys
@@ -22,11 +24,20 @@ from teeny_hands import hand  # noqa: E402
 from teeny_hands.media import assets  # noqa: E402
 from teeny_hands.media.surplus import SurplusError  # noqa: E402
 from teeny_hands.reel import reels  # noqa: E402
-from teeny_hands.reel.service import Reel  # noqa: E402
+from teeny_hands.reel.service import STATE_COMPLETE, STATE_FAILED, STATE_PROCESSING, Reel  # noqa: E402
 
 REPO = HERE.parents[2]
 SCHEMA_PY = REPO / "vendor" / "moneyprinter" / "app" / "models" / "schema.py"
-SERVE_PY = REPO / "deploy" / "reel" / "serve.py"
+POLICY_PY = REPO / "deploy" / "reel" / "policy.py"
+
+
+def load_policy():
+    """deploy/reel/policy.py, the front's rules, which import nothing of
+    upstream's."""
+    spec = importlib.util.spec_from_file_location("reel_policy", POLICY_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 T0 = 1_789_369_200.0  # 2026-09-14T07:00:00Z
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64
@@ -520,16 +531,60 @@ class SchemaDriftTest(unittest.TestCase):
         self.assertTrue({"provider", "url"} <= material_fields)
 
     def test_the_front_takes_and_pins_only_fields_upstream_has(self):
-        tree = ast.parse(SERVE_PY.read_text())
-        values = {}
+        policy = load_policy()
+        self.assertEqual(sorted(policy.ALLOWED - self.fields - {"audio"}), [])
+        self.assertEqual(sorted(set(policy.PINNED) - self.fields), [])
+        self.assertEqual(policy.PINNED["video_source"], "local")
+        self.assertEqual(policy.PINNED["video_concat_mode"], "sequential")
+
+    def test_the_values_the_hand_hard_codes_are_upstreams(self):
+        source = SCHEMA_PY.read_text()
+        tree = ast.parse(source)
+        enums = {}
+        literals = {}
         for node in tree.body:
-            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                if node.targets[0].id in ("ALLOWED", "PINNED"):
-                    values[node.targets[0].id] = ast.literal_eval(node.value)
-        self.assertEqual(sorted(values["ALLOWED"] - self.fields - {"audio"}), [])
-        self.assertEqual(sorted(set(values["PINNED"]) - self.fields), [])
-        self.assertEqual(values["PINNED"]["video_source"], "local")
-        self.assertEqual(values["PINNED"]["video_concat_mode"], "sequential")
+            if isinstance(node, ast.ClassDef):
+                enums[node.name] = {
+                    s.value.value
+                    for s in node.body
+                    if isinstance(s, ast.Assign) and isinstance(s.value, ast.Constant) and isinstance(s.value.value, str)
+                }
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Subscript):
+                literals[node.targets[0].id] = {e.value for e in ast.walk(node.value.slice) if isinstance(e, ast.Constant)}
+        self.assertIn("word_by_word", literals["SubtitleDisplayMode"])
+        self.assertIn("sentence", literals["SubtitleDisplayMode"])
+        self.assertIn("none", literals["SubtitleAnimation"])
+        self.assertIn("zoom", enums["ImageMotion"])
+        self.assertIn("cover", enums["VideoFitMode"])
+        self.assertIn("sequential", enums["VideoConcatMode"])
+        self.assertTrue(set(reels.ASPECTS) <= enums["VideoAspect"])
+        self.assertTrue(set(reels.CAPTIONS.values()) <= literals["SubtitleDisplayMode"])
+
+    def test_states_routes_and_the_render_name_are_upstreams(self):
+        app = REPO / "vendor" / "moneyprinter" / "app"
+        const = (app / "models" / "const.py").read_text()
+        for name, value in (("TASK_STATE_FAILED", STATE_FAILED), ("TASK_STATE_COMPLETE", STATE_COMPLETE), ("TASK_STATE_PROCESSING", STATE_PROCESSING)):
+            self.assertRegex(const, rf"(?m)^{name} = {value}$")
+        video = (app / "controllers" / "v1" / "video.py").read_text()
+        self.assertIn('"/tasks/{task_id}"', video)
+        self.assertIn('"/download/{file_path:path}"', video)
+        self.assertIn('router.delete(\n    "/tasks/{task_id}"', video)
+        self.assertIn('router.prefix = "/api/v1"', (app / "controllers" / "v1" / "base.py").read_text())
+        self.assertIn('"/ping"', (app / "controllers" / "ping.py").read_text())
+        task = (app / "services" / "task.py").read_text()
+        self.assertIn('f"final-{index}.mp4"', task)
+        # "custom" is no music provider upstream: with a bgm_file it plays
+        # that file, and "" plays nothing.
+        providers = re.search(r"_VIDEO_MUSIC_PROVIDERS = \{(.*?)\n\}", task, re.S)
+        self.assertIsNotNone(providers)
+        self.assertNotIn('"custom"', providers.group(1))
+        bgm = (app / "services" / "video.py").read_text()
+        self.assertIn("if not bgm_type:\n        return \"\"", bgm)
+        self.assertIn('if bgm_type == "random":', bgm)
+        bgm_service = (app / "services" / "bgm.py").read_text()
+        self.assertIn("if not str(bgm_type or \"\").strip():\n        return False", bgm_service)
+        # The custom audio a song carries must sit in the task's own folder.
+        self.assertIn("custom audio file must be stored within the current task directory", task)
 
 
 if __name__ == "__main__":
