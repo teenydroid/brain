@@ -69,7 +69,9 @@ class ProducerTagsTest(TagsTest):
         self.assertEqual(self.x.requests("POST", "/2/tweets")[0].json(), {"text": "twenty cents of thinking"})
 
     def test_a_thread_keeps_them_on_its_head(self):
-        self.x.route("POST", "/2/tweets", [{"data": {"id": "100"}}, {"data": {"id": "101"}}], status=201)
+        for i, text in enumerate(("a bet", "and the stakes")):
+            self.x.route("POST", "/2/tweets", {"data": {"id": str(100 + i)}}, status=201,
+                         when=lambda seen, t=text: seen.json()["text"] == t)
         publish.thread({"anchor": "evt:2", "posts": ["a bet", "and the stakes"], "format": "thread", **self.STUDIO})
         rows = {r["id"]: r for r in self.ledger()}
         self.assertEqual(rows["100"]["producer"], "studio")
@@ -77,12 +79,12 @@ class ProducerTagsTest(TagsTest):
         self.assertIsNone(rows["101"]["producer"])
 
     def test_the_other_producers_and_none(self):
-        for i, producer in enumerate(("brief", "peer-quote", "legacy")):
+        texts = ("the lighthouse keeper took a day off", "a canal boat that sells only soup",
+                 "the oldest tortoise had a birthday", "a library that lends out umbrellas")
+        for i, producer in enumerate(("brief", "peer-quote", "legacy", None)):
+            self.at(T0 + i * 6 * 3600)
             self.x.route("POST", "/2/tweets", {"data": {"id": f"20{i}"}}, status=201)
-            publish.post({"anchor": f"brief:{i}", "text": f"a told-to post number {'one two three'.split()[i]}",
-                          "producer": producer})
-        self.x.route("POST", "/2/tweets", {"data": {"id": "300"}}, status=201)
-        publish.post({"anchor": "hn:3", "text": "an old path with no producer at all"})
+            publish.post({"anchor": f"brief:{i}", "text": texts[i], **({"producer": producer} if producer else {})})
         self.assertEqual([r["producer"] for r in self.ledger()], ["brief", "peer-quote", "legacy", None])
 
     def test_a_bad_producer_tag_is_an_error_and_nothing_is_sent(self):
