@@ -134,13 +134,13 @@ def _compact(raw: Any) -> Json | None:
     overlays = raw.get("overlays")
     example = raw.get("example") if isinstance(raw.get("example"), dict) else {}
     texts = example.get("text") if isinstance(example.get("text"), list) else []
+    keywords = raw.get("keywords") if isinstance(raw.get("keywords"), list) else []
     return {
         "id": raw["id"],
         "name": _text(raw.get("name"), MAX_NAME),
         "lines": lines,
         "overlays": overlays if isinstance(overlays, int) and not isinstance(overlays, bool) and overlays >= 0 else 0,
-        "keywords": [k for k in (_text(k, MAX_KEYWORD) for k in (raw.get("keywords") or [])[:MAX_KEYWORDS]
-                                 if isinstance(raw.get("keywords"), list)) if k],
+        "keywords": [k for k in (_text(k, MAX_KEYWORD) for k in keywords[:MAX_KEYWORDS]) if k],
         "example": [_text(t, MAX_EXAMPLE) for t in texts[:lines]],
     }
 
@@ -203,7 +203,7 @@ def _render(meta: Json, lines: list[str], style: str | None) -> Any:
     body: Json = {"template_id": meta["id"], "text": lines, "extension": "png"}
     if style:
         body["style"] = [style]
-    status, made = _json("POST", "/images/", body)
+    status, made = _json("POST", "/images", body)
     if status == 404:
         raise hand.Refused(f"there is no meme template {meta['id']!r}", rule="template")
     if status not in (200, 201) or not isinstance(made, dict) or not isinstance(made.get("url"), str):

@@ -173,7 +173,8 @@ def _encode(image: Any, prefer: str) -> tuple[bytes, str]:
     return fit.encode(image, prefer)
 
 
-def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: str | None) -> Json:
+def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: str | None,
+          model: str = MODEL) -> Json:
     """The finished picture: encoded under 5 MB, a row claimed, the file
     written whole (a `.part` renamed), the row done. A failure after the
     claim leaves the row failed, which counts toward nothing."""
@@ -193,7 +194,7 @@ def _save(kind: str, prompt: str, image: Any, prefer: str, detail: Json, alt: st
                 assets._finish(conn, asset_id, status="failed", error=f"could not write the file ({type(exc).__name__})")
                 raise hand.HandError(f"the {kind} could not be saved ({type(exc).__name__})") from None
             detail = {**detail, "bytes": len(data), "size": list(image.size)}
-            assets._finish(conn, asset_id, status="done", model=MODEL, path=str(path.relative_to(hand.root())),
+            assets._finish(conn, asset_id, status="done", model=model, path=str(path.relative_to(hand.root())),
                            cost_micro=0, estimated=0, detail=json.dumps(detail, ensure_ascii=False))
             row = conn.execute("SELECT * FROM media_assets WHERE id = ?", (asset_id,)).fetchone()
             return {"asset": public(row)}
