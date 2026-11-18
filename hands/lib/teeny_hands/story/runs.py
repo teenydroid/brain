@@ -45,15 +45,24 @@ CREATE TABLE IF NOT EXISTS studio_runs (
 CREATE INDEX IF NOT EXISTS studio_runs_at ON studio_runs (at);
 """
 
-#: What a run can come to (bin/lib/studio.py).
-OUTCOMES = ("picked", "vetoed", "skipped", "failed")
+#: What a run can come to (bin/lib/studio.py): `published` (a real post went
+#: out), `picked` (a pick that went no further: a dry run's, which would
+#: post), `empty` (a pick, and nothing could go out), `vetoed`, `skipped`,
+#: `failed`. An editor's single-candidate check (`kind` veto) is `picked`,
+#: `vetoed` or `failed`.
+OUTCOMES = ("published", "picked", "empty", "vetoed", "skipped", "failed")
+#: Columns added since the table was made: the record's kind (`run`, or
+#: `veto`), and the id of the post a run published.
+COLUMNS = {"kind": "TEXT", "post_id": "TEXT"}
 #: The most a record may hold, as compact JSON.
 MAX_RECORD_BYTES = 512 * 1024
 LIMIT_DEFAULT = 10
 
 
 def db():
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    hand.add_columns(conn, "studio_runs", COLUMNS)
+    return conn
 
 
 def _count(value: Any) -> int:
@@ -80,6 +89,9 @@ def record(body: Any) -> Json:
     models = body.get("models") if isinstance(body.get("models"), dict) else {}
     calls = body.get("calls") if isinstance(body.get("calls"), dict) else {}
     pick = body.get("pick")
+    kind = body.get("kind") if body.get("kind") in ("run", "veto") else "run"
+    published = body.get("published") if isinstance(body.get("published"), dict) else {}
+    post_id = published.get("post_id") if isinstance(published.get("post_id"), str) else None
     row = (run_id, float(at), body.get("slot") if isinstance(body.get("slot"), str) else None,
            0 if body.get("dry") is False else 1,
            body.get("seed") if isinstance(body.get("seed"), int) else None,
@@ -89,14 +101,14 @@ def record(body: Any) -> Json:
            _count(body.get("pitches")), _count(body.get("drafts")),
            int(calls.get("total") or 0) if isinstance(calls.get("total"), int) else 0,
            float(body["secs"]) if isinstance(body.get("secs"), (int, float)) else None,
-           json.dumps(pick, ensure_ascii=False) if pick is not None else None, text)
+           json.dumps(pick, ensure_ascii=False) if pick is not None else None, text, kind, post_id)
     conn = db()
     try:
         with hand.transaction(conn):
             done = conn.execute(
                 "INSERT OR IGNORE INTO studio_runs (id, at, slot, dry, seed, explore, outcome, reason, writer_model,"
-                " editor_model, pitches, drafts, calls, secs, pick, record)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                " editor_model, pitches, drafts, calls, secs, pick, record, kind, post_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
         return {"recorded": bool(done.rowcount), "id": run_id}
     finally:
         conn.close()
@@ -116,7 +128,8 @@ def runs(limit: int = LIMIT_DEFAULT, full: bool = False) -> Json:
                 "seed": r["seed"], "explore": bool(r["explore"]), "outcome": r["outcome"], "reason": r["reason"],
                 "models": {"writer": r["writer_model"], "editor": r["editor_model"]},
                 "pitches": r["pitches"], "drafts": r["drafts"], "calls": r["calls"], "secs": r["secs"],
-                "pick": json.loads(r["pick"]) if r["pick"] else None}
+                "pick": json.loads(r["pick"]) if r["pick"] else None, "kind": r["kind"] or "run",
+                "post_id": r["post_id"]}
         if full:
             item["record"] = json.loads(r["record"])
         out.append(item)
