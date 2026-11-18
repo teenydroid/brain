@@ -998,7 +998,12 @@ class Room:
             return True
         ok, got = self.hand(["story", "slot-mark"], {"slot_id": self.slot_id, "run_id": self.run_id,
                                                      "status": status, **detail}, dry=False)
-        return ok and isinstance(got, dict) and got.get("marked") is True
+        marked = ok and isinstance(got, dict) and got.get("marked") is True
+        if marked:
+            self.slot_status = status
+        return marked
+
+    slot_status: str = ""
 
     def hand(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[bool, Any]:
         code, got = self.hand_code(argv, body, dry, timeout)
@@ -1566,6 +1571,7 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     rng = random.Random(seed)
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
+    room.environ = environ
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
                     "seed": seed,
@@ -1588,6 +1594,8 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
                 exit_code = 1
     except BlockingIOError:
         return 0, {"ok": True, "skipped": "the studio is already running"}
+    if room.slot_id and room.slot_status not in ("posting", "posted"):
+        room.mark_slot(SLOT_END.get(record.get("outcome"), "failed"))
     record["calls"] = {"total": len(room.calls), "writer": sum(c["agent"] == "writer" for c in room.calls),
                        "editor": sum(c["agent"] == "editor" for c in room.calls), "turns": room.calls}
     record["secs"] = round(time.monotonic() - room.started, 1)
@@ -1637,8 +1645,51 @@ def keep(room: Room, record: Json) -> str:
     return why
 
 
+#: Teeny's clock for a slot's date: brain/cron.toml's slots are India time.
+SLOT_TZ = "Asia/Kolkata"
+
+
+def slot_id_of(slot: str, environ: dict[str, str]) -> str:
+    """`<date>:<slot>`, the date in STUDIO_TZ (default SLOT_TZ)."""
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(environ.get("STUDIO_TZ") or SLOT_TZ)
+    now = float(environ["TEENY_NOW"]) if environ.get("TEENY_NOW") else time.time()
+    return f"{datetime.fromtimestamp(now, tz):%Y-%m-%d}:{slot}"
+
+
+def claim(room: Room, args: argparse.Namespace, record: Json) -> None:
+    """A run that may post holds its slot first, before any model turn
+    (hands/story slot-claim): a second run of the same slot (a retry, a
+    rerun, two cron calls) finds it held and does nothing, so a run killed
+    after X took its post never posts it again. A slot an earlier run left
+    `posting` is marked in doubt, here, in the record's warnings."""
+    if room.dry or not args.slot:
+        return
+    slot_id = slot_id_of(args.slot, dict(os.environ) | getattr(room, "environ", {}))
+    ok, got = room.hand(["story", "slot-claim"], {"slot_id": slot_id, "run_id": room.run_id,
+                                                  "force": bool(args.force_slot)}, dry=False)
+    if not (ok and isinstance(got, dict)):
+        raise Stop("failed", f"the slot {slot_id} could not be claimed: {str(got)[:300]}", 1, failure="studio")
+    for doubt in got.get("in_doubt") or []:
+        room.warnings.append(f"slot {doubt.get('slot_id')} (run {doubt.get('run_id')}) stopped while handing hands/x "
+                             f"a post: it may be on X without being in x_posts; check by hand ({doubt.get('intent')})")
+    record["slot_id"] = slot_id
+    if got.get("claimed") is not True:
+        held = got.get("slot") or {}
+        raise Stop("skipped", f"slot {slot_id} already had its run ({held.get('run_id')}, {held.get('status')})")
+    room.slot_id = slot_id
+    room.slot_status = "claimed"
+
+
+#: A run's outcome -> its slot's last status (a slot left `posting` stays so).
+SLOT_END = {"published": "posted", "empty": "empty", "vetoed": "empty", "skipped": "skipped", "failed": "failed",
+            "picked": "empty"}
+
+
 def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int, record: Json) -> int:
     cfg = room.cfg
+    claim(room, args, record)
     desk, outside, unavailable, cut, slot = gather(room, args)
     record["slot_read"] = slot
     sampled = sample(rng, seed, desk, room.brain, cfg.formats)
