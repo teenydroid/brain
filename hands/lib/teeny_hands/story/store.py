@@ -138,6 +138,19 @@ def seed() -> Json:
     """Insert each seed storyline the ledger lacks; a storyline already there
     keeps its live state."""
     items = seeds()
+    if hand.dry_run():
+        # Read-only, so a rehearsal leaves no table and no row behind.
+        have: set[str] = set()
+        path = hand.state_dir() / "hands.db"
+        if path.is_file():
+            ro = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                if ro.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'storylines'").fetchone():
+                    have = {r[0] for r in ro.execute("SELECT key FROM storylines")}
+            finally:
+                ro.close()
+        return {"dry_run": True, "would_add": [i["key"] for i in items if i["key"] not in have],
+                "kept": [i["key"] for i in items if i["key"] in have]}
     now = hand.now()
     conn = db()
     try:
