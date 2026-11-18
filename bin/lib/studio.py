@@ -1392,8 +1392,9 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     rng = random.Random(seed)
     dry = bool(args.dry_run) or cfg.dry
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
-    record: Json = {"id": run_id, "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"), "at_unix": stamp.timestamp(),
-                    "slot": args.slot, "preview": bool(args.dry_run), "dry": dry, "seed": seed,
+    record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
+                    "seed": seed,
                     "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
