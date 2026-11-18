@@ -1681,6 +1681,27 @@ jq -s 'map(select(.verdict != "pass")) | group_by(.path) | map({path: .[0].path,
 Every candidate whose gate passed and whose eval is `pass` or
 `unmeasurable` opens its own ready pull request, oldest waiting ones first:
 
+0. Its title and body are screened first as the babysitter will screen them
+   (`screened_pr_text`: the guard's lexical screen, inbound, the reading of
+   the babysitter's `_prose` audit, which sends a matching pull request to
+   the operator). Gen 16's two self-merge candidates (#362, #363) waited on
+   "kills" and "bullet" in their own hypothesis and research note; those are
+   `judged` matches (`lexicon.JUDGED_TERMS`, which the guard sends to its
+   judge rather than holding), which the babysitter reads as a note since
+   #365, so they are published as they are and nothing is reworded or
+   recorded. Only a term the guard holds on sight (`pr_held`) still sends a
+   pull request to the operator. While one matches, the fields it is in (title, expected move, hypothesis,
+   research's why and plan; never the learning, the gate or the eval) are
+   asked for again through the proposer's shape-repair turn, told the
+   category and the term, at most `MAX_REWORDS` (2) turns; only those fields
+   come back, and `HYPOTHESIS.md` and the saved proposal are rewritten from
+   them. The patch, the eval and the rounds are unchanged. Still matching
+   after that, or in words that are not the proposer's, it opens as it is,
+   with `pr_screen` (category and term, never the text) on its entry, and the
+   babysitter asks the operator as before. The brief and the research brief
+   say up front that pull request text is screened by the guard and to
+   prefer plain, literal words. The guard and the babysitter are not changed.
+
 1. Its worktree is rebuilt from its patch when it is not exactly that
    (after a restart, or for a candidate waiting from an earlier run), and
    committed as Teeny on `teeny/gen-<n>-c<i>`, digits only: the babysitter merges
