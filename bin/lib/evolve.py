@@ -1212,6 +1212,15 @@ def _safe_path(tree: Path, rel: Any) -> Path:
     return path
 
 
+def git_ignored(tree: Path, path: Path) -> bool:
+    """Whether git ignores PATH in TREE (.gitignore: the chronicle, the live
+    MEMORY.md). Staging drops such a file, so an edit to one would vanish
+    from the candidate's diff without a word. Outside a checkout, nothing is."""
+    done = subprocess.run(["git", "-C", str(tree), "check-ignore", "-q", "--", str(path)], capture_output=True,
+                          env=git_env())
+    return done.returncode == 0
+
+
 #: Where a quoted passage of a file marks the first point its text parts
 #: from an old text that did not apply.
 DIFF_MARK = "⟦here⟧"
@@ -1342,6 +1351,9 @@ def apply_edits(tree: Path, edits: Any, notes: list[str] | None = None) -> list[
         if not isinstance(edit, Mapping) or not isinstance(edit.get("new"), str) or not isinstance(edit.get("old", ""), str):
             raise EvolveError("an edit is {path, old, new}, with strings")
         path = _safe_path(tree, edit.get("path"))
+        if git_ignored(tree, path):
+            raise EvolveError(f"{path.relative_to(tree)} is runtime output git ignores (written on the box, never "
+                              f"committed, like the chronicle); an edit may not write it")
         old, new = edit.get("old", ""), edit["new"]
         total += len(new)
         current = planned.get(path)
