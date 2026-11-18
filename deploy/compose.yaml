@@ -279,3 +279,4 @@ services:
 
 volumes:
   cortexdb-data:
+  reel-storage:
