@@ -94,6 +94,18 @@ case "$1" in
   desk) cat "$FAKE_DIR/desk.json" ;;
   record-run) printf '%s\n' "$in" >>"$FAKE_RECORDS"; echo '{"ok": true, "recorded": true}' ;;
   beat) printf '%s\n' "$in" >>"$FAKE_BEATS"; echo '{"ok": true, "recorded": true, "beat_id": 1}' ;;
+  # One run a slot, as runs.py keeps it: a file per slot holding its status.
+  slot-claim)
+    mkdir -p "$FAKE_SLOTS"; f="$FAKE_SLOTS/$(jq -r .slot_id <<<"$in" | tr ':' _)"
+    if [ -e "$f" ] && [ "$(jq -r '.force' <<<"$in")" != true ]; then
+      jq -cn --slurpfile row "$f" '{ok: true, claimed: false, slot: $row[0], in_doubt: []}'
+    else
+      jq -c '{slot_id, run_id, status: "claimed"}' <<<"$in" >"$f"; echo '{"ok": true, "claimed": true, "in_doubt": []}'
+    fi ;;
+  slot-mark)
+    f="$FAKE_SLOTS/$(jq -r .slot_id <<<"$in" | tr ':' _)"
+    jq -c --slurpfile row "$f" '$row[0] + {status, post_id: (.post_id // $row[0].post_id)}' <<<"$in" >"$f.new" && mv "$f.new" "$f"
+    echo '{"ok": true, "marked": true}' ;;
   *) echo '{"ok": false, "error": "unexpected"}'; exit 1 ;;
 esac
 FAKE
@@ -179,14 +191,19 @@ printf '# lore\n\nthe producer note.\n\nthe premise: a mug-sized robot.\n\n## ca
 export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSPACE="$brain" TEENY_BRAIN="$brain" \
   TEENY_STATE="$scratch/state" TEENY_SECRETS="$scratch/secrets" TEENY_ROOT="$here/../.." \
   FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" FAKE_RECORDS="$scratch/records.log" \
-  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log"
+  FAKE_DIR="$scratch/fake" FAKE_SEEN="$scratch/seen" FAKE_BEATS="$scratch/beats.log" FAKE_SLOTS="$scratch/slots"
 unset DRY_RUN STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL STUDIO_FORMATS STUDIO_RUN_ID
 # The room's own checks run with STUDIO_DRY=1: every gate runs, hands/x runs
 # with DRY_RUN=1, nothing is posted. "publishing" below runs live (STUDIO_DRY=0)
 # against the stand-in hands/x.
 export STUDIO_DRY=1
 
-reset() { rm -rf "$scratch/state" "$FAKE_SEEN".*; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; }
+# The judges are not the writer: SAFETY_JUDGE_MODEL is read from the file only,
+# as the hands read it (a live run whose judges are the writer posts nothing).
+mkdir -p "$scratch/secrets"
+judge_env() { printf 'SAFETY_JUDGE_MODEL=judge-model\n' >"$scratch/secrets/teeny.env"; }
+judge_env
+reset() { rm -rf "$scratch/state" "$FAKE_SEEN".* "$FAKE_SLOTS"; : >"$FAKE_CALLS"; : >"$FAKE_HANDS"; : >"$FAKE_RECORDS"; : >"$FAKE_BEATS"; judge_env; }
 run() { "$studio" "$@" 2>"$scratch/stderr"; }
 turns() { grep -c . "$FAKE_CALLS" || true; }
 calls_to() { jq -r --arg a "$1" 'select(.agent_id == $a) | .message' "$FAKE_CALLS"; }
@@ -271,7 +288,7 @@ check "the ranking is by wins" jqe '.ranking | (map(.wins) == (map(.wins) | sort
 check "the pick is the ranking's top" test "$(jq -r '.pick.label' <<<"$rec")" = "$(jq -r '.ranking[0].label' <<<"$rec")"
 check "the record is complete" jqe 'has("id") and has("seed") and has("inputs") and (.inputs.digest | length) == 16
   and has("pitches") and has("drafts") and has("pairings") and has("ranking") and has("final") and has("pick")
-  and (.models == {writer: "core default", editor: "core default"}) and (.calls.total == 8) and (.calls.writer == 4)
+  and (.models == {writer: "core default", editor: "core default", judge: "judge-model"}) and (.calls.total == 8) and (.calls.writer == 4)
   and (.calls.editor == 4) and has("secs") and .dry == true and has("sampled")' <<<"$rec"
 check "the run is kept in studio_runs through hands/story record-run" \
   test "$(jq -r .id "$FAKE_RECORDS")" = "$plain_id"
@@ -322,7 +339,7 @@ check "the writer's turns ask for STUDIO_WRITER_MODEL" \
   test "$(jq -r 'select(.agent_id == "writer") | .model_override' "$FAKE_CALLS" | sort -u)" = claude-fable-5.2
 check "the editor's turns ask for STUDIO_EDITOR_MODEL" \
   test "$(jq -r 'select(.agent_id == "editor") | .model_override' "$FAKE_CALLS" | sort -u)" = gemini-3.1-pro
-check "and the record names both" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro"} and .warnings == []' <<<"$(last_record)"
+check "and the record names both, and the judges' model" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro", judge: "judge-model"} and .warnings == []' <<<"$(last_record)"
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "no model set asks for none (the core's default)" test "$(jq -r '.model_override // "none"' "$FAKE_CALLS" | sort -u)" = none
@@ -332,11 +349,11 @@ check "one model for both is a warning in the record" jqe '.warnings | any(test(
 check "and in what it prints" jqe '.warnings | any(test("same model"))' <<<"$out"
 reset
 mkdir -p "$scratch/secrets"
-printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=from-the-file\n' >"$scratch/secrets/teeny.env"
+printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=from-the-file\nSAFETY_JUDGE_MODEL=judge-model\n' >"$scratch/secrets/teeny.env"
 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "the switches are read from secrets/teeny.env too" \
   test "$(jq -r 'select(.agent_id == "writer") | .model_override' "$FAKE_CALLS" | sort -u)" = from-the-file
-rm -f "$scratch/secrets/teeny.env"
+judge_env
 
 # --- failures ------------------------------------------------------------------------
 reset
