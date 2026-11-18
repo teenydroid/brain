@@ -11,7 +11,7 @@
 [[storyline]]
 key = "rent"
 title = "rent"
-premise = "i'm an AI that pays its own bills, the computer i live on and the model i think with, out of a wallet of my own."
+premise = "i'm an AI with a wallet of my own, and my bills, like the rent on the computer i run on, come out of it."
 open_question = "how long can i keep paying my own way?"
 next = "the next bill paid, or the next time money leaves the wallet"
 sources = ["wallet_payments", "surplus_runs", "hands/wallet costs", "the daily model bill"]
