@@ -502,7 +502,7 @@ check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "n
 # --- the rollback: STUDIO=0 runs the slot's old playbook ------------------------------
 legacy_root="$scratch/legacy-root"
 mkdir -p "$legacy_root/bin"
-ln -sfn "$here/../lib" "$legacy_root/bin/lib"
+for f in "$here"/../*; do [ "$(basename "$f")" = act ] || ln -sfn "$f" "$legacy_root/bin/$(basename "$f")"; done
 printf '#!/usr/bin/env bash\nprintf "act %%s\\n" "$*" >>"%s"\necho "{\\"ok\\": true, \\"playbook\\": \\"$1\\"}"\n' "$FAKE_HANDS" >"$legacy_root/bin/act"
 chmod +x "$legacy_root/bin/act"
 reset
