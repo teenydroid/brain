@@ -583,6 +583,8 @@ def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], li
             continue
         draft: Json = {"pitch": pitch["id"], "storyline": pitch["storyline"], "shape": pitch["shape"],
                        "format": pitch["format"], "meaning": _str(raw.get("meaning"))}
+        if pitch.get("hook"):
+            draft["hook"] = pitch["hook"]
         posts = raw.get("posts")
         text = raw.get("text")
         why = ""
