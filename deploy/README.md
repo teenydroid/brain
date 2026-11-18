@@ -9,6 +9,7 @@ at `/srv/teeny`:
 | `cortexdb` | Teeny's long-term memory (CortexDB v0.10.4, models on Surplus Intelligence: `glm-5.3-flash` for writing memories, `gpt-6-luna` for recall, embeddings `venice-embed-1`). Its store is the `cortexdb-data` volume. Keys in `secrets/cortex.env` (`deploy/cortex.env.example`); the spine runs in its network namespace and finds it at `CORTEX_API_URL=http://127.0.0.1:3141` (`secrets/spine.env`); CortexDB binds loopback only. | none; compose network only |
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
+| `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
