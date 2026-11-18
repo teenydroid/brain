@@ -55,9 +55,10 @@ def _iso(at: float) -> str:
     return dt.datetime.fromtimestamp(at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def generations(since: float) -> list[Json]:
-    """The generations merged since SINCE, from the evolve archive (an
-    append-only file: an entry's latest line wins)."""
+def archive() -> dict[str, Json]:
+    """The evolve archive's entries by id (state/evolve/archive.jsonl, an
+    append-only file: an entry's latest line wins, field by field). Empty
+    when there is no archive yet."""
     path = hand.state_dir() / "evolve" / "archive.jsonl"
     entries: dict[str, Json] = {}
     if path.is_file():
@@ -68,8 +69,13 @@ def generations(since: float) -> list[Json]:
                 continue
             if isinstance(record, dict) and isinstance(record.get("id"), str):
                 entries[record["id"]] = {**entries.get(record["id"], {}), **record}
+    return entries
+
+
+def generations(since: float) -> list[Json]:
+    """The generations merged since SINCE, from the evolve archive."""
     out = []
-    for entry in entries.values():
+    for entry in archive().values():
         gen = entry.get("gen")
         merged = _when(entry.get("merged_at"))
         if not isinstance(gen, int) or merged is None or merged < since:
@@ -81,6 +87,7 @@ def generations(since: float) -> list[Json]:
             chronicle = None
         out.append({
             "kind": "generation",
+            "id": entry["id"],
             "at": _iso(merged),
             "gen": gen,
             "title": entry.get("title"),

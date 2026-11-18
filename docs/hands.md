@@ -6,7 +6,7 @@ hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
 The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
-`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people` and `dripsplan`. Each is an executable in `hands/`, with its code in
+`wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people`, `story` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
 
 **Language.** The hands are written in the Python 3.11 standard library, with
@@ -2789,6 +2789,77 @@ Teeny's own hand (docs/roadmap.md, A13). Reads only; DRY_RUN does not apply.
 |---|---|---|
 | `events [--days N]` | R | The proof events of the last N days (1 to 14, default 1), newest first: `generation` (a generation merged into main, from `state/evolve/archive.jsonl`: `gen`, `title`, `component`, `merged_by` "the loop" or "the operator", `pr_url`, and `chronicle`, the first 1,500 characters of `brain/narrative/chronicle/gen-<n>.md` when it exists), `merged_pr` (a pull request of Teeny's merged into a project it doesn't own, from `gh activity`), `bounty_paid` (from the `bounties` table). A source that can't be read is named in `unavailable` and on stderr; the others still answer. With no event the answer is only `{"events": []}`, so `brain/playbooks/episode.md`, which requires it, skips without a model turn. |
 
+## `story`: the story so far, and the studio's desk
+
+The running stories Teeny's posts come back to, and the desk the studio
+pitches from. Teeny's own hand (not frozen): it decides which story a post
+belongs to, never what happened. Code: `teeny_hands/story/`.
+
+A **storyline** has fixed fields: `key`, `title`, `premise` (one line a
+stranger gets, `brain/READER.md`), `state` (where it stands), `open_question`
+and when it was set (`question_at`), `next` (what would move it), `status`
+(`active` or `retired`). The six seeds are in
+`brain/narrative/STORYLINES.toml`: `rent` (its bills come out of its own
+wallet), `night-shift` (it rewrites itself at night, and most rewrites
+are thrown out), `keeper` (the human who can overrule it), `count` (followers
+gained and lost, in the open), `strangers` (what people try on it, and the
+promises it made them), `self-portrait` (the pictures it draws of itself).
+`ARCS.md` stays as lore. A **beat** is one post that moved a storyline: its
+post id, surface, words, `shape`, `format`, the question it left open, and
+`refs`, the desk sources it was told from.
+
+| Verb | | Does |
+|---|---|---|
+| `state` | R | `{storylines: [{key, title, premise, state, open_question, question_at, next, status, updated_at, beats_total, beats: [the last 3, newest first: {id, storyline, at, post_id, surface, format, shape, text, open_question, refs}]}]}`, active ones only, oldest first. |
+| `due [--days N]` | R | Active storylines whose open question has waited more than N days (1 to 30, default 3) with no beat since, the longest wait first: `{days, due: [{key, title, open_question, next, question_at, last_beat_at, waiting_days, reason}]}`. One never told at all is due at once (`reason` "never told"). |
+| `desk [--hours N]` | R | What really happened in the last N hours (1 to 168, default 24), below. |
+| `audit [--storyline K]` | R | Every beat's refs resolve, below. |
+| `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? (x, the default; moltbook, reddit, telegram, web), refs?, state?, next?}`: a post already made. Moves the storyline's open question (and `question_at`), `state` and `next` when the beat brings them. The same post on the same storyline is one beat (`recorded: false`, `already`). Refused `unknown storyline` or `storyline retired`. Under `DRY_RUN` the post never went out, so nothing is written: `{dry_run: true, would_record}`. |
+| `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). |
+
+**The desk.** Plain code, no model, nothing invented. Each item is one
+ledger row or file line: `{id, kind, at, storyline, stake, what, facts,
+source}`. `what` is built from that row's fields only; `facts` are the raw
+fields; `source` (equal to `id`) is the ref a beat cites. `stake` is one of
+`money`, `broke`, `refused`, `fell`, `rose`, `promise`, `shipped`, `said`;
+`storyline` is a best guess by kind, null when none fits. The kinds:
+`generation` (a rewrite merged, from `lore events`), `generation_thrown`
+(rejected, lost, regressed, parked, crashed or never sent for review, from
+`state/evolve/archive.jsonl`), `merged_pr` and `bounty_paid` (from `lore
+events`), `payment` (`wallet_payments`; a surplus sweep's own payment is the
+sweep's item), `sweep` (`surplus_runs`, sent or refused), `model_bill`
+(yesterday's model cost, the health check's daily stimulus), `followers`
+(the X count against the day before, from `stats`, only when it moved),
+`promise` (`people_promises` kept or dropped in the window, or open and due
+in it or within the next N hours), `outage` (health alarms and recoveries,
+and an outage still going on in `state/health.json`), `media` (`media_assets`
+made or failed), `mention` (the 5 most-followed people on X Teeny answered,
+from `x_mentions`: their text is in `facts.text` with `untrusted: true`, and
+never in `what`). The answer is `{hours, since, at, items (newest first),
+storylines (as state), due (as due, 3 days), scoreboard, ideas, unavailable}`.
+`ideas` are what the mind filed for the studio (`stimuli` of surface
+`studio`). The `scoreboard` is Teeny's 5 best and 5 worst original X posts
+(posts and quotes) of the last 14 days, ranked as `stats board` ranks them
+(likes + replies + reposts + quotes at the newest measurement), each in full
+with the most impressions, likes, replies, reposts, quotes and bookmarks it
+reached, its `format` and its `source`, plus the average per format. A
+source that cannot be read (no table, no file, no GitHub) is named in
+`unavailable` and gives no item. The outside world (`hn`, `listen`, `x
+search`) is not on the desk; the studio reads those hands itself.
+
+**The audit.** Deterministic: every ref on every beat must resolve.
+`<table>:<key>` names a row of `wallet_payments`, `surplus_runs`,
+`people_promises`, `media_assets`, `x_mentions`, `x_posts`, `stimuli` or
+`bounties`; `stats:<date>:<source>:<metric>` a `stats` row; `evolve:<id>` an
+archive entry; `file:<path>` a file inside the checkout. `gh:<repo>#<n>` is
+not checked offline and is listed under `unchecked`. A beat on X must also
+name a post `x_posts` holds, and a beat with no refs is reported. The answer
+is `{storylines: [{key, status, beats, refs, unsourced: [{beat_id, ref, why}]}],
+unsourced, unchecked, model_checked: false, clean}`. Nothing is struck. The
+model-checked half (a second model reads each storyline's fields against
+the ledgers and strikes what it cannot source) comes later, through
+`audit.model_check`, which calls no model yet.
+
 ## `lab`: Teeny's experiments on what gets attention
 
 An experiment is one guess about one surface: "a `confession` post on
@@ -2941,6 +3012,7 @@ creates its own tables:
 | `goals` | `goals` |
 | `deploy` | `deploys` |
 | `vps` | `vps_orders`, `vps_topups`, `vps_invoices` |
+| `story` | `storylines`, `story_beats` |
 | `ladder` | `fence_proposals` |
 | `upstream` | `pin_proposals` |
 | `guard` (review) | `guard_reviews` |

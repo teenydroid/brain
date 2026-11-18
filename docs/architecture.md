@@ -189,7 +189,7 @@ brain/
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
   CHARTER.md                           the charter's short version (docs/governance.md): who decides what, the fences, how freedom is earned; frozen
   MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
-  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md
+  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines)
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
   playbooks/<name>.md                  what a scheduled bin/act job drafts, with its inputs and output
