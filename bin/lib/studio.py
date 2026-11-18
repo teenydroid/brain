@@ -408,7 +408,7 @@ def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], li
             draft["open_question"] = _str(raw.get("open_question"))
         if why:
             dropped.append({"pitch": pitch["id"], "draft": raw, "why": why})
-        elif len([d for d in out]) < want:
+        elif len(out) < want:
             out.append(draft)
         else:
             dropped.append({"pitch": pitch["id"], "draft": raw, "why": f"over the {want} drafts asked for"})
@@ -630,10 +630,11 @@ class Room:
             got = done.stdout.strip()[:500] or done.stderr.strip()[-500:]
         return done.returncode == 0, got
 
-    def turn(self, agent: str, step: str, message: str, thread: str | None) -> Any:
+    def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False) -> Any:
         """One model turn, bounded by what is left of the budget. Its parsed
         JSON; an unusable answer is asked for once more. Raises Stop on a
-        provider failure, no time, or a second unusable answer."""
+        provider failure, no time, or a second unusable answer (`soft`: None
+        instead, for a turn the run can go on without)."""
         model = self.cfg.writer_model if agent == "writer" else self.cfg.editor_model
         for attempt in (1, 2):
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
@@ -660,6 +661,8 @@ class Room:
             except ValueError as exc:
                 call["unusable"] = str(exc)
                 call["answer"] = out[:300]
+        if soft:
+            return None
         raise Stop("failed", f"the {step} answer is not usable JSON, twice", 1, failure="studio")
 
 
@@ -728,7 +731,7 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
 def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tuple[int, str, str]] | None = None) -> tuple[int, Json]:
     root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
     state = Path(environ.get("TEENY_STATE") or root / "state")
-    brain = Path(environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
+    brain = Path(environ.get("TEENY_BRAIN") or environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
     hands = Path(environ.get("TEENY_HANDS") or root / "hands")
     secrets_dir = Path(environ.get("TEENY_SECRETS") or root / "secrets")
     cfg = Config.load(environ, secrets_dir / "teeny.env")
@@ -838,11 +841,11 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         pitch = by_id[pid]
         answer = room.turn("writer", f"draft {pid}",
                            draft_message(cfg, pitch, known_items.get(pitch["item"]), stories.get(pitch["storyline"])),
-                           thread)
+                           thread, soft=True)
         try:
             got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
         except ValueError as exc:
-            drafts_dropped.append({"pitch": pid, "why": str(exc)})
+            drafts_dropped.append({"pitch": pid, "why": str(exc) if answer is not None else "no usable answer, twice"})
             continue
         drafts += got
         drafts_dropped += lost
@@ -851,7 +854,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     over = [(d["id"], d, why) for d in drafts if (why := over_limit(d))]
     shortened: list[Json] = []
     if over:
-        answer = room.turn("writer", "shorten", shorten_message(over), thread)
+        answer = room.turn("writer", "shorten", shorten_message(over), thread, soft=True)
         fixes = {}
         for raw in (answer.get("drafts") if isinstance(answer, dict) else answer) or []:
             if isinstance(raw, dict) and isinstance(raw.get("id"), str):
@@ -889,7 +892,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     names = {pair: pid for pid, pair in numbered.items()}
     for batch in batches:
         rows = [(names[p], p[0], p[1]) for p in batch]
-        answer = room.turn("editor", "compare", judge_message(rows, blind, board, state_now), None)
+        answer = room.turn("editor", "compare", judge_message(rows, blind, board, state_now), None, soft=True)
         said = {}
         for v in (answer.get("verdicts") if isinstance(answer, dict) else answer) or []:
             if isinstance(v, dict) and isinstance(v.get("pair"), str):

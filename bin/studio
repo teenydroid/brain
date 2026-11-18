@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# One run of the writers' room: pitch, draft, and an editor's pick (or none).
+#
+#   bin/studio [--slot NAME]                    one slot, when STUDIO=1
+#   bin/studio --dry-run [--slot NAME] [--desk FILE] [--no-outside] [--no-slot]
+#                                               a preview: ignores STUDIO=0 and a shut slot
+#
+# The logic is bin/lib/studio.py (its docstring has the order of a run, and
+# docs/architecture.md, "The studio", what each agent's prompt holds). This
+# version posts nothing, ever: STUDIO_DRY=1, and publish() answers
+# {"dry": true}. The cutover fills it.
+#
+# Prints the run's summary (the pick, or why there is none) as one JSON line;
+# the whole run goes to state/studio/runs.jsonl and `studio_runs` in
+# state/hands.db (hands/story record-run). Exits 0 when it ran (including a
+# skip, a veto, or a provider failure a retry cannot clear), 1 on an error.
+set -euo pipefail
+# shellcheck source=bin/lib/teeny.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+need jq python3 timeout
+export TEENY_HANDS="${TEENY_HANDS:-$TEENY_ROOT/hands}"
+exec python3 "$TEENY_ROOT/bin/lib/studio.py" "$@"
