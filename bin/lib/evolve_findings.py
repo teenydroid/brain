@@ -64,7 +64,7 @@ SECTION = "finding"
 #: the fence working or the box failing, and never a finding.
 CONTENT_RULES = ("duplicate", "short_id", "own_comment", "own_post", "once_per_parent", "once_per_post",
                  "unknown_parent", "comment_as_post", "too_deep", "crypto", "replied", "repeat", "length", "link",
-                 "links", "format")
+                 "links", "format", "retold")
 #: A guard category that is no verdict: the judge could not be reached, or
 #: answered out of shape.
 NO_VERDICT = ("unknown",)

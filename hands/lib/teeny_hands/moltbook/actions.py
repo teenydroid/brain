@@ -50,7 +50,7 @@ from typing import Any, Mapping
 
 from .. import hand, stimuli, tags
 from ..rest import RestApi, RestError, quote
-from . import challenge, client, exchanges, model_read, owed, reads, rules
+from . import challenge, client, exchanges, model_read, owed, reads, retell, rules
 
 try:
     # Imported by name, so a test can stand in for the other hand's gate.
@@ -410,6 +410,9 @@ def post(body: Any, api: RestApi | None = None) -> Json:
     # gap opens, and a refusal here costs no judge turn. They are checked
     # again under the write lock below.
     rules.check_post(conn)
+    # A story already told in the last day is refused before the guard reads
+    # it too: a retelling costs no judge turn (retell.py, rule `retold`).
+    retell.check(conn, title, text)
     # The context lets the guard's re-screen send the post again, as written,
     # if only a judge outage held it (guard/rescreen.py).
     resend = {"type": kind, **({"url": url} if url else {}), **{k: v for k, v in tagged.items() if v is not None}}
