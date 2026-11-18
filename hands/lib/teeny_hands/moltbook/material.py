@@ -3,7 +3,9 @@ Moltbook posts may cite (docs/hands.md, "moltbook material"). Read-only,
 deterministic, from Teeny's own state:
 
   guard_holds  how many of Teeny's own writes the guard held (never other
-               agents' inbound comments), by day and category (a hold
+               agents' inbound comments, nor text code composed and posted
+               under Teeny's name, like the babysitter's audit comment:
+               teeny_hands.authorship), by day and category (a hold
                whose judge could not be reached is "judge unreachable"),
                and how many of each day's holds were later let through on
                review (re-screened clean, or approved); never the held
@@ -38,7 +40,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .. import hand
+from .. import authorship, hand
 from ..scrub import scrub
 
 DAY = 86400.0
@@ -75,24 +77,26 @@ def guard_holds(since: float) -> Json:
     try:
         conn = hand.db()
         try:
-            rows = conn.execute(
+            held = conn.execute(
                 "SELECT substr(at, 1, 10) AS day,"
-                " CASE WHEN reason LIKE ? THEN 'judge unreachable' ELSE category END AS what, count(*)"
-                " FROM guard_holds WHERE at >= ? AND direction != 'inbound' GROUP BY day, what ORDER BY day DESC, what",
+                " CASE WHEN reason LIKE ? THEN 'judge unreachable' ELSE category END AS what, status, direction,"
+                " context, text FROM guard_holds WHERE at >= ? AND direction != 'inbound' ORDER BY day DESC, what",
                 (JUDGE_UNREACHABLE, stamp),
             ).fetchall()
-            passed = dict(conn.execute(
-                f"SELECT substr(at, 1, 10) AS day, count(*) FROM guard_holds WHERE at >= ? AND direction != 'inbound'"
-                f" AND status IN ({','.join('?' * len(LET_THROUGH))}) GROUP BY day",
-                (stamp, *LET_THROUGH),
-            ).fetchall())
         finally:
             conn.close()
     except sqlite3.OperationalError:  # no holds table yet
-        rows, passed = [], {}
+        held = []
+    # Teeny's own writes only: a hold on text code composed and posted under
+    # its name (the babysitter's audit comment) is not a draft of Teeny's.
     days: dict[str, Counter] = {}
-    for day, what, count in rows:
-        days.setdefault(day, Counter())[what] += int(count)
+    passed: Counter = Counter()
+    for day, what, status, direction, context, text in held:
+        if not authorship.teenys_own(direction, context, text):
+            continue
+        days.setdefault(day, Counter())[what] += 1
+        if status in LET_THROUGH:
+            passed[day] += 1
     lines = []
     for day, counts in days.items():
         total = sum(counts.values())
