@@ -11,6 +11,8 @@
                (desk.py): plain code, no model, nothing invented
   audit        every ref a beat cites resolves to a real ledger row or file
                (audit.py); the model-checked part comes later
+  studio_runs  every bin/studio run: its pitches, drafts, pairings, verdicts
+               and pick or veto (runs.py, `record-run` and `runs`)
 
 Seeds come from brain/narrative/STORYLINES.toml. Teeny's own hand: it
 decides which story a post belongs to, never what happened.

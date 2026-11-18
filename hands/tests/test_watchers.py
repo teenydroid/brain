@@ -45,7 +45,8 @@ from teeny_hands import hand  # noqa: E402
 #: Every watcher and the files it is made of (directories: every file in them).
 WATCHERS = {
     "guard": ["hands/guard", "hands/lib/teeny_hands/guard", "hands/x", "hands/lib/teeny_hands/x"],
-    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/autonomy.py"],
+    "doctor": ["bin/doctor", "bin/lib/agent_check.py", "bin/lib/cron_policy.py", "bin/spine", "bin/lib/model_windows.sh",
+               "bin/lib/autonomy.py"],
     "frozen check": ["bin/frozen-check", "bin/lib/frozen.py", "evals/frozen.txt", ".github/workflows/check.yml"],
     "evolve-watch": ["bin/evolve", "bin/lib/evolve.py", "bin/lib/lab.py", "bin/lib/probes.py", "bin/lib/last_good.py",
                      "evals/invariants.md", "evals/judge.md"],
@@ -91,6 +92,8 @@ ENVIRONMENT = {
     "LADDER_API_KEY": "the model key, from secrets/spine.env in a subshell",
     "SPINE_MODEL": "the model id, from secrets/spine.env",
     "SPINE_CONTEXT_WINDOW": "the model's window, from secrets/spine.env",
+    "STUDIO_WRITER_MODEL": "which model bin/spine gives a context window for bin/studio's writer (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
+    "STUDIO_EDITOR_MODEL": "which model bin/spine gives a context window for bin/studio's editor (bin/lib/model_windows.sh); it names a model, it cannot turn a watcher off",
     "SPINE_NATIVE_TOOLS": "the tool protocol, from secrets/spine.env",
     "CORTEX_API_URL": "the memory engine, from secrets/spine.env",
     "CORTEX_API_KEY": "the memory engine's key, from secrets/spine.env",

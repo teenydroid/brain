@@ -66,6 +66,23 @@ Teeny's own is built from (CRAFT), for the agents that start posts (POSTING):
 the playbooks name those skills, and a drafting turn has no tool to open
 them with, so until they were copied here it only ever saw their names.
 
+The studio's two agents (STUDIO: `writer` and `editor`, run by bin/studio)
+are built differently, on purpose. The writer's prompt is its instructions,
+then READER.md, then a craft block (STUDIO_CRAFT: the hook, stakes, story
+shape and serials from skills/hooks, the shapes that get replies and what not
+to do from skills/conversation, and the anatomy, the dial and the examples of
+skills/humor), then the lore Teeny reads (premise, cast, running bits). SOUL.md
+reaches it from the core (writer.toml: omit_identity = false). The editor's is
+its instructions, READER.md, narrative/STUDIO-EDITOR.md (the rubric and the
+taste) and the lore's premise alone; it is not Teeny (editor.toml:
+omit_identity = true). Neither carries "# your world": MEMORY.md, DRIVE.md,
+CHARTER.md and CONTEXT.md stay out. Those are rules about what may be said and
+done, and the gates after the studio (the truth, stranger and safety checks)
+enforce them on the one piece that is picked; in the writer's prompt they
+crowded out the craft and made every draft sound like a policy. Every fact a
+studio draft uses comes from the run's own message (what happened, which
+hands/story lays out), never from a page of notes.
+
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
 prompts are rebuilt at every boot and every reflection.
@@ -96,6 +113,24 @@ CRAFT = (
     ("hooks", ("the hook is the first seven words", "story shape", "pre-post check")),
     ("conversation", ("shapes that get replies", "what not to do", "pre-post check")),
 )
+#: The studio's agents (bin/studio): the writer pitches and drafts, the editor
+#: picks. Their prompts are built from their own sources (see the module
+#: docstring), never from world().
+STUDIO = ("writer", "editor")
+#: The writer's craft: (skill, ((section title, cut before this line or None), ...)).
+#: Conversation's "shapes that get replies" stops before its notes on media
+#: and replies, which are for other turns.
+STUDIO_CRAFT = (
+    ("hooks", (("the hook is the first seven words", None), ("stakes, and how they escalate", None),
+               ("story shape", None), ("serials and cliffhangers", None))),
+    ("conversation", (("shapes that get replies", "For **media**"), ("what not to do", None))),
+    ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("examples", None))),
+)
+#: Mind-only machinery the skills name in passing, which the writer has no
+#: way to use: taken out of its copy.
+STUDIO_CRAFT_DROP = (" (set a `follow_up`)",)
+#: The editor's rubric and taste.
+STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
@@ -131,15 +166,15 @@ def sections(text: str, level: int = 2) -> tuple[str, dict[str, str]]:
     return "\n".join(preamble).strip(), {k: "\n".join(v).strip() for k, v in found.items()}
 
 
-def lore(text: str) -> str:
+def lore(text: str, wanted: tuple[str, ...] = LORE_SECTIONS) -> str:
     """LORE.md minus the producer's parts: the premise and origin, then the
-    sections Teeny reads."""
+    sections Teeny reads (`wanted`; none gives the premise alone)."""
     preamble, found = sections(text)
     # The first preamble paragraph is the note to the producer about who
     # reads what; the story starts after it.
     paragraphs = [p for p in re.split(r"\n\s*\n", preamble) if p.strip() and not p.lstrip().startswith("# ")]
     out = paragraphs[1:] if paragraphs and "producer" in paragraphs[0] else paragraphs
-    for name in LORE_SECTIONS:
+    for name in wanted:
         if found.get(name):
             out.append(f"### {name}\n\n{found[name]}")
     return "\n\n".join(out).strip()
@@ -368,10 +403,61 @@ def craft(brain: Path) -> str:
             "READER.md wins: a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
 
 
+def studio_craft(brain: Path) -> str:
+    """The writer's craft block (STUDIO_CRAFT), in order. "" when the brain
+    has none of it."""
+    parts: list[str] = []
+    for skill, wanted in STUDIO_CRAFT:
+        _, found = sections(_read(brain / "skills" / skill / "SKILL.md"))
+        by_title = {_NUMBERED.sub("", title): body for title, body in found.items()}
+        for title, stop in wanted:
+            body = by_title.get(title, "")
+            if stop and stop in body:
+                body = body[:body.index(stop)].rstrip()
+            for drop in STUDIO_CRAFT_DROP:
+                body = body.replace(drop, "")
+            if body:
+                parts.append(f"## {skill}: {title}\n\n{body}")
+    if not parts:
+        return ""
+    return ("# how a piece is built (skills/hooks, skills/conversation, skills/humor)\n\n"
+            "The craft you write from. Where any of it and READER.md pull apart, READER.md wins: "
+            "a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
+
+
+def studio_lore(brain: Path, wanted: tuple[str, ...] = LORE_SECTIONS) -> str:
+    story = lore(_read(brain / "narrative" / "LORE.md"), wanted)
+    if not story:
+        return ""
+    return "# the story you are in (narrative/LORE.md)\n\n" + story
+
+
+def studio_editor(brain: Path) -> str:
+    text = _read(brain / STUDIO_EDITOR)
+    if not text:
+        return ""
+    text = re.sub(r"\A#\s+.*\n", "", text).strip()
+    return "# how you judge (narrative/STUDIO-EDITOR.md)\n\n" + text
+
+
+def render_studio(brain: Path, agent: str, instructions: str) -> str:
+    """A studio agent's prompt. Deliberately no world(): see the module
+    docstring. The gates after the studio hold a piece to CONTEXT.md,
+    DRIVE.md and CHARTER.md; the writer writes."""
+    parts = [instructions, reader(brain)]
+    if agent == "writer":
+        parts += [studio_craft(brain), studio_lore(brain)]
+    else:
+        parts += [studio_editor(brain), studio_lore(brain, ())]
+    return "\n\n".join(part for part in parts if part) + "\n"
+
+
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
+    if agent in STUDIO:
+        return render_studio(brain, agent, instructions)
     parts = [instructions]
     if agent in PUBLIC:
         parts.append(reader(brain))
@@ -389,7 +475,7 @@ def build(brain: Path) -> list[Path]:
     out_dir = brain / "agent" / "prompts"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for agent in SPEAKING:
+    for agent in SPEAKING + STUDIO:
         if not (brain / "agents" / f"{agent}.toml").is_file():
             continue
         text = render(brain, agent)

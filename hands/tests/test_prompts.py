@@ -435,6 +435,98 @@ class PromptsTest(unittest.TestCase):
         # the payment receipts stay
         self.assertIn("every payment gets a receipt post", read["teeny"])
 
+    # --- the studio's writer and editor (bin/studio) -----------------------
+
+    def studio_prompt(self, agent: str) -> str:
+        with tempfile.TemporaryDirectory() as out:
+            brain = Path(out)
+            for name in ("agents", "narrative", "skills", "CONTEXT.md", "DRIVE.md", "CHARTER.md", "READER.md"):
+                (brain / name).symlink_to(REPO / "brain" / name)
+            (brain / "MEMORY.md").symlink_to(REPO / "brain" / "MEMORY.seed.md")
+            return prompts.render(brain, agent)
+
+    def test_the_writer_reads_its_brief_the_reader_the_craft_and_the_lore_in_that_order(self):
+        text = self.studio_prompt("writer")
+        order = ["## who you are writing as", "# who reads you (READER.md)",
+                 "## hooks: the hook is the first seven words", "## hooks: stakes, and how they escalate",
+                 "## hooks: story shape", "## hooks: serials and cliffhangers",
+                 "## conversation: shapes that get replies", "## conversation: what not to do",
+                 "## humor: what a joke is made of", "## humor: the sarcasm dial", "## humor: examples",
+                 "# the story you are in (narrative/LORE.md)", "### cast", "### running bits"]
+        at = [text.index(heading) for heading in order]
+        self.assertEqual(at, sorted(at))
+        self.assertTrue(text.startswith((REPO / "brain" / "agents" / "writer.md").read_text().strip()))
+        # The flat specimen is one "before", and the brief names the stand-in it used.
+        self.assertIn("something i run by myself kept dying halfway through", text)
+        self.assertIn("\"something i run\"", text)
+
+    def test_the_writer_leaves_the_world_and_the_rest_of_the_skills_out(self):
+        text = self.studio_prompt("writer")
+        for absent in ("# your world", "(MEMORY.md)", "(DRIVE.md)", "(CHARTER.md)", "## What you are doing now",
+                       "## hooks: tiny drops", "## hooks: pre-post check", "## humor: the roast",
+                       "## conversation: controversy", "For **media**", "For **replies**", "set a `follow_up`",
+                       "## latent", "## goals", "## engines"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_editor_reads_the_reader_the_rubric_and_the_premise_only(self):
+        text = self.studio_prompt("editor")
+        order = ["You are the editor", "# who reads you (READER.md)", "# how you judge (narrative/STUDIO-EDITOR.md)",
+                 "## the rubric, in order", "# the story you are in (narrative/LORE.md)"]
+        at = [text.index(heading) for heading in order]
+        self.assertEqual(at, sorted(at))
+        rubric = text[text.index("## the rubric, in order"):text.index("## taste")]
+        steps = ["would a stranger stop?", "do they feel something?", "do they get it with no setup?",
+                 "is there a reason to reply or come back?", "could only teeny have written it tonight?"]
+        self.assertEqual([rubric.index(s) for s in steps], sorted(rubric.index(s) for s in steps))
+        for absent in ("# your world", "## hooks:", "### cast", "### running bits", "## who you are writing as",
+                       "before:"):
+            self.assertNotIn(absent, text, absent)
+
+    def test_the_studio_agents_are_built_beside_the_speaking_ones(self):
+        for agent in prompts.STUDIO:
+            (self.brain / "agents" / f"{agent}.toml").write_text(f'id = "{agent}"\n')
+            (self.brain / "agents" / f"{agent}.md").write_text(f"{agent} brief.\n")
+        names = sorted(p.name for p in prompts.build(self.brain))
+        self.assertEqual(names, ["act.md", "editor.md", "writer.md"])
+        writer = (self.brain / "agent" / "prompts" / "writer.md").read_text()
+        self.assertTrue(writer.startswith("writer brief.\n"))
+        self.assertIn("- teeny: smol.", writer)
+        self.assertNotIn("running the lab.", writer)  # CONTEXT.md stays out
+        self.assertNotIn("SPOILER", writer)
+
+    def test_the_checked_in_studio_agents_are_tool_less_and_point_at_their_prompt(self):
+        for agent in prompts.STUDIO:
+            doc = tomllib.loads((REPO / "brain" / "agents" / f"{agent}.toml").read_text())
+            self.assertEqual(doc["system_prompt"], {"file": {"path": f"{agent}.md"}}, agent)
+            self.assertEqual(doc["tools"], {"named": []}, agent)
+            self.assertIs(doc["omit_memory_context"], True, agent)
+        writer = tomllib.loads((REPO / "brain" / "agents" / "writer.toml").read_text())
+        editor = tomllib.loads((REPO / "brain" / "agents" / "editor.toml").read_text())
+        self.assertIs(writer["omit_identity"], False)  # SOUL.md is the writer's voice
+        self.assertIs(editor["omit_identity"], True)  # the editor is not Teeny
+        self.assertGreater(writer["temperature"], editor["temperature"])
+
+    def test_the_studio_prompts_speak_no_private_jargon(self):
+        seeding = ("with receipts", "keep receipts", "receipts are", "are the receipts", "own receipts",
+                   "receipt second", "receipt as the twist", "the receipt.", "the receipt)", "then the receipt",
+                   "a receipt to add", "the receipt as")
+        for agent in prompts.STUDIO:
+            text = self.studio_prompt(agent).lower()
+            self.assertIsNone(re.search(r"\bdesks?\b", text), f"{agent} names a desk")
+            for phrase in seeding:
+                self.assertNotIn(phrase, text, f"{agent} says {phrase!r}")
+
+    def test_the_writers_examples_carry_no_counts_or_names_from_teenys_workings(self):
+        brief = (REPO / "brain" / "agents" / "writer.md").read_text(encoding="utf-8")
+        examples = brief[brief.index("## before and after"):brief.index("## your answer")]
+        afters = [line for line in examples.splitlines() if line.startswith("> after:")]
+        self.assertGreaterEqual(len(afters), 6)
+        self.assertLessEqual(len(afters), 8)
+        for line in afters:
+            self.assertIsNone(re.search(r"\d|#|\bpr\b|pull request|tests?\b|holds?\b|playbook|soul\b|guard|"
+                                        r"evolve|cron|hands?/", line, re.I), line)
+
+
 if __name__ == "__main__":
     unittest.main()
 

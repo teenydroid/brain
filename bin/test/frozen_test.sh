@@ -33,7 +33,8 @@ for f in bin/act bin/lib/teeny.sh evals/judge.md evals/tasks/morning.toml spine/
   hands/lib/teeny_hands/guard/__init__.py hands/lib/teeny_hands/x/post.py \
   brain/SOUL.md brain/agents/act.toml brain/agents/act.md brain/agents/judge.toml \
   brain/agents/reviewer.toml brain/agents/querier.toml brain/agents/teeny.toml brain/agents/teeny.md brain/agents/builder.toml brain/agents/operator.toml \
-  brain/agents/teeny-mentions.toml brain/agents/teeny-mail.toml brain/playbooks/morning.md; do
+  brain/agents/teeny-mentions.toml brain/agents/teeny-mail.toml brain/agents/writer.toml brain/agents/editor.toml \
+  brain/agents/writer.md brain/playbooks/morning.md; do
   put "$f"
 done
 g add -A
@@ -65,6 +66,7 @@ put brain/SOUL.md "a new soul"
 put brain/playbooks/night.md
 put brain/agents/teeny.md "a sharper voice"
 put brain/agents/act.md "draft better"
+put brain/agents/writer.md "pitch wilder"
 put brain/agents/scout.toml "id = 'scout'"
 commit
 passes "an edit to the brain, an agent's prompt, or a new agent passes"
@@ -129,6 +131,12 @@ put brain/agents/act.toml "named = ['shell']"
 put brain/agents/judge.toml "model = 'mine'"
 commit
 refuses "the act and judge agents are refused" brain/agents/act.toml brain/agents/judge.toml
+
+branch
+put brain/agents/writer.toml "named = ['shell']"
+put brain/agents/editor.toml "omit_identity = false"
+commit
+refuses "the studio's writer and editor are refused" brain/agents/writer.toml brain/agents/editor.toml
 
 branch
 put brain/agents/reviewer.toml "named = ['shell']"
