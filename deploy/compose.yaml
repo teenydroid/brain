@@ -258,6 +258,56 @@ services:
       - ../state/media:/teeny/media:ro
       - ../brain/assets:/teeny/assets:ro
 
+  # Known meme templates for hands/meme template (docs/hands.md, "meme"):
+  # memegen, the upstream repo itself at vendor/memegen (a pinned commit:
+  # upstream tags no releases; never edited here), built by its own
+  # Containerfile as it is. What runs is Teeny's front, deploy/memegen/front.py
+  # (mounted read-only at /opt/teeny), in place of upstream's app.main: the
+  # same app, but an overlay or background is copied from Teeny's art (state/
+  # media/ and brain/assets/, mounted read-only) for an http://teeny-art/...
+  # address and every other URL is refused, so it fetches nothing from the
+  # internet; no "Memegen.link" watermark; tracking and search are no-ops.
+  # REMOTE_TRACKING_URL and BUGSNAG_API_KEY stay unset (upstream's only other
+  # outbound calls). It writes only inside its own container (its template
+  # folders cache each pasted picture, images/ each render), so it is not
+  # read_only; a recreate starts it clean. No published port: the spine
+  # reaches it at http://memegen:5000 (MEMEGEN_URL) on the compose network.
+  # Behind a profile, like reel:
+  #   git submodule update --init vendor/memegen
+  #   docker compose -f deploy/compose.yaml --profile memegen up -d --build memegen
+  # Idle it holds about 120 MB; a render takes well under a second of one
+  # core (2026-11-18, the pinned commit). Capped below.
+  memegen:
+    profiles: [memegen]
+    image: teeny-memegen:current
+    build:
+      context: ../vendor/memegen
+      dockerfile: Containerfile
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 2
+    mem_limit: 1g
+    pids_limit: 256
+    environment:
+      TEENY_ART_ROOT: /teeny
+    # Upstream's own command (its Containerfile's entrypoint) with the front
+    # as the app.
+    entrypoint: ["poetry", "run", "gunicorn", "--bind", "0.0.0.0:5000",
+                 "--worker-class", "uvicorn.workers.UvicornWorker", "--timeout", "20",
+                 "--pythonpath", "/opt/teeny", "front:app"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:5000/templates/drake"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    volumes:
+      - ./memegen:/opt/teeny:ro
+      - ../state/media:/teeny/media:ro
+      - ../brain/assets:/teeny/assets:ro
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try
