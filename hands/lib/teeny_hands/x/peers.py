@@ -6,7 +6,9 @@ communities around other crypto-AI projects, kept rare and specific.
   peer-suggest    A  up to 3 scored quote suggestions; all kept, the top one
                      posted only when it clears every bar, the anchor judge's
                      included (one word, as a playbook's `hand:x <verb>`
-                     output names it)
+                     output names it). With STUDIO=1 bin/act first asks the
+                     studio's editor about the top one and passes its no as
+                     `"vetoed": "<reason>"`: kept, not posted (rule `editor`)
   peers suggestions  R  what was suggested, posted and skipped, and why
   peers report    R  per peer: touches, who then spoke to Teeny, how the
                      quote did
