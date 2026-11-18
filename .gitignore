@@ -16,9 +16,9 @@ target/
 /brain/MEMORY.md
 # The chronicle: bin/evolve credit writes brain/narrative/chronicle/gen-<n>.md
 # on the box from the archive when a generation merges (docs/evolve.md, §9).
-# Runtime output, like MEMORY.md: tracked, every page left the live checkout
-# dirty, a box-local commit made it unable to fast-forward, and the
-# babysitter's deploy was refused.
+# Runtime output, like MEMORY.md. Unignored, every page was an untracked file
+# in the live checkout; a box-local commit of one left it unable to
+# fast-forward, and the babysitter's deploy was refused (#369).
 /brain/narrative/chronicle/
 /brain/artifacts/
 /brain/audit.log
