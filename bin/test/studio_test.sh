@@ -335,7 +335,7 @@ check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable
 check "and the call is claimed in the day's ledger" test "$(grep -c . "$scratch/state/studio/outside-x.jsonl")" = 1
 # The cap: with one a day, the second run of the day makes no X search.
 : >"$FAKE_HANDS"
-STUDIO=1 STUDIO_RUN_ID="$plain_id-2" STUDIO_OUTSIDE_X=1 STUDIO_OUTSIDE_X_MAX_PER_DAY=1 run >/dev/null
+STUDIO=1 STUDIO_RUN_ID="$plain_id-2" STUDIO_OUTSIDE_X=1 STUDIO_OUTSIDE_X_MAX_PER_DAY=1 run >/dev/null || { cat "$scratch/stderr"; last_record | jq -c "{outcome,reason,failure}"; }
 check "STUDIO_OUTSIDE_X_MAX_PER_DAY caps the paid X searches a day" bash -c "! grep -q '^x search ' '$FAKE_HANDS'"
 check "and the record says the day's are spent" jqe '.inputs.skipped | any(test("are spent today"))' <<<"$(last_record)"
 
