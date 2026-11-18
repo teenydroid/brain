@@ -396,8 +396,12 @@ def _str(value: Any, limit: int = 400) -> str:
 
 
 def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: tuple[str, ...],
-                     limit: int) -> tuple[list[Json], list[Json], list[str]]:
-    """(kept, dropped with why, the writer's ranking of the kept ids)."""
+                     limit: int, item_stories: dict[str, Any] | None = None) -> tuple[list[Json], list[Json], list[str]]:
+    """(kept, dropped with why, the writer's ranking of the kept ids). A
+    pitch's storyline is the one it names when that is a running story;
+    when it names none (or one that is not running) and its item carries a
+    running story (`item_stories`, the desk's best guess by kind), the
+    item's is used, so the pick and its beat land on a storyline."""
     if isinstance(answer, list):
         answer = {"pitches": answer}
     if not isinstance(answer, dict) or not isinstance(answer.get("pitches"), list):
