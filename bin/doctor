@@ -406,6 +406,21 @@ else
   note "hand-test sandbox" warn "$(tail -n 1 <<<"$sandbox")"
 fi
 
+# hands/trend's reader, digg-pp-cli (the Dockerfile's `digg` stage): where
+# the studio reads what AI X is talking about. TREND_DIGG_BIN in
+# secrets/teeny.env names another. In the image (OPENHUMAN_DOCKER=1) one
+# missing is a broken build and fails; outside it (a laptop, CI) it warns:
+# the studio still runs, on Hacker News alone.
+digg_bin="$(sed -n 's/^TREND_DIGG_BIN=//p' "$secrets/teeny.env" 2>/dev/null | tail -n 1)"
+[ -n "$digg_bin" ] || digg_bin="$(command -v digg-pp-cli 2>/dev/null || true)"
+if [ -n "$digg_bin" ] && [ -x "$digg_bin" ] && digg_says="$(HOME="$state/trend/home" timeout 10 "$digg_bin" version 2>&1)"; then
+  note "trend reader" ok "$(tail -n 1 <<<"$digg_says")"
+elif [ "${OPENHUMAN_DOCKER:-}" = 1 ]; then
+  note "trend reader" fail "digg-pp-cli is not in the image (${digg_bin:-not on PATH}): rebuild the spine image"
+else
+  note "trend reader" warn "digg-pp-cli is not installed (${digg_bin:-not on PATH}): the studio reads Hacker News alone"
+fi
+
 # --- optional: the hands' tests --------------------------------------------------------
 if [ "$full" = 1 ]; then
   run "hands tests" python3 -m unittest discover -s "$root/hands/tests" -t "$root/hands/tests"
