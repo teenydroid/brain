@@ -532,16 +532,40 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
         seen.add(pid)
         story = raw.get("storyline")
         story = story.strip() if isinstance(story, str) and story.strip() in stories else None
-        if story is None:
+        if story is None and item:
             guess = (item_stories or {}).get(item)
             story = guess if isinstance(guess, str) and guess in stories else None
-        kept.append({"id": pid, "item": item, "storyline": story, "shape": _str(raw.get("shape"), 40).lower(),
-                     "format": fmt, "angle": _str(raw.get("angle")), "why_now": _str(raw.get("why_now"))})
+        kept.append({"id": pid, "item": item or None, "hook": hook or None, "storyline": story,
+                     "shape": _str(raw.get("shape"), 40).lower(), "format": fmt, "angle": _str(raw.get("angle")),
+                     "why_now": _str(raw.get("why_now"))})
     ids = [p["id"] for p in kept]
     ranking = [r for r in dict.fromkeys(str(x) for x in answer.get("ranking") or [] if isinstance(x, (str, int)))
                if r in ids]
     ranking += [i for i in ids if i not in ranking]
     return kept, dropped, ranking
+
+
+def hooks_wanted(top: int) -> int:
+    """How many of the TOP drafted pitches must join an outside story: two
+    of three."""
+    return -(-2 * top // 3)
+
+
+def choose_drafted(ranked: list[str], by_id: dict[str, Json], top: int, have_outside: bool) -> tuple[list[str], Json]:
+    """The pitches to draft, in the writer's ranking order: with an outside
+    world to join, the best `hooks_wanted(top)` hooked pitches first, then
+    the best of the rest up to TOP, so a slot is never lost only because the
+    writer hooked too few. What was chosen and any shortfall, for the record."""
+    want = hooks_wanted(top) if have_outside else 0
+    hooked = [p for p in ranked if by_id[p].get("hook")]
+    chosen = hooked[:want]
+    chosen += [p for p in ranked if p not in chosen][:top - len(chosen)]
+    chosen = [p for p in ranked if p in chosen]
+    note: Json = {"want_hooked": want, "hooked": sum(1 for p in chosen if by_id[p].get("hook"))}
+    if note["hooked"] < want:
+        note["short"] = (f"only {note['hooked']} of the pitches drafted join an outside story, of the {want} "
+                         "asked for: the rest were filled from the writer's ranking")
+    return chosen, note
 
 
 def validate_drafts(answer: Any, pitch: Json, want: int) -> tuple[list[Json], list[Json]]:
