@@ -1326,9 +1326,36 @@ up to `EVOLVE_REVISE_ROUNDS` (3) rounds. Each round is:
 4. **review**: the `reviewer` agent reads it and approves, or asks for a
    revision with findings ("Review" below).
 
-Edits that do not apply (an old text not found once) end the round with that
-as a finding, and the next round's message carries "## your last edits did
-not apply" as before. A proposal that parses but lacks a field (no
+**Edits that do not apply** (an old text not found once) were the commonest
+way a candidate was lost by 2026-11-18: gens 9, 10, 16 and 17, five times on
+`brain/CONTEXT.md` and once on `brain/SOUL.md`; gen 17's candidate 3 spent two
+of its three rounds on it and was parked. In every case whose text was kept
+the proposer had quoted a file it was not shown: in gens 16 and 17 research
+named `CONTEXT.md`, but the request ran to about 105 KB and `fit_request`
+dropped the biggest file first, which was that one; the old text was the
+file's own words with its hard line wraps joined by spaces. Gen 9's was a
+sentence left out of the middle of a `SOUL.md` line it was never shown. So:
+
+- `fit_request` drops the files research named (and any whose edit did not
+  apply) last, and the message tells the proposer to leave a file that was
+  left out rather than quote it from memory.
+- `apply_edits` matches an old text found nowhere as written once more with
+  every run of whitespace as one space and curly quotes and dashes as plain
+  ones; found exactly once that way, it is replaced, the new text written as
+  it is, and the round says so (`tolerated`). Nothing applies on likeness
+  alone: a paraphrase, a dropped sentence or a text found twice is refused.
+- A refusal names every edit that failed, how often its text occurs (and on
+  which lines when more than once), and, when it occurs nowhere, the closest
+  passage of the file (up to 700 characters, `⟦here⟧` where it first parts
+  from the old text).
+- The failing edits alone (up to 3) are then asked for again in the shape
+  repair's turn (below), each shown its passage; the answers replace them in
+  place, every other field and edit kept, and no round is spent. It shares
+  `MAX_SHAPE_REPAIRS` (2) with the field repairs, so all the small turns a
+  candidate may take stay under one bound. Still not applying, the round ends
+  with a finding per edit carrying its passage, the next round's message
+  carries "## your last edits did not apply", and those files are shown whole
+  from then on. A proposal that parses but lacks a field (no
 hypothesis, title or expected move, or no known component), or whose `check`
 the code cannot count (`evolve_outcomes.validate`: an unknown kind or field, a
 playbook, cron job or refusal rule that does not exist in the candidate's
