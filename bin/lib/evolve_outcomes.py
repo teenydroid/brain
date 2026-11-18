@@ -296,11 +296,14 @@ def describe(check: Any) -> str:
                                  + (f" on {c['surface']}" if c.get("surface") else ""),
         "outbound": lambda c: f"{c.get('surface')} {c.get('kind_of') or 'sends'}",
         "actions": lambda c: f"{c.get('surface')} {c.get('verb')}",
-        "judged": lambda c: f"judged: what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of")
-                                                                              else ""),
+        "judged": lambda c: f"what you sent on {c.get('surface')}" + (f" ({c['kind_of']})" if c.get("kind_of") else ""),
     }[kind](check)
-    if check.get("contains"):
-        what += " containing " + " or ".join(repr(t) for t in check["contains"])
+    literals = check.get("contains")
+    if literals:
+        # A bare string is one literal (as validate stores it), never its
+        # letters (gen 16's PR #361: "'u' or 'n' or 's' ...").
+        literals = [literals] if isinstance(literals, str) else list(literals) if isinstance(literals, list) else []
+        what += " containing " + " or ".join(repr(str(t)) for t in literals)
     return f"{kind}: {what}" + (f", should {check['direction']}" if check.get("direction") else "")
 
 

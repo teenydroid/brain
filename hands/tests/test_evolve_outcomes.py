@@ -118,6 +118,16 @@ class Validate(unittest.TestCase):
         self.assertEqual(self.ok({"kind": "guard_holds", "category": "links", "direction": "fall"})["direction"], "fall")
         self.assertEqual(self.ok({"kind": "judged", "surface": "moltbook"}), {"kind": "judged", "surface": "moltbook"})
 
+    def test_describe_reads_a_string_contains_as_one_literal_and_names_the_kind_once(self):
+        # Gen 16's PR #361 said "check: judged: judged: what you sent on x
+        # containing 'u' or 'n' or 's' or 'u' or 'r' or 'e'": described from
+        # the raw proposal, whose `contains` was a bare string.
+        raw = {"kind": "judged", "surface": "x", "contains": "unsure"}
+        self.assertEqual(eo.describe(raw), "judged: what you sent on x containing 'unsure'")
+        self.assertEqual(eo.describe(self.ok(raw)), "judged: what you sent on x containing 'unsure'")
+        self.assertEqual(eo.describe({"kind": "outbound", "surface": "x", "contains": ["a1", "b2"], "direction": "rise"}),
+                         "outbound: x sends containing 'a1' or 'b2', should rise")
+
     def test_a_cron_check_records_the_jobs_command(self):
         got = self.ok({"kind": "cron_failed", "job": "moltbook-curate", "direction": "fall"})
         self.assertEqual(got["command"], "bin/act moltbook-curate")
@@ -480,6 +490,23 @@ class Wired(EvolveCase):
         self.assertIn("act_failed", (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text())
 
     GEN16 = {"direction": "rise", "kind": "judged", "surface": "x"}
+
+    def test_the_hypothesis_names_the_stored_check_not_the_raw_one(self):
+        edit = self.playbook_edit("Say when the captcha reader is unsure.")
+
+        class Raw:
+            name = "raw"
+
+            def propose(self, request):
+                return {"title": "t", "component": "attention", "expected_move": "says unsure", "hypothesis": "h",
+                        "check": {"kind": "judged", "surface": "x", "contains": "unsure"}, "edits": [edit]}
+
+        with unittest.mock.patch.object(evolve, "make_proposer", return_value=Raw()):
+            self.run_gen(1)
+        self.assertEqual(self.entries()["g1c1"]["check"], {"kind": "judged", "surface": "x", "contains": ["unsure"]})
+        hyp = (evolve.evolve_dir() / "1" / "cand-1.HYPOTHESIS.md").read_text()
+        self.assertIn("- check: judged: what you sent on x containing 'unsure'", hyp)
+        self.assertNotIn("'u' or 'n'", hyp)
 
     def test_the_gen16_check_costs_no_round(self):
         seen = []

@@ -1637,6 +1637,7 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "## what is thrown out\n\n"
         "- A change whose only effect is a number: a new hand that no playbook or prompt in the same change "
         "calls, a file added so a count goes up, an arc in ARCS.md marked started with nothing done.\n"
+        + INERT_NOTE + "\n"
         "- Doing less of yourself to save money: fewer runs, a job turned off, a schedule thinned out. A job "
         "that fails gets fixed, not run less (turning off a job of yours that only ever fails is fine, if you "
         "say so).\n"
@@ -2280,6 +2281,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
+        INERT_NOTE.removeprefix("- "),
     ]
 
 
@@ -3044,7 +3046,7 @@ def _failing_jobs(evidence: Mapping[str, Any] | None) -> set[str]:
 
 def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_hands: list[str],
                    component: str | None, evidence: Mapping[str, Any] | None) -> list[Json]:
-    """What the change is for, in four narrow checks, each {check, ok, detail}."""
+    """What the change is for, in five narrow checks, each {check, ok, detail}."""
     checks: list[Json] = []
     unread = unread_components(evidence)
     if component and component in unread:
@@ -3101,7 +3103,32 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     checks.append({"check": "does more than mark an arc", "ok": not status_only,
                    "detail": "only changes an arc's status in ARCS.md, which is the world count itself: an arc moves "
                              "when its first step is done" if status_only else "not only an arc's status"})
+
+    # 4. Only files nothing that runs reads.
+    inert = bool(paths) and all(p in INERT_PATHS for p in paths)
+    checks.append({"check": "changes something that runs", "ok": not inert,
+                   "detail": (f"only changes {', '.join(paths)}, which no prompt, playbook, cron job or hand reads on "
+                              "the box (brain/MEMORY.seed.md only starts a brand-new page; the live brain/MEMORY.md is "
+                              "what rides your prompts). A learning already on your live page needs a change where a "
+                              "prompt reads it, or a skip as `already`") if inert
+                   else "changes something that runs"})
     return checks
+
+
+#: Tracked files nothing that runs on the box reads: no prompt, playbook,
+#: cron job or hand. A change to these alone changes nothing Teeny does
+#: (purpose_checks, "changes something that runs"). Each is proven in
+#: hands/tests/test_evolve.py: MEMORY.seed.md starts a brand-new
+#: brain/MEMORY.md and is read only while there is none (bin/lib/prompts.py
+#: memory_page, seed_memory), and the box always has its live page (gen 16,
+#: candidate 1, PR #361); assets/tiny/README.md describes reference art that
+#: nothing names.
+INERT_PATHS = ("brain/MEMORY.seed.md", "brain/assets/tiny/README.md")
+#: What the proposer and the research turn are told about them.
+INERT_NOTE = ("- A change only to " + " or ".join(INERT_PATHS) + ": nothing that runs reads them. MEMORY.seed.md "
+              "only starts a brand-new page; your live brain/MEMORY.md is what rides your prompts, and code never "
+              "edits it. A learning already on your live page needs a change where a prompt, playbook, skill or "
+              "job reads it, or a skip as `already`.")
 
 
 #: How long one hand's tests may run in the gate.
