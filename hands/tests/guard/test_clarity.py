@@ -28,13 +28,10 @@ EXPLAINED = ("i'm an AI, and at night a program rewrites my code while i sleep. 
              "everything it had worked out. the human who keeps my code fixed it tonight: a crash keeps its notes now")
 
 
-def read(says: str, unknown: list[str], followed: bool, vague: list[str] | None = None) -> dict:
-    """The reader's answer; without `vague`, in the shape it had before
-    stand-ins were asked for."""
-    answer = {"says": says, "unknown": unknown, "followed": followed}
-    if vague is not None:
-        answer = {"says": says, "unknown": unknown, "vague": vague, "followed": followed}
-    return support.result({"response": json.dumps(answer)})
+def read(says: str, unknown: list, followed: bool, vague: list | None = None) -> dict:
+    """The reader's answer, in the shape it is asked for."""
+    return support.result({"response": json.dumps({"says": says, "unknown": unknown, "vague": vague or [],
+                                                   "followed": followed})})
 
 
 def matched(same: bool, reason: str = "") -> dict:
@@ -140,27 +137,68 @@ class ColdReaderTest(support.WithCore):
         self.assertEqual((out["unknown"], out["vague"]), ([], []))
         # the reader is told so, and asked for stand-ins and a concrete say-back
         message = core.messages()[0]
-        self.assertIn('"the human who keeps my code", "the program that rewrites me at night"', message)
+        self.assertIn('"the program that rewrites me at night"', message)
+        self.assertIn('"the system that keeps failing" is still a stand-in', message)
         self.assertIn('"something i run"', message)
-        self.assertIn("what concretely\nhappened", message)
+        self.assertNotIn('"the process"', message)
         self.assertIn('"vague": a list of strings', message)
 
-    def test_an_answer_in_the_old_shape_still_reads(self):
-        # A reader answering as before (no `vague`) is read as finding none,
-        # never as unreadable.
-        self.core(read("Amazon set a trap for AI bots.", [], True))
-        self.assertEqual(clarity.judge(PLAIN)["clear"], True)
-        self.core(read("Something about Amazon.", ["honeypot"], False))
-        out = clarity.judge(BLANK)
-        self.assertEqual((out["unknown"], out["vague"]), (["honeypot"], []))
-        self.assertEqual(out["reason"], 'a stranger would have to ask about: "honeypot"')
+    def test_the_reader_is_told_how_to_read_clauses_pronouns_and_sayings(self):
+        core = self.core(read("x", [], True))
+        clarity.judge(PLAIN)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("it explains it only when it says what kind of thing it is or what it does", message)
+        self.assertIn('"it kept crashing" after naming the program', message)
+        self.assertIn('"things are looking up"', message)
+        # an opinion, a question or a greeting has a say-back too
+        self.assertIn("what the post says or asks", message)
+        self.assertIn("An opinion, a question or a greeting is said back as what it holds or asks", message)
+        # its own example is a different story from READER.md's, so that one
+        # passing is not the reader matching its own prompt
+        self.assertIn("bakery", message)
+        prompt = message.split("THE POST:")[0]
+        for theirs in ("notes", "autosave", "fixed it", "fell"):
+            self.assertNotIn(theirs, prompt)
 
-    def test_a_vague_list_that_is_not_a_list_is_unreadable(self):
-        self.core(support.result({"response": json.dumps({"says": "x", "unknown": [], "vague": "none",
-                                                          "followed": True})}))
+    def test_an_answer_without_vague_is_unreadable(self):
+        # The prompt and this reader ship together: an answer with no `vague`
+        # dropped a field. It is asked again, then fails closed.
+        core = self.core(support.result({"response": json.dumps({"says": "Amazon set a trap.", "unknown": [],
+                                                                 "followed": True})}))
         out = clarity.judge(PLAIN)
         self.assertFalse(out["clear"])
         self.assertEqual(out["reason"], clarity.UNREADABLE)
+        self.assertEqual(len(core.calls), clarity.ASKS)
+
+    def test_a_malformed_list_never_reads_as_empty(self):
+        # A reader that listed something in the wrong shape listed something:
+        # dropping the entries would turn its answer into a pass.
+        for key in ("unknown", "vague"):
+            for items in ([{"p": "something i run"}], [""], [" "], [None], [5], [["a"]], ["a", None]):
+                answer = {"says": "x", "unknown": [], "vague": [], "followed": True, key: items}
+                self.core(support.result({"response": json.dumps(answer)}))
+                out = clarity.judge(STAND_IN)
+                self.assertFalse(out["clear"], (key, items))
+                self.assertEqual(out["reason"], clarity.UNREADABLE, (key, items))
+
+    def test_a_vague_list_that_is_not_a_list_is_unreadable(self):
+        for vague in ("none", None, {"a": 1}):
+            self.core(support.result({"response": json.dumps({"says": "x", "unknown": [], "vague": vague,
+                                                              "followed": True})}))
+            out = clarity.judge(PLAIN)
+            self.assertFalse(out["clear"], vague)
+            self.assertEqual(out["reason"], clarity.UNREADABLE)
+
+    def test_stand_ins_are_deduped_case_aside_and_keep_room_among_many_words(self):
+        self.core(read("x", [f"word {n}" for n in range(8)], False, vague=["Something I Run", "WORD 0", "the system",
+                                                                           "my setup"]))
+        out = clarity.judge(STAND_IN)
+        # room for two stand-ins is kept in what the rewrite is shown; a
+        # stand-in that is already a listed word is not listed twice
+        self.assertEqual(out["unknown"], [f"word {n}" for n in range(6)] + ["Something I Run", "the system"])
+        self.assertEqual(len(out["unknown"]), clarity.MAX_UNKNOWN)
+        self.core(read("x", ["Merged"], False, vague=["merged", "MERGED"]))
+        self.assertEqual(clarity.judge(STAND_IN)["unknown"], ["Merged"])
 
     def test_only_a_true_is_a_yes(self):
         for answer in ({"says": "x", "unknown": [], "followed": "yes"}, {"says": "x", "unknown": []},
@@ -214,7 +252,7 @@ class ColdReaderTest(support.WithCore):
         self.assertFalse(clarity.judge(BLANK)["clear"])
 
     def test_the_readers_list_is_kept_short(self):
-        self.core(read("x", ["w" * 500, "w" * 500, *[f"word {n}" for n in range(20)], 7, ""], False))
+        self.core(read("x", ["w" * 500, "w" * 500, *[f"word {n}" for n in range(20)]], False))
         out = clarity.judge(BLANK)
         self.assertEqual(len(out["unknown"]), clarity.MAX_UNKNOWN)
         self.assertEqual(out["unknown"][0], "w" * clarity.MAX_UNKNOWN_CHARS)
