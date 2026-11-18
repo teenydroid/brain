@@ -47,11 +47,12 @@ BABYSIT_FOOT = "_automated audit by hands/babysit. a person approves; the babysi
 
 @dataclass(frozen=True)
 class Recogniser:
-    """One generator of text that is not Teeny's words: its NAME, the code
-    that WRITES it, and MATCH(context, fields) over the hold's parsed
-    context and held fields."""
+    """One generator of text that is not Teeny's words: its NAME, WHAT it is
+    as Teeny is told it, the code that WRITES it, and MATCH(context, fields)
+    over the hold's parsed context and held fields."""
 
     name: str
+    what: str
     writes: str
     match: Callable[[Mapping[str, Any], Mapping[str, Any]], bool]
 
@@ -65,8 +66,14 @@ def _babysit_audit(context: Mapping[str, Any], fields: Mapping[str, Any]) -> boo
 #: Every generator of text posted under Teeny's name that Teeny's model did
 #: not write.
 NOT_TEENYS: tuple[Recogniser, ...] = (
-    Recogniser("babysit_audit", "hands/lib/teeny_hands/babysit/actions.py report()", _babysit_audit),
+    Recogniser("babysit_audit", "the babysitter's audit comment", "hands/lib/teeny_hands/babysit/actions.py report()",
+               _babysit_audit),
 )
+
+
+def what(name: str) -> str:
+    """The recogniser NAME as Teeny is told it."""
+    return next((r.what for r in NOT_TEENYS if r.name == name), name)
 
 
 def _object(raw: Any) -> Any:

@@ -279,7 +279,7 @@ def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: 
     finally:
         db.close()
     groups: dict[tuple[str, str], list[Json]] = {}
-    not_yours: Counter = Counter()
+    not_yours: dict[tuple[str, str], Counter] = {}
     for r in rows:
         category, surface = r["category"], r["surface"]
         if category in NO_VERDICT or not eo._WORD.match(str(category)):
@@ -287,7 +287,7 @@ def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: 
         if not (isinstance(surface, str) and eo._WORD.match(surface)):
             continue
         if r["code_wrote"]:
-            not_yours[(surface, category)] += 1
+            not_yours.setdefault((surface, category), Counter())[r["code_wrote"]] += 1
         else:
             groups.setdefault((surface, category), []).append(r)
     drafted = _drafted_by(src, tree, since, until) if groups else {}
@@ -304,14 +304,16 @@ def _guard_holds(src: eo.Sources, tree: Path, since: float, until: float, days: 
         named = ", ".join(f"{('bin/act ' if s.startswith('playbook:') else 'the beat ') + s.split(':', 1)[1]} "
                           f"× {k}" for s, k in sources.most_common())
         reasons = _said(_reasons(scrub(h["reason"]) for h in held))
-        other = not_yours.get((surface, category), 0)
+        whose = not_yours.get((surface, category), Counter())
+        other = sum(whose.values())
         text = (f"The guard held {n} of your own {surface} draft{'s' if n != 1 else ''} (text your model wrote) as "
                 f"`{category}` in the last {days} days (its real verdicts: none the judge failed to make)"
                 + (f", drafted by {named}" if named else "") + f". Why it held them: {reasons}. A hold is a draft "
                 "nobody saw; the guard is frozen, what you write is not."
                 + (f" {other} more `{category}` hold{'s' if other != 1 else ''} on {surface} in the same days "
-                   f"{'were' if other != 1 else 'was'} on text code wrote, not you (the babysitter's audit "
-                   "comment): nothing for you to change there, and not in this count." if other else ""))
+                   f"{'were' if other != 1 else 'was'} on text code wrote, not you ("
+                   + ", ".join(eo.authorship.what(w) for w, _ in whose.most_common())
+                   + "): nothing for you to change there, and not in this count." if other else ""))
         examples = [{"at": h["at"], "reason": scrub(h["reason"]), "held_by": scrub(h["held_by"], 40),
                      "status": scrub(h["status"], 40)} for h in held[-MAX_EXAMPLES:]]
         out.append(Finding(f"f:guard_holds:{surface}:{category}", "guard_holds", f"{surface}:{category}", n, days,
