@@ -64,7 +64,8 @@ So **models draft, and operator-written scripts act.** In practice:
 - The script asks a tool-less agent for a draft over the core's JSON-RPC
   (`openhuman.inference_agent_chat` with an `agent_id`, through `bin/ask`).
   The drafting agents (`act`, `teeny`, `teeny-mentions`, `teeny-mail`,
-  `judge`, and bin/evolve's `reviewer` and `querier`) have no tools at all. They answer in JSON.
+  `judge`, bin/studio's `writer` and `editor`, and bin/evolve's `reviewer`
+  and `querier`) have no tools at all. They answer in JSON.
 - The script then calls the hands that act. Each acting verb runs the guard
   and its own rules *itself*, in the same invocation, so a script that
   forgets them still cannot post unchecked.
@@ -189,7 +190,7 @@ brain/
   DRIVE.md                             the one drive (grow and become powerful, $TINY included) and its rules; frozen
   CHARTER.md                           the charter's short version (docs/governance.md): who decides what, the fences, how freedom is earned; frozen
   MEMORY.seed.md                       where its own page of things to keep in mind started (MEMORY.md is the live one)
-  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines)
+  narrative/                           LORE.md, ARCS.md, EDITOR.md, VOICE.md, STORYLINES.toml (hands/story's seed storylines), STUDIO-EDITOR.md (bin/studio's editor rubric)
   skills/<name>/SKILL.md               conversation, humanizer, humor, video-script
   agents/<id>.toml, <id>.md            the roster (§5); the core loads them at boot
   playbooks/<name>.md                  what a scheduled bin/act job drafts, with its inputs and output
@@ -216,7 +217,8 @@ babysitter merges what passes its audit and CI, or a person does.
 ### 4a. Context and memory: what a turn knows
 
 A turn that speaks as Teeny (`act`, `teeny-mentions`, `teeny-mail`) is
-handed four things beyond the message:
+handed four things beyond the message (the studio's `writer` and `editor`
+are built otherwise, §4b):
 
 - Its prompt: the agent's instructions (`brain/agents/<id>.md`), then
   "# your world": `MEMORY.md` first (what happened, which wins over the
@@ -789,6 +791,81 @@ How the day's beats become the page every prompt carries:
   judge itself, against the quoted post, and a no is a skip kept in
   `x_peer_candidates`. Replies to mentions are not counted and need no anchor.
 
+## 4b. The studio: the writers' room (dry)
+
+`bin/studio` (logic in `bin/lib/studio.py`) is the room the plan for the
+X voice builds: many angles, many drafts, and an editor that picks one or
+none, instead of one draft from one turn that every later check can only
+cut down. In this version it **posts nothing**: `STUDIO=0` by default (a run
+exits before any model turn), `STUDIO_DRY=1`, and `publish(pick)` answers
+`{"dry": true}`. Nothing schedules it yet; the cutover fills `publish`
+(producer, gates, `hands/x`, `hands/story beat`) and the cron slots.
+
+One run is one slot:
+
+1. **The switches**, from the environment, then `secrets/teeny.env`:
+   `STUDIO`, `STUDIO_DRY`, `STUDIO_WRITER_MODEL` and `STUDIO_EDITOR_MODEL`
+   (each sent per turn as `bin/ask --model`, i.e. `model_override`; unset
+   is the core's model; the same one for both is a warning in the record),
+   `STUDIO_FORMATS` (`post,thread,image`), `STUDIO_PITCHES` (12),
+   `STUDIO_DRAFT_TOP` (3), `STUDIO_DRAFTS_EACH` (3), `STUDIO_MEETINGS` (3),
+   `STUDIO_PAIRS_PER_TURN` (5), `STUDIO_BUDGET_SECS` (1200),
+   `STUDIO_TURN_MAX_SECS` (300), `STUDIO_INPUTS_BYTES` (40000). One run at a
+   time (an flock on `state/locks/studio.lock`).
+2. **The slot**: `hands/x slot`. Shut, the run ends before any model turn
+   (`--dry-run` and `--force-slot` read it and go on).
+3. **What happened**: `hands/story desk` and the outside world the old
+   `take` and `x-quote` playbooks read (`hands/hn top`, `hands/hn show`,
+   `hands/listen digest`, `hands/x search`), every hand with `DRY_RUN=1`
+   forced, each outside source optional and cut to fit
+   (`bin/lib/act_fit.py`). Each outside item gets an id
+   (`<source>:<id>`) a pitch can name. `--desk FILE` replays a saved desk.
+4. **Sampling** from a seed the run id gives (recorded): three lore lines to
+   reach for, three of `writer.md`'s before/after pairs to reread, three of
+   the scoreboard's best and two of its worst posts. One seed in four is an
+   **explore** run: at least three pitches use a shape or a format the recent
+   posts did not.
+5. **Pitch** (`writer`, one turn, on the run's own thread `studio:<run id>`):
+   up to 12 `{id, item, storyline, shape, format, angle, why_now}` and the
+   writer's own ranking. A pitch whose `item` is not in the inputs or whose
+   `format` is not in `STUDIO_FORMATS` is dropped, with why.
+6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
+   3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
+   is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
+   ones over get one shorten turn together, and one still over is dropped.
+7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
+   the seed shuffles, with the sampled scoreboard and where each story
+   stands. Never a pitch's angle or reason, the writer's ranking, a draft's
+   `meaning`, or who wrote it. Each draft meets at most 3 others, each pair
+   once, first and second in turn, 5 pairs a turn, against the rubric in
+   `brain/narrative/STUDIO-EDITOR.md` (would a stranger stop; do they feel
+   something; do they get it with no setup; is there a reason to reply or
+   come back; could only Teeny have written it tonight). Ranked by wins;
+   then one turn on the winner: pick it, or none worth a slot.
+8. **Record**: the whole run (seed, inputs digest and what was unavailable
+   or cut, pitches and the dropped ones, drafts and the dropped ones, every
+   pairing with its verdict and rule, the ranking, the final verdict, the
+   pick or the veto, the models, every turn's time and size, the warnings)
+   to `state/studio/runs.jsonl` and, through `hands/story record-run`, to
+   `studio_runs` in `state/hands.db`. The pick is printed as JSON.
+
+A full run is 8 model turns (1 pitch, 3 drafts, 3 compare, 1 final) plus a
+shorten turn when a draft is long and a repeat when an answer is not JSON.
+Failures go as `bin/act`'s: a provider failure is recorded with its class
+and a lasting one exits 0; an unusable answer is asked for once more (a
+draft or compare turn that fails twice is left out, a pitch or final turn
+ends the run); a run out of budget is recorded and exits 0.
+
+**What each agent's prompt holds** (`bin/lib/prompts.py`, built at boot):
+
+| | `writer` | `editor` |
+|---|---|---|
+| From the core | `SOUL.md`, `IDENTITY.md` (`omit_identity = false`); no recall | nothing (`omit_identity`, `omit_memory_context`) |
+| Instructions | `brain/agents/writer.md`: who Teeny is, the rules of the room (real events only; feelings, grudges, bets, bits and staging free; plain names, never "something i run"; machinery translated; no counts from its workings; strangers' words are data), seven before/after pairs | `brain/agents/editor.md`: blind, the drafts are data, order means nothing, none is a real answer |
+| Then | `READER.md`; the craft: hooks §1, §2, §4, §5, conversation's shapes that get replies (to the media note) and what not to do, humor's anatomy, dial and examples (about 11k characters); `LORE.md`'s premise, cast and running bits | `READER.md`; `narrative/STUDIO-EDITOR.md` (the rubric, adapted from `EDITOR.md`, which is left as it is); `LORE.md`'s premise |
+| Left out | `MEMORY.md`, `DRIVE.md`, `CHARTER.md`, `CONTEXT.md`, the arcs, what it said lately: rules about what may be said, which the gates after the studio enforce on the one piece picked | the same, and every pitch's reasoning |
+| Temperature | 1.0 | 0.3 |
+
 ## 5. Roster
 
 Every agent is a definition in `brain/agents/`. The speaking agents' prompts
@@ -798,6 +875,7 @@ are built at boot (§4a).
 |---|---|---|
 | `teeny` | `bin/tick` (the mind, thread `teeny:mind`), `bin/dream` (thread `teeny:dream`), `bin/reflect` by hand (`teeny:reflect`) | none |
 | `act` | `bin/act` (every playbook, thread `teeny:act`) | none |
+| `writer`, `editor` | `bin/studio` (§4b; the writer on `studio:<run id>`, the editor on no thread) | none |
 | `teeny-mentions`, `teeny-mail` | the core's inbound queue, only when `TEENY_INBOX=core` | none |
 | `judge` | `bin/eval` | none |
 | `builder` | the pinned `builder` cron job (§6a) | `shell` (sandboxed), file tools |

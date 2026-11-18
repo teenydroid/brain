@@ -66,6 +66,11 @@ brain/agents/builder.toml
 brain/agents/operator.toml
 # The agent bin/evolve's lab spine proposes with: file tools in a worktree.
 brain/agents/evolver.toml
+# The studio's writer and editor (bin/studio): tool-less, and the editor
+# memoryless and blind to who wrote what. Their prompts (writer.md,
+# editor.md, narrative/STUDIO-EDITOR.md) stay Teeny's, like act.md.
+brain/agents/writer.toml
+brain/agents/editor.toml
 
 # Every public word goes through the guard, every X action through x.
 hands/guard

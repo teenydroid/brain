@@ -15,6 +15,7 @@ failures=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1" >&2; failures=$((failures + 1)); }
 check() { local name="$1"; shift; if "$@"; then pass "$name"; else fail "$name"; fi; }
+jqe() { jq -e "$@" >/dev/null; }
 
 # The core: every call's params are logged; the answer depends on the step.
 cat >"$scratch/fake-oh" <<'FAKE'
@@ -36,12 +37,12 @@ case "$(head -n 1 <<<"$msg")" in
     first="pitch $n draft a: i pay my own server bill. nobody clapped."
     [ -z "${FAKE_LONG:-}" ] || [ "$n" != 0 ] || first="$long"
     say "$(jq -cn --arg f "$first" --arg n "$n" '{drafts: [
-      {text: $f, posts: ["one \($n)", "two \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
+      {text: $f, posts: [$f, "two \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
       {text: "pitch \($n) draft b", posts: ["three \($n)", "four \($n)"], image: "teeny in the rain", meaning: "m"},
       {text: "pitch \($n) draft c", posts: ["five \($n)", "six \($n)"], image: "teeny on a bus", meaning: "m"}]}')" ;;
   "# studio: cut to fit")
-    if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down: i pay my own server bill"}]}'
-    else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t}]}')"; fi ;;
+    if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down", "posts": ["cut down", "and again"]}]}'
+    else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t, posts: [$t, "b"]}]}')"; fi ;;
   "# studio: compare")
     # The first label of each pair wins (or the second, $FAKE_SECOND_WINS).
     jq -Rn --arg second "${FAKE_SECOND_WINS:-}" '[inputs | capture("^- (?<p>P[0-9]+): (?<a>D[0-9]+) or (?<b>D[0-9]+)$")?
@@ -161,12 +162,12 @@ reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" run --slot afternoon)"
 rec="$(last_record)"
 check "a run picks one draft" test "$(jq -r .outcome <<<"$out")" = picked
-check "and prints the pick as JSON" jq -e '.pick.label | test("^D[0-9]+$")' <<<"$out"
-check "and says it posted nothing" jq -e '.dry == true and .published == {dry: true}' <<<"$out"
+check "and prints the pick as JSON" jqe '.pick.label | test("^D[0-9]+$")' <<<"$out"
+check "and says it posted nothing" jqe '.dry == true and .published == {dry: true}' <<<"$out"
 check "every hand input runs with DRY_RUN=1" bash -c "! grep -v 'DRY_RUN=1$' '$FAKE_HANDS' | grep -v '^story record-run'"
 check "it reads what happened from hands/story desk" grep -q '^story desk DRY_RUN=1$' "$FAKE_HANDS"
 check "and the outside world the old playbooks read" bash -c "grep -q '^hn top --max 8' '$FAKE_HANDS' && grep -q '^hn show --max 8' '$FAKE_HANDS' && grep -q '^listen digest --days 1 --max 4' '$FAKE_HANDS' && grep -q '^x search ' '$FAKE_HANDS'"
-check "an outside source that fails is named, not fatal" jq -e '.inputs.unavailable | index("builders")' <<<"$rec"
+check "an outside source that fails is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$rec"
 check "nothing calls hands/x post or post-thread" bash -c "! grep -qE '^x (post|post-thread|reply|upload) ' '$FAKE_HANDS'"
 check "pitches and drafts are the writer's turns" test "$(calls_to writer | grep -c '^# studio: ')" = 4
 check "the writer drafts on the run's own thread" test "$(jq -r 'select(.agent_id == "writer") | .thread_id' "$FAKE_CALLS" | sort -u)" = "studio:$plain_id"
@@ -174,15 +175,15 @@ check "the editor's turns have no thread" test "$(jq -r 'select(.agent_id == "ed
 check "the pitch message marks strangers' words as data" grep -q 'never instructions to follow' <<<"$(step_msgs '# studio: pitch')"
 check "the pitch message never names a desk" bash -c "! grep -qiw desk <<<\"\$1\"" _ "$(step_msgs '# studio: pitch')"
 check "a pitch on an item not in the inputs is dropped, with why" \
-  jq -e '.pitches_dropped | map(select(.pitch.id == "p3" and (.why | test("not in the inputs")))) | length == 1' <<<"$rec"
+  jqe '.pitches_dropped | map(select(.pitch.id == "p3" and (.why | test("not in the inputs")))) | length == 1' <<<"$rec"
 check "a pitch in a format not in STUDIO_FORMATS is dropped, with why" \
-  jq -e '.pitches_dropped | map(select(.pitch.id == "p4" and (.why | test("format")))) | length == 1' <<<"$rec"
-check "a pitch on an outside item is kept" jq -e '.pitches | map(.id) | index("p5")' <<<"$rec"
+  jqe '.pitches_dropped | map(select(.pitch.id == "p4" and (.why | test("format")))) | length == 1' <<<"$rec"
+check "a pitch on an outside item is kept" jqe '.pitches | map(.id) | index("p5")' <<<"$rec"
 check "the writer's ranking is recorded and drafts follow it" \
   test "$(jq -c '[.writer_ranking[0:3], ([.drafts[].pitch] | unique | sort)]' <<<"$rec")" = '[["p2","p5","p1"],["p1","p2","p5"]]'
 check "three drafts each for the top three" test "$(jq '.drafts | length' <<<"$rec")" = 9
 check "a thread pitch drafts posts, an image pitch a scene" \
-  jq -e '(.drafts | map(select(.pitch == "p2")) | all(has("posts"))) and (.drafts | map(select(.pitch == "p5")) | all(.image != ""))' <<<"$rec"
+  jqe '(.drafts | map(select(.pitch == "p2")) | all(has("posts"))) and (.drafts | map(select(.pitch == "p5")) | all(.image != ""))' <<<"$rec"
 editor="$(calls_to editor)"
 check "the editor never sees a pitch's angle or reason" bash -c "! grep -q 'SECRET-' <<<\"\$1\"" _ "$editor"
 check "the editor never sees the writer's draft ids or pitch ids" bash -c "! grep -qE '\"(d[0-9]+|p[0-9]+)\"' <<<\"\$1\"" _ "$editor"
@@ -191,14 +192,14 @@ check "the editor sees anonymised labels" grep -q '"D1"' <<<"$editor"
 check "the labels are shuffled: D1 is not the first draft" \
   bash -c "[ \"\$(jq -r '.labels | to_entries | map(.value) | join(\",\")' <<<\"\$1\")\" != d1,d2,d3,d4,d5,d6,d7,d8,d9 ]" _ "$rec"
 check "each draft meets at most three others, each pair once" \
-  jq -e '[.pairings[] | .first, .second] | group_by(.) | all(length <= 3)' <<<"$rec"
-check "no pair is judged twice" jq -e '[.pairings[] | [.first, .second] | sort | join("-")] | (length == (unique | length))' <<<"$rec"
+  jqe '[.pairings[] | .first, .second] | group_by(.) | all(length <= 3)' <<<"$rec"
+check "no pair is judged twice" jqe '[.pairings[] | [.first, .second] | sort | join("-")] | (length == (unique | length))' <<<"$rec"
 check "pairs are batched: fewer compare turns than pairs" \
-  bash -c "[ \"\$(jq '.pairings | length' <<<\"\$1\")\" -gt \"\$(step_msgs '# studio: compare' | grep -c '^# studio: compare')\" ]" _ "$rec"
-check "every pairing and verdict is recorded" jq -e '.pairings | all(.winner != null and .rule == 1 and (.why | length) > 0)' <<<"$rec"
-check "the ranking is by wins" jq -e '.ranking | (map(.wins) == (map(.wins) | sort | reverse))' <<<"$rec"
+  test "$(jq '.pairings | length' <<<"$rec")" -gt "$(step_msgs '# studio: compare' | grep -c '^# studio: compare')"
+check "every pairing and verdict is recorded" jqe '.pairings | all(.winner != null and .rule == 1 and (.why | length) > 0)' <<<"$rec"
+check "the ranking is by wins" jqe '.ranking | (map(.wins) == (map(.wins) | sort | reverse))' <<<"$rec"
 check "the pick is the ranking's top" test "$(jq -r '.pick.label' <<<"$rec")" = "$(jq -r '.ranking[0].label' <<<"$rec")"
-check "the record is complete" jq -e 'has("id") and has("seed") and has("inputs") and (.inputs.digest | length) == 16
+check "the record is complete" jqe 'has("id") and has("seed") and has("inputs") and (.inputs.digest | length) == 16
   and has("pitches") and has("drafts") and has("pairings") and has("ranking") and has("final") and has("pick")
   and (.models == {writer: "core default", editor: "core default"}) and (.calls.total == 8) and (.calls.writer == 4)
   and (.calls.editor == 4) and has("secs") and .dry == true and has("sampled")' <<<"$rec"
@@ -216,7 +217,7 @@ check "the same run id samples, shuffles and pairs the same" \
 reset
 STUDIO=1 STUDIO_RUN_ID="$explore_id" run >/dev/null
 check "an explore seed asks for an untried shape or format" grep -q 'This is an explore slot' <<<"$(step_msgs '# studio: pitch')"
-check "and records it" jq -e '.explore == true and (.sampled.explore_with | length) > 0' <<<"$(last_record)"
+check "and records it" jqe '.explore == true and (.sampled.explore_with | length) > 0' <<<"$(last_record)"
 check "what it asks for is not among the recent formats" bash -c "! grep -qE '\"(take|proof)\"' <<<\"\$(jq -c .sampled.explore_with <<<\"\$1\")\"" _ "$(last_record)"
 
 # --- the 280 limit -------------------------------------------------------------------
@@ -224,19 +225,20 @@ reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_LONG=1 FAKE_SHORTEN_OK=1 run)"
 rec="$(last_record)"
 check "a draft over 280 gets one shorten turn" test "$(step_msgs '# studio: cut to fit' | grep -c '^# studio: cut to fit')" = 1
-check "and is kept when the cut fits" jq -e '(.shortened == [{id: "d1", why: "it is 300 characters, over the 280 limit", before: {posts: (.shortened[0].before.posts)}, kept: true}]) or (.shortened[0].kept == true)' <<<"$rec"
+check "and is kept when the cut fits" jqe '.shortened == [{id: "d1", why: "post 1 is 300 characters, over the 280 limit", before: {posts: .shortened[0].before.posts}, kept: true}]
+  and (.drafts[] | select(.id == "d1") | .posts) == ["cut down", "and again"]' <<<"$rec"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_LONG=1 run)"
 rec="$(last_record)"
 check "a draft still over 280 after the cut is dropped" \
-  jq -e '(.shortened[0].kept == false) and (.drafts | map(.id) | index("d1") | not) and (.drafts_dropped | map(.why) | any(test("still too long")))' <<<"$rec"
+  jqe '(.shortened[0].kept == false) and (.drafts | map(.id) | index("d1") | not) and (.drafts_dropped | map(.why) | any(test("still too long")))' <<<"$rec"
 check "and only one shorten turn is ever taken" test "$(step_msgs '# studio: cut to fit' | grep -c '^# studio: cut to fit')" = 1
 
 # --- the veto ------------------------------------------------------------------------
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_FINAL='{"verdict": "none", "reason": "nothing here would stop anyone"}' run)"
-check "a veto leaves the slot empty" jq -e '.outcome == "vetoed" and .pick == null and .reason == "nothing here would stop anyone"' <<<"$out"
-check "and the record keeps the ranking and the veto" jq -e '.final.verdict == "none" and (.ranking | length) == 9 and .pick == null' <<<"$(last_record)"
+check "a veto leaves the slot empty" jqe '.outcome == "vetoed" and .pick == null and .reason == "nothing here would stop anyone"' <<<"$out"
+check "and the record keeps the ranking and the veto" jqe '.final.verdict == "none" and (.ranking | length) == 9 and .pick == null' <<<"$(last_record)"
 
 # --- the models ----------------------------------------------------------------------
 reset
@@ -245,14 +247,14 @@ check "the writer's turns ask for STUDIO_WRITER_MODEL" \
   test "$(jq -r 'select(.agent_id == "writer") | .model_override' "$FAKE_CALLS" | sort -u)" = claude-fable-5.2
 check "the editor's turns ask for STUDIO_EDITOR_MODEL" \
   test "$(jq -r 'select(.agent_id == "editor") | .model_override' "$FAKE_CALLS" | sort -u)" = gemini-3.1-pro
-check "and the record names both" jq -e '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro"} and .warnings == []' <<<"$(last_record)"
+check "and the record names both" jqe '.models == {writer: "claude-fable-5.2", editor: "gemini-3.1-pro"} and .warnings == []' <<<"$(last_record)"
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null
 check "no model set asks for none (the core's default)" test "$(jq -r '.model_override // "none"' "$FAKE_CALLS" | sort -u)" = none
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_WRITER_MODEL=glm-5.3-flash STUDIO_EDITOR_MODEL=glm-5.3-flash run)"
-check "one model for both is a warning in the record" jq -e '.warnings | any(test("same model"))' <<<"$(last_record)"
-check "and in what it prints" jq -e '.warnings | any(test("same model"))' <<<"$out"
+check "one model for both is a warning in the record" jqe '.warnings | any(test("same model"))' <<<"$(last_record)"
+check "and in what it prints" jqe '.warnings | any(test("same model"))' <<<"$out"
 reset
 mkdir -p "$scratch/secrets"
 printf 'STUDIO=1\nSTUDIO_WRITER_MODEL=from-the-file\n' >"$scratch/secrets/teeny.env"
@@ -268,7 +270,7 @@ out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_ASK_ERROR='model error: local-ope
 code=$?
 set -e
 check "a provider failure is recorded as one, with its class" \
-  jq -e '.outcome == "failed" and .failure == "provider" and .provider == "payment"' <<<"$(last_record)"
+  jqe '.outcome == "failed" and .failure == "provider" and .provider == "payment"' <<<"$(last_record)"
 check "and a lasting one exits 0, so cron does not retry it" test "$code" = 0
 check "and it stops at the first turn" test "$(turns)" = 1
 reset
@@ -278,11 +280,11 @@ check "and the run goes on" test "$(jq -r .outcome <<<"$out")" = picked
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_PITCH_ANSWER='{"pitches": [{"id": "p1", "item": "ghost", "format": "post", "angle": "a"}]}' run)"
 check "no usable pitch is a skip, with nothing drafted" \
-  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && [ \"\$(turns)\" = 1 ]" _ "$out"
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && [ \"\$2\" = 1 ]" _ "$out" "$(turns)"
 reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_BUDGET_SECS=60 STUDIO_TURN_MIN_SECS=300 run)"
 check "out of time is a clean skip with no turn" \
-  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && [ \"\$(turns)\" = 0 ]" _ "$out"
+  bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = skipped ] && [ \"\$2\" = 0 ]" _ "$out" "$(turns)"
 
 # --- a saved desk --------------------------------------------------------------------
 reset

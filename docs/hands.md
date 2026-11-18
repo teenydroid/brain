@@ -2816,6 +2816,8 @@ post id, surface, words, `shape`, `format`, the question it left open, and
 | `audit [--storyline K]` | R | Every beat's refs resolve, below. |
 | `beat` | A | `{storyline, post_id, text, open_question?, shape?, format?, surface? (x, the default; moltbook, reddit, telegram, web), refs?, state?, next?}`: a post already made. Moves the storyline's open question (and `question_at`), `state` and `next` when the beat brings them. The same post on the same storyline is one beat (`recorded: false`, `already`). Refused `unknown storyline` or `storyline retired`. Under `DRY_RUN` the post never went out, so nothing is written: `{dry_run: true, would_record}`. |
 | `seed` | O | Inserts each seed storyline the ledger lacks; one already there keeps its live fields (`{added, kept}`). |
+| `record-run` | J | One `bin/studio` run record on stdin (`{id, at_unix, outcome: picked\|vetoed\|skipped\|failed, slot?, seed?, explore?, reason?, models?, pitches?, drafts?, calls?, secs?, pick?, ...}`, at most 512 KiB), kept in `studio_runs`: the columns a report filters on and the whole record beside them. Written under `DRY_RUN` too: it is the room's own log of a run that sent nothing to anyone. The same id is kept once (`recorded: false`). |
+| `runs [--limit N] [--full]` | R | The newest studio runs (10, at most 100), newest first: `{runs: [{id, at, slot, dry, seed, explore, outcome, reason, models: {writer, editor}, pitches, drafts, calls, secs, pick}]}`; `--full` adds each run's whole `record` (every pitch, draft, pairing, verdict and the pick or the veto). |
 
 **The desk.** Plain code, no model, nothing invented. Each item is one
 ledger row or file line: `{id, kind, at, storyline, stake, what, facts,

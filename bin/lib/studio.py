@@ -88,7 +88,8 @@ EXPLORE_EVERY = 4
 #: A thread is 2 to THREAD_MAX posts.
 THREAD_MAX = 4
 #: The core holds a turn's message over 64 KiB (bin/act's MAX_PROMPT_BYTES):
-#: the inputs together get INPUTS_BYTES, each outside source OUTSIDE_SHARE.
+#: the inputs together get INPUTS_BYTES (STUDIO_INPUTS_BYTES), each outside
+#: source OUTSIDE_SHARE, what happened DESK_SHARE.
 INPUTS_BYTES = 40_000
 OUTSIDE_SHARE = 6_000
 DESK_SHARE = 30_000
@@ -147,6 +148,7 @@ class Config:
     budget_secs: int = 1200
     turn_max_secs: int = 300
     turn_min_secs: int = 20
+    inputs_bytes: int = INPUTS_BYTES
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
@@ -181,6 +183,7 @@ class Config:
         c.budget_secs = _int(get("STUDIO_BUDGET_SECS"), 1200, 60, 3600)
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
+        c.inputs_bytes = _int(get("STUDIO_INPUTS_BYTES"), INPUTS_BYTES, 8_000, 50_000)
         return c
 
 
@@ -805,7 +808,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     lean = lean_desk(desk)
     fitted, cut_desk = act_fit.fit({"desk": lean}, DESK_SHARE)
     inputs = {**fitted["desk"], "outside": outside}
-    total, cut_all = act_fit.fit({"inputs": inputs}, INPUTS_BYTES)
+    total, cut_all = act_fit.fit({"inputs": inputs}, cfg.inputs_bytes)
     inputs = total["inputs"]
     cut = sorted(set(cut + cut_desk + cut_all))
     known_items = {str(i.get("id")): i for i in inputs.get("happened") or [] if isinstance(i, dict)}
