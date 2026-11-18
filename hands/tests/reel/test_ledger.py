@@ -94,15 +94,9 @@ class LedgerTest(unittest.TestCase):
         conn = hand.open_db(assets.SCHEMA)
         real = conn.execute
 
-        class Crash(sqlite3.Connection):
-            pass
-
-        calls = {"n": 0}
-
         def execute(sql, *args):
             if sql.startswith("DROP TABLE media_assets") and "IF EXISTS" not in sql:
                 raise sqlite3.OperationalError("disk I/O error")
-            calls["n"] += 1
             return real(sql, *args)
 
         proxy = mock.Mock(wraps=conn)
