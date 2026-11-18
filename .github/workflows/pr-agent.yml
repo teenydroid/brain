@@ -8,7 +8,14 @@
 # outside code never runs next to the key, and the job skips fork PRs rather
 # than fail on the missing key. Comment commands are honoured only
 # from the owner, members and collaborators, so strangers cannot spend it.
+#
+# The budget job caps automatic reviews per PR and per PR author per day
+# (.github/scripts/pr-agent-budget.sh); repository variables
+# PR_AGENT_MAX_REVIEWS_PER_PR and PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY override
+# the defaults, 0 meaning unlimited.
 name: PR Agent
+# The budget script finds earlier reviews of a PR and an author by this name.
+run-name: "PR Agent #${{ github.event.pull_request.number || github.event.issue.number }} @${{ github.event.pull_request.user.login || github.event.issue.user.login }}"
 
 on:
   pull_request:
@@ -22,8 +29,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  pr_agent:
-    name: PR Agent
+  budget:
+    name: Budget
     if: >-
       github.event.sender.type != 'Bot' && (
         (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
@@ -32,6 +39,35 @@ jobs:
          startsWith(github.event.comment.body, '/') &&
          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
       )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      allowed: ${{ steps.budget.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - id: budget
+        run: .github/scripts/pr-agent-budget.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
+          MAX_PER_PR: ${{ vars.PR_AGENT_MAX_REVIEWS_PER_PR || '10' }}
+          MAX_PER_AUTHOR_DAY: ${{ vars.PR_AGENT_MAX_REVIEWS_PER_AUTHOR_DAY || '25' }}
+
+  pr_agent:
+    name: PR Agent
+    needs: budget
+    if: needs.budget.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

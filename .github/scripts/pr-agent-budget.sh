@@ -58,7 +58,7 @@ echo "PR #$PR: $per_pr review(s) of max $MAX_PER_PR; @$AUTHOR: $per_author in 24
 
 reason=""
 if [ "$MAX_PER_PR" -gt 0 ] && [ "$per_pr" -ge "$MAX_PER_PR" ]; then
-  reason="this PR has had $per_pr automatic reviews (cap $MAX_PER_PR)"
+  reason="this PR has had $per_pr reviews (cap $MAX_PER_PR)"
 elif [ "$MAX_PER_AUTHOR_DAY" -gt 0 ] && [ "$per_author" -ge "$MAX_PER_AUTHOR_DAY" ]; then
   reason="@$AUTHOR's PRs have had $per_author reviews in the last 24 hours (cap $MAX_PER_AUTHOR_DAY)"
 fi
