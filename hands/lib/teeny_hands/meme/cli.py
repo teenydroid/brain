@@ -3,9 +3,15 @@
   A  caption {image, top?, bottom?, style?, alt?}     words drawn on one picture: meme-<id>.jpg|png
   A  comic {panels: [{image, caption?}], layout?, captions?, alt?}
                                                       2 to 4 pictures in one frame, lettered: comic-<id>.jpg|png
+  R  templates [--query WORDS] [--max N]               known meme templates {id, name, lines, overlays, keywords, example}
+  A  template {template, lines, teeny?, alt?}         a known template lettered by memegen, Teeny pasted in: meme-<id>.png|jpg
   R  gif-search QUERY [--max N]                       Giphy candidates {id, title, url, rating} for a post's gif_id
   R  list [--max N]                                   the memes and comics made, newest first
   R  get ID                                           one
+
+`templates` and `template` need the memegen service (MEMEGEN_URL,
+templates.py); the service down is an `ok: false`, and the captioner and
+the comics do not need it.
 
 Making a meme or a comic costs nothing and publishes nothing: a post
 attaches the file through `hands/x upload --file PATH --alt TEXT`, and a
@@ -17,7 +23,7 @@ from __future__ import annotations
 import argparse
 
 from .. import hand
-from . import giphy, memes
+from . import giphy, memes, templates
 
 
 def _bounded(low: int, high: int, what: str):
@@ -41,6 +47,12 @@ def parser() -> argparse.ArgumentParser:
 
     verb("caption", lambda a, body: memes.caption(body), "words drawn on one picture (JSON on stdin)", body=True)
     verb("comic", lambda a, body: memes.comic(body), "2 to 4 pictures in one frame, lettered (JSON on stdin)", body=True)
+    listing = verb("templates", lambda a, _: templates.listing(a.query, a.max),
+                   "known meme templates, from the memegen service")
+    listing.add_argument("--query", default=None)
+    listing.add_argument("--max", type=_bounded(1, templates.DEFAULT_LISTED, "--max"), default=templates.DEFAULT_LISTED)
+    verb("template", lambda a, body: templates.render(body), "a known meme template, lettered (JSON on stdin)",
+         body=True)
     searching = verb("gif-search", lambda a, _: giphy.search(a.query, a.max), "reaction GIFs on Giphy, rated g or pg")
     searching.add_argument("query")
     searching.add_argument("--max", type=_bounded(1, giphy.MAX_RESULTS, "--max"), default=giphy.DEFAULT_RESULTS)
