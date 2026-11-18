@@ -22,8 +22,10 @@
             verdict, never a hold: anything but a clear yes is anchored false
   truth     stdin {"text", "facts"} -> {"truthful", "unsupported", "reason", "judged"}:
             whether every factual claim in the text is supported by `facts`, the
-            list of desk items and inputs it may draw on (anchor.py, `truth`).
-            A verdict, never a hold: anything but a clear yes is truthful false
+            non-empty list of desk items and inputs it may draw on (anchor.py,
+            `truth`). A verdict, never a hold: anything but a clear yes is
+            truthful false. Off (TRUTH_JUDGE=0) it is truthful true with judged
+            false, so a caller that needs a judgment checks `judged`
   clarity   stdin {"text", "meaning"?, "quoted"?} -> {"clear", "says", "unknown",
             "vague", "reason", "judged"}: whether someone who has never heard of Teeny
             could say the post back with nothing to ask about (clarity.py;
@@ -111,8 +113,8 @@ def truth_check(args: argparse.Namespace, body: Any) -> Mapping[str, Any]:
     body = _body(body, "facts")
     if not body["text"].strip():
         raise hand.HandError("text must not be empty")
-    if not isinstance(body.get("facts"), list):
-        raise hand.HandError("facts must be a list of the items the text may draw on")
+    if not isinstance(body.get("facts"), list) or not body["facts"]:
+        raise hand.HandError("facts must be a non-empty list of the items the text may draw on")
     return anchor.truth(body["text"], body["facts"])
 
 
