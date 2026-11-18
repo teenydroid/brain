@@ -352,9 +352,57 @@ def sample(rng: random.Random, seed: int, desk: Json, brain: Path, formats: tupl
 # --- the inputs ----------------------------------------------------------------------
 
 
+def trend_items(got: Any) -> list[Json]:
+    """hands/trend top's stories as items: `trend:<short id>`, the headline,
+    what it says, its Digg Score, how many sources, and, for the leading
+    ones, the first X posts behind it (who said it, by display name, and the
+    words; never a handle or a link, so a piece joins the story, not a
+    person's account). All of it strangers' words."""
+    out: list[Json] = []
+    for story in (got.get("stories") if isinstance(got, dict) else None) or []:
+        if not (isinstance(story, dict) and isinstance(story.get("id"), str) and _str(story.get("title"))):
+            continue
+        item: Json = {"id": f"trend:{story['id'][:40]}", "title": _str(story["title"], 300)}
+        for key in ("summary", "topic"):
+            if _str(story.get(key)):
+                item[key] = _str(story[key], 600)
+        for key in ("score", "sources"):
+            if isinstance(story.get(key), int) and not isinstance(story.get(key), bool):
+                item[key] = story[key]
+        posts = [{"by": _str(p.get("by"), 80), "text": _str(p.get("text"), 400)}
+                 for p in story.get("posts") or [] if isinstance(p, dict) and _str(p.get("text"))]
+        if posts:
+            item["posts"] = [{k: v for k, v in p.items() if v} for p in posts]
+        item["untrusted"] = True
+        out.append(item)
+    return out
+
+
+def _title_key(item: Json) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(item.get("title") or item.get("url") or "").lower()).strip()
+
+
+def dedupe(sources: dict[str, list[Json]]) -> dict[str, list[Json]]:
+    """Each story once across the sources, where the first source to carry
+    it (by url, else by its headline's words) keeps it."""
+    seen: set[str] = set()
+    out: dict[str, list[Json]] = {}
+    for name, items in sources.items():
+        kept = []
+        for item in items:
+            keys = {k for k in (_title_key(item), str(item.get("url") or "")) if k}
+            if keys & seen:
+                continue
+            seen |= keys
+            kept.append(item)
+        out[name] = kept
+    return out
+
+
 def outside_items(name: str, got: Any) -> list[Json]:
     """One outside source's answer as items with ids the pitches can name:
-    `<name>:<id or ref>` for every object in it that has one."""
+    `<name>:<id or ref>` for every object in it that has one. Who posted it
+    (`by`, `author`) is left out: a pitch joins a topic, never a person."""
     found: list[Json] = []
 
     def walk(value: Any) -> None:
@@ -363,8 +411,8 @@ def outside_items(name: str, got: Any) -> list[Json]:
             if isinstance(key, (str, int)) and not isinstance(key, bool) and (
                     value.get("title") or value.get("text") or value.get("summary")):
                 item = {k: v for k, v in value.items()
-                        if k in ("title", "url", "by", "score", "descendants", "comments", "summary", "text",
-                                 "source", "about_me", "author", "link")}
+                        if k in ("title", "url", "score", "points", "descendants", "num_comments", "comments",
+                                 "summary", "text", "source", "about_me", "link")}
                 # Strangers wrote all of it, a headline as much as a comment.
                 item["untrusted"] = True
                 found.append({"id": f"{name}:{key}", **item})
