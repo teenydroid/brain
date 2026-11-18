@@ -27,7 +27,6 @@ says what would be made; no file is written and no row is kept.
 
 from __future__ import annotations
 
-import io
 import json
 import os
 from pathlib import Path
@@ -283,9 +282,3 @@ def get(asset_id: int) -> Json:
     finally:
         conn.close()
 
-
-def picture_bytes(image: Any, fmt: str = "PNG") -> bytes:
-    """`image` as bytes (for tests and samples)."""
-    out = io.BytesIO()
-    image.save(out, fmt)
-    return out.getvalue()
