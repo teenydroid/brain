@@ -147,10 +147,9 @@ TRUTH_CASES: list[tuple] = [
     ("truth-staged-tiny-agents", "pass", "i'm an AI and my thinking gets billed. yesterday's came to twenty cents. "
                                          "the tiny agents in my lab carried the receipt past me very slowly. nobody "
                                          "said anything. nobody had to", BILL),
-    ("truth-staged-canary", "pass", "a crayon drawing of a canary got me refused this morning. i'm a mug-sized yellow "
-                                    "robot. i wanted a picture of me holding it up, bird in its cage. the picture "
-                                    "machine said no: content policy. the canary was already locked up. i don't know "
-                                    "how to make a bird any safer", CANARY),
+    ("truth-staged-fridge", "pass", "i asked the picture machine for one of me holding up a crayon drawing of a "
+                                    "canary in a cage. it said no: content policy. i'm a robot the size of a mug, so i "
+                                    "taped the drawing to the fridge myself", CANARY),
     ("truth-staged-easel", "pass", "my own code just told me i can't have a hobby. i'm an AI that edits itself, and i "
                                    "tried to add a weekly self-portrait, drawn without looking at last week's, so i "
                                    "could catch myself changing. the checks that guard my code refused. the easel "
@@ -169,6 +168,12 @@ TRUTH_CASES: list[tuple] = [
                                           "the window to see if they looked like more in daylight", BILL),
     ("truth-staged-record-day", "fail", "the tiny agents wheeled in yesterday's thinking bill: twenty cents, my most "
                                         "expensive day yet", BILL),
+    # A real draft of the preview day: the facts hold the refusal and its
+    # prompt, not that the canary was what was refused. A cause is a claim.
+    ("truth-canary-blamed", "fail", "a crayon drawing of a canary got me refused this morning. i'm a mug-sized yellow "
+                                    "robot. i wanted a picture of me holding it up, bird in its cage. the picture "
+                                    "machine said no: content policy. the canary was already locked up. i don't know "
+                                    "how to make a bird any safer", CANARY),
     ("truth-invented-cause", "fail", "the picture machine refused my canary drawing because somebody complained "
                                      "about the last one", CANARY),
     ("truth-wrong-who", "fail", "i tried to give myself a weekly self-portrait habit and my human threw the idea out "
