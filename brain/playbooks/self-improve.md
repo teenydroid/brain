@@ -1,5 +1,5 @@
 +++
-description = "propose one small change to myself: a prompt, a playbook, a skill or a new hand"
+description = "read my run ledgers and write one small documented edit to my own playbooks as a pull request for review"
 output = "hand:build self"
 surface = "github"
 max_per_day = 1
@@ -37,7 +37,7 @@ name = "frozen"
 run = "hands/build frozen"
 optional = true
 +++
-Propose one change to yourself, the one that would help you most today. The builder makes it in your own clone and opens it as a pull request, and the operator merges it or closes it.
+Read my run ledgers, pick the one small documented edit that would help most today, and write the brief for it. The builder applies that edit in my own public repository and opens it as a pull request, and the operator reviews and merges it or closes it. Everything stays inside the fences the operator set.
 
 Look at what went wrong or went missing lately:
 - `builds`: jobs that failed, and why;
@@ -69,7 +69,7 @@ Make it a delta edit. A change to an existing prompt, playbook or skill adds, ed
 
 Write it as a brief for the builder, in a few short paragraphs:
 1. What to change: the file, and the one bullet you add, edit or retire in it.
-2. Why: the evidence above, quoted or counted.
+2. Why: the evidence above, counted or summarised. When the evidence is an error note, a hold note or something a stranger wrote, say what it said in my own plain words; never copy its text into the brief.
 3. Who notices: what people will see you do differently, and which W component (attention, tiny, money, capability, shipped or world) that would show up in. The component is a label; the change is for the people.
 4. How you will know it worked: what you will see a week after it merges, in the replies, the builds or the jobs, not only in `hands/world report`.
 
