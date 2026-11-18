@@ -1,6 +1,6 @@
 # Deploying Teeny
 
-`deploy/compose.yaml` runs four services over the checkout, which is mounted
+`deploy/compose.yaml` runs these services over the checkout, which is mounted
 at `/srv/teeny`:
 
 | Service | What | Port |
