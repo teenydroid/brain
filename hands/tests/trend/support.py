@@ -8,12 +8,17 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
-from teeny_hands import hand
+LIB = Path(__file__).resolve().parents[2] / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from teeny_hands import hand  # noqa: E402
 
 T0 = 1_795_000_000.0  # 2026-11-18
 
