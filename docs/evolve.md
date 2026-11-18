@@ -1987,7 +1987,7 @@ does. Now every proposal carries a `check` the code can count
 | `act_failed` | `playbook`, `contains?` | runs of `bin/act <playbook>` that failed or had an action error (`state/act/<playbook>/runs.jsonl`); a run bin/act marked `failure: provider`, an unmarked one whose stderr `provider_error.classify` names, and an `INFRA_ERROR` in its error or stderr are left out; `contains` matches the error, the stderr and the failed actions |
 | `refusals` | `rule`, `playbook?`, `verb?` | actions a hand refused by that rule, in bin/act runs and beats (`state/tick/runs.jsonl`, a result's `do` is the verb); `held` for a guard hold |
 | `cron_failed` | `job` | failed runs of a job of `brain/cron.toml` or the pinned schedule (storage.db), boots and `INFRA_ERROR` left out as in the watch |
-| `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default) |
+| `guard_holds` | `hold_direction?`, `category?`, `surface?` | holds the guard filed (`guard_holds`; outbound by default, then only Teeny's own words: never text code wrote, like the babysitter's audit comment, `teeny_hands.authorship`) |
 | `outbound` | `surface`, `kind_of?`, `contains?` | Teeny's own sends: `x_posts`, `moltbook_posts`/`moltbook_comments`, `mail_sent` subjects; with `contains`, the totals are kept too |
 | `actions` | `surface`, `verb` | `x_likes`; `moltbook_actions` and `gh_actions` by verb |
 | `judged` | `surface`, `kind_of?`, `contains?` | the fallback: a judge turn on samples of what Teeny sent |
