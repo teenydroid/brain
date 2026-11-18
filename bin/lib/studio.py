@@ -227,6 +227,7 @@ class Config:
     turn_min_secs: int = 20
     inputs_bytes: int = INPUTS_BYTES
     outside_x: bool = False
+    outside_x_max: int = X_MAX_PER_DAY
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
