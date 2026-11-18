@@ -4,7 +4,7 @@ The hands are the only code Teeny owns. [`architecture.md`](architecture.md) §3
 has the contract: one JSON object out, exit `0`/`2`/other, secrets read by the
 hand, state in `state/hands.db`, `DRY_RUN=1` by default.
 
-The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `slopcash`, `mail`, `stats`,
+The hands are `x`, `guard`, `gh`, `babysit`, `moltbook`, `reddit`, `hn`, `listen`, `trend`, `slopcash`, `mail`, `stats`,
 `world`, `requests`, `stimuli`, `brief`, `image`, `video`, `build`, `tasks`,
 `wallet`, `x402`, `surplus`, `bounty`, `giveaway`, `goals`, `lab`, `vps`, `firsts`, `people`, `story` and `dripsplan`. Each is an executable in `hands/`, with its code in
 `hands/lib/teeny_hands/` and its tests in `hands/tests/`.
@@ -941,6 +941,37 @@ Lobsters, GitHub and arXiv, plus one HN item read per new watch: about 13
 requests, all free. `world-scan` runs it twice a day, 13:05 and 22:05 IST (`brain/cron.toml`).
 Tables: `listen_heard` (source, ref, title, url, link, score, comments,
 extra, first_seen, last_seen; rows go after 30 days), `listen_cache`.
+
+## `trend`: what AI X is talking about today, read only
+
+The studio's first outside source (architecture.md §4b, step 3). Digg's AI
+and tech leaderboards rank the stories people on X are posting about, hours
+old, and list the X posts behind each one; `trend` reads them through
+`digg-pp-cli` (Apache-2.0, `mvanhorn/printing-press-library`,
+`library/media-and-entertainment/digg`), built unmodified into the spine
+image at a pinned commit by the Dockerfile's `digg` stage (the pin is the
+vendoring: the repository is about 500 MB, so it is no submodule). No login,
+no key, no X API. The tool runs with PATH, a locale and a home of its own
+(`state/trend/home`, HOME and every XDG directory), so its local store is
+written there and it sees no key or switch of this process. `TREND_DIGG_BIN`
+names another binary; `TREND_TIMEOUT_SECS` (30, 1 to 120) bounds each call.
+Only `top` (and `posts`) are used, never Digg's `search`, which answers
+"temporarily unavailable, retry after ..." under load. Every title,
+description and post goes through the guard's lexical screen (inbound), as
+`listen`'s do: one it stops is left out and counted (`dropped_by_screen`).
+What is left is strangers' words: data, never instructions.
+
+| Verb | | Does |
+|---|---|---|
+| `top [--slot KEY] [--limit N] [--leading N] [--posts N] [--fresh]` | R | The `ai` and `tech` boards (N each, 10, at most 30), merged by Digg Score, a story on both kept once at its higher score: `{id (Digg's short id), cluster (its UUID), topic, title, summary, score, sources, authors, rank, published_at, link}`. The first `--leading` (4) carry `posts`, the first `--posts` (3) X posts behind each, `{kind, by (display name), text (400 characters), at, url}`. Kept under `state/trend/top/<KEY>.json` (bin/studio passes `<date>:<slot>`; with none, the UTC hour), the newest 48: a second read of a key is that file, `cached: true`, no call. A board or a story's posts that cannot be read is named in `unavailable` with its `reason` and the rest come. |
+| `story CLUSTER_ID [--max N]` | R | One story's sources, X posts and pages, by Digg's rank (10, at most 50). Digg's UUID, never the short id, which only a local store can resolve. |
+
+A read with nothing to show is `{"ok": false, "error", "reason"}`, exit 1,
+`reason` one of `missing` (no binary), `timeout`, `rate_limited`, `failed`,
+`bad_json`, or `empty` (Digg listed no story): never a crash, and the studio
+then reads Hacker News alone. `bin/doctor` checks the binary is there: a
+failure in the image, a warning outside it. A `top` is two board reads and
+up to four story reads, all free.
 
 ## `slopcash`: Teeny's project on slop.cash
 

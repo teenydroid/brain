@@ -16,22 +16,33 @@ In order:
    drops with the process, so a run killed with its container leaves none).
 3. The slot (`hands/x slot`): a shut slot ends the run before any model
    turn. `--dry-run` and `--force-slot` read it and go on.
-4. What happened: `hands/story desk` (or a saved one, `--desk FILE`, to
-   replay a past day) and the outside world the old playbooks read
-   (`OUTSIDE`: Hacker News, the listen digest, and an X search only with
-   STUDIO_OUTSIDE_X=1, since it is billed per post), each optional and cut
-   to fit (bin/lib/act_fit.py). Every hand runs with DRY_RUN=1, which keeps
-   a hand from acting but does not make a read free: see OUTSIDE.
+4. The outside world, then what happened: first what AI X is talking
+   about (`TREND`: hands/trend top, Digg's AI and tech stories with the X
+   posts behind the leading ones, once a slot), then the free sources the
+   old playbooks read (`OUTSIDE`: Hacker News, the listen digest), then an
+   X search only with STUDIO_OUTSIDE_X=1 and at most its cap a day
+   (`x_claim`), since it is billed per post; a story two carry is kept once
+   (`dedupe`). Then `hands/story desk` (or a saved one, `--desk FILE`, to
+   replay a past day). Each is optional and cut to fit (bin/lib/act_fit.py);
+   with no outside item the run goes on from Teeny's own events and says so.
+   Every hand runs with DRY_RUN=1, which keeps a hand from acting but does
+   not make a read free: see OUTSIDE.
 5. Sampling, from a seed the run's id gives (`seed_of`): a few lore lines to
    reach for, which of writer.md's before/after pairs to reread, which of
    the scoreboard's posts to show; and one run in four (`explore`) asks for
    a shape or a format the recent posts have not used.
-6. The pitch turn (`writer`): up to STUDIO_PITCHES angles, each naming a
-   real item, a storyline, a shape and a format, plus the writer's own
-   ranking. A pitch whose item is not in the inputs, or whose format is not
-   in STUDIO_FORMATS, is dropped with its reason.
+6. The pitch turn (`writer`): the message leads with the outside world and
+   gives Teeny's own events second, as the angle. Up to STUDIO_PITCHES
+   angles, each joining an outside story (`hook`) and/or naming a real item
+   of Teeny's, with a storyline, a shape and a format, plus the writer's own
+   ranking. A pitch whose hook or item is not in the inputs, that names
+   neither, or whose format is not in STUDIO_FORMATS, is dropped with its
+   reason.
 7. The draft turns (`writer`): STUDIO_DRAFTS_EACH drafts for each of the
-   STUDIO_DRAFT_TOP best pitches, one turn a pitch. Every text is held to
+   STUDIO_DRAFT_TOP best pitches (`choose_drafted`: two of three hooked when
+   there is an outside world, filled from the ranking when hooks are short),
+   one turn a pitch; a hooked one is given the story whole and the rules for
+   real news (`JOIN_RULES`), and the story goes into its truth facts. Every text is held to
    X's 280 (bin/lib/post_length.py, the guard's own count): the ones over it
    get one shorten turn together, and one still over is dropped. Before
    the tournament every draft is screened (`screen`): one with a number, a
