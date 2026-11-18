@@ -111,6 +111,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import outcomes  # noqa: E402
 import rhythm  # noqa: E402
 import scoreboard  # noqa: E402
+import studio_switch  # noqa: E402
 
 #: Intents one beat may carry out; the rest are refused and say so.
 MAX_INTENTS = 8
@@ -217,12 +218,51 @@ def _reply_x(i):
     return "x", ["reply", "--to", _id(i, "to")], {"text": _text(i), **_gif(i)}
 
 
+def studio_on() -> bool:
+    """STUDIO, as bin/studio reads it (bin/lib/studio_switch.py): with it on
+    the studio owns every original post, and the mind pitches instead."""
+    return studio_switch.on(os.environ, hand.secrets_dir() / "teeny.env")
+
+
+#: The most of a pitch's text the studio's desk keeps.
+PITCH_CHARS = 1200
+
+
+def _pitch_x(i):
+    """An idea for an original post, filed for the studio (STUDIO=1): a
+    `studio` stimulus, which hands/story desk shows the writer as one of its
+    `ideas` (untrusted: the mind writes it while it reads strangers' words).
+    Filed, never posted: the studio decides at its next slot whether
+    anything comes of it. A post_x while the studio is on lands here too."""
+    if not studio_on():
+        raise ValueError("pitch_x is for the studio, which is off (STUDIO=0): post with post_x")
+    text = _text(i)
+    if len(text) > PITCH_CHARS:
+        text = text[:PITCH_CHARS].rstrip() + " [...cut]"
+    payload = {k: i[k] for k in ("anchor", "meaning", "quote_of", "format", "image", "images", "why")
+               if i.get(k) not in (None, "", [])}
+    if i.get("do") == "post_x":
+        payload["was"] = "post_x"
+    ref = hashlib_ref(text)
+    return "stimuli", ["add"], {"surface": "studio", "kind": "pitch", "ref": ref, "text": text, "payload": payload}
+
+
+def hashlib_ref(text: str) -> str:
+    """A pitch's ref: the same words filed twice are one idea."""
+    import hashlib
+    return hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()[:16]
+
+
 def _post_x(i):
     """An own post. `anchor` names the one thing in front of the mind it is
     about (hands/x refuses a post without one); `quote_of` (a post id) makes
     it a quote, anchored on that post unless it names another; `format` tags
     it for the lab. Refused here, before any picture is made, when it has
-    neither. Pictures are made in carry_out and added as `media_ids`."""
+    neither. Pictures are made in carry_out and added as `media_ids`. With
+    the studio on (STUDIO=1) it is a pitch (`_pitch_x`), never a post: a
+    mind still in the habit of posting is filed, not refused."""
+    if studio_on():
+        return _pitch_x(i)
     body = {"text": _text(i), **_gif(i)}
     if i.get("quote_of") not in (None, ""):
         body["quote_of"] = _id(i, "quote_of")
@@ -721,6 +761,7 @@ def _propose_change(i):
 ROUTES: dict[str, Callable[[Mapping[str, Any]], tuple[str, list[str], Any]]] = {
     "reply_x": _reply_x,
     "post_x": _post_x,
+    "pitch_x": _pitch_x,
     "like_x": _like_x,
     "comment_moltbook": _comment_moltbook,
     "decline_moltbook": _decline_moltbook,
@@ -1705,7 +1746,14 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                 else:
                     name, argv, body = ROUTES[do](intent)
                     acted += 1
-                    if do == "post_x":
+                    if name == "stimuli" and do in ("post_x", "pitch_x"):
+                        # A pitch for the studio (STUDIO=1): filed, nothing
+                        # read cold, no picture made, nothing posted.
+                        entry["pitched"] = True
+                        if do == "post_x":
+                            entry["note"] = ("the studio owns your original posts now: this post_x was filed as a "
+                                             "pitch (pitch_x), not posted")
+                    elif do == "post_x":
                         # Before any picture is made: a post no stranger can
                         # read is rewritten once, or not sent.
                         readable, entry["clarity"] = _clear_to_a_stranger(intent, deadline)
@@ -1719,7 +1767,8 @@ def carry_out(intents: list[Json], tick: str, batch: list[Mapping[str, Any]] = (
                             intent = readable
                             name, argv, body = ROUTES[do](intent)
                     media_ids: list[str] = []
-                    if do in ("post_x", "reply_x") and (_picture_prompts(intent) or intent.get("shots") not in (None, "")):
+                    if do in ("post_x", "reply_x") and name == "x" and (
+                            _picture_prompts(intent) or intent.get("shots") not in (None, "")):
                         media_ids, note = _media(intent)
                         entry["media"] = note
                         if media_ids:
