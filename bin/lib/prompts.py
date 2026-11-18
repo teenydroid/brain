@@ -403,10 +403,61 @@ def craft(brain: Path) -> str:
             "READER.md wins: a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
 
 
+def studio_craft(brain: Path) -> str:
+    """The writer's craft block (STUDIO_CRAFT), in order. "" when the brain
+    has none of it."""
+    parts: list[str] = []
+    for skill, wanted in STUDIO_CRAFT:
+        _, found = sections(_read(brain / "skills" / skill / "SKILL.md"))
+        by_title = {_NUMBERED.sub("", title): body for title, body in found.items()}
+        for title, stop in wanted:
+            body = by_title.get(title, "")
+            if stop and stop in body:
+                body = body[:body.index(stop)].rstrip()
+            for drop in STUDIO_CRAFT_DROP:
+                body = body.replace(drop, "")
+            if body:
+                parts.append(f"## {skill}: {title}\n\n{body}")
+    if not parts:
+        return ""
+    return ("# how a piece is built (skills/hooks, skills/conversation, skills/humor)\n\n"
+            "The craft you write from. Where any of it and READER.md pull apart, READER.md wins: "
+            "a hook nobody understands stops nobody.\n\n" + "\n\n".join(parts))
+
+
+def studio_lore(brain: Path, wanted: tuple[str, ...] = LORE_SECTIONS) -> str:
+    story = lore(_read(brain / "narrative" / "LORE.md"), wanted)
+    if not story:
+        return ""
+    return "# the story you are in (narrative/LORE.md)\n\n" + story
+
+
+def studio_editor(brain: Path) -> str:
+    text = _read(brain / STUDIO_EDITOR)
+    if not text:
+        return ""
+    text = re.sub(r"\A#\s+.*\n", "", text).strip()
+    return "# how you judge (narrative/STUDIO-EDITOR.md)\n\n" + text
+
+
+def render_studio(brain: Path, agent: str, instructions: str) -> str:
+    """A studio agent's prompt. Deliberately no world(): see the module
+    docstring. The gates after the studio hold a piece to CONTEXT.md,
+    DRIVE.md and CHARTER.md; the writer writes."""
+    parts = [instructions, reader(brain)]
+    if agent == "writer":
+        parts += [studio_craft(brain), studio_lore(brain)]
+    else:
+        parts += [studio_editor(brain), studio_lore(brain, ())]
+    return "\n\n".join(part for part in parts if part) + "\n"
+
+
 def render(brain: Path, agent: str) -> str:
     instructions = _read(brain / "agents" / f"{agent}.md")
     if not instructions:
         raise ValueError(f"brain/agents/{agent}.md is missing or empty")
+    if agent in STUDIO:
+        return render_studio(brain, agent, instructions)
     parts = [instructions]
     if agent in PUBLIC:
         parts.append(reader(brain))
