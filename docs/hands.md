@@ -1295,7 +1295,7 @@ instead, the old per-surface agents.
 
 | Verb | | Does |
 |---|---|---|
-| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters, and a `nudge` at 16000, because it carries its playbook's inputs. |
+| `add` | A | `{surface, kind, ref, text, who?, payload?}`. One event, once: unique on (surface, kind, ref). The text is capped at 4000 characters, and a `nudge` at 16000, because it carries its playbook's inputs. A `studio` event (the mind's `pitch_x`, an idea for the studio's desk) is `filed`, not `pending`: no batch ever takes it, so the mind never reads its own pitch back; `hands/story desk` shows it as one of its `ideas`. |
 | `take [--max N] [--chars N]` | R | Takes the oldest pending, up to N (20) and about that much text (30k; always at least one), marked `taken` under a new `tick` id. A batch out for an hour is taken back. |
 | `settle TICK` | A | The beat read its batch: `done` for good. |
 | `release TICK` | A | The beat failed: back to `pending`, in its old place. |
