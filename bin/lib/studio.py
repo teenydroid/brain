@@ -48,17 +48,44 @@ In order:
    shown first in about half its pairs; several pairs a turn. The ranking is
    by win rate (`ranking` says the tie-break). Then one last turn: the
    winner, or none worth a slot.
-9. The record: the whole run to state/studio/runs.jsonl and, through
-   `hands/story record-run`, to `studio_runs` in state/hands.db. The pick is
-   printed as JSON. `publish` is where the cutover posts it; here it posts
-   nothing.
+9. Publishing the pick (`publish`): the producer for its format (a post, a
+   thread, or a post with a picture of Teeny; any other format is no post,
+   recorded), then the gates in order, each failing closed and each result
+   kept: the truth judge (`hands/guard truth` on the draft's `truth`), the
+   cold reader (`hands/guard clarity`: bin/act and bin/tick run it before
+   their own posts, hands/x does not, so this is its one run), and the
+   safety guard, which hands/x post runs itself before the posting rules
+   (4 a day, 5 hours apart, 280, no repeat, the link budget). A truth or
+   stranger no gets one rewrite turn by the writer, told the gate's reason,
+   and is gated again once; a second no, or the posting rules turning a
+   draft away (a repeat, a link), falls to the next draft of the ranking
+   that the editor, asked the slot question again, does not veto, at most
+   MAX_FALLBACKS times. A shut slot or a guard hold ends it. An empty slot
+   is an outcome, never an error. A picture is made only after the words
+   passed (`picture`), under hands/image's own caps; when it fails the post
+   goes out as words alone only if they stand alone. With STUDIO_DRY=1 (and
+   always under `--dry-run`) every step runs, the picture is only planned,
+   and hands/x runs with DRY_RUN=1, so nothing is posted or paid for. After a
+   real post, `hands/story beat` records it on the pick's storyline.
+10. The record: the whole run to state/studio/runs.jsonl and, through
+   `hands/story record-run`, to `studio_runs` in state/hands.db. The summary
+   (the pick and what came of it) is printed as JSON.
+
+`--veto` is the editor alone, for the posts that keep their own jobs (the
+told-to brief, the outward quote; bin/act asks): one candidate, pick or none,
+recorded in studio_runs. It fails closed: an editor that cannot answer is a
+none. With STUDIO=0 it answers pick without a turn.
+
+A writer or editor model that fails a turn is dropped for the rest of the
+run: the turn is asked once more on the core's default model, with a warning
+in the record (and a second one when the writer and the editor end up on the
+same model).
 
 Failures go as bin/act's do: a provider failure is recorded as one, with its
 class (bin/lib/provider_error.py), and a lasting one exits 0; an unusable
 answer is asked for once more, told what was wrong; a run out of time is
 recorded and exits 0; anything unexpected is recorded as `failure: "crash"`
-and exits 1. What a run made before it stopped stays in its record. Nothing
-is ever posted, so nothing is ever half posted.
+and exits 1. What a run made before it stopped stays in its record.
 """
 
 from __future__ import annotations
