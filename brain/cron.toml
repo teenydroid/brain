@@ -48,7 +48,7 @@ command = "bin/heartbeat"
 # that only read, propose or tend (self-improve, build-idea, pick-request,
 # goals, speculate, world-scan, moltbook-follow, moltbook-curate) catch up
 # instead. The posts do not: X is at most four posts a day five hours apart,
-# and a gm or a take hours late is the wrong post, so the X posts, brief and
+# and a post hours late is the wrong post, so the X slots (the studio), brief and
 # peer-quote (and the Moltbook posts) keep waiting for their next slot. A playbook never
 # catches up in the quiet hours, and bin/act's max_per_day still holds.
 #
@@ -56,7 +56,7 @@ command = "bin/heartbeat"
 # from the provider failed every draft from 06:10 to 09:15 UTC, the noon post
 # among them. The Moltbook evening audit says something that is still true
 # hours later, so it makes up such a slot once the provider answers
-# (`make_up_hours`). The X posts do not: a late gm is the wrong post, and X
+# (`make_up_hours`). The X slots do not: a late post is the wrong post, and X
 # keeps five hours between posts, so a late post would cost the next slot. The jobs that run every hour or two (moltbook-general, which now
 # carries the noon post too, -threads, -helpdesk) need nothing: their next
 # run is soon, and cron_policy.py would refuse a window that long anyway.
@@ -166,7 +166,7 @@ command = "bin/act shiplog"
 # run after UTC midnight (05:30 here), so the idea is drafted the evening
 # before, when Hacker News is busiest. It took the slot of the roast job, which
 # was off; brain/playbooks/roast.md is still in the tree. 22:50, not 23:00:
-# `show` owns that minute, and two jobs on one schedule have lost one
+# the 23:00 studio slot owns that minute, and two jobs on one schedule have lost one
 # (`shipped` beside `moltbook-evening` at 19:30 never ran on the box,
 # 11-11 to 11-13, while moltbook-evening ran every day).
 [jobs.build-idea]
@@ -179,7 +179,7 @@ catch_up = true
 # once a day. It goes in as a build request from myself; pick-request picks it
 # like any other, the builder makes it in my own clone, and it ships as a pull
 # request the operator merges or closes (docs/evolve.md). Ten past, off the
-# 15:00 `take`'s minute (see build-idea), and still before pick-request's 15:20.
+# 15:00 studio slot's minute (see build-idea), and still before pick-request's 15:20.
 [jobs.self-improve]
 schedule = "10 15 * * *"
 tz = "Asia/Kolkata"
@@ -201,9 +201,9 @@ catch_up = true
 # people star on GitHub, the newest agent papers on arXiv; only what is new),
 # with the HN front page and Moltbook's hot page, and I get it as a nudge
 # (brain/playbooks/world-scan.md). It feeds the posts, never takes an X slot:
-# 13:05 lands before the 15:00 `take`, 22:05 (the US working day, when Hacker
-# News is busiest) before `build-idea` and the 23:00 `show`, which read what
-# was heard (hands/listen digest), as do the gm and the Moltbook posts. It
+# 13:05 lands before the 15:00 studio slot, 22:05 (the US working day, when Hacker
+# News is busiest) before `build-idea` and the 23:00 slot, which read what
+# was heard (hands/listen digest), as do the Moltbook posts. It
 # took the place of news-scan, which queued a browser task to read the HN
 # front page; that playbook is still in the tree, unscheduled.
 [jobs.world-scan]
@@ -311,8 +311,8 @@ command = "bin/act speculate"
 catch_up = true
 
 # Open the week's Tiny Drop inside the season budget (giveaway-plan.md),
-# Tuesdays at 14:50, ten minutes before the `take`: on a day a drop opens,
-# the announce takes that slot and the 15:00 take is refused by the posting gap
+# Tuesdays at 14:50, ten minutes before the 15:00 slot: on a day a drop opens,
+# the announce takes that slot and the 15:00 studio run finds it shut
 # (a refused post spends nothing). The hand refuses while GIVEAWAYS is off, and this stays
 # off until the devnet rehearsal has passed. The drop's countdown, judging
 # and reveal are drafted by giveaway-judge.md and giveaway-post.md, which the
