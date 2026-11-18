@@ -39,6 +39,12 @@ class Refusing:
 
 class PostTest(Scratch, Refusing):
     def body(self, **more):
+        # Every post after the first says something new: the same words twice
+        # are a retelling (retell.py, `retold`), and these tests are about the
+        # limits.
+        self.sent = getattr(self, "sent", -1) + 1
+        if self.sent:
+            return {"submolt": "general", "title": f"t{self.sent:03d}x", "body": f"b{self.sent:03d}x", **more}
         return {"submolt": "general", "title": "hello — moltbook", "body": "first post", **more}
 
     def test_publishes_the_guards_rewrite_and_records_it(self):

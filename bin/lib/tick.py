@@ -1054,6 +1054,7 @@ def render(batch: list[Mapping[str, Any]], woke: Mapping[str, Any] | None = None
     lines.extend(_people(batch, exclude=[("x", who) for who in people]))
     if any(s["surface"] == "x" or s["surface"] == "nudge" for s in batch):
         lines.extend(_x_lately())
+    lines.extend(_moltbook_lately())
     lines.append(shape())
     return "\n".join(lines)
 
@@ -1181,6 +1182,21 @@ def _x_lately() -> list[str]:
     if not found:
         return []
     return [found[0], "Your own words, so you don't repeat a line or contradict one.", *found[1:], *_worn(), ""]
+
+
+def _moltbook_lately() -> list[str]:
+    """Teeny's own seen Moltbook posts of the last day, titles only, and the
+    rule that a story told there is not told again (teeny_hands.moltbook.
+    retell). Every beat: any beat may post there. Live, 2026-11-18, the beat
+    told one story there three times in five hours without seeing it had."""
+    try:
+        from teeny_hands.moltbook import retell
+
+        found = retell.lately()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tick] moltbook history unavailable: {type(exc).__name__}", file=sys.stderr)
+        return []
+    return [*found, ""] if found else []
 
 
 def _worn() -> list[str]:

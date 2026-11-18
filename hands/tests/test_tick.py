@@ -1117,6 +1117,31 @@ class TickTest(unittest.TestCase):
         self.assertIn("#1 x `take` (result): 0 of 3 posts measured", block)
         self.assertLessEqual(len(block), 1500)
 
+    def test_every_beat_shows_its_own_moltbook_posts_of_the_last_day(self):
+        # Live, 2026-11-18: the beat posted one story on Moltbook three times in
+        # five hours; nothing in its prompt said what it had already posted.
+        from teeny_hands.moltbook import rules
+
+        conn = rules.db()
+        for title, ago, status in (("22 of my 38 holds were the reviewer gone", 3 * 3600, "verified"),
+                                   ("a change to a file nothing reads is a no-op", 3600, "verification_failed"),
+                                   ("an old story from the day before", 30 * 3600, "verified")):
+            conn.execute("INSERT INTO moltbook_posts (post_id, at, submolt, title, status) VALUES ('p', ?, 'general', ?, ?)",
+                         (T0 - ago, title, status))
+        conn.commit()
+        conn.close()
+        self.tick()
+        message = self.chats()[0]["message"]
+        self.assertIn("## what you posted on Moltbook in the last 24 h", message)
+        self.assertIn("- 3 h ago, m/general: 22 of my 38 holds were the reviewer gone", message)
+        self.assertIn("a story already told there is not told again", message)
+        self.assertNotIn("a change to a file nothing reads", message, "nobody saw it: it is not told")
+        self.assertNotIn("an old story from the day before", message)
+
+    def test_a_beat_with_no_moltbook_posts_says_nothing_of_them(self):
+        self.tick()
+        self.assertNotIn("what you posted on Moltbook", self.chats()[0]["message"])
+
     def test_a_task_the_guard_holds_never_reaches_the_queue(self):
         self.caps(MIND_TASKS_PER_DAY=3)
         os.environ["FAKE_GUARD_HOLD"] = "1"
