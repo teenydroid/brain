@@ -29,6 +29,9 @@ from .. import hand
 from ..media import fit
 
 FONT_DIR = "brain/assets/fonts"
+#: The fonts ship with the code (the checkout this file is in), not with
+#: whatever TEENY_ROOT a run points at.
+FONT_ROOT = Path(__file__).resolve().parents[4] / FONT_DIR
 IMPACT_FONT = "Anton-Regular.ttf"
 LABEL_FONT = "AtkinsonHyperlegible-Bold.ttf"
 STYLES = ("impact", "label", "subtitle")
@@ -85,7 +88,7 @@ def _pil() -> Any:
 @functools.lru_cache(maxsize=64)
 def _font(name: str, size: int) -> Any:
     ImageFont = _pil()[2]
-    path = hand.root() / FONT_DIR / name
+    path = FONT_ROOT / name
     if not path.is_file():
         raise hand.HandError(f"the caption font is missing ({FONT_DIR}/{name})")
     return ImageFont.truetype(str(path), size)
@@ -108,7 +111,7 @@ def missing_glyphs(text: str, font_name: str) -> list[str]:
         if char.isspace():
             continue
         mask = font.getmask(char)
-        if (mask.size, bytes(mask)) == notdef or mask.size[0] == 0 and char.isprintable() and not char.isspace():
+        if (mask.size, bytes(mask)) == notdef or not char.isprintable() or mask.size[0] == 0:
             missing.append(char)
     return missing
 
@@ -346,10 +349,6 @@ def comic(images: list[Any], captions: list[str | None], layout: str, position: 
             block = blocks[index]
             if block is not None:
                 _draw(draw, block, x + cell_w / 2, band_y + (band - block.height) / 2, INK, None)
-    return frame, {"layout": layout, "cell": [cell_w, cell_h], "size": blocks and next(
-        (b.size for b in blocks if b is not None), None), "panels": [
-        {"lines": list(b.lines) if b else []} for b in blocks]}
-
-
-def font_path(name: str) -> Path:
-    return hand.root() / FONT_DIR / name
+    size = next((b.size for b in blocks if b is not None), None)
+    return frame, {"layout": layout, "cell": [cell_w, cell_h], "size": size,
+                   "panels": [{"lines": list(b.lines) if b else []} for b in blocks]}
