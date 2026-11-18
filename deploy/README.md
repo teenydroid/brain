@@ -62,6 +62,43 @@ Compose reads interpolation values (`TEENY_UID`, `TEENY_GID`, `XHOOK_PORT`,
 file if one exists. Nothing else in this stack reads `deploy/.env`; the keys
 live in `secrets/`.
 
+## The reel service
+
+`hands/reel` renders clips and songs on the `reel` service
+(docs/hands.md, "reel"). It is opt-in, behind the `reel` profile, and posts
+nothing. It needs about 4 cores and 4 GB while rendering (capped at that in
+compose; one render at a time). To start it on the box:
+
+```sh
+git submodule update --init vendor/moneyprinter        # the pinned release tag
+docker compose -f deploy/compose.yaml --profile reel build reel
+docker compose -f deploy/compose.yaml --profile reel up -d reel
+docker compose -f deploy/compose.yaml exec -T spine curl -fsS http://reel:8080/ping   # "pong"
+```
+
+`up -d reel` starts that one service; it does not recreate the spine. Then
+check what a clip would be, with nothing rendered:
+
+```sh
+echo '{"kind":"clip","script":"...","materials":["brain/assets/tiny/tiny-love.jpg"]}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/reel make
+```
+
+`REEL_URL` defaults to `http://reel:8080`. The caps (`REEL_MAX_PER_DAY`,
+`REEL_SONGS_MAX_PER_WEEK`) and the music switch (`REEL_MUSIC`, off) are in
+`secrets/teeny.env` (`deploy/teeny.env.example`). Renders wait in the
+`reel-storage` volume until the hand copies them into `state/media/` and
+deletes the task; a restart of the service forgets its tasks, and a folder
+left by a task in flight then stays in the volume
+(`docker compose -f deploy/compose.yaml --profile reel down reel` and
+`docker volume rm teeny-spine_reel-storage` clear it).
+
+To move the pin: check out the new release tag in `vendor/moneyprinter`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_reel.py'`
+(its schema check reads the new job model), rebuild, render one clip, and
+land it as a pull request. Never edit the submodule; a fix upstream needs is
+a pull request to `harry0703/MoneyPrinterTurbo`.
+
 ## The X webhook
 
 X's Activity API pushes `post.mention.create`, `post.reply.create`,
