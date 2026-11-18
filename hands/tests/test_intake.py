@@ -80,7 +80,7 @@ class IntakeTest(unittest.TestCase):
         # Two listens a day from one job: the cap has no room for a second.
         self.assertEqual(len(cron_policy.fire_minutes(jobs["world-scan"]["schedule"], "world-scan")), 2)
         self.assertEqual(jobs["build-idea"]["command"], "bin/act build-idea")
-        for name in ("world-scan", "build-idea", "show"):
+        for name in ("world-scan", "build-idea", "studio-2300"):
             self.assertTrue(jobs[name].get("enabled", True), name)
         self.assertNotIn("news-scan", jobs)
         self.assertNotIn("roast", jobs)
