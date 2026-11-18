@@ -172,7 +172,9 @@ def _env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # A file that is not text reads as empty here; studio_switch.read
+        # raises on it, so the run posts nothing (Config.switch_error).
         return values
     for raw in text.splitlines():
         line = raw.strip()
@@ -212,6 +214,11 @@ class Config:
     turn_min_secs: int = 20
     inputs_bytes: int = INPUTS_BYTES
     outside_x: bool = False
+    #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
+    #: reads it: secrets/teeny.env only. "" is the core's default.
+    judge_model: str = ""
+    #: Why STUDIO could not be read ("" when it could): nothing posts.
+    switch_error: str = ""
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
@@ -223,10 +230,18 @@ class Config:
             return value if value not in (None, "") else filed.get(name) or None
 
         c = cls()
-        c.on = studio_switch.on(environ, secrets_file)
+        try:
+            c.on = studio_switch.on(environ, secrets_file)
+        except studio_switch.SwitchError as exc:
+            c.on, c.switch_error = False, str(exc)
+        c.judge_model = (filed.get("SAFETY_JUDGE_MODEL") or "").strip()
         c.dry = (get("STUDIO_DRY") or "0").strip().lower() in ("1", "true", "yes", "on")
         c.writer_model = (get("STUDIO_WRITER_MODEL") or "").strip()
         c.editor_model = (get("STUDIO_EDITOR_MODEL") or "").strip()
+        if c.judge_model == c.writer_model:
+            same = c.writer_model or "the core's default, both unset"
+            c.warnings.append(f"the judges (SAFETY_JUDGE_MODEL) run on the writer's model ({same}): set "
+                              "SAFETY_JUDGE_MODEL in secrets/teeny.env to another; a live run leaves the slot empty")
         if c.writer_model == c.editor_model:
             same = c.writer_model or "the core's default, both unset"
             c.warnings.append(f"the writer and the editor run on the same model ({same}): "
@@ -1421,6 +1436,10 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     hands = Path(environ.get("TEENY_HANDS") or root / "hands")
     secrets_dir = Path(environ.get("TEENY_SECRETS") or root / "secrets")
     cfg = Config.load(environ, secrets_dir / "teeny.env")
+    if cfg.switch_error:
+        # Neither path posts: not the studio, not the legacy playbook.
+        print(f"[studio] {cfg.switch_error}", file=sys.stderr)
+        return 1, {"ok": False, "error": cfg.switch_error, "failure": "studio"}
     if not cfg.on and not args.dry_run:
         if getattr(args, "legacy", None):
             # The rollback: the slot's old playbook, as cron ran it before.
@@ -1685,6 +1704,8 @@ def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, 
     brain = Path(environ.get("TEENY_BRAIN") or environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
     hands = Path(environ.get("TEENY_HANDS") or root / "hands")
     cfg = Config.load(environ, Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env")
+    if cfg.switch_error:
+        return {"verdict": "none", "reason": f"the studio switch cannot be read: {cfg.switch_error}", "turn": False}
     if not cfg.on:
         return {"verdict": "pick", "reason": "the studio is off (STUDIO=0): nothing is vetoed", "turn": False}
     if not isinstance(body, dict):
