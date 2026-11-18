@@ -5,7 +5,8 @@
 # secrets/teeny.env on the box).
 #
 # Plain pull_request, not pull_request_target: a fork PR gets no secrets, so
-# outside code never runs next to the key. Comment commands are honoured only
+# outside code never runs next to the key, and the job skips fork PRs rather
+# than fail on the missing key. Comment commands are honoured only
 # from the owner, members and collaborators, so strangers cannot spend it.
 name: PR Agent
 
