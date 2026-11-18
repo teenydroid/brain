@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+from unittest import mock
 from pathlib import Path
 
 from gh.support import T0, Scratch
