@@ -16,6 +16,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent / "lib"))
@@ -122,22 +123,37 @@ class FakeReel:
 
 
 class FakeSurplus:
-    """Surplus's music route, shaped like its video route."""
+    """Surplus's music route, shaped like its video route, with knobs for
+    the shapes the real one might answer instead."""
 
     def __init__(self):
         self.calls = []
         self.quote = 414000
         self.statuses = ["running", "succeeded"]
         self.audio = MP3
+        self.post_answer = None
+        self.post_error = None
+        self.post_errors = {}
+        self.poll_answer = None
+        self.no_results = False
+        self.download_error = None
 
     def call(self, method, path, body=None, timeout=60.0, headers=None):
         self.calls.append((method, path, body))
         if path == "/v1/music/generations" and method == "POST":
+            if body["model"] in self.post_errors:
+                raise self.post_errors[body["model"]]
+            if self.post_error:
+                raise self.post_error
+            if self.post_answer is not None:
+                return self.post_answer
             return {"id": "music-job-1", "status": "queued", "estimated_cost_usdc": str(self.quote)}
         if path.startswith("/v1/music/generations/") and method == "GET":
+            if self.poll_answer is not None:
+                return self.poll_answer
             status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
             out = {"id": "music-job-1", "status": status}
-            if status == "succeeded":
+            if status.lower() in ("succeeded", "completed", "success", "done") and not self.no_results:
                 out["results"] = [{"url": "https://api.surplusintelligence.ai/v1/media/artifacts/music-job-1/0"}]
                 out["usage"] = {"buyer_cost_usdc": "414000"}
             return out
@@ -146,6 +162,8 @@ class FakeSurplus:
         raise AssertionError(f"unexpected call {method} {path}")
 
     def download(self, url, limit, timeout=120.0):
+        if self.download_error:
+            raise self.download_error
         return self.audio
 
 
@@ -430,6 +448,165 @@ class ReelTest(unittest.TestCase):
         with self.assertRaises(hand.Refused) as no:
             reels.music({"style": "lo-fi"}, api=FakeSurplus())
         self.assertEqual(no.exception.detail["rule"], "budget")
+
+    # --- failure paths keep the ledger honest -----------------------------------------------
+
+    def assert_nothing_kept(self):
+        rows = self.rows()
+        self.assertEqual(rows[-1]["status"], "failed")
+        self.assertIsNone(rows[-1]["path"])
+        self.assertEqual(sorted(p.name for p in (self.root / "state" / "media").glob("reel-*")), [])
+        self.assertTrue(self.fake.deleted())
+        # The cap is not consumed: the next clip goes.
+        self.fake.render, self.fake.states = mp4(), [1]
+        self.assertEqual(self.make()["asset"]["status"], "done")
+
+    def test_a_truncated_mvhd_is_not_a_valid_mp4(self):
+        moov = box(b"moov", box(b"mvhd", b"\x00\x00\x00\x00\x00\x00") + box(b"trak", box(b"mdia", box(b"hdlr", b"\x00" * 8 + b"vide" + b"\x00" * 12))))
+        self.fake.render = box(b"ftyp", b"isom\x00\x00\x02\x00") + moov
+        with self.assertRaises(hand.HandError) as err:
+            self.make()
+        self.assertIn("not a valid mp4", str(err.exception))
+        self.assert_nothing_kept()
+
+    def test_odd_boxes_never_read_past_their_end(self):
+        for data in (
+            box(b"moov", box(b"mvhd", b"\x01" + b"\x00" * 20)),
+            box(b"moov", box(b"trak", box(b"mdia", box(b"hdlr", b"\x00" * 9)))),
+            box(b"moov", b"\x00\x00\x00\x01mvhd\x00\x00"),
+            box(b"moov", box(b"mvhd", b"")),
+        ):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                reels.mp4_info(box(b"ftyp", b"isom") + data)
+        self.assertEqual(reels.mp4_info(b"\x00\x00\x00\x10ftypisom\x00\x00\x00\x00\xff\xff\xff\xffmoov"), {"seconds": None, "tracks": []})
+
+    def test_a_disk_that_will_not_take_the_file_leaves_nothing(self):
+        with mock.patch.object(Path, "write_bytes", side_effect=OSError("No space left on device")):
+            with self.assertRaises(OSError):
+                self.make()
+        self.assertIn("No space left", self.rows()[-1]["error"])
+        self.assert_nothing_kept()
+
+    def test_an_interrupted_make_leaves_no_pending_row(self):
+        class Stopped(Reel):
+            def download(self, task_id, limit):
+                raise KeyboardInterrupt
+
+        with self.assertRaises(KeyboardInterrupt):
+            reels.make(self.body(), api=Stopped(self.fake.url), sleep=lambda _: None)
+        self.assertNotIn("pending", [r["status"] for r in self.rows()])
+        self.assert_nothing_kept()
+
+    def test_two_makes_at_once_take_one_slot(self):
+        self.fake.states = [1]
+        results = []
+
+        def run():
+            try:
+                results.append(reels.make(self.body(), sleep=lambda _: None)["asset"]["status"])
+            except hand.Refused as refused:
+                results.append(refused.detail.get("rule"))
+
+        threads = [threading.Thread(target=run) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sorted(results), ["done", "per_day"])
+        self.assertEqual(len(self.fake.jobs), 1)
+
+    def test_a_music_claim_reserves_its_cap_for_everyone(self):
+        asset_id = reels._claim("music", "x", {}, 700000)
+        conn = assets._db()
+        try:
+            self.assertEqual(conn.execute("SELECT cost_micro, status FROM media_assets WHERE id = ?", (asset_id,)).fetchone()[:], (700000, "pending"))
+            self.assertEqual(assets._spent_today(conn), 700000)
+            with self.assertRaises(hand.Refused) as no:
+                assets._check_caps(conn, "video", 400000)
+            self.assertEqual(no.exception.detail["rule"], "budget")
+        finally:
+            conn.close()
+
+    # --- music fails closed ------------------------------------------------------------------
+
+    def music_unknown(self, api, **env):
+        self.env(REEL_MUSIC="1", REEL_MUSIC_WAIT_SECONDS="60", **env)
+        clock = iter(range(0, 100_000, 30))
+        with mock.patch.object(reels.time, "monotonic", lambda: float(next(clock))):
+            with self.assertRaises(hand.HandError) as err:
+                reels.music({"style": "lo-fi"}, api=api, sleep=lambda _: None)
+        self.assertNotIsInstance(err.exception, hand.Refused)
+        posts = [c for c in api.calls if c[0] == "POST"]
+        self.assertEqual(len(posts), 1, "never a second purchase")
+        row = self.rows()[-1]
+        self.assertEqual(row["status"], "unknown")
+        self.assertGreater(row["cost_micro"], 0)
+        self.assertEqual(list((self.root / "state" / "media").glob("music-*.*")), [])
+        # Counted: in the day's spend and the week's cap.
+        self.assertEqual(reels.listing(10)["spent_today_usd"], row["cost_micro"] / 1e6)
+        with self.assertRaises(hand.Refused) as no:
+            reels.music({"style": "lo-fi"}, api=api, sleep=lambda _: None)
+        self.assertEqual(no.exception.detail["rule"], "per_week")
+        return row, err.exception
+
+    def test_music_answers_of_unknown_shapes_are_booked_not_retried(self):
+        cases = {
+            "not an object": lambda api: setattr(api, "post_answer", ["queued"]),
+            "no id": lambda api: setattr(api, "post_answer", {"status": "queued", "estimated_cost_usdc": "414000"}),
+            "a number id": lambda api: setattr(api, "post_answer", {"id": 5}),
+            "an odd status word": lambda api: setattr(api, "statuses", ["thinking"]),
+            "a status that is not an object": lambda api: setattr(api, "poll_answer", "running"),
+            "succeeded with no artifact": lambda api: setattr(api, "no_results", True),
+            "an artifact that is not audio": lambda api: setattr(api, "audio", b"<html>nope</html>"),
+            "a failed download": lambda api: setattr(api, "download_error", SurplusError("the download answered 500", 500)),
+            "no answer to the POST": lambda api: setattr(api, "post_error", SurplusError("could not reach Surplus (timeout)")),
+            "a server error to the POST": lambda api: setattr(api, "post_error", SurplusError("Surplus answered 502", 502)),
+        }
+        for name, setup in cases.items():
+            with self.subTest(case=name):
+                self.tearDown()
+                self.setUp()
+                api = FakeSurplus()
+                setup(api)
+                row, _ = self.music_unknown(api)
+                self.assertIn(row["cost_micro"], (414000, 700000))
+
+    def test_an_odd_quote_books_the_cap(self):
+        api = FakeSurplus()
+        api.quote = "0.41"
+        api.statuses = ["thinking"]
+        row, err = self.music_unknown(api)
+        self.assertEqual(row["cost_micro"], 700000)
+        self.assertEqual(row["job_id"], "music-job-1")
+        self.assertEqual(err.detail["outcome"], "unknown")
+
+    def test_other_success_words_are_success(self):
+        for word in ("completed", "success", "done", "SUCCEEDED"):
+            with self.subTest(word=word):
+                self.tearDown()
+                self.setUp()
+                self.env(REEL_MUSIC="1")
+                api = FakeSurplus()
+                api.statuses = [word]
+                out = reels.music({"style": "lo-fi"}, api=api, sleep=lambda _: None)["asset"]
+                self.assertEqual((out["status"], out["cost_usd"]), ("done", 0.414))
+
+    def test_a_confirmed_failure_costs_nothing_and_tries_no_other_model(self):
+        self.env(REEL_MUSIC="1")
+        api = FakeSurplus()
+        api.statuses = ["failed"]
+        with self.assertRaises(hand.HandError):
+            reels.music({"style": "lo-fi"}, api=api, sleep=lambda _: None)
+        self.assertEqual(len([c for c in api.calls if c[0] == "POST"]), 1)
+        row = self.rows()[-1]
+        self.assertEqual((row["status"], row["cost_micro"]), ("failed", 0))
+
+    def test_a_seller_that_refuses_before_any_job_lets_the_next_model_try(self):
+        self.env(REEL_MUSIC="1")
+        api = FakeSurplus()
+        api.post_errors = {"elevenlabs-music-v2-5": SurplusError("Surplus answered 503: no healthy sellers", 503)}
+        out = reels.music({"style": "lo-fi"}, api=api, sleep=lambda _: None)["asset"]
+        self.assertEqual(out["model"], "elevenlabs-music-v2")
 
     # --- list, get, the ledger ----------------------------------------------------------------------
 
