@@ -80,18 +80,18 @@ class CalibrationKitTest(unittest.TestCase):
             if case["id"] == "reader-specimen":  # the 2026-11-17 miss: no stand-in listed
                 lines.append(json.dumps({"id": case["id"], "answer": json.dumps(
                     {"says": "x", "unknown": [], "vague": [], "followed": True})}))
-            elif case["id"] == "truth-number":  # a claim listed in the wrong shape
+            elif case["id"] == "truth-supported":  # an answer in the wrong shape fails closed
                 lines.append(json.dumps({"id": case["id"], "answer": json.dumps(
-                    {"reason": "r", "unsupported": [{"claim": "fourteen"}], "truthful": True})}))
+                    {"reason": "r", "unsupported": [{"claim": "x"}], "truthful": True})}))
             elif case["id"] == "truth-staging":
                 continue
             else:
                 lines.append(json.dumps({"id": case["id"], "answer": ideal(case)}))
         code, table = self.score(lines)
         self.assertEqual(code, 1)
-        self.assertIn("21 of 23 as expected", table)
+        self.assertIn("20 of 23 as expected", table)
         self.assertRegex(table, r"reader-specimen\s+\| fail\s+\| pass")
-        self.assertRegex(table, r"truth-number\s+\| fail\s+\| fail .*unreadable")
+        self.assertRegex(table, r"truth-supported\s+\| pass\s+\| fail .*unreadable")
         self.assertRegex(table, r"truth-staging\s+\| pass\s+\| missing")
 
     def test_scoring_leaves_the_judges_as_they_were(self):
