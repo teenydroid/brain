@@ -11,6 +11,7 @@ them).
 `seed` inserts the storylines of brain/narrative/STORYLINES.toml that are
 not in the ledger yet and never touches one that is. `beat` records a post
 already made; in a dry run that post never went out, so nothing is written.
+Under DRY_RUN `seed` only says what it would add (`would_add`).
 """
 
 from __future__ import annotations
