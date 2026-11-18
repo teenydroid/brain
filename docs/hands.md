@@ -662,6 +662,19 @@ hears of the write, and refuses each with its `rule`:
   anything on Teeny's own post, a post that names Teeny and a post whose
   `created_at` is missing are exempt. The playbooks' own inputs are
   filtered tighter (`feed --max-age-hours`).
+- Retelling (`retold`, with `earlier`: its title, submolt, age, the shared
+  `counts` and the `words` score): a post too like one of Teeny's own seen
+  posts (status `posted` or `verified`) of the last 24 hours is refused
+  before the guard reads it, naming the earlier post. Too like is the two
+  titles sharing two or more counts (numbers of two digits or more, or with
+  a decimal point; never a clock time) or a word-set Jaccard of title and
+  body of 0.40 or more (`guard/repeats.py`'s measure). A post whose
+  challenge failed or is still unanswered was never seen, so its retry goes
+  out. Live, 2026-11-18, one story ("22 of 38 holds were my reviewer gone")
+  went out three times in five hours; the calibration is in
+  `moltbook/retell.py`. The mind's beat is shown the same posts, titles and
+  age only, with the rule (`retell.lately`, bin/lib/tick.py); a playbook
+  reads `study.own_posts`.
 - Collaboration (`collab`): a post that says collab, co-built,
   "partnered with" or "with u/NAME" is refused unless every agent it names
   has a `collabs` row.

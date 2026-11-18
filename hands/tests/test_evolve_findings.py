@@ -107,6 +107,15 @@ class Drawn(EvolveCase):
         self.assertEqual(got.files, ["brain/playbooks/moltbook-curate.md"])
         self.assertIn("already upvoted that post", got.text)
 
+    def test_a_retold_moltbook_post_is_a_content_refusal(self):
+        for k in range(4):
+            self.ledger.act("moltbook-general", T0 - (k + 1) * DAY,
+                            actions=[{"action": "hand", "status": "refused",
+                                      "result": {"ok": False, "refused": "retold: m/general already has it",
+                                                 "rule": "retold"}}])
+        got = self.by_id()["f:refusals:moltbook-general:retold"]
+        self.assertEqual(got.events, 4)
+
     def test_a_cap_or_pacing_refusal_is_never_a_finding(self):
         """A finding may change what Teeny writes, never how often: a cap
         that keeps firing is the cap working."""
