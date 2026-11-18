@@ -38,10 +38,14 @@ case "$(head -n 1 <<<"$msg")" in
     c="${names[$n]}"
     first="pitch $c draft a: i pay my own server bill. nobody clapped."
     [ -z "${FAKE_LONG:-}" ] || [ "$n" != 0 ] || first="$long"
-    say "$(jq -cn --arg f "$first" --arg n "$c" '{drafts: [
-      {text: $f, posts: [$f, "beta \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
-      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: "teeny in the rain", meaning: "m"},
-      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: "teeny on a bus", meaning: "m"}]}')" ;;
+    # $FAKE_ALONE: the writer marks image drafts as standing alone;
+    # $FAKE_SAME_SCENE: every draft has the same scene.
+    say "$(jq -cn --arg f "$first" --arg n "$c" --arg alone "${FAKE_ALONE:-}" --arg same "${FAKE_SAME_SCENE:-}" '
+      def scene($s): if $same == "" then $s else "teeny on a windowsill at dawn" end;
+      {drafts: [
+      {text: $f, posts: [$f, "beta \($n)"], image: scene("teeny on a windowsill at dawn"), meaning: "m", alone: ($alone != "")},
+      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: scene("teeny in the rain"), meaning: "m", alone: ($alone != "")},
+      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: scene("teeny on a bus"), meaning: "m", alone: ($alone != "")}]}')" ;;
   "# studio: cut to fit")
     if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down", "posts": ["cut down", "and again"]}]}'
     else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t, posts: [$t, "b"]}]}')"; fi ;;
@@ -432,16 +436,26 @@ out="$(FAKE_PITCH_ANSWER="$one_image" STUDIO=1 STUDIO_RUN_ID="$plain_id" run)"
 check "dry, the picture is planned and never bought" \
   bash -c "jq -e '.publish.attempts[0].picture.planned == true' <<<\"\$(tail -n 1 '$scratch/state/studio/runs.jsonl')\" >/dev/null && ! grep -qE '^(image |x upload)' '$FAKE_HANDS'"
 reset
-out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 live)"
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
 rec="$(last_record)"
-check "a refused picture: the words go out alone when they stand alone, and the record says so" \
+check "a refused picture with words the writer did not mark as standing alone is no post (the default)" \
+  bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | all(.picture.fallback | test(\"no post\")))' <<<\"\$1\" >/dev/null &&
+    [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ]" _ "$rec"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_SAME_SCENE=1 FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
+check "a refused picture is asked for once a slot: fallbacks with the same scene reuse the refusal" \
+  bash -c "[ \"\$(grep -c '^image generate ' '$FAKE_HANDS')\" = 1 ] && jq -e '.publish.attempts[1:] | all(.picture.reused == true)' <<<\"\$1\" >/dev/null" _ "$(last_record)"
+reset
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_IMAGE_REFUSED=1 FAKE_ALONE=1 live)"
+rec="$(last_record)"
+check "a refused picture: the words go out alone when the writer marked them so, and the record says so" \
   bash -c "jq -e '.outcome == \"published\" and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     jq -e 'has(\"media_ids\") | not' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _ "$rec"
 
 reset
-out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_VIEW_NO=1 live)"
+out="$(FAKE_PITCH_ANSWER="$one_image" FAKE_VIEW_NO=1 FAKE_ALONE=1 live)"
 rec="$(last_record)"
-check "a picture the viewer fails is not posted: the words go out alone, nothing uploaded" \
+check "a picture the viewer fails is not posted: the words (marked alone) go out alone, nothing uploaded" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].picture.viewer.ok == false and (.publish.attempts[0].picture.fallback | test(\"words alone\"))' <<<\"\$1\" >/dev/null &&
     ! grep -q '^x upload' '$FAKE_HANDS'" _ "$rec"
 
