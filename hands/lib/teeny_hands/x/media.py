@@ -8,6 +8,12 @@ Only two things ever become an attachment: a file under `state/media/` or
 must not be able to make the account post an arbitrary picture, and a path
 must not reach anything else on the box (the secrets sit one folder over).
 
+A still over X's 5 MB image limit is refused before anything is sent, with
+the reason, rather than failing at X after INIT (hands/image and hands/meme
+keep their pictures under it). Alt text (`--alt`) goes to X's media metadata
+route once the upload is processed; it is screened by the guard's lexicon
+first (no model, no hold) and may carry no link, since anyone can read it.
+
 The upload takes the chunked route for every type, as the legacy client did:
 a still fits in one APPEND, so for an image this is the simple upload with
 two extra calls. An animated GIF or a video is transcoded after FINALIZE and
@@ -51,6 +57,12 @@ CATEGORIES = {
 
 #: The folders an upload may come from, relative to the checkout.
 UPLOAD_ROOTS = ("state/media", "brain/assets")
+
+#: X's limit for a still image (tweet_image), in bytes as X counts them.
+#: 4,980,488 bytes uploaded on 2026-11-15; 5,263,141 failed on 2026-11-14.
+IMAGE_MAX_BYTES = 5_000_000
+#: X's longest alt text, in characters.
+ALT_MAX_CHARS = 1000
 
 GIPHY_API_BASE = "https://api.giphy.com"
 #: X rejects an animated GIF over 15 MB, so the largest usable rendition wins.
@@ -99,24 +111,70 @@ def sniff(data: bytes) -> str | None:
     return None
 
 
-def upload(path: str, x: XApi | None = None) -> dict[str, Any]:
-    """`upload --file PATH`: the file to X, its id recorded as minted here.
-    Under DRY_RUN nothing reaches X and the id is a rehearsal's, which a
-    rehearsed post accepts and a live one refuses."""
+def check_alt(alt: str | None) -> str | None:
+    """Alt text as X gets it, whitespace folded: at most ALT_MAX_CHARS, no
+    link, and nothing the guard's lexicon holds (the outbound screen, no
+    model, no hold: a refusal here is a rewrite, never a hold to release)."""
+    if alt is None:
+        return None
+    text = " ".join(alt.split())
+    if not text:
+        raise hand.Refused("--alt must not be empty", rule="alt")
+    if len(text) > ALT_MAX_CHARS:
+        raise hand.Refused(f"alt text is at most {ALT_MAX_CHARS} characters", rule="alt")
+    if rules.has_link(text):
+        raise hand.Refused("alt text may not carry a link", rule="alt")
+    try:
+        from ..guard.screen import OUTBOUND, screen_text
+    except ImportError:
+        raise hand.HandError("the content guard (hands/guard) is not installed, so no alt text is sent") from None
+    found = screen_text(text, OUTBOUND)
+    if found is not None:
+        raise hand.Refused(f"the guard would hold this alt text ({found.category}); say it another way", rule="alt",
+                           category=found.category)
+    return text
+
+
+def upload(path: str, x: XApi | None = None, alt: str | None = None) -> dict[str, Any]:
+    """`upload --file PATH [--alt TEXT]`: the file to X, its id recorded as
+    minted here, and its alt text set when given. Under DRY_RUN nothing
+    reaches X and the id is a rehearsal's, which a rehearsed post accepts
+    and a live one refuses."""
     resolved = resolve_upload_path(path)
     data = resolved.read_bytes()
     mime = sniff(data)
     if mime is None:
         raise hand.Refused("upload takes a PNG, JPEG, WebP, GIF or MP4 file", rule="type")
+    if CATEGORIES[mime] == "tweet_image" and len(data) >= IMAGE_MAX_BYTES:
+        raise hand.Refused(f"X takes a still of under {IMAGE_MAX_BYTES:,} bytes and this one is {len(data):,}",
+                           rule="size", bytes=len(data), limit=IMAGE_MAX_BYTES)
+    alt = check_alt(alt)
+    if alt is not None and mime == "video/mp4":
+        raise hand.Refused("alt text goes on a picture or a GIF, not a video", rule="alt")
     source = str(resolved.relative_to(hand.root().resolve()))
     conn = open_db(rules.SCHEMA)
+    extra: dict[str, Any] = {"alt": alt} if alt is not None else {}
     if hand.dry_run():
         media_id = f"dry-run-{os.urandom(6).hex()}"
         rules.record_media(conn, media_id, source, mime, len(data), dry_run=True)
-        return {"dry_run": True, "media_id": media_id, "mime": mime, "bytes": len(data)}
-    media_id = upload_media(x or XApi.from_settings(), data, mime)
+        return {"dry_run": True, "media_id": media_id, "mime": mime, "bytes": len(data), **extra}
+    x = x or XApi.from_settings()
+    media_id = upload_media(x, data, mime)
     rules.record_media(conn, media_id, source, mime, len(data))
-    return {"media_id": media_id, "mime": mime, "bytes": len(data)}
+    if alt is not None:
+        # The media is X's now and recorded, so a refused description is
+        # reported beside the id, never raised: the picture can still go out.
+        try:
+            set_alt(x, media_id, alt)
+            extra["alt_set"] = True
+        except XError as exc:
+            extra.update(alt_set=False, alt_error=str(exc)[:200])
+    return {"media_id": media_id, "mime": mime, "bytes": len(data), **extra}
+
+
+def set_alt(x: XApi, media_id: str, alt: str) -> None:
+    """X's media metadata route: the alt text for an uploaded media id."""
+    x.call("POST", "/2/media/metadata", body={"id": media_id, "metadata": {"alt_text": {"text": alt}}}, user=True)
 
 
 # --- the chunked upload -----------------------------------------------------------------------

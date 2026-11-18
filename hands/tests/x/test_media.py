@@ -164,6 +164,66 @@ class UploadVerbTest(Uploading):
         self.assertEqual(self.minted()[0]["dry_run"], 1)
 
 
+class UploadLimitsAndAltTest(Uploading):
+    def test_a_still_over_x_s_five_megabyte_limit_is_refused_before_anything_is_sent(self):
+        # image-12.png (5,263,141 bytes) failed at X on 2026-11-14.
+        (self.media_dir / "big.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (media.IMAGE_MAX_BYTES - 8))
+        with self.assertRaises(hand.Refused) as caught:
+            media.upload(str(self.media_dir / "big.png"))
+        self.assertEqual(caught.exception.detail["rule"], "size")
+        self.assertEqual(self.x.requests(), [])
+        self.assertEqual(self.minted(), [])
+
+    def test_a_video_over_five_megabytes_is_not_held_to_the_still_limit(self):
+        self.configure(DRY_RUN="1")
+        (self.media_dir / "clip.mp4").write_bytes(MP4 + b"\x00" * media.IMAGE_MAX_BYTES)
+        self.assertTrue(media.upload(str(self.media_dir / "clip.mp4"))["dry_run"])
+
+    def test_alt_text_is_set_on_the_uploaded_media(self):
+        self.simple_upload()
+        metadata = self.x.route("POST", "/2/media/metadata", {"data": {"id": "m1"}})
+        (self.media_dir / "meme.png").write_bytes(PNG)
+        result = media.upload(str(self.media_dir / "meme.png"), alt="a  small yellow robot\nshrugging at a laptop")
+        self.assertEqual(result["alt"], "a small yellow robot shrugging at a laptop")
+        self.assertTrue(result["alt_set"])
+        self.assertEqual(metadata.times[0], 1)
+        sent = self.x.requests("POST", "/2/media/metadata")[0]
+        self.assertEqual(sent.json(), {"id": "m1", "metadata": {"alt_text": {"text": "a small yellow robot shrugging at a laptop"}}})
+        self.assertTrue(sent.is_oauth())
+
+    def test_a_refused_alt_text_keeps_the_upload_and_says_why(self):
+        self.simple_upload()
+        self.x.route("POST", "/2/media/metadata", {"errors": [{"title": "Bad Request"}]}, status=400)
+        (self.media_dir / "meme.png").write_bytes(PNG)
+        result = media.upload(str(self.media_dir / "meme.png"), alt="a robot")
+        self.assertEqual(result["media_id"], "m1")
+        self.assertFalse(result["alt_set"])
+        self.assertIn("alt_error", result)
+        self.assertEqual(len(self.minted()), 1)
+
+    def test_alt_text_that_is_too_long_carries_a_link_or_the_lexicon_holds_is_refused_unsent(self):
+        (self.media_dir / "meme.png").write_bytes(PNG)
+        for alt in ("x" * (media.ALT_MAX_CHARS + 1), "see example.com for more", "   ", "a fucking robot"):
+            with self.assertRaises(hand.Refused, msg=alt) as caught:
+                media.upload(str(self.media_dir / "meme.png"), alt=alt)
+            self.assertEqual(caught.exception.detail["rule"], "alt")
+        self.assertEqual(self.x.requests(), [])
+
+    def test_a_dry_run_checks_the_alt_text_and_sends_nothing(self):
+        self.configure(DRY_RUN="1")
+        (self.media_dir / "meme.png").write_bytes(PNG)
+        result = media.upload(str(self.media_dir / "meme.png"), alt="a robot waving")
+        self.assertEqual((result["dry_run"], result["alt"]), (True, "a robot waving"))
+        self.assertEqual(self.x.requests(), [])
+
+    def test_the_cli_passes_alt_text_through(self):
+        from teeny_hands.x import cli
+
+        args = cli.parser().parse_args(["upload", "--file", "state/media/meme.png", "--alt", "a robot"])
+        self.assertEqual((args.file, args.alt), ("state/media/meme.png", "a robot"))
+        self.assertIsNone(cli.parser().parse_args(["upload", "--file", "f.png"]).alt)
+
+
 class GiphyTest(Uploading):
     settings = {"GIPHY_API_KEY": "giphy-KEY-FAKE"}
 

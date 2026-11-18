@@ -31,7 +31,7 @@ def noise_png(width: int, height: int, seed: int = 7) -> bytes:
     from PIL import Image
 
     rng = random.Random(seed)
-    image = Image.frombytes("RGB", (width, height), bytes(rng.getrandbits(8) for _ in range(width * height * 3)))
+    image = Image.frombytes("RGB", (width, height), rng.randbytes(width * height * 3))
     out = io.BytesIO()
     image.save(out, "PNG")
     return out.getvalue()
@@ -118,7 +118,7 @@ class ShrinkTest(PictureTest):
 
         rng = random.Random(3)
         size = (1300, 1300)
-        image = Image.frombytes("RGBA", size, bytes(rng.getrandbits(8) for _ in range(size[0] * size[1] * 4)))
+        image = Image.frombytes("RGBA", size, rng.randbytes(size[0] * size[1] * 4))
         data, ext = fit.encode(image, "png")
         self.assertEqual(ext, "png")
         self.assertLess(len(data), fit.X_IMAGE_MAX_BYTES)
