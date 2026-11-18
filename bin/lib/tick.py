@@ -72,6 +72,12 @@
    the mind, with what the reader took from it and could not read, and the
    rewrite is read cold too. Still a no, a reader that did not answer, or
    out of time: refused, and the mind is told why. The entry says `clarity`.
+   That is with the studio off (STUDIO=0). With it on (bin/lib/studio_switch.py)
+   the studio owns every original post: the mind's answer shape offers
+   `pitch_x` instead of `post_x`, and either one files the idea for the
+   studio (a `studio` stimulus, filed, which hands/story desk shows the
+   writer as an idea): nothing is read cold, no picture is made, nothing is
+   posted, and the entry says `pitched`. Replies are unchanged.
 
 Every beat is one line in state/tick/runs.jsonl, with a `kind`: `beat` and
 `quiet` (it thought: the batch, the thought, the intents and what came of
