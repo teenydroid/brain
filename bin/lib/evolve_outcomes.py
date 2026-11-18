@@ -52,7 +52,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+import sys
+
 import provider_error
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hands" / "lib"))
+from teeny_hands import authorship  # noqa: E402  (stdlib only, frozen)
 
 Json = dict[str, Any]
 
@@ -65,8 +70,8 @@ KINDS = {
                 "in bin/act runs and beats; `playbook` or `verb` (a beat's `do`) narrows it",
     "cron_failed": "failed runs of a cron job of brain/cron.toml or the pinned schedule (a restart's and the "
                    "provider's left out)",
-    "guard_holds": "what the guard held (`hold_direction`: outbound, your own drafts, by default; or "
-                   "inbound), by `category` and `surface`",
+    "guard_holds": "what the guard held (`hold_direction`: outbound, your own drafts, by default, never text "
+                   "code wrote such as the babysitter's audit comment; or inbound), by `category` and `surface`",
     "outbound": "what you sent on a surface (x, moltbook, mail), by `kind_of` (x: post, reply, quote, "
                 "thread; moltbook: post, comment) and text that `contains` a literal",
     "actions": "what a hand did: x `like`; moltbook `upvote-post`, `upvote-comment`, `follow`; gh `comment`, "
@@ -528,22 +533,7 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
         if not db.ok:
             return None
         if kind == "guard_holds":
-            n = 0
-            for at, context, category in db.rows("SELECT at, context, category FROM guard_holds WHERE direction = ?",
-                                                 (check.get("hold_direction", "outbound"),)):
-                if not _inside(_epoch(at), since, until):
-                    continue
-                if check.get("category") and category != check["category"]:
-                    continue
-                if check.get("surface"):
-                    try:
-                        surface = json.loads(context or "{}").get("surface")
-                    except (ValueError, AttributeError):
-                        surface = None
-                    if surface != check["surface"]:
-                        continue
-                n += 1
-            return n
+            return len(guard_hold_rows(db, check, since, until))
         if kind in ("outbound", "judged"):
             got = outbound_texts(check, db, since, until)
             return None if got is None else len(got)
@@ -559,6 +549,30 @@ def count(check: Mapping[str, Any], src: Sources, since: float, until: float) ->
     finally:
         db.close()
     return None
+
+
+def guard_hold_rows(db: "_Db", check: Mapping[str, Any], since: float, until: float,
+                    columns: str = "id") -> list[tuple]:
+    """The guard holds a `guard_holds` CHECK counts between SINCE and UNTIL,
+    as rows of COLUMNS (after the `at`, `context` and `text` it reads): its
+    `hold_direction`, `category` and `surface`, and, outbound, only Teeny's
+    own words (teeny_hands.authorship: never text code wrote, like the
+    babysitter's audit comment). A guard_holds finding (evolve_findings)
+    groups and counts these very rows, so its number and its check's agree."""
+    direction = check.get("hold_direction", "outbound")
+    out = []
+    for row in db.rows(f"SELECT at, context, text, {columns} FROM guard_holds WHERE direction = ?", (direction,)):
+        at, context, text = row[0], row[1], row[2]
+        if not _inside(_epoch(at), since, until):
+            continue
+        if check.get("category") and row_category(db, row, columns) != check["category"]:
+            continue
+        if check.get("surface") and authorship.context_of(context).get("surface") != check["surface"]:
+            continue
+        if direction != "inbound" and authorship.code_wrote(context, text):
+            continue
+        out.append(tuple(row[3:]))
+    return out
 
 
 # --- scoring ----------------------------------------------------------------------------------------------
