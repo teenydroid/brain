@@ -1657,7 +1657,8 @@ def brief(request: Json, edits_in_place: bool) -> list[str]:
         "Triggers\") or docs/hands.md, where its siblings are listed.\n"
         "- No refactor the learning does not need: no renames, moves, reformatting or tidying of anything the "
         "learning is not about.\n"
-        "- Do not repeat a change already in the archive or in this generation.",
+        "- Do not repeat a change already in the archive or in this generation.\n"
+        "- " + PR_TEXT_NOTE,
     ]
 
 
@@ -2280,6 +2281,7 @@ def research_brief(request: Json, in_place: bool) -> list[str]:
         "A verdict is kept with the learning: `already` and `not-worth` are not asked again for some days, or "
         "until you rewrite it with something new. "
         "A change that needs a frozen path is not a build. Frozen: " + ", ".join(request["frozen"]) + ".",
+        "Your `why` and `plan` go into the pull request's body. " + PR_TEXT_NOTE,
     ]
 
 
@@ -4928,6 +4930,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
 MAX_SHAPE_REPAIRS = 2
 #: What each field a repair may ask for is, as the proposer is told.
 SHAPE_FIELDS = {
+    "research_why": "your research's why, one or two plain sentences",
+    "research_plan": "your research's plan: in a few lines, what to change and where",
     "title": "one line",
     "component": "the W component it would show up in, one of " + ", ".join(COMPONENTS),
     "expected_move": "what people will see you do differently, and by when",
@@ -4969,6 +4973,11 @@ def repair_text(request: Mapping[str, Any]) -> str:
         "## what to answer\n\n" + "\n".join(f"- `{k}`: {SHAPE_FIELDS[k]}" for k in missing if k in SHAPE_FIELDS)
         + ("\n- `check`: below" if "check" in missing else ""),
     ]
+    reword = request.get("reword") or {}
+    if reword:
+        parts.append("## the text to reword\n\nSay the same thing in plain words, the meaning and the facts "
+                     "unchanged; it is your own text, shown as data:\n\n" + "\n\n".join(
+                         f"`{k}`:\n\n```text\n{str(v)[:MAX_REWORD_CHARS]}\n```" for k, v in reword.items()))
     if "check" in missing:
         parts.append(evolve_outcomes.brief_text(request.get("horizons") or outcome_horizons()))
     parts.append("Answer with JSON only, no prose and no code fence, holding just "
@@ -5122,6 +5131,111 @@ def pr_text(cand: Json) -> tuple[str, str]:
     return title, body
 
 
+# --- the pull request's words, as the babysitter screens them ------------------------------------------------
+#
+# The babysitter's audit (hands/lib/teeny_hands/babysit/audit.py, `_prose`)
+# runs the guard's lexical screen over a pull request's title and body and
+# sends one that matches to the operator. Gen 16's two self-merge candidates
+# (#362, #363) waited on "kills" and "bullet" in their own hypothesis and
+# research note. The guard and the babysitter stay as they are: the same
+# screen runs here first, and the fields that match are reworded by the
+# proposer (repair_text's turn), capped; the change itself is never touched.
+
+#: Reword turns a candidate gets before its pull request opens as it is.
+MAX_REWORDS = 2
+#: How much of one field a reword turn is shown.
+MAX_REWORD_CHARS = 2500
+PR_TEXT_NOTE = ("Your pull request's title and body (title, expected move, hypothesis, and research's why and "
+                "plan) are screened for words the guard holds, as everything you publish is: prefer plain words "
+                '("item" for "bullet", "ends" for "kills").')
+
+
+def pr_screen(text: str) -> Any:
+    """The guard's lexical screen as the babysitter reads a pull request
+    (its `_screen`: inbound, no model): the match, or None."""
+    from teeny_hands.guard.screen import INBOUND, screen_text
+
+    return screen_text(text, INBOUND) if isinstance(text, str) else None
+
+
+def _pr_fields(cand: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict[str, str]:
+    """The pull request's words the proposer wrote, by the field a reword
+    asks for. The learning is the page's (or the ledgers'), the gate and the
+    eval are code's: none is reworded."""
+    research = cand.get("research") if isinstance(cand.get("research"), Mapping) else {}
+    texts = {"title": cand.get("title"), "expected_move": cand.get("expected_move"),
+             "hypothesis": proposal.get("hypothesis"), "research_why": research.get("why"),
+             "research_plan": research.get("plan")}
+    return {k: v for k, v in texts.items() if isinstance(v, str) and v.strip()}
+
+
+def screened_pr_text(cand: Json, proposer: Proposer | None) -> tuple[str, str]:
+    """pr_text(CAND), screened as the babysitter will screen it. While a
+    word matches, the fields it is in are asked for again (the proposer's
+    `repair` turn, at most MAX_REWORDS), only those fields taken back, and
+    HYPOTHESIS.md and the saved proposal rewritten from them: same patch,
+    same eval, no new round. Still matching after the cap (or no proposer
+    that can, or the word in text that is not the proposer's), it opens as
+    it is and the babysitter asks the operator; `pr_screen` on the
+    candidate names the category and term, never the text around it."""
+    title, body = pr_text(cand)
+    gdir = gen_dir(cand["gen"])
+    saved_path = gdir / f"cand-{cand['cand']}.proposal.json"
+    for _ in range(MAX_REWORDS):
+        hit = pr_screen(title) or pr_screen(body)
+        if hit is None:
+            cand.pop("pr_screen", None)
+            return title, body
+        ask = getattr(proposer, "repair", None)
+        try:
+            saved = json.loads(saved_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = {}
+        proposal = dict(saved.get("proposal") or {})
+        held = {k: v for k, v in _pr_fields(cand, proposal).items() if pr_screen(v) is not None}
+        if ask is None or not held:
+            break
+        try:
+            got = ask({"gen": cand["gen"], "cand": cand["cand"], "missing": sorted(held), "reword": held,
+                       "problem": f"the guard's screen holds a word in it (category {hit.category}: "
+                                  f"\"{hit.term}\"), so the babysitter would not merge it on its own",
+                       "proposal": proposal})
+        except (EvolveError, OSError) as exc:
+            say(f"candidate {cand['cand']}: the reword turn failed ({str(exc)[:120]})")
+            got = None
+        cand.setdefault("reworded", []).append({"fields": sorted(held), "category": hit.category, "term": hit.term,
+                                                "at": iso(now())})
+        if not isinstance(got, Mapping):
+            continue
+        new = {k: " ".join(got[k].split()) if k == "title" else got[k].strip()
+               for k in held if isinstance(got.get(k), str) and got[k].strip()}
+        if "title" in new:
+            cand["title"] = new["title"].splitlines()[0][:120]
+        if "expected_move" in new:
+            cand["expected_move"] = new["expected_move"][:500]
+        if "hypothesis" in new:
+            proposal["hypothesis"] = new["hypothesis"]
+        if "research_why" in new or "research_plan" in new:
+            cand["research"] = {**cand["research"], **({"why": new["research_why"][:500]} if "research_why" in new
+                                                       else {}),
+                                **({"plan": new["research_plan"][:500]} if "research_plan" in new else {})}
+        proposal.update(title=cand.get("title"), expected_move=cand.get("expected_move"))
+        if saved:
+            write_json(saved_path, {**saved, "proposal": proposal})
+        if cand.get("hypothesis"):
+            (evolve_dir() / cand["hypothesis"]).write_text(hypothesis_text(proposal, cand.get("learning")),
+                                                          encoding="utf-8")
+        title, body = pr_text(cand)
+    hit = pr_screen(title) or pr_screen(body)
+    if hit is not None:
+        cand["pr_screen"] = {"category": hit.category, "term": hit.term}
+        say(f"candidate {cand['cand']}: its pull request text still matches the guard's screen ({hit.category}); "
+            "it opens as it is, and the babysitter asks the operator")
+    else:
+        cand.pop("pr_screen", None)
+    return title, body
+
+
 def new_branch(tree: Path, branch: str) -> str:
     """Switches TREE to a new BRANCH (or BRANCH-<n> when a branch of that
     name is left from an earlier state/evolve); returns its name."""
@@ -5157,12 +5271,13 @@ def commit_branch(tree: Path, branch: str, title: str, at: str | None = None) ->
     return branch
 
 
-def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, open_count: list[int]) -> Json:
+def publish(cfg: Config, cand: Json, src: Source, publisher: Publisher | None, open_count: list[int],
+            proposer: Proposer | None = None) -> Json:
     """Opens the candidate's own pull request, teeny/gen-<n>-c<i>, and sets
     `teeny/eval` on its head; under DRY_RUN writes what it would have done.
     At EVOLVE_MAX_OPEN_PRS open it waits for the next run. Updates CAND."""
     gdir = gen_dir(cand["gen"])
-    title, body = pr_text(cand)
+    title, body = screened_pr_text(cand, proposer)
     branch = branch_name(cand["gen"], cand["cand"])
     status = {"state": "success", "description": status_text(cand)}
     if dry_run():
@@ -5518,7 +5633,9 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             if down:
                 out.update(kind="reviewer-down", skipped=f"the reviewer does not answer: {down}"[:400])
             if queue:
-                out["published"] = [{"id": c["id"], **publish(cfg, c, src, publisher, open_count)} for c in queue]
+                wording = make_proposer(cfg, proposals)
+                out["published"] = [{"id": c["id"], **publish(cfg, c, src, publisher, open_count, wording)}
+                                    for c in queue]
                 for c in queue:
                     record(c)
             return out
@@ -5624,7 +5741,7 @@ def _run_generation(cfg: Config, n: int | None, proposals: str | None, publisher
             # A latched halt mid-run: a person looks first, and what passed waits.
             cand.update(verdict="waiting", waiting="a halt latched during the run")
         else:
-            published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count)})
+            published.append({"id": cand["id"], **publish(cfg, cand, src, publisher, open_count, proposer)})
         record(cand)
     for cand in cands:
         remove_worktree(src, gdir / f"cand-{cand['cand']}")
