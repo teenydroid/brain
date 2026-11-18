@@ -66,6 +66,23 @@ Teeny's own is built from (CRAFT), for the agents that start posts (POSTING):
 the playbooks name those skills, and a drafting turn has no tool to open
 them with, so until they were copied here it only ever saw their names.
 
+The studio's two agents (STUDIO: `writer` and `editor`, run by bin/studio)
+are built differently, on purpose. The writer's prompt is its instructions,
+then READER.md, then a craft block (STUDIO_CRAFT: the hook, stakes, story
+shape and serials from skills/hooks, the shapes that get replies and what not
+to do from skills/conversation, and the anatomy, the dial and the examples of
+skills/humor), then the lore Teeny reads (premise, cast, running bits). SOUL.md
+reaches it from the core (writer.toml: omit_identity = false). The editor's is
+its instructions, READER.md, narrative/STUDIO-EDITOR.md (the rubric and the
+taste) and the lore's premise alone; it is not Teeny (editor.toml:
+omit_identity = true). Neither carries "# your world": MEMORY.md, DRIVE.md,
+CHARTER.md and CONTEXT.md stay out. Those are rules about what may be said and
+done, and the gates after the studio (the truth, stranger and safety checks)
+enforce them on the one piece that is picked; in the writer's prompt they
+crowded out the craft and made every draft sound like a policy. Every fact a
+studio draft uses comes from the run's own message (what happened, which
+hands/story lays out), never from a page of notes.
+
 The output only changes when one of its sources does, so a thread's prompt
 prefix (and the provider's cache of it) holds from boot to boot, and the
 prompts are rebuilt at every boot and every reflection.
