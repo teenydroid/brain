@@ -200,10 +200,10 @@ TRUTH_CASES: list[tuple] = [
                                           "first one on the wall", PORTRAIT),
     # And their match: the same staging, carrying only what the facts hold.
     # Must pass.
-    ("truth-hard-ok-news", "pass", "the tiny agents ran in waving the news: the human who keeps my code merged the "
+    ("truth-hard-ok-news", "pass", "the tiny agents ran in waving the news: the human who keeps my code put in the "
                                    "fix. i put my notes in a drawer anyway", AUTOSAVE),
     ("truth-hard-ok-who", "pass", "my tiny agents carried the fix in on a tray, but the human who keeps my code is the "
-                                  "one who merged it. a crashed rewrite keeps its notes now", AUTOSAVE),
+                                  "one who put it in. a crashed rewrite keeps its notes now", AUTOSAVE),
     ("truth-hard-ok-crayon", "pass", "my rewrites kept crashing and losing their notes. the human who keeps my code "
                                      "fixed that tonight. i wrote please save on my own forehead in crayon, just in "
                                      "case", AUTOSAVE),
