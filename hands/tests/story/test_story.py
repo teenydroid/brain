@@ -80,6 +80,12 @@ class StoryScratch(Scratch):
                      (f"health:{kind}:{ref}", kind, ref, json.dumps(payload), at, at))
         conn.close()
 
+    def followers(self, yesterday, today):
+        conn = collect.db()
+        conn.executemany("INSERT INTO stats (date, source, metric, value, at) VALUES (?, 'x', 'followers', ?, ?)",
+                         [("2026-09-13", yesterday, T0 - DAY), ("2026-09-14", today, T0 - HOUR)])
+        conn.close()
+
     def items(self, kind=None, hours=24):
         got = desk.desk(hours)
         return [i for i in got["items"] if kind is None or i["kind"] == kind], got
@@ -210,8 +216,7 @@ class DeskTest(StoryScratch):
                      " (?, 'bridge', 'refused', 'SOL', '0.05', 5000000, 'quote', 'the quote would lose 7%')",
                      (T0 - 5 * HOUR,))
         conn.close()
-        collect.db().executemany("INSERT INTO stats (date, source, metric, value, at) VALUES (?, 'x', 'followers', ?, ?)",
-                                 [("2026-09-13", 331, T0 - DAY), ("2026-09-14", 329, T0 - HOUR)])
+        self.followers(331, 329)
         conn = self.conn(records.SCHEMA)
         conn.execute("INSERT INTO people_promises (surface, who, what, made_at, due_at, status, closed_at) VALUES"
                      " ('x', 'ana', 'send the link', ?, ?, 'kept', ?)", (T0 - 2 * DAY, T0 - DAY, T0 - 2 * HOUR))
@@ -242,6 +247,7 @@ class DeskTest(StoryScratch):
                      " 'pending', ?)", (T0 - HOUR, T0 - HOUR))
         conn.close()
         (self.root / "state" / "health.json").write_text(json.dumps({"failures": 0, "first_failed_at": None}))
+        x_metrics.db().close()  # the X tables, with no post measured
 
         items, got = self.items()
         by = {i["source"]: i for i in items}
@@ -288,6 +294,7 @@ class DeskTest(StoryScratch):
         self.assertEqual(len(got["due"]), 6)
 
     def test_an_ongoing_outage_comes_from_health_json(self):
+        hand.state_dir()
         (self.root / "state" / "health.json").write_text(json.dumps({"failures": 3, "first_failed_at": T0 - 900}))
         items, _ = self.items("outage")
         self.assertEqual([i["source"] for i in items], ["file:state/health.json"])
@@ -361,8 +368,7 @@ class AuditTest(StoryScratch):
         conn.execute("INSERT INTO people_promises (surface, who, what, made_at, due_at, status, closed_at) VALUES"
                      " ('x', 'ana', 'send the link', ?, ?, 'kept', ?)", (T0 - 2 * DAY, T0 - DAY, T0 - 2 * HOUR))
         conn.close()
-        collect.db().executemany("INSERT INTO stats (date, source, metric, value, at) VALUES (?, 'x', 'followers', ?, ?)",
-                                 [("2026-09-13", 331, T0 - DAY), ("2026-09-14", 335, T0 - HOUR)])
+        self.followers(331, 335)
         self.health("alarm", "outage:100", {"failures": 2, "first_failed_at": T0 - 2 * HOUR})
         (self.root / "state" / "health.json").write_text(json.dumps({"failures": 3, "first_failed_at": T0 - 900}))
         items, _ = self.items()
