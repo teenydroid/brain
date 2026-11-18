@@ -83,6 +83,18 @@ THREAD_MAX_POSTS = 5
 COLUMNS = {"anchor": "TEXT", "thread_of": "TEXT"}
 #: The id of the account a quote quoted.
 QUOTE_COLUMNS = {"quote_author": "TEXT"}
+#: Who made an own post, and from what (`studio_tags`): added by the studio
+#: cutover, NULL on every row from before it and from the old paths.
+STUDIO_COLUMNS = {"producer": "TEXT", "storyline": "TEXT", "shape": "TEXT", "pitch_id": "TEXT"}
+#: The producers a post may name. `studio` is bin/studio; `brief` the
+#: told-to post (hands/brief post); `peer-quote` the outward quote
+#: (`peer-suggest`); `legacy` (or no producer at all, NULL) every older path:
+#: the replaced playbooks under STUDIO=0, the mind's own post_x, firsts,
+#: votes, giveaways.
+PRODUCERS = ("studio", "brief", "peer-quote", "legacy")
+STUDIO_FIELDS = tuple(STUDIO_COLUMNS)
+_STORYLINE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
+_PITCH_ID = re.compile(r"^[A-Za-z0-9:_.-]{1,120}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_posts (
