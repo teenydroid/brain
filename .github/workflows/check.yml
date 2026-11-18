@@ -114,6 +114,10 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
+      # hands/tests/reel reads the pinned MoneyPrinterTurbo's job model from
+      # source, so a pin bump that renames a field Teeny sends fails here.
+      - name: Fetch vendor/moneyprinter
+        run: git submodule update --init --depth 1 vendor/moneyprinter
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

@@ -1382,6 +1382,69 @@ the description past the guard, calls the hand, uploads the file through
 `hands/x upload` and attaches the id. If anything fails on the way, the post
 goes out text-only, with the reason in the run's result.
 
+## `reel`: clips with voice and captions, and songs
+
+Teeny's own stills and 5-second clips (from `image` and `video`, or
+`brain/assets/`), cut together in the order given under a script read by an
+Edge voice, with captions timed word by word; or, for a song, under a track
+`music` bought. The rendering is
+[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (MIT), the
+upstream repository itself as the submodule `vendor/moneyprinter`, pinned to a
+release tag and never edited here. It runs as the `reel` compose service
+(`--profile reel`; `deploy/reel.Dockerfile`, `deploy/reel.config.toml`,
+`deploy/README.md`), behind Teeny's own front, `deploy/reel/serve.py`, which
+takes one job route and answers 403 to every other upstream route (script
+generation, stock search, uploads). The hand reaches it at `REEL_URL`
+(`http://reel:8080`).
+
+| Verb | | Does |
+|---|---|---|
+| `make` | A | stdin `{kind: "clip"\|"song", script, materials: [paths], aspect?: "9:16"\|"16:9"\|"1:1", voice?, captions?: "word"\|"sentence", bed?: path, audio?: path, title?}`. Renders, waits (`REEL_WAIT_SECONDS`, 900), copies the mp4 to `state/media/reel-<id>.mp4`, checks it (an mp4 by its bytes, at most 200 MB, a picture and a sound track, 0 to 140 seconds by its header) and records a `media_assets` row (kind `reel` or `song`, cost 0, the job in `detail`). A clip may name a `bed` (a quiet music file); a song must name its `audio` (the track) and takes no bed. Refused (`path`) for a file outside `state/media/` or `brain/assets/` (symlinks and `..` resolved first, as `x upload`); (`per_day`) past `REEL_MAX_PER_DAY` (1) clips a UTC day; (`per_week`) past `REEL_SONGS_MAX_PER_WEEK` (1) songs in 7 days; (`budget`) when the day is already past `MEDIA_MAX_USD_PER_DAY`; (`runway`) while the runway tier allows no media. A render costs nothing, so a render that fails, times out or is stopped for any reason (a bad file, a full disk, a signal) leaves a `failed` row, no file, and its slot free again; the service drops the task. Under `DRY_RUN` it answers `would_make` with the job and calls nothing. |
+| `music` | A | stdin `{style, lyrics?, seconds?}` (10 to 180, default 30). Buys a track on Surplus (`POST /v1/music/generations`, `elevenlabs-music-v2-5` first, then `elevenlabs-music-v2`; about $0.41 to $0.55 a track on 2026-11-18), saves it to `state/media/music-<id>.<ext>` and records a `media_assets` row (kind `music`) with what it cost, which counts in `MEDIA_MAX_USD_PER_DAY`. Its row carries `REEL_MUSIC_MAX_USD_PER_JOB` ($0.70) from the moment it is claimed, so every other media hand's budget check sees the reservation; once Surplus accepts the job the row carries the quote (or that cap, when the quote is missing or odd), and only a confirmed end replaces it: the real cost on success, nothing on a confirmed failure or cancellation. A track quoted above the cap is cancelled. After any accepted job no other model is tried. Anything else after acceptance (an answer of an unknown shape or status word, the deadline, a failed download, an artifact that is not audio) leaves the row `unknown`: booked as spent, its job id kept, counted in the day's budget and the week's cap, for the operator to settle. A song a week and a track a week (`REEL_SONGS_MAX_PER_WEEK` caps each, counted separately). **Off until `REEL_MUSIC=1`**: the route and the model's market are confirmed, but its job and result shapes are assumed to be the video route's until the first paid run is checked. |
+| `list [--max N]` | R | The clips, songs and tracks made, newest first, and today's media spend. |
+| `get ID` | R | One. |
+
+Every job pins the operator's rules whatever the caller sent, and the front
+pins them again: Teeny's own files only (`video_source` local, never Pexels
+or Pixabay), in the order given, one video, the script verbatim (no model
+writes it), no music unless a bed or a track is named (the bundled
+`resource/songs`, which the README says came from YouTube, are not even in
+the image), and no upload (`upload_post_enabled = false`, no key). Only the
+fields `make` builds reach the service; nothing in the caller's body is
+passed through.
+
+The words that end up on screen and in the voice (`script`, `title`,
+`lyrics`) are the caller's to screen, as `image`'s prompt is: bin/act puts a
+description past `hands/guard check` before it calls a media hand, and
+whatever wires a clip or a song into posting must put every one of those
+words past it the same way. The hand makes no model call of its own, and
+nothing calls it yet: a draft cannot reach it (`bin/lib/playbook.py`,
+`NOT_OUTPUTS`), and the studio wiring is a later change.
+
+`state` in `media_assets` is `pending`, `done`, `failed` (nothing spent, counts toward no cap) or `unknown` (money committed, outcome not known: counts as spent and toward the caps). Adding the reel kinds and `unknown` rebuilt the table once (`media/assets.py`, `allow_reel_kinds`); an orphaned `source_id` from before is kept and named on stderr, and a rebuild that fails leaves the ledger as it was so `image` and `video` keep working.
+
+The service's only outbound call is upstream's Edge TTS request (Microsoft's unofficial endpoint); `deploy/README.md` says how to hold it to that.
+
+Measured on the dev machine (2026-11-18, v1.3.10): a 12 to 13 second 9:16
+clip from three stills, Edge voice, word captions, no bed, renders in 85 to
+105 seconds, peaking at about 2.5 GB and 3.5 cores.
+
+Known gaps, both for pull requests to `harry0703/MoneyPrinterTurbo`, not
+local patches (the submodule is never edited):
+
+- **The bed does not duck under the voice.** It plays at one fixed volume,
+  so `REEL_BED_VOLUME_PCT` keeps it low (12%).
+- **Word timing is exact only for Edge voices.** With an ElevenLabs voice
+  upstream guesses it, so `voice` takes Edge voices only.
+- A song's words are not on screen yet (also an upstream change): upstream times a track's words only
+  with Whisper, which this service never loads (a multi-gigabyte download),
+  so a song renders with its pictures and no captions.
+
+The pin moves to a new release tag only by pull request, after
+`hands/tests/reel` passes against it: `SchemaDriftTest` reads the job model
+(`TaskVideoRequest` in `app/models/schema.py`) from the submodule's source
+and fails when a field Teeny or its front sends is renamed or gone.
+
 ## `build`: the builder's work queue
 
 The builder (`brain/agents/builder.toml`, the pinned `builder` agent job,
@@ -3019,7 +3082,7 @@ creates its own tables:
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
 | `brief` | `briefs` |
-| `image`, `video` | `media_assets` |
+| `image`, `video`, `reel` | `media_assets` |
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
