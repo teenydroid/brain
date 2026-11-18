@@ -38,8 +38,14 @@ from typing import Any, Iterable, Mapping
 
 from . import hand
 
-SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host")
-STATUSES = ("pending", "taken", "done")
+SURFACES = ("x", "moltbook", "reddit", "gh", "mail", "telegram", "builder", "operator", "nudge", "hand", "self", "world", "health", "wallet", "hn", "host", "studio")
+#: `filed`: a stimulus for another reader than the mind (FILED_SURFACES),
+#: never taken into a batch.
+STATUSES = ("pending", "taken", "done", "filed")
+#: Surfaces the mind writes and something else reads: `studio`, the pitches
+#: the mind files for the studio's desk (hands/story desk, `ideas`). They are
+#: filed, not pending, so the mind never gets its own pitch back.
+FILED_SURFACES = ("studio",)
 #: One stimulus's text, beyond which it is cut.
 MAX_TEXT_CHARS = 4000
 #: A nudge's text: a habit's prompt and what its playbook's inputs read
