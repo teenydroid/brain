@@ -25,6 +25,11 @@ printf '%s\n' "$2" >>"$FAKE_CALLS"
 [ "$1" = inference_agent_chat ] || { echo "unexpected method $1" >&2; exit 1; }
 # $FAKE_ASK_ERROR makes the turn fail with that error, as the core says it.
 [ -z "${FAKE_ASK_ERROR:-}" ] || { printf '[oh] openhuman.inference_agent_chat: %s\n' "$FAKE_ASK_ERROR" >&2; exit 1; }
+# The studio's editor (bin/studio --veto, STUDIO=1) answers $FAKE_EDITOR.
+if [ "$(jq -r '.agent_id // ""' <<<"$2")" = editor ]; then
+  jq -cn --arg a "${FAKE_EDITOR:-{\"verdict\": \"pick\", \"reason\": \"a stranger stops on it\"}}" '{response: $a}'
+  exit 0
+fi
 # $FAKE_REDRAFT_SLEEP: a rewrite turn takes that many seconds (the 11-minute
 # rewrite of 2026-11-17).
 if [ -n "${FAKE_REDRAFT_SLEEP:-}" ] && jq -r .message <<<"$2" | grep -q '^# playbook: .*, one rewrite'; then
@@ -149,7 +154,7 @@ export TEENY_OH="$scratch/fake-oh" TEENY_HANDS="$scratch/hands" OPENHUMAN_WORKSP
   TEENY_STATE="$scratch/state" FAKE_CALLS="$scratch/calls.log" FAKE_HANDS="$scratch/hands.log" \
   FAKE_ANSWER="$scratch/answer.txt" FAKE_CLARITY_SEEN="$scratch/clarity.seen" \
   FAKE_GUARD_LIB="$here/../../hands/lib" FAKE_STANDIN_ROOT="$scratch/standin-root"
-unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY
+unset DRY_RUN FAKE_X_EXIT FAKE_GUARD_EMPTY STUDIO STUDIO_DRY STUDIO_WRITER_MODEL STUDIO_EDITOR_MODEL
 
 book() { # NAME OUTPUT MAX [INPUT_RUN]
   {
@@ -1096,6 +1101,89 @@ done
 # the model, and the playbook can only queue a read.
 check "reddit-browse waits on hands/reddit due and only browses" \
   bash -c "$(declare -f listens); act='$act' here='$here' listens reddit-browse | jq -e '.inputs[0] == \"due\" and .output == \"hand:reddit browse\" and .surface == \"reddit\"' >/dev/null"
+
+# --- the studio cutover (bin/lib/studio_switch.py) ------------------------------------
+cat >"$scratch/hands/brief" <<'FAKE'
+#!/usr/bin/env bash
+in="$(cat)"
+printf 'brief %s stdin=%s\n' "$*" "$in" >>"$FAKE_HANDS"
+echo '{"ok": true, "brief": 1, "x": {"ok": true, "dry_run": true}}'
+FAKE
+cat >"$scratch/hands/story" <<'FAKE'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'story %s\n' "$*" >>"$FAKE_HANDS"
+echo '{"ok": true, "recorded": true}'
+FAKE
+chmod +x "$scratch/hands/brief" "$scratch/hands/story"
+editor_turns() { jq -r 'select(.agent_id == "editor") | .message' "$FAKE_CALLS"; }
+
+# A replaced playbook is not run while the studio owns its slot.
+for name in x-quote morning take show shiplog growth; do
+  book "$name" post 1 "hands/x search 'from:tinyhumansai' --max 5"
+done
+answer '{"action": "post", "anchor": "111", "text": "gm"}'
+reset
+out="$(STUDIO=1 run take)"
+check "STUDIO=1: a playbook the studio replaced is a skip" \
+  test "$(jq -r .skipped <<<"$out")" = "the studio owns this slot (STUDIO=1): this playbook runs only with STUDIO=0"
+check "before any input or model turn" bash -c "[ ! -s '$FAKE_CALLS' ] && [ ! -s '$FAKE_HANDS' ]"
+check "and the run log says so" grep -q 'the studio owns this slot' "$scratch/state/act/take/runs.jsonl"
+for name in x-quote morning show shiplog growth; do
+  reset
+  check "STUDIO=1 skips $name too" test "$(STUDIO=1 run "$name" | jq -r '.skipped // "ran"')" != ran
+done
+reset
+out="$(STUDIO=0 run take)"
+check "STUDIO=0: the same playbook runs as it always did" \
+  bash -c "[ \"\$(jq -r '.actions[0].status' <<<\"\$1\")\" = done ] && grep -q '^x post ' '$FAKE_HANDS'" _ "$out"
+reset
+mkdir -p "$scratch/secrets-on" && printf 'STUDIO=1\n' >"$scratch/secrets-on/teeny.env"
+out="$(TEENY_SECRETS="$scratch/secrets-on" run take)"
+check "the switch is read from secrets/teeny.env as the box sets it" test "$(jq -r '.skipped // "ran"' <<<"$out")" != ran
+reset
+check "--check still reads a replaced playbook (the doctor checks the rollback)" \
+  test "$(STUDIO=1 "$act" --check take | jq -r .playbook)" = take
+
+# The told-to post: past the studio's editor (STUDIO=1), pick or none.
+printf '+++\ndescription = "test"\noutput = "hand:brief post"\nmax_per_day = 1\nmedia = ["image"]\n+++\npost the brief\n' >"$brain/playbooks/brief.md"
+answer '{"action": "hand", "id": 1, "text": "the release is out", "image": "teeny holding a ribbon"}'
+reset
+out="$(STUDIO=1 FAKE_EDITOR='{"verdict": "none", "reason": "nobody would stop for it"}' run brief)"
+check "STUDIO=1: the editor's none is a skip, with its reason" \
+  test "$(jq -r '.actions[0] | .action + ": " + .reason' <<<"$out")" = "skip: the studio's editor passed on it: nobody would stop for it"
+check "and the brief is not posted, nor its picture made" bash -c "! grep -qE '^(brief post|image )' '$FAKE_HANDS'"
+check "the editor read the guard's words, as one candidate, with the picture" \
+  bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q '^# studio: one candidate' <<<\"\$m\" && grep -q 'the release is out\[g\]' <<<\"\$m\" && grep -q 'teeny holding a ribbon' <<<\"\$m\""
+check "and the budget is not spent: the brief stays queued for the next run" test "$(jq -r .left_today <<<"$out")" = 1
+reset
+out="$(STUDIO=1 run brief)"
+check "STUDIO=1: the editor's pick goes on to the hand" \
+  bash -c "grep -q '^brief post stdin={\"id\":1,\"text\":\"the release is out\[g\]\"' '$FAKE_HANDS' && [ \"\$(jq -r '.actions[0].editor.verdict' <<<\"\$1\")\" = pick ]" _ "$out"
+reset
+out="$(STUDIO=1 FAKE_EDITOR='not json' run brief)"
+check "an editor whose answer is unusable is a none (fail closed)" \
+  bash -c "[ \"\$(jq -r '.actions[0].action' <<<\"\$1\")\" = skip ] && ! grep -q '^brief post' '$FAKE_HANDS'" _ "$out"
+reset
+out="$(STUDIO=0 run brief)"
+check "STUDIO=0: no editor, the brief posts as before" \
+  bash -c "[ -z \"\$(jq -r 'select(.agent_id == \"editor\")' '$FAKE_CALLS')\" ] && grep -q '^brief post ' '$FAKE_HANDS'"
+
+# The outward quote: the editor reads the top suggestion; its none rides to the hand.
+printf '+++\ndescription = "test"\noutput = "hand:x peer-suggest"\nmedia = ["image"]\n[[inputs]]\nname = "peers"\nrun = "hands/queue next"\n+++\nsuggest\n' >"$brain/playbooks/peer-quote.md"
+answer '{"action": "hand", "candidates": [{"quote_of": "201", "text": "a four", "relevance": 4, "why": "w", "source": "s"}, {"quote_of": "202", "text": "the five", "relevance": 5, "why": "w", "source": "s"}], "image": "teeny visiting", "vetoed": false}'
+reset
+out="$(STUDIO=1 FAKE_QUEUE='{"peers": [{"id": "202", "text": "SECRET-PEER-POST"}]}' FAKE_EDITOR='{"verdict": "none", "reason": "flat"}' run peer-quote)"
+check "STUDIO=1: the editor reads the top-ranked suggestion with the post it quotes" \
+  bash -c "m=\"\$(jq -r 'select(.agent_id == \"editor\") | .message' '$FAKE_CALLS')\"; grep -q 'the five' <<<\"\$m\" && ! grep -q 'a four' <<<\"\$m\" && grep -q SECRET-PEER-POST <<<\"\$m\""
+check "and its none goes to hands/x peer-suggest as vetoed, with no picture made" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.vetoed == \"flat\" and (has(\"media_ids\") | not) and (.candidates | length) == 2' >/dev/null && ! grep -q '^image ' '$FAKE_HANDS'"
+reset
+out="$(STUDIO=1 run peer-quote)"
+check "a pick reaches the hand with no vetoed field, whatever the model wrote there" \
+  bash -c "grep '^x peer-suggest ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e 'has(\"vetoed\") | not' >/dev/null"
+rm -f "$brain/playbooks/brief.md" "$brain/playbooks/peer-quote.md" "$scratch/hands/brief" "$scratch/hands/story"
+for name in x-quote take show shiplog growth; do rm -f "$brain/playbooks/$name.md"; done
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
