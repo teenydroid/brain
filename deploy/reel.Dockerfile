@@ -50,12 +50,13 @@ COPY . .
 COPY --from=teeny serve.py /opt/teeny/serve.py
 
 # A user of its own. storage/ is the reel-storage volume (a fresh volume
-# takes this ownership); storage/local_videos/{media,assets} and
-# storage/bgm/media are Teeny's media, mounted read-only over it. An empty
-# resource/songs, so upstream's song folder exists and holds nothing.
+# takes this ownership), where each job's copies of its files and its
+# render live until hands/reel deletes the task. Teeny's media is mounted
+# read-only at /teeny/media (state/media/) and /teeny/assets (brain/assets/).
+# An empty resource/songs, so upstream's song folder exists and holds nothing.
 RUN useradd --system --uid 10001 --home-dir /MoneyPrinterTurbo --no-create-home reel \
  && rm -rf resource/songs && mkdir -p resource/songs \
- && mkdir -p storage/local_videos/media storage/local_videos/assets storage/bgm/media storage/tasks \
+ && mkdir -p storage/local_videos storage/bgm storage/tasks /teeny/media /teeny/assets \
  && chown -R reel:reel storage \
  && chmod 755 /MoneyPrinterTurbo
 
