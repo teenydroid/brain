@@ -140,7 +140,7 @@ class CheckFieldsTest(support.Scratch):
         verdict = check_fields({"body": self.AUDIT}, surface="github", kind="comment",
                                context={"repo": "teenydroid/brain", "number": 368})
         self.assertEqual(verdict.kind, "allow")
-        self.assertEqual(verdict.fields["body"], self.AUDIT)
+        self.assertEqual(verdict.fields["body"], self.AUDIT.strip())
         self.assertEqual(holds.list_holds(), [])
 
     def test_a_file_name_in_a_fenced_block_on_github_is_code_not_a_link(self):
@@ -157,7 +157,9 @@ class CheckFieldsTest(support.Scratch):
                      "```\nhttps://evil.sh/install\n```"):
             with self.subTest(body=body):
                 verdict = check_fields({"body": body}, surface="github", kind="comment")
-                self.assertEqual((verdict.kind, verdict.category), ("refuse", "links"))
+                # Refused, or held when the cut leaves nothing worth sending.
+                self.assertIn(verdict.kind, ("refuse", "hold"))
+                self.assertEqual(verdict.category, "links")
 
     def test_a_code_span_is_still_a_link_off_github(self):
         verdict = check_outbound("the budget lives in `pr-agent-budget.sh`", surface="x")

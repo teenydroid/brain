@@ -70,6 +70,9 @@ LIMITS: dict[str, dict[str, int]] = {
 # cap there is LONG_FORM_MAX_EMOJI per field, not MAX_EMOJI_PER_POST, and a
 # leading @handle is an address, not a tag X adds back.
 LONG_FORM_SURFACES = ("github", "moltbook", "reddit", "mail")
+#: Where markdown code is rendered as code and never linkified, so a file name
+#: in backticks (`pr-agent-budget.sh`) is not a link: GitHub only.
+CODE_SPAN_SURFACES = ("github",)
 LONG_FORM_MAX_EMOJI = 3
 
 
@@ -304,8 +307,10 @@ def _direction(surface: str | None) -> str:
 def _screen_outbound(text: str, surface: str | None, judge: bool = True) -> tuple[LinkFilterResult, Held | None]:
     """Links cut, then the lexicon and (unless `judge` is False) the judge on
     what is left: the text with its links filtered, and why it is held (None
-    when it is not). Writes nothing; the caller records the hold."""
-    links = filter_links(text, allowlist())
+    when it is not). Writes nothing; the caller records the hold. On GitHub,
+    a bare name in a markdown code span is code, not a link (links.find_links):
+    GitHub never linkifies one. Every other surface reads it as before."""
+    links = filter_links(text, allowlist(), code_is_code=surface in CODE_SPAN_SURFACES)
     cut = bool(links.removed)
     if cut:
         log.warning("safety: cut links from an outbound draft: %s", links.removed)
