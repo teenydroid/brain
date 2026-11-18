@@ -1091,11 +1091,20 @@ def _brief(verdict: Any, *keys: str) -> Json:
     return {k: verdict[k] for k in keys if k in verdict}
 
 
-def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json]:
+#: How a judge's no begins when it could not judge at all (the hands' own
+#: words: guard/anchor.py TRUTH_UNREACHABLE and TRUTH_UNREADABLE, clarity.py
+#: UNREACHABLE and UNREADABLE). Such a no is not about the draft: no rewrite
+#: and no other draft would get a judgment either, so the slot stays empty.
+UNJUDGED = ("the truth judge could not be reached", "the truth judge answered in an unreadable shape",
+            "the cold reader could not be reached", "the cold reader answered in an unreadable shape")
+
+
+def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json, bool]:
     """The truth judge, then the cold reader, on the draft's words: (the gate
-    it failed or None, that gate's verdict, every result). Each fails
-    closed: a hand that did not answer, or anything but its clear yes, is a
-    no. A judge the operator switched off (judged false) passes, and says so."""
+    it failed or None, that gate's verdict, every result, whether the failing
+    gate judged the draft at all). Each fails closed: a hand that did not
+    answer, or anything but its clear yes, is a no. A judge the operator
+    switched off (judged false) passes, and says so."""
     results: Json = {}
     ok, truth = room.hand(["guard", "truth"], {"text": _words(draft), "facts": draft["truth"]["facts"]},
                           timeout=180)
@@ -1103,7 +1112,7 @@ def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json]:
     if not (ok and isinstance(truth, dict) and truth.get("truthful") is True):
         if not (isinstance(truth, dict) and truth.get("reason")):
             results["truth"]["reason"] = f"hands/guard truth did not answer: {str(truth)[:300]}"
-        return "truth", results["truth"], results
+        return "truth", results["truth"], results, _judged(ok, truth)
     body: Json = {"text": _words(draft)}
     if draft.get("meaning"):
         body["meaning"] = draft["meaning"]
@@ -1112,8 +1121,15 @@ def gates(room: Room, draft: Json) -> tuple[str | None, Json, Json]:
     if not (ok and isinstance(clear, dict) and clear.get("clear") is True):
         if not (isinstance(clear, dict) and clear.get("reason")):
             results["stranger"]["reason"] = f"hands/guard clarity did not answer: {str(clear)[:300]}"
-        return "stranger", results["stranger"], results
-    return None, {}, results
+        return "stranger", results["stranger"], results, _judged(ok, clear)
+    return None, {}, results, True
+
+
+def _judged(ok: bool, verdict: Any) -> bool:
+    """Whether a gate's no was a judgment of the draft (not an outage)."""
+    if not ok or not isinstance(verdict, dict):
+        return False
+    return not str(verdict.get("reason") or "").startswith(UNJUDGED)
 
 
 def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, afters: list[str]) -> tuple[Json | None, Json]:
@@ -1225,13 +1241,20 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     if fmt not in KNOWN_FORMATS:
         attempt["result"] = f"no producer for the format {fmt!r}: no post"
         return "next"
-    failed, verdict, attempt["gates"] = gates(room, draft)
+    failed, verdict, attempt["gates"], judged = gates(room, draft)
+    if failed and not judged:
+        attempt["result"] = f"the {failed} check could not judge it ({verdict.get('reason')}): the slot stays empty"
+        return "stop"
     if failed:
         again, attempt["rewrite"] = rewrite(room, draft, failed, verdict, slot, afters)
         if again is None:
             attempt["result"] = f"failed the {failed} check, and the rewrite did not come through"
             return "next"
-        failed2, _, attempt["regates"] = gates(room, again)
+        failed2, verdict2, attempt["regates"], judged2 = gates(room, again)
+        if failed2 and not judged2:
+            attempt["result"] = (f"failed the {failed} check; its rewrite's {failed2} check could not judge it "
+                                 f"({verdict2.get('reason')}): the slot stays empty")
+            return "stop"
         if failed2:
             attempt["result"] = f"failed the {failed} check, and its rewrite failed the {failed2} check"
             return "next"
