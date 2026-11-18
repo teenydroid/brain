@@ -28,6 +28,12 @@ from test_evolve import T0, EvolveCase, FakePublisher  # noqa: E402
 from test_evolve_outcomes import Ledger, refused  # noqa: E402
 
 import evolve  # noqa: E402
+from teeny_hands.babysit import actions as babysit_actions  # noqa: E402  (evolve puts hands/lib on the path)
+
+#: The babysitter's audit comment, rendered by hands/babysit itself.
+BABYSIT_COMMENT = babysit_actions.report({"verdict": "needs_operator", "head_sha": "004a55c535d6aa", "tier": "teeny"})
+BABYSIT_CONTEXT = {"field": "body", "fields": ["body"], "number": 368, "post_kind": "comment",
+                   "repo": "teenydroid/brain", "surface": "github"}
 
 DAY = 86400.0
 HOUR = 3600.0
