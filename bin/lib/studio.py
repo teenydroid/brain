@@ -1373,7 +1373,8 @@ def rewrite(room: Room, draft: Json, gate: str, verdict: Json, slot: Slot, after
     None; and what happened, for the record."""
     pitch = slot.pitches.get(draft["pitch"]) or {}
     item, story = slot.items.get(pitch.get("item")), slot.stories.get(draft.get("storyline"))
-    answer = room.turn("writer", f"rewrite {draft['id']}", rewrite_message(draft, gate, verdict, item, story),
+    hook = slot.items.get(pitch.get("hook"))
+    answer = room.turn("writer", f"rewrite {draft['id']}", rewrite_message(draft, gate, verdict, item, story, hook),
                        slot.thread, soft=True)
     log: Json = {"gate": gate}
     if not isinstance(answer, dict):
@@ -1491,7 +1492,7 @@ def _make_picture(room: Room, draft: Json, note: Json) -> list[str] | None:
 
 def post_body(room: Room, draft: Json, pitch: Json, media_ids: list[str]) -> tuple[str, Json]:
     """The hands/x verb and body for a draft, with the studio's tags."""
-    body: Json = {"anchor": str(pitch.get("item") or draft["pitch"])[:200], "format": draft["format"],
+    body: Json = {"anchor": str(pitch.get("item") or pitch.get("hook") or draft["pitch"])[:200], "format": draft["format"],
                   "producer": "studio", "pitch_id": f"{room.run_id}:{draft['pitch']}"[:120]}
     if draft.get("storyline"):
         body["storyline"] = draft["storyline"]
