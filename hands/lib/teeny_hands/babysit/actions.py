@@ -6,6 +6,10 @@ rules, DRY_RUN, GitHub, and the ledger (`babysit_actions`).
           `prompt-injection`, `frozen-path` when they apply) and, once per
           head and verdict, the audit as a comment through hands/gh's
           `comment` (the guard, DRY_RUN, the gh ledger). Off unless BABYSIT=1.
+          A comment the guard holds or refuses is remembered (`comment_held`,
+          per head, verdict and words) and not asked again until one of
+          them changes: its hold waits for the operator, and every retry
+          was another hold (#368, 2026-11-18: one every sweep).
   merge   a pull request whose fresh audit is `ready`, at the head the
           caller named, into the default branch, under the merge lock and
           BABYSIT_MERGES_PER_DAY. Off unless BABYSIT_MERGE=1. A self-merge
@@ -22,6 +26,7 @@ model on the other side would read it.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Mapping
 
 from .. import hand
@@ -134,10 +139,31 @@ def triage_result(result: Mapping[str, Any], api: PullsApi) -> Json:
         ledger.record_action("label", repo, number, sha, added=add, removed=stale)
     out.update(labelled=add, unlabelled=stale)
     if not commented:
-        posted = gh_actions.comment({"repo": repo, "number": number, "body": report(result)}, api.gh)
+        text = report(result)
+        held_key = f"{key}:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+        if ledger.acted("comment_held", repo, number, held_key):
+            # The guard said no to these words at this head already, and its
+            # hold waits for the operator: asking again only adds a hold.
+            out["comment_held"] = True
+            return out
+        try:
+            posted = gh_actions.comment({"repo": repo, "number": number, "body": text}, api.gh)
+        except hand.Refused as refused:
+            if _guard_said_no(refused):
+                ledger.record_action("comment_held", repo, number, held_key, reason=refused.reason,
+                                     hold_id=refused.detail.get("hold_id"), category=refused.detail.get("category"))
+            raise
         ledger.record_action("comment", repo, number, key, url=posted.get("html_url"))
         out["commented"] = posted.get("html_url")
     return out
+
+
+def _guard_said_no(refused: hand.Refused) -> bool:
+    """Whether a refused comment was the guard's verdict on its words (a hold,
+    or a refusal such as a link off the list), which the same words at the
+    same head would get again. Not when the judge failed to answer: that is
+    an outage, and the next run asks again."""
+    return "hold_id" in refused.detail and not refused.detail.get("judge_failed")
 
 
 def triage(body: Any, api: PullsApi | None = None) -> Json:

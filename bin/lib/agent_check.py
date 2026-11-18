@@ -33,11 +33,11 @@ import sys
 import tomllib
 from pathlib import Path
 
-NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail")
+NO_TOOLS = ("teeny", "act", "judge", "reviewer", "querier", "teeny-mentions", "teeny-mail", "writer", "editor")
 #: The tool-less agents that must also load no memory and no identity: they
 #: are not Teeny, and are shown only what their message carries (the
-#: querier's queries leave the box).
-MEMORYLESS = ("judge", "reviewer", "querier")
+#: querier's queries leave the box; the studio's editor judges drafts blind).
+MEMORYLESS = ("judge", "reviewer", "querier", "editor")
 #: A drafting agent's turn is one model call: with no tools it cannot loop.
 #: But the vendored harness pauses a session turn when it reaches
 #: max_iterations even after a final answer (the CapPauser in

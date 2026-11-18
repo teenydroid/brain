@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1145,6 +1146,24 @@ class Credit(EvolveCase):
         again = evolve.credit(evolve.load_config(), pub)
         self.assertEqual(again["chronicled"], [])
         self.assertEqual(page.read_text(), "kept\n")
+
+    def test_writing_a_chronicle_page_leaves_the_live_checkout_clean(self):
+        """The chronicle is runtime output: a page written into a checkout of
+        this repository is ignored, so it never dirties the box's tree, no
+        box-local commit picks it up, and the babysitter's fast-forward
+        deploy is never refused over it (#369)."""
+        shutil.copy(REPO / ".gitignore", self.root / ".gitignore")
+        git("init", "-q", str(self.root))
+        git("add", "-A", cwd=self.root)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base", cwd=self.root)
+        evolve.record({"id": "g5c1", "gen": 5, "cand": 1, "parent": "main", "verdict": "opened", "gate": {"ok": True},
+                       "pr_number": 9})
+        pub = FakePublisher()
+        pub.states = {9: {"state": "closed", "merged": True, "merged_at": evolve.iso(T0 - DAY), "merged_by": "teenydroid"}}
+        out = evolve.credit(evolve.load_config(), pub)
+        self.assertEqual(out["chronicled"], ["g5c1"])
+        self.assertTrue((self.root / "brain" / "narrative" / "chronicle" / "gen-5.md").is_file())
+        self.assertEqual(git("status", "--porcelain", "--untracked-files=all", cwd=self.root), "")
 
     def test_the_chronicle_names_a_person_who_merged_by_hand(self):
         """A generation the operator merged is not credited to the babysitter."""

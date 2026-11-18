@@ -186,6 +186,9 @@ done
 if [ ! -s "$brain/agents/act.toml" ]; then
   note "agent act.toml" fail "missing: bin/act drafts with it"
 fi
+for agent in writer editor; do
+  [ -s "$brain/agents/$agent.toml" ] || note "agent $agent.toml" fail "missing: bin/studio drafts and picks with it"
+done
 if [ ! -s "$brain/agents/judge.toml" ]; then
   note "agent judge.toml" fail "missing: bin/eval judges with it"
 fi
