@@ -310,6 +310,13 @@ the doctor, and the key surviving a restart.
 CI (`.github/workflows/check.yml`) builds the spine and runs every test above,
 plus shellcheck and the landing page's lint and build.
 
+PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
+opens or leaves draft, and answers `/review`, `/describe`, `/improve` and
+`/ask` comments from the owner, members and collaborators. It runs
+`gpt-6.1-sol` (falling back to `gpt-6-luna`) on Surplus Intelligence with the
+`SURPLUS_API_KEY` repository secret, the same key as `secrets/teeny.env`. Fork
+PRs get no secrets, so it skips them.
+
 ## Bumping OpenHuman
 
 1. Move `vendor/openhuman` to the new `upstream/main` commit and run
