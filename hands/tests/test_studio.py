@@ -704,5 +704,5 @@ class ConfigJudgeTest(unittest.TestCase):
 
     def test_the_slot_id_is_the_date_in_india_and_the_slot(self):
         # 2026-11-18T20:00Z is 01:30 on the 19th in India.
-        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795550400"}), "2026-11-19:0430")
-        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795550400", "STUDIO_TZ": "UTC"}), "2026-11-18:0430")
+        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795032000"}), "2026-11-19:0430")
+        self.assertEqual(studio.slot_id_of("0430", {"TEENY_NOW": "1795032000", "STUDIO_TZ": "UTC"}), "2026-11-18:0430")
