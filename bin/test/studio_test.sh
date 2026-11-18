@@ -395,6 +395,10 @@ rec="$(last_record)"
 check "an image piece: the scene past the guard, then hands/image, upload, and the media id on the post" \
   bash -c "grep -q '^guard check ' '$FAKE_HANDS' && grep -q '^image generate DRY_RUN= ' '$FAKE_HANDS' && grep -q '^x upload --file state/media/31.png' '$FAKE_HANDS' &&
     jq -e '.media_ids == [\"m-31\"] and .format == \"image\"' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _
+# 2026-11-18 preview: every scene the writer wrote (up to 600 characters) was
+# held as "over the 280 limit" when screened as an X post.
+check "the scene is screened as text a machine is sent (surface task, 1,000), not as an X post" \
+  bash -c "grep '^guard check ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//' | jq -e '.surface == \"task\"' >/dev/null"
 check "a storyline the writer left empty comes from its item" \
   jqe '.pick.storyline == "rent"' <<<"$rec"
 check "the picture is only made after the words passed" \
