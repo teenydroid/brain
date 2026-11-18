@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import re
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -95,19 +96,26 @@ def allow_reel_kinds(conn) -> None:
         return
     rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?media_assets\"?", "CREATE TABLE media_assets_new", row[0], count=1)
     rebuilt = rebuilt.replace("('image', 'video')", "('image', 'video', 'reel', 'song', 'music')", 1)
-    # The self-reference (source_id) names media_assets, which the rename
-    # below makes true again.
-    with hand.transaction(conn):
-        again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
-        if "'reel'" in again[0]:
-            return
-        conn.execute("PRAGMA defer_foreign_keys = ON")
-        conn.execute("DROP TABLE IF EXISTS media_assets_new")
-        conn.execute(rebuilt)
-        conn.execute("INSERT INTO media_assets_new SELECT * FROM media_assets")
-        conn.execute("DROP TABLE media_assets")
-        conn.execute("ALTER TABLE media_assets_new RENAME TO media_assets")
-        conn.execute("CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at)")
+    # SQLite's own recipe for a table rebuild: foreign keys off (a video's
+    # source_id names a still in the same table, and dropping the old table
+    # would count every such row as a violation), checked again before the
+    # commit, then on. The pragma cannot change inside a transaction.
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        with hand.transaction(conn):
+            again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
+            if "'reel'" in again[0]:
+                return
+            conn.execute("DROP TABLE IF EXISTS media_assets_new")
+            conn.execute(rebuilt)
+            conn.execute("INSERT INTO media_assets_new SELECT * FROM media_assets")
+            conn.execute("DROP TABLE media_assets")
+            conn.execute("ALTER TABLE media_assets_new RENAME TO media_assets")
+            conn.execute("CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at)")
+            if conn.execute("PRAGMA foreign_key_check(media_assets)").fetchone() is not None:
+                raise sqlite3.IntegrityError("media_assets: a source_id names no row after the rebuild")
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def _models(name: str, default: str) -> list[str]:
