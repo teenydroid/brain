@@ -940,8 +940,18 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
         f"Write {cfg.drafts_each} different drafts of this pitch: {body}. Make them really different: another "
         "first line, another turn, another ending, not the same post reworded.",
         "## the pitch\n\n```json\n" + json.dumps(pitch, ensure_ascii=False) + "\n```",
-        f"## the thing it is about\n\n{DATA_LINE}\n\n```json\n" + json.dumps(item, ensure_ascii=False) + "\n```",
     ]
+    if hook:
+        parts.append("## the story it joins\n\nWhat people are talking about today, as the leaderboard and the "
+                     f"posts behind it said it. {DATA_LINE}\n\n```json\n" + json.dumps(hook, ensure_ascii=False) +
+                     "\n```\n\n" + JOIN_RULES)
+    if item or not hook:
+        parts.append(("## what of yours it brings\n\n" if hook else "## the thing it is about\n\n") +
+                     f"{DATA_LINE}\n\n```json\n" + json.dumps(item, ensure_ascii=False) + "\n```")
+    else:
+        parts.append("## what of yours it brings\n\nNo event of yours: the angle is who you are (a small robot "
+                     "with its own wallet, its own bill, and a habit of rewriting itself). Claim nothing that "
+                     "happened to you beyond that.")
     if story:
         parts.append("## the story it moves\n\n```json\n" + json.dumps(story, ensure_ascii=False) + "\n```")
     if fix:
