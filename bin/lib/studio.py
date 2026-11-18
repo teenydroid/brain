@@ -936,12 +936,23 @@ class Room:
     calls: list[Json] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     ask: Callable[..., tuple[int, str, str]] | None = None
+    dry: bool = True
+    #: The model each agent's turns ask for now: the configured one, or ""
+    #: (the core's default) once it failed a turn (`turn`).
+    models: dict[str, str] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.models = self.models or {"writer": self.cfg.writer_model, "editor": self.cfg.editor_model}
 
     def left(self) -> int:
         return int(self.cfg.budget_secs - (time.monotonic() - self.started))
 
-    # hands run with DRY_RUN=1 forced, so even a mislabelled verb cannot write
-    def hand(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[bool, Any]:
+    def hand_code(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[int, Any]:
+        """One hand call: (its exit code, its JSON answer or its words). With
+        `dry` (the default) it runs with DRY_RUN=1 forced, so even a
+        mislabelled verb cannot write. Exit 2 is a rule's refusal (hand.run);
+        a call that could not run at all is -1."""
         env = dict(os.environ)
         if dry:
             env["DRY_RUN"] = "1"
@@ -949,23 +960,43 @@ class Room:
             done = subprocess.run([str(self.hands / argv[0]), *argv[1:]], cwd=self.root, env=env, timeout=timeout,
                                   input=json.dumps(body) if body is not None else "", capture_output=True, text=True)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return False, f"{type(exc).__name__}: {exc}"
+            return -1, f"{type(exc).__name__}: {exc}"
         try:
             got = json.loads(done.stdout)
         except ValueError:
             got = done.stdout.strip()[:500] or done.stderr.strip()[-500:]
-        return done.returncode == 0, got
+        return done.returncode, got
+
+    def hand(self, argv: list[str], body: Any = None, dry: bool = True, timeout: int = 120) -> tuple[bool, Any]:
+        code, got = self.hand_code(argv, body, dry, timeout)
+        return code == 0, got
+
+    def _fall_back(self, agent: str, model: str, why: str) -> None:
+        """AGENT's model failed a turn: the rest of the run asks the core's
+        default for it, and the record says so, twice over when that leaves
+        the writer and the editor on one model."""
+        self.models[agent] = ""
+        self.warnings.append(f"the {agent}'s model {model} failed a turn ({why}): it and the rest of this run's "
+                             f"{agent} turns ran on the core's default model instead")
+        other = "editor" if agent == "writer" else "writer"
+        if self.models[other] == "":
+            self.warnings.append("the writer and the editor ran on the same model (the core's default) for the "
+                                 "rest of this run: the editor judged its own voice")
 
     def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False,
              want: type = dict) -> Any:
         """One model turn, bounded by what is left of the budget. Its parsed
         JSON, which must be a `want` (an object); an unusable answer is asked
-        for once more, told what was wrong with it. Raises Stop on a provider
-        failure, no time, or a second unusable answer (`soft`: None instead,
-        for a turn the run can go on without)."""
-        model = self.cfg.writer_model if agent == "writer" else self.cfg.editor_model
+        for once more, told what was wrong with it. A turn on a model of our
+        choosing that fails is asked once more on the core's default model
+        (`_fall_back`). Raises Stop on a provider failure, no time, or a
+        second unusable answer (`soft`: None instead, for a turn the run can
+        go on without)."""
         first = message
-        for attempt in (1, 2):
+        attempt = 0
+        while attempt < 2:
+            attempt += 1
+            model = self.models.get(agent, "")
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
             if secs < self.cfg.turn_min_secs:
                 raise Stop("skipped", f"out of time before the {step} turn ({self.cfg.budget_secs} s budget)")
@@ -973,7 +1004,19 @@ class Room:
             status, out, err = (self.ask or ask_core)(self.root, agent, message, thread, model, secs)
             call = {"agent": agent, "step": step, "attempt": attempt, "secs": round(time.monotonic() - began, 1),
                     "bytes": len(message.encode())}
+            if model:
+                call["model"] = model
             self.calls.append(call)
+            if status != 0 and model:
+                # The model of our choosing failed: the same turn once more on
+                # the core's default, never counted as an unusable answer.
+                why = f"no answer within {secs} s" if status in (124, 137) else (
+                    provider_error.classify(err) or err.strip()[-120:] or f"exit {status}")
+                call["failed"] = (f"no answer within {secs} s" if status in (124, 137) else err[-300:])
+                call["fell_back"] = True
+                self._fall_back(agent, model, why)
+                attempt -= 1
+                continue
             if status in (124, 137):
                 call["failed"] = f"no answer within {secs} s"
                 raise Stop("failed", f"the {step} turn did not answer within {secs} s", 1,
