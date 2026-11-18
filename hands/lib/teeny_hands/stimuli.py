@@ -132,10 +132,11 @@ def add(surface: str, kind: str, ref: str, text: str, who: str | None = None,
     with hand.transaction(conn):
         cur = conn.execute(
             "INSERT OR IGNORE INTO stimuli (id, surface, kind, ref, who, text, payload, at, status, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
+            " VALUES (?,?,?,?,?,?,?,?,?, ?)",
             (f"{surface}:{kind}:{ref}", surface, kind.strip(), ref.strip(), who,
              _clip(text, NUDGE_TEXT_CHARS if surface == "nudge" else MAX_TEXT_CHARS),
-             json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now, now),
+             json.dumps(dict(payload or {}), ensure_ascii=False), at if at is not None else now,
+             "filed" if surface in FILED_SURFACES else "pending", now),
         )
     return cur.rowcount == 1
 
