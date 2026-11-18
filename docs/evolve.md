@@ -695,7 +695,10 @@ brain/datajobs/**, brain/agents/*.md prompts and small edits in existing
 non-frozen hands are in the table but not in the registry's list, so the
 gate refuses them. And the loop has not adopted the gate yet: `bin/evolve`
 still calls its own `gate()`; wiring the loop to `bin/evolve-gate` is a
-separate decision.
+separate decision. The package-beside-a-module hole is closed in the loop
+as well, through the frozen list: a pattern naming a module (`hand.py`)
+also freezes `hand/`, so the loop's `frozen paths` hard check refuses a
+`hands/lib/teeny_hands/hand/__init__.py` too.
 
 Tested by `bin/test/evolve_gate_test.sh` (the scripts-shell job): the
 registry's positives, its fifteen negatives (one per registry case), a

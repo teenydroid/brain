@@ -407,11 +407,13 @@ def _is_allowed(path: str, base_tree: set[str], patterns: list[str]) -> str | No
 
 
 def _shadowed_module(path: str, base_tree: set[str]) -> str | None:
-    """The module at BASE that PATH would stand in for, or None. Under
-    hands/lib/, a directory `D/` beside a module `D.py` is imported in its
-    place (a package wins over a module of the same name), so a new file in
-    hands/lib/teeny_hands/hand/ replaces the frozen hand.py for everything
-    that imports it, however the file is named."""
+    """The module at BASE that PATH sits beside, or None. Under hands/lib/,
+    a regular package `D/` (one with `D/__init__.py`) beside a module `D.py`
+    is imported in its place, so hands/lib/teeny_hands/hand/__init__.py
+    replaces the frozen hand.py for everything that imports it. A directory
+    without `__init__.py` is a namespace package and loses to the module,
+    but this refuses every file under `D/` on purpose: a later candidate
+    could add the `__init__.py`, and `D/` beside `D.py` has no other use."""
     if not path.startswith("hands/lib/"):
         return None
     parts = path.split("/")

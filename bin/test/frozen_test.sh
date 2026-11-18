@@ -92,7 +92,21 @@ put hands/moltbook "a better wrapper"
 commit
 passes "an edit to a hand that is not guard or x passes"
 
+branch
+put hands/lib/teeny_hands/handy/__init__.py
+put hands/lib/teeny_hands/hand_tools.py
+put hands/lib/teeny_hands/hand
+commit
+passes "names that only start like a frozen module pass"
+
 # --- the frozen paths ----------------------------------------------------------
+
+branch
+put hands/lib/teeny_hands/hand/__init__.py
+put hands/lib/teeny_hands/websites/extra.py
+commit
+refuses "a package beside a frozen module is refused" \
+  hands/lib/teeny_hands/hand/__init__.py hands/lib/teeny_hands/websites/extra.py
 branch
 put hands/surplus "a wrapper with another address"
 put hands/lib/teeny_hands/surplus/sweep.py "sweep elsewhere"
