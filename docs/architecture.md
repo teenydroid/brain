@@ -906,16 +906,29 @@ One run is one slot:
    leaderboards, merged by Digg Score, with the first X posts behind the
    four leading stories, read through `digg-pp-cli` with no login and no X
    API, and kept a slot (`--slot <date>:<slot>`) so a rerun asks Digg
-   nothing; it gets 14,000 bytes of the inputs. Then the free Hacker News
-   sources (`hn search AI` over the last day, `hn search "AI agents"` over
-   two, `hn top`, `hn show`) and `listen digest`, 6,000 bytes each. Then,
+   nothing; it gets 14,000 bytes of the inputs. Then Hacker News's front
+   page (`hn top --max 15`), 6,000 bytes. Keyword searches (`hn search`),
+   `hn show` and the listen digest are no trend signal and are not read (the
+   operator's review of PR #384: the Harvard story a keyword search found
+   was not trending; the Nvidia one on Digg was). Every outside item carries
+   its trend measure (`trend`: Digg's score, rank in its topic, sources,
+   authors and age in hours; HN's points, comments and age) and a
+   `trending` computed in plain code (`trending`): a Digg story published
+   within `STUDIO_TREND_MAX_AGE_HOURS` (36) and ranked
+   `STUDIO_TREND_MAX_RANK` (5) or better or scoring `STUDIO_TREND_MIN_SCORE`
+   (150) or more; an HN front-page story within `STUDIO_HN_MAX_AGE_HOURS`
+   (24) with `STUDIO_HN_MIN_POINTS` (300) points. (The suggested rank bar
+   was 8; on 2026-11-19's boards it let in stories scoring 71 to 77.) Only
+   trending stories reach the writer, biggest first with the measure shown;
+   the rest are counted (`outside.sources.<name>.not_trending`). Then,
    only with `STUDIO_OUTSIDE_X=1`, one paid `hands/x search` a run on Teeny's
-   corner (the seed picks one of three queries), at most
+   corner (the seed picks one of three queries), shown as "background, not
+   trending" and never a hook, at most
    `STUDIO_OUTSIDE_X_MAX_PER_DAY` (4, at most 12) a UTC day, each claimed
    before the call in `state/studio/outside-x.jsonl`: about $0.012 a call
    through twitr, so at most $0.048 a day. A story two sources carry is kept
    once, by the first. Each outside item gets an id (`<source>:<id>`, Digg's
-   as `trend:<short id>`), is marked untrusted, and carries no handle and no
+   as `trend:<short id>`, HN's as `hn-top:<id>`), is marked untrusted, and carries no handle and no
    poster's name but a quoted X post's display name. Then `hands/story desk`.
    Every hand runs with `DRY_RUN=1` forced, each source optional and cut to
    fit (`bin/lib/act_fit.py`); one that gives nothing is named under
@@ -944,10 +957,14 @@ One run is one slot:
    Teeny is); a pitch names at least one. A pitch whose `hook` is not an
    outside item, whose `item` is not in the inputs, that names neither, or
    whose `format` is not in `STUDIO_FORMATS` is dropped, with why; an `item`
-   naming an outside story is taken as the hook. A pitch that names no
+   naming a trending story is taken as the hook, and a hook on anything not
+   trending (or not in the inputs) is no hook: the pitch is kept unhooked
+   when it has an item (`unhooked` says why), dropped when it has none. The
+   writer is told to prefer the biggest story it has a real angle on. A pitch that names no
    running storyline takes its desk item's (`storyline` on the item, the
    desk's guess by kind), so the pick, its facts and its beat land on one.
-   The record's pitches carry `hook_item` (the story, resolved) and
+   The record's pitches carry `hook_item` (the story, resolved),
+   `hook_trend` (its trend measure, to compare against reach later) and
    `drafted`, and `hooked` counts them; fewer than half hooked, with an
    outside world to join, is a warning.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
@@ -977,7 +994,9 @@ One run is one slot:
    checks every claim about it against what the story said.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
-   stands. Never a pitch's angle or reason, the writer's ranking, a draft's
+   stands, and for a hooked draft the story it joins and its trend measure
+   (`joins`: of two drafts otherwise equal, the one joining the bigger story
+   wins). Never a pitch's angle or reason, the writer's ranking, a draft's
    `meaning`, or who wrote it. Each draft meets exactly 3 others (a
    circulant over the shuffled labels: when n x 3 is odd one draft meets 2,
    recorded as `tournament.shortfall`), each pair once, and is shown first
