@@ -572,7 +572,9 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
         if state["file"] is not None:
             _unlink(state["file"])
         try:
-            if state["accepted"]:
+            if _status(asset_id) != "pending":
+                pass  # already ended above, with what is known
+            elif state["accepted"]:
                 _finish(asset_id, status="unknown", cost_micro=state["booked"], estimated=1, path=None, error=f"{type(exc).__name__}: {exc}"[:1000])
             else:
                 _finish(asset_id, status="failed", cost_micro=0, path=None, error=f"{type(exc).__name__}: {exc}"[:1000])
@@ -583,6 +585,15 @@ def music(body: Any, api: Surplus | None = None, sleep=time.sleep) -> Json:
         if isinstance(exc, Exception):
             raise hand.HandError(f"music: {type(exc).__name__}: {exc}", asset_id=asset_id) from None
         raise
+
+
+def _status(asset_id: int) -> str | None:
+    conn = assets._db()
+    try:
+        row = conn.execute("SELECT status FROM media_assets WHERE id = ?", (asset_id,)).fetchone()
+        return row["status"] if row else None
+    finally:
+        conn.close()
 
 
 def _unknown(asset_id: int, state: Json, why: str) -> None:
