@@ -216,6 +216,45 @@ services:
       - ../bin/sandbox-runner:/opt/sandbox/sandbox-runner:ro
       - ../bin/lib/sandbox.py:/opt/sandbox/sandbox.py:ro
 
+  # Clips with Teeny's voice and captions, and songs (hands/reel; docs/hands.md,
+  # "reel"): MoneyPrinterTurbo, the upstream repo itself at
+  # vendor/moneyprinter (a release tag, never edited here), built API-only by
+  # deploy/reel.Dockerfile and run behind Teeny's front, deploy/reel/serve.py,
+  # which takes one job route and refuses every other upstream route. Config
+  # is deploy/reel.config.toml: no stock footage, no model, no upload service,
+  # Edge captions. Teeny's media is mounted read-only (state/media/ and
+  # brain/assets/); jobs and renders live in the reel-storage volume until
+  # hands/reel copies the mp4 into state/media/ and deletes the task. No
+  # published port: the spine reaches it at http://reel:8080 (REEL_URL) on the
+  # compose network. Behind a profile, like web:
+  #   git submodule update --init vendor/moneyprinter
+  #   docker compose -f deploy/compose.yaml --profile reel up -d --build reel
+  # A render takes about 3 cores and 2.4 GB (one 12 s clip, 2026-11-18); one
+  # at a time (max_concurrent_tasks = 1 in its config), capped below.
+  reel:
+    profiles: [reel]
+    image: teeny-reel:current
+    build:
+      context: ../vendor/moneyprinter
+      dockerfile: ../../deploy/reel.Dockerfile
+      additional_contexts:
+        teeny: ./reel
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 4
+    mem_limit: 4g
+    pids_limit: 512
+    volumes:
+      - reel-storage:/MoneyPrinterTurbo/storage
+      - ./reel.config.toml:/MoneyPrinterTurbo/config.toml:ro
+      - ../state/media:/teeny/media:ro
+      - ../brain/assets:/teeny/assets:ro
+
   # The landing page at teeny.enamakel.com (nginx/teeny.enamakel.com.conf
   # proxies to 127.0.0.1:3120). Behind a profile: the old stack's web
   # container still holds that port on the box, so a plain `up` must not try
