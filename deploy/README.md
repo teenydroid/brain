@@ -10,6 +10,7 @@ at `/srv/teeny`:
 | `xhook` | `bin/x-webhook`: X's webhook, which queues mentions, replies and quotes into `state/hands.db`. Same image as the spine. | `127.0.0.1:3110` |
 | `web` | The landing page (`web/`, its own Next.js image). Behind the `web` profile. | `127.0.0.1:3120` |
 | `reel` | Clips with voice and captions, and songs, for `hands/reel`: MoneyPrinterTurbo (`vendor/moneyprinter`, a release tag) behind `deploy/reel/serve.py`. Behind the `reel` profile. | none; compose network only (`http://reel:8080`) |
+| `memegen` | Known meme templates for `hands/meme template`: memegen (`vendor/memegen`, a pinned commit) built by its own `Containerfile`, run as `deploy/memegen/front.py`. Behind the `memegen` profile. | none; compose network only (`http://memegen:5000`) |
 
 Nothing takes a public port. The host's nginx serves `teeny.enamakel.com`
 (`nginx/teeny.enamakel.com.conf`): `/api/webhooks/x` goes to the webhook,
@@ -109,6 +110,50 @@ To move the pin: check out the new release tag in `vendor/moneyprinter`, run
 (its schema check reads the new job model), rebuild, render one clip, and
 land it as a pull request. Never edit the submodule; a fix upstream needs is
 a pull request to `harry0703/MoneyPrinterTurbo`.
+
+## The meme service
+
+`hands/meme templates` and `hands/meme template` render known meme templates
+on the `memegen` service (docs/hands.md, "meme"). Opt-in, behind the
+`memegen` profile; it posts nothing. Idle it holds about 125 MB; a render
+takes under a second of one core (capped at 2 cores and 1 GB). To start it
+on the box:
+
+```sh
+git submodule update --init vendor/memegen              # the pinned commit
+docker compose -f deploy/compose.yaml --profile memegen build memegen
+docker compose -f deploy/compose.yaml --profile memegen up -d memegen
+docker compose -f deploy/compose.yaml exec -T spine hands/meme templates --max 3
+```
+
+`up -d memegen` starts that one service; it does not recreate the spine.
+Then render one with nothing saved:
+
+```sh
+echo '{"template":"drake","lines":["a","b"],"teeny":"brain/assets/tiny/tiny-love.jpg"}' |
+  docker compose -f deploy/compose.yaml exec -T spine env DRY_RUN=1 hands/meme template
+```
+
+`MEMEGEN_URL` defaults to `http://memegen:5000`. The studio drafts memes
+only when `STUDIO_FORMATS` names `meme` (`deploy/teeny.env.example`).
+
+The image is upstream's own build (`python:3.13` bookworm with poetry,
+about 2.6 GB). What runs is `deploy/memegen/front.py`, mounted read-only:
+upstream's app, but a picture to paste in is copied from Teeny's art
+(mounted read-only at `/teeny`, named `http://teeny-art/...`) and every other
+URL is refused, there is no "Memegen.link" watermark, and tracking and
+search are no-ops. `REMOTE_TRACKING_URL` and `BUGSNAG_API_KEY` stay unset;
+with them unset upstream makes no outbound call of its own. Compose does not
+restrict egress at the network level (as for `reel`): the front is what keeps
+it from fetching. The service writes only inside its container (each
+template folder caches the pictures pasted into it, `images/` each render),
+so it is not `read_only`; recreating it starts it clean.
+
+To move the pin: upstream tags no releases, so pick a commit on `main` whose
+CI passed, check it out in `vendor/memegen`, run
+`python3 -m unittest discover -s hands/tests -t hands/tests -p 'test_templates.py'`
+(it checks that what the front replaces is still upstream's), rebuild,
+render one, and land it as a pull request. Never edit the submodule.
 
 ## The X webhook
 
