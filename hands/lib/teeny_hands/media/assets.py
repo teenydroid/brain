@@ -27,6 +27,7 @@ default) answers what would be generated and spends nothing.
 from __future__ import annotations
 
 import base64
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ from .surplus import Surplus, SurplusError
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_assets (
   id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video')),
+  kind        TEXT NOT NULL CHECK (kind IN ('image', 'video', 'reel', 'song', 'music')),
   status      TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed')),
   prompt      TEXT NOT NULL,
   model       TEXT,
@@ -77,7 +78,36 @@ Json = dict[str, Any]
 
 
 def _db():
-    return hand.open_db(SCHEMA)
+    conn = hand.open_db(SCHEMA)
+    allow_reel_kinds(conn)
+    hand.add_columns(conn, "media_assets", {"detail": "TEXT"})
+    return conn
+
+
+def allow_reel_kinds(conn) -> None:
+    """A ledger made before hands/reel checks `kind` against image and video
+    only, and SQLite cannot alter a check: the table is rebuilt once, rows
+    and columns as they are, with `reel` (a clip with voice and captions),
+    `song` (a song as a video) and `music` (a bought track) allowed, as
+    x/posting_rules.py does for threads."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
+    if row is None or "'reel'" in row[0] or "('image', 'video')" not in row[0]:
+        return
+    rebuilt = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?\"?media_assets\"?", "CREATE TABLE media_assets_new", row[0], count=1)
+    rebuilt = rebuilt.replace("('image', 'video')", "('image', 'video', 'reel', 'song', 'music')", 1)
+    # The self-reference (source_id) names media_assets, which the rename
+    # below makes true again.
+    with hand.transaction(conn):
+        again = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_assets'").fetchone()
+        if "'reel'" in again[0]:
+            return
+        conn.execute("PRAGMA defer_foreign_keys = ON")
+        conn.execute("DROP TABLE IF EXISTS media_assets_new")
+        conn.execute(rebuilt)
+        conn.execute("INSERT INTO media_assets_new SELECT * FROM media_assets")
+        conn.execute("DROP TABLE media_assets")
+        conn.execute("ALTER TABLE media_assets_new RENAME TO media_assets")
+        conn.execute("CREATE INDEX IF NOT EXISTS media_assets_day ON media_assets (kind, created_at)")
 
 
 def _models(name: str, default: str) -> list[str]:
