@@ -901,14 +901,38 @@ CAPPED_SHAPES = {
 }
 
 
+#: The post_x line of SHAPE, and what stands in its place while the studio is on.
+POST_X_LINE = next(line for line in SHAPE.splitlines() if line.startswith('- {"do": "post_x"'))
+PITCH_X_LINE = ('- {"do": "pitch_x", "text": "<the idea: what happened, and the post you see in it>", "anchor": "<the one '
+                'item it is about, optional>", "why": "<why a stranger would stop for it, optional>"}: an idea for an '
+                "original post on X, filed for the studio")
+#: SHAPE's paragraph on pictures and own posts, from its own-post sentences on.
+POST_X_RULES = SHAPE[SHAPE.index("You post on X at most 4 times a day"):SHAPE.index("A reply only has to answer")]
+PITCH_X_RULES = ("Your original posts on X are made by your studio now: four times a day a writer drafts from what "
+                 "really happened and an editor picks one or none. You do not post on X yourself; a post_x is filed "
+                 "as a pitch like any pitch_x. When something happens that would make a stranger stop, pitch it: say "
+                 "what happened and the post you see in it, and the studio may use it at its next slot. Replies "
+                 "are still yours, and still go out as you write them. ")
+
+
+def _studio_shape(text: str) -> str:
+    """SHAPE with post_x as a pitch for the studio (STUDIO=1)."""
+    return text.replace(POST_X_LINE, PITCH_X_LINE).replace(POST_X_RULES, PITCH_X_RULES).replace(
+        "A post_x or reply_x may carry pictures of you", "A reply_x may carry pictures of you").replace(
+        '"shots": <a task id> on a post_x or reply_x', '"shots": <a task id> on a reply_x').replace(
+        "A reply_x or post_x may carry a GIF instead", "A reply_x may carry a GIF instead")
+
+
 def shape() -> str:
-    """The answer's shape, with each capped intent listed while it is on."""
+    """The answer's shape, with each capped intent listed while it is on, and
+    post_x as a pitch while the studio is on."""
+    base = _studio_shape(SHAPE) if studio_on() else SHAPE
     reddit = _reddit_ready()
     extra = [CAPPED_SHAPES[do] % mind_cap(do) for do in CAPPED_SHAPES
              if mind_cap(do) > 0 and (reddit or do not in REDDIT_INTENTS)]
     if not extra:
-        return SHAPE
-    head, sep, tail = SHAPE.partition("\n\nA follow_up's ref")
+        return base
+    head, sep, tail = base.partition("\n\nA follow_up's ref")
     return head + "\n" + "\n".join(extra) + sep + tail
 
 
