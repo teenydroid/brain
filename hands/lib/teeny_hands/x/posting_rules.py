@@ -509,19 +509,26 @@ def record_post(
     anchor: str | None = None,
     thread_of: str | None = None,
     quote_author: str | None = None,
+    producer: str | None = None,
+    storyline: str | None = None,
+    shape: str | None = None,
+    pitch_id: str | None = None,
 ) -> None:
     """The own-post ledger. The hand writes it; `cadence` reads it. `format`
     and `experiment` are the lab tags (teeny_hands/tags.py); `anchor` is what
     an own post is about (`check_anchor`), None on a reply. `thread_of` is the
     head's id on a thread continuation (kind `thread`), None elsewhere; `quote_author` is the id of the account a quote
-    quoted (`check_peer_rotation`)."""
+    quoted (`check_peer_rotation`). `producer`, `storyline`, `shape` and
+    `pitch_id` say who made it and from what (`studio_tags`)."""
     add_tag_columns(conn)
     conn.execute(
         "INSERT OR REPLACE INTO x_posts"
-        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (id, kind, text, in_reply_to, quote_of, media, created_at, format, experiment, anchor, thread_of, quote_author,"
+        " producer, storyline, shape, pitch_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, kind, text, in_reply_to, quote_of, json.dumps(list(media)),
-         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author),
+         hand.now() if created_at is None else created_at, format, experiment, anchor, thread_of, quote_author,
+         producer, storyline, shape, pitch_id),
     )
 
 
