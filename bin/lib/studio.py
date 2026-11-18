@@ -129,8 +129,8 @@ MAX_FALLBACKS = 2
 #: Words that point at the picture: such a text does not stand alone when the
 #: picture could not be made.
 POINTS_AT_PICTURE = re.compile(
-    r"\b(?:th(?:is|e) (?:picture|photo|pic|drawing|image|one)|pictured|look at (?:me|this|it)|see (?:me|this)"
-    r"|here i am|above|below)\b", re.IGNORECASE)
+    r"\b(?:th(?:is|e) (?:picture|photo|pic|drawing|image|selfie)|pictured|look at (?:me|this)|here i am)\b",
+    re.IGNORECASE)
 #: The shapes a pitch may take (writer.md). Not enforced: a new shape is the
 #: point of an explore run.
 SHAPES = ("confession", "grudge", "bet", "scene", "callback", "real question", "lore bit")
