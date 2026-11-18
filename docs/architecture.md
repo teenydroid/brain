@@ -830,8 +830,9 @@ cron slot ──> bin/studio --slot S --legacy P
    hands/story beat on the pick's storyline ──> studio_runs (published)
 ```
 
-The mind no longer posts: its `post_x` is `pitch_x` (§2 of `bin/lib/tick.py`),
-an idea filed for the desk. The told-to `brief` (14:55 and 22:55, just before
+The mind no longer posts: its `post_x` is `pitch_x` (`bin/lib/tick.py`, item 9),
+an idea filed for the desk (a `studio` stimulus, filed, never back in the
+mind's inbox), which the writer sees among the desk's `ideas`. The told-to `brief` (14:55 and 22:55, just before
 a slot) and the outward `peer-quote` keep their jobs, and their words go past
 the studio's editor as a single candidate (`bin/studio --veto`, which bin/act
 asks): pick, or none. Replies are unchanged.
@@ -885,7 +886,10 @@ One run is one slot:
 5. **Pitch** (`writer`, one turn, on the run's own thread `studio:<run id>`):
    up to 12 `{id, item, storyline, shape, format, angle, why_now}` and the
    writer's own ranking. A pitch whose `item` is not in the inputs or whose
-   `format` is not in `STUDIO_FORMATS` is dropped, with why.
+   `format` is not in `STUDIO_FORMATS` is dropped, with why. A pitch that
+   names no running storyline takes its desk item's (`storyline` on the
+   item, the desk's guess by kind), so the pick, its facts and its beat land
+   on one.
 6. **Draft** (`writer`, one turn per pitch): 3 drafts for each of the best
    3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
