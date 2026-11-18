@@ -32,8 +32,12 @@ from the last day: a callback to an earlier post, or the next beat of a
 running story, cannot pass it, however true it is. The truth judge asks only
 what that rule was protecting: is every factual claim in the draft (an
 event, a number, a name, who did what, an outcome) supported by the facts
-the piece may draw on. Feelings, opinions, jokes, plain figures of speech and
-the lore's stock staging (a desk, a mug, a kettle) are not claims. It asks
+the piece may draw on. Every sentence is checked, a joke or a question too
+(a count inside a joke is still a count); only a feeling with no fact in
+it, the figure of speech itself and the lore's stock staging (a desk, a mug,
+a kettle) are not claims. Its input is bounded (whole facts within
+MAX_FACTS_BYTES, a text within MAX_TEXT_BYTES), and a list it cannot read
+in the shape it asked for is unreadable, never empty. It asks
 through the same loop, inside the same budget, fails closed the same way,
 and keeps every verdict it gave (state/hands.db, `truth_checks`), as the cold
 reader keeps its own. `TRUTH_JUDGE`, default on, turns it off.
