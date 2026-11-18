@@ -108,6 +108,10 @@ EVOLVE_BRANCH = re.compile(r"teeny/gen-[0-9]+(?:-c[0-9]+)?")
 #: The commit status the targeted eval sets on the PR's head: success is a
 #: passed non-regression (or "unmeasurable"), failure a regression.
 EVAL_CONTEXT = "teeny/eval"
+#: The login .github/workflows/pr-agent.yml posts its reviews as (it runs on
+#: the workflow's GITHUB_TOKEN). Still a stranger (`tier`: every [bot] is);
+#: only its PR-Agent markers are spared `hidden_comment` (audit._markers).
+PR_AGENT_LOGIN = "github-actions[bot]"
 
 
 def self_merge_on() -> bool:
