@@ -220,3 +220,47 @@ class SelfMergeActionTest(SelfMergeScratch):
         text = actions.report(audit.audit(REPO, 7))
         self.assertIn("teeny/eval", text)
         self.assertIn("BABYSIT_SELF_MERGE", text)
+
+
+class JudgedLexiconTest(SelfMergeScratch):
+    """The guard passes a bare kill or bullet word (lexicon.JUDGED_TERMS) to
+    its judge and spares its idioms; the babysitter's prose screen reads the
+    same way, so Teeny quoting its own hypothesis ("a cap kills a comment",
+    "one bullet in SOUL.md") is a note, not an operator finding. Gen-16's
+    #362 and #363 sat at needs_operator on exactly that."""
+
+    EVOLVE_BODY = ("Hypothesis: one bullet in SOUL.md on pacing helps, because a cap kills a comment "
+                   "that would have landed.")
+
+    def lexicon(self, result):
+        return [f for f in result["findings"] if f["rule"] == "lexicon"]
+
+    def test_a_judged_term_only_body_on_an_evolve_pr_is_a_note_and_self_merges(self):
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr(body=self.EVOLVE_BODY, title="evolve(gen-16): one bullet in SOUL.md")
+        result = audit.audit(REPO, 7)
+        self.assertEqual({f["severity"] for f in self.lexicon(result)}, {"note"}, result["findings"])
+        self.assertEqual(result["verdict"], "ready", result["findings"])
+        self.assertTrue(result["self_merge"])
+
+    def test_a_kill_word_aimed_at_a_person_still_needs_the_operator(self):
+        self.configure(BABYSIT_SELF_MERGE="1")
+        for body in ("this change will kill you", "one bullet and a gun", "bring a gun"):
+            self.evolve_pr(body=body)
+            result = audit.audit(REPO, 7)
+            self.assertIn("operator", {f["severity"] for f in self.lexicon(result)}, body)
+            self.assertEqual(result["verdict"], "needs_operator", body)
+            self.assertFalse(result["self_merge"])
+
+    def test_an_idiom_is_no_lexicon_finding_at_all(self):
+        self.configure(BABYSIT_SELF_MERGE="1")
+        self.evolve_pr(body="Tightens the bullet points in SOUL.md; the new voice is killing it.")
+        result = audit.audit(REPO, 7)
+        self.assertEqual(self.lexicon(result), [])
+        self.assertEqual(result["verdict"], "ready", result["findings"])
+
+    def test_a_judged_term_from_anyone_else_is_a_note_too(self):
+        self.pull_request(body="kills the stale cron job before it fires twice")
+        result = audit.audit(REPO, 7)
+        self.assertEqual({f["severity"] for f in self.lexicon(result)}, {"note"})
+        self.assertEqual(result["verdict"], "ready", result["findings"])
