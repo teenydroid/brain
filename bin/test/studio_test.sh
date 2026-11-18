@@ -331,7 +331,43 @@ check "the same run id samples, shuffles and pairs the same" \
 reset
 STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_OUTSIDE_X=1 run >/dev/null
 check "STUDIO_OUTSIDE_X=1 runs the X search" grep -q '^x search .* DRY_RUN=1$' "$FAKE_HANDS"
-check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$(last_record)"
+check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | any(startswith("x-"))' <<<"$(last_record)"
+check "and the call is claimed in the day's ledger" test "$(grep -c . "$scratch/state/studio/outside-x.jsonl")" = 1
+# The cap: with one a day, the second run of the day makes no X search.
+: >"$FAKE_HANDS"
+STUDIO=1 STUDIO_RUN_ID="$plain_id-2" STUDIO_OUTSIDE_X=1 STUDIO_OUTSIDE_X_MAX_PER_DAY=1 run >/dev/null
+check "STUDIO_OUTSIDE_X_MAX_PER_DAY caps the paid X searches a day" bash -c "! grep -q '^x search ' '$FAKE_HANDS'"
+check "and the record says the day's are spent" jqe '.inputs.skipped | any(test("are spent today"))' <<<"$(last_record)"
+
+# --- the outside world down ------------------------------------------------------------
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_TREND_DOWN=1 run --slot evening)"
+rec="$(last_record)"
+check "with Digg down the run still picks, from Hacker News" jqe '.outcome == "picked"' <<<"$out"
+check "and the record names the trend feed unavailable, with why" \
+  jqe '(.inputs.unavailable | index("trend")) and .outside.sources.trend.reason == "rate_limited" and .outside.available == true' <<<"$rec"
+check "a pitch hooked to a story that is not there is dropped" \
+  jqe '.pitches_dropped | map(select(.pitch.id == "p1" and (.why | test("not an outside story")))) | length == 1' <<<"$rec"
+reset
+cat >"$scratch/hands/hn" <<'FAKE'
+#!/usr/bin/env bash
+printf 'hn %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+echo '{"ok": false, "error": "Hacker News answered 503"}'; exit 1
+FAKE
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_TREND_DOWN=1 \
+  FAKE_PITCH_ANSWER='{"pitches": [{"id": "p1", "item": "evt:2", "storyline": "rent", "shape": "scene", "format": "post", "angle": "a", "why_now": "w"}], "ranking": ["p1"]}' run)"
+rec="$(last_record)"
+check "with no outside world at all the run still goes on Teeny's own events" jqe '.outcome == "picked"' <<<"$out"
+check "and records that the outside world was unavailable" \
+  jqe '.outside.available == false and (.warnings | any(test("outside world could not be read")))' <<<"$rec"
+check "and the pitch message says so" grep -q 'The outside world could not be read today' <<<"$(step_msgs '# studio: pitch')"
+cat >"$scratch/hands/hn" <<'FAKE'
+#!/usr/bin/env bash
+printf 'hn %s DRY_RUN=%s\n' "$*" "${DRY_RUN:-}" >>"$FAKE_HANDS"
+case "$1" in top) id=42 ;; show) id=43 ;; *) id=44 ;; esac
+jq -cn --argjson id "$id" --arg v "$1" '{ok: true, stories: [{id: $id, title: "a robot learns to fold laundry (\($v))", url: "https://example.com/\($id)", score: 300, by: "someone"}]}'
+FAKE
+chmod +x "$scratch/hands/hn"
 
 # --- explore: one run in four --------------------------------------------------------
 reset
