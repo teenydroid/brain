@@ -82,6 +82,7 @@ import argparse
 import concurrent.futures
 import contextlib
 import datetime as dt
+import difflib
 import fcntl
 import hashlib
 import json
@@ -1211,17 +1212,133 @@ def _safe_path(tree: Path, rel: Any) -> Path:
     return path
 
 
-def apply_edits(tree: Path, edits: Any) -> list[str]:
+#: Where a quoted passage of a file marks the first point its text parts
+#: from an old text that did not apply.
+DIFF_MARK = "⟦here⟧"
+#: How much of the file a did-not-apply finding quotes back, per edit.
+MAX_EXCERPT_CHARS = 700
+#: Quote and dash forms a model writes for one another; matched as the plain one.
+_FOLD = str.maketrans({c: "'" for c in "‘’‚‛′"} | {c: '"' for c in "“”„‟″"}
+                      | {c: "-" for c in "‐‑‒–—―−"})
+
+
+class EditsDidNotApply(EvolveError):
+    """Edits whose old text is not in the file exactly once. FAILURES: one
+    per such edit, {index, path, count, folded, where, excerpt, problem, old,
+    new}, the excerpt the closest passage of the file with DIFF_MARK where
+    it first parts from the old text."""
+
+    def __init__(self, failures: list[Json]) -> None:
+        super().__init__("; ".join(f["problem"] for f in failures))
+        self.failures = failures
+
+
+def _folded(text: str) -> tuple[str, list[int], list[int]]:
+    """TEXT with every run of whitespace as one space and quote and dash
+    forms as the plain ones, and for each of its characters where it starts
+    and ends in TEXT."""
+    out: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i, n = 0, len(text)
+    while i < n:
+        j = i + 1
+        if text[i].isspace():
+            while j < n and text[j].isspace():
+                j += 1
+            out.append(" ")
+        else:
+            out.append(text[i].translate(_FOLD))
+        starts.append(i)
+        ends.append(j)
+        i = j
+    return "".join(out), starts, ends
+
+
+def _find_all(text: str, part: str) -> list[int]:
+    out, at = [], text.find(part)
+    while at >= 0 and part:
+        out.append(at)
+        at = text.find(part, at + 1)
+    return out
+
+
+def _line(text: str, at: int) -> int:
+    return text.count("\n", 0, at) + 1
+
+
+def closest_passage(text: str, old: str) -> tuple[str, int]:
+    """The passage of TEXT nearest OLD, bounded (MAX_EXCERPT_CHARS), with
+    DIFF_MARK where TEXT first parts from OLD, and that point's line. The
+    longest start of OLD found in TEXT (whitespace and quote forms folded)
+    places it; with none worth the name, the longest run they share."""
+    ftext, starts, ends = _folded(text)
+    fold = _folded(old)[0]
+    lo, hi = 0, len(fold)
+    while lo < hi:  # the longest prefix of FOLD found in FTEXT
+        mid = (lo + hi + 1) // 2
+        if fold[:mid] in ftext:
+            lo = mid
+        else:
+            hi = mid - 1
+    if lo >= min(24, len(fold)):
+        begin = ftext.find(fold[:lo])
+        split = begin + lo
+    else:
+        match = difflib.SequenceMatcher(None, ftext, fold, autojunk=False).find_longest_match(0, len(ftext), 0, len(fold))
+        begin, split = match.a, match.a + match.size
+    at = starts[split] if split < len(starts) else len(text)
+    first = starts[begin] if begin < len(starts) else len(text)
+    left = max(0, min(first, at - MAX_EXCERPT_CHARS // 2))
+    right = min(len(text), left + MAX_EXCERPT_CHARS)
+    left = max(0, min(left, right - MAX_EXCERPT_CHARS))
+    excerpt = text[left:at] + DIFF_MARK + text[at:right]
+    return (("…" if left else "") + excerpt + ("…" if right < len(text) else "")), _line(text, at)
+
+
+def _edit_failure(index: int, rel: str, current: str, old: str, new: str, count: int, folded: list[int]) -> Json:
+    """What a did-not-apply edit is told: how often its old text occurs,
+    where, and, when it occurs nowhere, the passage it parts from."""
+    fail: Json = {"index": index, "path": rel, "count": count, "folded": len(folded),
+                  "old": old[:1500], "new": new[:1500]}
+    problem = f"{rel}: the old text occurs {count} times, not once"
+    if count > 1:
+        lines = [_line(current, at) for at in _find_all(current, old)][:5]
+        fail["where"] = "lines " + ", ".join(map(str, lines))
+        problem += f" ({fail['where']}): quote more of the text around it, so it occurs once"
+    elif len(folded) > 1:
+        ftext, starts, _ = _folded(current)
+        lines = [_line(current, starts[at]) for at in folded][:5]
+        fail["where"] = "lines " + ", ".join(map(str, lines))
+        problem += (f"; with whitespace and quote forms folded it occurs {len(folded)} times ({fail['where']}): "
+                    "quote more of the text around it, so it occurs once")
+    else:
+        fail["excerpt"], line = closest_passage(current, old)
+        fail["where"] = f"near line {line}"
+        problem += f", even with whitespace and quote forms folded; the file parts from it {fail['where']}"
+    fail["problem"] = problem
+    return fail
+
+
+def apply_edits(tree: Path, edits: Any, notes: list[str] | None = None) -> list[str]:
     """The proposer's edits, written by this script: each {path, old, new}
     replaces the one occurrence of OLD in PATH, and an empty OLD creates PATH,
-    which must not exist yet. Refused whole when any one does not apply."""
+    which must not exist yet. Refused whole when any one does not apply.
+
+    An OLD found nowhere as written is matched once more with every run of
+    whitespace as one space and quote and dash forms as the plain ones
+    (gens 16 and 17: the file's own words with its line wraps joined); one
+    found exactly once that way is replaced, NEW written as it is, and
+    NOTES says so. Nothing is applied on likeness alone. Every edit that
+    still does not apply is named (EditsDidNotApply), with where."""
     if not isinstance(edits, list) or not edits:
         raise EvolveError("the proposal has no edits")
     if len(edits) > MAX_EDITS:
         raise EvolveError(f"{len(edits)} edits; the most is {MAX_EDITS}")
     planned: dict[Path, str] = {}
+    failures: list[Json] = []
     total = 0
-    for edit in edits:
+    for index, edit in enumerate(edits):
         if not isinstance(edit, Mapping) or not isinstance(edit.get("new"), str) or not isinstance(edit.get("old", ""), str):
             raise EvolveError("an edit is {path, old, new}, with strings")
         path = _safe_path(tree, edit.get("path"))
@@ -1238,9 +1355,22 @@ def apply_edits(tree: Path, edits: Any) -> list[str]:
         if current is None:
             raise EvolveError(f"{path.relative_to(tree)} does not exist")
         count = current.count(old)
-        if count != 1:
-            raise EvolveError(f"{path.relative_to(tree)}: the old text occurs {count} times, not once")
-        planned[path] = current.replace(old, new, 1)
+        if count == 1:
+            planned[path] = current.replace(old, new, 1)
+            continue
+        ftext, starts, ends = _folded(current)
+        fold = _folded(old)[0]
+        found = _find_all(ftext, fold) if count == 0 and fold.strip() else []
+        if len(found) == 1:
+            begin, end = starts[found[0]], ends[found[0] + len(fold) - 1]
+            planned[path] = current[:begin] + new + current[end:]
+            if notes is not None:
+                notes.append(f"{path.relative_to(tree)}: the old text matched once with whitespace and quote forms "
+                             f"folded (line {_line(current, begin)})")
+            continue
+        failures.append(_edit_failure(index, str(path.relative_to(tree)), current, old, new, count, found))
+    if failures:
+        raise EditsDidNotApply(failures)
     if total > MAX_EDIT_CHARS:
         raise EvolveError(f"the edits write {total} characters; the most is {MAX_EDIT_CHARS}")
     for path, text in planned.items():
@@ -1703,15 +1833,19 @@ MAX_PROPOSER_PROMPT_BYTES = 60 * 1024
 def fit_request(request: Json, limit: int = MAX_PROPOSER_PROMPT_BYTES, render: Any = None) -> Json:
     """The request, cut until its message (RENDER, render_request by
     default) fits the core's prompt screen: the largest shown files are
-    dropped first, and the message names them (they stay editable). A
-    request that fits comes back as it is."""
+    dropped first, and the message names them (they stay editable), the
+    files in KEEP (research named them, or an edit to them did not apply)
+    last of all: gens 16 and 17 dropped brain/CONTEXT.md, the file their
+    research named, and the proposer quoted it from memory. A request that
+    fits comes back as it is."""
     render = render or render_request
     if len(render(request).encode("utf-8")) <= limit:
         return request
     fitted = dict(request, files=dict(request["files"]), readonly=dict(request.get("readonly") or {}),
                   omitted=list(request.get("omitted", [])))
     shown = [("readonly", r) for r in fitted["readonly"]] + [("files", r) for r in fitted["files"]]
-    for key, rel in sorted(shown, key=lambda kr: len(fitted[kr[0]][kr[1]].encode("utf-8")), reverse=True):
+    keep = set(request.get("keep") or [])
+    for key, rel in sorted(shown, key=lambda kr: (kr[1] in keep, -len(fitted[kr[0]][kr[1]].encode("utf-8")))):
         del fitted[key][rel]
         if key == "files":
             fitted["omitted"].append(rel)
@@ -1756,8 +1890,10 @@ def render_request(request: Json) -> str:
     for rel, text in (request.get("readonly") or {}).items():
         parts.append(f"## file (read only, not yours to change): {rel}\n\n````text\n{text}\n````")
     if request.get("omitted"):
-        parts.append("## files left out to fit the message\n\nThese are editable but not shown; change them only "
-                     "if you know what they hold:\n" + "\n".join(f"- {rel}" for rel in request["omitted"]))
+        parts.append("## files left out to fit the message\n\nThese are editable but not shown, so leave them: an "
+                     "edit's old text is copied from a file shown in this message, never from memory (your SOUL and "
+                     "CONTEXT as you know them may not be the file's words):\n"
+                     + "\n".join(f"- {rel}" for rel in request["omitted"]))
     rejected = request.get("rejected")
     if rejected:
         parts.append("## your last edits did not apply\n\n"
@@ -4688,7 +4824,8 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             readonly = {} if in_place else read_pack(tree, research["read"], editable, budget_chars // 3)
             editable, files = context_pack(tree, research["read"],
                                            budget_chars - sum(len(t) for t in readonly.values()))
-            request.update(editable=editable, files={} if in_place else files, readonly=readonly)
+            request.update(editable=editable, files={} if in_place else files, readonly=readonly,
+                           keep=list(research["read"]))
 
         if not research.get("error"):
             request["research"] = research
@@ -4782,8 +4919,39 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
             break
         rejected = None
         if not in_place or proposal.get("edits"):
+            tolerated: list[str] = []
             try:
-                apply_edits(tree, proposal.get("edits"))
+                try:
+                    apply_edits(tree, proposal.get("edits"), tolerated)
+                except EditsDidNotApply as exc:
+                    # The rest of the answer stands: the failing edits alone
+                    # are asked for again, shown the passage, in the shape
+                    # repair's turn and under its cap; no round is spent.
+                    fixed = None
+                    if shape_repairs(rounds) < MAX_SHAPE_REPAIRS:
+                        rec["repair_failed"] = ["edits"]
+                        save_rounds(gdir, i, learning, rounds)
+                        fixed = repair_edits(proposer, request, proposal, exc, rnd)
+                    if fixed is None:
+                        raise
+                    say(f"candidate {i}: the edits did not apply ({str(exc)[:120]}); asked for them alone")
+                    apply_edits(tree, fixed["edits"], tolerated)
+                    rec.pop("repair_failed", None)
+                    rec.update(proposal=fixed, repaired=["edits"])
+                    proposal = fixed
+                    save_rounds(gdir, i, learning, rounds)
+            except EditsDidNotApply as exc:
+                # Shown why, next round, with the passages its old texts
+                # part from, and those files shown whole from then on.
+                say(f"candidate {i}: the edits did not apply ({str(exc)[:120]})")
+                rejected = {"error": str(exc)[:500], "edits": proposal.get("edits")}
+                rec["rejected"] = rejected
+                findings = [{"file": f["path"], "problem": edit_problem(f),
+                             "fix": "copy the old text character for character from the passage, so it occurs once"}
+                            for f in exc.failures[:MAX_FINDINGS]]
+                show_files(tree, request, [f["path"] for f in exc.failures], in_place)
+                keep(rec, "did-not-apply", findings)
+                continue
             except EvolveError as exc:
                 # Shown why, next round (gen 9: an old text that left a
                 # sentence out of the line it quoted). apply_edits writes
@@ -4795,6 +4963,10 @@ def propose_one(cfg: Config, proposer: Proposer, src: Source, base: str, gen: in
                              "fix": "copy each old text character for character from the file, so it occurs once"}]
                 keep(rec, "did-not-apply", findings)
                 continue
+            for note in tolerated:
+                say(f"candidate {i}: {note}")
+            if tolerated:
+                rec["tolerated"] = tolerated
         try:
             # Against the tree with its edits: a playbook or job the change
             # adds can be checked. What the code cannot count goes back.
@@ -4982,7 +5154,10 @@ def shape_repairs(rounds: list[Json]) -> int:
 
 def repair_text(request: Mapping[str, Any]) -> str:
     """A shape repair's message: the change's own account, what is missing
-    or unusable, and those fields alone to answer. Small and tool-less."""
+    or unusable, and those fields alone to answer. Small and tool-less. An
+    edit repair (repair_edits) has its own (edit_repair_text)."""
+    if request.get("edits_failed"):
+        return edit_repair_text(request)
     proposal = request.get("proposal") or {}
     missing = list(request.get("missing") or [])
     parts = [
@@ -5030,6 +5205,91 @@ def repair_shape(proposer: Proposer, request: Json, answer: Mapping[str, Any], g
         return check_proposal({**answer, **{k: got[k] for k in gaps if k in got}})
     except (Skipped, EvolveError):
         return None
+
+
+#: Did-not-apply edits one edit repair asks for again; the rest wait for a round.
+MAX_REPAIR_EDITS = 3
+
+
+def edit_problem(failure: Mapping[str, Any]) -> str:
+    """A did-not-apply edit as a finding: how often, where, and the passage."""
+    out = f"the edit did not apply: {failure['problem']}"
+    if failure.get("excerpt"):
+        out += f". The file there, {DIFF_MARK} where your old text parts from it:\n\n{failure['excerpt']}"
+    return out[:MAX_EXCERPT_CHARS + 600]
+
+
+def show_files(tree: Path, request: Json, paths: Iterable[str], in_place: bool) -> None:
+    """PATHS shown whole in the next round's request and kept when it is
+    cut to fit (fit_request): an edit to them did not apply, so the next
+    answer copies from the file, not from memory."""
+    files = request.setdefault("files", {})
+    keep_list = list(request.get("keep") or [])
+    for rel in paths:
+        if not in_place and rel not in files:
+            try:
+                files[rel] = (tree / rel).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+        if rel not in keep_list:
+            keep_list.append(rel)
+    request["keep"] = keep_list
+
+
+def repair_edits(proposer: Proposer, request: Json, proposal: Mapping[str, Any], problem: EditsDidNotApply,
+                 rnd: int) -> Json | None:
+    """An edit repair, the shape repair's turn (`repair`) for edits: the
+    proposal whose only fault is edits that did not apply is asked for
+    those edits alone (up to MAX_REPAIR_EDITS), each shown the passage of
+    its file it parts from. Their answers replace them in place; every other
+    field and edit is kept. None when there is no such turn, it fails, or
+    its answer is not one edit for each asked: the caller sends a finding,
+    next round. The caller holds the cap (MAX_SHAPE_REPAIRS, shared) and
+    records the try on the round."""
+    ask = getattr(proposer, "repair", None)
+    failures = problem.failures[:MAX_REPAIR_EDITS]
+    edits = proposal.get("edits")
+    if ask is None or not failures or len(failures) < len(problem.failures) or not isinstance(edits, list):
+        return None
+    try:
+        got = ask({"gen": request["gen"], "cand": request["cand"], "round": rnd, "missing": ["edits"],
+                   "problem": str(problem)[:400], "edits_failed": failures,
+                   "proposal": {k: proposal.get(k) for k in ("title", "component", "expected_move", "hypothesis")}})
+    except (EvolveError, OSError) as exc:
+        say(f"candidate {request['cand']}: the edit repair failed ({str(exc)[:120]})")
+        return None
+    answered = got.get("edits") if isinstance(got, Mapping) else None
+    if not isinstance(answered, list) or len(answered) != len(failures):
+        return None
+    out = list(edits)
+    for failure, edit in zip(failures, answered):
+        if not isinstance(edit, Mapping) or not isinstance(edit.get("old"), str) or not isinstance(edit.get("new"), str):
+            return None
+        out[failure["index"]] = {"path": failure["path"], "old": edit["old"], "new": edit["new"]}
+    return {**proposal, "edits": out}
+
+
+def edit_repair_text(request: Mapping[str, Any]) -> str:
+    """An edit repair's message: the change's account, each edit that did
+    not apply with the passage of its file, and those edits alone to answer."""
+    proposal = request.get("proposal") or {}
+    parts = [f"# evolve: generation {request.get('gen')}, candidate {request.get('cand')}: edits to fix",
+             "Your change is kept as it is; only these edits could not be applied, because each old text must be "
+             "copied character for character from the file and occur in it once. Only they are asked again.",
+             "Your change, as data:\n\n```json\n" + json.dumps(
+                 {k: proposal.get(k) for k in ("title", "expected_move")}, ensure_ascii=False)[:600] + "\n```"]
+    for n, failure in enumerate(request.get("edits_failed") or [], 1):
+        part = f"## edit {n}: {failure.get('path')}\n\n{failure.get('problem')}"
+        if failure.get("excerpt"):
+            part += (f"\n\nThe file {failure.get('where')}, {DIFF_MARK} where your old text parts from it (the "
+                     f"mark is not in the file):\n\n````text\n{failure['excerpt']}\n````")
+        part += (f"\n\nYour old text:\n\n````text\n{str(failure.get('old'))[:800]}\n````\n\nYour new text:"
+                 f"\n\n````text\n{str(failure.get('new'))[:1500]}\n````")
+        parts.append(part)
+    parts.append('Answer with JSON only, no prose and no code fence: {"edits": [{"path": "...", "old": "...", '
+                 '"new": "..."}]}, one edit for each above, in the same order, each old text copied from its file '
+                 "as quoted here, without the mark; the new text as you meant it.")
+    return "\n\n".join(parts)
 
 
 def gate_table(cand: Mapping[str, Any]) -> str:
