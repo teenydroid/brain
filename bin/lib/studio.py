@@ -918,7 +918,7 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
 
 
 def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | None,
-                  fix: list[tuple[str, str]] | None = None) -> str:
+                  fix: list[tuple[str, str]] | None = None, hook: Json | None = None) -> str:
     fmt = pitch["format"]
     if fmt == "thread":
         shape = '{"posts": ["...", "..."], "meaning": "...", "open_question": "<optional>"}'
