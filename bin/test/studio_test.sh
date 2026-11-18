@@ -294,6 +294,13 @@ check "--desk replays a saved desk, reading no hand at all" \
   bash -c "[ \"\$(jq -r .outcome <<<\"\$1\")\" = picked ] && ! grep -qvE '^story record-run' '$FAKE_HANDS'" _ "$out"
 check "and records which desk it replayed" test "$(last_record | jq -r .inputs.desk_file)" = "$scratch/saved.json"
 
+# --- the fixed case: the autosave story (bin/test/fixtures) ---------------------------
+reset
+out="$(STUDIO_RUN_ID="$plain_id" FAKE_PITCH_ANSWER='{"pitches": [{"id": "p1", "item": "gh:teenydroid/brain#autosave", "storyline": "night-shift", "shape": "confession", "format": "post", "angle": "a", "why_now": "w"}]}' \
+  run --dry-run --desk "$here/fixtures/studio-autosave-desk.json" --no-outside --no-slot)"
+check "the autosave desk replays: its one item can be pitched and drafted" \
+  jqe '.outcome == "picked" and .pick.pitch == "p1" and .pick.storyline == "night-shift"' <<<"$out"
+
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
   exit 1
