@@ -6,6 +6,8 @@
   R  audit [--storyline K] every beat's refs resolve to a real row or file
   A  beat                  record a posted beat (JSON on stdin); DRY_RUN writes nothing
   O  seed                  insert the seed storylines the ledger lacks
+  J  record-run            keep one bin/studio run record (JSON on stdin), under DRY_RUN too
+  R  runs [--limit N] [--full]  the newest studio runs (runs.py)
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import argparse
 from typing import Any
 
 from .. import hand
-from . import audit, desk, store
+from . import audit, desk, runs, store
 
 
 def _bounded(low: int, high: int, name: str):
@@ -44,6 +46,11 @@ def parser() -> argparse.ArgumentParser:
         "--storyline", default=None)
     verb("beat", lambda a, body: store.beat(body), "record a posted beat (JSON on stdin)", takes_body=True)
     verb("seed", lambda a, _: store.seed(), "insert the seed storylines the ledger lacks")
+    verb("record-run", lambda a, body: runs.record(body), "keep one studio run record (JSON on stdin)",
+         takes_body=True)
+    listed = verb("runs", lambda a, _: runs.runs(a.limit, a.full), "the newest studio runs")
+    listed.add_argument("--limit", type=_bounded(1, 100, "--limit"), default=runs.LIMIT_DEFAULT)
+    listed.add_argument("--full", action="store_true")
     return root
 
 
