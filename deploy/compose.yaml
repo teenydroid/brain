@@ -249,6 +249,9 @@ services:
     cpus: 4
     mem_limit: 4g
     pids_limit: 512
+    environment:
+      # The image's user has no writable home; caches go to the tmpfs.
+      HOME: /tmp
     volumes:
       - reel-storage:/MoneyPrinterTurbo/storage
       - ./reel.config.toml:/MoneyPrinterTurbo/config.toml:ro
