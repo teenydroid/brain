@@ -99,7 +99,7 @@ def encode(image: Any, ext: str, limit: int = X_IMAGE_MAX_BYTES) -> tuple[bytes,
         if min(width, height) < MIN_SIDE:
             raise hand.Refused(f"the picture cannot be brought under {limit:,} bytes without going below "
                                f"{MIN_SIDE} pixels a side", rule="size")
-        current = current.resize((width, height), Image.LANCZOS)
+        current = current.resize((width, height), Image.Resampling.LANCZOS)
 
 
 def under_limit(data: bytes, ext: str, limit: int = X_IMAGE_MAX_BYTES) -> tuple[bytes, str, dict[str, Any] | None]:
