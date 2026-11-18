@@ -909,6 +909,9 @@ def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -
     """What one draft may draw on, as `hands/guard truth` takes `facts`: the
     outside story it joins (its headline, what it says, the posts quoted),
     Teeny's own item, the storyline."""
+    if hook:
+        # How big a story is, is not something the story says.
+        hook = {k: v for k, v in hook.items() if k not in ("trend", "trending")}
     return [f for f in (hook, item, story) if f]
 
 
@@ -2043,7 +2046,8 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         for i in items if isinstance(items, list) else []:
             if isinstance(i, dict) and i.get("id") is not None:
                 known_items[str(i.get("id"))] = i
-                outside_ids.add(str(i.get("id")))
+                if i.get("trending") is True:
+                    outside_ids.add(str(i.get("id")))
     stories = {s["key"]: s for s in lean["stories"] if isinstance(s.get("key"), str)}
     record["inputs"] = {"digest": hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16],
                         "happened": len(inputs.get("happened") or []),
@@ -2052,11 +2056,15 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                         "skipped": list(room.skipped),
                         "desk_file": args.desk}
     record["outside"] = {"available": bool(outside_ids), "stories": len(outside_ids), "sources": room.outside_notes}
+    want_hooks = hooks_wanted(cfg.draft_top)
     if args.no_outside:
         record["outside"]["read"] = False
     elif not outside_ids:
-        record["warnings"].append("the outside world could not be read (" + (", ".join(unavailable) or "every source "
-                                  "was empty") + "): the pitches came from Teeny's own events alone")
+        record["warnings"].append("no trending story could be read (" + (", ".join(unavailable) or "nothing passed "
+                                  "the trending bars") + "): the pitches came from Teeny's own events alone")
+    elif len(outside_ids) < want_hooks:
+        record["warnings"].append(f"only {len(outside_ids)} trending stories today, fewer than the {want_hooks} hooked "
+                                  "drafts asked for: the rest come from the writer's ranking")
     if not known_items:
         raise Stop("skipped", "nothing happened to write from")
 
@@ -2071,7 +2079,9 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         raise Stop("failed", f"the pitch answer has no pitches: {exc}", 1, failure="studio") from exc
     # The record's pitches carry the outside story each joins, resolved, and
     # whether it was drafted; the pitches themselves go to the writer as is.
-    shown_pitches = [dict(p, hook_item=known_items.get(p["hook"]) if p.get("hook") else None, drafted=False)
+    shown_pitches = [dict(p, hook_item=known_items.get(p["hook"]) if p.get("hook") else None,
+                          hook_trend=(known_items.get(p["hook"]) or {}).get("trend") if p.get("hook") else None,
+                          drafted=False)
                      for p in pitches]
     record.update({"pitches": shown_pitches, "pitches_dropped": dropped, "writer_ranking": ranked})
     if not pitches:
@@ -2119,6 +2129,10 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                 for d, _ in kept:
                     d["id"] = f"d{len(drafts) + 1}"
                     d["truth"] = {"text": "\n\n".join(texts_of(d)), "facts": facts}
+                    if hook:
+                        # What the editor is told of the story a draft joins:
+                        # its headline and how big it is today.
+                        d["joins"] = {"story": hook.get("title"), "trend": hook.get("trend")}
                     drafts.append(d)
                 drafts_dropped.extend({"pitch": pid, "draft": {k: d[k] for k in ("text", "posts") if k in d}, "why": why}
                                       for d, why in refused)
