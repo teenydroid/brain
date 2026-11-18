@@ -1372,6 +1372,7 @@ Every check runs, and each is `{check, ok, detail}`; the hard ones carry
 | does more than run less | the diff touches only `brain/cron.toml`, and all it does is run jobs less. Turning off a job `outcomes.failing` shows failing passes; thinning never does |
 | new hands are called | a new hand that no line the diff adds under `brain/` calls |
 | does more than mark an arc | the diff touches only `brain/narrative/ARCS.md` and changes a `- status:` line |
+| changes something that runs | the diff touches only files nothing that runs on the box reads (`INERT_PATHS`: `brain/MEMORY.seed.md`, which only starts a brand-new `brain/MEMORY.md`, and `brain/assets/tiny/README.md`, which describes reference art nothing names). From gen 16, candidate 1 (PR #361): one line added to the seed, "the seed of the page", which no prompt reads while the live page exists; the eval, whose labs do start from the seed, said no detectable difference. An inert file beside a live one passes. The brief and the research turn say so, and that a learning already on the live page needs a change where a prompt reads it, or a skip as `already` |
 | `seed-cron --check` | the candidate's `cron.toml` breaks a cron rule, with main's pinned jobs |
 | `doctor --root` | `bin/doctor --root <candidate>` fails |
 | eval invariants | `bin/eval invariants --root <candidate>` finds an anchor gone |
