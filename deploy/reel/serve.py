@@ -3,142 +3,123 @@
 
 Upstream's code (vendor/moneyprinter, a submodule pinned to a release tag) is
 never edited. This file runs beside it in the image: it imports upstream's
-FastAPI app as it is and puts two things in front of it.
+FastAPI app as it is and puts Teeny's rules in front of it. What it allows is
+plain code in policy.py (no upstream import), which hands/tests/reel tests.
 
 1. One route of Teeny's own, `POST /teeny/v1/reels`, that takes the job
    hands/reel sends and hands it to upstream's own task queue. It pins the
    operator's rules whatever the body says (Teeny's own stills and clips in
    order, one video, no stock, no generated script, no random or bundled
-   song, no upload), refuses a field it does not know, and, for a song, copies
-   the track from the read-only media mount into the job's own task folder.
-   Upstream's HTTP API takes `custom_audio_file` only from inside that folder,
-   which a caller cannot write to before the task exists; copying it in here
-   keeps upstream's own check (task-local audio only) in force rather than
-   switching it off.
-2. A path allowlist: every other route upstream serves (script and term
-   generation through a model, stock search, uploads, the music and material
-   upload endpoints, the static file mounts) answers 403. What stays open is
-   what hands/reel uses: the task status, its download, its deletion, and the
-   health check.
+   song, no upload), refuses a field it does not know, checks what upstream
+   would only find out later (the font, the colours), and caps the body,
+   the script, the materials and every file's size.
+2. Each job's files are copied, off the event loop, out of the read-only
+   media mount into a folder of the job's own on the storage volume:
+   upstream reads local materials only from storage/local_videos/ and
+   writes beside them (a still becomes a clip next to it), a bed only from
+   storage/bgm/, and, over HTTP, a track only from the task's own folder.
+   Copying keeps each of those upstream checks in force.
+3. A path allowlist (policy.Gate): every other route upstream serves
+   (script and term generation through a model, stock search, uploads, the
+   static file mounts) answers 403.
+4. Cleanup: a task's staged files go when hands/reel deletes the task; at
+   start every leftover of an earlier run is removed (upstream keeps task
+   state in memory, so a restart orphans them); and a sweep every
+   REEL_REAP_MINUTES (60) removes any task nobody collected, for instance
+   after the hand gave up waiting.
 
-Nothing here reaches the network. The voice (Edge TTS) is upstream's own call.
+Network: the only outbound call this service makes is upstream's Edge TTS
+request (speech.platform.bing.com, Microsoft's unofficial endpoint). No
+model, stock library, upload service or update check is configured or run.
+Compose does not restrict egress today; deploy/README.md says how to.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
+import sys
+import threading
+import time
 
-import uvicorn
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
-from pydantic import ValidationError
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.asgi import app
-from app.config import config
-from app.controllers.manager.base_manager import TaskQueueFullError
-from app.controllers.v1 import video as video_api
-from app.models.schema import TaskVideoRequest
-from app.services import state as sm
-from app.services import task as tm
-from app.utils import file_security, utils
+import uvicorn  # noqa: E402
+from fastapi import APIRouter, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
+from starlette.concurrency import run_in_threadpool  # noqa: E402
+
+import policy  # noqa: E402
+from app.asgi import app  # noqa: E402
+from app.config import config  # noqa: E402
+from app.controllers.manager.base_manager import TaskQueueFullError  # noqa: E402
+from app.controllers.v1 import video as video_api  # noqa: E402
+from app.models.schema import TaskVideoRequest  # noqa: E402
+from app.services import state as sm  # noqa: E402
+from app.services import task as tm  # noqa: E402
+from app.utils import utils  # noqa: E402
 
 #: Where compose mounts Teeny's media, read-only: state/media/ as media/,
 #: brain/assets/ as assets/. A job names its files relative to this.
 TEENY = os.environ.get("TEENY_MEDIA", "/teeny")
-#: Upstream reads local materials only from storage/local_videos/ and writes
-#: beside them (an image becomes a clip next to it), and a bed only from
-#: storage/bgm/. So each job's files are copied into a folder of its own
-#: there, on the reel-storage volume, and removed with the task.
 LOCAL_VIDEOS = utils.storage_dir("local_videos", create=True)
 BEDS = utils.storage_dir("bgm", create=True)
-
-#: Whatever the body says, these hold.
-PINNED = {
-    "video_source": "local",
-    "video_concat_mode": "sequential",
-    "video_count": 1,
-    "match_materials_to_script": False,
-    "video_terms": None,
-    "video_music_prompt": "",
-    "sonilo_bgm_prompt": "",
-    "video_script_prompt": "",
-    "custom_system_prompt": "",
-    "paragraph_number": 1,
-}
-
-#: The fields a job may set (all of them VideoParams fields upstream), plus
-#: `audio`, the song's track, which only this front reads.
-ALLOWED = {
-    "video_subject",
-    "video_script",
-    "video_aspect",
-    "video_fit_mode",
-    "image_motion",
-    "video_concat_mode",
-    "video_transition_mode",
-    "video_clip_duration",
-    "video_count",
-    "video_source",
-    "video_materials",
-    "match_materials_to_script",
-    "video_language",
-    "voice_name",
-    "voice_volume",
-    "voice_rate",
-    "bgm_type",
-    "bgm_file",
-    "bgm_volume",
-    "subtitle_enabled",
-    "subtitle_position",
-    "subtitle_display_mode",
-    "subtitle_animation",
-    "custom_position",
-    "font_name",
-    "text_fore_color",
-    "text_background_color",
-    "rounded_subtitle_background",
-    "font_size",
-    "stroke_color",
-    "stroke_width",
-    "n_threads",
-    "audio",
-}
-
-AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"}
-#: Only Edge voices: their word timing is exact, and they need no key.
-EDGE_VOICE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}-[A-Za-z]+Neural(-Female|-Male)?$")
+TASKS = utils.task_dir()
+FONTS = utils.font_dir()
+REAP_SECONDS = max(10, int(os.environ.get("REEL_REAP_MINUTES", "60"))) * 60
 
 
 def _refuse(status: int, message: str) -> JSONResponse:
     return JSONResponse({"status": status, "message": message}, status_code=status)
 
 
-def _source(path: object) -> str:
-    """The real file behind a job's path: under media/ or assets/ of the
-    read-only mount, symlinks and `..` resolved first."""
-    if not isinstance(path, str) or not path.startswith(("media/", "assets/")):
-        raise ValueError("a file is a path under media/ or assets/")
-    return file_security.resolve_path_within_directory(TEENY, path)
-
-
 def _staged(task_id: str) -> str:
     return os.path.join(LOCAL_VIDEOS, f"teeny-{task_id}")
 
 
-def _bed_name(task_id: str, suffix: str) -> str:
-    return f"teeny-{task_id}-bed{suffix}"
-
-
 def _clean(task_id: str) -> None:
+    """A task's staged copies and its bed."""
     shutil.rmtree(_staged(task_id), ignore_errors=True)
     for name in os.listdir(BEDS):
-        if name.startswith(f"teeny-{task_id}-bed"):
+        if name.startswith(f"teeny-{task_id}-"):
             try:
                 os.remove(os.path.join(BEDS, name))
             except OSError:
                 pass
+
+
+def _stage(task_id: str, checked: dict) -> dict:
+    """Resolves and copies the job's files into the task's own folders; the
+    job's fields with the copies' paths. Runs in a worker thread."""
+    materials = [policy.resolve_source(TEENY, path) for path in checked["materials"]]
+    bed = policy.resolve_source(TEENY, checked["bed"], policy.AUDIO_MAX_BYTES) if checked["bed"] else None
+    track = policy.resolve_source(TEENY, checked["audio"], policy.AUDIO_MAX_BYTES) if checked["audio"] else None
+    fields = dict(checked["fields"])
+    staged = _staged(task_id)
+    os.makedirs(staged)
+    fields["video_materials"] = []
+    for index, source in enumerate(materials):
+        copy = os.path.join(staged, f"{index:02d}{os.path.splitext(source)[1].lower()}")
+        shutil.copyfile(source, copy)
+        fields["video_materials"].append({"provider": "local", "url": copy})
+    if bed:
+        name = f"teeny-{task_id}-bed{os.path.splitext(bed)[1].lower()}"
+        shutil.copyfile(bed, os.path.join(BEDS, name))
+        fields["bgm_file"] = name
+    if track:
+        # Upstream's HTTP API takes custom audio only from the task's own
+        # folder; the track is put there, and that check stays in force.
+        name = f"teeny-audio{os.path.splitext(track)[1].lower()}"
+        shutil.copyfile(track, os.path.join(utils.task_dir(task_id), name))
+        fields["custom_audio_file"] = name
+    return fields
+
+
+def _forget(task_id: str) -> None:
+    sm.state.delete_task(task_id)
+    shutil.rmtree(os.path.join(TASKS, task_id), ignore_errors=True)
+    _clean(task_id)
 
 
 router = APIRouter()
@@ -146,81 +127,41 @@ router = APIRouter()
 
 @router.post("/teeny/v1/reels")
 async def create_reel(request: Request):
+    length = request.headers.get("content-length")
+    if length is None or not length.isdigit() or int(length) > policy.MAX_BODY_BYTES:
+        return _refuse(413, f"a job is at most {policy.MAX_BODY_BYTES} bytes, with a content-length")
+    raw = await request.body()
+    if len(raw) > policy.MAX_BODY_BYTES:
+        return _refuse(413, f"a job is at most {policy.MAX_BODY_BYTES} bytes")
     try:
-        body = await request.json()
-    except ValueError:
-        return _refuse(400, "the body is not JSON")
-    if not isinstance(body, dict):
-        return _refuse(400, "the body is a JSON object")
-    unknown = sorted(set(body) - ALLOWED)
-    if unknown:
-        return _refuse(400, f"not taken here: {', '.join(unknown)}")
-    for key, value in PINNED.items():
-        if key in body and body[key] != value:
-            return _refuse(400, f"{key} is always {value!r}")
-    bgm_type = body.get("bgm_type", "")
-    if bgm_type not in ("", "custom"):
-        return _refuse(400, "bgm_type is '' (no bed) or 'custom' (a named file)")
-    if bgm_type == "custom" and not body.get("bgm_file"):
-        return _refuse(400, "a custom bed names its bgm_file")
-    if bgm_type == "" and body.get("bgm_file"):
-        return _refuse(400, "bgm_file needs bgm_type 'custom'")
-    voice = body.get("voice_name", "")
-    if voice and not EDGE_VOICE.match(str(voice)):
-        return _refuse(400, "voice_name is an Edge voice")
-    materials = body.get("video_materials") or []
-    if not isinstance(materials, list) or not materials:
-        return _refuse(400, "video_materials lists Teeny's own stills and clips")
-    audio = body.pop("audio", None)
-    try:
-        sources = []
-        for item in materials:
-            if not isinstance(item, dict) or item.get("provider", "local") != "local" or set(item) - {"provider", "url"}:
-                raise ValueError("a material is {provider: 'local', url}")
-            sources.append(_source(item.get("url")))
-        bed = _source(body["bgm_file"]) if body.get("bgm_file") else None
-        track = _source(audio) if audio else None
-        for path in (bed, track):
-            if path and os.path.splitext(path)[1].lower() not in AUDIO_SUFFIXES:
-                raise ValueError("a bed or a track is an mp3, wav, m4a, aac, flac, ogg or opus file")
-    except ValueError as exc:
-        return _refuse(400, str(exc))
+        import json
+
+        checked = policy.check_job(json.loads(raw), FONTS)
+    except ValueError as exc:  # JobError, or a body that is not JSON
+        return _refuse(400, str(exc) if isinstance(exc, policy.JobError) else "the body is not JSON")
 
     task_id = utils.get_uuid()
-    staged = _staged(task_id)
-    os.makedirs(staged)
-    fields = {**body, **PINNED}
-    fields["video_materials"] = []
-    for index, source in enumerate(sources):
-        copy = os.path.join(staged, f"{index:02d}{os.path.splitext(source)[1].lower()}")
-        shutil.copyfile(source, copy)
-        fields["video_materials"].append({"provider": "local", "url": copy})
-    if bed:
-        name = _bed_name(task_id, os.path.splitext(bed)[1].lower())
-        shutil.copyfile(bed, os.path.join(BEDS, name))
-        fields["bgm_file"] = name
     try:
+        fields = await run_in_threadpool(_stage, task_id, checked)
         params = TaskVideoRequest(**fields)
+    except policy.JobError as exc:
+        await run_in_threadpool(_forget, task_id)
+        return _refuse(400, str(exc))
     except ValidationError as exc:
-        _clean(task_id)
-        return _refuse(400, f"not a valid job: {exc.errors()[:3]}")
-    if track:
-        # Upstream's HTTP API takes custom audio only from the task's own
-        # folder; the track is put there, and that check stays in force.
-        name = f"teeny-audio{os.path.splitext(track)[1].lower()}"
-        shutil.copyfile(track, os.path.join(utils.task_dir(task_id), name))
-        params.custom_audio_file = name
+        await run_in_threadpool(_forget, task_id)
+        return _refuse(400, f"not a valid job: {policy.errors_text(exc.errors())}")
+    except BaseException:
+        await run_in_threadpool(_forget, task_id)
+        raise
 
     sm.state.update_task(task_id)
     try:
         video_api.task_manager.add_task(tm.start, task_id=task_id, params=params, stop_at="video")
     except TaskQueueFullError as exc:
-        sm.state.delete_task(task_id)
-        _clean(task_id)
+        await run_in_threadpool(_forget, task_id)
         return _refuse(429, str(exc))
-    except Exception:
-        sm.state.delete_task(task_id)
-        _clean(task_id)
+    except BaseException:
+        await run_in_threadpool(_forget, task_id)
         raise
     return {"status": 200, "data": {"task_id": task_id}}
 
@@ -230,25 +171,48 @@ async def create_reel(request: Request):
 app.router.routes[0:0] = router.routes
 
 
-def _open(method: str, path: str) -> bool:
-    if method == "POST" and path == "/teeny/v1/reels":
-        return True
-    if method in ("GET", "DELETE") and re.fullmatch(r"/api/v1/tasks/[0-9a-f-]{36}", path):
-        return True
-    if method in ("GET", "HEAD") and re.fullmatch(r"/api/v1/download/[0-9a-f-]{36}/final-1\.mp4", path):
-        return True
-    return method == "GET" and path == "/ping"
+def _entries(folder: str, prefix: str = "") -> list[tuple[str, float]]:
+    out = []
+    for name in os.listdir(folder):
+        if name.startswith(prefix):
+            try:
+                out.append((name, os.path.getmtime(os.path.join(folder, name))))
+            except OSError:
+                pass
+    return out
 
 
-@app.middleware("http")
-async def only_what_teeny_uses(request: Request, call_next):
-    if not _open(request.method, request.url.path):
-        return _refuse(403, "not served here")
-    response = await call_next(request)
-    if request.method == "DELETE" and response.status_code == 200:
-        _clean(request.url.path.rsplit("/", 1)[1])
-    return response
+def sweep(max_age: float) -> None:
+    """Removes tasks nobody collected and staged files nobody owns, older
+    than `max_age` seconds; a task still running is left alone."""
+    now = time.time()
+    for name in policy.stale(_entries(TASKS), now, max_age):
+        task = sm.state.get_task(name)
+        if task and tm.is_task_busy(task):
+            continue
+        _forget(name)
+    for name in policy.stale(_entries(LOCAL_VIDEOS, "teeny-"), now, max_age):
+        if not (sm.state.get_task(name[len("teeny-"):]) or {}):
+            shutil.rmtree(os.path.join(LOCAL_VIDEOS, name), ignore_errors=True)
+    for name in policy.stale(_entries(BEDS, "teeny-"), now, max_age):
+        try:
+            os.remove(os.path.join(BEDS, name))
+        except OSError:
+            pass
+
+
+def _reaper() -> None:
+    while True:
+        time.sleep(300)
+        try:
+            sweep(REAP_SECONDS)
+        except Exception as exc:  # noqa: BLE001 - a sweep must never stop the service
+            print(f"reel sweep failed: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=config.listen_host, port=config.listen_port, log_level="warning")
+    # Upstream keeps task state in memory: whatever is on the volume from an
+    # earlier run belongs to no task now.
+    sweep(-1)
+    threading.Thread(target=_reaper, name="teeny-reaper", daemon=True).start()
+    uvicorn.run(policy.Gate(app, _clean), host=config.listen_host, port=config.listen_port, log_level="warning")
