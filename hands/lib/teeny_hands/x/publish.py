@@ -128,8 +128,11 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
     """An own post, or a quote: its anchor, guard, 280, attachments, then the
     gap under the process-wide posting lock, so two jobs firing in the same
     minute cannot both read the ledger before either is recorded. `approved`:
-    a released hold, which skips the guard only (the anchor still holds)."""
+    a released hold, which skips the guard only (the anchor still holds).
+    The lab tags and the producer's tags (`rules.studio_tags`) are kept
+    beside the post, never published."""
     body, tagged = tags.split(body)
+    body, made = rules.studio_tags(body)
     text, media_ids, gif_id, quote_of = _draft(body, quote=True)
     anchor = rules.check_anchor(body.get("anchor"), quote_of)
     kind = "quote" if quote_of else "post"
@@ -166,7 +169,7 @@ def post(body: Any, x: XApi | None = None, *, approved: bool = False) -> Json:
         # raised: an error here would invite a retry that posts it twice.
         try:
             rules.record_post(conn, post_id, kind, text, quote_of=quote_of, media=media_ids, anchor=anchor,
-                              quote_author=quoted["authorId"] if quoted else None, **tagged)
+                              quote_author=quoted["authorId"] if quoted else None, **tagged, **made)
         except Exception as exc:  # noqa: BLE001
             print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
         # A quote of a peer (brain/x-peers.txt) is a touch, whoever quoted.
@@ -231,8 +234,9 @@ def thread(body: Any, x: XApi | None = None) -> Json:
     continuations are not replies, so they skip the reply pacing, the
     one-reply rule and `check_not_own`. If X fails part way, what went out
     stays, is recorded, and is reported (`sent`, `ids`) in the error; nothing
-    is retried or deleted."""
+    is retried or deleted. The producer's tags go on the head's row."""
     body, tagged = tags.split(body)
+    body, made = rules.studio_tags(body)
     texts, media_ids, gif_id = _thread_draft(body)
     rules.check_thread_size(len(texts))
     anchor = rules.check_anchor(body.get("anchor"), None)
@@ -276,7 +280,7 @@ def thread(body: Any, x: XApi | None = None) -> Json:
                 if ids:
                     rules.record_post(conn, post_id, "thread", text, in_reply_to=ids[-1], thread_of=ids[0])
                 else:
-                    rules.record_post(conn, post_id, "post", text, media=media_ids, anchor=anchor, **tagged)
+                    rules.record_post(conn, post_id, "post", text, media=media_ids, anchor=anchor, **tagged, **made)
             except Exception as exc:  # noqa: BLE001
                 print(f"hands/x: published {post_id} but could not record it: {type(exc).__name__}", file=sys.stderr)
             ids.append(post_id)
