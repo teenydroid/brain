@@ -311,7 +311,7 @@ CI (`.github/workflows/check.yml`) builds the spine and runs every test above,
 plus shellcheck and the landing page's lint and build.
 
 PR-Agent (`.github/workflows/pr-agent.yml`) reviews each pull request when it
-opens or leaves draft, and answers `/review`, `/describe`, `/improve` and
+opens or leaves draft and again on every push to it (not base-branch merges), and answers `/review`, `/describe`, `/improve` and
 `/ask` comments from the owner, members and collaborators. It runs
 `gpt-6.1-sol` (falling back to `gpt-6-luna`) on Surplus Intelligence with the
 `SURPLUS_API_KEY` repository secret, the same key as `secrets/teeny.env`. Fork

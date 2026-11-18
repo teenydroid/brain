@@ -12,13 +12,14 @@ name: PR Agent
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
 
 concurrency:
   group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: false
+  # A newer push supersedes a review still running on the old head.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pr_agent:
@@ -51,3 +52,9 @@ jobs:
           GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "false"
+          # Re-review on every push to the PR (synchronize), skipping pushes
+          # that are only a merge of the base branch or a bot's commit.
+          GITHUB_ACTION_CONFIG.HANDLE_PUSH_TRIGGER: "true"
+          GITHUB_ACTION_CONFIG.PUSH_COMMANDS: '["/review"]'
+          GITHUB_ACTION_CONFIG.PUSH_TRIGGER_IGNORE_MERGE_COMMITS: "true"
+          GITHUB_ACTION_CONFIG.PUSH_TRIGGER_IGNORE_BOT_COMMITS: "true"
