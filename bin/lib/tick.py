@@ -86,6 +86,7 @@ not learn.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import random
@@ -243,13 +244,12 @@ def _pitch_x(i):
                if i.get(k) not in (None, "", [])}
     if i.get("do") == "post_x":
         payload["was"] = "post_x"
-    ref = hashlib_ref(text)
+    ref = _pitch_ref(text)
     return "stimuli", ["add"], {"surface": "studio", "kind": "pitch", "ref": ref, "text": text, "payload": payload}
 
 
-def hashlib_ref(text: str) -> str:
+def _pitch_ref(text: str) -> str:
     """A pitch's ref: the same words filed twice are one idea."""
-    import hashlib
     return hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()[:16]
 
 
