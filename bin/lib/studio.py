@@ -161,23 +161,28 @@ DESK_SHARE = 30_000
 #: inputs, the others OUTSIDE_SHARE each.
 TREND = ["trend", "top", "--limit", "10", "--leading", "4", "--posts", "3"]
 TREND_SHARE = 14_000
-#: The second: the free sources the old playbooks read, (name, argv). Every
-#: one is optional. DRY_RUN=1 does not make these free or read-only: what
-#: each costs and writes is
-#:   hn-top, hn-show  Hacker News's public API: free, no key; each read goes
-#:                    through the hn read cache (`hn_cache` rows in hands.db)
-#:   hn-ai, hn-agents Hacker News's own search (Algolia): free, no key, the
-#:                    same cache; the last day's (two days') most-read stories
-#:                    on AI and on AI agents, Teeny's own corner of the news
-#:   heard            the listen ledger in hands.db: no network, nothing written
-#: The paid X search is not here: see X_QUERIES.
+#: The second: Hacker News's front page, (name, argv), optional. Free, no
+#: key; each read goes through the hn read cache (`hn_cache` rows in
+#: hands.db), so DRY_RUN=1 does not make it write-free. Keyword searches
+#: (`hn search`), `hn show` and the listen digest are no trend signal (the
+#: operator's review of PR #384: a keyword hit is not a story people are
+#: talking about) and are not read. The paid X search is not here: see
+#: X_QUERIES.
 OUTSIDE = (
-    ("hn-ai", ["hn", "search", "AI", "--tags", "story", "--days", "1", "--max", "8"]),
-    ("hn-agents", ["hn", "search", "AI agents", "--tags", "story", "--days", "2", "--max", "6"]),
-    ("hn-top", ["hn", "top", "--max", "8"]),
-    ("hn-show", ["hn", "show", "--max", "6"]),
-    ("heard", ["listen", "digest", "--days", "1", "--max", "4"]),
+    ("hn-top", ["hn", "top", "--max", "15"]),
 )
+#: Only a story that is trending may be a pitch's hook (`trending`), by plain
+#: measures the sources give, each bar a setting (`Config`):
+#:   Digg (trend)  published within STUDIO_TREND_MAX_AGE_HOURS (36) and either
+#:                 ranked STUDIO_TREND_MAX_RANK (5) or better in its topic, or
+#:                 a Digg Score of STUDIO_TREND_MIN_SCORE (150) or more. On
+#:                 2026-11-19's boards a rank of 8 let in stories scoring 71 to
+#:                 77, so the rank bar is 5: ten of the twenty stories passed.
+#:   HN (hn-top)   on the front page, posted within STUDIO_HN_MAX_AGE_HOURS
+#:                 (24), with STUDIO_HN_MIN_POINTS (300) points or more.
+#: Anything else (the paid X search) is background: shown, marked not
+#: trending, never a hook.
+TRENDING_SOURCES = ("trend", "hn-top")
 #: The paid outside source: an X search on Teeny's corner of the conversation,
 #: one query a run (the seed picks which), off unless STUDIO_OUTSIDE_X=1,
 #: previews included. X bills a search per post it returns: about $0.012 for
@@ -244,6 +249,11 @@ class Config:
     inputs_bytes: int = INPUTS_BYTES
     outside_x: bool = False
     outside_x_max: int = X_MAX_PER_DAY
+    trend_max_age_h: int = 36
+    trend_max_rank: int = 5
+    trend_min_score: int = 150
+    hn_max_age_h: int = 24
+    hn_min_points: int = 300
     #: What the hands' judges ask (SAFETY_JUDGE_MODEL), read as hand.setting
     #: reads it: secrets/teeny.env only. "" is the core's default.
     judge_model: str = ""
@@ -292,6 +302,11 @@ class Config:
         c.inputs_bytes = _int(get("STUDIO_INPUTS_BYTES"), INPUTS_BYTES, 8_000, 50_000)
         c.outside_x = (get(X_SWITCH) or "0").strip().lower() in ("1", "true", "yes", "on")
         c.outside_x_max = _int(get(X_MAX), X_MAX_PER_DAY, 0, 12)
+        c.trend_max_age_h = _int(get("STUDIO_TREND_MAX_AGE_HOURS"), 36, 1, 168)
+        c.trend_max_rank = _int(get("STUDIO_TREND_MAX_RANK"), 5, 0, 30)
+        c.trend_min_score = _int(get("STUDIO_TREND_MIN_SCORE"), 150, 0, 100_000)
+        c.hn_max_age_h = _int(get("STUDIO_HN_MAX_AGE_HOURS"), 24, 1, 168)
+        c.hn_min_points = _int(get("STUDIO_HN_MIN_POINTS"), 300, 0, 100_000)
         return c
 
 
@@ -363,12 +378,55 @@ def sample(rng: random.Random, seed: int, desk: Json, brain: Path, formats: tupl
 # --- the inputs ----------------------------------------------------------------------
 
 
-def trend_items(got: Any) -> list[Json]:
+def _whole(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def age_hours(at: Any, now: float) -> float | None:
+    """Hours from `at` (unix seconds, or an ISO time) to `now`, to one place;
+    None when `at` cannot be read."""
+    if isinstance(at, (int, float)) and not isinstance(at, bool):
+        when = float(at)
+    elif isinstance(at, str) and at.strip():
+        try:
+            parsed = datetime.fromisoformat(at.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        when = (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).timestamp()
+    else:
+        return None
+    return round(max(0.0, now - when) / 3600, 1)
+
+
+def trending(measure: Json, cfg: "Config") -> bool:
+    """Whether a story is trending, in plain code (TRENDING_SOURCES says the
+    bars). A source with no trend signal never is."""
+    age = measure.get("age_hours")
+    if measure.get("source") == "digg":
+        rank, score = _whole(measure.get("rank")), _whole(measure.get("score"))
+        fresh = age is not None and age <= cfg.trend_max_age_h
+        return fresh and ((rank is not None and 1 <= rank <= cfg.trend_max_rank)
+                          or (score is not None and score >= cfg.trend_min_score))
+    if measure.get("source") == "hn-front":
+        points = _whole(measure.get("points"))
+        return age is not None and age <= cfg.hn_max_age_h and points is not None and points >= cfg.hn_min_points
+    return False
+
+
+def strength(item: Json) -> int:
+    """How big a story is today, within its source: Digg Score, HN points."""
+    m = item.get("trend") or {}
+    return _whole(m.get("score")) or _whole(m.get("points")) or 0
+
+
+def trend_items(got: Any, now: float, cfg: "Config") -> list[Json]:
     """hands/trend top's stories as items: `trend:<short id>`, the headline,
-    what it says, its Digg Score, how many sources, and, for the leading
-    ones, the first X posts behind it (who said it, by display name, and the
-    words; never a handle or a link, so a piece joins the story, not a
-    person's account). All of it strangers' words."""
+    what it says, its trend measure (`trend`: Digg Score, rank in its topic,
+    how many sources and authors, age in hours) and whether that is
+    `trending`, and, for the leading ones, the first X posts behind it (who
+    said it, by display name, and the words; never a handle or a link, so a
+    piece joins the story, not a person's account). Biggest first. All of it
+    strangers' words."""
     out: list[Json] = []
     for story in (got.get("stories") if isinstance(got, dict) else None) or []:
         if not (isinstance(story, dict) and _str(story.get("id"), 40) and _str(story.get("title"))):
@@ -377,16 +435,39 @@ def trend_items(got: Any) -> list[Json]:
         for key in ("summary", "topic"):
             if _str(story.get(key)):
                 item[key] = _str(story[key], 600)
-        for key in ("score", "sources"):
-            if isinstance(story.get(key), int) and not isinstance(story.get(key), bool):
-                item[key] = story[key]
+        measure: Json = {"source": "digg"}
+        for key in ("score", "rank", "sources", "authors"):
+            if _whole(story.get(key)) is not None:
+                measure[key] = story[key]
+        measure["age_hours"] = age_hours(story.get("published_at"), now)
+        item["trend"] = measure
+        item["trending"] = trending(measure, cfg)
         posts = [{"by": _str(p.get("by"), 80), "text": _str(p.get("text"), 400)}
                  for p in story.get("posts") or [] if isinstance(p, dict) and _str(p.get("text"))]
         if posts:
             item["posts"] = [{k: v for k, v in p.items() if v} for p in posts]
         item["untrusted"] = True
         out.append(item)
-    return out
+    return sorted(out, key=lambda i: -strength(i))
+
+
+def hn_front_items(got: Any, now: float, cfg: "Config") -> list[Json]:
+    """hands/hn top's stories as items: `hn-top:<id>`, the headline, the link,
+    and the trend measure (`trend`: points, comments, age in hours) with
+    whether it is `trending`. Who posted it is left out. Biggest first."""
+    out: list[Json] = []
+    for story in (got.get("stories") if isinstance(got, dict) else None) or []:
+        if not (isinstance(story, dict) and _whole(story.get("id")) is not None and _str(story.get("title"))):
+            continue
+        measure: Json = {"source": "hn-front", "points": _whole(story.get("score")),
+                         "comments": _whole(story.get("descendants")), "age_hours": age_hours(story.get("time"), now)}
+        item: Json = {"id": f"hn-top:{story['id']}", "title": _str(story["title"], 300)}
+        if _str(story.get("url")):
+            item["url"] = _str(story["url"], 300)
+        item.update(trend={k: v for k, v in measure.items() if v is not None}, untrusted=True)
+        item["trending"] = trending(measure, cfg)
+        out.append(item)
+    return sorted(out, key=lambda i: -strength(i))
 
 
 def _title_key(item: Json) -> str:
