@@ -164,7 +164,12 @@ if jobs="$(python3 "$TEENY_ROOT/bin/lib/cron_policy.py" "$brain/cron.toml" "$roo
     checked+=" $book "
     run "playbook $book" env TEENY_BRAIN="$brain" OPENHUMAN_WORKSPACE="$brain" TEENY_ROOT="$root" \
       TEENY_HANDS="$root/hands" "$TEENY_ROOT/bin/act" --check "$book"
-  done < <(jq -r '.[] | (.command // "") | select(startswith("bin/act ")) | ltrimstr("bin/act ")' <<<"$jobs" | sort -u)
+  # A studio slot's --legacy playbook is what the slot runs with STUDIO=0
+  # (the rollback): it is checked like any scheduled one.
+  done < <(jq -r '.[] | (.command // "") | if startswith("bin/act ") then ltrimstr("bin/act ")
+    elif startswith("bin/studio ") then (split(" ") as $a | ($a | index("--legacy")) as $i
+      | if $i == null then empty else $a[$i + 1] end)
+    else empty end' <<<"$jobs" | sort -u)
 else
   note "cron.toml" fail "$(cat "$policy_err")"
 fi
