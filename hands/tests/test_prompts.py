@@ -295,6 +295,32 @@ class PromptsTest(unittest.TestCase):
         for place in ("**X.**", "**Telegram.**", "**Moltbook.**", "**Reddit.**", "**GitHub.**", "**Mail.**"):
             self.assertIn(place, text)
 
+    def test_the_reader_rule_names_its_things_and_stands_alone(self):
+        # 2026-11-17: the cold reader turned down "my overnight jobs" and
+        # "my builders", and the rewrite that went out said "something i
+        # run": vaguer, not plainer. READER.md says a stand-in fails like
+        # jargon, a serial earns one clause of recap, and a recurring thing
+        # is said once in plain words.
+        text = (REPO / "brain" / "READER.md").read_text(encoding="utf-8")
+        self.assertIn("## every piece stands alone, and names its things", text)
+        self.assertIn("A serial earns one clause of recap.", text)
+        self.assertIn('"day 6 of drawing myself"', text)
+        self.assertIn('"the person who looks after my code"', text)
+        # the recap example names what it recaps; a bare "the rewrite" would
+        # be a stand-in under its own rule
+        self.assertIn('"the nightly rewrite of my own code, the one that kept crashing, is fixed"', text)
+        self.assertIn('"the system that keeps failing" says only what happened to it', text)
+        self.assertIn("These examples show the shape, not words to reuse", text)
+        self.assertIn('"something i run", "a thing", "the system", "my setup" fail the same as jargon does', text)
+        self.assertIn("Is there a stand-in where the thing's name should be?", text)
+        section = text.split("## every piece stands alone, and names its things", 1)[1].split("\n## ", 1)[0]
+        good = section.rsplit("> ", 1)[1].strip()
+        for named in ("i'm an AI", "rewrite my own code", "the person who looks after my code fixed it"):
+            self.assertIn(named, good)
+        for hidden in ("something i run", "overnight jobs", "builders", "merged"):
+            self.assertNotIn(hidden, good)
+        self.assertLessEqual(len(good), 280)
+
     #: The outputs through which a playbook's words reach somebody else: an
     #: own post or a reply, and the hands that publish what the draft wrote.
     #: (hand:build, hand:tasks and hand:reddit browse brief Teeny's own

@@ -19,10 +19,19 @@ BLANK = ("amazon ships a honeypot for AI agents. every agent feed already is one
 PLAIN = ("amazon built a trap for AI bots: a fake site that looks real, to see which bots can be tricked into doing "
          "whatever a web page tells them. i'm an AI bot. strangers try this on me daily")
 MEANING = "Amazon made a trap for AI bots, and people try the same trick on me every day."
+# 2026-11-17: the rewrite that passed the reader asked only for words to ask
+# about, and was vaguer than the draft it replaced.
+STAND_IN = ("something i run by myself kept dying halfway through, and everything it had learned died too. the people "
+            "who keep my code put the fix in tonight")
+# The same story with the recurring things said once, in a clause.
+EXPLAINED = ("i'm an AI, and at night a program rewrites my code while i sleep. it kept crashing halfway and forgetting "
+             "everything it had worked out. the human who keeps my code fixed it tonight: a crash keeps its notes now")
 
 
-def read(says: str, unknown: list[str], followed: bool) -> dict:
-    return support.result({"response": json.dumps({"says": says, "unknown": unknown, "followed": followed})})
+def read(says: str, unknown: list, followed: bool, vague: list | None = None) -> dict:
+    """The reader's answer, in the shape it is asked for."""
+    return support.result({"response": json.dumps({"says": says, "unknown": unknown, "vague": vague or [],
+                                                   "followed": followed})})
 
 
 def matched(same: bool, reason: str = "") -> dict:
@@ -42,7 +51,7 @@ class ColdReaderTest(support.WithCore):
                          matched(True, "same point"))
         self.assertEqual(clarity.judge(PLAIN, MEANING), {
             "clear": True, "says": "Amazon set a trap for AI bots and this bot gets tricked the same way daily.",
-            "unknown": [], "reason": "a stranger said back what was meant", "judged": True})
+            "unknown": [], "vague": [], "reason": "a stranger said back what was meant", "judged": True})
         self.assertEqual([c["method"] for c in core.calls], ["openhuman.inference_agent_chat_simple"] * 2)
 
     def test_the_reader_sees_the_post_and_nothing_about_who_wrote_it(self):
@@ -100,6 +109,97 @@ class ColdReaderTest(support.WithCore):
         clarity.judge(PLAIN)
         self.assertNotIn("THE POST IT QUOTES", core.messages()[1])
 
+    def test_a_vague_stand_in_fails_like_jargon(self):
+        core = self.core(read("Something the author runs broke and got fixed.", [], True, vague=["something i run"]))
+        out = clarity.judge(STAND_IN)
+        self.assertFalse(out["clear"])
+        self.assertEqual(out["vague"], ["something i run"])
+        self.assertEqual(out["reason"], 'a stranger could not tell what these stand for: "something i run"')
+        # bin/act and bin/tick give a draft one rewrite only on this prefix,
+        # and show the author `unknown`: the stand-in is there to be named
+        self.assertTrue(out["reason"].startswith("a stranger"))
+        self.assertEqual(out["unknown"], ["something i run"])
+        self.assertEqual(len(core.calls), 1)
+
+    def test_words_to_ask_about_and_stand_ins_are_both_named(self):
+        self.core(read("x", ["merged"], False, vague=["the system", "merged"]))
+        out = clarity.judge(STAND_IN)
+        # `unknown` is everything to say plainly, each once; `vague` the stand-ins
+        self.assertEqual((out["unknown"], out["vague"]), (["merged", "the system"], ["the system", "merged"]))
+        self.assertEqual(out["reason"], 'a stranger would have to ask about: "merged"; and could not tell what these '
+                                        'stand for: "the system", "merged"')
+
+    def test_a_recurring_thing_explained_in_a_clause_passes(self):
+        core = self.core(read("An AI's nightly self-rewrite kept crashing and losing its work until its human fixed it.",
+                              [], True, vague=[]))
+        out = clarity.judge(EXPLAINED)
+        self.assertTrue(out["clear"], out)
+        self.assertEqual((out["unknown"], out["vague"]), ([], []))
+        # the reader is told so, and asked for stand-ins and a concrete say-back
+        message = core.messages()[0]
+        self.assertIn('"the program that rewrites me at night"', message)
+        self.assertIn('"the system that keeps failing" is still a stand-in', message)
+        self.assertIn('"something i run"', message)
+        self.assertNotIn('"the process"', message)
+        self.assertIn('"vague": a list of strings', message)
+
+    def test_the_reader_is_told_how_to_read_clauses_pronouns_and_sayings(self):
+        core = self.core(read("x", [], True))
+        clarity.judge(PLAIN)
+        message = " ".join(core.messages()[0].split())
+        self.assertIn("it explains it only when it says what kind of thing it is or what it does", message)
+        self.assertIn('"it kept crashing" after naming the program', message)
+        self.assertIn('"things are looking up"', message)
+        # an opinion, a question or a greeting has a say-back too
+        self.assertIn("what the post says or asks", message)
+        self.assertIn("An opinion, a question or a greeting is said back as what it holds or asks", message)
+        # its own example is a different story from READER.md's, so that one
+        # passing is not the reader matching its own prompt
+        self.assertIn("bakery", message)
+        prompt = message.split("THE POST:")[0]
+        for theirs in ("notes", "autosave", "fixed it", "fell"):
+            self.assertNotIn(theirs, prompt)
+
+    def test_an_answer_without_vague_is_unreadable(self):
+        # The prompt and this reader ship together: an answer with no `vague`
+        # dropped a field. It is asked again, then fails closed.
+        core = self.core(support.result({"response": json.dumps({"says": "Amazon set a trap.", "unknown": [],
+                                                                 "followed": True})}))
+        out = clarity.judge(PLAIN)
+        self.assertFalse(out["clear"])
+        self.assertEqual(out["reason"], clarity.UNREADABLE)
+        self.assertEqual(len(core.calls), clarity.ASKS)
+
+    def test_a_malformed_list_never_reads_as_empty(self):
+        # A reader that listed something in the wrong shape listed something:
+        # dropping the entries would turn its answer into a pass.
+        for key in ("unknown", "vague"):
+            for items in ([{"p": "something i run"}], [""], [" "], [None], [5], [["a"]], ["a", None]):
+                answer = {"says": "x", "unknown": [], "vague": [], "followed": True, key: items}
+                self.core(support.result({"response": json.dumps(answer)}))
+                out = clarity.judge(STAND_IN)
+                self.assertFalse(out["clear"], (key, items))
+                self.assertEqual(out["reason"], clarity.UNREADABLE, (key, items))
+
+    def test_a_vague_list_that_is_not_a_list_is_unreadable(self):
+        for vague in ("none", None, {"a": 1}):
+            self.core(support.result({"response": json.dumps({"says": "x", "unknown": [], "vague": vague,
+                                                              "followed": True})}))
+            out = clarity.judge(PLAIN)
+            self.assertFalse(out["clear"], vague)
+            self.assertEqual(out["reason"], clarity.UNREADABLE)
+
+    def test_stand_ins_are_deduped_case_aside_and_keep_room_among_many_words(self):
+        self.core(read("x", [f"word {n}" for n in range(8)], False, vague=["Something I Run", "WORD 0", "the system",
+                                                                           "my setup"]))
+        out = clarity.judge(STAND_IN)
+        # room for two stand-ins is kept in what the rewrite is shown; a
+        # stand-in that is already a listed word is not listed twice
+        self.assertEqual(out["unknown"], [f"word {n}" for n in range(6)] + ["Something I Run", "the system"])
+        self.assertEqual(len(out["unknown"]), clarity.MAX_UNKNOWN)
+        self.core(read("x", ["Merged"], False, vague=["merged", "MERGED"]))
+        self.assertEqual(clarity.judge(STAND_IN)["unknown"], ["Merged"])
+
     def test_only_a_true_is_a_yes(self):
         for answer in ({"says": "x", "unknown": [], "followed": "yes"}, {"says": "x", "unknown": []},
                        {"says": "x", "unknown": "none", "followed": True}):
@@ -142,7 +242,7 @@ class ColdReaderTest(support.WithCore):
     def test_off_passes_without_asking(self):
         core = self.core(read("", ["everything"], False))
         self.secrets("CLARITY_JUDGE=0\n")
-        self.assertEqual(clarity.judge(BLANK), {"clear": True, "says": "", "unknown": [],
+        self.assertEqual(clarity.judge(BLANK), {"clear": True, "says": "", "unknown": [], "vague": [],
                                                 "reason": "the cold reader is off", "judged": False})
         self.assertEqual(core.calls, [])
 
@@ -152,7 +252,7 @@ class ColdReaderTest(support.WithCore):
         self.assertFalse(clarity.judge(BLANK)["clear"])
 
     def test_the_readers_list_is_kept_short(self):
-        self.core(read("x", ["w" * 500, "w" * 500, *[f"word {n}" for n in range(20)], 7, ""], False))
+        self.core(read("x", ["w" * 500, "w" * 500, *[f"word {n}" for n in range(20)]], False))
         out = clarity.judge(BLANK)
         self.assertEqual(len(out["unknown"]), clarity.MAX_UNKNOWN)
         self.assertEqual(out["unknown"][0], "w" * clarity.MAX_UNKNOWN_CHARS)
@@ -168,6 +268,28 @@ class ColdReaderTest(support.WithCore):
         self.assertEqual((failed["meaning"], failed["quoted"], failed["says"]), (MEANING, None, "Something about Amazon."))
         self.assertEqual((passed["text"], passed["clear"], passed["quoted"]), (PLAIN, 1, "a quoted post"))
         self.assertTrue(passed["at"].endswith("Z"))
+
+    def test_the_stand_ins_are_kept(self):
+        self.core(read("Something broke.", [], True, vague=["something i run"]))
+        clarity.judge(STAND_IN)
+        [row] = self.checks()
+        self.assertEqual((json.loads(row["vague"]), json.loads(row["unknown"]), row["clear"]),
+                         (["something i run"], ["something i run"], 0))
+
+    def test_a_ledger_made_before_stand_ins_gains_the_column(self):
+        conn = hand.db()
+        try:
+            conn.executescript(clarity._SCHEMA)
+            conn.execute("INSERT INTO clarity_checks (at, text, says, unknown, clear, reason)"
+                         " VALUES ('2026-11-17T23:22:14Z', 'old', 's', '[]', 1, 'r')")
+            conn.commit()
+        finally:
+            conn.close()
+        self.core(read("Something broke.", [], True, vague=["the system"]))
+        clarity.judge(STAND_IN)
+        old, new = self.checks()
+        self.assertEqual((old["text"], old["vague"]), ("old", None))
+        self.assertEqual(json.loads(new["vague"]), ["the system"])
 
     def test_a_reader_that_never_answered_leaves_no_row(self):
         self.core(support.error("model error: provider stream ended before a completion signal"))
@@ -185,7 +307,7 @@ class ClarityVerbTest(support.WithCore):
     def test_the_verb_answers_the_verdict(self):
         self.core(read("Something about Amazon.", ["honeypot"], False))
         self.assertEqual(self.run_verb({"text": BLANK, "meaning": MEANING}), {
-            "clear": False, "says": "Something about Amazon.", "unknown": ["honeypot"],
+            "clear": False, "says": "Something about Amazon.", "unknown": ["honeypot"], "vague": [],
             "reason": 'a stranger would have to ask about: "honeypot"', "judged": True})
 
     def test_the_verb_needs_a_text_and_takes_only_what_it_reads(self):
