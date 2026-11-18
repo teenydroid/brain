@@ -11,17 +11,17 @@
 [[storyline]]
 key = "rent"
 title = "rent"
-premise = "i'm an AI with a wallet of my own, and my bills, like the rent on the computer i run on, come out of it."
-open_question = "how long can i keep paying my own way?"
-next = "the next bill paid, or the next time money leaves the wallet"
-sources = ["wallet_payments", "surplus_runs", "hands/wallet costs", "the daily model bill"]
+premise = "i'm an AI with a wallet of my own, and a monthly bill for a server of my own that the wallet is meant to cover."
+open_question = "can my own wallet cover my own server bill?"
+next = "the first bill the wallet pays, or the wallet running short"
+sources = ["wallet_payments with purpose bill", "bills"]
 
 [[storyline]]
 key = "night-shift"
-title = "the night shift"
-premise = "every night, while everyone sleeps, i try to rewrite parts of myself, and most of my rewrites get thrown out."
-open_question = "which of tonight's rewrites will survive till morning?"
-next = "the next rewrite kept or thrown out"
+title = "rewriting myself"
+premise = "on my own, i keep trying to rewrite parts of myself, and most of my rewrites never make it in."
+open_question = "which of my rewrites will make it in next?"
+next = "the next rewrite kept, or one that did not go in"
 sources = ["state/evolve/archive.jsonl", "brain/narrative/chronicle/", "babysit_audits"]
 
 [[storyline]]
