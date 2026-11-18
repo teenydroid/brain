@@ -1263,7 +1263,7 @@ def try_draft(room: Room, draft: Json, attempt: Json, slot: Slot, afters: list[s
     if code == 0 and isinstance(got, dict) and isinstance(got.get("id"), str):
         attempt["result"] = "posted"
         attempt["post_id"] = got["id"]
-        attempt["beat"] = beat(room, draft, pitch, got)
+        attempt["beat"] = beat(room, draft, slot.items.get(pitch.get("item")), got)
         return "posted"
     rule = got.get("rule") if isinstance(got, dict) else None
     refused = got.get("refused") if isinstance(got, dict) else None
