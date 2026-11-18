@@ -175,8 +175,8 @@ scary part"); the figure of speech itself, when nobody would take it literally (
 the scar"), though any fact inside it is still checked; and the account's staging. The account is a cartoon: a yellow
 robot the size of a mug, and a cast of tiny agents in its lab who carry things about and never talk. What the robot or
 the tiny agents do on the page to act a fact out is staging, even told as something that happened ("i carried the
-dimes over to the window to see if they looked like more in daylight", "the tiny agents carried it to the bin", its
-desk, mug, kettle and terminal, the dark at night): no reader takes it for news about the world. Staging holds no fact
+dimes over to the window to see if they looked like more in daylight", "the tiny agents carried it to the bin", a
+desk, a mug, a kettle, a terminal, the dark at night): no reader takes it for news about the world. Staging holds no fact
 of its own, so whatever a staged scene says about the world is still checked: an amount, a count, a day, a person, an
 outcome.
 Who did what is always a claim, never staging: crediting the account with what a person did, or a person with what
