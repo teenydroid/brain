@@ -3101,7 +3101,27 @@ def purpose_checks(tree: Path, base: str, changes: list[tuple[str, str]], new_ha
     checks.append({"check": "does more than mark an arc", "ok": not status_only,
                    "detail": "only changes an arc's status in ARCS.md, which is the world count itself: an arc moves "
                              "when its first step is done" if status_only else "not only an arc's status"})
+
+    # 4. Only files nothing that runs reads.
+    inert = bool(paths) and all(p in INERT_PATHS for p in paths)
+    checks.append({"check": "changes something that runs", "ok": not inert,
+                   "detail": (f"only changes {', '.join(paths)}, which no prompt, playbook, cron job or hand reads on "
+                              "the box (brain/MEMORY.seed.md only starts a brand-new page; the live brain/MEMORY.md is "
+                              "what rides your prompts). A learning already on your live page needs a change where a "
+                              "prompt reads it, or a skip as `already`") if inert
+                   else "changes something that runs"})
     return checks
+
+
+#: Tracked files nothing that runs on the box reads: no prompt, playbook,
+#: cron job or hand. A change to these alone changes nothing Teeny does
+#: (purpose_checks, "changes something that runs"). Each is proven in
+#: hands/tests/test_evolve.py: MEMORY.seed.md starts a brand-new
+#: brain/MEMORY.md and is read only while there is none (bin/lib/prompts.py
+#: memory_page, seed_memory), and the box always has its live page (gen 16,
+#: candidate 1, PR #361); assets/tiny/README.md describes reference art that
+#: nothing names.
+INERT_PATHS = ("brain/MEMORY.seed.md", "brain/assets/tiny/README.md")
 
 
 #: How long one hand's tests may run in the gate.
