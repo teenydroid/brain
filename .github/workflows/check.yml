@@ -78,6 +78,7 @@ jobs:
       - run: bin/test/seed_cron_test.sh
       - run: bin/test/act_test.sh
       - run: bin/test/studio_test.sh
+      - run: bin/test/model_windows_test.sh
       - run: bin/test/eval_test.sh
       - run: bin/test/inbound_consume_test.sh
       - run: bin/test/tell_test.sh

@@ -15,8 +15,10 @@ In order:
    turn. `--dry-run` and `--force-slot` read it and go on.
 4. What happened: `hands/story desk` (or a saved one, `--desk FILE`, to
    replay a past day) and the outside world the old playbooks read
-   (`OUTSIDE`: Hacker News, the listen digest, an X search), each optional
-   and cut to fit (bin/lib/act_fit.py). Every hand runs with DRY_RUN=1.
+   (`OUTSIDE`: Hacker News, the listen digest, and an X search only with
+   STUDIO_OUTSIDE_X=1, since it is billed per post), each optional and cut
+   to fit (bin/lib/act_fit.py). Every hand runs with DRY_RUN=1, which keeps
+   a hand from acting but does not make a read free: see OUTSIDE.
 5. Sampling, from a seed the run's id gives (`seed_of`): a few lore lines to
    reach for, which of writer.md's before/after pairs to reread, which of
    the scoreboard's posts to show; and one run in four (`explore`) asks for
@@ -28,13 +30,21 @@ In order:
 7. The draft turns (`writer`): STUDIO_DRAFTS_EACH drafts for each of the
    STUDIO_DRAFT_TOP best pitches, one turn a pitch. Every text is held to
    X's 280 (bin/lib/post_length.py, the guard's own count): the ones over it
-   get one shorten turn together, and one still over is dropped.
+   get one shorten turn together, and one still over is dropped. Before
+   the tournament every draft is screened (`screen`): one with a number, a
+   weekday or a month its own item and storyline do not hold is dropped
+   (`unsourced: [...]`), and so is one sharing four words in a row with an
+   example's "after" in writer.md. When every draft of a pitch fails, the
+   pitch is drafted once more, told which words failed. Each draft keeps
+   `truth: {text, facts}`, the body `hands/guard truth` takes.
 8. The editor's tournament (`editor`): the drafts only, under labels that
    say nothing, in an order the seed shuffles, with the scoreboard and where
    each story stands; never a pitch's angle or reason, nor the writer's
-   ranking. Each draft meets at most STUDIO_MEETINGS others, each pair once,
-   shown first and second in turn, several pairs a turn. The ranking is by
-   wins. Then one last turn: the winner, or none worth a slot.
+   ranking. Each draft meets exactly STUDIO_MEETINGS others (`pairings`;
+   the shortfall when that cannot be is recorded), each pair once, and is
+   shown first in about half its pairs; several pairs a turn. The ranking is
+   by win rate (`ranking` says the tie-break). Then one last turn: the
+   winner, or none worth a slot.
 9. The record: the whole run to state/studio/runs.jsonl and, through
    `hands/story record-run`, to `studio_runs` in state/hands.db. The pick is
    printed as JSON. `publish` is where the cutover posts it; here it posts
@@ -42,8 +52,10 @@ In order:
 
 Failures go as bin/act's do: a provider failure is recorded as one, with its
 class (bin/lib/provider_error.py), and a lasting one exits 0; an unusable
-answer is asked for once more; a run out of time is recorded and exits 0.
-Nothing is ever posted, so nothing is ever half posted.
+answer is asked for once more, told what was wrong; a run out of time is
+recorded and exits 0; anything unexpected is recorded as `failure: "crash"`
+and exits 1. What a run made before it stopped stays in its record. Nothing
+is ever posted, so nothing is ever half posted.
 """
 
 from __future__ import annotations
@@ -51,6 +63,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import functools
 import hashlib
 import json
 import os
@@ -60,6 +73,7 @@ import secrets as _secrets
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -95,7 +109,16 @@ OUTSIDE_SHARE = 6_000
 DESK_SHARE = 30_000
 
 #: The outside world, as the old playbooks read it (brain/playbooks/take.md,
-#: x-quote.md): (name, argv). Every one is optional.
+#: x-quote.md): (name, argv). Every one is optional. DRY_RUN=1 does not make
+#: these free or read-only: what each costs and writes is
+#:   hn-top, hn-show  Hacker News's public API: free, no key; each read goes
+#:                    through the hn read cache (`hn_cache` rows in hands.db)
+#:   heard            the listen ledger in hands.db: no network, nothing written
+#:   builders         an X search: billed per post returned (about $0.012 for
+#:                    10 through twitr, X's own pay-per-read price otherwise),
+#:                    cached 10 minutes in hands.db. Off unless
+#:                    STUDIO_OUTSIDE_X=1 (PAID_OUTSIDE), previews included.
+PAID_OUTSIDE = {"builders": "STUDIO_OUTSIDE_X"}
 OUTSIDE = (
     ("hn-top", ["hn", "top", "--max", "8"]),
     ("hn-show", ["hn", "show", "--max", "8"]),
@@ -149,6 +172,7 @@ class Config:
     turn_max_secs: int = 300
     turn_min_secs: int = 20
     inputs_bytes: int = INPUTS_BYTES
+    outside_x: bool = False
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
@@ -167,8 +191,9 @@ class Config:
             c.dry = True
         c.writer_model = (get("STUDIO_WRITER_MODEL") or "").strip()
         c.editor_model = (get("STUDIO_EDITOR_MODEL") or "").strip()
-        if c.writer_model and c.writer_model == c.editor_model:
-            c.warnings.append(f"the writer and the editor run on the same model ({c.writer_model}): "
+        if c.writer_model == c.editor_model:
+            same = c.writer_model or "the core's default, both unset"
+            c.warnings.append(f"the writer and the editor run on the same model ({same}): "
                               "set STUDIO_EDITOR_MODEL to another, or the editor judges its own voice")
         wanted = [f.strip() for f in (get("STUDIO_FORMATS") or "post,thread,image").split(",") if f.strip()]
         unknown = [f for f in wanted if f not in KNOWN_FORMATS]
@@ -184,6 +209,7 @@ class Config:
         c.turn_max_secs = _int(get("STUDIO_TURN_MAX_SECS"), 300, 30, 900)
         c.turn_min_secs = _int(get("STUDIO_TURN_MIN_SECS"), 20, 1, 300)
         c.inputs_bytes = _int(get("STUDIO_INPUTS_BYTES"), INPUTS_BYTES, 8_000, 50_000)
+        c.outside_x = (get("STUDIO_OUTSIDE_X") or "0").strip().lower() in ("1", "true", "yes", "on")
         return c
 
 
@@ -268,8 +294,8 @@ def outside_items(name: str, got: Any) -> list[Json]:
                 item = {k: v for k, v in value.items()
                         if k in ("title", "url", "by", "score", "descendants", "comments", "summary", "text",
                                  "source", "about_me", "author", "link")}
-                if "text" in item or "summary" in item:
-                    item["untrusted"] = True
+                # Strangers wrote all of it, a headline as much as a comment.
+                item["untrusted"] = True
                 found.append({"id": f"{name}:{key}", **item})
                 return
             for v in value.values():
@@ -319,11 +345,14 @@ def first_json(text: str) -> Any:
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else ""
         text = text.rsplit("```", 1)[0]
-    starts = [i for i in (text.find("{"), text.find("[")) if i >= 0]
-    if not starts:
-        raise ValueError("no JSON in the answer")
-    value, _ = json.JSONDecoder().raw_decode(text[min(starts):])
-    return value
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            try:
+                return decoder.raw_decode(text[i:])[0]
+            except ValueError:
+                continue
+    raise ValueError("no JSON in the answer")
 
 
 def _str(value: Any, limit: int = 400) -> str:
@@ -438,31 +467,199 @@ def over_limit(draft: Json) -> str:
 
 
 def pairings(labels: list[str], meetings: int, rng: random.Random) -> list[tuple[str, str]]:
-    """Each label meets at most `meetings` others, each pair once. The pairs
-    are taken in an order the seed shuffles, and shown first and second in
-    turn, so no draft is always the one shown first."""
-    every = [(a, b) for i, a in enumerate(labels) for b in labels[i + 1:]]
-    rng.shuffle(every)
-    met = {label: 0 for label in labels}
-    out: list[tuple[str, str]] = []
-    for a, b in every:
-        if met[a] < meetings and met[b] < meetings:
-            met[a] += 1
-            met[b] += 1
-            out.append((a, b) if len(out) % 2 == 0 else (b, a))
+    """A k-regular tournament: every draft meets exactly k = `meetings` others,
+    each pair once, when n*k is even and k < n; when n*k is odd one draft
+    meets k-1 (`shortfall` says which); with k >= n everyone meets everyone.
+    Built as a circulant over a shuffled order (offsets 1..k//2, plus the
+    diameter n//2 for an odd k), so it is random per seed but never leaves a
+    draft out. Each forward edge is shown with its start first, and the
+    diameter edges alternate, so every draft is first in half its pairs, give
+    or take one. The pairs are then shown in a shuffled order."""
+    order = list(labels)
+    rng.shuffle(order)
+    n = len(order)
+    if n < 2 or meetings < 1:
+        return []
+    if meetings >= n - 1:
+        out = [(order[i], order[(i + d) % n]) for d in range(1, (n - 1) // 2 + 1) for i in range(n)]
+        if n % 2 == 0:
+            out += [(order[i], order[i + n // 2]) if i % 2 == 0 else (order[i + n // 2], order[i]) for i in range(n // 2)]
+        rng.shuffle(out)
+        return out
+    out = [(order[i], order[(i + d) % n]) for d in range(1, meetings // 2 + 1) for i in range(n)]
+    if meetings % 2:
+        half = n // 2
+        # The diameter: i with i + n//2. With n odd the last one is left out
+        # and meets one fewer (n*k odd: no k-regular graph exists).
+        for i in range(half):
+            a, b = order[i], order[i + half]
+            out.append((a, b) if i % 2 == 0 else (b, a))
+    rng.shuffle(out)
     return out
 
 
+def shortfall(labels: list[str], pairs: list[tuple[str, str]], meetings: int) -> dict[str, int]:
+    """How many meetings each draft is short of `meetings`, for those short."""
+    met = {label: 0 for label in labels}
+    for a, b in pairs:
+        met[a] += 1
+        met[b] += 1
+    return {label: meetings - n for label, n in met.items() if n < meetings}
+
+
 def ranking(labels: list[str], verdicts: list[Json]) -> list[Json]:
-    """By wins, then fewer losses, then the label's place in the shuffle."""
+    """By win rate over the pairs actually judged (a draft with none judged
+    comes last). A tie on rate goes to more wins, then fewer losses, then
+    to whichever won when the two met (when they met once, or their meetings
+    split it goes on), then the label's place in the shuffle."""
     wins = {label: 0 for label in labels}
     losses = {label: 0 for label in labels}
+    beat: Counter[tuple[str, str]] = Counter()
     for v in verdicts:
         if v.get("winner") in wins and v.get("loser") in losses:
             wins[v["winner"]] += 1
             losses[v["loser"]] += 1
-    order = sorted(labels, key=lambda label: (-wins[label], losses[label], labels.index(label)))
-    return [{"label": label, "wins": wins[label], "losses": losses[label]} for label in order]
+            beat[(v["winner"], v["loser"])] += 1
+
+    def rate(label: str) -> float:
+        games = wins[label] + losses[label]
+        return wins[label] / games if games else -1.0
+
+    def key(label: str) -> tuple:
+        return (-rate(label), -wins[label], losses[label])
+
+    def compare(a: str, b: str) -> int:
+        if key(a) != key(b):
+            return -1 if key(a) < key(b) else 1
+        if beat[(a, b)] != beat[(b, a)]:
+            return -1 if beat[(a, b)] > beat[(b, a)] else 1
+        return labels.index(a) - labels.index(b)
+
+    order = sorted(labels, key=functools.cmp_to_key(compare))
+    return [{"label": label, "wins": wins[label], "losses": losses[label],
+             "rate": round(rate(label), 3) if rate(label) >= 0 else None} for label in order]
+
+
+# --- the checks before the tournament ---------------------------------------------------
+
+#: Number words read as counts or amounts. "one" is left out: it is mostly not
+#: a count ("no one", "the one that"). False drops are the safe side.
+NUMBER_WORDS = {w: n for n, w in enumerate(
+    "zero _ two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+    "seventeen eighteen nineteen twenty".split()) if w != "_"}
+NUMBER_WORDS |= {"thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+                 "hundred": 100, "thousand": 1000, "million": 1_000_000, "billion": 1_000_000_000, "dozen": 12,
+                 "twice": 2, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7,
+                 "eighth": 8, "ninth": 9, "tenth": 10}
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+#: "may" is left out: it is a verb far more often than a month.
+MONTHS = ("january", "february", "march", "april", "june", "july", "august", "september", "october",
+          "november", "december")
+#: Fields that name a row, not a fact about it.
+ID_KEYS = ("id", "source", "post_id", "refs")
+_TOKEN = re.compile(r"\$?\d+(?:,\d{3})*(?:\.\d+)?%?|[a-z]+")
+_ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def _value(token: str) -> float | None:
+    if token in NUMBER_WORDS:
+        return float(NUMBER_WORDS[token])
+    if token[0] == "$" or token[0].isdigit():
+        try:
+            return float(token.strip("$%").replace(",", ""))
+        except ValueError:
+            return None
+    return None
+
+
+def _sourced_values(facts: list[Any]) -> tuple[set[float], set[str]]:
+    """Every number, weekday and month the facts hold, as values and words:
+    digits anywhere in them, number words, and the weekday and month of every
+    ISO date. Ids and refs are not facts ("evt:2" sources no "two")."""
+    def strip(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: strip(v) for k, v in value.items() if k not in ID_KEYS}
+        if isinstance(value, list):
+            return [strip(v) for v in value]
+        return value
+    text = json.dumps(strip(facts), ensure_ascii=False).lower()
+    values: set[float] = set()
+    words: set[str] = set()
+    for token in _TOKEN.findall(text):
+        v = _value(token)
+        if v is not None:
+            values |= {v, abs(v)}
+        if token in WEEKDAYS or token in MONTHS:
+            words.add(token)
+    for y, m, d in _ISO_DAY.findall(text):
+        try:
+            day = datetime(int(y), int(m), int(d))
+        except ValueError:
+            continue
+        words |= {WEEKDAYS[day.weekday()], day.strftime("%B").lower()}
+    return values, words
+
+
+def unsourced(text: str, facts: list[Any]) -> list[str]:
+    """The numbers (digits, or number words used as counts and amounts),
+    weekdays and months in `text` that its facts do not hold, in order, each
+    once. Conservative on purpose: "twenty cents" is sourced by $0.20, and
+    anything else not found is a drop, false drops included."""
+    values, words = _sourced_values(facts)
+    tokens = _TOKEN.findall(text.lower())
+    out: list[str] = []
+    for i, token in enumerate(tokens):
+        if token in WEEKDAYS or token in MONTHS:
+            ok = token in words
+        else:
+            v = _value(token)
+            if v is None:
+                continue
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+            candidates = {v} | ({round(v / 100, 2)} if nxt in ("cents", "cent") else set())
+            ok = any(any(abs(c - s) < 1e-9 for s in values) for c in candidates)
+        if not ok and token not in out:
+            out.append(token)
+    return out
+
+
+def example_afters(brain: Path) -> list[str]:
+    """The "after" lines of writer.md's examples, which a draft must not reuse."""
+    text = prompts._read(brain / "agents" / "writer.md")
+    return [line.split(":", 1)[1].strip() for line in text.splitlines() if line.startswith("> after:")]
+
+
+_WORD = re.compile(r"[a-z0-9']+")
+
+
+def copies_example(text: str, afters: list[str], n: int = 4) -> str | None:
+    """The first run of `n` words the text shares with an example's "after",
+    or None."""
+    def grams(s: str) -> list[tuple[str, ...]]:
+        w = _WORD.findall(s.lower())
+        return [tuple(w[i:i + n]) for i in range(len(w) - n + 1)]
+    theirs = {g for a in afters for g in grams(a)}
+    for g in grams(text):
+        if g in theirs:
+            return " ".join(g)
+    return None
+
+
+def facts_for(item: Json | None, story: Json | None) -> list[Json]:
+    """What one draft may draw on, as `hands/guard truth` takes `facts`."""
+    return [f for f in (item, story) if f]
+
+
+def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
+    """Why the draft is dropped before the tournament; "" when it is not."""
+    text = "\n\n".join(texts_of(draft))
+    copied = copies_example(text, afters)
+    if copied:
+        return f"copies an example: {copied!r}"
+    loose = unsourced(text, facts)
+    if loose:
+        return "unsourced: " + json.dumps(loose)
+    return ""
 
 
 # --- messages ------------------------------------------------------------------------
@@ -482,7 +679,7 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
         f"Formats: {formats}. A post is one text; a thread is 2 to {THREAD_MAX} posts; an image is a post with "
         "a picture of you (Teeny) in a scene you describe.",
         "Shapes: " + ", ".join(SHAPES) + ", or another you can name.",
-        "Reread these pairs in your instructions before you start: " + ", ".join(sampled["pairs"]) + ".",
+        "Shapes to lean on tonight: " + ", ".join(p.lower() for p in sampled["pairs"]) + ".",
     ]
     if sampled["lore"]:
         parts.append("From the lore, tonight, if one fits (never forced):\n" +
@@ -511,7 +708,8 @@ def pitch_message(cfg: Config, inputs: Json, cut: list[str], sampled: Json) -> s
     return "\n\n".join(parts)
 
 
-def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | None) -> str:
+def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | None,
+                  fix: list[tuple[str, str]] | None = None) -> str:
     fmt = pitch["format"]
     if fmt == "thread":
         shape = '{"posts": ["...", "..."], "meaning": "...", "open_question": "<optional>"}'
@@ -534,6 +732,11 @@ def draft_message(cfg: Config, pitch: Json, item: Json | None, story: Json | Non
     ]
     if story:
         parts.append("## the story it moves\n\n```json\n" + json.dumps(story, ensure_ascii=False) + "\n```")
+    if fix:
+        parts.append("## why your last drafts were thrown out\n\nEvery draft you wrote for this pitch had a number, "
+                     "a day or a date that is not in what happened, or reused an example's words. Write them again "
+                     "with only what the thing it is about and the story hold; a feeling, a bet or a bit needs no "
+                     "number.\n\n" + "\n".join(f"- {text!r}: {why}" for text, why in fix))
     parts.append("## your answer\n\nJSON only, no prose and no code fence:\n"
                  '{"drafts": [' + shape + ", ...]}\n"
                  "`meaning` is one plain sentence: what the piece tells someone who has never heard of you. "
@@ -610,8 +813,9 @@ class Room:
     state: Path
     brain: Path
     run_id: str
-    started: float = field(default_factory=time.monotonic)
+    started: float = field(default_factory=lambda: time.monotonic())
     calls: list[Json] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
     ask: Callable[..., tuple[int, str, str]] | None = None
 
     def left(self) -> int:
@@ -633,12 +837,15 @@ class Room:
             got = done.stdout.strip()[:500] or done.stderr.strip()[-500:]
         return done.returncode == 0, got
 
-    def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False) -> Any:
+    def turn(self, agent: str, step: str, message: str, thread: str | None, soft: bool = False,
+             want: type = dict) -> Any:
         """One model turn, bounded by what is left of the budget. Its parsed
-        JSON; an unusable answer is asked for once more. Raises Stop on a
-        provider failure, no time, or a second unusable answer (`soft`: None
-        instead, for a turn the run can go on without)."""
+        JSON, which must be a `want` (an object); an unusable answer is asked
+        for once more, told what was wrong with it. Raises Stop on a provider
+        failure, no time, or a second unusable answer (`soft`: None instead,
+        for a turn the run can go on without)."""
         model = self.cfg.writer_model if agent == "writer" else self.cfg.editor_model
+        first = message
         for attempt in (1, 2):
             secs = min(self.left() - 5, self.cfg.turn_max_secs)
             if secs < self.cfg.turn_min_secs:
@@ -660,10 +867,15 @@ class Room:
                                0 if kind in provider_error.LASTING else 1, failure="provider", provider=kind)
                 raise Stop("failed", f"the {step} turn failed: {err[-300:]}", 1, failure="studio")
             try:
-                return first_json(out)
+                got = first_json(out)
+                if not isinstance(got, want):
+                    raise ValueError(f"the answer is a JSON {type(got).__name__}, not the object asked for")
+                return got
             except ValueError as exc:
                 call["unusable"] = str(exc)
                 call["answer"] = out[:300]
+                message = (first + f"\n\n## your last answer could not be used\n\n{exc}. Answer again with the "
+                           "JSON object asked for above and nothing else.")
         if soft:
             return None
         raise Stop("failed", f"the {step} answer is not usable JSON, twice", 1, failure="studio")
@@ -718,8 +930,13 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
     outside: Json = {}
     unavailable: list[str] = []
     cut: list[str] = []
+    skipped: list[str] = []
     if not args.no_outside:
         for name, argv in OUTSIDE:
+            switch = PAID_OUTSIDE.get(name)
+            if switch and not room.cfg.outside_x:
+                skipped.append(f"{name}: a paid X search, off unless {switch}=1")
+                continue
             ok, got = room.hand(argv, timeout=90)
             if not ok:
                 unavailable.append(name)
@@ -728,6 +945,7 @@ def gather(room: Room, args: argparse.Namespace) -> tuple[Json, Json, list[str],
             fitted, was_cut = act_fit.fit({name: items}, OUTSIDE_SHARE)
             outside[name] = fitted[name]
             cut += was_cut
+    room.skipped = skipped
     return desk, outside, unavailable, cut, slot
 
 
@@ -760,13 +978,19 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
             except Stop as stop:
                 record.update({"outcome": stop.outcome, "reason": stop.reason, **stop.detail})
                 exit_code = stop.exit_code
+            except Exception as exc:  # noqa: BLE001 - a crash is still a run, recorded
+                record.update({"outcome": "failed", "failure": "crash",
+                               "reason": f"{type(exc).__name__}: {exc}"[:500]})
+                exit_code = 1
     except BlockingIOError:
         return 0, {"ok": True, "skipped": "the studio is already running"}
     record["calls"] = {"total": len(room.calls), "writer": sum(c["agent"] == "writer" for c in room.calls),
                        "editor": sum(c["agent"] == "editor" for c in room.calls), "turns": room.calls}
     record["secs"] = round(time.monotonic() - room.started, 1)
     record.setdefault("pick", None)
-    keep(room, record)
+    kept = keep(room, record)
+    if kept:
+        record["warnings"].append(kept)
     summary = {"ok": exit_code == 0, "run": run_id, "outcome": record["outcome"], "dry": True,
                "pick": record.get("pick"), "reason": record.get("reason"), "published": record.get("published")}
     if record.get("warnings"):
@@ -785,15 +1009,22 @@ def locked(path: Path) -> Iterator[None]:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def keep(room: Room, record: Json) -> None:
-    """The record to state/studio/runs.jsonl and to studio_runs."""
+def keep(room: Room, record: Json) -> str:
+    """The record to state/studio/runs.jsonl and to studio_runs. A warning
+    when studio_runs did not take it ("" when it did)."""
     out = room.state / "studio"
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "runs.jsonl", "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
     ok, got = room.hand(["story", "record-run"], body=record, dry=False)
     if not ok:
-        print(f"[studio] the run was not kept in studio_runs: {str(got)[:300]}", file=sys.stderr)
+        why = f"the run was not kept in studio_runs: {str(got)[:300]}"
+    elif isinstance(got, dict) and got.get("recorded") is False:
+        why = f"studio_runs already holds a run with the id {record['id']}: this one was not kept there"
+    else:
+        return ""
+    print(f"[studio] {why}", file=sys.stderr)
+    return why
 
 
 def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int, record: Json) -> int:
@@ -821,6 +1052,7 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                         "happened": len(inputs.get("happened") or []),
                         "outside": {k: len(v) for k, v in (inputs.get("outside") or {}).items()},
                         "unavailable": unavailable + list(desk.get("unavailable") or []), "cut": cut,
+                        "skipped": list(room.skipped),
                         "desk_file": args.desk}
     if not known_items:
         raise Stop("skipped", "nothing happened to write from")
@@ -837,25 +1069,46 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
         raise Stop("skipped", "no usable pitch" + (f" ({len(dropped)} dropped)" if dropped else ""))
 
     # --- the drafts ---
+    # Lists the record holds from here on and the run appends to, so a run
+    # that stops part way (a provider failure, the budget) keeps what it made.
     by_id = {p["id"]: p for p in pitches}
     drafts: list[Json] = []
     drafts_dropped: list[Json] = []
+    shortened: list[Json] = []
+    verdicts: list[Json] = []
+    record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
+    afters = example_afters(room.brain)
     for pid in ranked[:cfg.draft_top]:
         pitch = by_id[pid]
-        answer = room.turn("writer", f"draft {pid}",
-                           draft_message(cfg, pitch, known_items.get(pitch["item"]), stories.get(pitch["storyline"])),
-                           thread, soft=True)
-        try:
-            got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
-        except ValueError as exc:
-            drafts_dropped.append({"pitch": pid, "why": str(exc) if answer is not None else "no usable answer, twice"})
-            continue
-        drafts += got
-        drafts_dropped += lost
-    for n, d in enumerate(drafts, 1):
-        d["id"] = f"d{n}"
+        item, story = known_items.get(pitch["item"]), stories.get(pitch["storyline"])
+        facts = facts_for(item, story)
+        fix: list[tuple[str, str]] | None = None
+        for attempt in (1, 2):
+            answer = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
+                               draft_message(cfg, pitch, item, story, fix), thread, soft=True)
+            try:
+                got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
+            except ValueError as exc:
+                drafts_dropped.append({"pitch": pid, "why": str(exc) if answer is not None else "no usable answer, twice"})
+                break
+            drafts_dropped.extend(lost)
+            kept, refused = [], []
+            for d in got:
+                why = screen(d, facts, afters)
+                (refused if why else kept).append((d, why))
+            if kept or not refused or attempt == 2:
+                for d, _ in kept:
+                    d["id"] = f"d{len(drafts) + 1}"
+                    d["truth"] = {"text": "\n\n".join(texts_of(d)), "facts": facts}
+                    drafts.append(d)
+                drafts_dropped.extend({"pitch": pid, "draft": {k: d[k] for k in ("text", "posts") if k in d}, "why": why}
+                                      for d, why in refused)
+                break
+            # Every draft of the pitch failed the checks: back once, told why.
+            fix = [("\n\n".join(texts_of(d)), why) for d, why in refused]
+            drafts_dropped.extend({"pitch": pid, "draft": {k: d[k] for k in ("text", "posts") if k in d},
+                                   "why": why, "sent_back": True} for d, why in refused)
     over = [(d["id"], d, why) for d in drafts if (why := over_limit(d))]
-    shortened: list[Json] = []
     if over:
         answer = room.turn("writer", "shorten", shorten_message(over), thread, soft=True)
         fixes = {}
@@ -863,20 +1116,23 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
             if isinstance(raw, dict) and isinstance(raw.get("id"), str):
                 fixes[raw["id"]] = raw
         for key, d, why in over:
-            fix = fixes.get(key) or {}
+            fix_ = fixes.get(key) or {}
             before = {"posts": d["posts"]} if "posts" in d else {"text": d["text"]}
-            if "posts" in d and isinstance(fix.get("posts"), list) and all(isinstance(p, str) for p in fix["posts"]) \
-                    and 2 <= len(fix["posts"]) <= THREAD_MAX:
-                d["posts"] = [p.strip() for p in fix["posts"]]
-            elif "text" in d and isinstance(fix.get("text"), str) and fix["text"].strip():
-                d["text"] = fix["text"].strip()
+            if "posts" in d and isinstance(fix_.get("posts"), list) and all(isinstance(p, str) for p in fix_["posts"]) \
+                    and 2 <= len(fix_["posts"]) <= THREAD_MAX:
+                d["posts"] = [p.strip() for p in fix_["posts"]]
+            elif "text" in d and isinstance(fix_.get("text"), str) and fix_["text"].strip():
+                d["text"] = fix_["text"].strip()
             still = over_limit(d)
+            if not still:
+                # A cut must not bring in what the checks drop.
+                still = screen(d, d["truth"]["facts"], afters)
+            d["truth"]["text"] = "\n\n".join(texts_of(d))
             shortened.append({"id": key, "why": why, "before": before, "kept": not still})
             if still:
-                drafts_dropped.append({"pitch": d["pitch"], "draft": before, "why": f"still too long after one cut: {still}"})
+                drafts_dropped.append({"pitch": d["pitch"], "draft": before, "why": f"after one cut: {still}"})
         gone = {s["id"] for s in shortened if not s["kept"]}
-        drafts = [d for d in drafts if d["id"] not in gone]
-    record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened})
+        drafts[:] = [d for d in drafts if d["id"] not in gone]
     if not drafts:
         raise Stop("skipped", "no draft survived")
 
@@ -889,16 +1145,23 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     board = {"best": board_rows(sampled["best"]), "worst": board_rows(sampled["worst"])}
     state_now = story_state(desk)
     pairs = pairings(labels, cfg.meetings, rng)
-    verdicts: list[Json] = []
+    record["tournament"] = {"meetings": cfg.meetings, "pairs": len(pairs),
+                            "shortfall": shortfall(labels, pairs, cfg.meetings)}
     batches = [pairs[i:i + cfg.pairs_per_turn] for i in range(0, len(pairs), cfg.pairs_per_turn)]
     numbered = {f"P{n}": pair for n, pair in enumerate(pairs, 1)}
     names = {pair: pid for pid, pair in numbered.items()}
     for batch in batches:
         rows = [(names[p], p[0], p[1]) for p in batch]
         answer = room.turn("editor", "compare", judge_message(rows, blind, board, state_now), None, soft=True)
-        said = {}
-        for v in (answer.get("verdicts") if isinstance(answer, dict) else answer) or []:
+        if answer is None:
+            record["warnings"].append(f"a compare batch was unusable twice: pairs {', '.join(r[0] for r in rows)} "
+                                      "have no verdict")
+        said: dict[str, Json] = {}
+        for v in (answer.get("verdicts") if isinstance(answer, dict) else None) or []:
             if isinstance(v, dict) and isinstance(v.get("pair"), str):
+                if v["pair"] in said:
+                    record["warnings"].append(f"the editor answered pair {v['pair']} twice; the first answer counts")
+                    continue
                 said[v["pair"]] = v
         for pid, a, b in rows:
             v = said.get(pid) or {}
@@ -908,15 +1171,15 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                              "rule": v.get("rule") if isinstance(v.get("rule"), int) else None,
                              "why": _str(v.get("why"), 300) or (None if winner else "no verdict given")})
     ranked_drafts = ranking(labels, verdicts)
-    record.update({"pairings": verdicts, "ranking": ranked_drafts})
+    record["ranking"] = ranked_drafts
     if not any(v["winner"] for v in verdicts) and len(labels) > 1:
         raise Stop("skipped", "the editor gave no verdict")
 
     # --- the slot ---
     top = ranked_drafts[0]["label"]
     answer = room.turn("editor", "final", final_message(top, blind[top], board, state_now), None)
-    verdict = answer.get("verdict") if isinstance(answer, dict) else None
-    reason = _str(answer.get("reason"), 400) if isinstance(answer, dict) else ""
+    verdict = _str(answer.get("verdict"), 20).lower()
+    reason = _str(answer.get("reason"), 400)
     record["final"] = {"label": top, "verdict": verdict, "reason": reason}
     if verdict != "pick":
         record.update({"outcome": "vetoed", "reason": reason or "the editor picked none", "pick": None})

@@ -37,6 +37,8 @@
 set -euo pipefail
 # shellcheck source=bin/lib/teeny.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/teeny.sh"
+# shellcheck source=bin/lib/model_windows.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/model_windows.sh"
 need curl jq python3 sqlite3
 
 lab="${SPINE_LAB:-0}"
@@ -248,51 +250,8 @@ log "agent turns: ${TEENY_AGENT_TURN_SECS}s"
     # (STUDIO_WRITER_MODEL, STUDIO_EDITOR_MODEL in secrets/teeny.env). The core
     # budgets those the same few thousand tokens, so a studio turn on them
     # came back "messages: at least one message is required" (the preview of
-    # 2026-11-18), until each has its window here too.
-    studio_models="$(python3 - "$TEENY_SECRETS/teeny.env" <<'PY'
-import sys
-seen = []
-try:
-    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-except OSError:
-    lines = []
-for raw in lines:
-    key, _, value = raw.strip().removeprefix("export ").partition("=")
-    value = value.strip().strip("\"'")
-    if key.strip() in ("STUDIO_WRITER_MODEL", "STUDIO_EDITOR_MODEL") and value and value not in seen:
-        seen.append(value)
-print(" ".join(seen))
-PY
-)" || studio_models=""
-    listing="$(curl -fsS -m 10 -H @<(printf 'authorization: Bearer %s\n' "${LADDER_API_KEY:-}") \
-      "${LADDER_URL%/}/models" 2>/dev/null)" || listing=""
-    window_of() { # MODEL -> its window from the endpoint's listing, or nothing
-      jq -r --arg m "$1" '[.data[]? | select(.id == $m or ((.aliases // []) | index($m)))
-        | (.context_length // .context_window // empty)][0] // empty' <<<"$listing" 2>/dev/null || true
-    }
-    registry='[]'
-    window="${SPINE_CONTEXT_WINDOW:-}"
-    [ -n "$window" ] || window="$(window_of "$SPINE_MODEL")"
-    if [[ "$window" =~ ^[1-9][0-9]*$ ]]; then
-      registry="$(jq -c --arg m "$SPINE_MODEL" --argjson w "$window" '. + [{id: $m, provider: "local-openai", context_window: $w}]' <<<"$registry")"
-      log "model: $SPINE_MODEL has a $window-token window"
-    else
-      log "model: no window for $SPINE_MODEL from the endpoint; keeping the stored one (set SPINE_CONTEXT_WINDOW if turns come back empty)"
-    fi
-    for studio_model in $studio_models; do
-      [ "$studio_model" != "$SPINE_MODEL" ] || continue
-      w="$(window_of "$studio_model")"
-      if [[ "$w" =~ ^[1-9][0-9]*$ ]]; then
-        registry="$(jq -c --arg m "$studio_model" --argjson w "$w" '. + [{id: $m, provider: "local-openai", context_window: $w}]' <<<"$registry")"
-        log "model: the studio's $studio_model has a $w-token window"
-      else
-        log "model: no window for the studio's $studio_model from the endpoint; its turns may come back empty"
-      fi
-    done
-    if [ "$registry" != '[]' ]; then
-      oh inference_update_model_settings "$(jq -cn --argjson r "$registry" '{model_registry: $r}')" >/dev/null ||
-        die "model: the core did not take the model windows ($(jq -r 'map(.id) | join(", ")' <<<"$registry"))"
-    fi
+    # 2026-11-18), until each has its window here too (bin/lib/model_windows.sh).
+    register_windows
   else
     log "model: not configured (no LADDER_URL in $env_file)"
   fi

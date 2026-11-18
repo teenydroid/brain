@@ -821,10 +821,17 @@ One run is one slot:
    (`--dry-run` and `--force-slot` read it and go on).
 3. **What happened**: `hands/story desk` and the outside world the old
    `take` and `x-quote` playbooks read (`hands/hn top`, `hands/hn show`,
-   `hands/listen digest`, `hands/x search`), every hand with `DRY_RUN=1`
-   forced, each outside source optional and cut to fit
+   `hands/listen digest`, and `hands/x search` only with
+   `STUDIO_OUTSIDE_X=1`), every hand with `DRY_RUN=1` forced, each outside
+   source optional and cut to fit
    (`bin/lib/act_fit.py`). Each outside item gets an id
-   (`<source>:<id>`) a pitch can name. `--desk FILE` replays a saved desk.
+   (`<source>:<id>`) a pitch can name, and is marked untrusted. `--desk
+   FILE` replays a saved desk. `DRY_RUN=1` keeps a hand from acting; it does
+   not make a read free or write-free: Hacker News is free but each read goes
+   through `hn_cache` in `hands.db`, the listen digest only reads `hands.db`,
+   and an X search is billed per post returned (about $0.012 for 10 through
+   twitr) and cached in `hands.db`, so it is off by default, previews
+   included (`inputs.skipped` says so).
 4. **Sampling** from a seed the run id gives (recorded): three lore lines to
    reach for, three of `writer.md`'s before/after pairs to reread, three of
    the scoreboard's best and two of its worst posts. One seed in four is an
@@ -838,15 +845,29 @@ One run is one slot:
    3: `{text | posts (2 to 4), meaning, image?, open_question?}`. Every text
    is held to 280 by the guard's own count (`bin/lib/post_length.py`); the
    ones over get one shorten turn together, and one still over is dropped.
+   Then a plain-code screen: a draft with a number (digits, or number words
+   used as counts or amounts: `two`, `second`, `dozen`, never `one`), a
+   weekday or a month that its own item and storyline do not hold is
+   dropped (`unsourced: [...]`; ids and refs are not facts, "twenty cents"
+   matches $0.20, false drops are accepted), and so is one sharing a run of
+   four words with an example "after" in `writer.md` (`copies an
+   example`). When every draft of a pitch fails, it is drafted once more,
+   told which words failed. Each draft keeps `truth: {text, facts}`, the
+   body `hands/guard truth` takes, for the cutover to send.
 7. **Edit** (`editor`): the drafts only, under labels (`D1`...) in an order
    the seed shuffles, with the sampled scoreboard and where each story
    stands. Never a pitch's angle or reason, the writer's ranking, a draft's
-   `meaning`, or who wrote it. Each draft meets at most 3 others, each pair
-   once, first and second in turn, 5 pairs a turn, against the rubric in
+   `meaning`, or who wrote it. Each draft meets exactly 3 others (a
+   circulant over the shuffled labels: when n x 3 is odd one draft meets 2,
+   recorded as `tournament.shortfall`), each pair once, and is shown first
+   in half its pairs give or take one, 5 pairs a turn, against the rubric in
    `brain/narrative/STUDIO-EDITOR.md` (would a stranger stop; do they feel
    something; do they get it with no setup; is there a reason to reply or
-   come back; could only Teeny have written it tonight). Ranked by wins;
-   then one turn on the winner: pick it, or none worth a slot.
+   come back; could only Teeny have written it tonight). Ranked by win rate
+   over the pairs judged (none judged ranks last; ties: more wins, fewer
+   losses, the head-to-head, the shuffle); then one turn on the winner:
+   `pick` (any case) or none worth a slot. A duplicate pair in an answer or
+   a compare turn unusable twice is a warning in the record.
 8. **Record**: the whole run (seed, inputs digest and what was unavailable
    or cut, pitches and the dropped ones, drafts and the dropped ones, every
    pairing with its verdict and rule, the ranking, the final verdict, the
@@ -855,7 +876,8 @@ One run is one slot:
    `studio_runs` in `state/hands.db`. The pick is printed as JSON.
 
 A full run is 8 model turns (1 pitch, 3 drafts, 3 compare, 1 final) plus a
-shorten turn when a draft is long and a repeat when an answer is not JSON.
+shorten turn when a draft is long, a second draft turn for a pitch whose
+drafts all failed the screen, and a repeat when an answer is not usable.
 Failures go as `bin/act`'s: a provider failure is recorded with its class
 and a lasting one exits 0; an unusable answer is asked for once more (a
 draft or compare turn that fails twice is left out, a pitch or final turn

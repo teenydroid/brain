@@ -34,12 +34,14 @@ case "$(head -n 1 <<<"$msg")" in
   "# studio: draft")
     n=0; [ ! -e "$FAKE_SEEN.drafts" ] || n="$(cat "$FAKE_SEEN.drafts")"; echo $((n + 1)) >"$FAKE_SEEN.drafts"
     long="$(printf 'x%.0s' $(seq 1 300))"
-    first="pitch $n draft a: i pay my own server bill. nobody clapped."
+    names=(red green blue amber violet)
+    c="${names[$n]}"
+    first="pitch $c draft a: i pay my own server bill. nobody clapped."
     [ -z "${FAKE_LONG:-}" ] || [ "$n" != 0 ] || first="$long"
-    say "$(jq -cn --arg f "$first" --arg n "$n" '{drafts: [
-      {text: $f, posts: [$f, "two \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
-      {text: "pitch \($n) draft b", posts: ["three \($n)", "four \($n)"], image: "teeny in the rain", meaning: "m"},
-      {text: "pitch \($n) draft c", posts: ["five \($n)", "six \($n)"], image: "teeny on a bus", meaning: "m"}]}')" ;;
+    say "$(jq -cn --arg f "$first" --arg n "$c" '{drafts: [
+      {text: $f, posts: [$f, "beta \($n)"], image: "teeny on a windowsill at dawn", meaning: "m"},
+      {text: "pitch \($n) draft b", posts: ["gamma \($n)", "delta \($n)"], image: "teeny in the rain", meaning: "m"},
+      {text: "pitch \($n) draft c", posts: ["epsilon \($n)", "zeta \($n)"], image: "teeny on a bus", meaning: "m"}]}')" ;;
   "# studio: cut to fit")
     if [ -n "${FAKE_SHORTEN_OK:-}" ]; then say '{"drafts": [{"id": "d1", "text": "cut down", "posts": ["cut down", "and again"]}]}'
     else say "$(jq -cn --arg t "$(printf 'y%.0s' $(seq 1 290))" '{drafts: [{id: "d1", text: $t, posts: [$t, "b"]}]}')"; fi ;;
@@ -166,8 +168,9 @@ check "and prints the pick as JSON" jqe '.pick.label | test("^D[0-9]+$")' <<<"$o
 check "and says it posted nothing" jqe '.dry == true and .published == {dry: true}' <<<"$out"
 check "every hand input runs with DRY_RUN=1" bash -c "! grep -v 'DRY_RUN=1$' '$FAKE_HANDS' | grep -v '^story record-run'"
 check "it reads what happened from hands/story desk" grep -q '^story desk DRY_RUN=1$' "$FAKE_HANDS"
-check "and the outside world the old playbooks read" bash -c "grep -q '^hn top --max 8' '$FAKE_HANDS' && grep -q '^hn show --max 8' '$FAKE_HANDS' && grep -q '^listen digest --days 1 --max 4' '$FAKE_HANDS' && grep -q '^x search ' '$FAKE_HANDS'"
-check "an outside source that fails is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$rec"
+check "and the free outside world the old playbooks read" bash -c "grep -q '^hn top --max 8' '$FAKE_HANDS' && grep -q '^hn show --max 8' '$FAKE_HANDS' && grep -q '^listen digest --days 1 --max 4' '$FAKE_HANDS'"
+check "but not the paid X search, which is off by default, and says so" \
+  bash -c "! grep -q '^x search ' '$FAKE_HANDS' && jq -e '.inputs.skipped | any(test(\"STUDIO_OUTSIDE_X=1\"))' <<<\"\$1\" >/dev/null" _ "$rec"
 check "nothing calls hands/x post or post-thread" bash -c "! grep -qE '^x (post|post-thread|reply|upload) ' '$FAKE_HANDS'"
 check "pitches and drafts are the writer's turns" test "$(calls_to writer | grep -c '^# studio: ')" = 4
 check "the writer drafts on the run's own thread" test "$(jq -r 'select(.agent_id == "writer") | .thread_id' "$FAKE_CALLS" | sort -u)" = "studio:$plain_id"
@@ -213,6 +216,15 @@ again="$(reset; STUDIO=1 STUDIO_RUN_ID="$plain_id" run >/dev/null; last_record)"
 check "the same run id samples, shuffles and pairs the same" \
   test "$(jq -c '[.sampled, .labels, [.pairings[] | .first + .second]]' <<<"$rec")" = "$(jq -c '[.sampled, .labels, [.pairings[] | .first + .second]]' <<<"$again")"
 
+reset
+STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_OUTSIDE_X=1 run >/dev/null
+check "STUDIO_OUTSIDE_X=1 runs the X search" grep -q '^x search .* DRY_RUN=1$' "$FAKE_HANDS"
+check "and a failed outside source is named, not fatal" jqe '.inputs.unavailable | index("builders")' <<<"$(last_record)"
+reset
+out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" STUDIO_DRY=0 run)"
+check "STUDIO_DRY=0 end to end still posts nothing" \
+  bash -c "jq -e '.outcome == \"picked\" and .published == {dry: true} and (.warnings | any(test(\"STUDIO_DRY=0\")))' <<<\"\$1\" >/dev/null && ! grep -qE '^x (post|post-thread|reply|upload) ' '$FAKE_HANDS'" _ "$out"
+
 # --- explore: one run in four --------------------------------------------------------
 reset
 STUDIO=1 STUDIO_RUN_ID="$explore_id" run >/dev/null
@@ -231,7 +243,7 @@ reset
 out="$(STUDIO=1 STUDIO_RUN_ID="$plain_id" FAKE_LONG=1 run)"
 rec="$(last_record)"
 check "a draft still over 280 after the cut is dropped" \
-  jqe '(.shortened[0].kept == false) and (.drafts | map(.id) | index("d1") | not) and (.drafts_dropped | map(.why) | any(test("still too long")))' <<<"$rec"
+  jqe '(.shortened[0].kept == false) and (.drafts | map(.id) | index("d1") | not) and (.drafts_dropped | map(.why) | any(test("after one cut")))' <<<"$rec"
 check "and only one shorten turn is ever taken" test "$(step_msgs '# studio: cut to fit' | grep -c '^# studio: cut to fit')" = 1
 
 # --- the veto ------------------------------------------------------------------------
