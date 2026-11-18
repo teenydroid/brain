@@ -1575,7 +1575,8 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     record: Json = {"id": run_id, "kind": "run", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": args.slot, "preview": bool(args.dry_run), "dry": dry,
                     "seed": seed,
-                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
+                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
+                               "judge": cfg.judge_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
                                "pairs_per_turn": cfg.pairs_per_turn, "budget_secs": cfg.budget_secs},
@@ -1892,7 +1893,8 @@ def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, 
     room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=cfg.dry)
     record: Json = {"id": run_id, "kind": "veto", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "at_unix": stamp.timestamp(), "slot": kind, "preview": False, "dry": cfg.dry,
-                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
+                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default",
+                               "judge": cfg.judge_model or "core default"},
                     "candidate": candidate, "warnings": list(cfg.warnings)}
     out: Json
     try:
@@ -1935,8 +1937,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--no-slot", action="store_true", help="do not read the slot at all (a replay)")
     parser.add_argument("--veto", action="store_true",
                         help="the editor alone on one candidate (JSON on stdin): pick or none")
+    parser.add_argument("--detach", action="store_true",
+                        help="as cron runs a slot: with STUDIO=1, start the run in the background and return")
     args = parser.parse_args(argv)
     environ = dict(os.environ)
+    if args.detach and not args.dry_run:
+        detached = detach(args, argv, environ)
+        if detached is not None:
+            return detached
     if args.veto:
         try:
             body = json.loads(sys.stdin.read() or "null")
@@ -1951,6 +1959,30 @@ def main(argv: list[str]) -> int:
         os.execv(str(root / "bin" / "act"), [str(root / "bin" / "act"), args.legacy])
     print(json.dumps(summary, ensure_ascii=False))
     return code
+
+
+def detach(args: argparse.Namespace, argv: list[str], environ: dict[str, str]) -> int | None:
+    """`--detach`, as cron runs a slot. The core gives a cron shell call 300 s
+    and then kills its process group and retries it; a studio run takes
+    longer than that (the preview's took 250 to 330 s before any picture or
+    post). So with STUDIO=1 the run is started in its own session through
+    bin/lib/detach.py, under the studio lock (one run at a time; the run
+    takes the same lock itself), and this call returns at once. None when
+    there is nothing to detach: with STUDIO=0 the slot's legacy playbook
+    runs in the foreground, as cron ran it before."""
+    root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
+    cfg = Config.load(environ, Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env")
+    if cfg.switch_error:
+        print(json.dumps({"ok": False, "error": cfg.switch_error, "failure": "studio"}, ensure_ascii=False))
+        return 1
+    if not cfg.on:
+        return None
+    rest = [a for a in argv if a != "--detach"]
+    log = f"studio/{args.slot or 'adhoc'}.log"
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, str(HERE / "detach.py"), "--log", log, "--lock", "studio", "--",
+                              str(root / "bin" / "studio"), *rest])
+    return 0  # not reached
 
 
 if __name__ == "__main__":
