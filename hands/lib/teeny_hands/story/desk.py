@@ -42,6 +42,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from datetime import datetime
 from typing import Any, Callable
 
 from .. import hand
@@ -54,15 +55,17 @@ DAY = 86400.0
 
 STAKES = ("money", "broke", "refused", "fell", "rose", "promise", "shipped", "said")
 
-#: A kind's storyline, when one fits.
+#: A kind's storyline, when one fits. A payment's is by its purpose
+#: (PURPOSE_STORY). A sweep moves spare money out and the model bill is not
+#: paid from the wallet (docs/hands.md, "vps"), so neither is rent.
 KIND_STORY = {
     "generation": "night-shift",
     "generation_thrown": "night-shift",
     "merged_pr": None,
     "bounty_paid": "strangers",
-    "payment": "rent",
-    "sweep": "rent",
-    "model_bill": "rent",
+    "payment": None,
+    "sweep": None,
+    "model_bill": None,
     "followers": "count",
     "promise": "strangers",
     "outage": None,
@@ -70,18 +73,23 @@ KIND_STORY = {
     "mention": "strangers",
 }
 
-#: Evolve verdicts that mean a rewrite was thrown out: the stake each has,
-#: and what happened to it in plain words.
+#: A wallet payment's purpose -> its storyline. Only a bill is rent.
+PURPOSE_STORY = {"bill": "rent", "bounty": "strangers", "vendor": None, "refund": None}
+
+#: Evolve verdicts that mean a rewrite did not go in, with the stake each
+#: has: the ones the live archive holds. Each is worded from the code that
+#: writes it (bin/lib/evolve.py); `lost`, which no current code writes, and
+#: any verdict without words get the neutral DID_NOT_GO_IN.
 THROWN = {"rejected": "refused", "lost": "refused", "regressed": "refused", "parked": "refused",
           "crashed": "broke", "pr-error": "broke"}
 VERDICT_WORDS = {
-    "rejected": "was rejected by the reviewer",
-    "lost": "lost to another rewrite the same night",
-    "regressed": "made things worse in testing and was thrown out",
-    "parked": "kept failing its checks and was set aside",
-    "crashed": "crashed before it was finished",
-    "pr-error": "could not be sent for review",
+    "rejected": "failed its automated checks",                            # the hard gate
+    "regressed": "did worse than the version before it when tried out",  # the targeted eval
+    "parked": "was set aside after failing its checks round after round",
+    "crashed": "was cut short when the run it was in crashed",            # end_crashed
+    "pr-error": "was stopped before it could be sent for review",        # open_pr refused
 }
+DID_NOT_GO_IN = "did not go in"
 #: A health alarm's ref prefix (bin/lib/health.py) -> what stopped, and
 #: what came back.
 ALARMS = {
@@ -93,6 +101,11 @@ ALARMS = {
 PAYMENT_STAKE = {"paid": "money", "failed": "broke", "in_doubt": "broke", "refused": "refused"}
 SWEEP_STAKE = {"paid": "money", "sent": "money", "failed": "broke", "in_doubt": "broke", "refused": "refused"}
 DECIMALS = {"SOL": 9, "USDC": 6, "ETH": 18}
+#: Overdue open promises the desk shows, the most recently due first.
+OVERDUE = 5
+#: Where a person's handle is an address or a private id: `what` says the
+#: surface only, and the handle stays in `facts`.
+PRIVATE_SURFACES = ("mail", "telegram")
 #: Mentions answered that the desk shows: the most-followed first.
 MENTIONS = 5
 MENTION_CHARS = 280
@@ -104,10 +117,23 @@ SCORE_DAYS = 14
 ORIGINALS = ("post", "quote")
 
 
-def _item(kind: str, at: float | None, stake: str, what: str, facts: Json, source: str) -> Json:
+_KIND = object()
+
+
+def _item(kind: str, at: float | None, stake: str, what: str, facts: Json, source: str,
+          storyline: Any = _KIND) -> Json:
     assert stake in STAKES, stake
-    return {"id": source, "kind": kind, "at": store.iso(at), "storyline": KIND_STORY.get(kind), "stake": stake,
+    story = KIND_STORY.get(kind) if storyline is _KIND else storyline
+    return {"id": source, "kind": kind, "at": store.iso(at), "storyline": story, "stake": stake,
             "what": what, "facts": {k: v for k, v in facts.items() if v is not None}, "source": source}
+
+
+def _person(surface: str, who: Any) -> str:
+    """Who, as `what` may say it: a public handle with its surface, or only
+    the surface where the handle is an address or a private id."""
+    if surface in PRIVATE_SURFACES or not who:
+        return f"someone on {surface}"
+    return f"{_cut(str(who).lstrip('@'), 30)} on {surface}"
 
 
 def _usd(micro: Any) -> str:
@@ -182,7 +208,8 @@ def thrown(since: float) -> list[Json]:
         why = entry.get("reason") or entry.get("eval_reason")
         rounds = entry.get("rounds")
         title = entry.get("title")
-        what = f"a rewrite of itself {VERDICT_WORDS[entry['verdict']]}" + (f": {title}" if title else "")
+        words = VERDICT_WORDS.get(entry["verdict"], DID_NOT_GO_IN)
+        what = f"a rewrite of itself {words}" + (f": {title}" if title else "")
         out.append(_item("generation_thrown", at, stake, what,
                          {"gen": entry.get("gen"), "verdict": entry["verdict"], "title": title,
                           "component": entry.get("component"), "reason": _cut(why, 300) if why else None,
@@ -196,10 +223,10 @@ def merged_prs(hours: int) -> list[Json]:
     out = []
     for e in lore.merged_prs(max(1, math.ceil(hours / 24))):
         at = lore._when(e.get("at"))
-        if at is not None and at < since:
+        if at is None or at < since:  # no time it can be placed at is never inside the window
             continue
         out.append(_item("merged_pr", at, "shipped",
-                         f"a fix it wrote was merged into {e['repo']}: {e.get('title') or ''}".rstrip(": "),
+                         f"a change it wrote was merged into {e['repo']}: {e.get('title') or ''}".rstrip(": "),
                          {"repo": e["repo"], "number": e.get("number"), "title": e.get("title"),
                           "url": e.get("html_url")}, f"gh:{e['repo']}#{e.get('number')}"))
     return out
@@ -214,15 +241,18 @@ def bounties(ledger: Ledger, since: float) -> list[Json]:
 
 def payments(ledger: Ledger, since: float) -> list[Json]:
     """What the wallet sent. A payment a surplus sweep made is the sweep's
-    item, not a second one."""
+    item, and a paid bounty's prize is the bounty's item, not a second one."""
     conn = ledger.need("wallet_payments")
-    swept = set()
+    swept: set[str] = set()
     if "surplus_runs" in ledger.tables:
         swept = {r[0] for r in conn.execute("SELECT ref FROM surplus_runs WHERE ref IS NOT NULL")}
+    prized: set[str] = set()
+    if "bounties" in ledger.tables:
+        prized = {str(r[0]) for r in conn.execute("SELECT id FROM bounties WHERE status = 'paid'")}
     out = []
     for r in conn.execute("SELECT * FROM wallet_payments WHERE created_at >= ? ORDER BY created_at", (since,)):
         stake = PAYMENT_STAKE.get(r["status"])
-        if stake is None or r["ref"] in swept:
+        if stake is None or r["ref"] in swept or (r["purpose"] == "bounty" and r["ref"] in prized):
             continue
         amount = _amount(r["asset"], r["amount_raw"])
         verb = {"paid": "paid", "failed": "failed to pay", "in_doubt": "may or may not have paid",
@@ -231,7 +261,7 @@ def payments(ledger: Ledger, since: float) -> list[Json]:
                          f"the wallet {verb} {amount} (about {_usd(r['usd_micro'])}) for a {r['purpose']}",
                          {"asset": r["asset"], "amount": amount, "usd": _usd(r["usd_micro"]), "purpose": r["purpose"],
                           "ref": r["ref"], "status": r["status"], "chain": r["chain"], "error": r["error"]},
-                         f"wallet_payments:{r['id']}"))
+                         f"wallet_payments:{r['id']}", storyline=PURPOSE_STORY.get(r["purpose"])))
     return out
 
 
@@ -322,46 +352,57 @@ def health_now() -> list[Json]:
 
 
 def followers(ledger: Ledger, since: float) -> list[Json]:
-    """The X follower count against the day before, when the newest snapshot
-    falls in the window and the count moved."""
+    """The X follower count against the snapshot before it, when the newest
+    snapshot falls in the window and the count moved. The change is a one-day
+    change (`d1`) only when the snapshot before is the previous date;
+    otherwise `what` names the real span."""
     conn = ledger.need("stats")
-    latest = conn.execute("SELECT date, value, at FROM stats WHERE source = 'x' AND metric = 'followers'"
-                          " ORDER BY date DESC LIMIT 1").fetchone()
-    if latest is None or latest["at"] < since:
+    rows = conn.execute("SELECT date, value, at FROM stats WHERE source = 'x' AND metric = 'followers'"
+                        " ORDER BY date DESC LIMIT 2").fetchall()
+    if len(rows) < 2 or rows[0]["at"] < since:
         return []
-    row = next((a for a in board.audience(conn) if a["metric"] == "x.followers"), None)
-    change = row.get("d1") if row else None
-    if not change:
+    latest, before = rows
+    span = (datetime.strptime(latest["date"], "%Y-%m-%d") - datetime.strptime(before["date"], "%Y-%m-%d")).days
+    change = board._num(latest["value"] - before["value"])
+    if not change or span < 1:
         return []
     value = board._num(latest["value"])
     gained = change > 0
-    what = f"{'gained' if gained else 'lost'} {abs(change)} follower{'s' if abs(change) != 1 else ''} on X: {value} now"
+    when = "since the day before" if span == 1 else f"over {span} days"
+    what = (f"{'gained' if gained else 'lost'} {abs(change)} follower{'s' if abs(change) != 1 else ''} on X {when}:"
+            f" {value} now")
     return [_item("followers", latest["at"], "rose" if gained else "fell", what,
-                  {"followers": value, "d1": change, "d7": row.get("d7"), "date": latest["date"]},
+                  {"followers": value, "change": change, "span_days": span, "d1": change if span == 1 else None,
+                   "date": latest["date"], "compared_with": before["date"]},
                   f"stats:{latest['date']}:x:followers")]
 
 
 def promises(ledger: Ledger, since: float, until: float) -> list[Json]:
-    """Promises kept or dropped in the window, and open ones that came due
-    in it or come due before UNTIL."""
+    """Promises kept or dropped in the window, open ones coming due before
+    UNTIL, and open ones already overdue, however long ago (the OVERDUE most
+    recently due, marked `overdue`)."""
     conn = ledger.need("people_promises")
+    now = hand.now()
     out = []
     rows = conn.execute(
         "SELECT * FROM people_promises WHERE (status IN ('kept', 'dropped') AND closed_at >= ?)"
-        " OR (status = 'open' AND due_at >= ? AND due_at < ?) ORDER BY id", (since, since, until)).fetchall()
+        " OR (status = 'open' AND due_at >= ? AND due_at < ?) ORDER BY id", (since, now, until)).fetchall()
+    rows += conn.execute("SELECT * FROM people_promises WHERE status = 'open' AND due_at < ? ORDER BY due_at DESC"
+                         " LIMIT ?", (now, OVERDUE)).fetchall()
     for r in rows:
         what_promised = _cut(r["what"], 200)
+        person = _person(r["surface"], r["who"])
+        overdue = r["status"] == "open" and r["due_at"] < now
         if r["status"] == "kept":
-            at, what = r["closed_at"], f"kept a promise to {r['who']} on {r['surface']}: {what_promised}"
+            at, what = r["closed_at"], f"kept a promise to {person}: {what_promised}"
         elif r["status"] == "dropped":
-            at, what = r["closed_at"], f"dropped a promise to {r['who']} on {r['surface']}: {what_promised}"
+            at, what = r["closed_at"], f"dropped a promise to {person}: {what_promised}"
         else:
-            late = r["due_at"] < hand.now()
             at = r["due_at"]
-            what = (f"a promise to {r['who']} on {r['surface']} is {'overdue' if late else 'coming due'}:"
-                    f" {what_promised}")
+            what = f"a promise to {person} is {'overdue' if overdue else 'coming due'}: {what_promised}"
         out.append(_item("promise", at, "promise", what,
                          {"who": r["who"], "surface": r["surface"], "promised": what_promised, "status": r["status"],
+                          "overdue": True if overdue else None,
                           "made_at": store.iso(r["made_at"]), "due_at": store.iso(r["due_at"]),
                           "closed_at": store.iso(r["closed_at"]), "on_time": (r["closed_at"] <= r["due_at"])
                           if r["status"] == "kept" and r["closed_at"] else None,
@@ -406,8 +447,10 @@ def ideas(ledger: Ledger, since: float) -> list[Json]:
     conn = ledger.need("stimuli")
     rows = conn.execute("SELECT * FROM stimuli WHERE surface = 'studio' AND at >= ? ORDER BY at DESC LIMIT ?",
                         (since, IDEAS)).fetchall()
+    # The mind writes these while it reads strangers' words, so the text is
+    # data that may carry theirs: untrusted, like a mention's.
     return [{"id": f"stimuli:{r['id']}", "kind": r["kind"], "at": store.iso(r["at"]), "ref": r["ref"],
-             "text": _cut(r["text"], IDEA_CHARS), "status": r["status"]} for r in rows]
+             "text": _cut(r["text"], IDEA_CHARS), "status": r["status"], "untrusted": True} for r in rows]
 
 
 # --- the scoreboard -------------------------------------------------------------------
@@ -416,31 +459,43 @@ def ideas(ledger: Ledger, since: float) -> list[Json]:
 def scoreboard(ledger: Ledger, days: int = SCORE_DAYS) -> Json:
     """Teeny's best and worst original X posts (posts and quotes) of the last
     DAYS days, ranked as `hands/stats board` ranks them (stats/board.py), in
-    full, with the most each count reached over every measurement."""
+    full. The counts shown and `result` are from the same row: the post's
+    newest measurement (`checkpoint`). A post is never both best and worst,
+    so with TOP or fewer measured `worst` is empty."""
     conn = ledger.need("x_posts", "x_post_metrics")
     writes = [w for w in board.x_writes(conn, hand.now() - days * DAY) if w["kind"] in ORIGINALS]
     best, worst = board.rank(writes)
-    ids = [w["id"] for w in best + worst]
-    full: dict[str, sqlite3.Row] = {}
-    if ids:
-        marks = ", ".join("?" for _ in ids)
-        full = {r["id"]: r for r in conn.execute(
-            "SELECT p.id, p.text, max(m.impressions) AS impressions, max(m.likes) AS likes, max(m.replies) AS replies,"
-            " max(m.reposts) AS reposts, max(m.quotes) AS quotes, max(m.bookmarks) AS bookmarks"
-            f" FROM x_posts p JOIN x_post_metrics m ON m.post_id = p.id WHERE p.id IN ({marks}) GROUP BY p.id", ids)}
 
     def shown(w: Json) -> Json:
-        r = full[w["id"]]
+        r = conn.execute("SELECT p.text, m.impressions, m.likes, m.replies, m.reposts, m.quotes, m.bookmarks"
+                         " FROM x_posts p JOIN x_post_metrics m ON m.post_id = p.id"
+                         " WHERE p.id = ? AND m.checkpoint = ?", (w["id"], w["checkpoint"])).fetchone()
         return {"id": w["id"], "kind": w["kind"], "format": w["format"], "at": store.iso(w["at"]), "text": r["text"],
                 "impressions": r["impressions"], "likes": r["likes"], "replies": r["replies"], "reposts": r["reposts"],
-                "quotes": r["quotes"], "bookmarks": r["bookmarks"], "result": w["result"], "source": f"x_posts:{w['id']}"}
+                "quotes": r["quotes"], "bookmarks": r["bookmarks"], "result": w["result"], "checkpoint": w["checkpoint"],
+                "source": f"x_posts:{w['id']}"}
 
     return {"days": days, "measured": len(writes), "best": [shown(w) for w in best], "worst": [shown(w) for w in worst],
             "formats": board.by_format(writes),
-            "result": "likes + replies + reposts + quotes at the newest measurement, as hands/stats board counts it"}
+            "result": "likes + replies + reposts + quotes at the newest measurement (the same row as the counts shown),"
+                      " as hands/stats board counts it"}
 
 
 # --- the desk -------------------------------------------------------------------------
+
+
+def _one_outage(items: list[Json]) -> None:
+    """An outage still going on is one item: when its alarm is on the desk,
+    health.json's item goes and the alarm is marked `ongoing`."""
+    now = next((i for i in items if i["source"] == "file:state/health.json"), None)
+    if now is None:
+        return
+    first = lore._when(now["facts"].get("first_failed_at"))
+    alarm = next((i for i in items if first is not None and i["source"] == f"stimuli:health:alarm:outage:{int(first)}"),
+                 None)
+    if alarm is not None:
+        alarm["facts"]["ongoing"] = True
+        items.remove(now)
 
 
 def desk(hours: int = 24, due_days: int = store.DUE_DAYS) -> Json:
@@ -476,13 +531,11 @@ def desk(hours: int = 24, due_days: int = store.DUE_DAYS) -> Json:
         ):
             items.extend(read(name, get))
         filed = read("ideas", lambda: ideas(ledger, since))
-        board_out: Json = {}
-        try:
-            board_out = scoreboard(ledger)
-        except Missing as exc:
-            unavailable.append(f"scoreboard: {exc}")
+        boards = read("scoreboard", lambda: [scoreboard(ledger)])
+        board_out: Json = boards[0] if boards else {}
     finally:
         ledger.close()
+    _one_outage(items)
     conn = store.db()
     try:
         stories = store.state(conn)["storylines"]
