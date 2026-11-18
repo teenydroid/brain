@@ -490,8 +490,8 @@ class Select(unittest.TestCase):
 
     def test_a_held_out_id_is_kept_only_with_heldout(self):
         evals_dir = REPO / "evals"
-        self.assertEqual(evals.select(evals_dir, self.held, False, ["morning-post", "hold-x"]), ["morning-post"])
-        self.assertEqual(evals.select(evals_dir, self.held, True, ["morning-post", "hold-x"]), ["morning-post", "hold-x"])
+        self.assertEqual(evals.select(evals_dir, self.held, False, ["pr-merged-typo-fix", "hold-x"]), ["pr-merged-typo-fix"])
+        self.assertEqual(evals.select(evals_dir, self.held, True, ["pr-merged-typo-fix", "hold-x"]), ["pr-merged-typo-fix", "hold-x"])
         self.assertEqual(evals.select(evals_dir, self.held, False, []), [])
         with self.assertRaises(evals.EvalError):
             evals.select(evals_dir, self.held, True, ["nope"])

@@ -414,8 +414,9 @@ check "a refused picture: the words go out alone when they stand alone, and the 
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=no,yes live)"
 rec="$(last_record)"
+m="$(step_msgs '# studio: rewrite')"
 check "a truth no gets one rewrite, told the reason and what was unsupported" \
-  bash -c "m=\"\$(step_msgs '# studio: rewrite')\"; [ \"\$(grep -c '^# studio: rewrite' <<<\"\$m\")\" = 1 ] && grep -q 'the second in two days' <<<\"\$m\" && grep -q 'one follower was lost' <<<\"\$m\""
+  bash -c "[ \"\$(grep -c '^# studio: rewrite' <<<\"\$1\")\" = 1 ] && grep -q 'the second in two days' <<<\"\$1\" && grep -q 'one follower was lost' <<<\"\$1\"" _ "$m"
 check "and the rewrite, gated again, is what goes out" \
   bash -c "jq -e '.outcome == \"published\" and .publish.attempts[0].rewritten == true and .publish.attempts[0].regates.truth.truthful == true' <<<\"\$1\" >/dev/null &&
     jq -e '.text == \"a rewrite: i pay my own server bill\"' <<<\"\$(grep -E '^x post ' '$FAKE_HANDS' | sed 's/^[^{]*stdin=//')\" >/dev/null" _ "$rec"
@@ -424,7 +425,7 @@ check "the rewrite is the writer's, on the run's thread" \
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=no,yes live)"
 check "a stranger no gets one rewrite, told what they took and would ask about" \
-  bash -c "grep -q 'the desk' <<<\"\$(step_msgs '# studio: rewrite')\" && [ \"\$(jq -r .outcome <<<\"\$1\")\" = published ]" _ "$out"
+  bash -c "grep -q 'the desk' <<<\"\$2\" && [ \"\$(jq -r .outcome <<<\"\$1\")\" = published ]" _ "$out" "$(step_msgs '# studio: rewrite')"
 reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_TRUTH=no,no,yes FAKE_FINAL_AFTER='{"verdict": "pick", "reason": "fine"}' live)"
 rec="$(last_record)"
@@ -443,7 +444,7 @@ reset
 out="$(FAKE_PITCH_ANSWER="$one_post" FAKE_CLEAR=down live)"
 rec="$(last_record)"
 check "a cold reader that cannot be reached fails closed: no rewrite, no other draft, an empty slot" \
-  bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$(step_msgs '# studio: rewrite')\" ] && [ -z \"\$(grep -E '^x (post|post-thread) ' '$FAKE_HANDS')\" ]" _ "$rec"
+  bash -c "jq -e '.outcome == \"empty\" and (.publish.attempts | length) == 1' <<<\"\$1\" >/dev/null && [ -z \"\$2\" ] && [ -z \"\$3\" ]" _ "$rec" "$(step_msgs '# studio: rewrite')" "$(posts)"
 
 # --- the posting rules
 reset
@@ -489,7 +490,7 @@ check "STUDIO=0: --veto picks with no turn" bash -c "jq -e '.verdict == \"pick\"
 reset
 out="$(STUDIO=1 veto <<<'{"kind": "peer-quote", "text": "we measured this too", "quoted": "SECRET-QUOTED-POST"}')"
 check "STUDIO=1: one editor turn on the one candidate, with the post it quotes" \
-  bash -c "jq -e '.verdict == \"pick\" and .kind == \"peer-quote\"' <<<\"\$1\" >/dev/null && [ \"\$(turns)\" = 1 ] && grep -q SECRET-QUOTED-POST <<<\"\$(calls_to editor)\"" _ "$out"
+  bash -c "jq -e '.verdict == \"pick\" and .kind == \"peer-quote\"' <<<\"\$1\" >/dev/null && [ \"\$2\" = 1 ] && grep -q SECRET-QUOTED-POST <<<\"\$3\"" _ "$out" "$(turns)" "$(calls_to editor)"
 check "and it is kept in studio_runs as a veto" jqe '.kind == "veto" and .outcome == "picked" and .slot == "peer-quote"' <<<"$(tail -n 1 "$FAKE_RECORDS")"
 reset
 out="$(STUDIO=1 FAKE_VETO='{"verdict": "none", "reason": "flat"}' veto <<<'{"kind": "brief", "text": "hi"}')"
@@ -507,7 +508,7 @@ chmod +x "$legacy_root/bin/act"
 reset
 out="$(STUDIO=0 TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote)"
 check "STUDIO=0 with --legacy runs that playbook through bin/act, and nothing of the room" \
-  bash -c "grep -qx 'act x-quote' '$FAKE_HANDS' && [ \"\$(turns)\" = 0 ] && [ \"\$(jq -r .playbook <<<\"\$1\")\" = x-quote ]" _ "$out"
+  bash -c "grep -qx 'act x-quote' '$FAKE_HANDS' && [ \"\$2\" = 0 ] && [ \"\$(jq -r .playbook <<<\"\$1\")\" = x-quote ]" _ "$out" "$(turns)"
 reset
 out="$(STUDIO=1 TEENY_ROOT="$legacy_root" STUDIO_RUN_ID="$plain_id" run --slot 0430 --legacy x-quote)"
 check "STUDIO=1 with --legacy runs the studio, never the playbook" \

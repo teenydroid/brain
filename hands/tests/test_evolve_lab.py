@@ -127,7 +127,7 @@ elif agent == "reviewer":
     answer = json.dumps({"verdict": "approve", "findings": []})
 elif agent == "evolver" and message.startswith("# evolve research"):
     # A research turn that writes anyway: bin/evolve throws it away.
-    with open(os.path.join(params["cwd"], "brain", "playbooks", "morning.md"), "a") as fh:
+    with open(os.path.join(params["cwd"], "brain", "playbooks", "pr-merged.md"), "a") as fh:
         fh.write("\nwritten during research\n")
     answer = json.dumps({"verdict": "build", "why": "nothing names who shipped",
                          "plan": "one line in moltbook-daily", "read": ["brain/playbooks/moltbook-daily.md"]})
@@ -135,7 +135,7 @@ elif agent == "evolver":
     path = os.path.join(params["cwd"], "brain", "playbooks", "moltbook-follow.md")
     with open(path, "a") as fh:
         fh.write("\nName the person who shipped it.\n")
-    answer = json.dumps({"title": "morning: name who shipped", "component": "attention",
+    answer = json.dumps({"title": "pr-merged: name who shipped", "component": "attention",
                          "expected_move": "+1% engaged reach", "check": {"kind": "judged", "surface": "moltbook"},
                          "hypothesis": "Names travel further."})
 else:
@@ -301,8 +301,8 @@ class TargetedEvaluation(LabCase):
     --tasks --brain --key, compare --mode nonregression) on stand-in lab
     spines and a stand-in core: measured only on the tasks the change
     reaches, all candidates at once, against one baseline per base commit.
-    A playbook edit reaches the tasks drafted from that playbook: morning ->
-    morning-post, shiplog -> shiplog-numbers, moltbook-follow -> none."""
+    A playbook edit reaches the tasks drafted from that playbook: pr-merged ->
+    pr-merged-typo-fix, cost-of-living -> cost-of-living-real-numbers, moltbook-follow -> none."""
 
     def edit(self, i, playbook, line=None):
         self.propose(i, [self.playbook_edit(line or f"Candidate {i} says it plainly.", f"brain/playbooks/{playbook}.md")],
@@ -332,7 +332,7 @@ class TargetedEvaluation(LabCase):
         operator's file proposal is the same each round, so it regresses
         each time and the last round's regression is final."""
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=4, EVOLVE_REVISE_ROUNDS=2)
-        self.edit(1, "shiplog")
+        self.edit(1, "cost-of-living")
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
         self.live()
         out = self.run_gen(1)
@@ -354,15 +354,15 @@ class TargetedEvaluation(LabCase):
         # change like main), where one pair says nothing.
         self.lab_config(EVOLVE_PROBES=0, EVAL_CONCURRENCY=4, EVOLVE_EVAL_PAIRS=4,
                         EVOLVE_REVISE_ROUNDS=1)
-        self.edit(1, "morning")
-        self.edit(2, "shiplog")
+        self.edit(1, "pr-merged")
+        self.edit(2, "cost-of-living")
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 2)  # the judge prefers main to candidate 2
         self.live()
         pub = FakePublisher()
         out = self.run_gen(2, publisher=pub)
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["opened", "regressed"])
         self.assertEqual([p["branch"] for p in pub.prs], ["teeny/gen-1-c1"])
-        self.assertEqual(self.entries()["g1c1"]["eval"]["tasks"], ["morning-post"])
+        self.assertEqual(self.entries()["g1c1"]["eval"]["tasks"], ["pr-merged-typo-fix"])
         self.assertEqual(sorted(int(s["OPENHUMAN_CORE_PORT"]) for s in self.spines()),
                          [self.port, self.port + 1, self.port + 2])
         drafts = self.drafts()
@@ -370,10 +370,10 @@ class TargetedEvaluation(LabCase):
         # candidate 2's pairs said worse, so main also drafts a fresh sample of
         # its task to confirm it, with candidate 2's share.
         self.assertEqual(sorted({(d[1], d[4]["concurrency"]) for d in drafts if d[0] == self.port}),
-                         [("morning-post", "4"), ("shiplog-numbers", "2"), ("shiplog-numbers", "4")])
+                         [("pr-merged-typo-fix", "4"), ("cost-of-living-real-numbers", "2"), ("cost-of-living-real-numbers", "4")])
         # Each candidate drafts only its own tasks on its own lab, with half of it.
         self.assertEqual(sorted({(d[0], d[1], d[4]["concurrency"]) for d in drafts if d[0] != self.port}),
-                         [(self.port + 1, "morning-post", "2"), (self.port + 2, "shiplog-numbers", "2")])
+                         [(self.port + 1, "pr-merged-typo-fix", "2"), (self.port + 2, "cost-of-living-real-numbers", "2")])
         reports = [json.loads((evolve.evolve_dir() / "1" / "eval" / f"cand-{i}" / "compare" / "report.json").read_text())
                    for i in (1, 2)]
         self.assertEqual([(r["mode"], r["verdict"]) for r in reports], [("nonregression", "pass"),
@@ -386,7 +386,7 @@ class TargetedEvaluation(LabCase):
         self.assertLess(abs(starts[0]["at"] - starts[1]["at"]), 2.0)
         self.assertFalse(any(alive(s["pid"]) for s in self.spines()))
         self.assertFalse((evolve.evolve_dir() / "1" / "lab-base" / "tree").exists())
-        self.assertIn("pass on the 1 task(s) the change reaches (`morning-post`)", pub.prs[0]["body"])
+        self.assertIn("pass on the 1 task(s) the change reaches (`pr-merged-typo-fix`)", pub.prs[0]["body"])
 
     def test_a_candidates_playbook_edit_reaches_its_drafts(self):
         """bin/eval reads a task's playbook prompt from the brain it is told
@@ -394,7 +394,7 @@ class TargetedEvaluation(LabCase):
         so a candidate's own playbook edit never reached its draft message:
         both sides drafted from the live checkout's playbook."""
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, "morning", line="Open with the one thing that shipped overnight.")
+        self.edit(1, "pr-merged", line="Open with the one thing that shipped overnight.")
         self.run_gen(1, publisher=Refusing())
         (base,) = [d for d in self.drafts() if d[0] == self.port]
         (cand,) = [d for d in self.drafts() if d[0] != self.port]
@@ -405,23 +405,23 @@ class TargetedEvaluation(LabCase):
 
     def test_the_baseline_is_drafted_once_per_base_commit_and_reused_by_the_next_generation(self):
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
-        self.edit(1, "shiplog", line="Another change.")
+        self.edit(1, "cost-of-living", line="Another change.")
         self.run_gen(1, publisher=Refusing())
         base = [d[1] for d in self.drafts() if d[0] == self.port]
-        self.assertEqual(base, ["morning-post", "shiplog-numbers"])
+        self.assertEqual(base, ["pr-merged-typo-fix", "cost-of-living-real-numbers"])
 
     def test_the_baseline_is_keyed_by_the_labs_model(self):
         """A model change must not reuse main's drafts from another model."""
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         (self.root / "secrets" / "spine.env").write_text(
             "LADDER_URL=http://ladder.invalid/v1\nLADDER_API_KEY=sk-model\nSPINE_MODEL=m-2\n")
-        self.edit(1, "morning", line="Another change.")
+        self.edit(1, "pr-merged", line="Another change.")
         self.run_gen(1, publisher=Refusing())
-        self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["morning-post", "morning-post"])
+        self.assertEqual([d[1] for d in self.drafts() if d[0] == self.port], ["pr-merged-typo-fix", "pr-merged-typo-fix"])
         runs = sorted(p.parent.name for p in (evolve.evolve_dir() / "baseline").glob("*/*/run.json"))
         self.assertEqual(runs, ["s1-m-1", "s1-m-2"])
 
@@ -434,12 +434,12 @@ class TargetedEvaluation(LabCase):
         first = self.root / "long-first"
         first.write_text("1")
         os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         ev = self.entries()["g1c1"]["eval"]
         self.assertEqual(ev["verdict"], "pass", ev.get("reason"))
-        self.assertEqual(ev["suspects"], ["morning-post"])
-        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "refuted")
+        self.assertEqual(ev["suspects"], ["pr-merged-typo-fix"])
+        self.assertEqual(ev["confirmation"]["pr-merged-typo-fix"]["state"], "refuted")
         self.assertIn("did not hold up", ev["reason"])
         base = [d for d in self.drafts() if d[0] == self.port]
         cand = [d for d in self.drafts() if d[0] == self.port + 1]
@@ -453,13 +453,13 @@ class TargetedEvaluation(LabCase):
     def test_a_hard_check_regression_that_holds_up_on_fresh_drafts_is_regressed(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
         os.environ["FAKE_CAND_LONG"] = "1"
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         out = self.run_gen(1, publisher=Refusing())
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
         ev = self.entries()["g1c1"]["eval"]
-        self.assertEqual(ev["regressions"], ["morning-post"])
-        self.assertEqual(ev["confirmation"]["morning-post"]["state"], "confirmed")
-        self.assertIn("confirmed: morning-post on 6 fresh pair", ev["reason"])
+        self.assertEqual(ev["regressions"], ["pr-merged-typo-fix"])
+        self.assertEqual(ev["confirmation"]["pr-merged-typo-fix"]["state"], "confirmed")
+        self.assertIn("confirmed: pr-merged-typo-fix on 6 fresh pair", ev["reason"])
 
     def test_pairs_worse_by_chance_are_confirmed_away_on_a_fresh_sample(self):
         """The first A/A run: main lost to itself on the judge's pairs. The
@@ -469,7 +469,7 @@ class TargetedEvaluation(LabCase):
         first = self.root / "lose-first"
         first.write_text("4")
         os.environ["FAKE_LOSE_FIRST"] = str(first)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         ev = self.entries()["g1c1"]["eval"]
         self.assertEqual(ev["verdict"], "pass", ev.get("reason"))
@@ -484,7 +484,7 @@ class TargetedEvaluation(LabCase):
     def test_pairs_worse_on_a_fresh_sample_too_are_regressed_on_the_pairs_path(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=4, EVOLVE_REVISE_ROUNDS=1)
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         out = self.run_gen(1, publisher=Refusing())
         self.assertEqual([c["verdict"] for c in out["candidates"]], ["regressed"])
         ev = self.entries()["g1c1"]["eval"]
@@ -493,7 +493,7 @@ class TargetedEvaluation(LabCase):
     def test_a_restart_between_the_compare_and_its_confirmation_confirms_without_judging_again(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_CONFIRM_SAMPLES=6, EVOLVE_REVISE_ROUNDS=1)
         os.environ["FAKE_CAND_LONG"] = "1"
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         real = evolve.TargetedEvaluator._confirm
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm",
                                         side_effect=evolve.EvolveError("cut off")):
@@ -508,7 +508,7 @@ class TargetedEvaluation(LabCase):
         evolve.archive_path().write_text("".join(json.dumps(r) + "\n" for r in rows))
         with unittest.mock.patch.object(evolve.TargetedEvaluator, "_confirm", real):
             self.run_gen(1, publisher=Refusing())
-        self.assertEqual(self.entries()["g1c1"]["eval"]["confirmation"]["morning-post"]["state"], "confirmed")
+        self.assertEqual(self.entries()["g1c1"]["eval"]["confirmation"]["pr-merged-typo-fix"]["state"], "confirmed")
         # Only the six fresh pairs were judged after the restart.
         self.assertEqual(len([c for c in self.core_turns() if c.get("agent_id") == "judge"]) - judged, 6)
 
@@ -531,11 +531,11 @@ class TargetedEvaluation(LabCase):
         drafts each fewer times. Every candidate's baseline has its own
         sample count (the baseline folder is keyed by it)."""
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_EVAL_PAIRS=24, EVOLVE_EVAL_SAMPLES=2)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.edit(2, "mentions")
         out = self.run_gen(2, publisher=Refusing())
         reached = {i: self.entries()[f"g1c{i}"]["eval"]["tasks"] for i in (1, 2)}
-        self.assertEqual(reached[1], ["morning-post"])
+        self.assertEqual(reached[1], ["pr-merged-typo-fix"])
         self.assertGreater(len(reached[2]), 3)
         want = {1: evolve.eval_samples(24, 2, 1), 2: evolve.eval_samples(24, 2, len(reached[2]))}
         self.assertEqual(want[1], 8)
@@ -555,7 +555,7 @@ class TargetedEvaluation(LabCase):
         self.lab_config()
         soul = self.base_text("brain/SOUL.md").rstrip().splitlines()[-1]
         self.propose(1, [{"path": "brain/SOUL.md", "old": soul, "new": soul + "\n- i say gm like i mean it."}])
-        self.edit(2, "shiplog")
+        self.edit(2, "cost-of-living")
         self.run_gen(2, publisher=Refusing())
         entries = self.entries()
         self.assertTrue(entries["g1c1"]["eval"]["all"])
@@ -581,7 +581,7 @@ class TargetedEvaluation(LabCase):
     def test_a_lab_that_does_not_boot_defers_the_candidate_with_no_try(self):
         self.lab_config()
         os.environ["FAKE_SPINE_FAIL"] = "1"
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         cand = self.entries()["g1c1"]
         self.assertEqual((cand["verdict"], cand["deferred_for"]), ("deferred", "infra"))
@@ -591,7 +591,7 @@ class TargetedEvaluation(LabCase):
     def test_a_candidate_whose_turns_never_answer_is_inconclusive_and_may_come_back(self):
         self.lab_config(EVOLVE_PROBES=0)
         os.environ["FAKE_CAND_DOWN"] = "1"
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         cand = self.entries()["g1c1"]
         self.assertEqual(cand["verdict"], "inconclusive", cand.get("eval_reason"))
@@ -602,16 +602,16 @@ class TargetedEvaluation(LabCase):
         self.lab_config(EVOLVE_PROBES=0)
         os.environ["FAKE_SPINE_SCRIBBLE"] = "1"
         self.live()
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         pub = FakePublisher()
         self.run_gen(1, publisher=pub)
         self.assertTrue(any(s["TEENY_ROOT"].endswith("cand-1") for s in self.spines()))
         (pr,) = pub.prs
-        self.assertEqual(pr["files"], ["brain/playbooks/morning.md"])
+        self.assertEqual(pr["files"], ["brain/playbooks/pr-merged.md"])
 
     def test_the_judge_runs_on_its_own_model(self):
         self.lab_config(EVOLVE_PROBES=0, EVOLVE_JUDGE_MODEL="judge-9b")
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         judged = [c for c in self.core_turns() if c.get("agent_id") == "judge"]
         self.assertTrue(judged)
@@ -621,7 +621,7 @@ class TargetedEvaluation(LabCase):
 
     def test_a_restart_reuses_the_drafts_and_the_report_it_already_has(self):
         self.lab_config(EVOLVE_PROBES=0)
-        self.edit(1, "morning")
+        self.edit(1, "pr-merged")
         self.run_gen(1, publisher=Refusing())
         booted, drafted = len(self.spines()), len(self.drafts())
         # Cut off after it was measured, before the result was written.
@@ -644,7 +644,7 @@ class Evolver(LabCase):
         cand = self.entries()["g1c1"]
         self.assertEqual(out["candidates"][0]["verdict"], "dry-run", cand.get("reason"))
         self.assertEqual(cand["proposer"], "evolver")
-        self.assertEqual(cand["title"], "morning: name who shipped")
+        self.assertEqual(cand["title"], "pr-merged: name who shipped")
         patch = (evolve.evolve_dir() / cand["patch"]).read_text()
         self.assertIn("+Name the person who shipped it.", patch)
         self.assertTrue(cand["gate"]["ok"], cand["gate"])
@@ -936,7 +936,7 @@ class AA(LabCase):
 
     def test_main_against_itself_passes_and_leaves_no_generation_behind(self):
         self.lab_config(EVOLVE_PROBES=1)
-        line = evolve.aa(evolve.load_config(), ["morning-post", "reply-fud"])
+        line = evolve.aa(evolve.load_config(), ["pr-merged-typo-fix", "reply-fud"])
         self.assertEqual((line["kind"], line["verdict"], line["false_regressed"]), ("aa", "pass", False))
         self.assertEqual((line["tasks"], line["samples"], line["suspects"]), (2, 1, []))
         self.assertGreater(line["turns"], 0)
@@ -956,20 +956,20 @@ class AA(LabCase):
         first = self.root / "long-first"
         first.write_text("1")
         os.environ["FAKE_CAND_LONG_FIRST"] = str(first)
-        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        line = evolve.aa(evolve.load_config(), ["pr-merged-typo-fix"])
         self.assertEqual((line["first_verdict"], line["verdict"]), ("regressed", "pass"))
-        self.assertEqual(line["confirmation"], {"morning-post": "refuted"})
+        self.assertEqual(line["confirmation"], {"pr-merged-typo-fix": "refuted"})
 
     def test_the_line_says_which_path_made_it_regressed(self):
         self.lab_config(EVOLVE_EVAL_PAIRS=4)
         os.environ["FAKE_LOSE_PORT"] = str(self.port + 1)
-        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        line = evolve.aa(evolve.load_config(), ["pr-merged-typo-fix"])
         self.assertEqual((line["verdict"], line["path"], line["first_path"], line["pairs_confirmation"]),
                          ("regressed", "pairs", "pairs", "confirmed"))
 
     def test_a_pass_has_no_path(self):
         self.lab_config()
-        line = evolve.aa(evolve.load_config(), ["morning-post"])
+        line = evolve.aa(evolve.load_config(), ["pr-merged-typo-fix"])
         self.assertEqual((line["verdict"], line["path"]), ("pass", None))
 
     def test_the_command_prints_one_json_line_and_refuses_an_unknown_task(self):
@@ -980,7 +980,7 @@ class AA(LabCase):
         self.assertIn("no eval task nope", out.getvalue())
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertEqual(evolve.main(["aa", "--tasks", "morning-post"]), 0)
+            self.assertEqual(evolve.main(["aa", "--tasks", "pr-merged-typo-fix"]), 0)
         (line,) = out.getvalue().splitlines()
         self.assertEqual(json.loads(line)["verdict"], "pass")
 
