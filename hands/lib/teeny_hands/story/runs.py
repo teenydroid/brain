@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS studio_runs (
     record        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS studio_runs_at ON studio_runs (at);
+CREATE TABLE IF NOT EXISTS studio_slots (
+    slot_id    TEXT PRIMARY KEY,
+    run_id     TEXT NOT NULL,
+    status     TEXT NOT NULL,
+    intent     TEXT,
+    post_id    TEXT,
+    at         REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 #: What a run can come to (bin/lib/studio.py): `published` (a real post went
@@ -134,3 +143,86 @@ def runs(limit: int = LIMIT_DEFAULT, full: bool = False) -> Json:
             item["record"] = json.loads(r["record"])
         out.append(item)
     return {"runs": out}
+
+
+# --- one run a slot (bin/studio) ---------------------------------------------------------
+#
+# A slot (`<date>:<slot name>`, in Teeny's own time) is claimed before any
+# model turn, and its run marks it as it goes: `claimed`, `posting` (the
+# draft about to go to hands/x, written first), then `posted` (with the post
+# id), `empty`, `skipped` or `failed`. A second run for a claimed slot, a
+# rerun or a retry, does nothing: the slot had its one run. A slot left
+# `posting` (the run died between handing hands/x the post and hearing back)
+# may be out on X without being in x_posts: the next claim marks it
+# `in_doubt` and says so, and nothing ever retries it.
+
+SLOT_STATUSES = ("claimed", "posting", "posted", "empty", "skipped", "failed", "in_doubt")
+
+
+def _slot_row(row) -> Json:
+    out = {k: row[k] for k in ("slot_id", "run_id", "status", "post_id")}
+    out["intent"] = json.loads(row["intent"]) if row["intent"] else None
+    out["at"], out["updated_at"] = store.iso(row["at"]), store.iso(row["updated_at"])
+    return out
+
+
+def _slot_body(body: Any, *required: str) -> Json:
+    if not isinstance(body, dict):
+        raise hand.HandError("a JSON object on stdin")
+    for name in required:
+        value = body.get(name)
+        if not isinstance(value, str) or not value.strip() or len(value) > 120:
+            raise hand.HandError(f"{name} is a string of at most 120 characters")
+    return body
+
+
+def claim_slot(body: Any) -> Json:
+    """`{slot_id, run_id, force?}`: the slot's one run. {claimed: true} for
+    the first run (or `force`, the operator's --force-slot), else {claimed:
+    false, slot: <the row>}. Either way, every other slot left `posting` is
+    marked `in_doubt` and listed (`in_doubt`). Under DRY_RUN too: bin/studio
+    claims only for a run that may post."""
+    body = _slot_body(body, "slot_id", "run_id")
+    now = hand.now()
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            doubt = [dict(r) for r in conn.execute(
+                "SELECT * FROM studio_slots WHERE status = 'posting' AND slot_id != ?", (body["slot_id"],)).fetchall()]
+            conn.execute("UPDATE studio_slots SET status = 'in_doubt', updated_at = ? WHERE status = 'posting'"
+                         " AND slot_id != ?", (now, body["slot_id"]))
+            row = conn.execute("SELECT * FROM studio_slots WHERE slot_id = ?", (body["slot_id"],)).fetchone()
+            if row is not None and not body.get("force"):
+                out: Json = {"claimed": False, "slot": _slot_row(row)}
+            else:
+                conn.execute("INSERT OR REPLACE INTO studio_slots (slot_id, run_id, status, at, updated_at)"
+                             " VALUES (?, ?, 'claimed', ?, ?)", (body["slot_id"], body["run_id"], now, now))
+                out = {"claimed": True, "slot_id": body["slot_id"]}
+                if row is not None:
+                    out["replaced"] = _slot_row(row)
+        out["in_doubt"] = [{"slot_id": r["slot_id"], "run_id": r["run_id"],
+                            "intent": json.loads(r["intent"]) if r["intent"] else None} for r in doubt]
+        return out
+    finally:
+        conn.close()
+
+
+def mark_slot(body: Any) -> Json:
+    """`{slot_id, run_id, status, intent?, post_id?}`: the run's progress on
+    its own slot (a run that does not hold the slot changes nothing)."""
+    body = _slot_body(body, "slot_id", "run_id", "status")
+    if body["status"] not in SLOT_STATUSES:
+        raise hand.HandError(f"status is one of {', '.join(SLOT_STATUSES)}")
+    intent = body.get("intent")
+    text = json.dumps(intent, ensure_ascii=False)[:8000] if intent is not None else None
+    conn = db()
+    try:
+        with hand.transaction(conn):
+            done = conn.execute(
+                "UPDATE studio_slots SET status = ?, intent = coalesce(?, intent), post_id = coalesce(?, post_id),"
+                " updated_at = ? WHERE slot_id = ? AND run_id = ?",
+                (body["status"], text, body.get("post_id") if isinstance(body.get("post_id"), str) else None,
+                 hand.now(), body["slot_id"], body["run_id"]))
+        return {"marked": bool(done.rowcount)}
+    finally:
+        conn.close()
