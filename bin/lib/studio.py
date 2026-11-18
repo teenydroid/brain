@@ -142,9 +142,17 @@ INPUTS_BYTES = 40_000
 OUTSIDE_SHARE = 6_000
 DESK_SHARE = 30_000
 
-#: The outside world: what people are talking about today, which every pitch
-#: starts from (`pitch_message`): (name, argv). Every one is optional. DRY_RUN=1
-#: does not make these free or read-only: what each costs and writes is
+#: The outside world's first source: what AI X is talking about today, from
+#: Digg's AI and tech leaderboards with the X posts behind the leading stories
+#: (`hands/trend top`, through digg-pp-cli: free, no key, no X API). Read once
+#: a slot: the hand keeps its answer under state/trend/top/ keyed by the slot
+#: (`slot_id_of`), so a rerun asks Digg nothing. It gets TREND_SHARE of the
+#: inputs, the others OUTSIDE_SHARE each.
+TREND = ["trend", "top", "--limit", "10", "--leading", "4", "--posts", "3"]
+TREND_SHARE = 14_000
+#: The second: the free sources the old playbooks read, (name, argv). Every
+#: one is optional. DRY_RUN=1 does not make these free or read-only: what
+#: each costs and writes is
 #:   hn-top, hn-show  Hacker News's public API: free, no key; each read goes
 #:                    through the hn read cache (`hn_cache` rows in hands.db)
 #:   hn-ai, hn-agents Hacker News's own search (Algolia): free, no key, the
