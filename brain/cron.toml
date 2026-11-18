@@ -303,7 +303,7 @@ command = "bin/act brief"
 # open experiments, the lab's lessons and what wins this week, searches how
 # small accounts grow on the surface that did worst, and proposes one
 # experiment. A nudge, not a draft: only the mind can search. It took the
-# growth diary's old slot; the diary (growth.md) now posts on Sundays at 15:00.
+# growth diary's old slot; the diary (growth.md) posts on Sundays at 15:00 with STUDIO=0.
 [jobs.speculate]
 schedule = "30 11 * * *"
 tz = "Asia/Kolkata"
