@@ -74,6 +74,8 @@ ENVIRONMENT = {
     "OPENHUMAN_CORE_URL": "where the core answers",
     "OPENHUMAN_CORE_PORT": "where the core answers",
     "OPENHUMAN_CORE_HOST": "where the core listens",
+    "OPENHUMAN_DOCKER": ("set by the spine image (Dockerfile ENV): it only makes bin/doctor fail, not warn, on a "
+                         "missing trend reader; unset, the check still runs and warns"),
     "OPENHUMAN_CORE_TOKEN": "the RPC bearer; no token is an error, never an open call",
     "OPENHUMAN_CORE_BIN": "the spine's binary (the image sets it)",
     "CALENDAR_TZ": "the default time zone of the schedules; changes when, never whether",
