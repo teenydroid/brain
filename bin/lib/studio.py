@@ -813,9 +813,11 @@ def copies_example(text: str, afters: list[str], n: int = 4) -> str | None:
     return None
 
 
-def facts_for(item: Json | None, story: Json | None) -> list[Json]:
-    """What one draft may draw on, as `hands/guard truth` takes `facts`."""
-    return [f for f in (item, story) if f]
+def facts_for(item: Json | None, story: Json | None, hook: Json | None = None) -> list[Json]:
+    """What one draft may draw on, as `hands/guard truth` takes `facts`: the
+    outside story it joins (its headline, what it says, the posts quoted),
+    Teeny's own item, the storyline."""
+    return [f for f in (hook, item, story) if f]
 
 
 def screen(draft: Json, facts: list[Json], afters: list[str]) -> str:
