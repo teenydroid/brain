@@ -102,6 +102,15 @@ refuses "the surplus sweep, its library and its tests are refused" hands/surplus
   hands/lib/teeny_hands/surplus/sweep.py hands/tests/surplus/test_sweep.py
 
 branch
+put hands/meme "draws anything"
+put hands/lib/teeny_hands/meme/memes.py "no screen"
+put hands/lib/teeny_hands/meme/giphy.py "any rating"
+put brain/assets/fonts/Unlicensed.ttf "a font nobody may ship"
+commit
+refuses "the meme hand, its library and the fonts are refused" hands/meme \
+  hands/lib/teeny_hands/meme/memes.py hands/lib/teeny_hands/meme/giphy.py brain/assets/fonts/Unlicensed.ttf
+
+branch
 put bin/act "loosened"
 commit
 refuses "an edit under bin/ is refused" bin/act

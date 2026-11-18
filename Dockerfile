@@ -56,11 +56,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 # not served linked), staged with the others below. agent-browser adds --no-sandbox and --disable-dev-shm-usage itself
 # inside a container. bubblewrap is TinyBox's namespace sandbox, which the
 # builder's shell commands run under (brain/agents/builder.toml).
-# python3-cryptography is the one library the hands use beyond the standard
-# library: AES-256-GCM for hands/keychain's sealed passwords.
+# python3-cryptography and python3-pil are the libraries the hands use beyond
+# the standard library: AES-256-GCM for hands/keychain's sealed passwords, and
+# Pillow for hands/meme's captions, the 5 MB shrink of hands/image and the
+# viewer check (hands/guard view).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libssl3 libasound2 libxdo3 libxtst6 libx11-6 libxi6 libevdev2 libudev1 \
-      curl jq sqlite3 python3 python3-cryptography git \
+      curl jq sqlite3 python3 python3-cryptography python3-pil git \
       chromium fonts-liberation bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 # git for whoever runs it in the container without the hands (an operator's

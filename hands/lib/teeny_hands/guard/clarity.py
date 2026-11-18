@@ -55,7 +55,7 @@ from typing import Any
 
 from .. import hand
 from .holds import iso
-from .judge import _answer, permanent
+from .judge import _answer, fenced, permanent
 
 #: How long one ask may take. Run over fifteen real posts, four asks had not
 #: answered after 90 seconds, so a longer wait would buy little: a slow ask is
@@ -154,13 +154,14 @@ def enabled() -> bool:
 def reader_prompt(text: str, quoted: str | None = None) -> str:
     """The one message the cold reader is sent: the post, and nothing about
     who wrote it."""
-    shown = f"\n\nTHE POST IT QUOTES (by someone else; shown under the post):\n<<<\n{quoted}\n>>>" if quoted else ""
-    return f"{READER}\n\n{READER_SHAPE}\n\nTHE POST:\n<<<\n{text}\n>>>{shown}"
+    shown = f"\n\nTHE POST IT QUOTES (by someone else; shown under the post):\n<<<\n{fenced(quoted)}\n>>>" if quoted else ""
+    return f"{READER}\n\n{READER_SHAPE}\n\nTHE POST:\n<<<\n{fenced(text)}\n>>>{shown}"
 
 
 def match_prompt(meaning: str, says: str) -> str:
     """The one message the comparison is sent: two sentences, no post."""
-    return f"{MATCH}\n\n{MATCH_SHAPE}\n\nTHE WRITER MEANT:\n<<<\n{meaning}\n>>>\n\nTHE READER SAID BACK:\n<<<\n{says}\n>>>"
+    return (f"{MATCH}\n\n{MATCH_SHAPE}\n\nTHE WRITER MEANT:\n<<<\n{fenced(meaning)}\n>>>\n\n"
+            f"THE READER SAID BACK:\n<<<\n{fenced(says)}\n>>>")
 
 
 def _sentence(value: Any) -> str:
