@@ -51,7 +51,14 @@ case "$(head -n 1 <<<"$msg")" in
       | {pair: .p, winner: (if $second == "" then .a else .b end), rule: 1, why: "stops a stranger"}] | {verdicts: .} | tojson' \
       <<<"$msg" | jq -r . | { read -r v; say "$v"; } ;;
   "# studio: the slot")
+    # $FAKE_FINAL: the first slot answer; $FAKE_FINAL_AFTER: a fallback's.
+    if [ -n "${FAKE_FINAL_AFTER:-}" ] && [ -e "$FAKE_SEEN.final" ]; then say "$FAKE_FINAL_AFTER"; exit 0; fi
+    : >"$FAKE_SEEN.final"
     say "${FAKE_FINAL:-{\"verdict\": \"pick\", \"reason\": \"a stranger stops on it\"}}" ;;
+  "# studio: rewrite")
+    say "${FAKE_REWRITE:-{\"text\": \"a rewrite: i pay my own server bill\", \"posts\": [\"a rewrite\", \"of a thread\"], \"meaning\": \"m2\"}}" ;;
+  "# studio: one candidate")
+    say "${FAKE_VETO:-{\"verdict\": \"pick\", \"reason\": \"it stops a stranger\"}}" ;;
   *) echo "unexpected step: $(head -n 1 <<<"$msg")" >&2; exit 1 ;;
 esac
 FAKE
