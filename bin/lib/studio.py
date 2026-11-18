@@ -578,10 +578,12 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
                      limit: int, item_stories: dict[str, Any] | None = None,
                      outside: set[str] | None = None) -> tuple[list[Json], list[Json], list[str]]:
     """(kept, dropped with why, the writer's ranking of the kept ids). A
-    pitch's `hook` is the outside story it joins (an id in `outside`), its
-    `item` the real thing of Teeny's it brings (any id in `known`); it needs
-    at least one of the two. An `item` naming an outside story, with no
-    hook, is taken as the hook. A pitch's storyline is the one it names when
+    pitch's `hook` is the trending story it joins (an id in `outside`, which
+    holds only what is trending), its `item` the real thing of Teeny's it
+    brings (any id in `known`); it needs at least one of the two. An `item`
+    naming a trending story, with no hook, is taken as the hook. A hook that
+    names anything else is no hook: the pitch is kept unhooked when it has
+    an item (`unhooked` says why), dropped when it has none. A pitch's storyline is the one it names when
     that is a running story; when it names none (or one that is not running)
     and its item carries a running story (`item_stories`, the desk's best
     guess by kind), the item's is used, so the pick and its beat land on a
@@ -602,14 +604,15 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
         item, hook = _ref(raw.get("item")), _ref(raw.get("hook"))
         if not hook and item in outside:
             item, hook = "", item
+        demoted = ""
+        if hook and hook not in outside:
+            demoted, hook = f"its hook {hook!r} is not a trending story", ""
         fmt = _str(raw.get("format"), 20).lower()
         why = ""
         if pid in seen:
             why = f"the id {pid} is used twice"
-        elif hook and hook not in outside:
-            why = f"its hook {hook!r} is not an outside story in the inputs"
         elif not item and not hook:
-            why = "it names no item and no hook"
+            why = f"{demoted}, and it names no item" if demoted else "it names no item and no hook"
         elif item and item not in known:
             why = f"its item {item!r} is not in the inputs"
         elif fmt not in formats:
@@ -630,6 +633,8 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
         kept.append({"id": pid, "item": item or None, "hook": hook or None, "storyline": story,
                      "shape": _str(raw.get("shape"), 40).lower(), "format": fmt, "angle": _str(raw.get("angle")),
                      "why_now": _str(raw.get("why_now"))})
+        if demoted:
+            kept[-1]["unhooked"] = demoted
     ids = [p["id"] for p in kept]
     ranking = [r for r in dict.fromkeys(str(x) for x in answer.get("ranking") or [] if isinstance(x, (str, int)))
                if r in ids]
