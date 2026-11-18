@@ -13,7 +13,7 @@ heartbeat included (docs/architecture.md, "Evolution"). What it may not do is
 written here, in code it cannot edit:
 
 - a brain job runs `bin/heartbeat`, `bin/act <playbook>`, or the studio's
-  slot, `bin/studio --slot <name> [--legacy <playbook>]` (the playbook
+  slot, `bin/studio --slot <name> [--legacy <playbook>] --detach` (the playbook
   that slot runs instead with STUDIO=0, one of the ones the studio
   replaced: bin/lib/studio_switch.py), and every playbook it names is a
   file in the brain's playbooks/; anything new it wants to do is a
@@ -163,13 +163,19 @@ def _command(job: dict, path: Path, pinned: bool, where: str) -> str:
 
 def _studio_legacy(argv: list[str], command: str, where: str) -> str | None:
     """A studio slot's legacy playbook (None without one), after its shape:
-    `bin/studio --slot NAME [--legacy PLAYBOOK]`, nothing else (no
+    `bin/studio --slot NAME [--legacy PLAYBOOK] --detach`, nothing else (no
     --dry-run, no --force-slot: cron runs the real slot, and only when it is
-    open)."""
+    open). `--detach` is required: a studio run outlasts the 300 s the core
+    gives a cron shell call, which then kills and retries it."""
     from studio_switch import REPLACED
 
+    shape = "`bin/studio --slot NAME [--legacy PLAYBOOK] --detach`"
+    if argv[-1:] != ["--detach"]:
+        raise PolicyError(f"{where}: a studio slot runs detached, as {shape} (a run outlasts the core's 300 s for a "
+                          f"cron call), got {command!r}")
+    argv = argv[:-1]
     if len(argv) not in (3, 5) or argv[1] != "--slot" or not SLOT_NAME.fullmatch(argv[2]):
-        raise PolicyError(f"{where}: bin/studio runs as `bin/studio --slot NAME [--legacy PLAYBOOK]`, got {command!r}")
+        raise PolicyError(f"{where}: bin/studio runs as {shape}, got {command!r}")
     if len(argv) == 3:
         return None
     if argv[3] != "--legacy" or argv[4] not in REPLACED:
