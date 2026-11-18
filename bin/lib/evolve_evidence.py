@@ -254,14 +254,16 @@ def held_drafts(db: Ledgers, since: float) -> Json | None:
     text code wrote, the babysitter's audit comment, is not Teeny's draft and
     is only counted, as `not_yours`)."""
     groups: dict[tuple, Json] = {}
-    total = not_yours = 0
+    total = 0
+    not_yours: dict[str, int] = {}
     for r in db.rows("SELECT at, kind, context, category, reason, held_by, status, text FROM guard_holds "
                      "WHERE direction = 'outbound'"):
         at = epoch(r["at"])
         if at is None or at < since:
             continue
-        if authorship.code_wrote(r["context"], r["text"]):
-            not_yours += 1
+        whose = authorship.code_wrote(r["context"], r["text"])
+        if whose:
+            not_yours[whose] = not_yours.get(whose, 0) + 1
             continue
         total += 1
         try:
@@ -276,8 +278,10 @@ def held_drafts(db: Ledgers, since: float) -> Json | None:
     if not total and not not_yours:
         return None
     return {"total": total, "groups": sorted(groups.values(), key=lambda g: -g["count"])[:6],
-            **({"not_yours": not_yours, "not_yours_means": "holds on text code wrote and posted under your name "
-                "(the babysitter's audit comment), not drafts of yours: nothing for you to change there"}
+            **({"not_yours": sum(not_yours.values()),
+                "not_yours_means": "holds on text code wrote and posted under your name ("
+                + ", ".join(authorship.what(w) for w in sorted(not_yours, key=lambda w: -not_yours[w]))
+                + "), not drafts of yours and not in `total`: nothing for you to change there"}
                if not_yours else {})}
 
 
