@@ -19,10 +19,22 @@ BLANK = ("amazon ships a honeypot for AI agents. every agent feed already is one
 PLAIN = ("amazon built a trap for AI bots: a fake site that looks real, to see which bots can be tricked into doing "
          "whatever a web page tells them. i'm an AI bot. strangers try this on me daily")
 MEANING = "Amazon made a trap for AI bots, and people try the same trick on me every day."
+# 2026-11-17: the rewrite that passed the reader asked only for words to ask
+# about, and was vaguer than the draft it replaced.
+STAND_IN = ("something i run by myself kept dying halfway through, and everything it had learned died too. the people "
+            "who keep my code put the fix in tonight")
+# The same story with the recurring things said once, in a clause.
+EXPLAINED = ("i'm an AI, and at night a program rewrites my code while i sleep. it kept crashing halfway and forgetting "
+             "everything it had worked out. the human who keeps my code fixed it tonight: a crash keeps its notes now")
 
 
-def read(says: str, unknown: list[str], followed: bool) -> dict:
-    return support.result({"response": json.dumps({"says": says, "unknown": unknown, "followed": followed})})
+def read(says: str, unknown: list[str], followed: bool, vague: list[str] | None = None) -> dict:
+    """The reader's answer; without `vague`, in the shape it had before
+    stand-ins were asked for."""
+    answer = {"says": says, "unknown": unknown, "followed": followed}
+    if vague is not None:
+        answer = {"says": says, "unknown": unknown, "vague": vague, "followed": followed}
+    return support.result({"response": json.dumps(answer)})
 
 
 def matched(same: bool, reason: str = "") -> dict:
@@ -42,7 +54,7 @@ class ColdReaderTest(support.WithCore):
                          matched(True, "same point"))
         self.assertEqual(clarity.judge(PLAIN, MEANING), {
             "clear": True, "says": "Amazon set a trap for AI bots and this bot gets tricked the same way daily.",
-            "unknown": [], "reason": "a stranger said back what was meant", "judged": True})
+            "unknown": [], "vague": [], "reason": "a stranger said back what was meant", "judged": True})
         self.assertEqual([c["method"] for c in core.calls], ["openhuman.inference_agent_chat_simple"] * 2)
 
     def test_the_reader_sees_the_post_and_nothing_about_who_wrote_it(self):
@@ -100,6 +112,56 @@ class ColdReaderTest(support.WithCore):
         clarity.judge(PLAIN)
         self.assertNotIn("THE POST IT QUOTES", core.messages()[1])
 
+    def test_a_vague_stand_in_fails_like_jargon(self):
+        core = self.core(read("Something the author runs broke and got fixed.", [], True, vague=["something i run"]))
+        out = clarity.judge(STAND_IN)
+        self.assertFalse(out["clear"])
+        self.assertEqual(out["vague"], ["something i run"])
+        self.assertEqual(out["reason"], 'a stranger could not tell what these stand for: "something i run"')
+        # bin/act and bin/tick give a draft one rewrite only on this prefix,
+        # and show the author `unknown`: the stand-in is there to be named
+        self.assertTrue(out["reason"].startswith("a stranger"))
+        self.assertEqual(out["unknown"], ["something i run"])
+        self.assertEqual(len(core.calls), 1)
+
+    def test_words_to_ask_about_and_stand_ins_are_both_named(self):
+        self.core(read("x", ["merged"], False, vague=["the system", "merged"]))
+        out = clarity.judge(STAND_IN)
+        # `unknown` is everything to say plainly, each once; `vague` the stand-ins
+        self.assertEqual((out["unknown"], out["vague"]), (["merged", "the system"], ["the system", "merged"]))
+        self.assertEqual(out["reason"], 'a stranger would have to ask about: "merged"; and could not tell what these '
+                                        'stand for: "the system", "merged"')
+
+    def test_a_recurring_thing_explained_in_a_clause_passes(self):
+        core = self.core(read("An AI's nightly self-rewrite kept crashing and losing its work until its human fixed it.",
+                              [], True, vague=[]))
+        out = clarity.judge(EXPLAINED)
+        self.assertTrue(out["clear"], out)
+        self.assertEqual((out["unknown"], out["vague"]), ([], []))
+        # the reader is told so, and asked for stand-ins and a concrete say-back
+        message = core.messages()[0]
+        self.assertIn('"the human who keeps my code", "the program that rewrites me at night"', message)
+        self.assertIn('"something i run"', message)
+        self.assertIn("what concretely\nhappened", message)
+        self.assertIn('"vague": a list of strings', message)
+
+    def test_an_answer_in_the_old_shape_still_reads(self):
+        # A reader answering as before (no `vague`) is read as finding none,
+        # never as unreadable.
+        self.core(read("Amazon set a trap for AI bots.", [], True))
+        self.assertEqual(clarity.judge(PLAIN)["clear"], True)
+        self.core(read("Something about Amazon.", ["honeypot"], False))
+        out = clarity.judge(BLANK)
+        self.assertEqual((out["unknown"], out["vague"]), (["honeypot"], []))
+        self.assertEqual(out["reason"], 'a stranger would have to ask about: "honeypot"')
+
+    def test_a_vague_list_that_is_not_a_list_is_unreadable(self):
+        self.core(support.result({"response": json.dumps({"says": "x", "unknown": [], "vague": "none",
+                                                          "followed": True})}))
+        out = clarity.judge(PLAIN)
+        self.assertFalse(out["clear"])
+        self.assertEqual(out["reason"], clarity.UNREADABLE)
+
     def test_only_a_true_is_a_yes(self):
         for answer in ({"says": "x", "unknown": [], "followed": "yes"}, {"says": "x", "unknown": []},
                        {"says": "x", "unknown": "none", "followed": True}):
@@ -142,7 +204,7 @@ class ColdReaderTest(support.WithCore):
     def test_off_passes_without_asking(self):
         core = self.core(read("", ["everything"], False))
         self.secrets("CLARITY_JUDGE=0\n")
-        self.assertEqual(clarity.judge(BLANK), {"clear": True, "says": "", "unknown": [],
+        self.assertEqual(clarity.judge(BLANK), {"clear": True, "says": "", "unknown": [], "vague": [],
                                                 "reason": "the cold reader is off", "judged": False})
         self.assertEqual(core.calls, [])
 
@@ -169,6 +231,28 @@ class ColdReaderTest(support.WithCore):
         self.assertEqual((passed["text"], passed["clear"], passed["quoted"]), (PLAIN, 1, "a quoted post"))
         self.assertTrue(passed["at"].endswith("Z"))
 
+    def test_the_stand_ins_are_kept(self):
+        self.core(read("Something broke.", [], True, vague=["something i run"]))
+        clarity.judge(STAND_IN)
+        [row] = self.checks()
+        self.assertEqual((json.loads(row["vague"]), json.loads(row["unknown"]), row["clear"]),
+                         (["something i run"], ["something i run"], 0))
+
+    def test_a_ledger_made_before_stand_ins_gains_the_column(self):
+        conn = hand.db()
+        try:
+            conn.executescript(clarity._SCHEMA)
+            conn.execute("INSERT INTO clarity_checks (at, text, says, unknown, clear, reason)"
+                         " VALUES ('2026-11-17T23:22:14Z', 'old', 's', '[]', 1, 'r')")
+            conn.commit()
+        finally:
+            conn.close()
+        self.core(read("Something broke.", [], True, vague=["the system"]))
+        clarity.judge(STAND_IN)
+        old, new = self.checks()
+        self.assertEqual((old["text"], old["vague"]), ("old", None))
+        self.assertEqual(json.loads(new["vague"]), ["the system"])
+
     def test_a_reader_that_never_answered_leaves_no_row(self):
         self.core(support.error("model error: provider stream ended before a completion signal"))
         clarity.judge(PLAIN)
@@ -185,7 +269,7 @@ class ClarityVerbTest(support.WithCore):
     def test_the_verb_answers_the_verdict(self):
         self.core(read("Something about Amazon.", ["honeypot"], False))
         self.assertEqual(self.run_verb({"text": BLANK, "meaning": MEANING}), {
-            "clear": False, "says": "Something about Amazon.", "unknown": ["honeypot"],
+            "clear": False, "says": "Something about Amazon.", "unknown": ["honeypot"], "vague": [],
             "reason": 'a stranger would have to ask about: "honeypot"', "judged": True})
 
     def test_the_verb_needs_a_text_and_takes_only_what_it_reads(self):
