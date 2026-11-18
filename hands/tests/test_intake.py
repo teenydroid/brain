@@ -94,11 +94,11 @@ class IntakeTest(unittest.TestCase):
                  for name in ("studio-0430", "studio-0930", "studio-1500", "studio-sunday", "studio-2300", "brief",
                               "shiplog")}
         self.assertEqual(slots, {
-            "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote"),
-            "studio-0930": ("30 9 * * *", "Asia/Kolkata", "bin/studio --slot 0930 --legacy morning"),
-            "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take"),
-            "studio-sunday": ("0 15 * * 0", "Asia/Kolkata", "bin/studio --slot 1500 --legacy growth"),
-            "studio-2300": ("0 23 * * *", "Asia/Kolkata", "bin/studio --slot 2300 --legacy show"),
+            "studio-0430": ("30 4 * * *", "Asia/Kolkata", "bin/studio --slot 0430 --legacy x-quote --detach"),
+            "studio-0930": ("30 9 * * *", "Asia/Kolkata", "bin/studio --slot 0930 --legacy morning --detach"),
+            "studio-1500": ("0 15 * * 1-6", "Asia/Kolkata", "bin/studio --slot 1500 --legacy take --detach"),
+            "studio-sunday": ("0 15 * * 0", "Asia/Kolkata", "bin/studio --slot 1500 --legacy growth --detach"),
+            "studio-2300": ("0 23 * * *", "Asia/Kolkata", "bin/studio --slot 2300 --legacy show --detach"),
             "brief": ("55 14,22 * * *", "Asia/Kolkata", "bin/act brief"),
             "shiplog": ("10 23 * * *", "Asia/Kolkata", "bin/act shiplog"),
         })

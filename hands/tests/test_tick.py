@@ -2235,6 +2235,21 @@ class TickTest(unittest.TestCase):
         self.tick()
         self.assertEqual([c["body"] for c in self.sent("reply")], [{"text": "gm to you"}])
 
+    def test_a_switch_that_cannot_be_read_neither_posts_nor_files(self):
+        # STUDIO=maybe used to read as off and post (review of PR #379).
+        for bad in (b"STUDIO=maybe\n", b"STUDIO=1\nX=\xff\n"):
+            (self.root / "secrets" / "teeny.env").write_bytes(bad)
+            hand._ENV_CACHE = None
+            stimuli.add("x", "mention", f"m{len(bad)}", "gm")
+            self.answer({"thought": "", "intents": [{"do": "post_x", "text": "amazon built a trap for bots", "anchor": "hn:1"},
+                                                    {"do": "pitch_x", "text": "an idea"}]})
+            got = self.tick()
+            self.assertEqual([r["status"] for r in got["results"]], ["refused", "refused"], bad)
+            self.assertIn("studio switch cannot be read", got["results"][0]["result"]["refused"])
+            self.assertEqual(self.sent("post"), [])
+            self.assertEqual(self.filed(), [])
+            self.assertNotIn('{"do": "post_x", "text": "...", "anchor": "<', self.chats()[-1]["message"])
+
     def test_with_the_studio_off_post_x_posts_and_pitch_x_is_refused(self):
         self.studio(False)
         stimuli.add("x", "mention", "1", "gm")
