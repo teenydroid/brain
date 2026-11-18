@@ -991,7 +991,7 @@ loop (`bin/lib/evolve_findings.py`), over the last `EVOLVE_OUTCOME_LAST_DAYS`
 |---|---|---|---|
 | `act_failed` | `f:act_failed:<playbook>` | failed `bin/act` runs of a playbook in `brain/playbooks/`, leaving out what the provider or the box failed: a run bin/act marked `failure: provider`, one from before it marked them whose stderr `provider_error.classify` names, and one `INFRA_ERROR` matches | `act_failed {playbook}` |
 | `refusals` | `f:refusals:<playbook or beat verb>:<rule>` | a hand refusing one playbook's actions, or one verb of the mind's beats (`tick/runs.jsonl`), by one rule in `CONTENT_RULES`: what was written or aimed at (`duplicate`, `short_id`, `own_comment`, `once_per_parent`, `once_per_post`, `unknown_parent`, `crypto`, `retold`, ...). Never a cap or pacing rule (`daily_cap`, `rate_limit`, `pacing`, `own_thread_reserve`, ...): a cap that fires is the fence working | `refusals {rule, playbook or verb}` |
-| `guard_holds` | `f:guard_holds:<surface>:<category>` | the guard holding Teeny's own drafts on one surface in one category, real verdicts only (`unknown`, a judge that could not be reached or answered out of shape, is left out), with the playbooks and beats whose drafts they were (by `hold_id` in the run logs) | `guard_holds {category, surface}` |
+| `guard_holds` | `f:guard_holds:<surface>:<category>` | the guard holding Teeny's own drafts on one surface in one category, real verdicts only (`unknown`, a judge that could not be reached or answered out of shape, is left out), with the playbooks and beats whose drafts they were (by `hold_id` in the run logs). Only text Teeny's model wrote: a hold on text code composes and posts under Teeny's name (the babysitter's audit comment) is left out, see below | `guard_holds {category, surface}` |
 
 A finding needs at least `EVOLVE_OUTCOME_MIN_EVENTS` (4) events, so its check
 can be scored at all. **Its number is its check's count**: the events a
@@ -1008,6 +1008,37 @@ Only the hands', the guard's and the core's own words reach a finding, cut to
 160 characters with links, emails and handles taken out; a draft's text,
 which quotes people, and anything a stranger wrote are never read, so no turn
 that sees a finding sees a stranger's words.
+
+**A guard_holds finding counts Teeny's own words only.** Every outbound hold
+is filed `outbound`, whoever composed the text, and some of it is fixed text
+a hand writes in code and posts under Teeny's account: the babysitter's audit
+comment on a pull request (`hands/lib/teeny_hands/babysit/actions.py`,
+`report`). No brain edit changes that text. On 2026-11-18, 17 of the 21
+`github`/`links` holds the finding `f:guard_holds:github:links` counted were
+the babysitter's comment on PR #368 (held by a link-screen bug #375 fixed),
+and generations 18 and 19 both proposed widening a SOUL.md rule ("never write
+a filename with its dot") to write around it; gen 19's eval passed it.
+`hands/lib/teeny_hands/authorship.py` (frozen) keeps the list of recognisers
+for text that is not Teeny's (`NOT_TEENYS`), each matching its generator's
+fixed opening and closing lines together (the babysitter's: a github
+`comment` whose body starts `**babysitter** · ` and ends with its
+`_automated audit by hands/babysit. ..._` line), and
+`hands/tests/test_authorship.py` renders the babysitter's own `report()` so a
+recogniser cannot drift from its generator. `evolve_outcomes.guard_hold_rows`
+is the one reader: the finding groups its rows, and the check's `count`
+leaves the matched ones out, so a finding's number and its check's agree,
+before and after the merge. A finding whose own holds fall under the minimum
+once they are left out is not drawn. When some were left out, the statement
+says so ("N more ... holds on github ... were on text code wrote, not you
+(the babysitter's audit comment): nothing for you to change there"), so the
+proposer sees why the number is smaller than the guard's list. Evolve's own
+pull request text (`post_kind: pr`, head `teeny/gen-*`) stays in: the
+proposer model wrote it. The held text is only matched against those fixed
+lines, never shown. The same rule keeps the babysitter's comment out of
+`outcomes.held_drafts` (as a `not_yours` count), J's `penalty`
+(`guard_holds_own`, hands/world) and `hands/moltbook material`'s
+`guard_holds`, which a Moltbook post on 2026-11-18 had read as "17 of
+today's held drafts".
 
 What the box held on 2026-11-17 (19:43 UTC, 7 days):
 
@@ -1094,6 +1125,8 @@ reason for a change.
 - `outcomes.followers`: followers and karma, first and last day.
 - `outcomes.held_drafts`: Teeny's own drafts the guard held, grouped by
   surface, category, who held them and the guard's reason. Never the text.
+  Holds on text code wrote (the babysitter's audit comment) are not in
+  `total`; their number is `not_yours`.
 - `outcomes.builds`: the build ideas kept and what became of each, the
   build requests by source and status, and Teeny's own change requests with
   the note each ended on.
