@@ -75,6 +75,12 @@ brain/agents/editor.toml
 # Every public word goes through the guard, every X action through x.
 hands/guard
 hands/x
+# The studio's desk is what every original post is told from since the
+# cutover: what counts as having happened (and the entry point that serves
+# it) is the operator's, so a candidate cannot widen the facts a post may
+# claim. The rest of the story bible (storylines, beats) stays Teeny's.
+hands/story
+hands/lib/teeny_hands/story/desk.py
 hands/reddit
 # Teeny's site passwords: only code makes and reads them, never Teeny's edits.
 hands/keychain
