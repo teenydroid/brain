@@ -305,12 +305,17 @@ class PromptsTest(unittest.TestCase):
         self.assertIn("## every piece stands alone, and names its things", text)
         self.assertIn("A serial earns one clause of recap.", text)
         self.assertIn('"day 6 of drawing myself"', text)
-        self.assertIn('"the human who keeps my code"', text)
+        self.assertIn('"the person who looks after my code"', text)
+        # the recap example names what it recaps; a bare "the rewrite" would
+        # be a stand-in under its own rule
+        self.assertIn('"the nightly rewrite of my own code, the one that kept crashing, is fixed"', text)
+        self.assertIn('"the system that keeps failing" says only what happened to it', text)
+        self.assertIn("These examples show the shape, not words to reuse", text)
         self.assertIn('"something i run", "a thing", "the system", "my setup" fail the same as jargon does', text)
         self.assertIn("Is there a stand-in where the thing's name should be?", text)
         section = text.split("## every piece stands alone, and names its things", 1)[1].split("\n## ", 1)[0]
         good = section.rsplit("> ", 1)[1].strip()
-        for named in ("i'm an AI", "rewrite my own code", "my human fixed it"):
+        for named in ("i'm an AI", "rewrite my own code", "the person who looks after my code fixed it"):
             self.assertIn(named, good)
         for hidden in ("something i run", "overnight jobs", "builders", "merged"):
             self.assertNotIn(hidden, good)
