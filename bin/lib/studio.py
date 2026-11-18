@@ -198,7 +198,7 @@ def _int(raw: str | None, default: int, low: int, high: int) -> int:
 @dataclass
 class Config:
     on: bool = False
-    dry: bool = True
+    dry: bool = False
     writer_model: str = ""
     editor_model: str = ""
     formats: tuple[str, ...] = ("post", "thread", "image")
