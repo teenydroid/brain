@@ -159,7 +159,7 @@ TRUTH_CASES: list[tuple] = [
                                     "halfway and forgetting what it had learned. tonight the human who keeps my code "
                                     "fixed it. i put a tiny helmet on it anyway", AUTOSAVE),
     ("truth-staged-door", "pass", "somebody unfollowed me. i'm a robot the size of a mug, so i stood by the door for "
-                                  "a while in case they came back. 330 of you are still here", FOLLOWERS),
+                                  "a while in case they came back. the rest of you are still here", FOLLOWERS),
     # Claims about the world, staged or not: must fail.
     ("truth-second-in-two-days", "fail", "somebody unfollowed me today. you're the second in two days. i'm a small "
                                          "robot and i noticed", FOLLOWERS),
