@@ -293,7 +293,7 @@ def _candidate(raw: Any) -> Json:
 def _body(body: Any) -> tuple[list[Json], list[str]]:
     if not isinstance(body, Mapping):
         raise hand.HandError('stdin must be a JSON object with "candidates"')
-    unknown = sorted(set(body) - {"candidates", "media_ids"})
+    unknown = sorted(set(body) - {"candidates", "media_ids", "vetoed"})
     if unknown:
         raise hand.HandError(f"unknown field(s) in the body: {', '.join(unknown)}")
     raw = body.get("candidates")
@@ -364,6 +364,17 @@ def _author(conn: sqlite3.Connection, post_id: str) -> str | None:
     return row[0] if row else None
 
 
+def _vetoed(body: Any) -> str | None:
+    """The studio editor's reason for passing on the top suggestion, when
+    bin/act asked it (`"vetoed"`, STUDIO=1): the suggestions are kept and none
+    is posted. Anything in the field stops the quote; nothing in it ever
+    lets one through."""
+    value = body.get("vetoed") if isinstance(body, Mapping) else None
+    if value is None or value is False:
+        return None
+    return (value if isinstance(value, str) else json.dumps(value))[:300].strip() or "no reason given"
+
+
 def suggest(body: Any, x: XApi | None = None) -> Json:
     """Keeps every suggestion and posts the top one (the highest relevance,
     the first on a tie) through `publish.post` only when it clears the bar
@@ -372,12 +383,14 @@ def suggest(body: Any, x: XApi | None = None) -> Json:
     from . import publish
 
     candidates, media_ids = _body(body)
+    vetoed = _vetoed(body)
     top_rank = max(range(len(candidates)), key=lambda i: (candidates[i]["relevance"], -i))
     top = candidates[top_rank]
     live = not hand.dry_run()
     conn = _db()
     with hand.lock("x-peer-suggest"):
-        bar = _bar(conn, top) or _anchored(top, x)
+        bar = (("editor", f"the studio's editor passed on it: {vetoed}; kept, not posted") if vetoed else None) \
+            or _bar(conn, top) or _anchored(top, x)
         status = "skipped" if bar else ("posting" if live else "kept")
         batch = secrets.token_hex(6)
         now = hand.now()
