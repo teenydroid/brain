@@ -126,11 +126,13 @@ in="$(cat)"
 printf 'guard %s DRY_RUN=%s stdin=%s\n' "$*" "${DRY_RUN:-}" "$in" >>"$FAKE_HANDS"
 case "$1" in
   truth)
-    if [ "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" = yes ]; then
-      echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}'
-    else
-      echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}'
-    fi ;;
+    case "$("$FAKE_DIR/next" "${FAKE_TRUTH:-yes}" truth)" in
+      yes) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "every claim is supported", "judged": true}' ;;
+      down) echo '{"ok": true, "truthful": false, "unsupported": [], "reason": "the truth judge could not be reached: core unreachable", "judged": true}' ;;
+      off) echo '{"ok": true, "truthful": true, "unsupported": [], "reason": "the truth judge is off", "judged": false}' ;;
+      garbage) echo 'Traceback (most recent call last): oops' ;;
+      *) echo '{"ok": true, "truthful": false, "unsupported": ["the second in two days"], "reason": "one follower was lost, not two", "judged": true}' ;;
+    esac ;;
   clarity)
     case "$("$FAKE_DIR/next" "${FAKE_CLEAR:-yes}" clear)" in
       yes) echo '{"ok": true, "clear": true, "says": "a robot pays its bill", "unknown": [], "vague": [], "reason": "a stranger said back what was meant", "judged": true}' ;;
@@ -167,7 +169,12 @@ case "$1" in
   post|post-thread)
     if [ "${DRY_RUN:-}" = 1 ]; then jq -c '{ok: true, dry_run: true, would_post: (.text // .posts)}' <<<"$in"; exit 0; fi
     case "$("$FAKE_DIR/next" "${FAKE_X:-ok}" x)" in
-      ok) echo '{"ok": true, "id": "2123000000000000001", "kind": "post"}' ;;
+      # The guard's rewrite is what goes out: the answer carries it.
+      ok) jq -c '{ok: true, id: "2123000000000000001", kind: "post"} + (if .text then {text: (.text + " [g]")} else {posts: [.posts[] + " [g]"]} end)' <<<"$in" ;;
+      # X took it, then the run died before hearing back (the core's kill).
+      ok_die) echo '{"ok": true, "id": "2123000000000000001", "kind": "post"}'; kill -9 "$PPID" ;;
+      hang) sleep 120 ;;
+      partial) jq -c '{ok: false, error: "thread stopped: post 2 of 2 was not sent", sent: 1, of: (.posts | length), ids: ["2123000000000000001"], head_id: "2123000000000000001", in_doubt: false}' <<<"$in"; exit 1 ;;
       repeat) echo '{"ok": false, "refused": "repeat: this says what post 1 already said", "rule": "repeat"}'; exit 2 ;;
       gap) echo '{"ok": false, "refused": "cadence: too soon", "rule": "gap"}'; exit 2 ;;
       held) echo '{"ok": false, "refused": "held", "category": "unknown", "hold_id": 9}'; exit 2 ;;
