@@ -1382,14 +1382,18 @@ def run(args: argparse.Namespace, environ: dict[str, str], ask: Callable[..., tu
     secrets_dir = Path(environ.get("TEENY_SECRETS") or root / "secrets")
     cfg = Config.load(environ, secrets_dir / "teeny.env")
     if not cfg.on and not args.dry_run:
+        if getattr(args, "legacy", None):
+            # The rollback: the slot's old playbook, as cron ran it before.
+            return LEGACY, {"ok": True, "legacy": args.legacy}
         return 0, {"ok": True, "skipped": "the studio is off (STUDIO=0)"}
     stamp = datetime.now(timezone.utc)
     run_id = environ.get("STUDIO_RUN_ID") or f"{stamp:%Y%m%dT%H%M%SZ}-{args.slot or 'adhoc'}-{_secrets.token_hex(3)}"
     seed = seed_of(run_id)
     rng = random.Random(seed)
-    room = Room(cfg, root, hands, state, brain, run_id, ask=ask)
+    dry = bool(args.dry_run) or cfg.dry
+    room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=dry)
     record: Json = {"id": run_id, "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"), "at_unix": stamp.timestamp(),
-                    "slot": args.slot, "preview": bool(args.dry_run), "dry": True, "seed": seed,
+                    "slot": args.slot, "preview": bool(args.dry_run), "dry": dry, "seed": seed,
                     "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
                     "config": {"formats": list(cfg.formats), "pitches": cfg.pitches, "draft_top": cfg.draft_top,
                                "drafts_each": cfg.drafts_each, "meetings": cfg.meetings,
