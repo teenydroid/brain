@@ -521,7 +521,11 @@ check "an editor that cannot answer is a none (fail closed)" jqe '.verdict == "n
 legacy_root="$scratch/legacy-root"
 mkdir -p "$legacy_root/bin"
 for f in "$here"/../*; do [ "$(basename "$f")" = act ] || ln -sfn "$f" "$legacy_root/bin/$(basename "$f")"; done
-printf '#!/usr/bin/env bash\nprintf "act %%s\\n" "$*" >>"%s"\necho "{\\"ok\\": true, \\"playbook\\": \\"$1\\"}"\n' "$FAKE_HANDS" >"$legacy_root/bin/act"
+cat >"$legacy_root/bin/act" <<'FAKE'
+#!/usr/bin/env bash
+printf 'act %s\n' "$*" >>"$FAKE_HANDS"
+jq -cn --arg p "$1" '{ok: true, playbook: $p}'
+FAKE
 chmod +x "$legacy_root/bin/act"
 reset
 out="$(STUDIO=0 TEENY_ROOT="$legacy_root" run --slot 0430 --legacy x-quote)"
