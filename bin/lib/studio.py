@@ -1634,17 +1634,93 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     return 0
 
 
+def veto(body: Any, environ: dict[str, str], ask: Callable[..., tuple[int, str, str]] | None = None) -> Json:
+    """The editor on one candidate that did not come through the room (the
+    brief, the peer quote): {"verdict": "pick" | "none", "reason", ...}.
+    Fails closed: an editor that cannot answer is a none. With STUDIO=0 it is
+    a pick, with no turn: nothing was vetoed before the cutover."""
+    root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
+    state = Path(environ.get("TEENY_STATE") or root / "state")
+    brain = Path(environ.get("TEENY_BRAIN") or environ.get("OPENHUMAN_WORKSPACE") or root / "brain")
+    hands = Path(environ.get("TEENY_HANDS") or root / "hands")
+    cfg = Config.load(environ, Path(environ.get("TEENY_SECRETS") or root / "secrets") / "teeny.env")
+    if not cfg.on:
+        return {"verdict": "pick", "reason": "the studio is off (STUDIO=0): nothing is vetoed", "turn": False}
+    if not isinstance(body, dict):
+        return {"verdict": "none", "reason": "the candidate is not a JSON object"}
+    kind = _str(body.get("kind"), 20) or "post"
+    posts = body.get("posts")
+    candidate: Json = {}
+    if isinstance(posts, list) and posts and all(isinstance(p, str) and p.strip() for p in posts):
+        candidate["posts"] = [p.strip() for p in posts]
+    elif isinstance(body.get("text"), str) and body["text"].strip():
+        candidate["text"] = body["text"].strip()
+    else:
+        return {"verdict": "none", "reason": "the candidate has no words"}
+    if _str(body.get("picture"), 600):
+        candidate["picture"] = _str(body.get("picture"), 600)
+    stamp = datetime.now(timezone.utc)
+    run_id = environ.get("STUDIO_RUN_ID") or f"{stamp:%Y%m%dT%H%M%SZ}-veto-{kind}-{_secrets.token_hex(3)}"
+    room = Room(cfg, root, hands, state, brain, run_id, ask=ask, dry=cfg.dry)
+    record: Json = {"id": run_id, "kind": "veto", "at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "at_unix": stamp.timestamp(), "slot": kind, "preview": False, "dry": cfg.dry,
+                    "models": {"writer": cfg.writer_model or "core default", "editor": cfg.editor_model or "core default"},
+                    "candidate": candidate, "warnings": list(cfg.warnings)}
+    out: Json
+    try:
+        answer = room.turn("editor", "veto", veto_message(kind, candidate, _str(body.get("quoted"), 2000) or None),
+                           None, soft=True)
+        verdict = _str(answer.get("verdict"), 20).lower() if isinstance(answer, dict) else ""
+        reason = _str(answer.get("reason"), 400) if isinstance(answer, dict) else ""
+        if verdict == "pick":
+            out = {"verdict": "pick", "reason": reason}
+            record.update(outcome="picked", reason=reason, pick=candidate)
+        else:
+            why = reason or ("the editor's answer was not usable, twice" if answer is None else "the editor picked none")
+            out = {"verdict": "none", "reason": why}
+            record.update(outcome="vetoed", reason=why, pick=None)
+    except Stop as stop:
+        out = {"verdict": "none", "reason": f"the editor could not be asked, so it is not posted: {stop.reason}"[:500]}
+        record.update(outcome="failed", reason=stop.reason, pick=None, **stop.detail)
+    record["calls"] = {"total": len(room.calls), "writer": 0, "editor": len(room.calls), "turns": room.calls}
+    record["secs"] = round(time.monotonic() - room.started, 1)
+    record["warnings"] += room.warnings
+    kept = keep(room, record)
+    if kept:
+        record["warnings"].append(kept)
+    out.update(run=run_id, kind=kind, turn=True)
+    if record["warnings"]:
+        out["warnings"] = record["warnings"]
+    return out
+
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="bin/studio", description="One run of the writers' room (dry: posts nothing).")
+    parser = argparse.ArgumentParser(prog="bin/studio", description="One run of the writers' room.")
     parser.add_argument("--dry-run", action="store_true",
-                        help="a preview: runs with STUDIO=0 and a shut slot, never posts")
+                        help="a preview: runs with STUDIO=0 and a shut slot, never posts or pays for a picture")
     parser.add_argument("--slot", default=None, help="the slot's name, kept in the record")
+    parser.add_argument("--legacy", default=None, choices=studio_switch.REPLACED,
+                        help="with STUDIO=0, run this old playbook through bin/act instead (the rollback)")
     parser.add_argument("--desk", default=None, help="a saved hands/story desk answer to replay")
     parser.add_argument("--force-slot", action="store_true", help="go on when the slot is shut")
     parser.add_argument("--no-outside", action="store_true", help="read no outside source (a replay)")
     parser.add_argument("--no-slot", action="store_true", help="do not read the slot at all (a replay)")
+    parser.add_argument("--veto", action="store_true",
+                        help="the editor alone on one candidate (JSON on stdin): pick or none")
     args = parser.parse_args(argv)
-    code, summary = run(args, dict(os.environ))
+    environ = dict(os.environ)
+    if args.veto:
+        try:
+            body = json.loads(sys.stdin.read() or "null")
+        except ValueError:
+            body = None
+        print(json.dumps(veto(body, environ), ensure_ascii=False))
+        return 0
+    code, summary = run(args, environ)
+    if code == LEGACY:
+        root = Path(environ.get("TEENY_ROOT") or HERE.parents[1])
+        sys.stdout.flush()
+        os.execv(str(root / "bin" / "act"), [str(root / "bin" / "act"), args.legacy])
     print(json.dumps(summary, ensure_ascii=False))
     return code
 
