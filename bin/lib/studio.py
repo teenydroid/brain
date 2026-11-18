@@ -1181,7 +1181,11 @@ def picture(room: Room, draft: Json, attempt: Json) -> list[str] | None:
     if not note["scene"]:
         note["failed"] = "the draft has no scene"
         return None
-    ok, checked = room.hand(["guard", "check"], {"text": note["scene"], "surface": "x"})
+    # A scene is what the picture machine is told, never a post: screened as
+    # words like any, on the guard's surface for text a machine is sent
+    # (`task`, 1,000 characters), since X's 280 would hold every scene the
+    # writer writes (a draft's scene is up to 600; preview, 2026-11-18).
+    ok, checked = room.hand(["guard", "check"], {"text": note["scene"], "surface": "task"})
     if not (ok and isinstance(checked, dict) and isinstance(checked.get("text"), str) and checked["text"].strip()):
         note.update(failed="the guard held its scene", guard=_brief(checked, "refused", "rule", "category", "error"))
         return None
