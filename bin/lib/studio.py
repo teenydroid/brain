@@ -1936,10 +1936,12 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     inputs = total["inputs"]
     cut = sorted(set(cut + cut_desk + cut_all))
     known_items = {str(i.get("id")): i for i in inputs.get("happened") or [] if isinstance(i, dict)}
+    outside_ids: set[str] = set()
     for items in (inputs.get("outside") or {}).values():
         for i in items if isinstance(items, list) else []:
-            if isinstance(i, dict):
+            if isinstance(i, dict) and i.get("id") is not None:
                 known_items[str(i.get("id"))] = i
+                outside_ids.add(str(i.get("id")))
     stories = {s["key"]: s for s in lean["stories"] if isinstance(s.get("key"), str)}
     record["inputs"] = {"digest": hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16],
                         "happened": len(inputs.get("happened") or []),
@@ -1947,6 +1949,12 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
                         "unavailable": unavailable + list(desk.get("unavailable") or []), "cut": cut,
                         "skipped": list(room.skipped),
                         "desk_file": args.desk}
+    record["outside"] = {"available": bool(outside_ids), "stories": len(outside_ids), "sources": room.outside_notes}
+    if args.no_outside:
+        record["outside"]["read"] = False
+    elif not outside_ids:
+        record["warnings"].append("the outside world could not be read (" + (", ".join(unavailable) or "every source "
+                                  "was empty") + "): the pitches came from Teeny's own events alone")
     if not known_items:
         raise Stop("skipped", "nothing happened to write from")
 
@@ -1955,12 +1963,21 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     answer = room.turn("writer", "pitch", pitch_message(cfg, inputs, cut, sampled), thread)
     try:
         pitches, dropped, ranked = validate_pitches(answer, set(known_items), set(stories), cfg.formats, cfg.pitches,
-                                                    {k: v.get("storyline") for k, v in known_items.items()})
+                                                    {k: v.get("storyline") for k, v in known_items.items()},
+                                                    outside_ids)
     except ValueError as exc:
         raise Stop("failed", f"the pitch answer has no pitches: {exc}", 1, failure="studio") from exc
-    record.update({"pitches": pitches, "pitches_dropped": dropped, "writer_ranking": ranked})
+    # The record's pitches carry the outside story each joins, resolved, and
+    # whether it was drafted; the pitches themselves go to the writer as is.
+    shown_pitches = [dict(p, hook_item=known_items.get(p["hook"]) if p.get("hook") else None, drafted=False)
+                     for p in pitches]
+    record.update({"pitches": shown_pitches, "pitches_dropped": dropped, "writer_ranking": ranked})
     if not pitches:
         raise Stop("skipped", "no usable pitch" + (f" ({len(dropped)} dropped)" if dropped else ""))
+    hooked = sum(1 for p in pitches if p.get("hook"))
+    record["hooked"] = hooked
+    if outside_ids and hooked * 2 < len(pitches):
+        record["warnings"].append(f"only {hooked} of {len(pitches)} pitches join an outside story")
 
     # --- the drafts ---
     # Lists the record holds from here on and the run appends to, so a run
@@ -1972,14 +1989,20 @@ def room_run(room: Room, args: argparse.Namespace, rng: random.Random, seed: int
     verdicts: list[Json] = []
     record.update({"drafts": drafts, "drafts_dropped": drafts_dropped, "shortened": shortened, "pairings": verdicts})
     afters = example_afters(room.brain)
-    for pid in ranked[:cfg.draft_top]:
+    chosen, record["drafted"] = choose_drafted(ranked, by_id, cfg.draft_top, bool(outside_ids))
+    if record["drafted"].get("short"):
+        record["warnings"].append(record["drafted"]["short"])
+    for p in shown_pitches:
+        p["drafted"] = p["id"] in chosen
+    for pid in chosen:
         pitch = by_id[pid]
-        item, story = known_items.get(pitch["item"]), stories.get(pitch["storyline"])
-        facts = facts_for(item, story)
+        item, story = known_items.get(pitch["item"]) if pitch["item"] else None, stories.get(pitch["storyline"])
+        hook = known_items.get(pitch["hook"]) if pitch.get("hook") else None
+        facts = facts_for(item, story, hook)
         fix: list[tuple[str, str]] | None = None
         for attempt in (1, 2):
             answer = room.turn("writer", f"draft {pid}" + (" again" if fix else ""),
-                               draft_message(cfg, pitch, item, story, fix), thread, soft=True)
+                               draft_message(cfg, pitch, item, story, fix, hook), thread, soft=True)
             try:
                 got, lost = validate_drafts(answer, pitch, cfg.drafts_each)
             except ValueError as exc:
