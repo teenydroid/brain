@@ -257,8 +257,7 @@ class IgnoredPaths(EvolveCase):
     def test_the_other_narrative_files_stay_editable(self):
         tree = self.worktree("t")
         text = (tree / "brain" / "narrative" / "ARCS.md").read_text(encoding="utf-8")
-        last = text.rstrip().splitlines()[-1]
-        evolve.apply_edits(tree, [{"path": "brain/narrative/ARCS.md", "old": last, "new": f"{last}\n\nmore."},
+        evolve.apply_edits(tree, [{"path": "brain/narrative/ARCS.md", "old": text, "new": f"{text}\nmore.\n"},
                                   {"path": "brain/narrative/NEW.md", "old": "", "new": "new.\n"}])
         self.assertIn("more.", (tree / "brain" / "narrative" / "ARCS.md").read_text(encoding="utf-8"))
         self.assertTrue((tree / "brain" / "narrative" / "NEW.md").is_file())
