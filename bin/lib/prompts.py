@@ -113,6 +113,24 @@ CRAFT = (
     ("hooks", ("the hook is the first seven words", "story shape", "pre-post check")),
     ("conversation", ("shapes that get replies", "what not to do", "pre-post check")),
 )
+#: The studio's agents (bin/studio): the writer pitches and drafts, the editor
+#: picks. Their prompts are built from their own sources (see the module
+#: docstring), never from world().
+STUDIO = ("writer", "editor")
+#: The writer's craft: (skill, ((section title, cut before this line or None), ...)).
+#: Conversation's "shapes that get replies" stops before its notes on media
+#: and replies, which are for other turns.
+STUDIO_CRAFT = (
+    ("hooks", (("the hook is the first seven words", None), ("stakes, and how they escalate", None),
+               ("story shape", None), ("serials and cliffhangers", None))),
+    ("conversation", (("shapes that get replies", "For **media**"), ("what not to do", None))),
+    ("humor", (("what a joke is made of", None), ("the sarcasm dial", None), ("examples", None))),
+)
+#: Mind-only machinery the skills name in passing, which the writer has no
+#: way to use: taken out of its copy.
+STUDIO_CRAFT_DROP = (" (set a `follow_up`)",)
+#: The editor's rubric and taste.
+STUDIO_EDITOR = Path("narrative") / "STUDIO-EDITOR.md"
 #: MEMORY.md beyond this is cut (with a note saying so): it rides in every
 #: prompt, and the nightly reflection is meant to keep it short.
 MEMORY_MAX_CHARS = 12_000
