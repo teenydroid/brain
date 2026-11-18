@@ -5,7 +5,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 script="$root/.github/scripts/pr-agent-budget.sh"
-tmp=$(mktemp -d "$root/target/pr-agent-budget-test.XXXXXX" 2>/dev/null || { mkdir -p "$root/target" && mktemp -d "$root/target/pr-agent-budget-test.XXXXXX"; })
+tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/fx"
 
@@ -76,7 +76,7 @@ check "cap posts one notice" "1" "$(grep -c 'pr-agent-budget' "$tmp/fx/posted")"
 check "a /review command overrides the cap" "allowed=true" "$(run issue_comment)"
 
 # Notice already on the PR: blocked again, but no second comment.
-echo '[{"body":"<!-- pr-agent-budget -->\nstopped"}]' >"$tmp/fx/comments.json"
+echo '[{"body":"<!-- pr-agent-budget --> stopped"}]' >"$tmp/fx/comments.json"
 run pull_request >/dev/null
 check "notice is not repeated" "1" "$(grep -c 'pr-agent-budget' "$tmp/fx/posted")"
 echo '[]' >"$tmp/fx/comments.json"; rm -f "$tmp/fx/posted"
