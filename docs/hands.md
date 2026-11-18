@@ -2988,7 +2988,7 @@ creates its own tables:
 | `requests` | `build_requests`, `build_request_events` |
 | `stimuli` | `stimuli`, `follow_ups`, `mind_notes` |
 | `brief` | `briefs` |
-| `image`, `video` | `media_assets` |
+| `image`, `video`, `reel` | `media_assets` |
 | `build` | `build_jobs` |
 | `tasks` | `browser_tasks`, `accounts` |
 | `stats` | `stats` |
