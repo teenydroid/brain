@@ -209,6 +209,13 @@ def _reply_text(reply: Any) -> Any:
 _FENCE = re.compile(r"^```[a-zA-Z]*\s*(.*?)\s*```$", re.DOTALL)
 
 
+def fenced(text: str) -> str:
+    """`text` made safe to put between a prompt's `<<<` / `>>>` fences: a run
+    of three or more angle brackets is broken up, so data cannot close its
+    fence and speak as the prompt."""
+    return re.sub(r"<{3,}|>{3,}", lambda m: " ".join(m.group(0)), text)
+
+
 def _answer(reply: Any) -> Any:
     """The JSON answer in the reply: the whole text, or a fenced block, or
     the outermost braces of a text that says something around them."""

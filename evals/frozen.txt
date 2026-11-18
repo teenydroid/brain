@@ -140,6 +140,12 @@ hands/lib/teeny_hands/media/
 # the wallet's.
 hands/reel
 hands/lib/teeny_hands/reel/
+# Memes and comics: words drawn on pictures that go out under Teeny's name,
+# screened by the guard's lexicon, and Giphy search held to g and pg. The
+# fonts are licensed files (brain/assets/fonts/README.md).
+hands/meme
+hands/lib/teeny_hands/meme/
+brain/assets/fonts/
 hands/lib/teeny_hands/moltbook/
 hands/lib/teeny_hands/readcache.py
 hands/lib/teeny_hands/reddit/

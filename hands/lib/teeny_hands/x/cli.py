@@ -22,7 +22,7 @@ and are safe to expose to a drafting agent; acting verbs (A) only go through
   A  follow-up [--to ID]    stdin {"text", "to"?, ...}: continue an own recorded post as a thread
   A  like ID                skipped under DRY_RUN
   A  unsay ID [--confirm]   delete an own post; previews unless confirmed
-  A  upload --file PATH     from state/media/ or brain/assets/ only
+  A  upload --file PATH [--alt TEXT]  from state/media/ or brain/assets/ only; a still under 5 MB; alt text for X
   J  ingest [--max N] [--no-offer]   new mentions into the queue, offered to the core
   J  mentions [--status S]  the mentions queue
   J  mark ID --status S [--note T]   what became of a mention after its draft
@@ -137,7 +137,7 @@ def _unsay(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
 
 
 def _upload(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
-    return media.upload(args.file)
+    return media.upload(args.file, alt=args.alt)
 
 
 def _ingest(args: argparse.Namespace, _: Any) -> Mapping[str, Any]:
@@ -262,7 +262,9 @@ def parser() -> argparse.ArgumentParser:
     unsay = verb("unsay", _unsay, "delete an own post")
     unsay.add_argument("id")
     unsay.add_argument("--confirm", action="store_true")
-    verb("upload", _upload, "upload a file from state/media/ or brain/assets/").add_argument("--file", required=True)
+    uploading = verb("upload", _upload, "upload a file from state/media/ or brain/assets/")
+    uploading.add_argument("--file", required=True)
+    uploading.add_argument("--alt", default=None, help="alt text: what the picture shows (at most 1000 characters)")
     ingest = verb("ingest", _ingest, "new mentions into the queue, offered to the core")
     ingest.add_argument("--max", type=_max, default=None)
     ingest.add_argument("--no-offer", action="store_true", help="queue only; offer on a later run")
