@@ -121,6 +121,77 @@ challenge and refuses any delivery whose signature is not the HMAC of the
 body under `X_API_SECRET`. `curl -fsS http://127.0.0.1:3110/health` checks it.
 X search is not used.
 
+## The studio cutover
+
+Merging and deploying the studio changes what Teeny posts in public: from the
+first slot after the restart, every original post on X is written by
+`bin/studio` (docs/architecture.md, §4b) and goes out with no per-post
+approval. Replies are unchanged. To deploy it:
+
+1. Pull, with the submodules:
+
+   ```sh
+   git -C /home/ubuntu/teeny pull --ff-only
+   git -C /home/ubuntu/teeny submodule update --init --recursive
+   ```
+2. Add these lines to `secrets/teeny.env` (the rest of the `STUDIO_*`
+   switches can stay at their defaults, `deploy/teeny.env.example`):
+
+   ```sh
+   STUDIO=1
+   STUDIO_WRITER_MODEL=claude-fable-5.2
+   STUDIO_EDITOR_MODEL=claude-opus-5.5
+   SAFETY_JUDGE_MODEL=claude-opus-5.5
+   ```
+
+   `SAFETY_JUDGE_MODEL` is what the truth judge, the cold reader, the anchor
+   judge and the guard's content judge ask, so no judge is the writer. It is
+   also asked for every reply and every Moltbook write the guard screens:
+   expect the judge's share of the model bill to grow. Leave `STUDIO_DRY`
+   unset (0): set to 1, every slot runs its gates and posts nothing.
+3. Check no generation is running, since a restart kills it:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml exec -T spine bin/evolve status | jq .running
+   ```
+
+   Go on only when it prints `false`.
+4. Rebuild the spine image and start it (the cron jobs are reconciled at
+   boot):
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml up -d --build spine
+   ```
+5. Verify, after boot:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml logs spine | grep "the studio's"
+   ```
+
+   must show `model: the studio's claude-fable-5.2 has a N-token window` and
+   the same for `claude-opus-5.5` (bin/lib/model_windows.sh). A line saying
+   "no window" or "refused a window" means its turns may come back empty: fix
+   that before the next slot. Then `bin/crons` lists `teeny.studio-0430`,
+   `-0930`, `-1500`, `-sunday` and `-2300` and no `teeny.x-quote`,
+   `teeny.morning`, `teeny.take`, `teeny.show` or `teeny.growth`; `bin/doctor
+   --live` is green; and a preview that posts nothing:
+
+   ```sh
+   docker compose -f /home/ubuntu/teeny/deploy/compose.yaml exec -T spine bin/studio --dry-run --slot check
+   ```
+
+   After the first slot: `hands/story runs --limit 4` (every run, its pick,
+   its gates and what came of it) and `sqlite3 state/hands.db "select id,
+   producer, storyline, shape from x_posts order by created_at desc limit 5"`.
+
+**To roll back**, set `STUDIO=0` in `secrets/teeny.env` and restart the
+spine (step 3 first). Nothing else changes: each studio job then runs its
+slot's old playbook (x-quote, morning, take, growth on Sundays, show),
+`shiplog` runs again at 23:10, the mind's `post_x` posts, and the brief and
+the peer quote post without the editor. The schedule is the same, except
+that the brief runs at 14:55 and 22:55 (five minutes before the slot, not
+after).
+
 ## Watching it
 
 ```sh
