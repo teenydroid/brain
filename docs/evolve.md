@@ -173,7 +173,11 @@ The loop moves Teeny's story forward instead of tuning a generic score.
   "night shift" engine about what the tiny agents rebuilt overnight, written
   by `bin/evolve` from the record: `bin/evolve credit` writes it into the
   live brain when it first sees the merge, whoever merged it. A generation
-  that merged nothing gets a line too ("the agents carried it back").
+  that merged nothing gets a line too ("the agents carried it back"). The
+  pages are runtime output, not source: `.gitignore` covers
+  `brain/narrative/chronicle/`, so writing one never dirties the live
+  checkout and the babysitter's fast-forward deploy is never refused over
+  it, and a candidate's edit may not write one (below, "Edits").
 - Real events move the story (docs/roadmap.md, A13): the `episode` playbook
   reads the day's proof events (`hands/lore events`: a generation merged with
   its chronicle page, a pull request merged elsewhere, a bounty paid) and
@@ -1292,7 +1296,9 @@ need is welcome.
 **Edits** are written by `bin/evolve` itself: each `{path, old, new}`
 replaces the one occurrence of `old`, an empty `old` creates a file, at most
 20 edits and 40,000 characters, and a path can't leave the worktree or touch
-`.git` or `HYPOTHESIS.md`. `HYPOTHESIS.md` (title, learning, W component,
+`.git` or `HYPOTHESIS.md`. A path git ignores (the chronicle, the live
+`brain/MEMORY.md`) is refused by name, since staging would drop it from the
+diff without a word. `HYPOTHESIS.md` (title, learning, W component,
 expected move, check, hypothesis) is written beside the change and goes into the
 pull request's body, never its diff.
 
@@ -1815,7 +1821,8 @@ evolve pull request. A merged one (GitHub's REST API calls it `closed` too,
 so `merged` decides) gets `merged_at` and `merge_sha`, whoever merged it, and
 its generation's chronicle page in the live brain
 (`brain/narrative/chronicle/gen-<n>.md`, once per generation, written from
-the record, never by a model). One closed unmerged is `closed`. For each one
+the record, never by a model; git ignores the folder, so the page is never
+part of the checkout). One closed unmerged is `closed`. For each one
 merged `EVOLVE_CREDIT_DAYS` (default 7) or more ago it records `delta_j =
 J(merge + 7 days) − J(merge)` from `hands/world history`, and each entry's
 `credit` is the clade sum `Σ decayᵈ · ΔJ` over itself and its descendants

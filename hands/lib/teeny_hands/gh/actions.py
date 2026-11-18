@@ -106,9 +106,10 @@ def guarded(fields: Mapping[str, str], kind: str, context: Mapping[str, Any], ju
     if verdict.kind == "allow" and isinstance(verdict.fields, dict) and set(verdict.fields) == set(fields):
         return dict(verdict.fields)
     if verdict.kind == "hold":
-        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id, field=verdict.field)
+        raise hand.Refused("held", category=verdict.category, hold_id=verdict.hold_id, field=verdict.field,
+                           judge_failed=verdict.judge_failed)
     if verdict.kind == "refuse":
-        raise hand.Refused(verdict.reason, rewrite=True, field=verdict.field)
+        raise hand.Refused(verdict.reason, rewrite=True, field=verdict.field, hold_id=verdict.hold_id)
     raise hand.HandError(f"the guard answered {verdict.kind!r}, which hands/gh does not publish on")
 
 
