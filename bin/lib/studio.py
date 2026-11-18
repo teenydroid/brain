@@ -147,24 +147,39 @@ INPUTS_BYTES = 40_000
 OUTSIDE_SHARE = 6_000
 DESK_SHARE = 30_000
 
-#: The outside world, as the old playbooks read it (brain/playbooks/take.md,
-#: x-quote.md): (name, argv). Every one is optional. DRY_RUN=1 does not make
-#: these free or read-only: what each costs and writes is
+#: The outside world: what people are talking about today, which every pitch
+#: starts from (`pitch_message`): (name, argv). Every one is optional. DRY_RUN=1
+#: does not make these free or read-only: what each costs and writes is
 #:   hn-top, hn-show  Hacker News's public API: free, no key; each read goes
 #:                    through the hn read cache (`hn_cache` rows in hands.db)
+#:   hn-ai, hn-agents Hacker News's own search (Algolia): free, no key, the
+#:                    same cache; the last day's (two days') most-read stories
+#:                    on AI and on AI agents, Teeny's own corner of the news
 #:   heard            the listen ledger in hands.db: no network, nothing written
-#:   builders         an X search: billed per post returned (about $0.012 for
-#:                    10 through twitr, X's own pay-per-read price otherwise),
-#:                    cached 10 minutes in hands.db. Off unless
-#:                    STUDIO_OUTSIDE_X=1 (PAID_OUTSIDE), previews included.
-PAID_OUTSIDE = {"builders": "STUDIO_OUTSIDE_X"}
+#: The paid X search is not here: see X_QUERIES.
 OUTSIDE = (
+    ("hn-ai", ["hn", "search", "AI", "--tags", "story", "--days", "1", "--max", "8"]),
+    ("hn-agents", ["hn", "search", "AI agents", "--tags", "story", "--days", "2", "--max", "6"]),
     ("hn-top", ["hn", "top", "--max", "8"]),
-    ("hn-show", ["hn", "show", "--max", "8"]),
+    ("hn-show", ["hn", "show", "--max", "6"]),
     ("heard", ["listen", "digest", "--days", "1", "--max", "4"]),
-    # X bills a search per post it returns: keep --max 10.
-    ("builders", ["x", "search", '("AI agent" OR "AI agents" OR "building in public") -is:retweet -is:reply lang:en',
-                  "--max", "10"]),
+)
+#: The paid outside source: an X search on Teeny's corner of the conversation,
+#: one query a run (the seed picks which), off unless STUDIO_OUTSIDE_X=1,
+#: previews included. X bills a search per post it returns: about $0.012 for
+#: 10 through twitr ($0.0012 a record), X's own pay-per-read price otherwise,
+#: cached 10 minutes in hands.db. Keep --max 10. At most
+#: STUDIO_OUTSIDE_X_MAX_PER_DAY (X_MAX_PER_DAY) a UTC day, counted in
+#: state/studio/outside-x.jsonl (`x_claim`), whatever the cache answered.
+X_SWITCH = "STUDIO_OUTSIDE_X"
+X_MAX = "STUDIO_OUTSIDE_X_MAX_PER_DAY"
+X_MAX_PER_DAY = 4
+X_FILTERS = " -is:retweet -is:reply lang:en"
+X_QUERIES = (
+    ("x-agents", '("AI agent" OR "AI agents" OR "autonomous agent" OR "agentic")' + X_FILTERS),
+    ("x-ai-art", '("AI art" OR "AI music" OR "AI-generated song" OR "AI artist")' + X_FILTERS),
+    ("x-ai-money", '("AI bill" OR "API bill" OR "token costs" OR "agent wallet" OR "AI wallet" OR '
+                   '"rewrites its own code" OR "self-improving AI")' + X_FILTERS),
 )
 
 
