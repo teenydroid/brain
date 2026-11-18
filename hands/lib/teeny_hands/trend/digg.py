@@ -78,7 +78,7 @@ def call(*argv: str) -> Any:
     exe = binary()
     if not exe:
         raise DiggError("missing", f"{BINARY} is not installed (set TREND_DIGG_BIN or put it on PATH)")
-    secs = hand.number("TREND_TIMEOUT_SECS", 30, 5, 120)
+    secs = hand.number("TREND_TIMEOUT_SECS", 30, 1, 120)
     try:
         done = subprocess.run([exe, *argv], cwd=home(), env=_env(), stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=secs)
