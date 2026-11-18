@@ -478,13 +478,23 @@ def _str(value: Any, limit: int = 400) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
 
 
+def _ref(value: Any) -> str:
+    return str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+
+
 def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: tuple[str, ...],
-                     limit: int, item_stories: dict[str, Any] | None = None) -> tuple[list[Json], list[Json], list[str]]:
+                     limit: int, item_stories: dict[str, Any] | None = None,
+                     outside: set[str] | None = None) -> tuple[list[Json], list[Json], list[str]]:
     """(kept, dropped with why, the writer's ranking of the kept ids). A
-    pitch's storyline is the one it names when that is a running story;
-    when it names none (or one that is not running) and its item carries a
-    running story (`item_stories`, the desk's best guess by kind), the
-    item's is used, so the pick and its beat land on a storyline."""
+    pitch's `hook` is the outside story it joins (an id in `outside`), its
+    `item` the real thing of Teeny's it brings (any id in `known`); it needs
+    at least one of the two. An `item` naming an outside story, with no
+    hook, is taken as the hook. A pitch's storyline is the one it names when
+    that is a running story; when it names none (or one that is not running)
+    and its item carries a running story (`item_stories`, the desk's best
+    guess by kind), the item's is used, so the pick and its beat land on a
+    storyline."""
+    outside = outside or set()
     if isinstance(answer, list):
         answer = {"pitches": answer}
     if not isinstance(answer, dict) or not isinstance(answer.get("pitches"), list):
@@ -497,13 +507,18 @@ def validate_pitches(answer: Any, known: set[str], stories: set[str], formats: t
             dropped.append({"pitch": raw, "why": "not an object"})
             continue
         pid = _str(raw.get("id"), 40) or f"p{n}"
-        item = raw.get("item")
-        item = str(item).strip() if isinstance(item, (str, int)) and not isinstance(item, bool) else ""
+        item, hook = _ref(raw.get("item")), _ref(raw.get("hook"))
+        if not hook and item in outside:
+            item, hook = "", item
         fmt = _str(raw.get("format"), 20).lower()
         why = ""
         if pid in seen:
             why = f"the id {pid} is used twice"
-        elif item not in known:
+        elif hook and hook not in outside:
+            why = f"its hook {hook!r} is not an outside story in the inputs"
+        elif not item and not hook:
+            why = "it names no item and no hook"
+        elif item and item not in known:
             why = f"its item {item!r} is not in the inputs"
         elif fmt not in formats:
             why = f"its format {fmt!r} is not one of {', '.join(formats)}"
