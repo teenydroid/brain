@@ -757,7 +757,7 @@ class Gate(EvolveCase):
                                        "SOUL+CONTEXT size",
                                        "new hands have tests", "aims at a component with a reading",
                                        "does more than run less", "new hands are called", "does more than mark an arc",
-                                       "seed-cron --check", "doctor --root", "eval invariants"})
+                                       "changes something that runs", "seed-cron --check", "doctor --root", "eval invariants"})
 
     def test_a_frozen_path_fails_and_the_doctor_never_runs(self):
         text = self.base_text("bin/ask")
@@ -984,6 +984,54 @@ class PurposeChecks(EvolveCase):
                                    "new": heading.replace("not started.", "started.")},
                                   self.playbook_edit("Say what the terminal printed overnight.")], component="world")
         self.assertTrue(checks["does more than mark an arc"]["ok"])
+
+    SEED_LINE = ("- [m20] when my captcha reader isn't sure, it doesn't guess, and that's right. since the team's fix "
+                 "(#124) it reads better and still says when it's unsure; mistakes get shown, not hidden.")
+
+    def test_a_change_only_to_the_memory_seed_changes_nothing_that_runs(self):
+        """Gen 16, candidate 1 (PR #361, closed): one line added to
+        brain/MEMORY.seed.md, "the seed of the page". The seed only starts a
+        brand-new MEMORY.md (bin/lib/prompts.py seed_memory); on the box the
+        live page exists and no prompt reads the seed."""
+        seed = self.base_text("brain/MEMORY.seed.md")
+        anchor = "## what i have decided\n"
+        self.assertIn(anchor, seed)
+        edit = {"path": "brain/MEMORY.seed.md", "old": anchor, "new": anchor + "\n" + self.SEED_LINE + "\n"}
+        out, checks = self.gated([edit])
+        self.assertFalse(out["ok"])
+        self.assertFalse(checks["changes something that runs"]["ok"])
+        self.assertIn("brain/MEMORY.seed.md", checks["changes something that runs"]["detail"])
+        self.assertIn("already", checks["changes something that runs"]["detail"])
+
+    def test_an_inert_file_beside_a_live_one_is_fine(self):
+        seed = self.base_text("brain/MEMORY.seed.md")
+        anchor = "## what i have decided\n"
+        out, checks = self.gated([{"path": "brain/MEMORY.seed.md", "old": anchor,
+                                   "new": anchor + "\n" + self.SEED_LINE + "\n"},
+                                  self.playbook_edit("When the captcha reader is unsure, say so.")])
+        self.assertTrue(checks["changes something that runs"]["ok"], checks["changes something that runs"])
+        self.assertIn(anchor, seed)
+
+    def test_every_inert_path_is_read_by_nothing_that_runs(self):
+        """The list is short and each entry is proven: no prompt builder,
+        hand, playbook, skill or agent names it, except the seed's one
+        reader, which uses it only when there is no live page."""
+        self.assertEqual(sorted(evolve.INERT_PATHS), ["brain/MEMORY.seed.md", "brain/assets/tiny/README.md"])
+        readers = [p for p in git("ls-files", cwd=REPO).splitlines()
+                   if p.startswith(("bin/lib/", "hands/lib/", "brain/playbooks/", "brain/skills/", "brain/agents/"))
+                   and p.endswith((".py", ".md", ".toml", ".sh"))]
+        for path in evolve.INERT_PATHS:
+            name = path.removeprefix("brain/")
+            named = [r for r in readers if name in (REPO / r).read_text(encoding="utf-8", errors="replace")]
+            if path == "brain/MEMORY.seed.md":
+                # prompts.py reads it only when brain/MEMORY.md is missing; the
+                # other mentions are comments, the lab's task map and the
+                # file-tool deny list.
+                self.assertIn("bin/lib/prompts.py", named)
+                prompts = (REPO / "bin/lib/prompts.py").read_text()
+                self.assertIn("return live if live.is_file() else brain / MEMORY_SEED", prompts)
+                continue
+            self.assertEqual(named, [], path)
 
     def test_a_failed_check_lands_in_the_archive_with_its_reason(self):
         """Not final since 2026-11-15: the same proposal three rounds running
